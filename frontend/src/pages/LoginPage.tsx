@@ -15,6 +15,14 @@ declare const AppleID: {
   };
 };
 
+declare const FB: {
+  init(cfg: object): void;
+  login(
+    callback: (response: { authResponse?: { accessToken: string } }) => void,
+    opts: { scope: string }
+  ): void;
+};
+
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 export default function LoginPage() {
@@ -22,6 +30,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isGsiReady, setIsGsiReady] = useState(false);
   const [isAppleReady, setIsAppleReady] = useState(false);
+  const [isFbReady, setIsFbReady] = useState(false);
 
   useEffect(() => {
     // Google GSI
@@ -67,9 +76,23 @@ export default function LoginPage() {
     };
     document.body.appendChild(aScript);
 
+    // Facebook SDK
+    const fbScript = document.createElement('script');
+    fbScript.src = 'https://connect.facebook.net/en_US/sdk.js';
+    fbScript.async = true;
+    fbScript.onload = () => {
+      FB.init({
+        appId: import.meta.env.VITE_FACEBOOK_APP_ID,
+        version: 'v19.0',
+      });
+      setIsFbReady(true);
+    };
+    document.body.appendChild(fbScript);
+
     return () => {
       document.body.removeChild(gScript);
       document.body.removeChild(aScript);
+      document.body.removeChild(fbScript);
     };
   }, [dispatch]);
 
@@ -97,6 +120,30 @@ export default function LoginPage() {
     }
   };
 
+  const handleFacebookClick = () => {
+    setError(null);
+    FB.login(async (response) => {
+      if (!response.authResponse) {
+        setError('Facebook login cancelled.');
+        return;
+      }
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/auth/facebook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ accessToken: response.authResponse.accessToken }),
+        });
+        if (!res.ok) throw new Error('auth failed');
+        const data = await res.json();
+        dispatch(setUser(data));
+        dispatch(setAuthStatus('authenticated'));
+      } catch {
+        setError('Facebook login failed — please try again.');
+      }
+    }, { scope: 'public_profile,email' });
+  };
+
   return (
     <div className="login-root">
       <div className="login-card">
@@ -119,7 +166,12 @@ export default function LoginPage() {
           >
             Continue with Apple
           </button>
-          <button className="sso-btn" disabled title="Coming soon">
+          <button
+            className="sso-btn sso-btn--facebook"
+            onClick={handleFacebookClick}
+            disabled={!isFbReady}
+            title={!isFbReady ? 'Loading Facebook Sign-In…' : undefined}
+          >
             Continue with Facebook
           </button>
         </div>
