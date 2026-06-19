@@ -1,4 +1,5 @@
 require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
@@ -10,16 +11,14 @@ const { apiLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 const authRouter         = require('./routes/auth');
 const integrationsRouter = require('./routes/integrations');
+const { createSocketServer } = require('./sockets');
 
 const app = express();
 
-// Sentry must be initialized before routes
 initSentry(app);
 
-// Security headers
 app.use(helmet());
 
-// CORS — allow mobile WebView and web origins, with credentials for HTTP-only cookies
 app.use(cors({
   origin: process.env.FRONTEND_URL,
   credentials: true,
@@ -27,7 +26,6 @@ app.use(cors({
 
 app.use(cookieParser());
 
-// Preserve raw body for Suunto webhook HMAC verification before JSON parsing
 app.use((req, res, next) => {
   if (req.path === '/api/integrations/suunto/webhook') {
     let data = '';
@@ -38,19 +36,15 @@ app.use((req, res, next) => {
     next();
   }
 });
-app.use(express.json({ limit: '10kb' })); // cap payload size — prevents large-body DoS
+app.use(express.json({ limit: '10kb' }));
 
-// Global rate limit on all /api routes
 app.use('/api/', apiLimiter);
 
-// Routes
 app.use('/api/auth',         authRouter);
 app.use('/api/integrations', integrationsRouter);
 
-// Health probe for Docker / load balancer
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
-// Must be last — catches all unhandled errors
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
@@ -58,7 +52,11 @@ const PORT = process.env.PORT || 5000;
 async function start() {
   await connectDB();
   await connectRedis();
-  app.listen(PORT, () => console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}]`));
+  const httpServer = http.createServer(app);
+  createSocketServer(httpServer);
+  httpServer.listen(PORT, () =>
+    console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}]`)
+  );
 }
 
 start().catch(err => {
