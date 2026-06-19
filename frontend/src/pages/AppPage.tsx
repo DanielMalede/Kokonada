@@ -16,12 +16,17 @@ export default function AppPage() {
   useSocket();
 
   const handleLogout = async () => {
-    await fetch(`${BACKEND_URL}/api/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    });
-    dispatch(clearUser());
-    dispatch(setAuthStatus('idle'));
+    try {
+      await fetch(`${BACKEND_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      // network failure — still clear client-side auth so user is never stuck
+    } finally {
+      dispatch(clearUser());
+      dispatch(setAuthStatus('idle'));
+    }
   };
 
   return (

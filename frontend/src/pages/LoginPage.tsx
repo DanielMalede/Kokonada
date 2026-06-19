@@ -1,18 +1,19 @@
-declare const google: {
-  accounts: { id: { initialize(cfg: object): void; prompt(): void } };
-};
-
 import { useEffect, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '../store';
 import { setUser, setAuthStatus } from '../store/slices/authSlice';
 import './LoginPage.css';
 
+declare const google: {
+  accounts: { id: { initialize(cfg: object): void; prompt(): void } };
+};
+
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 export default function LoginPage() {
   const dispatch = useDispatch<AppDispatch>();
   const [error, setError] = useState<string | null>(null);
+  const [isGsiReady, setIsGsiReady] = useState(false);
 
   useEffect(() => {
     const script = document.createElement('script');
@@ -38,6 +39,7 @@ export default function LoginPage() {
           }
         },
       });
+      setIsGsiReady(true);
     };
     document.body.appendChild(script);
     return () => {
@@ -56,7 +58,12 @@ export default function LoginPage() {
         <h1 className="login-title">Kokonada</h1>
         <p className="login-tagline">Your music, tuned to your body.</p>
         <div className="sso-buttons">
-          <button className="sso-btn sso-btn--google" onClick={handleGoogleClick}>
+          <button
+            className="sso-btn sso-btn--google"
+            onClick={handleGoogleClick}
+            disabled={!isGsiReady}
+            title={!isGsiReady ? 'Loading Google Sign-In…' : undefined}
+          >
             Continue with Google
           </button>
           <button className="sso-btn" disabled title="Coming soon">
