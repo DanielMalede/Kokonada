@@ -6,9 +6,9 @@ const debounceMap = new Map();
 const HR_DELTA_THRESHOLD = 10;
 const DEBOUNCE_MS = 60_000;
 
-function getState(userId) {
-  if (!debounceMap.has(userId)) {
-    debounceMap.set(userId, {
+function getState(socketId) {
+  if (!debounceMap.has(socketId)) {
+    debounceMap.set(socketId, {
       stableHR:        null,
       pendingHR:       null,
       latestActivity:  null,
@@ -17,7 +17,7 @@ function getState(userId) {
       lastEmotionTaps: [],
     });
   }
-  return debounceMap.get(userId);
+  return debounceMap.get(socketId);
 }
 
 function clearTimer(state) {
@@ -29,7 +29,7 @@ function clearTimer(state) {
 }
 
 function registerBiometricHandler(socket) {
-  const userId = String(socket.data.user._id);
+  const socketId = socket.id;
 
   socket.on('biometric_push', ({ source, raw } = {}) => {
     let normalized;
@@ -42,7 +42,7 @@ function registerBiometricHandler(socket) {
 
     socket.emit('biometric_ack', { normalized });
 
-    const state = getState(userId);
+    const state = getState(socketId);
     state.consecutiveSkips  = 0;
     state.latestActivity    = normalized.activity;
 
@@ -67,7 +67,7 @@ function registerBiometricHandler(socket) {
 
     state.pendingHR = normalized.heartRate;
     state.timer = setTimeout(() => {
-      const s = debounceMap.get(userId);
+      const s = debounceMap.get(socketId);
       if (!s) return;
       const currentDelta = Math.abs(s.pendingHR - s.stableHR);
       if (currentDelta >= HR_DELTA_THRESHOLD) {
@@ -84,22 +84,22 @@ function registerBiometricHandler(socket) {
       clearTimer(s);
     }, DEBOUNCE_MS);
 
-    socket.emit('recalibration_pending', { delta, secondsRemaining: 60 });
+    socket.emit('recalibration_pending', { delta, secondsRemaining: Math.round(DEBOUNCE_MS / 1000) });
   });
 
   socket.on('emotion_update', ({ taps = [] } = {}) => {
-    getState(userId).lastEmotionTaps = taps;
+    getState(socketId).lastEmotionTaps = taps;
   });
 
   socket.on('track_skipped', () => {
-    const state = getState(userId);
+    const state = getState(socketId);
     state.consecutiveSkips += 1;
 
     if (state.consecutiveSkips >= 2) {
       clearTimer(state);
       socket.emit('playlist_recalibration', {
-        heartRate:   state.stableHR,
-        activity:    state.latestActivity,
+        ...(state.stableHR !== null && { heartRate: state.stableHR }),
+        ...(state.latestActivity !== null && { activity: state.latestActivity }),
         emotionTaps: state.lastEmotionTaps,
         trigger:     'skip_loop',
       });
@@ -108,10 +108,10 @@ function registerBiometricHandler(socket) {
   });
 
   socket.on('disconnect', () => {
-    const state = debounceMap.get(userId);
+    const state = debounceMap.get(socketId);
     if (state) {
       clearTimer(state);
-      debounceMap.delete(userId);
+      debounceMap.delete(socketId);
     }
   });
 }
