@@ -1,0 +1,58 @@
+.context-prompt {
+  background: #1a1a2e;
+  color: #eee;
+  padding: 16px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.context-prompt__textarea {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #eee;
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.context-prompt__textarea:focus {
+  border-color: #e63946;
+}
+
+.context-prompt__textarea::placeholder {
+  color: #888;
+}
+
+.context-prompt__button {
+  align-self: flex-start;
+  background: #e63946;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 9px 18px;
+  transition: opacity 0.15s;
+}
+
+.context-prompt__button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.context-prompt__button:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+.context-prompt__confirmation {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #6fcf97;
+}
