@@ -18,6 +18,14 @@ const userSchema = new mongoose.Schema({
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },
 
+  // Mobile push notification tokens (FCM for Android, APNs for iOS)
+  pushTokens: [{
+    token:     { type: String, required: true },
+    platform:  { type: String, enum: ['ios', 'android', 'web'], required: true },
+    createdAt: { type: Date, default: Date.now },
+    _id: false,
+  }],
+
   deletedAt: { type: Date, default: null }, // GDPR soft-delete
 }, {
   timestamps: true,
