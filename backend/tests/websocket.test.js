@@ -123,3 +123,73 @@ describe('WebSocket auth', () => {
     client.on('connect_error', done);
   });
 });
+
+// ── Biometric handler unit tests ───────────────────────────────────────────────
+// These tests use a mock socket object — no network needed.
+describe('biometricHandler — normalize + ack', () => {
+  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+
+  function makeMockSocket(userId = 'user-abc') {
+    const handlers = {};
+    return {
+      data: { user: { _id: userId } },
+      emit: jest.fn(),
+      on: jest.fn((event, fn) => { handlers[event] = fn; }),
+      _trigger: (event, payload) => handlers[event]?.(payload),
+    };
+  }
+
+  afterEach(() => {
+    _debounceMap.clear();
+  });
+
+  it('emits biometric_ack with normalized data on valid garmin push', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 75, activityType: 1, startTimeLocal: '2026-01-01T10:00:00' },
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith('biometric_ack', {
+      normalized: expect.objectContaining({
+        heartRate: 75,
+        activity: 'running',
+        source: 'garmin',
+      }),
+    });
+  });
+
+  it('emits biometric_ack with normalized data on valid apple_health push', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', {
+      source: 'apple_health',
+      raw: {
+        value: 88,
+        workoutType: 'HKWorkoutActivityTypeRunning',
+        startDate: '2026-01-01T10:00:00',
+      },
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith('biometric_ack', {
+      normalized: expect.objectContaining({ heartRate: 88, source: 'apple_health' }),
+    });
+  });
+
+  it('emits connection_error and does NOT disconnect on unknown source', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', { source: 'fitbit', raw: {} });
+
+    expect(socket.emit).toHaveBeenCalledWith('connection_error', {
+      message: expect.stringContaining('Unknown wearable source'),
+    });
+    // biometric_ack must NOT have been emitted
+    const ackCall = socket.emit.mock.calls.find(([e]) => e === 'biometric_ack');
+    expect(ackCall).toBeUndefined();
+  });
+});
