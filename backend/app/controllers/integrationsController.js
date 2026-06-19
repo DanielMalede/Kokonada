@@ -1,5 +1,6 @@
-const crypto = require('crypto');
-const spotify = require('../services/spotify');
+const crypto  = require('crypto');
+const spotify  = require('../services/spotify');
+const youtube  = require('../services/youtube');
 
 // ── Spotify ───────────────────────────────────────────────────────────────────
 
@@ -65,5 +66,57 @@ exports.spotifyDisconnect = async (req, res, next) => {
 // GET /api/integrations/spotify/status
 exports.spotifyStatus = (req, res) => {
   const connected = !!req.user.spotifyToken?.blob;
+  res.json({ connected });
+};
+
+// ── YouTube Music ─────────────────────────────────────────────────────────────
+
+exports.youtubeConnect = (req, res) => {
+  const state = crypto.randomBytes(16).toString('hex');
+  res.cookie('youtube_oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 10 * 60 * 1000,
+  });
+  res.redirect(youtube.getAuthUrl(state));
+};
+
+exports.youtubeCallback = async (req, res, next) => {
+  try {
+    const { code, state, error } = req.query;
+
+    if (error) return res.status(400).json({ error: `YouTube denied access: ${error}` });
+
+    const savedState = req.cookies.youtube_oauth_state;
+    res.clearCookie('youtube_oauth_state');
+    if (!state || state !== savedState) {
+      return res.status(403).json({ error: 'OAuth state mismatch — possible CSRF attack' });
+    }
+
+    const tokens  = await youtube.exchangeCode(code);
+    const channel = await youtube.getChannel(tokens.accessToken);
+
+    req.user.setToken('youtubeMusicToken', tokens);
+    await req.user.save();
+
+    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/youtube/success?channelId=${channel.channelId}`;
+    res.redirect(deepLink);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.youtubeDisconnect = async (req, res, next) => {
+  try {
+    req.user.youtubeMusicToken = null;
+    await req.user.save();
+    res.json({ message: 'YouTube Music disconnected' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.youtubeStatus = (req, res) => {
+  const connected = !!req.user.youtubeMusicToken?.blob;
   res.json({ connected });
 };
