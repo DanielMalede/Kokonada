@@ -1,78 +1,122 @@
-import { useEffect, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { useEffect, useRef } from 'react';
 import { useDispatch } from 'react-redux';
+import { io, Socket } from 'socket.io-client';
 import type { AppDispatch } from '../store';
+import { setPlaylist, skipTrack as skipTrackAction, setIsOnline } from '../store/slices/playerSlice';
 import {
   setBiometricAck,
   setRecalibrationPending,
   setRecalibrationCancelled,
   setRecalibrating,
 } from '../store/slices/biometricsSlice';
-import { skipTrack as skipTrackAction } from '../store/slices/playerSlice';
-import type { EmotionTap } from '../store/slices/emotionSlice';
+
+export interface EmotionTap {
+  x: number;
+  y: number;
+}
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
+const MAX_RETRIES = 5;
 
-// Module-level singleton — io() is called exactly once for the entire app session.
-let _socket: ReturnType<typeof io> | null = null;
+let socket: Socket | null = null;
+let retryCount = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function useSocket(): {
-  connected: boolean;
-  skipTrack: () => void;
-  emitEmotionUpdate: (taps: EmotionTap[], textPrompt?: string) => void;
-  disconnect: () => void;
-} {
+function clearRetryTimer() {
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+}
+
+function scheduleReconnect() {
+  if (!socket || retryCount >= MAX_RETRIES) return;
+  const delay = Math.min(1_000 * Math.pow(2, retryCount), 30_000);
+  retryCount += 1;
+  retryTimer = setTimeout(() => {
+    if (socket && !socket.connected) socket.connect();
+  }, delay);
+}
+
+function initSocket(dispatch: AppDispatch): Socket {
+  if (socket) return socket;
+
+  socket = io(BACKEND_URL, { withCredentials: true, autoConnect: true });
+
+  socket.on('connect', () => {
+    retryCount = 0;
+    clearRetryTimer();
+    dispatch(setIsOnline(true));
+  });
+
+  socket.on('disconnect', () => {
+    dispatch(setIsOnline(false));
+    scheduleReconnect();
+  });
+
+  socket.on('connect_error', () => {
+    scheduleReconnect();
+  });
+
+  socket.on('biometric_ack', (data: unknown) => dispatch(setBiometricAck(data as never)));
+  socket.on('recalibration_pending', (data: unknown) => dispatch(setRecalibrationPending(data as never)));
+  socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
+  socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
+
+  socket.on('playlist_ready', (data: { tracks: never[]; trigger: 'emotion' | 'biometric' | 'skip_loop' }) => {
+    dispatch(setPlaylist({ tracks: data.tracks, trigger: data.trigger }));
+  });
+
+  return socket;
+}
+
+export function useSocket() {
   const dispatch = useDispatch<AppDispatch>();
-  const [connected, setConnected] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    // Only create the socket once; subsequent hook calls reuse the singleton.
-    if (_socket === null) {
-      _socket = io(BACKEND_URL, { withCredentials: true });
+    socketRef.current = initSocket(dispatch);
 
-      _socket.on('connect', () => setConnected(true));
-      _socket.on('disconnect', () => setConnected(false));
-      _socket.on('connect_error', (err: Error) => console.warn('socket connect_error', err));
+    const handleOnline = () => {
+      dispatch(setIsOnline(true));
+      if (socket && !socket.connected) {
+        retryCount = 0;
+        socket.connect();
+      }
+    };
+    const handleOffline = () => {
+      dispatch(setIsOnline(false));
+      scheduleReconnect();
+    };
 
-      _socket.on('biometric_ack', (payload: { normalized: { heartRate: number | null; activity: string | null; lastAck: string | null } }) => {
-        dispatch(setBiometricAck(payload.normalized));
-      });
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
-      _socket.on('recalibration_pending', (payload: { secondsRemaining: number }) => {
-        dispatch(setRecalibrationPending({ secondsRemaining: payload.secondsRemaining }));
-      });
-
-      _socket.on('recalibration_cancelled', () => {
-        dispatch(setRecalibrationCancelled());
-      });
-
-      _socket.on('playlist_recalibration', () => {
-        dispatch(setRecalibrating());
-      });
-    } else {
-      // Socket already exists — sync the connected state for this component instance.
-      setConnected(_socket.connected);
-    }
-
-    // Do NOT disconnect on unmount — other components share the singleton.
-    // Disconnection is handled explicitly via the exposed disconnect() function.
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, [dispatch]);
 
   const skipTrack = () => {
-    _socket?.emit('track_skipped');
+    socketRef.current?.emit('track_skipped');
     dispatch(skipTrackAction());
   };
 
   const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string) => {
-    _socket?.emit('emotion_update', { taps, textPrompt: textPrompt ?? '' });
+    socketRef.current?.emit('emotion_update', { taps, textPrompt });
   };
 
   const disconnect = () => {
-    if (_socket !== null) {
-      _socket.disconnect();
-      _socket = null;
-    }
+    clearRetryTimer();
+    socket?.disconnect();
+    socket = null;
   };
 
-  return { connected, skipTrack, emitEmotionUpdate, disconnect };
+  return {
+    connected: socket?.connected ?? false,
+    skipTrack,
+    emitEmotionUpdate,
+    disconnect,
+  };
 }

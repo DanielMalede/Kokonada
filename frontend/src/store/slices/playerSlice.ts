@@ -9,15 +9,19 @@ interface Track {
 
 interface PlayerState {
   playlist: Track[];
+  offlineBuffer: Track[];
   currentIndex: number;
   isPlaying: boolean;
+  isOnline: boolean;
   trigger: 'emotion' | 'biometric' | 'skip_loop' | null;
 }
 
 const initialState: PlayerState = {
   playlist: [],
+  offlineBuffer: [],
   currentIndex: 0,
   isPlaying: false,
+  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
   trigger: null,
 };
 
@@ -29,16 +33,24 @@ const playerSlice = createSlice({
       state.playlist = action.payload.tracks;
       state.trigger = action.payload.trigger;
       state.currentIndex = 0;
+      state.offlineBuffer = action.payload.tracks.slice(0, 10);
     },
     skipTrack(state) {
-      if (state.playlist.length === 0) return;
-      state.currentIndex = (state.currentIndex + 1) % state.playlist.length;
+      const list = state.isOnline ? state.playlist : state.offlineBuffer;
+      if (list.length === 0) return;
+      state.currentIndex = (state.currentIndex + 1) % list.length;
     },
     setPlaying(state, action: PayloadAction<boolean>) {
       state.isPlaying = action.payload;
     },
+    setOfflineBuffer(state, action: PayloadAction<Track[]>) {
+      state.offlineBuffer = action.payload;
+    },
+    setIsOnline(state, action: PayloadAction<boolean>) {
+      state.isOnline = action.payload;
+    },
   },
 });
 
-export const { setPlaylist, skipTrack, setPlaying } = playerSlice.actions;
+export const { setPlaylist, skipTrack, setPlaying, setOfflineBuffer, setIsOnline } = playerSlice.actions;
 export default playerSlice.reducer;
