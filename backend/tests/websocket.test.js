@@ -193,3 +193,118 @@ describe('biometricHandler — normalize + ack', () => {
     expect(ackCall).toBeUndefined();
   });
 });
+
+describe('biometricHandler — 60-second debounce', () => {
+  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+
+  function makeMockSocket(userId = 'user-debounce') {
+    const handlers = {};
+    return {
+      data: { user: { _id: userId } },
+      emit: jest.fn(),
+      on: jest.fn((event, fn) => { handlers[event] = fn; }),
+      _trigger: (event, payload) => handlers[event]?.(payload),
+    };
+  }
+
+  const GARMIN_RAW = (hr, activityType = 0) => ({
+    source: 'garmin',
+    raw: { heartRate: hr, activityType, startTimeLocal: '2026-01-01T10:00:00' },
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    _debounceMap.clear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    _debounceMap.clear();
+  });
+
+  it('does NOT emit recalibration_pending when delta < 10 BPM', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', GARMIN_RAW(70)); // sets stableHR = 70
+    socket._trigger('biometric_push', GARMIN_RAW(75)); // delta = 5, below threshold
+
+    const pendingCall = socket.emit.mock.calls.find(([e]) => e === 'recalibration_pending');
+    expect(pendingCall).toBeUndefined();
+  });
+
+  it('emits recalibration_pending when delta >= 10 BPM', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', GARMIN_RAW(70));
+    socket._trigger('biometric_push', GARMIN_RAW(85)); // delta = 15
+
+    expect(socket.emit).toHaveBeenCalledWith('recalibration_pending', {
+      delta: 15,
+      secondsRemaining: 60,
+    });
+  });
+
+  it('does NOT start a second timer if one is already running', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', GARMIN_RAW(70));
+    socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
+    socket._trigger('biometric_push', GARMIN_RAW(90)); // should be ignored
+
+    const pendingCalls = socket.emit.mock.calls.filter(([e]) => e === 'recalibration_pending');
+    expect(pendingCalls).toHaveLength(1); // only one timer ever started
+  });
+
+  it('emits playlist_recalibration after 60 seconds of sustained change', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', GARMIN_RAW(70));
+    socket._trigger('biometric_push', GARMIN_RAW(85));
+
+    jest.advanceTimersByTime(60_000);
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_recalibration', expect.objectContaining({
+      heartRate: 85,
+      trigger: 'biometric',
+    }));
+  });
+
+  it('emits recalibration_cancelled and clears timer when HR returns below threshold', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', GARMIN_RAW(70));
+    socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
+    socket._trigger('biometric_push', GARMIN_RAW(72)); // delta = 2, below threshold
+
+    // Timer was cancelled — advancing 60s should NOT emit recalibration
+    jest.advanceTimersByTime(60_000);
+
+    expect(socket.emit).toHaveBeenCalledWith('recalibration_cancelled', { reason: 'change_reverted' });
+    const recalCalls = socket.emit.mock.calls.filter(([e]) => e === 'playlist_recalibration');
+    expect(recalCalls).toHaveLength(0);
+  });
+
+  it('clears the timer and deletes state on disconnect — no event fires after', () => {
+    const socket = makeMockSocket('user-disconnect-test');
+    registerBiometricHandler(socket);
+
+    socket._trigger('biometric_push', GARMIN_RAW(70));
+    socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
+
+    socket._trigger('disconnect');
+
+    jest.advanceTimersByTime(60_000);
+
+    // No recalibration or cancelled event after disconnect
+    const recalCalls = socket.emit.mock.calls.filter(
+      ([e]) => e === 'playlist_recalibration' || e === 'recalibration_cancelled'
+    );
+    expect(recalCalls).toHaveLength(0);
+    expect(_debounceMap.has('user-disconnect-test')).toBe(false);
+  });
+});
