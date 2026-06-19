@@ -15,6 +15,9 @@ process.env.SUUNTO_WEBHOOK_SECRET = 'suunto_secret';
 process.env.MOBILE_DEEP_LINK      = 'kokonada://';
 
 // ── Service mocks (factory form — never loads the real modules, avoids mongoose) ─
+jest.mock('../app/services/musicProfileService', () => ({
+  buildProfile: jest.fn().mockResolvedValue({ topGenres: [], library: [] }),
+}));
 jest.mock('../app/services/spotify', () => ({
   getAuthUrl:             jest.fn(),
   exchangeCode:           jest.fn(),
