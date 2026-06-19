@@ -26,6 +26,18 @@ app.use(cors({
 }));
 
 app.use(cookieParser());
+
+// Preserve raw body for Suunto webhook HMAC verification before JSON parsing
+app.use((req, res, next) => {
+  if (req.path === '/api/integrations/suunto/webhook') {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => { req.rawBody = data; next(); });
+  } else {
+    next();
+  }
+});
 app.use(express.json({ limit: '10kb' })); // cap payload size — prevents large-body DoS
 
 // Global rate limit on all /api routes

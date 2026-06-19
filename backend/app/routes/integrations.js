@@ -3,6 +3,10 @@ const auth = require('../middleware/auth');
 const {
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeStatus,
+  garminConnect, garminCallback, garminDisconnect,
+  appleHealthPush,
+  suuntoWebhook,
+  wearableStatus,
 } = require('../controllers/integrationsController');
 
 // All integration routes require a logged-in user
@@ -19,5 +23,19 @@ router.get('/youtube/connect',       youtubeConnect);
 router.get('/youtube/callback',      youtubeCallback);
 router.delete('/youtube/disconnect', youtubeDisconnect);
 router.get('/youtube/status',        youtubeStatus);
+
+// Garmin (OAuth 1.0a — two-legged flow)
+router.get('/garmin/connect',        garminConnect);
+router.get('/garmin/callback',       garminCallback);
+router.delete('/garmin/disconnect',  garminDisconnect);
+
+// Apple HealthKit (mobile push — no server-side OAuth needed)
+router.post('/apple/push',           appleHealthPush);
+
+// Suunto (webhook — raw body needed for HMAC)
+router.post('/suunto/webhook',       suuntoWebhook);
+
+// Unified wearable status
+router.get('/wearable/status',       wearableStatus);
 
 module.exports = router;

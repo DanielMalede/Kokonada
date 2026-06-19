@@ -1,6 +1,10 @@
-const crypto  = require('crypto');
-const spotify  = require('../services/spotify');
-const youtube  = require('../services/youtube');
+const crypto      = require('crypto');
+const spotify     = require('../services/spotify');
+const youtube     = require('../services/youtube');
+const garmin      = require('../services/wearable/garmin');
+const appleHealth = require('../services/wearable/appleHealth');
+const suunto      = require('../services/wearable/suunto');
+const User        = require('../models/User');
 
 // ── Spotify ───────────────────────────────────────────────────────────────────
 
@@ -119,4 +123,88 @@ exports.youtubeDisconnect = async (req, res, next) => {
 exports.youtubeStatus = (req, res) => {
   const connected = !!req.user.youtubeMusicToken?.blob;
   res.json({ connected });
+};
+
+// ── Garmin (OAuth 1.0a) ───────────────────────────────────────────────────────
+
+// Step 1: Get a request token and redirect user to Garmin's consent page
+exports.garminConnect = async (req, res, next) => {
+  try {
+    const { oauthToken, oauthTokenSecret } = await garmin.getRequestToken();
+
+    // Store the request token secret in a short-lived cookie for the callback
+    res.cookie('garmin_token_secret', oauthTokenSecret, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 10 * 60 * 1000,
+    });
+
+    res.redirect(garmin.getAuthUrl(oauthToken));
+  } catch (err) { next(err); }
+};
+
+// Step 2: Garmin redirects back here with oauth_token + oauth_verifier
+exports.garminCallback = async (req, res, next) => {
+  try {
+    const { oauth_token, oauth_verifier } = req.query;
+    const oauthTokenSecret = req.cookies.garmin_token_secret;
+    res.clearCookie('garmin_token_secret');
+
+    if (!oauth_token || !oauth_verifier || !oauthTokenSecret) {
+      return res.status(400).json({ error: 'Missing Garmin OAuth parameters' });
+    }
+
+    const tokens = await garmin.getAccessToken(oauth_token, oauthTokenSecret, oauth_verifier);
+
+    req.user.wearableProvider = 'garmin';
+    req.user.setToken('wearableToken', tokens);
+    await req.user.save();
+
+    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/garmin/success`;
+    res.redirect(deepLink);
+  } catch (err) { next(err); }
+};
+
+exports.garminDisconnect = async (req, res, next) => {
+  try {
+    req.user.wearableProvider = null;
+    req.user.wearableToken    = null;
+    await req.user.save();
+    res.json({ message: 'Garmin disconnected' });
+  } catch (err) { next(err); }
+};
+
+// ── Apple HealthKit (mobile push bridge) ─────────────────────────────────────
+
+// Mobile app pushes HealthKit samples here after reading them locally
+exports.appleHealthPush = async (req, res, next) => {
+  try {
+    const { samples } = req.body;
+    const result = await appleHealth.ingestBatch(req.user._id, samples);
+
+    // Mark as connected on first successful push
+    if (req.user.wearableProvider !== 'apple_health') {
+      await User.findByIdAndUpdate(req.user._id, { wearableProvider: 'apple_health' });
+    }
+
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+// ── Suunto (webhooks) ─────────────────────────────────────────────────────────
+
+// Suunto pushes workout data here; body must be raw Buffer for HMAC verification
+exports.suuntoWebhook = async (req, res, next) => {
+  try {
+    const signature = req.headers['x-suunto-signature'];
+    const result = await suunto.handleWebhook(req.user._id, req.rawBody, signature);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+exports.wearableStatus = (req, res) => {
+  res.json({
+    provider:  req.user.wearableProvider || null,
+    connected: !!req.user.wearableToken?.blob || req.user.wearableProvider === 'apple_health',
+  });
 };
