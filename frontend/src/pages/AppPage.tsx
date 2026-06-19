@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { clearUser, setAuthStatus } from '../store/slices/authSlice';
@@ -13,7 +14,14 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 export default function AppPage() {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.auth.user);
-  useSocket();
+  const { disconnect } = useSocket();
+
+  // Disconnect the singleton socket when AppPage unmounts (i.e. on logout).
+  useEffect(() => {
+    return () => {
+      disconnect();
+    };
+  }, [disconnect]);
 
   const handleLogout = async () => {
     try {

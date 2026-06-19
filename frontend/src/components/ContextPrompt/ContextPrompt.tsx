@@ -22,7 +22,7 @@ export default function ContextPrompt() {
   }, []);
 
   const handleGenerate = () => {
-    emitEmotionUpdate(taps);
+    emitEmotionUpdate(taps, textPrompt);
     setStatus('requested');
     timerRef.current = setTimeout(() => setStatus('idle'), 3000);
   };

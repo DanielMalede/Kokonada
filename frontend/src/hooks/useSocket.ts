@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '../store';
@@ -13,52 +13,66 @@ import type { EmotionTap } from '../store/slices/emotionSlice';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
+// Module-level singleton — io() is called exactly once for the entire app session.
+let _socket: ReturnType<typeof io> | null = null;
+
 export function useSocket(): {
   connected: boolean;
   skipTrack: () => void;
-  emitEmotionUpdate: (taps: EmotionTap[]) => void;
+  emitEmotionUpdate: (taps: EmotionTap[], textPrompt?: string) => void;
+  disconnect: () => void;
 } {
   const dispatch = useDispatch<AppDispatch>();
-  const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const socket = io(BACKEND_URL, { withCredentials: true });
-    socketRef.current = socket;
+    // Only create the socket once; subsequent hook calls reuse the singleton.
+    if (_socket === null) {
+      _socket = io(BACKEND_URL, { withCredentials: true });
 
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
-    socket.on('connect_error', (err) => console.warn('socket connect_error', err));
+      _socket.on('connect', () => setConnected(true));
+      _socket.on('disconnect', () => setConnected(false));
+      _socket.on('connect_error', (err: Error) => console.warn('socket connect_error', err));
 
-    socket.on('biometric_ack', (payload: { normalized: { heartRate: number | null; activity: string | null; lastAck: string | null } }) => {
-      dispatch(setBiometricAck(payload.normalized));
-    });
+      _socket.on('biometric_ack', (payload: { normalized: { heartRate: number | null; activity: string | null; lastAck: string | null } }) => {
+        dispatch(setBiometricAck(payload.normalized));
+      });
 
-    socket.on('recalibration_pending', (payload: { secondsRemaining: number }) => {
-      dispatch(setRecalibrationPending({ secondsRemaining: payload.secondsRemaining }));
-    });
+      _socket.on('recalibration_pending', (payload: { secondsRemaining: number }) => {
+        dispatch(setRecalibrationPending({ secondsRemaining: payload.secondsRemaining }));
+      });
 
-    socket.on('recalibration_cancelled', () => {
-      dispatch(setRecalibrationCancelled());
-    });
+      _socket.on('recalibration_cancelled', () => {
+        dispatch(setRecalibrationCancelled());
+      });
 
-    socket.on('playlist_recalibration', () => {
-      dispatch(setRecalibrating());
-    });
+      _socket.on('playlist_recalibration', () => {
+        dispatch(setRecalibrating());
+      });
+    } else {
+      // Socket already exists — sync the connected state for this component instance.
+      setConnected(_socket.connected);
+    }
 
-    return () => {
-      socket.disconnect();
-    };
+    // Do NOT disconnect on unmount — other components share the singleton.
+    // Disconnection is handled explicitly via the exposed disconnect() function.
   }, [dispatch]);
 
   const skipTrack = () => {
-    socketRef.current?.emit('track_skipped');
+    _socket?.emit('track_skipped');
     dispatch(skipTrackAction());
   };
 
-  const emitEmotionUpdate = (taps: EmotionTap[]) => {
-    socketRef.current?.emit('emotion_update', { taps });
+  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string) => {
+    _socket?.emit('emotion_update', { taps, textPrompt: textPrompt ?? '' });
   };
 
-  return { connected, skipTrack, emitEmotionUpdate };
+  const disconnect = () => {
+    if (_socket !== null) {
+      _socket.disconnect();
+      _socket = null;
+    }
+  };
+
+  return { connected, skipTrack, emitEmotionUpdate, disconnect };
 }
