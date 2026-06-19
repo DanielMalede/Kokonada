@@ -308,3 +308,106 @@ describe('biometricHandler — 60-second debounce', () => {
     expect(_debounceMap.has('user-disconnect-test')).toBe(false);
   });
 });
+
+describe('biometricHandler — skip loop', () => {
+  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+
+  function makeMockSocket(userId = 'user-skip') {
+    const handlers = {};
+    return {
+      data: { user: { _id: userId } },
+      emit: jest.fn(),
+      on: jest.fn((event, fn) => { handlers[event] = fn; }),
+      _trigger: (event, payload) => handlers[event]?.(payload),
+    };
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    _debounceMap.clear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    _debounceMap.clear();
+  });
+
+  it('does NOT recalibrate on a single skip', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('track_skipped', {});
+
+    const recalCalls = socket.emit.mock.calls.filter(([e]) => e === 'playlist_recalibration');
+    expect(recalCalls).toHaveLength(0);
+  });
+
+  it('emits playlist_recalibration with trigger=skip_loop on two consecutive skips', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('track_skipped', {});
+    socket._trigger('track_skipped', {});
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_recalibration', expect.objectContaining({
+      trigger: 'skip_loop',
+    }));
+  });
+
+  it('resets skip counter after two skips so a third pair is needed for another recalibration', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('track_skipped', {});
+    socket._trigger('track_skipped', {}); // fires recalibration, resets counter to 0
+
+    socket.emit.mockClear();
+
+    socket._trigger('track_skipped', {}); // counter = 1, no recalibration yet
+
+    const recalCalls = socket.emit.mock.calls.filter(([e]) => e === 'playlist_recalibration');
+    expect(recalCalls).toHaveLength(0);
+  });
+
+  it('resets skip counter on biometric_push so skips must be consecutive', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('track_skipped', {}); // counter = 1
+    // biometric_push resets the counter
+    socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 70, activityType: 0, startTimeLocal: '2026-01-01T10:00:00' },
+    });
+    socket._trigger('track_skipped', {}); // counter back to 1, not 2
+
+    const recalCalls = socket.emit.mock.calls.filter(([e]) => e === 'playlist_recalibration');
+    expect(recalCalls).toHaveLength(0);
+  });
+
+  it('two consecutive skips cancel any running debounce timer', () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    // Start a debounce timer
+    socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 70, activityType: 0, startTimeLocal: '2026-01-01T10:00:00' },
+    });
+    socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 85, activityType: 1, startTimeLocal: '2026-01-01T10:00:01' },
+    });
+    // Timer is now running
+
+    socket._trigger('track_skipped', {});
+    socket._trigger('track_skipped', {}); // fires skip_loop recalibration + clears timer
+
+    socket.emit.mockClear();
+
+    jest.advanceTimersByTime(60_000); // timer should be gone — no second recalibration
+
+    const recalCalls = socket.emit.mock.calls.filter(([e]) => e === 'playlist_recalibration');
+    expect(recalCalls).toHaveLength(0);
+  });
+});
