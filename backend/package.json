@@ -26,6 +26,7 @@
     "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.1",
+    "oauth-1.0a": "^2.2.6",
     "socket.io": "^4.8.3",
     "uuid": "^14.0.0"
   },
