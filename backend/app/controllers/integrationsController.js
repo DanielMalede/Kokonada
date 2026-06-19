@@ -127,37 +127,80 @@ exports.youtubeStatus = (req, res) => {
 
 // ── Garmin (OAuth 1.0a) ───────────────────────────────────────────────────────
 
-// Step 1: Get a request token and redirect user to Garmin's consent page
+// ── Garmin OAuth 1.0a cookie options ─────────────────────────────────────────
+// sameSite must be 'lax' (not 'strict') — OAuth redirect flows require the
+// browser to send the cookie when Garmin redirects back to our callback URL.
+// 'strict' silently drops the cookie on cross-site redirects, breaking the flow.
+const GARMIN_COOKIE_OPTS = {
+  httpOnly: true,
+  secure:   process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge:   10 * 60 * 1000, // 10 minutes — matches Garmin's request token TTL
+};
+
+// Step 1: Fetch a request token from Garmin, store token + secret together,
+//         then redirect the user to Garmin's consent page.
 exports.garminConnect = async (req, res, next) => {
   try {
     const { oauthToken, oauthTokenSecret } = await garmin.getRequestToken();
 
-    // Store the request token secret in a short-lived cookie for the callback
-    res.cookie('garmin_token_secret', oauthTokenSecret, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 10 * 60 * 1000,
-    });
+    // Store BOTH token and secret so the callback can validate token identity
+    // (prevents token fixation: attacker swapping their token into our session)
+    res.cookie(
+      'garmin_request',
+      JSON.stringify({ token: oauthToken, secret: oauthTokenSecret }),
+      GARMIN_COOKIE_OPTS
+    );
 
     res.redirect(garmin.getAuthUrl(oauthToken));
   } catch (err) { next(err); }
 };
 
-// Step 2: Garmin redirects back here with oauth_token + oauth_verifier
+// Step 2: Garmin redirects here with oauth_token + oauth_verifier.
+//         Validate token identity, exchange for permanent access token,
+//         verify it works, then encrypt and store.
 exports.garminCallback = async (req, res, next) => {
   try {
-    const { oauth_token, oauth_verifier } = req.query;
-    const oauthTokenSecret = req.cookies.garmin_token_secret;
-    res.clearCookie('garmin_token_secret');
+    const { oauth_token: returnedToken, oauth_verifier } = req.query;
 
-    if (!oauth_token || !oauth_verifier || !oauthTokenSecret) {
-      return res.status(400).json({ error: 'Missing Garmin OAuth parameters' });
+    // Read and immediately clear the request cookie (one-time use)
+    const raw = req.cookies.garmin_request;
+    res.clearCookie('garmin_request', GARMIN_COOKIE_OPTS);
+
+    if (!raw) {
+      return res.status(403).json({ error: 'OAuth session expired or cookie missing — please reconnect' });
     }
 
-    const tokens = await garmin.getAccessToken(oauth_token, oauthTokenSecret, oauth_verifier);
+    let stored;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return res.status(403).json({ error: 'Malformed OAuth session — please reconnect' });
+    }
 
+    // Token fixation guard: the returned oauth_token must exactly match
+    // the one we originally received from Garmin in Step 1
+    if (!returnedToken || returnedToken !== stored.token) {
+      return res.status(403).json({ error: 'OAuth token mismatch — possible token fixation attack' });
+    }
+
+    if (!oauth_verifier) {
+      return res.status(400).json({ error: 'Missing oauth_verifier — user may have denied access' });
+    }
+
+    // Exchange verifier for permanent access token
+    const { accessToken, accessTokenSecret } = await garmin.getAccessToken(
+      stored.token,
+      stored.secret,
+      oauth_verifier
+    );
+
+    // Verify the access token actually works before persisting anything
+    const { garminUserId } = await garmin.getUserProfile(accessToken, accessTokenSecret);
+
+    // Encrypt both parts of the OAuth 1.0a credential pair (AES-256-GCM)
     req.user.wearableProvider = 'garmin';
-    req.user.setToken('wearableToken', tokens);
+    req.user.setToken('wearableToken', { accessToken, accessTokenSecret, garminUserId });
     await req.user.save();
 
     const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/garmin/success`;
