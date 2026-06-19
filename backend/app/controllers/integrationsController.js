@@ -5,6 +5,7 @@ const garmin      = require('../services/wearable/garmin');
 const appleHealth = require('../services/wearable/appleHealth');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
+const { buildProfile } = require('../services/musicProfileService');
 
 // ── Spotify ───────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,15 @@ exports.spotifyCallback = async (req, res, next) => {
     // Encrypt and persist tokens — never store plain text
     req.user.setToken('spotifyToken', tokens);
     await req.user.save();
+
+    // Non-blocking: analyze full library and upsert MusicProfile in the background
+    setImmediate(async () => {
+      try {
+        await buildProfile(req.user._id.toString(), req.user);
+      } catch (e) {
+        console.error('[musicProfile] Spotify build failed:', e.message);
+      }
+    });
 
     // Redirect mobile WebView to a deep link so the app can close the browser
     const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/spotify/success?spotifyId=${profile.spotifyId}`;
@@ -102,6 +112,15 @@ exports.youtubeCallback = async (req, res, next) => {
 
     req.user.setToken('youtubeMusicToken', tokens);
     await req.user.save();
+
+    // Non-blocking: analyze full library and upsert MusicProfile in the background
+    setImmediate(async () => {
+      try {
+        await buildProfile(req.user._id.toString(), req.user);
+      } catch (e) {
+        console.error('[musicProfile] YouTube build failed:', e.message);
+      }
+    });
 
     const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/youtube/success?channelId=${channel.channelId}`;
     res.redirect(deepLink);
