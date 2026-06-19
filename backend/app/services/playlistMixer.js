@@ -129,4 +129,17 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   return { familiar, discovery, merged };
 }
 
-module.exports = { mixPlaylist, _selectFamiliarTracks, _mergeNatural };
+/**
+ * Emergency fallback — no AI. Returns the user's top N most-listened tracks.
+ * @param {{ library?: Array<{ listenCount?: number }> }} musicProfile
+ * @param {number} [n=10]
+ * @returns {Array}
+ */
+function generateFallbackPlaylist(musicProfile, n = 10) {
+  const lib = musicProfile?.library ?? [];
+  return [...lib]
+    .sort((a, b) => (b.listenCount ?? 0) - (a.listenCount ?? 0))
+    .slice(0, n);
+}
+
+module.exports = { mixPlaylist, generateFallbackPlaylist, _selectFamiliarTracks, _mergeNatural };

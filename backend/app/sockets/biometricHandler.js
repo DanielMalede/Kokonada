@@ -7,7 +7,7 @@ const PlaylistSession = require('../models/PlaylistSession');
 const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../services/geminiEngine');
-const { mixPlaylist }  = require('../services/playlistMixer');
+const { mixPlaylist, generateFallbackPlaylist }  = require('../services/playlistMixer');
 
 const debounceMap = new Map();
 const HR_DELTA_THRESHOLD = 10;
@@ -101,15 +101,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       });
     }
   } catch (err) {
-    // AI failure — emit error with library fallback so music doesn't stop
-    const fallbackTracks = (musicProfile.library || [])
-      .filter(t => t.tempo != null)
-      .sort((a, b) => Math.abs(a.tempo - (state.stableHR || 120)) - Math.abs(b.tempo - (state.stableHR || 120)))
-      .slice(0, 10);
-
+    const fallbackTracks = generateFallbackPlaylist(musicProfile ?? {});
     socket.emit('playlist_error', {
-      message:        err.message,
-      fallbackTracks,
+      message: err.message,
+      fallbackTracks: fallbackTracks.length > 0 ? fallbackTracks : undefined,
     });
     return;
   }

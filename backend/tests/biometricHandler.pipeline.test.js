@@ -35,6 +35,7 @@ jest.mock('../app/services/geminiEngine', () => ({
 
 jest.mock('../app/services/playlistMixer', () => ({
   mixPlaylist: jest.fn(),
+  generateFallbackPlaylist: jest.fn().mockReturnValue([{ id: 'lib-1' }, { id: 'lib-2' }]),
 }));
 
 jest.mock('../app/services/wearable/adapter', () => ({

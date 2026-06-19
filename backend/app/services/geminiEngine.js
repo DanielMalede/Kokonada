@@ -7,6 +7,15 @@ const REQUIRED_FIELDS = [
   'target_acousticness', 'seed_artists', 'seed_genres',
 ];
 
+const GEMINI_TIMEOUT_MS = 5_000;
+
+function _withTimeout(ms, promise) {
+  const timer = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms)
+  );
+  return Promise.race([promise, timer]);
+}
+
 function getModel() {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   return genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
@@ -130,7 +139,7 @@ Adjust tempo and energy to match the physiological state while preserving the us
 
 async function _callGemini(prompt) {
   const model  = getModel();
-  const result = await model.generateContent(prompt);
+  const result = await _withTimeout(GEMINI_TIMEOUT_MS, model.generateContent(prompt));
   return _parseAndValidate(result.response.text());
 }
 
