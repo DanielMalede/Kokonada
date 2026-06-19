@@ -16,18 +16,25 @@ process.env.MOBILE_DEEP_LINK      = 'kokonada://';
 
 // ── Service mocks (factory form — never loads the real modules, avoids mongoose) ─
 jest.mock('../app/services/spotify', () => ({
-  getAuthUrl:   jest.fn(),
-  exchangeCode: jest.fn(),
-  getProfile:   jest.fn(),
-  getValidToken: jest.fn(),
-  getTopTrackFeatures: jest.fn(),
+  getAuthUrl:             jest.fn(),
+  exchangeCode:           jest.fn(),
+  getProfile:             jest.fn(),
+  getValidToken:          jest.fn(),
+  getTopTrackFeatures:    jest.fn(),
+  paginateLikedSongs:     jest.fn(),
+  paginatePlaylistTracks: jest.fn(),
+  batchAudioFeatures:     jest.fn(),
+  getRecommendations:     jest.fn(),
 }));
 jest.mock('../app/services/youtube', () => ({
-  getAuthUrl:    jest.fn(),
-  exchangeCode:  jest.fn(),
-  getChannel:    jest.fn(),
-  getValidToken: jest.fn(),
-  getLikedVideos: jest.fn(),
+  getAuthUrl:              jest.fn(),
+  exchangeCode:            jest.fn(),
+  getChannel:              jest.fn(),
+  getValidToken:           jest.fn(),
+  getLikedVideos:          jest.fn(),
+  paginateLikedVideos:     jest.fn(),
+  paginatePlaylistItems:   jest.fn(),
+  searchRecommendations:   jest.fn(),
 }));
 jest.mock('../app/services/wearable/garmin', () => ({
   getRequestToken:   jest.fn(),

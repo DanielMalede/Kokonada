@@ -42,6 +42,44 @@ const medicalProfileSchema = new mongoose.Schema({
     default: null,
   },
 
+  // ── Pillar 1: Cardiovascular & Nervous System ────────────────────────────────
+  hrv: { type: Number, default: null }, // Heart Rate Variability in ms (higher = better recovery)
+
+  // ── Pillar 2: Respiratory Metrics ────────────────────────────────────────────
+  respirationRate: { type: Number, default: null }, // breaths per minute
+  spO2:            { type: Number, default: null }, // blood oxygen %, 0–100
+
+  // ── Pillar 3: Kinematics & Motion ────────────────────────────────────────────
+  stepsPerMinute:        { type: Number, default: null },
+  accelerometerVariance: { type: Number, default: null }, // unitless variance
+  gpsVelocityKmh:        { type: Number, default: null }, // km/h
+
+  // ── Pillar 4: Sleep & Recovery State ─────────────────────────────────────────
+  sleepStages: {
+    rem:   { type: Number, default: null }, // minutes in REM
+    deep:  { type: Number, default: null }, // minutes in Deep Sleep
+    light: { type: Number, default: null }, // minutes in Light Sleep
+  },
+  dailyReadiness: { type: Number, default: null }, // 0–100 (Garmin/Whoop readiness score)
+  bodyBattery:    { type: Number, default: null }, // 0–100 (Garmin Body Battery)
+
+  // ── Pillar 5: Temporal & Device Context ──────────────────────────────────────
+  bluetoothAudioConnected: { type: Boolean, default: null },
+  screenOn:                { type: Boolean, default: null },
+  timeOfDay: {
+    type: String,
+    enum: ['morning', 'afternoon', 'evening', 'night', null],
+    default: null,
+  },
+
+  // ── State Vector ─────────────────────────────────────────────────────────────
+  // Consolidated output of the physiological classifier — fed to the AI engine.
+  stateVector: {
+    status:      { type: String, default: null }, // e.g. "Peak Athletic Performance"
+    confidence:  { type: Number, default: null }, // 0–1
+    computedAt:  { type: Date,   default: null },
+  },
+
   // How many biometric readings the AI used to build this profile
   sampleCount: { type: Number, default: 0 },
 

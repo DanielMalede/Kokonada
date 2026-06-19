@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { URLSearchParams } = require('url');
+const { withRetry } = require('../utils/retry');
 
 const BASE_AUTH = 'https://accounts.google.com/o/oauth2';
 const BASE_API  = 'https://www.googleapis.com/youtube/v3';
@@ -94,4 +95,118 @@ async function getLikedVideos(accessToken, maxResults = 50) {
   return data.items || [];
 }
 
-module.exports = { getAuthUrl, exchangeCode, getValidToken, getChannel, getLikedVideos };
+// ── Deep-pagination helpers ───────────────────────────────────────────────────
+
+function authHeader(accessToken) {
+  return { Authorization: `Bearer ${accessToken}` };
+}
+
+/**
+ * Fetches every liked (music) video for the authenticated user, following all
+ * pages via nextPageToken. Handles HTTP 429 via withRetry.
+ * @returns {Promise<YouTubeVideo[]>}
+ */
+async function paginateLikedVideos(accessToken) {
+  const videos = [];
+  let pageToken = null;
+
+  do {
+    const params = { part: 'snippet', myRating: 'like', maxResults: 50, videoCategoryId: '10' };
+    if (pageToken) params.pageToken = pageToken;
+
+    const { data } = await withRetry(() =>
+      axios.get(`${BASE_API}/videos`, {
+        headers: authHeader(accessToken),
+        params,
+        timeout: 10_000,
+      })
+    );
+
+    videos.push(...data.items);
+    pageToken = data.nextPageToken ?? null;
+  } while (pageToken);
+
+  return videos;
+}
+
+/**
+ * Fetches all items from every playlist the user owns, following pagination on
+ * both the playlist list and each playlist's item list.
+ * @returns {Promise<YouTubePlaylistItem[]>}
+ */
+async function paginatePlaylistItems(accessToken) {
+  // Step 1 — collect all user playlists
+  const playlists = [];
+  let plToken = null;
+
+  do {
+    const params = { part: 'snippet', mine: true, maxResults: 50 };
+    if (plToken) params.pageToken = plToken;
+
+    const { data } = await withRetry(() =>
+      axios.get(`${BASE_API}/playlists`, {
+        headers: authHeader(accessToken),
+        params,
+        timeout: 10_000,
+      })
+    );
+
+    playlists.push(...data.items);
+    plToken = data.nextPageToken ?? null;
+  } while (plToken);
+
+  // Step 2 — collect all items from each playlist
+  const items = [];
+
+  for (const pl of playlists) {
+    let itemToken = null;
+
+    do {
+      const params = { part: 'snippet', playlistId: pl.id, maxResults: 50 };
+      if (itemToken) params.pageToken = itemToken;
+
+      const { data } = await withRetry(() =>
+        axios.get(`${BASE_API}/playlistItems`, {
+          headers: authHeader(accessToken),
+          params,
+          timeout: 10_000,
+        })
+      );
+
+      items.push(...data.items);
+      itemToken = data.nextPageToken ?? null;
+    } while (itemToken);
+  }
+
+  return items;
+}
+
+/**
+ * Searches YouTube Music for tracks matching AI-computed targets.
+ * YouTube has no audio-features API so we build a keyword query from
+ * genre + energy mood descriptor.
+ *
+ * @param {string} accessToken
+ * @param {{ seed_genres, target_energy, limit? }} params
+ * @returns {Promise<YouTubeVideo[]>}
+ */
+async function searchRecommendations(accessToken, { seed_genres, target_energy, limit = 10 }) {
+  const energy   = target_energy ?? 0.5;
+  const moodWord = energy > 0.7 ? 'energetic' : energy < 0.35 ? 'calm' : '';
+  const genres   = (seed_genres || []).slice(0, 3).join(' ');
+  const query    = [moodWord, genres, 'music'].filter(Boolean).join(' ');
+
+  const { data } = await withRetry(() =>
+    axios.get(`${BASE_API}/search`, {
+      headers: authHeader(accessToken),
+      params:  { part: 'snippet', q: query, type: 'video', videoCategoryId: '10', maxResults: limit },
+      timeout: 8_000,
+    })
+  );
+  return data.items ?? [];
+}
+
+module.exports = {
+  getAuthUrl, exchangeCode, getValidToken, getChannel, getLikedVideos,
+  paginateLikedVideos, paginatePlaylistItems, searchRecommendations,
+};
