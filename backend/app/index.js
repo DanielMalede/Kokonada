@@ -8,7 +8,8 @@ const connectDB = require('./config/db');
 const { connectRedis } = require('./config/redis');
 const { apiLimiter } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
-const authRouter = require('./routes/auth');
+const authRouter         = require('./routes/auth');
+const integrationsRouter = require('./routes/integrations');
 
 const app = express();
 
@@ -31,7 +32,8 @@ app.use(express.json({ limit: '10kb' })); // cap payload size — prevents large
 app.use('/api/', apiLimiter);
 
 // Routes
-app.use('/api/auth', authRouter);
+app.use('/api/auth',         authRouter);
+app.use('/api/integrations', integrationsRouter);
 
 // Health probe for Docker / load balancer
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
