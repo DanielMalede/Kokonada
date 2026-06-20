@@ -31,13 +31,26 @@ A dynamic, AI-orchestrated music platform that generates and adjusts playlists i
 * **Musical DNA:** The AI analyzes listening history and extracts audio features (Acousticness, Energy, Danceability) to build a baseline musical profile.
 * **Medical Baseline:** The AI analyzes historical heart rate and activity logs to establish personal resting HR and target exertion zones.
 
-### Phase 4: Core UI (The Emotion Interface)
+### Phase 4: The Comprehensive Medical & Physiological Profile (`MedicalProfile`)
+Before the AI can make recommendations, the backend must construct and continuously update a holistic `MedicalProfile` for each user. This phase acts as a clinical data processor, pulling the full spectrum of telemetry from the connected wearable device to establish deep contextual awareness.
+
+**The 5 Pillars of Physiological Processing:**
+1. **Cardiovascular & Nervous System:** Monitoring Live HR vs. Resting HR, and Heart Rate Variability (HRV). This is crucial for instantly detecting physiological stress (low HRV) versus parasympathetic recovery (high HRV).
+2. **Respiratory Metrics:** Tracking Live Respiration Rate (breaths per minute) and SpO2 (Blood Oxygen) to identify panic attacks, hyperventilation, or extreme physical exertion.
+3. **Kinematics & Motion:** Analyzing Steps per minute, accelerometer variance, and GPS velocity to determine the exact physical activity (e.g., running vs. driving).
+4. **Sleep & Recovery State:** Aggregating the previous night's Sleep Stages (REM, Deep, Light) and overall Daily Readiness/Body Battery. Waking up from Deep Sleep requires a drastically different acoustic intervention than waking from Light Sleep.
+5. **Temporal & Device Context:** Logging screen state, Bluetooth audio output, and Time of Day to complete the environmental picture.
+
+**Routine & Medical Detection Output:**
+This phase processes the raw data and outputs a consolidated "State Vector" (e.g., `status: "High-Stress / Pre-Panic"`, `status: "Exhausted Commute"`, or `status: "Peak Athletic Performance"`). This highly accurate vector is what will ultimately be fed into the AI Recommendation Engine.
+
+### Phase 5: Core UI (The Emotion Interface)
 * **Multi-Tap Emotion Circle:** Instead of a single-point joystick, the interface features a circular 2D emotion map where users can place 2 to 3 distinct "taps". This captures complex, mixed emotions (e.g., one tap between "Happy" and "Chill", and a second tap between "Stressed" and "Angry"). The React frontend will consolidate these multiple (x,y) coordinates into a single multi-dimensional array to feed the LLM a much richer psychological state.
 * **Accessibility (a11y):** The Emotion Circle must be fully accessible. Implement color-blind friendly UI modes and ensure there are alternative text-based or list-based selectors for users who cannot interact with a precision 2D graphical map.
 * **Live Activity Indicators:** Emoji selectors that auto-highlight based on live biometrics (e.g., HR 145 triggers "Running" emoji).
 * **Context Prompt:** A text input for specific requests (e.g., "Need to focus on studying").
 
-### Phase 5: The AI Recommendation Engine
+### Phase 6: The AI Recommendation Engine
 * **Anonymized Payload:** The backend aggregates the consolidated multi-tap coordinates, current HR, activity, and text prompt. PII is strictly stripped, and the payload is sent to the LLM.
 * **Prompt Expansion:** The LLM translates the complex human intent + biometrics into exact API parameters (Target BPM, Genre, Valence, Energy).
 * **Execution:** Backend fetches the tracks from Spotify/YouTube, builds the playlist, and begins playback.
