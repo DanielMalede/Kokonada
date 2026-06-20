@@ -3,6 +3,7 @@ import authReducer from './slices/authSlice';
 import biometricsReducer from './slices/biometricsSlice';
 import emotionReducer from './slices/emotionSlice';
 import playerReducer from './slices/playerSlice';
+import integrationsReducer from './slices/integrationsSlice';
 
 export const store = configureStore({
   reducer: {
@@ -10,6 +11,7 @@ export const store = configureStore({
     biometrics: biometricsReducer,
     emotion: emotionReducer,
     player: playerReducer,
+    integrations: integrationsReducer,
   },
 });
 
