@@ -83,6 +83,8 @@ export default function LoginPage() {
     fbScript.onload = () => {
       FB.init({
         appId: import.meta.env.VITE_FACEBOOK_APP_ID,
+        cookie: true,
+        xfbml: true,
         version: 'v19.0',
       });
       setIsFbReady(true);
