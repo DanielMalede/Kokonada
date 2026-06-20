@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState, AppDispatch } from './store';
@@ -6,6 +6,7 @@ import { setUser, setAuthStatus } from './store/slices/authSlice';
 import { selectIsIntegrationsComplete } from './store/slices/integrationsSlice';
 import LoginPage from './pages/LoginPage';
 import AppPage from './pages/AppPage';
+import IntegrationsPage from './pages/IntegrationsPage';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -56,15 +57,6 @@ function PublicOnlyGuard() {
   return <Outlet />;
 }
 
-// Placeholder until Task 5 creates the real IntegrationsPage
-function IntegrationsPagePlaceholder() {
-  return (
-    <div className="min-h-screen bg-[#1a1a2e] flex items-center justify-center">
-      <p className="text-white text-lg">Integrations — coming soon</p>
-    </div>
-  );
-}
-
 function RootLayout() {
   return (
     <AppBootstrap>
@@ -84,7 +76,7 @@ export const router = createBrowserRouter([
       {
         element: <AuthGuard />,
         children: [
-          { path: '/integrations', element: <IntegrationsPagePlaceholder /> },
+          { path: '/integrations', element: <IntegrationsPage /> },
           {
             element: <IntegrationsGuard />,
             children: [{ path: '/app', element: <AppPage /> }],
@@ -94,5 +86,3 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
-
-export { RouterProvider };
