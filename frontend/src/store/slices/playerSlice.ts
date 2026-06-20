@@ -43,14 +43,11 @@ const playerSlice = createSlice({
     setPlaying(state, action: PayloadAction<boolean>) {
       state.isPlaying = action.payload;
     },
-    setOfflineBuffer(state, action: PayloadAction<Track[]>) {
-      state.offlineBuffer = action.payload;
-    },
     setIsOnline(state, action: PayloadAction<boolean>) {
       state.isOnline = action.payload;
     },
   },
 });
 
-export const { setPlaylist, skipTrack, setPlaying, setOfflineBuffer, setIsOnline } = playerSlice.actions;
+export const { setPlaylist, skipTrack, setPlaying, setIsOnline } = playerSlice.actions;
 export default playerSlice.reducer;

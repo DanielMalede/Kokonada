@@ -30,6 +30,7 @@ export class AudioPlayerService {
   }
 
   async play(uri: string): Promise<void> {
+    this.stop();
     const ctx = this.getContext();
     if (ctx.state === 'suspended') await ctx.resume();
 
@@ -52,6 +53,9 @@ export class AudioPlayerService {
     if (ctx.state === 'suspended') await ctx.resume();
 
     const durationSec = durationMs / 1000;
+
+    // Fetch first — then compute timing from fresh ctx.currentTime
+    const buffer = await this.fetchBuffer(nextUri);
     const startAt = ctx.currentTime + BLUETOOTH_BUFFER_MS / 1000;
 
     if (this.currentGain && this.currentSource) {
@@ -64,7 +68,6 @@ export class AudioPlayerService {
       );
     }
 
-    const buffer = await this.fetchBuffer(nextUri);
     const nextGain = ctx.createGain();
     nextGain.gain.setValueAtTime(0, ctx.currentTime);
     nextGain.gain.linearRampToValueAtTime(1, startAt + durationSec);

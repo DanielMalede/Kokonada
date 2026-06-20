@@ -3,6 +3,8 @@ import { useDispatch } from 'react-redux';
 import { io, Socket } from 'socket.io-client';
 import type { AppDispatch } from '../store';
 import { setPlaylist, skipTrack as skipTrackAction, setIsOnline } from '../store/slices/playerSlice';
+
+interface Track { id: string; title: string; artist: string; uri: string; }
 import {
   setBiometricAck,
   setRecalibrationPending,
@@ -63,8 +65,14 @@ function initSocket(dispatch: AppDispatch): Socket {
   socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
 
-  socket.on('playlist_ready', (data: { tracks: never[]; trigger: 'emotion' | 'biometric' | 'skip_loop' }) => {
+  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop' }) => {
     dispatch(setPlaylist({ tracks: data.tracks, trigger: data.trigger }));
+  });
+
+  socket.on('playlist_error', (data: { message: string; fallbackTracks?: Track[] }) => {
+    if (data.fallbackTracks && data.fallbackTracks.length > 0) {
+      dispatch(setPlaylist({ tracks: data.fallbackTracks, trigger: 'biometric' }));
+    }
   });
 
   return socket;
