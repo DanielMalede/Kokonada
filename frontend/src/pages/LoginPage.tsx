@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import type { AppDispatch } from '../store';
 import { setUser, setAuthStatus } from '../store/slices/authSlice';
 import './LoginPage.css';
@@ -27,6 +28,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 export default function LoginPage() {
   const dispatch = useDispatch<AppDispatch>();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isGsiReady, setIsGsiReady] = useState(false);
   const [isAppleReady, setIsAppleReady] = useState(false);
@@ -52,6 +54,7 @@ export default function LoginPage() {
             const data = await res.json();
             dispatch(setUser(data));
             dispatch(setAuthStatus('authenticated'));
+            navigate('/integrations');
           } catch {
             setError('Google login failed — please try again.');
           }
@@ -117,6 +120,7 @@ export default function LoginPage() {
       const user = await res.json();
       dispatch(setUser(user));
       dispatch(setAuthStatus('authenticated'));
+      navigate('/integrations');
     } catch {
       setError('Apple login failed — please try again.');
     }
@@ -140,6 +144,7 @@ export default function LoginPage() {
         const data = await res.json();
         dispatch(setUser(data));
         dispatch(setAuthStatus('authenticated'));
+        navigate('/integrations');
       } catch {
         setError('Facebook login failed — please try again.');
       }
