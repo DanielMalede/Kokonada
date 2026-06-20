@@ -143,6 +143,81 @@ describe('computeStateVector — state classification', () => {
   });
 });
 
+// ── computeStateVector — Pillar 5 device context signals ──────────────────────
+
+describe('computeStateVector — Pillar 5 device context signals', () => {
+  it('classifies "Screen-Off / Background Listening" for BT + screen off + evening + stationary', () => {
+    const result = computeStateVector({
+      heartRate: 62, restingHeartRate: 60,
+      hrv: 55, spO2: 98, respirationRate: 14,
+      stepsPerMinute: 8, accelerometerVariance: 0.03,
+      bodyBattery: 40, dailyReadiness: 50,
+      timeOfDay: 'evening',
+      screenOn: false,
+      bluetoothAudioConnected: true,
+    });
+    expect(result.status).toBe('Screen-Off / Background Listening');
+    expect(result.confidence).toBe(1.0);
+  });
+
+  it('classifies "Screen-Off / Background Listening" at 0.7 confidence when time/steps are absent', () => {
+    const result = computeStateVector({ screenOn: false, bluetoothAudioConnected: true });
+    expect(result.status).toBe('Screen-Off / Background Listening');
+    expect(result.confidence).toBe(0.7);
+  });
+
+  it('does NOT classify "Screen-Off / Background Listening" when screen is on', () => {
+    const result = computeStateVector({
+      heartRate: 62, restingHeartRate: 60,
+      stepsPerMinute: 8, timeOfDay: 'evening',
+      screenOn: true, bluetoothAudioConnected: true,
+    });
+    expect(result.status).not.toBe('Screen-Off / Background Listening');
+  });
+
+  it('does NOT classify "Screen-Off / Background Listening" when Bluetooth is disconnected', () => {
+    const result = computeStateVector({
+      heartRate: 62, restingHeartRate: 60,
+      stepsPerMinute: 8, timeOfDay: 'evening',
+      screenOn: false, bluetoothAudioConnected: false,
+    });
+    expect(result.status).not.toBe('Screen-Off / Background Listening');
+  });
+
+  it('classifies "Deep Focus / Flow State" at full confidence when screenOn is true', () => {
+    const result = computeStateVector({
+      heartRate: 62, restingHeartRate: 60,
+      accelerometerVariance: 0.05, stepsPerMinute: 10,
+      bodyBattery: 75, dailyReadiness: 80,
+      hrv: 60, spO2: 99, respirationRate: 14,
+      timeOfDay: 'afternoon',
+      screenOn: true, bluetoothAudioConnected: true,
+    });
+    expect(result.status).toBe('Deep Focus / Flow State');
+    expect(result.confidence).toBe(1.0);
+  });
+
+  it('does NOT classify "Deep Focus / Flow State" when screenOn is explicitly false', () => {
+    const result = computeStateVector({
+      heartRate: 62, restingHeartRate: 60,
+      accelerometerVariance: 0.05, stepsPerMinute: 10,
+      timeOfDay: 'afternoon',
+      screenOn: false, bluetoothAudioConnected: false,
+    });
+    expect(result.status).not.toBe('Deep Focus / Flow State');
+  });
+
+  it('"Screen-Off / Background Listening" takes priority over "Deep Focus" when screen is off in the evening', () => {
+    const result = computeStateVector({
+      heartRate: 62, restingHeartRate: 60,
+      accelerometerVariance: 0.05, stepsPerMinute: 10,
+      timeOfDay: 'evening',
+      screenOn: false, bluetoothAudioConnected: true,
+    });
+    expect(result.status).toBe('Screen-Off / Background Listening');
+  });
+});
+
 // ── computeStateVector — confidence scoring ────────────────────────────────────
 
 describe('computeStateVector — confidence scoring', () => {

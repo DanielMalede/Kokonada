@@ -93,24 +93,45 @@ const RULES = [
     },
   },
 
-  // Priority 6 — Deep Focus / Flow State
+  // Priority 6 — Screen-Off / Background Listening
+  {
+    status: 'Screen-Off / Background Listening',
+    match(t) {
+      // Both Pillar 5 device context signals must be explicitly confirmed
+      if (t.screenOn !== false || t.bluetoothAudioConnected !== true) {
+        return { matched: false, full: false };
+      }
+      const windingDown = t.timeOfDay === 'evening' || t.timeOfDay === 'night';
+      const stationary  = t.stepsPerMinute == null || t.stepsPerMinute < 30;
+
+      if (windingDown && stationary) return { matched: true, full: true };
+      // BT headphones + locked screen is passive listening even without time/steps data
+      return { matched: true, full: false };
+    },
+  },
+
+  // Priority 7 — Deep Focus / Flow State
   {
     status: 'Deep Focus / Flow State',
     match(t) {
       if (t.heartRate == null || t.restingHeartRate == null) return { matched: false, full: false };
-      const lowHr       = t.heartRate < t.restingHeartRate * 1.1;
-      const lowMovement = t.accelerometerVariance != null && t.accelerometerVariance < 0.1;
-      const daytime     = t.timeOfDay === 'morning' || t.timeOfDay === 'afternoon';
+      // Screen explicitly off means phone is pocketed — not an active focus session
+      if (t.screenOn === false) return { matched: false, full: false };
+      const lowHr          = t.heartRate < t.restingHeartRate * 1.1;
+      const lowMovement    = t.accelerometerVariance != null && t.accelerometerVariance < 0.1;
+      const daytime        = t.timeOfDay === 'morning' || t.timeOfDay === 'afternoon';
       // Truly stationary (< 10 steps/min) is resting/meditative, not focused work
-      const notStationary = t.stepsPerMinute == null || t.stepsPerMinute >= 10;
+      const notStationary  = t.stepsPerMinute == null || t.stepsPerMinute >= 10;
+      // Screen confirmed on boosts confidence — active screen use signals intentional focus
+      const screenConfirmed = t.screenOn === true;
 
-      if (lowHr && lowMovement && daytime && notStationary) return { matched: true, full: true };
+      if (lowHr && lowMovement && daytime && notStationary && screenConfirmed) return { matched: true, full: true };
       if (lowHr && (lowMovement || daytime) && notStationary) return { matched: true, full: false };
       return { matched: false, full: false };
     },
   },
 
-  // Priority 7 — Morning Activation
+  // Priority 8 — Morning Activation
   {
     status: 'Morning Activation',
     match(t) {
@@ -123,7 +144,7 @@ const RULES = [
     },
   },
 
-  // Priority 8 — Resting / Meditative
+  // Priority 9 — Resting / Meditative
   {
     status: 'Resting / Meditative',
     match(t) {
