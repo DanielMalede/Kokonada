@@ -3,14 +3,14 @@ import { useDispatch } from 'react-redux';
 import { io, Socket } from 'socket.io-client';
 import type { AppDispatch } from '../store';
 import { setPlaylist, skipTrack as skipTrackAction, setIsOnline } from '../store/slices/playerSlice';
-
-interface Track { id: string; title: string; artist: string; uri: string; }
 import {
   setBiometricAck,
   setRecalibrationPending,
   setRecalibrationCancelled,
   setRecalibrating,
 } from '../store/slices/biometricsSlice';
+
+interface Track { id: string; title: string; artist: string; uri: string; }
 
 export interface EmotionTap {
   x: number;
