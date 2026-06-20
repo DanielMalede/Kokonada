@@ -53,15 +53,29 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli@latest
-      - name: Deploy to Railway
-        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }} --detach
-        working-directory: backend
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      - name: Trigger Railway deployment via API
+        run: |
+          node -e "
+          const https = require('https');
+          const query = JSON.stringify({
+            query: 'mutation { serviceInstanceDeploy(serviceId: \"${{ secrets.RAILWAY_SERVICE_ID }}\", environmentId: \"${{ secrets.RAILWAY_ENVIRONMENT_ID }}\") }'
+          });
+          const req = https.request({
+            hostname: 'backboard.railway.app', path: '/graphql/v2', method: 'POST',
+            headers: { 'Authorization': 'Bearer ${{ secrets.RAILWAY_TOKEN }}', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(query) }
+          }, (res) => {
+            let body = '';
+            res.on('data', d => body += d);
+            res.on('end', () => {
+              const r = JSON.parse(body);
+              if (r.errors) { console.error('Railway error:', r.errors[0].message); process.exit(1); }
+              console.log('Railway deploy triggered:', JSON.stringify(r.data));
+            });
+          });
+          req.on('error', e => { console.error(e); process.exit(1); });
+          req.write(query);
+          req.end();
+          "
 
   deploy-frontend:
     name: Deploy Frontend → Vercel
@@ -70,14 +84,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
       - name: Deploy to Vercel
         run: vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
-        working-directory: frontend
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
