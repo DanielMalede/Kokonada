@@ -55,14 +55,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Railway CLI
-        run: curl -fsSL https://railway.app/install.sh | sh
+        run: npm install -g @railway/cli@latest
       - name: Deploy to Railway
-        run: railway up --detach
+        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }} --detach
         working-directory: backend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
 
   deploy-frontend:
     name: Deploy Frontend → Vercel
