@@ -1,6 +1,8 @@
 'use strict';
 
+const crypto           = require('crypto');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { getRedis }     = require('../config/redis');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -138,9 +140,26 @@ Adjust tempo and energy to match the physiological state while preserving the us
 // ── Gemini call ────────────────────────────────────────────────────────────────
 
 async function _callGemini(prompt) {
+  const redis = getRedis();
+  let cacheKey = null;
+
+  if (redis) {
+    cacheKey = `gemini:${crypto.createHash('md5').update(prompt).digest('hex')}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch { /* cache miss — proceed to API */ }
+  }
+
   const model  = getModel();
   const result = await _withTimeout(GEMINI_TIMEOUT_MS, model.generateContent(prompt));
-  return _parseAndValidate(result.response.text());
+  const parsed = _parseAndValidate(result.response.text());
+
+  if (redis && cacheKey) {
+    redis.setex(cacheKey, 86_400, JSON.stringify(parsed)).catch(() => {});
+  }
+
+  return parsed;
 }
 
 // ── Public pipelines ───────────────────────────────────────────────────────────

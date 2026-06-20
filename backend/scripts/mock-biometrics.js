@@ -101,8 +101,9 @@ function main() {
     console.log(`[mock] recalibration pending — ${secondsRemaining}s remaining`);
   });
 
-  socket.on('playlist_recalibration', ({ trigger }) => {
-    console.log(`[mock] playlist_recalibration triggered (${trigger})`);
+  socket.on('playlist_ready', ({ trigger, tracks, fallback }) => {
+    const tag = fallback ? ' [FALLBACK]' : '';
+    console.log(`[mock] playlist_ready${tag}: trigger=${trigger} tracks=${tracks?.length ?? 0}`);
   });
 }
 

@@ -102,10 +102,19 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     }
   } catch (err) {
     const fallbackTracks = generateFallbackPlaylist(musicProfile ?? {});
-    socket.emit('playlist_error', {
-      message: err.message,
-      fallbackTracks: fallbackTracks.length > 0 ? fallbackTracks : undefined,
-    });
+    if (fallbackTracks.length > 0) {
+      // AI failed (timeout or API error) but we have library tracks — keep music playing.
+      // Emit as playlist_ready so the UI never shows an error state.
+      socket.emit('playlist_ready', {
+        trigger,
+        tracks:    fallbackTracks,
+        familiar:  fallbackTracks.length,
+        discovery: 0,
+        fallback:  true,
+      });
+    } else {
+      socket.emit('playlist_error', { message: err.message });
+    }
     return;
   }
 

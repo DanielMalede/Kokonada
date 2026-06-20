@@ -338,27 +338,43 @@ describe('error handling', () => {
     }));
   });
 
-  it('emits playlist_error with message when Gemini fails', async () => {
-    geminiEngine.buildEmotionPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+  it('emits playlist_ready with fallback:true when Gemini fails and library is non-empty', async () => {
     geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({
+      trigger:   'biometric',
+      fallback:  true,
+      tracks:    expect.any(Array),
+      discovery: 0,
+    }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+
+  it('fallback playlist_ready carries library tracks and familiar count', async () => {
+    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call[1].tracks.length).toBeGreaterThan(0);
+    expect(call[1].familiar).toBe(call[1].tracks.length);
+  });
+
+  it('emits playlist_error (not playlist_ready) when Gemini fails and library is empty', async () => {
+    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+    playlistMixer.generateFallbackPlaylist.mockReturnValueOnce([]);
 
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
 
     expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({
-      message:        expect.stringContaining('Gemini timeout'),
-      fallbackTracks: expect.any(Array),
+      message: expect.any(String),
     }));
-  });
-
-  it('includes library tracks as fallback when Gemini fails', async () => {
-    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
-
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'biometric', makeState());
-
-    const errorCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
-    expect(errorCall[1].fallbackTracks.length).toBeGreaterThan(0);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
 });
 
