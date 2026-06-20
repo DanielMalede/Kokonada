@@ -23,6 +23,8 @@ const MAX_RETRIES = 5;
 let socket: Socket | null = null;
 let retryCount = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let lastBiometricDispatch = 0;
+const BIOMETRIC_THROTTLE_MS = 300;
 
 function clearRetryTimer() {
   if (retryTimer !== null) {
@@ -60,7 +62,13 @@ function initSocket(dispatch: AppDispatch): Socket {
     scheduleReconnect();
   });
 
-  socket.on('biometric_ack', (data: unknown) => dispatch(setBiometricAck(data as never)));
+  socket.on('biometric_ack', (data: unknown) => {
+    const now = Date.now();
+    if (now - lastBiometricDispatch >= BIOMETRIC_THROTTLE_MS) {
+      lastBiometricDispatch = now;
+      dispatch(setBiometricAck(data as never));
+    }
+  });
   socket.on('recalibration_pending', (data: unknown) => dispatch(setRecalibrationPending(data as never)));
   socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
