@@ -1,83 +1,118 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
+import LivePlayer from '../components/LivePlayer';
 import playerReducer from '../store/slices/playerSlice';
-import LivePlayer from '../components/LivePlayer/LivePlayer';
+import authReducer from '../store/slices/authSlice';
+import biometricsReducer from '../store/slices/biometricsSlice';
+import emotionReducer from '../store/slices/emotionSlice';
+import integrationsReducer from '../store/slices/integrationsSlice';
 
-// Mock useSocket so it doesn't try to open a real WebSocket
-vi.mock('../hooks/useSocket', () => ({
-  useSocket: () => ({
-    skipTrack: vi.fn(),
-    emitEmotionUpdate: vi.fn(),
-    disconnect: vi.fn(),
-    connected: false,
-  }),
-}));
-
-// Mock audioPlayer to avoid Web Audio API in test environment
-vi.mock('../services/audioPlayer', () => ({
-  audioPlayer: {
-    play: vi.fn(),
-    stop: vi.fn(),
-    crossfadeTo: vi.fn(),
+// Mock spotifyPlayerService
+vi.mock('../services/spotifyPlayer', () => ({
+  spotifyPlayerService: {
+    pause:     vi.fn().mockResolvedValue(undefined),
+    resume:    vi.fn().mockResolvedValue(undefined),
+    nextTrack: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
-const makeStore = (playbackMode: 'live' | 'export' | null, playlist: { id: string; title: string; artist: string; uri: string }[]) =>
-  configureStore({
-    reducer: { player: playerReducer },
+// Mock useSocket
+vi.mock('../hooks/useSocket', () => ({
+  useSocket: () => ({ skipTrack: vi.fn(), emitEmotionUpdate: vi.fn(), connected: true, disconnect: vi.fn() }),
+}));
+
+function buildStore(playerOverrides = {}) {
+  return configureStore({
+    reducer: {
+      auth: authReducer,
+      biometrics: biometricsReducer,
+      emotion: emotionReducer,
+      player: playerReducer,
+      integrations: integrationsReducer,
+    },
     preloadedState: {
       player: {
-        playbackMode,
-        playlist,
+        playlist: [
+          { id: 'aaa', title: 'Song A', artist: 'Artist X', uri: 'spotify:track:aaa' },
+          { id: 'bbb', title: 'Song B', artist: 'Artist Y', uri: 'spotify:track:bbb' },
+        ],
+        offlineBuffer: [],
         currentIndex: 0,
         isPlaying: false,
         isOnline: true,
-        offlineBuffer: [],
-        trigger: null,
+        trigger: 'emotion' as const,
+        playbackMode: 'live' as const,
+        sdkReady: true,
+        deviceId: 'dev_123',
+        sdkIsPaused: true,
+        sdkPositionMs: 0,
+        sdkDurationMs: 210000,
+        ...playerOverrides,
       },
-    },
+    } as never,
   });
+}
 
 describe('LivePlayer', () => {
-  it('renders current track when playbackMode is live', () => {
-    const store = makeStore('live', [{ id: '1', uri: 'x', title: 'Track A', artist: 'Artist B' }]);
-    const { getByText } = render(
-      <Provider store={store}>
-        <LivePlayer />
-      </Provider>
-    );
-    expect(getByText('Track A')).toBeTruthy();
-    expect(getByText('Artist B')).toBeTruthy();
+  beforeEach(() => vi.clearAllMocks());
+
+  it('renders track title and artist', () => {
+    render(<Provider store={buildStore()}><LivePlayer /></Provider>);
+    expect(screen.getByText('Song A')).toBeInTheDocument();
+    expect(screen.getByText('Artist X')).toBeInTheDocument();
   });
 
-  it('renders nothing when playbackMode is null', () => {
-    const store = makeStore(null, [{ id: '1', uri: 'x', title: 'Track A', artist: 'Artist B' }]);
-    const { container } = render(
-      <Provider store={store}>
-        <LivePlayer />
-      </Provider>
-    );
-    expect(container.firstChild).toBeNull();
+  it('shows play button when SDK is paused', () => {
+    render(<Provider store={buildStore({ sdkIsPaused: true })}><LivePlayer /></Provider>);
+    expect(screen.getByRole('button', { name: /play/i })).toBeInTheDocument();
   });
 
-  it('renders nothing when playlist is empty', () => {
-    const store = makeStore('live', []);
-    const { container } = render(
-      <Provider store={store}>
-        <LivePlayer />
-      </Provider>
-    );
-    expect(container.firstChild).toBeNull();
+  it('shows pause button when SDK is playing', () => {
+    render(<Provider store={buildStore({ sdkIsPaused: false })}><LivePlayer /></Provider>);
+    expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument();
   });
 
-  it('renders nothing when playbackMode is export', () => {
-    const store = makeStore('export', [{ id: '1', uri: 'x', title: 'Track A', artist: 'Artist B' }]);
+  it('calls spotifyPlayerService.resume() on play click', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    render(<Provider store={buildStore({ sdkIsPaused: true })}><LivePlayer /></Provider>);
+    fireEvent.click(screen.getByRole('button', { name: /play/i }));
+    expect(spotifyPlayerService.resume).toHaveBeenCalledOnce();
+  });
+
+  it('calls spotifyPlayerService.pause() on pause click', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    render(<Provider store={buildStore({ sdkIsPaused: false })}><LivePlayer /></Provider>);
+    fireEvent.click(screen.getByRole('button', { name: /pause/i }));
+    expect(spotifyPlayerService.pause).toHaveBeenCalledOnce();
+  });
+
+  it('calls spotifyPlayerService.nextTrack() on skip click', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    render(<Provider store={buildStore()}><LivePlayer /></Provider>);
+    fireEvent.click(screen.getByRole('button', { name: /skip/i }));
+    expect(spotifyPlayerService.nextTrack).toHaveBeenCalledOnce();
+  });
+
+  it('skip button is disabled when on last track', () => {
+    render(
+      <Provider store={buildStore({ currentIndex: 1 })}><LivePlayer /></Provider>
+    );
+    expect(screen.getByRole('button', { name: /skip/i })).toBeDisabled();
+  });
+
+  it('renders progress bar width from SDK position', () => {
+    // 50% through a 200s track
+    const store = buildStore({ sdkPositionMs: 100000, sdkDurationMs: 200000 });
+    const { container } = render(<Provider store={store}><LivePlayer /></Provider>);
+    const bar = container.querySelector('.bg-\\[\\#e9c46a\\]') as HTMLElement;
+    expect(bar.style.width).toBe('50%');
+  });
+
+  it('returns null when playbackMode is not live', () => {
     const { container } = render(
-      <Provider store={store}>
-        <LivePlayer />
-      </Provider>
+      <Provider store={buildStore({ playbackMode: null })}><LivePlayer /></Provider>
     );
     expect(container.firstChild).toBeNull();
   });
