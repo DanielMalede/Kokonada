@@ -63,20 +63,23 @@ export default function LoginPage() {
     };
     document.body.appendChild(gScript);
 
-    // Apple Sign In SDK
+    // Apple Sign In SDK — only load if clientId is configured
+    const appleClientId = import.meta.env.VITE_APPLE_CLIENT_ID;
     const aScript = document.createElement('script');
-    aScript.src = 'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js';
-    aScript.async = true;
-    aScript.onload = () => {
-      AppleID.auth.init({
-        clientId: import.meta.env.VITE_APPLE_CLIENT_ID,
-        scope: 'name email',
-        redirectURI: import.meta.env.VITE_APPLE_REDIRECT_URI,
-        usePopup: true,
-      });
-      setIsAppleReady(true);
-    };
-    document.body.appendChild(aScript);
+    if (appleClientId) {
+      aScript.src = 'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js';
+      aScript.async = true;
+      aScript.onload = () => {
+        AppleID.auth.init({
+          clientId: appleClientId,
+          scope: 'name email',
+          redirectURI: import.meta.env.VITE_APPLE_REDIRECT_URI,
+          usePopup: true,
+        });
+        setIsAppleReady(true);
+      };
+      document.body.appendChild(aScript);
+    }
 
     // Facebook SDK
     const fbScript = document.createElement('script');
@@ -95,7 +98,7 @@ export default function LoginPage() {
 
     return () => {
       document.body.removeChild(gScript);
-      document.body.removeChild(aScript);
+      if (appleClientId && aScript.parentNode) document.body.removeChild(aScript);
       document.body.removeChild(fbScript);
     };
   }, [dispatch]);

@@ -20,7 +20,7 @@ function AppBootstrap({ children }: { children: React.ReactNode }) {
     fetch(`${BACKEND_URL}/api/auth/me`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => { dispatch(setUser(data)); dispatch(setAuthStatus('authenticated')); })
-      .catch(() => dispatch(setAuthStatus('idle')));
+      .catch(() => dispatch(setAuthStatus('error')));
   }, [dispatch, status]);
 
   return <>{children}</>;
