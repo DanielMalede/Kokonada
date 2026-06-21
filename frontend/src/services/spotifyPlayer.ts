@@ -1,0 +1,141 @@
+import type { SpotifySDKState } from '../store/slices/playerSlice';
+
+// Minimal Spotify Web Playback SDK type declarations
+declare global {
+  interface Window {
+    onSpotifyWebPlaybackSDKReady: () => void;
+    Spotify: {
+      Player: new (options: SpotifyPlayerOptions) => SpotifyPlayer;
+    };
+  }
+}
+
+interface SpotifyPlayerOptions {
+  name: string;
+  getOAuthToken: (cb: (token: string) => void) => void;
+  volume: number;
+}
+
+interface SpotifyPlayer {
+  connect(): Promise<boolean>;
+  disconnect(): void;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  nextTrack(): Promise<void>;
+  addListener(event: string, cb: (data: unknown) => void): boolean;
+  removeListener(event: string, cb?: (data: unknown) => void): boolean;
+}
+
+type SDKStateCallback = (state: SpotifySDKState) => void;
+
+class SpotifyPlayerService {
+  private static _instance: SpotifyPlayerService;
+  private player: SpotifyPlayer | null = null;
+  private deviceId: string | null = null;
+  private stateCallback: SDKStateCallback | null = null;
+  private positionInterval: ReturnType<typeof setInterval> | null = null;
+  private currentPositionMs = 0;
+  private currentDurationMs = 0;
+  private isCurrentlyPaused = true;
+
+  static getInstance(): SpotifyPlayerService {
+    if (!SpotifyPlayerService._instance) {
+      SpotifyPlayerService._instance = new SpotifyPlayerService();
+    }
+    return SpotifyPlayerService._instance;
+  }
+
+  onStateChange(callback: SDKStateCallback): void {
+    this.stateCallback = callback;
+  }
+
+  private emit(patch: SpotifySDKState): void {
+    this.stateCallback?.(patch);
+  }
+
+  async init(fetchToken: () => Promise<string>): Promise<void> {
+    if (this.player) return;
+
+    this.player = new window.Spotify.Player({
+      name: 'Kokonada',
+      getOAuthToken: (cb) => { fetchToken().then(cb).catch(console.error); },
+      volume: 0.8,
+    });
+
+    this.player.addListener('ready', (data: unknown) => {
+      const { device_id } = data as { device_id: string };
+      this.deviceId = device_id;
+      this.emit({ deviceId: device_id, isReady: true });
+    });
+
+    this.player.addListener('not_ready', () => {
+      this.emit({ isReady: false });
+    });
+
+    this.player.addListener('player_state_changed', (data: unknown) => {
+      if (!data) return;
+      const s = data as { paused: boolean; position: number; duration: number };
+      this.isCurrentlyPaused = s.paused;
+      this.currentPositionMs = s.position;
+      this.currentDurationMs = s.duration;
+      this.emit({ isPaused: s.paused, positionMs: s.position, durationMs: s.duration });
+
+      if (!s.paused) {
+        this.startProgressInterval();
+      } else {
+        this.stopProgressInterval();
+      }
+    });
+
+    await this.player.connect();
+  }
+
+  private startProgressInterval(): void {
+    if (this.positionInterval) return;
+    this.positionInterval = setInterval(() => {
+      if (!this.isCurrentlyPaused) {
+        this.currentPositionMs = Math.min(
+          this.currentPositionMs + 1000,
+          this.currentDurationMs,
+        );
+        this.emit({ positionMs: this.currentPositionMs });
+      }
+    }, 1000);
+  }
+
+  private stopProgressInterval(): void {
+    if (this.positionInterval) {
+      clearInterval(this.positionInterval);
+      this.positionInterval = null;
+    }
+  }
+
+  getDeviceId(): string | null {
+    return this.deviceId;
+  }
+
+  async pause(): Promise<void> {
+    await this.player?.pause();
+  }
+
+  async resume(): Promise<void> {
+    await this.player?.resume();
+  }
+
+  async nextTrack(): Promise<void> {
+    await this.player?.nextTrack();
+  }
+
+  destroy(): void {
+    this.stopProgressInterval();
+    this.player?.disconnect();
+    this.player = null;
+    this.deviceId = null;
+    this.stateCallback = null;
+    this.currentPositionMs = 0;
+    this.currentDurationMs = 0;
+    this.isCurrentlyPaused = true;
+  }
+}
+
+export const spotifyPlayerService = SpotifyPlayerService.getInstance();
