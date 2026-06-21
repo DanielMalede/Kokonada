@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState, AppDispatch } from '../store';
 import { clearUser, setAuthStatus } from '../store/slices/authSlice';
@@ -20,6 +20,7 @@ export default function AppPage() {
   const musicProvider = useSelector((state: RootState) => state.integrations.musicProvider);
   const { playlist, playbackMode, deviceId } = useSelector((state: RootState) => state.player);
   const { disconnect, emitEmotionUpdate } = useSocket();
+  const playedPlaylistRef = useRef<string | null>(null);
 
   // Initialize Spotify Web Playback SDK if the user's music provider is Spotify
   useSpotifyPlayer(musicProvider);
@@ -33,14 +34,22 @@ export default function AppPage() {
       playlist.length === 0
     ) return;
 
+    const playlistKey = playlist.map((t) => t.uri).join(',');
+    if (playedPlaylistRef.current === playlistKey) return;
+    playedPlaylistRef.current = playlistKey;
+
     const uris = playlist.map((t) => t.uri);
     fetch(`${BACKEND_URL}/api/integrations/spotify/play`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uris, deviceId }),
-    }).catch((err) => console.error('[Spotify] play failed:', err));
-  }, [playlist]); // Re-run only when the playlist itself changes
+    })
+      .then((res) => {
+        if (!res.ok) console.error(`[Spotify] play failed: ${res.status}`);
+      })
+      .catch((err) => console.error('[Spotify] play failed:', err));
+  }, [playlist, deviceId]); // deviceId added: effect re-fires when SDK device becomes ready
 
   useEffect(() => {
     return () => {

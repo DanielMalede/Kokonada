@@ -32,7 +32,11 @@ export function useSpotifyPlayer(musicProvider: string | null): void {
   const dispatch = useDispatch<AppDispatch>();
 
   useEffect(() => {
-    if (musicProvider !== 'spotify') return;
+    // Destroy and bail out when provider is no longer Spotify
+    if (musicProvider !== 'spotify') {
+      spotifyPlayerService.destroy();
+      return;
+    }
 
     let cancelled = false;
 
@@ -48,7 +52,8 @@ export function useSpotifyPlayer(musicProvider: string | null): void {
 
     return () => {
       cancelled = true;
-      spotifyPlayerService.destroy();
+      // Do not destroy here — the singleton lives as long as musicProvider === 'spotify'.
+      // Destruction is triggered by the next effect run when musicProvider changes away.
     };
   }, [musicProvider, dispatch]);
 }
