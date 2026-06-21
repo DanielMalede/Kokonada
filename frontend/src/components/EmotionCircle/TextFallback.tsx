@@ -20,11 +20,11 @@ const PRESET_OPTIONS: PresetOption[] = [
   { label: 'Angry / Tense', x: 0.8, y: -0.8 },
 ];
 
-function findLabelForTap(tap: EmotionTap): string {
+function findLabelForTap(tap: EmotionTap, index: number): string {
   const match = PRESET_OPTIONS.find(
     (opt) => opt.x === tap.x && opt.y === tap.y,
   );
-  return match ? match.label : `(${tap.x.toFixed(2)}, ${tap.y.toFixed(2)})`;
+  return match ? match.label : `Custom tap ${index + 1}`;
 }
 
 export function TextFallback() {
@@ -77,7 +77,7 @@ export function TextFallback() {
           {taps.map((tap, i) => (
             <li key={i} className="text-fallback-tap-item">
               <span>
-                Tap {i + 1}: {findLabelForTap(tap)}
+                Tap {i + 1}: {findLabelForTap(tap, i)}
               </span>
               <button
                 className="text-fallback-remove-btn"

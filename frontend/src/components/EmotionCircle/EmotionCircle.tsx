@@ -128,7 +128,7 @@ export default function EmotionCircle() {
               key={i}
               onClick={handleTapClick(i)}
               style={{ cursor: 'pointer' }}
-              aria-label={`Tap ${i + 1} at arousal ${tap.x.toFixed(2)}, valence ${tap.y.toFixed(2)}. Click to remove.`}
+              aria-label={`Emotion tap ${i + 1}. Click to remove.`}
             >
               <circle
                 cx={px}
