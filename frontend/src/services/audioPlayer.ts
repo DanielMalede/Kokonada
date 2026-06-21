@@ -6,6 +6,7 @@ export class AudioPlayerService {
   private ctx: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
   private currentGain: GainNode | null = null;
+  private nearEndTimer: ReturnType<typeof setTimeout> | null = null;
   public onNearEnd: ((pct: number) => void) | null = null;
 
   static getInstance(): AudioPlayerService {
@@ -51,12 +52,13 @@ export class AudioPlayerService {
     // Schedule 80% pre-buffer callback
     const durationMs = buffer.duration * 1000;
     const triggerAt = durationMs * 0.8;
-    setTimeout(() => {
+    this.nearEndTimer = setTimeout(() => {
       this.onNearEnd?.(0.8);
     }, triggerAt);
   }
 
   async crossfadeTo(nextUri: string, durationMs: number = CROSSFADE_MS): Promise<void> {
+    if (this.nearEndTimer) { clearTimeout(this.nearEndTimer); this.nearEndTimer = null; }
     const ctx = this.getContext();
     if (ctx.state === 'suspended') await ctx.resume();
 
@@ -92,6 +94,7 @@ export class AudioPlayerService {
   }
 
   stop(): void {
+    if (this.nearEndTimer) { clearTimeout(this.nearEndTimer); this.nearEndTimer = null; }
     if (this.currentGain) {
       this.currentGain.gain.setValueAtTime(0, this.getContext().currentTime);
     }

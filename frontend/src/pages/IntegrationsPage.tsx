@@ -23,8 +23,8 @@ export default function IntegrationsPage() {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
-        if (data.musicProvider) dispatch(setMusicProvider(data.musicProvider));
-        if (data.biometricProvider) dispatch(setBiometricProvider(data.biometricProvider));
+        dispatch(setMusicProvider(data.musicProvider));
+        dispatch(setBiometricProvider(data.biometricProvider));
       })
       .catch(() => {});
   }, [dispatch]);

@@ -188,7 +188,7 @@ describe('Spotify OAuth flow', () => {
       expect(spotify.getProfile).toHaveBeenCalledWith(tokens.accessToken);
       expect(user.setToken).toHaveBeenCalledWith('spotifyToken', tokens);
       expect(user.save).toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('kokonada://'));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
       expect(next).not.toHaveBeenCalled();
     });
 
@@ -398,7 +398,7 @@ describe('Garmin OAuth 1.0a flow', () => {
         garminUserId: 'garmin-u1',
       });
       expect(user.save).toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('kokonada://'));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?biometric=garmin'));
       expect(next).not.toHaveBeenCalled();
     });
 

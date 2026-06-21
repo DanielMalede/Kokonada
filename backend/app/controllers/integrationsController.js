@@ -59,9 +59,8 @@ exports.spotifyCallback = async (req, res, next) => {
       }
     });
 
-    // Redirect mobile WebView to a deep link so the app can close the browser
-    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/spotify/success?spotifyId=${profile.spotifyId}`;
-    res.redirect(deepLink);
+    // Redirect to frontend integrations page so the web app can hydrate state
+    res.redirect(`${process.env.FRONTEND_URL}/integrations?music=spotify`);
   } catch (err) {
     next(err);
   }
@@ -125,8 +124,8 @@ exports.youtubeCallback = async (req, res, next) => {
       }
     });
 
-    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/youtube/success?channelId=${channel.channelId}`;
-    res.redirect(deepLink);
+    // Redirect to frontend integrations page so the web app can hydrate state
+    res.redirect(`${process.env.FRONTEND_URL}/integrations?music=youtube`);
   } catch (err) {
     next(err);
   }
@@ -226,8 +225,8 @@ exports.garminCallback = async (req, res, next) => {
     req.user.setToken('wearableToken', { accessToken, accessTokenSecret, garminUserId });
     await req.user.save();
 
-    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/garmin/success`;
-    res.redirect(deepLink);
+    // Redirect to frontend integrations page so the web app can hydrate state
+    res.redirect(`${process.env.FRONTEND_URL}/integrations?biometric=garmin`);
   } catch (err) { next(err); }
 };
 

@@ -5,6 +5,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import emotionReducer, { addTap, clearTaps } from '../store/slices/emotionSlice';
 import authReducer from '../store/slices/authSlice';
 import integrationsReducer from '../store/slices/integrationsSlice';
+import playerReducer from '../store/slices/playerSlice';
 import AppPage from '../pages/AppPage';
 
 // Mock useSocket to prevent connection issues
@@ -43,11 +44,21 @@ describe('NeutralSkip button behavior', () => {
         emotion: emotionReducer,
         auth: authReducer,
         integrations: integrationsReducer,
+        player: playerReducer,
       },
       preloadedState: {
         emotion: { taps: [], textPrompt: '' },
         auth: { user: null, status: 'idle', error: null },
         integrations: { musicProvider: null, biometricProvider: null, status: 'idle' },
+        player: {
+          playlist: [],
+          offlineBuffer: [],
+          currentIndex: 0,
+          isPlaying: false,
+          isOnline: true,
+          trigger: null,
+          playbackMode: null,
+        },
       },
     });
   });

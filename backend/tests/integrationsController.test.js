@@ -120,7 +120,7 @@ describe('integrationsController — buildProfile wiring', () => {
       await ctrl.spotifyCallback(spotifyReq(user), res, jest.fn());
 
       // Redirect must have already been called (before setImmediate runs)
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('spotify/success'));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
     });
 
     it('still redirects even if buildProfile throws', async () => {
@@ -133,7 +133,7 @@ describe('integrationsController — buildProfile wiring', () => {
       await ctrl.spotifyCallback(spotifyReq(user), res, jest.fn());
       await nextTick();
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('spotify/success'));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
     });
 
     it('does not call buildProfile when Spotify returns an error param', async () => {
@@ -198,7 +198,7 @@ describe('integrationsController — buildProfile wiring', () => {
       const res  = buildRes();
       await ctrl.youtubeCallback(youtubeReq(user), res, jest.fn());
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('youtube/success'));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=youtube'));
     });
 
     it('still redirects even if buildProfile throws', async () => {
@@ -211,7 +211,7 @@ describe('integrationsController — buildProfile wiring', () => {
       await ctrl.youtubeCallback(youtubeReq(user), res, jest.fn());
       await nextTick();
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('youtube/success'));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=youtube'));
     });
 
     it('does not call buildProfile when YouTube returns an error param', async () => {
