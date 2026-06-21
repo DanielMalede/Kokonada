@@ -12,6 +12,7 @@ const errorHandler = require('./middleware/errorHandler');
 const authRouter         = require('./routes/auth');
 const integrationsRouter = require('./routes/integrations');
 const { createSocketServer } = require('./sockets');
+const { startGarminPoller } = require('./services/wearable/garminPoller');
 
 const app = express();
 
@@ -53,7 +54,8 @@ async function start() {
   await connectDB();
   await connectRedis();
   const httpServer = http.createServer(app);
-  createSocketServer(httpServer);
+  const io = createSocketServer(httpServer);
+  startGarminPoller(io);
   httpServer.listen(PORT, () =>
     console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}]`)
   );
