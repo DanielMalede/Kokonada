@@ -119,8 +119,8 @@ export function useSocket() {
     dispatch(skipTrackAction());
   };
 
-  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string) => {
-    socketRef.current?.emit('emotion_update', { taps, textPrompt });
+  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string, mode?: 'live' | 'export') => {
+    socketRef.current?.emit('emotion_update', { taps, textPrompt, mode });
   };
 
   const disconnect = () => {

@@ -15,6 +15,7 @@ interface PlayerState {
   isPlaying: boolean;
   isOnline: boolean;
   trigger: 'emotion' | 'biometric' | 'skip_loop' | null;
+  playbackMode: 'live' | 'export' | null;
 }
 
 const initialState: PlayerState = {
@@ -24,6 +25,7 @@ const initialState: PlayerState = {
   isPlaying: false,
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
   trigger: null,
+  playbackMode: null,
 };
 
 const playerSlice = createSlice({
@@ -47,8 +49,11 @@ const playerSlice = createSlice({
     setIsOnline(state, action: PayloadAction<boolean>) {
       state.isOnline = action.payload;
     },
+    setPlaybackMode(state, action: PayloadAction<'live' | 'export' | null>) {
+      state.playbackMode = action.payload;
+    },
   },
 });
 
-export const { setPlaylist, skipTrack, setPlaying, setIsOnline } = playerSlice.actions;
+export const { setPlaylist, skipTrack, setPlaying, setIsOnline, setPlaybackMode } = playerSlice.actions;
 export default playerSlice.reducer;
