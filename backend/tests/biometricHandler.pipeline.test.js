@@ -39,11 +39,16 @@ jest.mock('../app/services/playlistMixer', () => ({
 }));
 
 jest.mock('../app/services/wearable/adapter', () => ({
-  normalize: jest.fn((source, raw) => ({
-    heartRate: raw.heartRate,
-    activity:  raw.activity || 'running',
-    source,
-  })),
+  normalize: jest.fn((source, raw) => {
+    const KNOWN = ['garmin', 'apple_watch', 'fitbit'];
+    if (!KNOWN.includes(source)) throw new Error(`Unknown wearable source: ${source}`);
+    const ACTIVITY_MAP = { 0: 'resting', 1: 'running', 2: 'cycling', 5: 'swimming', 6: 'walking', 13: 'strength_training' };
+    return {
+      heartRate: raw.heartRate,
+      activity:  raw.activity || ACTIVITY_MAP[raw.activityType] || 'running',
+      source,
+    };
+  }),
 }));
 
 const User            = require('../app/models/User');
@@ -440,5 +445,35 @@ describe('socket event dispatch wiring', () => {
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
       expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 80 }) })
     );
+  });
+});
+
+// ── handleBiometricReading (direct call, bypasses socket event) ───────────────
+
+describe('handleBiometricReading (direct)', () => {
+  it('is exported and callable without a socket event', () => {
+    const { handleBiometricReading } = require('../app/sockets/biometricHandler');
+    expect(typeof handleBiometricReading).toBe('function');
+  });
+
+  it('emits biometric_ack on a valid garmin reading', () => {
+    const { handleBiometricReading } = require('../app/sockets/biometricHandler');
+    const socket = { id: 'direct-test-1', emit: jest.fn(), data: { user: { _id: 'u1' } } };
+    const raw = { heartRate: 90, activityType: 6, startTimeLocal: '2026-06-21T10:00:00' };
+
+    handleBiometricReading(socket, 'garmin', raw);
+
+    expect(socket.emit).toHaveBeenCalledWith('biometric_ack', {
+      normalized: expect.objectContaining({ heartRate: 90, activity: 'walking', source: 'garmin' }),
+    });
+  });
+
+  it('emits connection_error on unknown source', () => {
+    const { handleBiometricReading } = require('../app/sockets/biometricHandler');
+    const socket = { id: 'direct-test-2', emit: jest.fn(), data: { user: { _id: 'u2' } } };
+
+    handleBiometricReading(socket, 'unknown_device', {});
+
+    expect(socket.emit).toHaveBeenCalledWith('connection_error', expect.objectContaining({ message: expect.any(String) }));
   });
 });

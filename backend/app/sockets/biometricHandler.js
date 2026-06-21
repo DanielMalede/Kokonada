@@ -41,21 +41,18 @@ function clearTimer(state) {
 async function generateAndEmitPlaylist(socket, trigger, state) {
   const userId = socket.data.user._id.toString();
 
-  // Re-fetch user WITH tokens (socket middleware strips them for auth checks)
   const user = await User.findById(userId);
   if (!user) {
     socket.emit('playlist_error', { message: 'User not found' });
     return;
   }
 
-  // Load music profile (built after OAuth)
   const musicProfile = await MusicProfile.findOne({ userId });
   if (!musicProfile) {
     socket.emit('playlist_error', { message: 'Music profile not built yet — reconnect your music provider' });
     return;
   }
 
-  // Determine provider: Spotify preferred, YouTube fallback
   const hasSpotify = !!user.spotifyToken?.blob;
   const hasYoutube = !!user.youtubeMusicToken?.blob;
   if (!hasSpotify && !hasYoutube) {
@@ -103,8 +100,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
   } catch (err) {
     const fallbackTracks = generateFallbackPlaylist(musicProfile ?? {});
     if (fallbackTracks.length > 0) {
-      // AI failed (timeout or API error) but we have library tracks — keep music playing.
-      // Emit as playlist_ready so the UI never shows an error state.
       socket.emit('playlist_ready', {
         trigger,
         tracks:    fallbackTracks,
@@ -118,7 +113,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     return;
   }
 
-  // 70/30 mix — reuse already-fetched discovery tracks, no double API call
   const cachedDiscovery = aiResult.tracks;
   const playlist = await mixPlaylist({
     musicProfile,
@@ -134,7 +128,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     discovery: playlist.discovery.length,
   });
 
-  // Persist session (non-blocking — don't await)
   PlaylistSession.create({
     userId,
     emotionTaps:       state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
@@ -149,60 +142,68 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
   }).catch(e => console.error('[PlaylistSession] save failed:', e.message));
 }
 
+// ── Shared biometric reading handler ──────────────────────────────────────────
+// Called by both the socket `biometric_push` event and server-side pollers
+// (e.g. garminPoller). Normalizes the raw reading, updates debounce state,
+// and triggers playlist generation when a sustained HR change is detected.
+
+function handleBiometricReading(socket, source, raw) {
+  let normalized;
+  try {
+    normalized = normalize(source, raw);
+  } catch (err) {
+    socket.emit('connection_error', { message: err.message });
+    return;
+  }
+
+  socket.emit('biometric_ack', { normalized });
+
+  const state = getState(socket.id);
+  state.consecutiveSkips = 0;
+  state.latestActivity   = normalized.activity;
+
+  if (state.stableHR === null) {
+    state.stableHR = normalized.heartRate;
+    return;
+  }
+
+  const delta = Math.abs(normalized.heartRate - state.stableHR);
+
+  if (delta < HR_DELTA_THRESHOLD) {
+    if (state.timer) {
+      clearTimer(state);
+      socket.emit('recalibration_cancelled', { reason: 'change_reverted' });
+    }
+    state.stableHR = normalized.heartRate;
+    return;
+  }
+
+  if (state.timer) return;
+
+  state.pendingHR = normalized.heartRate;
+  state.timer = setTimeout(() => {
+    const s = debounceMap.get(socket.id);
+    if (!s) return;
+    const currentDelta = Math.abs(s.pendingHR - s.stableHR);
+    if (currentDelta >= HR_DELTA_THRESHOLD) {
+      s.stableHR = s.pendingHR;
+      generateAndEmitPlaylist(socket, 'biometric', s);
+    } else {
+      socket.emit('recalibration_cancelled', { reason: 'change_reverted' });
+    }
+    clearTimer(s);
+  }, DEBOUNCE_MS);
+
+  socket.emit('recalibration_pending', { delta, secondsRemaining: Math.round(DEBOUNCE_MS / 1000) });
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
   const socketId = socket.id;
 
   socket.on('biometric_push', ({ source, raw } = {}) => {
-    let normalized;
-    try {
-      normalized = normalize(source, raw);
-    } catch (err) {
-      socket.emit('connection_error', { message: err.message });
-      return;
-    }
-
-    socket.emit('biometric_ack', { normalized });
-
-    const state = getState(socketId);
-    state.consecutiveSkips = 0;
-    state.latestActivity   = normalized.activity;
-
-    if (state.stableHR === null) {
-      state.stableHR = normalized.heartRate;
-      return;
-    }
-
-    const delta = Math.abs(normalized.heartRate - state.stableHR);
-
-    if (delta < HR_DELTA_THRESHOLD) {
-      if (state.timer) {
-        clearTimer(state);
-        socket.emit('recalibration_cancelled', { reason: 'change_reverted' });
-      }
-      state.stableHR = normalized.heartRate;
-      return;
-    }
-
-    // delta >= threshold
-    if (state.timer) return;
-
-    state.pendingHR = normalized.heartRate;
-    state.timer = setTimeout(() => {
-      const s = debounceMap.get(socketId);
-      if (!s) return;
-      const currentDelta = Math.abs(s.pendingHR - s.stableHR);
-      if (currentDelta >= HR_DELTA_THRESHOLD) {
-        s.stableHR = s.pendingHR;
-        generateAndEmitPlaylist(socket, 'biometric', s);
-      } else {
-        socket.emit('recalibration_cancelled', { reason: 'change_reverted' });
-      }
-      clearTimer(s);
-    }, DEBOUNCE_MS);
-
-    socket.emit('recalibration_pending', { delta, secondsRemaining: Math.round(DEBOUNCE_MS / 1000) });
+    handleBiometricReading(socket, source, raw);
   });
 
   socket.on('emotion_update', ({ taps = [], textPrompt = '' } = {}) => {
@@ -235,4 +236,9 @@ function registerBiometricHandler(socket) {
   });
 }
 
-module.exports = { registerBiometricHandler, generateAndEmitPlaylist, _debounceMap: debounceMap };
+module.exports = {
+  registerBiometricHandler,
+  generateAndEmitPlaylist,
+  handleBiometricReading,
+  _debounceMap: debounceMap,
+};
