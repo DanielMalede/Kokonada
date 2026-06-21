@@ -3,7 +3,6 @@ import type { AppDispatch, RootState } from '../../store';
 import { addTap, removeTap, clearTaps } from '../../store/slices/emotionSlice';
 import { useSocket } from '../../hooks/useSocket';
 import { TextFallback } from './TextFallback';
-import './EmotionCircle.css';
 
 const CX = 200;
 const CY = 200;
@@ -78,22 +77,24 @@ export default function EmotionCircle() {
   const svgCursor = taps.length >= 3 ? 'not-allowed' : 'crosshair';
 
   return (
-    <div className="emotion-circle-wrapper">
+    <div className="bg-[#16213e] rounded-xl p-6 shadow-lg flex flex-col items-center">
+      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3 self-start w-full">Emotion Map</h2>
       <svg
         viewBox="0 0 400 400"
         width="100%"
         height="auto"
-        className="emotion-svg"
+        style={{ display: 'block', cursor: svgCursor }}
         role="img"
         aria-label="Emotion map. Click to place up to 3 emotion taps."
         onClick={handleSvgClick}
-        style={{ cursor: svgCursor }}
       >
         <circle
           cx={CX}
           cy={CY}
           r={R}
-          className="outer-circle"
+          fill="rgba(255,255,255,0.04)"
+          stroke="rgba(255,255,255,0.15)"
+          strokeWidth={1.5}
         />
 
         <line
@@ -101,21 +102,32 @@ export default function EmotionCircle() {
           y1={CY}
           x2={CX + R}
           y2={CY}
-          className="axis-line"
+          stroke="rgba(255,255,255,0.2)"
+          strokeWidth={1}
         />
         <line
           x1={CX}
           y1={CY - R}
           x2={CX}
           y2={CY + R}
-          className="axis-line"
+          stroke="rgba(255,255,255,0.2)"
+          strokeWidth={1}
         />
 
         {QUADRANT_LABELS.map(({ label, dx, dy }) => {
           const px = CX + dx * R * 0.7;
           const py = CY + dy * R * 0.7;
           return (
-            <text key={label} x={px} y={py} className="quadrant-label">
+            <text
+              key={label}
+              x={px}
+              y={py}
+              fill="rgba(255,255,255,0.45)"
+              fontSize={11}
+              fontFamily="inherit"
+              textAnchor="middle"
+              style={{ pointerEvents: 'none', userSelect: 'none' }}
+            >
               {label}
             </text>
           );
@@ -128,7 +140,7 @@ export default function EmotionCircle() {
               key={i}
               onClick={handleTapClick(i)}
               style={{ cursor: 'pointer' }}
-              aria-label={`Tap ${i + 1} at arousal ${tap.x.toFixed(2)}, valence ${tap.y.toFixed(2)}. Click to remove.`}
+              aria-label={`Emotion tap ${i + 1}. Click to remove.`}
             >
               <circle
                 cx={px}
@@ -138,7 +150,17 @@ export default function EmotionCircle() {
                 stroke="#fff"
                 strokeWidth={1.5}
               />
-              <text x={px} y={py} className="tap-label">
+              <text
+                x={px}
+                y={py}
+                fill="#1a1a2e"
+                fontSize={11}
+                fontWeight={700}
+                fontFamily="inherit"
+                textAnchor="middle"
+                dominantBaseline="central"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
                 {i + 1}
               </text>
             </g>
@@ -147,7 +169,7 @@ export default function EmotionCircle() {
       </svg>
 
       <button
-        className="clear-taps-btn"
+        className="mt-3 border border-white/35 text-gray-200 hover:border-white/70 hover:text-white px-4 py-1.5 rounded-lg transition-colors disabled:opacity-35 disabled:cursor-default text-sm"
         onClick={handleClear}
         disabled={taps.length === 0}
         aria-label="Clear all emotion taps"

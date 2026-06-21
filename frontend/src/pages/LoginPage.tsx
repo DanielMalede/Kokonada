@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import type { AppDispatch } from '../store';
 import { setUser, setAuthStatus } from '../store/slices/authSlice';
-import './LoginPage.css';
 
 declare const google: {
   accounts: { id: { initialize(cfg: object): void; prompt(): void } };
@@ -27,6 +27,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 export default function LoginPage() {
   const dispatch = useDispatch<AppDispatch>();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isGsiReady, setIsGsiReady] = useState(false);
   const [isAppleReady, setIsAppleReady] = useState(false);
@@ -52,6 +53,7 @@ export default function LoginPage() {
             const data = await res.json();
             dispatch(setUser(data));
             dispatch(setAuthStatus('authenticated'));
+            navigate('/integrations');
           } catch {
             setError('Google login failed — please try again.');
           }
@@ -83,6 +85,8 @@ export default function LoginPage() {
     fbScript.onload = () => {
       FB.init({
         appId: import.meta.env.VITE_FACEBOOK_APP_ID,
+        cookie: true,
+        xfbml: true,
         version: 'v19.0',
       });
       setIsFbReady(true);
@@ -115,6 +119,7 @@ export default function LoginPage() {
       const user = await res.json();
       dispatch(setUser(user));
       dispatch(setAuthStatus('authenticated'));
+      navigate('/integrations');
     } catch {
       setError('Apple login failed — please try again.');
     }
@@ -138,20 +143,23 @@ export default function LoginPage() {
         const data = await res.json();
         dispatch(setUser(data));
         dispatch(setAuthStatus('authenticated'));
+        navigate('/integrations');
       } catch {
         setError('Facebook login failed — please try again.');
       }
     }, { scope: 'public_profile,email' });
   };
 
+  const btnBase = 'w-full py-2.5 rounded-lg font-semibold transition-opacity flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed';
+
   return (
-    <div className="login-root">
-      <div className="login-card">
-        <h1 className="login-title">Kokonada</h1>
-        <p className="login-tagline">Your music, tuned to your body.</p>
-        <div className="sso-buttons">
+    <div className="min-h-screen bg-[#1a1a2e] flex flex-col items-center justify-center px-4">
+      <div className="bg-[#16213e] rounded-2xl p-8 w-full max-w-sm shadow-2xl flex flex-col items-center">
+        <h1 className="text-2xl font-bold text-[#e9c46a] text-center mb-2">Kokonada</h1>
+        <p className="text-white/55 text-center mb-8">Your music, tuned to your body.</p>
+        <div className="flex flex-col gap-3 w-full">
           <button
-            className="sso-btn sso-btn--google"
+            className={`${btnBase} bg-white text-gray-900 hover:bg-gray-100`}
             onClick={handleGoogleClick}
             disabled={!isGsiReady}
             title={!isGsiReady ? 'Loading Google Sign-In…' : undefined}
@@ -159,7 +167,7 @@ export default function LoginPage() {
             Continue with Google
           </button>
           <button
-            className="sso-btn sso-btn--apple"
+            className={`${btnBase} bg-black text-white hover:bg-gray-900 border border-white/20`}
             onClick={handleAppleClick}
             disabled={!isAppleReady}
             title={!isAppleReady ? 'Loading Apple Sign-In…' : undefined}
@@ -167,7 +175,7 @@ export default function LoginPage() {
             Continue with Apple
           </button>
           <button
-            className="sso-btn sso-btn--facebook"
+            className={`${btnBase} bg-[#1877F2] text-white hover:opacity-90`}
             onClick={handleFacebookClick}
             disabled={!isFbReady}
             title={!isFbReady ? 'Loading Facebook Sign-In…' : undefined}
@@ -175,7 +183,7 @@ export default function LoginPage() {
             Continue with Facebook
           </button>
         </div>
-        {error && <p className="login-error">{error}</p>}
+        {error && <p className="text-red-400 text-sm text-center mt-4">{error}</p>}
       </div>
     </div>
   );

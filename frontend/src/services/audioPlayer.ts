@@ -1,11 +1,13 @@
 const CROSSFADE_MS = 2_000;
-const BLUETOOTH_BUFFER_MS = 150;
+const BLUETOOTH_BUFFER_MS = 300;
 
 export class AudioPlayerService {
   private static instance: AudioPlayerService;
   private ctx: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
   private currentGain: GainNode | null = null;
+  private nearEndTimer: ReturnType<typeof setTimeout> | null = null;
+  public onNearEnd: ((pct: number) => void) | null = null;
 
   static getInstance(): AudioPlayerService {
     if (!AudioPlayerService.instance) {
@@ -46,13 +48,22 @@ export class AudioPlayerService {
 
     this.currentSource = source;
     this.currentGain = gain;
+
+    // Schedule 80% pre-buffer callback
+    const durationMs = buffer.duration * 1000;
+    const triggerAt = durationMs * 0.8;
+    this.nearEndTimer = setTimeout(() => {
+      this.onNearEnd?.(0.8);
+    }, triggerAt);
   }
 
   async crossfadeTo(nextUri: string, durationMs: number = CROSSFADE_MS): Promise<void> {
+    if (this.nearEndTimer) { clearTimeout(this.nearEndTimer); this.nearEndTimer = null; }
     const ctx = this.getContext();
     if (ctx.state === 'suspended') await ctx.resume();
 
     const durationSec = durationMs / 1000;
+    const timeConstant = durationSec / 3; // ~0.667s — achieves near-complete fade in 3τ
 
     // Fetch first — then compute timing from fresh ctx.currentTime
     const buffer = await this.fetchBuffer(nextUri);
@@ -60,7 +71,7 @@ export class AudioPlayerService {
 
     if (this.currentGain && this.currentSource) {
       this.currentGain.gain.setValueAtTime(this.currentGain.gain.value, ctx.currentTime);
-      this.currentGain.gain.linearRampToValueAtTime(0, startAt + durationSec);
+      this.currentGain.gain.setTargetAtTime(0, ctx.currentTime, timeConstant);
       const dyingSource = this.currentSource;
       setTimeout(
         () => { try { dyingSource.stop(); } catch { /* already ended */ } },
@@ -70,7 +81,7 @@ export class AudioPlayerService {
 
     const nextGain = ctx.createGain();
     nextGain.gain.setValueAtTime(0, ctx.currentTime);
-    nextGain.gain.linearRampToValueAtTime(1, startAt + durationSec);
+    nextGain.gain.setTargetAtTime(1, ctx.currentTime, timeConstant);
     nextGain.connect(ctx.destination);
 
     const nextSource = ctx.createBufferSource();
@@ -83,6 +94,7 @@ export class AudioPlayerService {
   }
 
   stop(): void {
+    if (this.nearEndTimer) { clearTimeout(this.nearEndTimer); this.nearEndTimer = null; }
     if (this.currentGain) {
       this.currentGain.gain.setValueAtTime(0, this.getContext().currentTime);
     }
@@ -91,3 +103,5 @@ export class AudioPlayerService {
     this.currentGain = null;
   }
 }
+
+export const audioPlayer = AudioPlayerService.getInstance();

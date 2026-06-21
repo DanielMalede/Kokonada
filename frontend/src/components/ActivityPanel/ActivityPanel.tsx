@@ -1,6 +1,5 @@
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
-import './ActivityPanel.css';
 
 interface Band {
   emoji: string;
@@ -23,8 +22,9 @@ export default function ActivityPanel() {
   );
 
   return (
-    <div className="activity-panel">
-      <ul className="activity-panel__bands" role="list">
+    <div className="bg-[#16213e] rounded-xl p-6 shadow-lg">
+      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Activity</h2>
+      <ul className="flex flex-col gap-1 list-none m-0 p-0" role="list">
         {BANDS.map((band) => {
           const active = heartRate !== null && band.isActive(heartRate);
           return (
@@ -32,12 +32,19 @@ export default function ActivityPanel() {
               key={band.label}
               role="listitem"
               aria-label={band.ariaLabel}
-              className={`activity-panel__band${active ? ' activity-panel__band--active' : ''}`}
+              className={`flex items-center gap-2.5 px-2.5 py-2 rounded border-l-[3px] transition-colors ${
+                active
+                  ? 'bg-white/10 border-[#e63946]'
+                  : 'border-transparent'
+              }`}
             >
-              <span className="activity-panel__emoji">{band.emoji}</span>
-              <span className="activity-panel__label">{band.label}</span>
+              <span className="text-xl leading-none">{band.emoji}</span>
+              <span className="flex-1 text-gray-200 text-sm">{band.label}</span>
               {active && heartRate !== null && (
-                <span className="activity-panel__bpm">{heartRate} bpm</span>
+                <span className="text-4xl font-bold text-white leading-none">{heartRate}</span>
+              )}
+              {active && heartRate !== null && (
+                <span className="text-gray-400 text-sm">bpm</span>
               )}
             </li>
           );
@@ -45,12 +52,12 @@ export default function ActivityPanel() {
       </ul>
 
       {calibrationState === 'pending' && secondsUntilRecalibration !== null && (
-        <p className="activity-panel__calibration">
+        <p className="mt-3 text-gray-400 text-sm italic">
           Recalibration in {secondsUntilRecalibration}s…
         </p>
       )}
       {calibrationState === 'recalibrating' && (
-        <p className="activity-panel__calibration">Recalibrating playlist…</p>
+        <p className="mt-3 text-gray-400 text-sm italic">Recalibrating playlist…</p>
       )}
     </div>
   );

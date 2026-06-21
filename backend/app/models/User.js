@@ -13,6 +13,7 @@ const userSchema = new mongoose.Schema({
   avatarUrl:   { type: String, default: '' },
 
   // Encrypted 3rd-party OAuth tokens
+  musicProvider:     { type: String, enum: ['spotify', 'youtube', null], default: null },
   spotifyToken:      { type: encryptedTokenSchema, default: null },
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'suunto', null], default: null },

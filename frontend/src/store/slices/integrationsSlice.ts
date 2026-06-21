@@ -1,0 +1,40 @@
+import { createSlice } from '@reduxjs/toolkit';
+import type { PayloadAction } from '@reduxjs/toolkit';
+import type { RootState } from '../index';
+
+interface IntegrationsState {
+  musicProvider: 'spotify' | 'youtube' | null;
+  biometricProvider: 'garmin' | 'applehealth' | null;
+  status: 'idle' | 'loading' | 'error';
+}
+
+const initialState: IntegrationsState = {
+  musicProvider: null,
+  biometricProvider: null,
+  status: 'idle',
+};
+
+const integrationsSlice = createSlice({
+  name: 'integrations',
+  initialState,
+  reducers: {
+    setMusicProvider: (state, action: PayloadAction<'spotify' | 'youtube' | null>) => {
+      state.musicProvider = action.payload;
+    },
+    setBiometricProvider: (state, action: PayloadAction<'garmin' | 'applehealth' | null>) => {
+      state.biometricProvider = action.payload;
+    },
+    setIntegrationsStatus: (state, action: PayloadAction<'idle' | 'loading' | 'error'>) => {
+      state.status = action.payload;
+    },
+    clearIntegrations: () => initialState,
+  },
+});
+
+export const { setMusicProvider, setBiometricProvider, setIntegrationsStatus, clearIntegrations } =
+  integrationsSlice.actions;
+
+export const selectIsIntegrationsComplete = (state: RootState) =>
+  state.integrations.musicProvider !== null && state.integrations.biometricProvider !== null;
+
+export default integrationsSlice.reducer;

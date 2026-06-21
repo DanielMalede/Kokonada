@@ -27,16 +27,22 @@ async function verifyAppleToken(identityToken) {
 }
 
 async function verifyFacebookToken(accessToken) {
-  const { data } = await axios.get('https://graph.facebook.com/me', {
-    params: { fields: 'id,name,email,picture.type(large)', access_token: accessToken },
-    timeout: 5000,
-  });
-  return {
-    ssoId: data.id,
-    email: data.email || '',
-    displayName: data.name || '',
-    avatarUrl: data.picture?.data?.url || '',
-  };
+  try {
+    const { data } = await axios.get('https://graph.facebook.com/me', {
+      params: { fields: 'id,name,email,picture.type(large)', access_token: accessToken },
+      timeout: 5000,
+    });
+    if (data.error) throw new Error(data.error.message);
+    if (!data.id) throw new Error('Facebook did not return a valid user id');
+    return {
+      ssoId: data.id,
+      email: data.email || '',
+      displayName: data.name || '',
+      avatarUrl: data.picture?.data?.url || '',
+    };
+  } catch (err) {
+    throw new Error(`Facebook token verification failed: ${err.message}`);
+  }
 }
 
 // ── Shared SSO handler ────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { io, Socket } from 'socket.io-client';
 import type { AppDispatch } from '../store';
-import { setPlaylist, skipTrack as skipTrackAction, setIsOnline } from '../store/slices/playerSlice';
+import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, setPlaybackMode } from '../store/slices/playerSlice';
 import {
   setBiometricAck,
   setRecalibrationPending,
@@ -73,8 +73,9 @@ function initSocket(dispatch: AppDispatch): Socket {
   socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
 
-  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop' }) => {
+  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop'; mode?: 'live' | 'export' }) => {
     dispatch(setPlaylist({ tracks: data.tracks, trigger: data.trigger }));
+    dispatch(setPlaybackMode(data.mode ?? 'live'));
   });
 
   socket.on('playlist_error', (data: { message: string; fallbackTracks?: Track[] }) => {
@@ -119,8 +120,8 @@ export function useSocket() {
     dispatch(skipTrackAction());
   };
 
-  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string) => {
-    socketRef.current?.emit('emotion_update', { taps, textPrompt });
+  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string, mode?: 'live' | 'export') => {
+    socketRef.current?.emit('emotion_update', { taps, textPrompt, mode });
   };
 
   const disconnect = () => {

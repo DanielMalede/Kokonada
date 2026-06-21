@@ -46,6 +46,7 @@ exports.spotifyCallback = async (req, res, next) => {
     const profile = await spotify.getProfile(tokens.accessToken);
 
     // Encrypt and persist tokens — never store plain text
+    req.user.musicProvider = 'spotify';
     req.user.setToken('spotifyToken', tokens);
     await req.user.save();
 
@@ -58,9 +59,8 @@ exports.spotifyCallback = async (req, res, next) => {
       }
     });
 
-    // Redirect mobile WebView to a deep link so the app can close the browser
-    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/spotify/success?spotifyId=${profile.spotifyId}`;
-    res.redirect(deepLink);
+    // Redirect to frontend integrations page so the web app can hydrate state
+    res.redirect(`${process.env.FRONTEND_URL}/integrations?music=spotify`);
   } catch (err) {
     next(err);
   }
@@ -69,6 +69,7 @@ exports.spotifyCallback = async (req, res, next) => {
 // DELETE /api/integrations/spotify/disconnect
 exports.spotifyDisconnect = async (req, res, next) => {
   try {
+    req.user.musicProvider = null;
     req.user.spotifyToken = null;
     await req.user.save();
     res.json({ message: 'Spotify disconnected' });
@@ -110,6 +111,7 @@ exports.youtubeCallback = async (req, res, next) => {
     const tokens  = await youtube.exchangeCode(code);
     const channel = await youtube.getChannel(tokens.accessToken);
 
+    req.user.musicProvider = 'youtube';
     req.user.setToken('youtubeMusicToken', tokens);
     await req.user.save();
 
@@ -122,8 +124,8 @@ exports.youtubeCallback = async (req, res, next) => {
       }
     });
 
-    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/youtube/success?channelId=${channel.channelId}`;
-    res.redirect(deepLink);
+    // Redirect to frontend integrations page so the web app can hydrate state
+    res.redirect(`${process.env.FRONTEND_URL}/integrations?music=youtube`);
   } catch (err) {
     next(err);
   }
@@ -131,6 +133,7 @@ exports.youtubeCallback = async (req, res, next) => {
 
 exports.youtubeDisconnect = async (req, res, next) => {
   try {
+    req.user.musicProvider = null;
     req.user.youtubeMusicToken = null;
     await req.user.save();
     res.json({ message: 'YouTube Music disconnected' });
@@ -222,8 +225,8 @@ exports.garminCallback = async (req, res, next) => {
     req.user.setToken('wearableToken', { accessToken, accessTokenSecret, garminUserId });
     await req.user.save();
 
-    const deepLink = `${process.env.MOBILE_DEEP_LINK || 'kokonada://'}integrations/garmin/success`;
-    res.redirect(deepLink);
+    // Redirect to frontend integrations page so the web app can hydrate state
+    res.redirect(`${process.env.FRONTEND_URL}/integrations?biometric=garmin`);
   } catch (err) { next(err); }
 };
 
@@ -268,5 +271,14 @@ exports.wearableStatus = (req, res) => {
   res.json({
     provider:  req.user.wearableProvider || null,
     connected: !!req.user.wearableToken?.blob || req.user.wearableProvider === 'apple_health',
+  });
+};
+
+// GET /api/integrations/status
+// Returns the active music and biometric provider for the authenticated user.
+exports.getIntegrationsStatus = (req, res) => {
+  res.json({
+    musicProvider:    req.user.musicProvider    ?? null,
+    biometricProvider: req.user.wearableProvider ?? null,
   });
 };

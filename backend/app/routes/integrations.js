@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
 const {
+  getIntegrationsStatus,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect,
@@ -11,6 +12,9 @@ const {
 
 // All integration routes require a logged-in user
 router.use(auth);
+
+// Unified integrations status (music + biometric)
+router.get('/status', getIntegrationsStatus);
 
 // Spotify
 router.get('/spotify/connect',       spotifyConnect);
