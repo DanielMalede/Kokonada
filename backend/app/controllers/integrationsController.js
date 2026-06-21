@@ -46,6 +46,7 @@ exports.spotifyCallback = async (req, res, next) => {
     const profile = await spotify.getProfile(tokens.accessToken);
 
     // Encrypt and persist tokens — never store plain text
+    req.user.musicProvider = 'spotify';
     req.user.setToken('spotifyToken', tokens);
     await req.user.save();
 
@@ -69,6 +70,7 @@ exports.spotifyCallback = async (req, res, next) => {
 // DELETE /api/integrations/spotify/disconnect
 exports.spotifyDisconnect = async (req, res, next) => {
   try {
+    req.user.musicProvider = null;
     req.user.spotifyToken = null;
     await req.user.save();
     res.json({ message: 'Spotify disconnected' });
@@ -110,6 +112,7 @@ exports.youtubeCallback = async (req, res, next) => {
     const tokens  = await youtube.exchangeCode(code);
     const channel = await youtube.getChannel(tokens.accessToken);
 
+    req.user.musicProvider = 'youtube';
     req.user.setToken('youtubeMusicToken', tokens);
     await req.user.save();
 
@@ -131,6 +134,7 @@ exports.youtubeCallback = async (req, res, next) => {
 
 exports.youtubeDisconnect = async (req, res, next) => {
   try {
+    req.user.musicProvider = null;
     req.user.youtubeMusicToken = null;
     await req.user.save();
     res.json({ message: 'YouTube Music disconnected' });
@@ -268,5 +272,14 @@ exports.wearableStatus = (req, res) => {
   res.json({
     provider:  req.user.wearableProvider || null,
     connected: !!req.user.wearableToken?.blob || req.user.wearableProvider === 'apple_health',
+  });
+};
+
+// GET /api/integrations/status
+// Returns the active music and biometric provider for the authenticated user.
+exports.getIntegrationsStatus = (req, res) => {
+  res.json({
+    musicProvider:    req.user.musicProvider    ?? null,
+    biometricProvider: req.user.wearableProvider ?? null,
   });
 };
