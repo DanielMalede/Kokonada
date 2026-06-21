@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
+import { Disc3 } from 'lucide-react';
 import type { AppDispatch } from '../store';
 import { setUser, setAuthStatus } from '../store/slices/authSlice';
 
@@ -153,40 +154,36 @@ export default function LoginPage() {
     }, { scope: 'public_profile,email' });
   };
 
-  const btnBase = 'w-full py-2.5 rounded-lg font-semibold transition-opacity flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed';
+  const provider =
+    'flex h-[52px] w-full items-center justify-center gap-3 rounded-full border border-border bg-card text-sm font-semibold text-foreground ring-1 ring-foreground/5 transition-all hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
-    <div className="min-h-screen bg-[#1a1a2e] flex flex-col items-center justify-center px-4">
-      <div className="bg-[#16213e] rounded-2xl p-8 w-full max-w-sm shadow-2xl flex flex-col items-center">
-        <h1 className="text-2xl font-bold text-[#e9c46a] text-center mb-2">Kokonada</h1>
-        <p className="text-white/55 text-center mb-8">Your music, tuned to your body.</p>
-        <div className="flex flex-col gap-3 w-full">
-          <button
-            className={`${btnBase} bg-white text-gray-900 hover:bg-gray-100`}
-            onClick={handleGoogleClick}
-            disabled={!isGsiReady}
-            title={!isGsiReady ? 'Loading Google Sign-In…' : undefined}
-          >
+    <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-6">
+      <div className="emotion-aura" aria-hidden="true" />
+      <div className="relative z-10 flex w-full max-w-sm flex-col items-center">
+        <div className="mb-5 grid size-14 place-items-center rounded-2xl bg-linear-to-br from-emotion-focus to-emotion-unwind text-primary-foreground shadow-xl">
+          <Disc3 className="size-7" />
+        </div>
+        <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Kokonada</h1>
+        <p className="mb-9 mt-1 text-center text-muted-foreground">Your music, tuned to you.</p>
+
+        <div className="flex w-full flex-col gap-3">
+          <button onClick={handleGoogleClick} disabled={!isGsiReady} className={provider}>
             Continue with Google
           </button>
-          <button
-            className={`${btnBase} bg-black text-white hover:bg-gray-900 border border-white/20`}
-            onClick={handleAppleClick}
-            disabled={!isAppleReady}
-            title={!isAppleReady ? 'Loading Apple Sign-In…' : undefined}
-          >
+          <button onClick={handleAppleClick} disabled={!isAppleReady} className={provider}>
             Continue with Apple
           </button>
-          <button
-            className={`${btnBase} bg-[#1877F2] text-white hover:opacity-90`}
-            onClick={handleFacebookClick}
-            disabled={!isFbReady}
-            title={!isFbReady ? 'Loading Facebook Sign-In…' : undefined}
-          >
+          <button onClick={handleFacebookClick} disabled={!isFbReady} className={provider}>
             Continue with Facebook
           </button>
         </div>
-        {error && <p className="text-red-400 text-sm text-center mt-4">{error}</p>}
+
+        {error && <p className="mt-4 text-center text-sm text-destructive">{error}</p>}
+
+        <p className="mt-8 max-w-xs text-center text-xs text-muted-foreground">
+          By continuing you agree to our Terms and Privacy Policy.
+        </p>
       </div>
     </div>
   );

@@ -1,13 +1,226 @@
+@import url("https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
+@custom-variant dark (&:is(.dark *));
+
+/* ─────────────────────────────────────────────────────────────
+   KOKONADA — Light Mode (primary): bright, white-based,
+   vibrant violet + emotion accents.
+   ───────────────────────────────────────────────────────────── */
 :root {
-  --color-bg: #1a1a2e;
-  --color-surface: #16213e;
-  --color-header: #0f3460;
-  --color-accent: #e9c46a;
-  --color-danger: #e63946;
+  --radius: 0.875rem;
+
+  /* shadcn semantic tokens — LIGHT */
+  --background: oklch(1 0 0);                 /* #FFFFFF */
+  --foreground: oklch(0.18 0.02 285);         /* near-black, faint violet cast */
+  --card: oklch(0.985 0.004 286);             /* warm off-white */
+  --card-foreground: oklch(0.18 0.02 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 285);
+  --primary: oklch(0.58 0.20 285);            /* Kokonada violet ≈ #7C5CF5 */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.006 286);
+  --secondary-foreground: oklch(0.24 0.02 285);
+  --muted: oklch(0.965 0.005 286);
+  --muted-foreground: oklch(0.52 0.02 285);
+  --accent: oklch(0.95 0.03 286);             /* soft violet wash */
+  --accent-foreground: oklch(0.45 0.15 285);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.005 286);
+  --input: oklch(0.92 0.005 286);
+  --ring: oklch(0.58 0.20 285);
+
+  /* charts use the emotion palette */
+  --chart-1: oklch(0.65 0.15 260);            /* focus blue */
+  --chart-2: oklch(0.70 0.18 22);             /* energize coral */
+  --chart-3: oklch(0.62 0.18 300);            /* unwind violet */
+  --chart-4: oklch(0.70 0.18 50);             /* intense orange */
+  --chart-5: oklch(0.66 0.06 230);            /* melancholy steel */
+
+  /* sidebar (desktop nav) */
+  --sidebar: oklch(0.985 0.004 286);
+  --sidebar-foreground: oklch(0.18 0.02 285);
+  --sidebar-primary: oklch(0.58 0.20 285);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.95 0.03 286);
+  --sidebar-accent-foreground: oklch(0.45 0.15 285);
+  --sidebar-border: oklch(0.92 0.005 286);
+  --sidebar-ring: oklch(0.58 0.20 285);
+
+  /* Kokonada brand + emotion accent layer */
+  --brand: oklch(0.58 0.20 285);              /* #7C5CF5 */
+  --brand-foreground: oklch(0.99 0 0);
+  --coral: oklch(0.70 0.18 22);               /* #FF6361 */
+  --coral-foreground: oklch(0.99 0 0);
+  --emotion-focus: oklch(0.65 0.15 260);      /* blue   #5B8BF5 */
+  --emotion-energize: oklch(0.70 0.18 22);    /* coral  #FF6361 */
+  --emotion-calm: oklch(0.66 0.06 230);       /* steel  #64A0B8 */
+  --emotion-unwind: oklch(0.62 0.18 300);     /* violet #8B5CF6 */
+  --emotion-intense: oklch(0.70 0.18 50);     /* orange #F97316 */
+  --emotion-neutral: oklch(0.70 0.03 255);    /* slate  #94A3B8 */
+
+  /* live aura inputs — updated from JS via the EmotionAura component */
+  --aura-a: var(--emotion-focus);
+  --aura-b: var(--emotion-unwind);
+  --aura-opacity: 0.35;
 }
 
-body {
-  @apply bg-[#1a1a2e] text-gray-100 antialiased min-h-screen;
+/* ─────────────────────────────────────────────────────────────
+   KOKONADA — Dark Mode: deep near-black with a blue cast,
+   same hues lifted in luminosity.
+   ───────────────────────────────────────────────────────────── */
+.dark {
+  --background: oklch(0.14 0.012 285);        /* ≈ #08080F */
+  --foreground: oklch(0.96 0.005 286);
+  --card: oklch(0.18 0.012 285);              /* ≈ #111119 */
+  --card-foreground: oklch(0.96 0.005 286);
+  --popover: oklch(0.18 0.012 285);
+  --popover-foreground: oklch(0.96 0.005 286);
+  --primary: oklch(0.68 0.15 285);            /* lighter violet ≈ #9B8FF5 */
+  --primary-foreground: oklch(0.16 0.02 285);
+  --secondary: oklch(0.23 0.012 285);
+  --secondary-foreground: oklch(0.96 0.005 286);
+  --muted: oklch(0.23 0.012 285);
+  --muted-foreground: oklch(0.66 0.02 285);
+  --accent: oklch(0.26 0.03 285);
+  --accent-foreground: oklch(0.90 0.03 286);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.68 0.15 285);
+
+  --chart-1: oklch(0.70 0.15 260);
+  --chart-2: oklch(0.74 0.17 22);
+  --chart-3: oklch(0.68 0.17 300);
+  --chart-4: oklch(0.75 0.17 50);
+  --chart-5: oklch(0.70 0.07 230);
+
+  --sidebar: oklch(0.16 0.012 285);
+  --sidebar-foreground: oklch(0.96 0.005 286);
+  --sidebar-primary: oklch(0.68 0.15 285);
+  --sidebar-primary-foreground: oklch(0.16 0.02 285);
+  --sidebar-accent: oklch(0.26 0.03 285);
+  --sidebar-accent-foreground: oklch(0.90 0.03 286);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.68 0.15 285);
+
+  --brand: oklch(0.68 0.15 285);
+  --brand-foreground: oklch(0.16 0.02 285);
+  --coral: oklch(0.74 0.17 22);
+  --coral-foreground: oklch(0.16 0.02 285);
+  --emotion-focus: oklch(0.70 0.15 260);
+  --emotion-energize: oklch(0.74 0.17 22);
+  --emotion-calm: oklch(0.70 0.07 230);
+  --emotion-unwind: oklch(0.68 0.17 300);
+  --emotion-intense: oklch(0.75 0.17 50);
+  --emotion-neutral: oklch(0.72 0.03 255);
+
+  --aura-opacity: 0.22;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Expose tokens to Tailwind utilities + fonts + radius scale.
+   ───────────────────────────────────────────────────────────── */
+@theme inline {
+  --font-display: "Clash Display", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+  --font-heading: var(--font-display);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Kokonada brand + emotion utilities (bg-brand, text-coral, bg-emotion-focus…) */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-coral: var(--coral);
+  --color-coral-foreground: var(--coral-foreground);
+  --color-emotion-focus: var(--emotion-focus);
+  --color-emotion-energize: var(--emotion-energize);
+  --color-emotion-calm: var(--emotion-calm);
+  --color-emotion-unwind: var(--emotion-unwind);
+  --color-emotion-intense: var(--emotion-intense);
+  --color-emotion-neutral: var(--emotion-neutral);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --radius-3xl: calc(var(--radius) + 24px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground antialiased min-h-screen;
+  }
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Signature element — the Emotion Aura.
+   A soft, blurred gradient behind every screen that shifts hue
+   with the user's mood. Driven by --aura-a / --aura-b from JS.
+   ───────────────────────────────────────────────────────────── */
+.emotion-aura {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: var(--aura-opacity);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -10%, var(--aura-a), transparent 70%),
+    radial-gradient(ellipse 60% 45% at 90% 110%, var(--aura-b), transparent 60%);
+  transition: background 1200ms ease-in-out, opacity 600ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emotion-aura {
+    transition: none;
+  }
+}
+
+/* Settings → Emotion Aura toggle */
+.aura-off .emotion-aura {
+  display: none;
 }

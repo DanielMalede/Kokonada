@@ -3,16 +3,30 @@ import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState, AppDispatch } from './store';
 import { setUser, setAuthStatus } from './store/slices/authSlice';
-import { selectIsIntegrationsComplete } from './store/slices/integrationsSlice';
+import { selectIsIntegrationsComplete, setMoodOnly } from './store/slices/integrationsSlice';
 import LoginPage from './pages/LoginPage';
-import AppPage from './pages/AppPage';
+import WelcomePage from './pages/WelcomePage';
 import IntegrationsPage from './pages/IntegrationsPage';
+import AppShell from './components/AppShell';
+import AppPage from './pages/AppPage';
+import NowPlayingPage from './pages/NowPlayingPage';
+import PlaylistHistoryPage from './pages/PlaylistHistoryPage';
+import PlaylistDetailPage from './pages/PlaylistDetailPage';
+import UserProfilePage from './pages/UserProfilePage';
+import SettingsPage from './pages/SettingsPage';
+import DiscoverPage from './pages/DiscoverPage';
+import SplashScreen from './components/SplashScreen';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 function AppBootstrap({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch<AppDispatch>();
   const status = useSelector((s: RootState) => s.auth.status);
+
+  // Restore the client-only "mood only" preference across reloads.
+  useEffect(() => {
+    if (localStorage.getItem('koko-mood-only') === '1') dispatch(setMoodOnly(true));
+  }, [dispatch]);
 
   useEffect(() => {
     if (status !== 'idle') return;
@@ -26,17 +40,9 @@ function AppBootstrap({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function Spinner() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1a1a2e]">
-      <div className="w-10 h-10 border-4 border-[#e9c46a] border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
-}
-
 function AuthGuard() {
   const status = useSelector((s: RootState) => s.auth.status);
-  if (status === 'loading') return <Spinner />;
+  if (status === 'loading') return <SplashScreen />;
   if (status === 'idle' || status === 'error') return <Navigate to="/" replace />;
   return <Outlet />;
 }
@@ -50,10 +56,17 @@ function IntegrationsGuard() {
 function PublicOnlyGuard() {
   const status = useSelector((s: RootState) => s.auth.status);
   const complete = useSelector(selectIsIntegrationsComplete);
-  if (status === 'loading') return <Spinner />;
+  if (status === 'loading') return <SplashScreen />;
   if (status === 'authenticated') {
     return complete ? <Navigate to="/app" replace /> : <Navigate to="/integrations" replace />;
   }
+  return <Outlet />;
+}
+
+/** First-time visitors see the welcome flow before the login screen. */
+function OnboardingGate() {
+  const onboarded = localStorage.getItem('koko-onboarded') === '1';
+  if (!onboarded) return <Navigate to="/welcome" replace />;
   return <Outlet />;
 }
 
@@ -71,7 +84,13 @@ export const router = createBrowserRouter([
     children: [
       {
         element: <PublicOnlyGuard />,
-        children: [{ path: '/', element: <LoginPage /> }],
+        children: [
+          { path: '/welcome', element: <WelcomePage /> },
+          {
+            element: <OnboardingGate />,
+            children: [{ path: '/', element: <LoginPage /> }],
+          },
+        ],
       },
       {
         element: <AuthGuard />,
@@ -79,7 +98,20 @@ export const router = createBrowserRouter([
           { path: '/integrations', element: <IntegrationsPage /> },
           {
             element: <IntegrationsGuard />,
-            children: [{ path: '/app', element: <AppPage /> }],
+            children: [
+              {
+                element: <AppShell />,
+                children: [
+                  { path: '/app', element: <AppPage /> },
+                  { path: '/now-playing', element: <NowPlayingPage /> },
+                  { path: '/history', element: <PlaylistHistoryPage /> },
+                  { path: '/history/:id', element: <PlaylistDetailPage /> },
+                  { path: '/profile', element: <UserProfilePage /> },
+                  { path: '/settings', element: <SettingsPage /> },
+                  { path: '/discover', element: <DiscoverPage /> },
+                ],
+              },
+            ],
           },
         ],
       },

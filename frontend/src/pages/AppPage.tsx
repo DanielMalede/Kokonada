@@ -1,114 +1,242 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
+import { Sparkles, Headphones, Save, ListMusic } from 'lucide-react';
 import type { RootState, AppDispatch } from '../store';
-import { clearUser, setAuthStatus } from '../store/slices/authSlice';
-import { addTap } from '../store/slices/emotionSlice';
+import { setTextPrompt } from '../store/slices/emotionSlice';
+import { setPlaybackMode } from '../store/slices/playerSlice';
 import { useSocket } from '../hooks/useSocket';
-import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
-import ActivityPanel from '../components/ActivityPanel';
-import ContextPrompt from '../components/ContextPrompt';
-import EmotionCircle from '../components/EmotionCircle';
-import PlaylistView from '../components/PlaylistView';
-import LivePlayer from '../components/LivePlayer';
+import { MOODS, selectedMoodKey } from '@/lib/moods';
+import { saveSession, makeSessionId } from '@/lib/history';
+import MoodChips from '@/components/MoodChips';
+import HRZoneBar from '@/components/HRZoneBar';
+import OfflineBanner from '@/components/OfflineBanner';
+import GeneratingOverlay from '@/components/GeneratingOverlay';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
+type Mode = 'live' | 'export';
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
 
 export default function AppPage() {
   const dispatch = useDispatch<AppDispatch>();
-  const user = useSelector((state: RootState) => state.auth.user);
-  const taps = useSelector((state: RootState) => state.emotion.taps);
-  const musicProvider = useSelector((state: RootState) => state.integrations.musicProvider);
-  const { playlist, playbackMode, deviceId } = useSelector((state: RootState) => state.player);
-  const { disconnect, emitEmotionUpdate } = useSocket();
-  const playedPlaylistRef = useRef<string | null>(null);
+  const navigate = useNavigate();
+  const user = useSelector((s: RootState) => s.auth.user);
+  const taps = useSelector((s: RootState) => s.emotion.taps);
+  const textPrompt = useSelector((s: RootState) => s.emotion.textPrompt);
+  const { playlist, offlineBuffer, currentIndex, isOnline } = useSelector((s: RootState) => s.player);
+  const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
+  const activity = useSelector((s: RootState) => s.biometrics.activity);
+  const { emitEmotionUpdate } = useSocket();
 
-  // Initialize Spotify Web Playback SDK if the user's music provider is Spotify
-  useSpotifyPlayer(musicProvider);
+  const [modeOpen, setModeOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const modeRef = useRef<Mode>('live');
+  const lastKeyRef = useRef<string>('');
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<{
+    moodKey: string | null;
+    moodLabel: string;
+    textPrompt: string;
+    mode: Mode;
+    heartRate: number | null;
+    activity: string | null;
+  } | null>(null);
 
-  // When a new playlist arrives in live mode, start Spotify playback
-  useEffect(() => {
-    if (
-      playbackMode !== 'live' ||
-      musicProvider !== 'spotify' ||
-      !deviceId ||
-      playlist.length === 0
-    ) return;
+  const moodKey = selectedMoodKey(taps);
+  const moodLabel = MOODS.find((m) => m.key === moodKey)?.label;
+  const hasMood = taps.length > 0;
 
-    const playlistKey = playlist.map((t) => t.uri).join(',');
-    if (playedPlaylistRef.current === playlistKey) return;
-    playedPlaylistRef.current = playlistKey;
+  const list = isOnline ? playlist : offlineBuffer;
+  const upNext = list.slice(currentIndex + 1, currentIndex + 5);
 
-    const uris = playlist.map((t) => t.uri);
-    fetch(`${BACKEND_URL}/api/integrations/spotify/play`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uris, deviceId }),
-    })
-      .then((res) => {
-        if (!res.ok) console.error(`[Spotify] play failed: ${res.status}`);
-      })
-      .catch((err) => console.error('[Spotify] play failed:', err));
-  }, [playlist, deviceId]); // deviceId added: effect re-fires when SDK device becomes ready
-
-  useEffect(() => {
-    return () => {
-      disconnect();
+  const chooseMode = (mode: Mode) => {
+    modeRef.current = mode;
+    setModeOpen(false);
+    lastKeyRef.current = playlist.map((t) => t.uri).join(',');
+    pendingRef.current = {
+      moodKey,
+      moodLabel: moodLabel ?? 'Session',
+      textPrompt,
+      mode,
+      heartRate,
+      activity,
     };
-  }, [disconnect]);
-
-  const handleLogout = async () => {
-    try {
-      await fetch(`${BACKEND_URL}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-    } catch {
-      // network failure — still clear client-side auth so user is never stuck
-    } finally {
-      dispatch(clearUser());
-      dispatch(setAuthStatus('idle'));
-    }
+    emitEmotionUpdate(taps, textPrompt, mode);
+    dispatch(setPlaybackMode(mode));
+    setGenerating(true);
+    timeoutRef.current = setTimeout(() => setGenerating(false), 9000);
   };
 
+  // Dismiss the overlay when a fresh playlist lands; record it to history and
+  // jump into the player for live mode.
+  useEffect(() => {
+    if (!generating) return;
+    const key = playlist.map((t) => t.uri).join(',');
+    if (playlist.length > 0 && key !== lastKeyRef.current) {
+      setGenerating(false);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      const p = pendingRef.current;
+      if (p) {
+        saveSession({
+          id: makeSessionId(),
+          createdAt: Date.now(),
+          tracks: playlist,
+          ...p,
+        });
+        pendingRef.current = null;
+      }
+      if (modeRef.current === 'live') navigate('/now-playing');
+    }
+  }, [playlist, generating, navigate]);
+
+  useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); }, []);
+
   return (
-    <div className="min-h-screen bg-[#1a1a2e]">
-      <header className="bg-[#0f3460] px-6 py-3 flex justify-between items-center">
-        <span className="text-xl font-bold text-[#e9c46a]">Kokonada</span>
-        <div className="flex items-center gap-3">
-          {user?.avatarUrl && (
-            <img className="w-8 h-8 rounded-full object-cover" src={user.avatarUrl} alt={user.displayName} />
-          )}
-          <span className="text-sm text-gray-200">{user?.displayName}</span>
-          <button
-            className="border border-white/30 text-gray-200 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-colors"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
-        </div>
-      </header>
-      <main className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 max-w-6xl mx-auto">
-        <div className="flex flex-col gap-4">
-          <ActivityPanel />
-          <button
-            onClick={() => {
-              dispatch(addTap({ x: 0, y: 0 }));
-              emitEmotionUpdate([...taps, { x: 0, y: 0 }]);
-            }}
-            disabled={taps.length >= 3}
-            className="w-full border border-[#e9c46a]/40 text-[#e9c46a] hover:bg-[#e9c46a]/10 disabled:opacity-30 disabled:cursor-not-allowed py-2 rounded-lg transition-colors text-sm font-medium"
-          >
-            Neutral / Skip
-          </button>
-          <ContextPrompt />
-        </div>
-        <div className="flex flex-col gap-4">
-          <EmotionCircle />
-          <PlaylistView />
-          <LivePlayer />
-        </div>
-      </main>
-    </div>
+    <>
+      <OfflineBanner />
+
+      <div className="mb-6">
+        <p className="text-sm text-muted-foreground">{greeting()},</p>
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">
+          {user?.displayName ?? 'there'}
+        </h1>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Mood + context */}
+        <Card className="md:row-span-2">
+          <CardHeader>
+            <CardTitle>How do you want to feel?</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5">
+            <MoodChips />
+            <div className="flex flex-col gap-2">
+              <label htmlFor="context" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Context <span className="normal-case opacity-70">(optional)</span>
+              </label>
+              <Textarea
+                id="context"
+                rows={3}
+                placeholder="e.g. Deep work for the next hour"
+                value={textPrompt}
+                onChange={(e) => dispatch(setTextPrompt(e.target.value))}
+                className="resize-none"
+              />
+            </div>
+            <Button
+              onClick={() => setModeOpen(true)}
+              disabled={!hasMood}
+              className="h-12 rounded-full text-base"
+              title={!hasMood ? 'Pick a mood first' : undefined}
+            >
+              <Sparkles className="size-4" />
+              Generate playlist
+            </Button>
+            {!hasMood && (
+              <p className="-mt-2 text-center text-xs text-muted-foreground">
+                Pick a mood to get started.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Biometrics */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Your body right now</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <HRZoneBar />
+          </CardContent>
+        </Card>
+
+        {/* Up next */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ListMusic className="size-4 text-muted-foreground" /> Up next
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {upNext.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Set a mood and hit generate to start a session.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {upNext.map((t) => (
+                  <li key={t.id} className="flex items-center gap-3">
+                    <span className="size-1.5 rounded-full bg-primary/60" />
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">{t.title}</span>
+                    <span className="shrink-0 truncate text-xs text-muted-foreground">{t.artist}</span>
+                  </li>
+                ))}
+                <li>
+                  <button
+                    onClick={() => navigate('/now-playing')}
+                    className="mt-1 text-sm font-medium text-primary hover:underline"
+                  >
+                    Open player →
+                  </button>
+                </li>
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Playback mode chooser */}
+      <Dialog open={modeOpen} onOpenChange={setModeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>How should we play this?</DialogTitle>
+            <DialogDescription>Choose how you want your {moodLabel?.toLowerCase()} session delivered.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 pt-2">
+            <button
+              onClick={() => chooseMode('live')}
+              className="flex items-center gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 text-left transition-colors hover:bg-primary/10"
+            >
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
+                <Headphones className="size-5" />
+              </span>
+              <span>
+                <span className="block font-medium text-foreground">Listen live</span>
+                <span className="block text-sm text-muted-foreground">Stream now with real-time biometric tuning</span>
+              </span>
+            </button>
+            <button
+              onClick={() => chooseMode('export')}
+              className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted"
+            >
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-secondary text-secondary-foreground">
+                <Save className="size-5" />
+              </span>
+              <span>
+                <span className="block font-medium text-foreground">Save to library</span>
+                <span className="block text-sm text-muted-foreground">Export the playlist to your music account</span>
+              </span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <GeneratingOverlay open={generating} moodLabel={moodLabel} />
+    </>
   );
 }
