@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState, AppDispatch } from '../../store';
 import { setPlaying, skipTrack as skipTrackAction } from '../../store/slices/playerSlice';
@@ -10,6 +11,20 @@ export default function LivePlayer() {
   const { playbackMode, playlist, currentIndex, isPlaying } = useSelector(
     (s: RootState) => s.player
   );
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    setProgress(0);
+  }, [currentIndex]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const id = setInterval(() => {
+      const info = audioPlayer.getPlaybackInfo();
+      if (info) setProgress(info.elapsed / info.duration);
+    }, 250);
+    return () => clearInterval(id);
+  }, [isPlaying, currentIndex]);
 
   if (playbackMode !== 'live' || playlist.length === 0) return null;
 
@@ -58,7 +73,10 @@ export default function LivePlayer() {
         </div>
       </div>
       <div className="w-full bg-white/10 rounded-full h-1">
-        <div className="bg-[#e9c46a] h-1 rounded-full w-1/3" />
+        <div
+          className="bg-[#e9c46a] h-1 rounded-full transition-[width] duration-200"
+          style={{ width: `${Math.round(progress * 100)}%` }}
+        />
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ export class AudioPlayerService {
   private currentSource: AudioBufferSourceNode | null = null;
   private currentGain: GainNode | null = null;
   private nearEndTimer: ReturnType<typeof setTimeout> | null = null;
+  private startedAt: number = 0;
+  private trackDuration: number = 0;
   public onNearEnd: ((pct: number) => void) | null = null;
 
   static getInstance(): AudioPlayerService {
@@ -44,7 +46,10 @@ export class AudioPlayerService {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(gain);
-    source.start(ctx.currentTime + BLUETOOTH_BUFFER_MS / 1000);
+    const startAt = ctx.currentTime + BLUETOOTH_BUFFER_MS / 1000;
+    source.start(startAt);
+    this.startedAt = startAt;
+    this.trackDuration = buffer.duration;
 
     this.currentSource = source;
     this.currentGain = gain;
@@ -88,9 +93,20 @@ export class AudioPlayerService {
     nextSource.buffer = buffer;
     nextSource.connect(nextGain);
     nextSource.start(startAt);
+    this.startedAt = startAt;
+    this.trackDuration = buffer.duration;
 
     this.currentSource = nextSource;
     this.currentGain = nextGain;
+  }
+
+  getPlaybackInfo(): { elapsed: number; duration: number } | null {
+    if (!this.ctx || !this.currentSource || this.trackDuration === 0) return null;
+    const elapsed = Math.min(
+      Math.max(0, this.ctx.currentTime - this.startedAt),
+      this.trackDuration
+    );
+    return { elapsed, duration: this.trackDuration };
   }
 
   stop(): void {
