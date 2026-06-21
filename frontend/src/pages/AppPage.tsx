@@ -8,6 +8,7 @@ import ActivityPanel from '../components/ActivityPanel';
 import ContextPrompt from '../components/ContextPrompt';
 import EmotionCircle from '../components/EmotionCircle';
 import PlaylistView from '../components/PlaylistView';
+import LivePlayer from '../components/LivePlayer';
 import './AppPage.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
@@ -71,6 +72,7 @@ export default function AppPage() {
         <div className="app-column">
           <EmotionCircle />
           <PlaylistView />
+          <LivePlayer />
         </div>
       </main>
     </div>

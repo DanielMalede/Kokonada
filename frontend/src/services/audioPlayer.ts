@@ -91,3 +91,5 @@ export class AudioPlayerService {
     this.currentGain = null;
   }
 }
+
+export const audioPlayer = AudioPlayerService.getInstance();
