@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 const {
   getIntegrationsStatus,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
+  getSpotifyToken, playSpotifyTracks,
   youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect,
   appleHealthPush,
@@ -21,6 +22,8 @@ router.get('/spotify/connect',       spotifyConnect);
 router.get('/spotify/callback',      spotifyCallback);
 router.delete('/spotify/disconnect', spotifyDisconnect);
 router.get('/spotify/status',        spotifyStatus);
+router.get('/spotify/token',         getSpotifyToken);
+router.post('/spotify/play',         playSpotifyTracks);
 
 // YouTube Music
 router.get('/youtube/connect',       youtubeConnect);

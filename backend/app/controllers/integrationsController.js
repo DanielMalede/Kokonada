@@ -84,6 +84,37 @@ exports.spotifyStatus = (req, res) => {
   res.json({ connected });
 };
 
+// GET /api/integrations/spotify/token
+// Returns a valid (auto-refreshed) decrypted Spotify access token for the Web Playback SDK.
+exports.getSpotifyToken = async (req, res, next) => {
+  try {
+    const accessToken = await spotify.getValidToken(req.user);
+    res.json({ access_token: accessToken });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/integrations/spotify/play
+// Body: { uris: string[], deviceId: string }
+// Instructs the Spotify player (identified by deviceId) to play the given track URIs.
+exports.playSpotifyTracks = async (req, res, next) => {
+  try {
+    const { uris, deviceId } = req.body;
+    if (!Array.isArray(uris) || uris.length === 0) {
+      return res.status(400).json({ error: 'uris must be a non-empty array' });
+    }
+    if (!deviceId) {
+      return res.status(400).json({ error: 'deviceId is required' });
+    }
+    const accessToken = await spotify.getValidToken(req.user);
+    await spotify.playTracks(accessToken, uris, deviceId);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ── YouTube Music ─────────────────────────────────────────────────────────────
 
 exports.youtubeConnect = (req, res) => {

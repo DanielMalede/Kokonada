@@ -254,7 +254,26 @@ async function getRecommendations(accessToken, {
   return data.tracks ?? [];
 }
 
+/**
+ * Sends a play command to the Spotify Web Playback SDK device.
+ * @param {string} accessToken
+ * @param {string[]} uris  Spotify track URIs — e.g. ['spotify:track:abc123']
+ * @param {string} deviceId  Device ID from the SDK 'ready' event
+ */
+async function playTracks(accessToken, uris, deviceId) {
+  await axios.put(
+    `${BASE_API}/me/player/play`,
+    { uris },
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params:  { device_id: deviceId },
+      timeout: 8_000,
+    }
+  );
+}
+
 module.exports = {
   getAuthUrl, exchangeCode, getValidToken, getProfile, getTopTrackFeatures,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
+  playTracks,
 };
