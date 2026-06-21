@@ -4,6 +4,7 @@ import type { RootState, AppDispatch } from '../store';
 import { clearUser, setAuthStatus } from '../store/slices/authSlice';
 import { addTap } from '../store/slices/emotionSlice';
 import { useSocket } from '../hooks/useSocket';
+import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import ActivityPanel from '../components/ActivityPanel';
 import ContextPrompt from '../components/ContextPrompt';
 import EmotionCircle from '../components/EmotionCircle';
@@ -16,9 +17,31 @@ export default function AppPage() {
   const dispatch = useDispatch<AppDispatch>();
   const user = useSelector((state: RootState) => state.auth.user);
   const taps = useSelector((state: RootState) => state.emotion.taps);
+  const musicProvider = useSelector((state: RootState) => state.integrations.musicProvider);
+  const { playlist, playbackMode, deviceId } = useSelector((state: RootState) => state.player);
   const { disconnect, emitEmotionUpdate } = useSocket();
 
-  // Disconnect the singleton socket when AppPage unmounts (i.e. on logout).
+  // Initialize Spotify Web Playback SDK if the user's music provider is Spotify
+  useSpotifyPlayer(musicProvider);
+
+  // When a new playlist arrives in live mode, start Spotify playback
+  useEffect(() => {
+    if (
+      playbackMode !== 'live' ||
+      musicProvider !== 'spotify' ||
+      !deviceId ||
+      playlist.length === 0
+    ) return;
+
+    const uris = playlist.map((t) => t.uri);
+    fetch(`${BACKEND_URL}/api/integrations/spotify/play`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uris, deviceId }),
+    }).catch((err) => console.error('[Spotify] play failed:', err));
+  }, [playlist]); // Re-run only when the playlist itself changes
+
   useEffect(() => {
     return () => {
       disconnect();
