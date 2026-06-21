@@ -1,4 +1,8 @@
-require('dotenv').config();
+// override:true makes the local .env authoritative over inherited shell vars
+// (e.g. a global NODE_ENV=production leaking into dev, which would force
+// secure:true cookies that browsers drop over http://localhost). In real
+// deployments there is no .env file, so platform env vars still win.
+require('dotenv').config({ override: true });
 const http = require('http');
 const express = require('express');
 const helmet = require('helmet');
