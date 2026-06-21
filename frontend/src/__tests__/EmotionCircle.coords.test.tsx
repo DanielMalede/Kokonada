@@ -6,16 +6,20 @@ import emotionReducer from '../store/slices/emotionSlice';
 import EmotionCircle from '../components/EmotionCircle/EmotionCircle';
 import { TextFallback } from '../components/EmotionCircle/TextFallback';
 
+function makeStore() {
+  return configureStore({
+    reducer: { emotion: emotionReducer },
+    preloadedState: {
+      emotion: { taps: [{ x: 0.5, y: 0.3 }], textPrompt: '' },
+    },
+  });
+}
+
 describe('EmotionCircle.coords - Hide raw X/Y coordinates', () => {
-  let store: any;
+  let store: ReturnType<typeof makeStore>;
 
   beforeEach(() => {
-    store = configureStore({
-      reducer: { emotion: emotionReducer },
-      preloadedState: {
-        emotion: { taps: [{ x: 0.5, y: 0.3 }], textPrompt: '' },
-      },
-    });
+    store = makeStore();
   });
 
   it('EmotionCircle aria-label does not expose raw coordinates', () => {

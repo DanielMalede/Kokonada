@@ -35,32 +35,36 @@ vi.mock('../components/PlaylistView', () => ({
   default: () => <div data-testid="playlist-view">Playlist View</div>,
 }));
 
+function makeStore() {
+  return configureStore({
+    reducer: {
+      emotion: emotionReducer,
+      auth: authReducer,
+      integrations: integrationsReducer,
+      player: playerReducer,
+    },
+    preloadedState: {
+      emotion: { taps: [], textPrompt: '' },
+      auth: { user: null, status: 'idle', error: null },
+      integrations: { musicProvider: null, biometricProvider: null, status: 'idle' },
+      player: {
+        playlist: [],
+        offlineBuffer: [],
+        currentIndex: 0,
+        isPlaying: false,
+        isOnline: true,
+        trigger: null,
+        playbackMode: null,
+      },
+    },
+  });
+}
+
 describe('NeutralSkip button behavior', () => {
-  let store: any;
+  let store: ReturnType<typeof makeStore>;
 
   beforeEach(() => {
-    store = configureStore({
-      reducer: {
-        emotion: emotionReducer,
-        auth: authReducer,
-        integrations: integrationsReducer,
-        player: playerReducer,
-      },
-      preloadedState: {
-        emotion: { taps: [], textPrompt: '' },
-        auth: { user: null, status: 'idle', error: null },
-        integrations: { musicProvider: null, biometricProvider: null, status: 'idle' },
-        player: {
-          playlist: [],
-          offlineBuffer: [],
-          currentIndex: 0,
-          isPlaying: false,
-          isOnline: true,
-          trigger: null,
-          playbackMode: null,
-        },
-      },
-    });
+    store = makeStore();
   });
 
   it('renders the Neutral/Skip button', () => {
@@ -99,7 +103,7 @@ describe('NeutralSkip button behavior', () => {
   });
 
   it('clicking Neutral/Skip button adds a tap at origin (0, 0)', () => {
-    const { rerender } = render(
+    render(
       <Provider store={store}>
         <AppPage />
       </Provider>

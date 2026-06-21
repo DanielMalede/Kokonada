@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import type { RootState } from '../store';
 import integrationsReducer, {
   setMusicProvider,
-  setBiometricProvider,
   clearIntegrations,
   selectIsIntegrationsComplete,
 } from '../store/slices/integrationsSlice';
@@ -22,12 +22,12 @@ describe('integrationsSlice', () => {
   });
 
   it('selectIsIntegrationsComplete returns false when either is null', () => {
-    const rootState = { integrations: { musicProvider: 'spotify', biometricProvider: null, status: 'idle' } } as any;
+    const rootState = { integrations: { musicProvider: 'spotify', biometricProvider: null, status: 'idle' } } as unknown as RootState;
     expect(selectIsIntegrationsComplete(rootState)).toBe(false);
   });
 
   it('selectIsIntegrationsComplete returns true when both set', () => {
-    const rootState = { integrations: { musicProvider: 'spotify', biometricProvider: 'garmin', status: 'idle' } } as any;
+    const rootState = { integrations: { musicProvider: 'spotify', biometricProvider: 'garmin', status: 'idle' } } as unknown as RootState;
     expect(selectIsIntegrationsComplete(rootState)).toBe(true);
   });
 });
