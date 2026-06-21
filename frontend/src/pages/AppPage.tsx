@@ -9,7 +9,6 @@ import ContextPrompt from '../components/ContextPrompt';
 import EmotionCircle from '../components/EmotionCircle';
 import PlaylistView from '../components/PlaylistView';
 import LivePlayer from '../components/LivePlayer';
-import './AppPage.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -41,21 +40,24 @@ export default function AppPage() {
   };
 
   return (
-    <div>
-      <header className="app-header">
-        <span className="app-header__title">Kokonada</span>
-        <div className="app-header__user">
+    <div className="min-h-screen bg-[#1a1a2e]">
+      <header className="bg-[#0f3460] px-6 py-3 flex justify-between items-center">
+        <span className="text-xl font-bold text-[#e9c46a]">Kokonada</span>
+        <div className="flex items-center gap-3">
           {user?.avatarUrl && (
-            <img className="app-header__avatar" src={user.avatarUrl} alt={user.displayName} />
+            <img className="w-8 h-8 rounded-full object-cover" src={user.avatarUrl} alt={user.displayName} />
           )}
-          <span className="app-header__display-name">{user?.displayName}</span>
-          <button className="app-header__logout" onClick={handleLogout}>
+          <span className="text-sm text-gray-200">{user?.displayName}</span>
+          <button
+            className="border border-white/30 text-gray-200 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-colors"
+            onClick={handleLogout}
+          >
             Logout
           </button>
         </div>
       </header>
-      <main className="app-main">
-        <div className="app-column">
+      <main className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 max-w-6xl mx-auto">
+        <div className="flex flex-col gap-4">
           <ActivityPanel />
           <button
             onClick={() => {
@@ -69,7 +71,7 @@ export default function AppPage() {
           </button>
           <ContextPrompt />
         </div>
-        <div className="app-column">
+        <div className="flex flex-col gap-4">
           <EmotionCircle />
           <PlaylistView />
           <LivePlayer />
