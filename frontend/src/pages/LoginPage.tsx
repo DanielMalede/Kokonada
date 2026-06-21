@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Disc3 } from 'lucide-react';
+import { Disc3, Loader2 } from 'lucide-react';
 import type { AppDispatch } from '../store';
 import { setUser, setAuthStatus } from '../store/slices/authSlice';
 
@@ -33,6 +33,7 @@ export default function LoginPage() {
   const [isGsiReady, setIsGsiReady] = useState(false);
   const [isAppleReady, setIsAppleReady] = useState(false);
   const [isFbReady, setIsFbReady] = useState(false);
+  const [loading, setLoading] = useState<'google' | 'apple' | 'facebook' | null>(null);
 
   useEffect(() => {
     // Google GSI
@@ -42,22 +43,29 @@ export default function LoginPage() {
     gScript.onload = () => {
       google.accounts.id.initialize({
         client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
-        callback: async ({ credential }: { credential: string }) => {
-          try {
-            const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ idToken: credential }),
-            });
-            if (!res.ok) throw new Error('auth failed');
-            const data = await res.json();
-            dispatch(setUser(data));
-            dispatch(setAuthStatus('authenticated'));
-            navigate('/integrations');
-          } catch {
-            setError('Google login failed — please try again.');
-          }
+        // Must be a plain (non-async) function — the GSI SDK rejects async
+        // callbacks with "Expression is of type asyncfunction, not function".
+        callback: ({ credential }: { credential: string }) => {
+          setLoading('google');
+          void (async () => {
+            try {
+              const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ idToken: credential }),
+              });
+              if (!res.ok) throw new Error('auth failed');
+              const data = await res.json();
+              dispatch(setUser(data));
+              dispatch(setAuthStatus('authenticated'));
+              navigate('/integrations');
+            } catch {
+              setError('Google login failed — please try again.');
+            } finally {
+              setLoading(null);
+            }
+          })();
         },
       });
       setIsGsiReady(true);
@@ -111,6 +119,7 @@ export default function LoginPage() {
 
   const handleAppleClick = async () => {
     setError(null);
+    setLoading('apple');
     try {
       const data = await AppleID.auth.signIn();
       const res = await fetch(`${BACKEND_URL}/api/auth/apple`, {
@@ -126,36 +135,46 @@ export default function LoginPage() {
       navigate('/integrations');
     } catch {
       setError('Apple login failed — please try again.');
+    } finally {
+      setLoading(null);
     }
   };
 
   const handleFacebookClick = () => {
     setError(null);
-    FB.login(async (response) => {
+    setLoading('facebook');
+    // Must be a plain (non-async) function — the FB SDK rejects async
+    // callbacks with "Expression is of type asyncfunction, not function".
+    FB.login((response) => {
       if (!response.authResponse) {
         setError('Facebook login cancelled.');
+        setLoading(null);
         return;
       }
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/auth/facebook`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ accessToken: response.authResponse.accessToken }),
-        });
-        if (!res.ok) throw new Error('auth failed');
-        const data = await res.json();
-        dispatch(setUser(data));
-        dispatch(setAuthStatus('authenticated'));
-        navigate('/integrations');
-      } catch {
-        setError('Facebook login failed — please try again.');
-      }
+      void (async () => {
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/auth/facebook`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ accessToken: response.authResponse!.accessToken }),
+          });
+          if (!res.ok) throw new Error('auth failed');
+          const data = await res.json();
+          dispatch(setUser(data));
+          dispatch(setAuthStatus('authenticated'));
+          navigate('/integrations');
+        } catch {
+          setError('Facebook login failed — please try again.');
+        } finally {
+          setLoading(null);
+        }
+      })();
     }, { scope: 'public_profile,email' });
   };
 
   const provider =
-    'flex h-[52px] w-full items-center justify-center gap-3 rounded-full border border-border bg-card text-sm font-semibold text-foreground ring-1 ring-foreground/5 transition-all hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40';
+    'flex h-[52px] w-full items-center justify-center gap-3 rounded-full border border-border bg-card text-sm font-semibold text-foreground ring-1 ring-foreground/5 transition-all duration-100 hover:bg-muted active:scale-[0.97] active:bg-muted disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100';
 
   return (
     <div className="relative grid min-h-dvh place-items-center overflow-hidden bg-background px-6">
@@ -168,14 +187,26 @@ export default function LoginPage() {
         <p className="mb-9 mt-1 text-center text-muted-foreground">Your music, tuned to you.</p>
 
         <div className="flex w-full flex-col gap-3">
-          <button onClick={handleGoogleClick} disabled={!isGsiReady} className={provider}>
-            Continue with Google
+          <button
+            onClick={handleGoogleClick}
+            disabled={!isGsiReady || loading !== null}
+            className={provider}
+          >
+            {loading === 'google' ? <Loader2 className="size-5 animate-spin" /> : 'Continue with Google'}
           </button>
-          <button onClick={handleAppleClick} disabled={!isAppleReady} className={provider}>
-            Continue with Apple
+          <button
+            onClick={handleAppleClick}
+            disabled={!isAppleReady || loading !== null}
+            className={provider}
+          >
+            {loading === 'apple' ? <Loader2 className="size-5 animate-spin" /> : 'Continue with Apple'}
           </button>
-          <button onClick={handleFacebookClick} disabled={!isFbReady} className={provider}>
-            Continue with Facebook
+          <button
+            onClick={handleFacebookClick}
+            disabled={!isFbReady || loading !== null}
+            className={provider}
+          >
+            {loading === 'facebook' ? <Loader2 className="size-5 animate-spin" /> : 'Continue with Facebook'}
           </button>
         </div>
 
