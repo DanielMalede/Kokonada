@@ -16,6 +16,7 @@ import UserProfilePage from './pages/UserProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import DiscoverPage from './pages/DiscoverPage';
 import SplashScreen from './components/SplashScreen';
+import { authHeaders } from '@/lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -31,7 +32,7 @@ function AppBootstrap({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status !== 'idle') return;
     dispatch(setAuthStatus('loading'));
-    fetch(`${BACKEND_URL}/api/auth/me`, { credentials: 'include' })
+    fetch(`${BACKEND_URL}/api/auth/me`, { credentials: 'include', headers: authHeaders() })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => { dispatch(setUser(data)); dispatch(setAuthStatus('authenticated')); })
       .catch(() => dispatch(setAuthStatus('error')));

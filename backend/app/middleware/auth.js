@@ -11,6 +11,14 @@ module.exports = async function authMiddleware(req, res, next) {
       if (header?.startsWith('Bearer ')) token = header.slice(7);
     }
 
+    // Top-level navigations (e.g. the OAuth "connect" redirects) can't send an
+    // Authorization header, so accept the JWT via query param as a fallback.
+    // This is what makes auth work on the cross-site Vercel/Railway deploy where
+    // the cookie is a blocked third-party cookie.
+    if (!token && typeof req.query?.token === 'string') {
+      token = req.query.token;
+    }
+
     if (!token) {
       return res.status(401).json({ error: 'Authentication required' });
     }

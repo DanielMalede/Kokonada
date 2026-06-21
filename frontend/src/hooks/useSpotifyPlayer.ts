@@ -3,12 +3,14 @@ import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '../store';
 import { setSdkState } from '../store/slices/playerSlice';
 import { spotifyPlayerService } from '../services/spotifyPlayer';
+import { authHeaders } from '@/lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 async function fetchSpotifyToken(): Promise<string> {
   const res = await fetch(`${BACKEND_URL}/api/integrations/spotify/token`, {
     credentials: 'include',
+    headers: authHeaders(),
   });
   if (!res.ok) throw new Error(`Spotify token fetch failed: ${res.status}`);
   const data = await res.json() as { access_token: string };

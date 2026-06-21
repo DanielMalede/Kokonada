@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '@/store';
 import { useSocket } from '@/hooks/useSocket';
 import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer';
+import { authHeaders } from '@/lib/api';
 import EmotionAura from './EmotionAura';
 import BottomNav from './BottomNav';
 import DesktopSidebar from './DesktopSidebar';
@@ -35,7 +36,7 @@ export default function AppShell() {
     fetch(`${BACKEND_URL}/api/integrations/spotify/play`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ uris: playlist.map((t) => t.uri), deviceId }),
     })
       .then((res) => {

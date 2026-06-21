@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Disc3, Loader2 } from 'lucide-react';
 import type { AppDispatch } from '../store';
 import { setUser, setAuthStatus } from '../store/slices/authSlice';
+import { setToken } from '@/lib/api';
 
 declare const google: {
   accounts: { id: { initialize(cfg: object): void; prompt(): void } };
@@ -57,7 +58,8 @@ export default function LoginPage() {
               });
               if (!res.ok) throw new Error('auth failed');
               const data = await res.json();
-              dispatch(setUser(data));
+              if (data.token) setToken(data.token);
+              dispatch(setUser(data.user ?? data));
               dispatch(setAuthStatus('authenticated'));
               navigate('/integrations');
             } catch {
@@ -129,8 +131,9 @@ export default function LoginPage() {
         body: JSON.stringify({ identityToken: data.authorization.id_token }),
       });
       if (!res.ok) throw new Error('auth failed');
-      const user = await res.json();
-      dispatch(setUser(user));
+      const body = await res.json();
+      if (body.token) setToken(body.token);
+      dispatch(setUser(body.user ?? body));
       dispatch(setAuthStatus('authenticated'));
       navigate('/integrations');
     } catch {
@@ -161,7 +164,8 @@ export default function LoginPage() {
           });
           if (!res.ok) throw new Error('auth failed');
           const data = await res.json();
-          dispatch(setUser(data));
+          if (data.token) setToken(data.token);
+          dispatch(setUser(data.user ?? data));
           dispatch(setAuthStatus('authenticated'));
           navigate('/integrations');
         } catch {

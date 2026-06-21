@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { io, Socket } from 'socket.io-client';
 import type { AppDispatch } from '../store';
+import { getToken } from '@/lib/api';
 import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, setPlaybackMode } from '../store/slices/playerSlice';
 import {
   setBiometricAck,
@@ -45,7 +46,7 @@ function scheduleReconnect() {
 function initSocket(dispatch: AppDispatch): Socket {
   if (socket) return socket;
 
-  socket = io(BACKEND_URL, { withCredentials: true, autoConnect: true });
+  socket = io(BACKEND_URL, { withCredentials: true, autoConnect: true, auth: { token: getToken() } });
 
   socket.on('connect', () => {
     retryCount = 0;

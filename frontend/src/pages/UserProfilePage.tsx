@@ -5,6 +5,7 @@ import { Check, Plus, Settings, LogOut, Sparkles } from 'lucide-react';
 import type { AppDispatch, RootState } from '@/store';
 import { clearUser, setAuthStatus } from '@/store/slices/authSlice';
 import { getSessions } from '@/lib/history';
+import { authHeaders, clearToken } from '@/lib/api';
 import PageHeader from '@/components/PageHeader';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -51,10 +52,15 @@ export default function UserProfilePage() {
 
   const handleLogout = async () => {
     try {
-      await fetch(`${BACKEND_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      await fetch(`${BACKEND_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: authHeaders(),
+      });
     } catch {
       /* network failure — still clear client-side auth so the user is never stuck */
     } finally {
+      clearToken();
       dispatch(clearUser());
       dispatch(setAuthStatus('idle'));
     }

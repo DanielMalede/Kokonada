@@ -19,6 +19,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { authHeaders, tokenQuery } from '@/lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -63,7 +64,7 @@ export default function IntegrationsPage() {
 
   // Hydrate from backend on mount (handles hard refresh)
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/integrations/status`, { credentials: 'include' })
+    fetch(`${BACKEND_URL}/api/integrations/status`, { credentials: 'include', headers: authHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data) return;
@@ -83,9 +84,10 @@ export default function IntegrationsPage() {
     if (musicParam || biometricParam) window.history.replaceState({}, '', '/integrations');
   }, [dispatch]);
 
-  const connectSpotify = () => { window.location.href = `${BACKEND_URL}/api/integrations/spotify/connect`; };
-  const connectYouTube = () => { window.location.href = `${BACKEND_URL}/api/integrations/youtube/connect`; };
-  const connectGarmin = () => { window.location.href = `${BACKEND_URL}/api/integrations/garmin/connect`; };
+  // The token query param authenticates the top-level navigation (no headers possible).
+  const connectSpotify = () => { window.location.href = `${BACKEND_URL}/api/integrations/spotify/connect${tokenQuery()}`; };
+  const connectYouTube = () => { window.location.href = `${BACKEND_URL}/api/integrations/youtube/connect${tokenQuery()}`; };
+  const connectGarmin = () => { window.location.href = `${BACKEND_URL}/api/integrations/garmin/connect${tokenQuery()}`; };
 
   const enableMoodOnly = () => {
     localStorage.setItem('koko-mood-only', '1');
