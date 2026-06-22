@@ -2,6 +2,7 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const {
   getIntegrationsStatus,
+  connectToken,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   getSpotifyToken, playSpotifyTracks,
   youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeStatus,
@@ -16,6 +17,9 @@ router.use(auth);
 
 // Unified integrations status (music + biometric)
 router.get('/status', getIntegrationsStatus);
+
+// Mint a single-use connect token for top-level OAuth navigations (audit F1)
+router.post('/connect-token', connectToken);
 
 // Spotify
 router.get('/spotify/connect',       spotifyConnect);

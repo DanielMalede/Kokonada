@@ -19,7 +19,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { authHeaders, tokenQuery } from '@/lib/api';
+import { authHeaders, buildConnectUrl } from '@/lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -84,10 +84,11 @@ export default function IntegrationsPage() {
     if (musicParam || biometricParam) window.history.replaceState({}, '', '/integrations');
   }, [dispatch]);
 
-  // The token query param authenticates the top-level navigation (no headers possible).
-  const connectSpotify = () => { window.location.href = `${BACKEND_URL}/api/integrations/spotify/connect${tokenQuery()}`; };
-  const connectYouTube = () => { window.location.href = `${BACKEND_URL}/api/integrations/youtube/connect${tokenQuery()}`; };
-  const connectGarmin = () => { window.location.href = `${BACKEND_URL}/api/integrations/garmin/connect${tokenQuery()}`; };
+  // A short-lived single-use connect token authenticates the top-level navigation
+  // (no headers possible). See buildConnectUrl — the session JWT never enters the URL.
+  const connectSpotify = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/spotify/connect'); };
+  const connectYouTube = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/youtube/connect'); };
+  const connectGarmin = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/garmin/connect'); };
 
   const enableMoodOnly = () => {
     localStorage.setItem('koko-mood-only', '1');
