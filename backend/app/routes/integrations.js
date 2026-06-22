@@ -12,7 +12,16 @@ const {
   wearableStatus,
 } = require('../controllers/integrationsController');
 
-// All integration routes require a logged-in user
+// Public OAuth callbacks. The browser arrives here from the provider as a
+// top-level navigation carrying NO cookie/Bearer/ct, so these MUST sit ABOVE
+// router.use(auth) — otherwise auth 401s before the handler runs (the
+// "Authentication required" connect bug). Identity is recovered from the signed
+// `state` (Spotify/YouTube) or the request cookie + Redis fallback (Garmin).
+router.get('/spotify/callback', spotifyCallback);
+router.get('/youtube/callback', youtubeCallback);
+router.get('/garmin/callback',  garminCallback);
+
+// All remaining integration routes require a logged-in user
 router.use(auth);
 
 // Unified integrations status (music + biometric)
@@ -21,23 +30,20 @@ router.get('/status', getIntegrationsStatus);
 // Mint a single-use connect token for top-level OAuth navigations (audit F1)
 router.post('/connect-token', connectToken);
 
-// Spotify
+// Spotify (callback registered publicly above)
 router.get('/spotify/connect',       spotifyConnect);
-router.get('/spotify/callback',      spotifyCallback);
 router.delete('/spotify/disconnect', spotifyDisconnect);
 router.get('/spotify/status',        spotifyStatus);
 router.get('/spotify/token',         getSpotifyToken);
 router.post('/spotify/play',         playSpotifyTracks);
 
-// YouTube Music
+// YouTube Music (callback registered publicly above)
 router.get('/youtube/connect',       youtubeConnect);
-router.get('/youtube/callback',      youtubeCallback);
 router.delete('/youtube/disconnect', youtubeDisconnect);
 router.get('/youtube/status',        youtubeStatus);
 
-// Garmin (OAuth 1.0a — two-legged flow)
+// Garmin (OAuth 1.0a — two-legged flow; callback registered publicly above)
 router.get('/garmin/connect',        garminConnect);
-router.get('/garmin/callback',       garminCallback);
 router.delete('/garmin/disconnect',  garminDisconnect);
 
 // Apple HealthKit (mobile push — no server-side OAuth needed)

@@ -19,9 +19,26 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { toast } from 'sonner';
 import { authHeaders, buildConnectUrl } from '@/lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
+
+// Map a callback ?error= code (emitted by the backend OAuth callbacks) to a
+// user-facing message. Codes look like `spotify_access_denied`, `youtube_state`,
+// `garmin_expired`, `garmin_denied`, `<provider>_failed`, or `session`.
+function friendlyConnectError(code: string): string {
+  if (code.endsWith('access_denied') || code === 'garmin_denied') return 'Connection cancelled.';
+  if (code === 'garmin_expired' || code.endsWith('_state') || code === 'garmin_mismatch')
+    return 'That connection link expired — please try again.';
+  if (code === 'session') return 'Your session expired — please sign in again.';
+  const provider = code.split('_')[0];
+  const name =
+    provider === 'spotify' ? 'Spotify' :
+    provider === 'youtube' ? 'YouTube Music' :
+    provider === 'garmin'  ? 'Garmin' : 'the service';
+  return `Couldn't connect ${name}. Please try again.`;
+}
 
 interface RowProps {
   name: string;
@@ -74,14 +91,16 @@ export default function IntegrationsPage() {
       .catch(() => {});
   }, [dispatch]);
 
-  // Read OAuth return params (?music=spotify etc.)
+  // Read OAuth return params (?music=spotify, ?biometric=garmin, or ?error=<code>)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const musicParam = params.get('music') as 'spotify' | 'youtube' | null;
     const biometricParam = params.get('biometric') as 'garmin' | 'applehealth' | null;
+    const errorParam = params.get('error');
     if (musicParam === 'spotify' || musicParam === 'youtube') dispatch(setMusicProvider(musicParam));
     if (biometricParam === 'garmin' || biometricParam === 'applehealth') dispatch(setBiometricProvider(biometricParam));
-    if (musicParam || biometricParam) window.history.replaceState({}, '', '/integrations');
+    if (errorParam) toast.error(friendlyConnectError(errorParam));
+    if (musicParam || biometricParam || errorParam) window.history.replaceState({}, '', '/integrations');
   }, [dispatch]);
 
   // A short-lived single-use connect token authenticates the top-level navigation

@@ -37,6 +37,24 @@ function signConnectToken(userId) {
   });
 }
 
+// Signed OAuth `state` for the OAuth 2.0 connect flow (Spotify, YouTube). The
+// provider echoes this verbatim to the public callback, which arrives as a
+// top-level navigation carrying no cookie/Bearer/ct. Binding the userId into a
+// signed state lets the callback recover identity WITHOUT any cookie — immune to
+// third-party-cookie blocking and mobile WebViews. It is also CSRF-safe: an
+// attacker cannot forge a state bound to the victim's userId without JWT_SECRET.
+// 10-min TTL matches the OAuth flow window; the unique jti makes it single-use. (audit F1)
+function signOauthState(userId, provider) {
+  return jwt.sign({ uid: userId, provider, purpose: 'oauth-state' }, process.env.JWT_SECRET, {
+    expiresIn: '10m',
+    jwtid: crypto.randomUUID(),
+  });
+}
+
+function verifyOauthState(token) {
+  return jwt.verify(token, process.env.JWT_SECRET);
+}
+
 function verifyToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
 }
@@ -49,4 +67,7 @@ function clearAuthCookie(res) {
   res.clearCookie(COOKIE_NAME, { ...COOKIE_OPTIONS, maxAge: 0 });
 }
 
-module.exports = { signToken, signConnectToken, verifyToken, setAuthCookie, clearAuthCookie, COOKIE_NAME };
+module.exports = {
+  signToken, signConnectToken, signOauthState, verifyOauthState,
+  verifyToken, setAuthCookie, clearAuthCookie, COOKIE_NAME,
+};

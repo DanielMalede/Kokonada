@@ -1,4 +1,3 @@
-const crypto      = require('crypto');
 const spotify     = require('../services/spotify');
 const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
@@ -6,7 +5,38 @@ const appleHealth = require('../services/wearable/appleHealth');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const { buildProfile } = require('../services/musicProfileService');
-const { signConnectToken } = require('../utils/jwt');
+const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
+const { revoke, isRevoked } = require('../utils/tokenDenylist');
+const { getRedis } = require('../config/redis');
+
+// All callbacks land the user back in the app. On failure we redirect with a
+// machine-readable ?error= code (the frontend toasts it) instead of dumping raw
+// JSON on the backend domain. (Provider-redirect UX)
+const frontendRedirect = (res, query) =>
+  res.redirect(`${process.env.FRONTEND_URL}/integrations?${query}`);
+const fail = (res, code) => frontendRedirect(res, `error=${encodeURIComponent(code)}`);
+
+// Recover the authenticated user that a public OAuth callback belongs to, from
+// the signed `state` minted at connect. Verifies signature, purpose, provider,
+// and single-use (jti) status, then loads the live user. Returns null on any
+// failure so the caller can redirect gracefully.
+async function userFromOauthState(state, provider) {
+  let payload;
+  try { payload = verifyOauthState(state); } catch { return null; }
+  if (payload.purpose !== 'oauth-state' || payload.provider !== provider) return null;
+  if (payload.jti && (await isRevoked(payload.jti))) return null; // replay guard
+  const user = await User.findById(payload.uid);
+  if (!user || user.deletedAt) return null;
+  return { user, payload };
+}
+
+// Burn the state's jti so a captured callback URL can't be replayed. (audit F1)
+async function burnState(payload) {
+  if (payload?.jti) {
+    const ttl = payload.exp ? payload.exp - Math.floor(Date.now() / 1000) : 600;
+    await revoke(payload.jti, Math.max(ttl, 1));
+  }
+}
 
 // POST /api/integrations/connect-token
 // Mints a short-lived single-use token the web client appends as ?ct= to the
@@ -16,70 +46,53 @@ exports.connectToken = (req, res) => {
   res.json({ connectToken: signConnectToken(req.user._id.toString()) });
 };
 
-// Shared options for short-lived OAuth state/CSRF cookies (Spotify, YouTube).
-// httpOnly + Secure(prod) + sameSite:'lax' (survives provider redirect, withheld
-// from cross-site sub-requests), 10-min TTL matching the OAuth flow window. (audit F10)
-const OAUTH_STATE_COOKIE_OPTS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
-  maxAge: 10 * 60 * 1000, // 10 minutes
-};
-
 // ── Spotify ───────────────────────────────────────────────────────────────────
 
-// GET /api/integrations/spotify/connect
-// Generates a state token (CSRF protection), redirects user to Spotify OAuth page.
-// Mobile clients open this URL in a WebView / in-app browser.
+// GET /api/integrations/spotify/connect  (auth required — req.user is set)
+// Mints a signed `state` carrying the userId, then redirects to Spotify's OAuth
+// page. No state cookie: identity round-trips through the provider in the signed
+// state, so the public callback needs no cookie. Mobile clients open this in a
+// WebView / in-app browser.
 exports.spotifyConnect = (req, res) => {
-  const state = crypto.randomBytes(16).toString('hex');
-
-  // Bind state to user session via a short-lived cookie (cleared after callback).
-  // sameSite:'lax' so the cookie survives the provider's top-level GET redirect
-  // back to our callback, while still being withheld from cross-site sub-requests. (audit F10)
-  res.cookie('spotify_oauth_state', state, OAUTH_STATE_COOKIE_OPTS);
-
+  const state = signOauthState(req.user._id.toString(), 'spotify');
   res.redirect(spotify.getAuthUrl(state));
 };
 
-// GET /api/integrations/spotify/callback
-// Spotify redirects here after user grants permission.
-exports.spotifyCallback = async (req, res, next) => {
+// GET /api/integrations/spotify/callback  (PUBLIC — no auth middleware)
+// Spotify redirects the browser here as a top-level navigation with no usable
+// credential; the user is recovered from the signed `state`.
+exports.spotifyCallback = async (req, res) => {
   try {
     const { code, state, error } = req.query;
 
-    if (error) {
-      return res.status(400).json({ error: `Spotify denied access: ${error}` });
-    }
+    if (error) return fail(res, `spotify_${error}`);
 
-    // CSRF check
-    const savedState = req.cookies.spotify_oauth_state;
-    res.clearCookie('spotify_oauth_state');
-    if (!state || state !== savedState) {
-      return res.status(403).json({ error: 'OAuth state mismatch — possible CSRF attack' });
-    }
+    const recovered = await userFromOauthState(state, 'spotify');
+    if (!recovered) return fail(res, 'spotify_state');
+    const { user, payload } = recovered;
 
     const tokens = await spotify.exchangeCode(code);
-    const profile = await spotify.getProfile(tokens.accessToken);
+    await spotify.getProfile(tokens.accessToken); // verify token works before persisting
 
     // Encrypt and persist tokens — never store plain text
-    req.user.musicProvider = 'spotify';
-    req.user.setToken('spotifyToken', tokens);
-    await req.user.save();
+    user.musicProvider = 'spotify';
+    user.setToken('spotifyToken', tokens);
+    await user.save();
+    await burnState(payload); // single-use
 
     // Non-blocking: analyze full library and upsert MusicProfile in the background
     setImmediate(async () => {
       try {
-        await buildProfile(req.user._id.toString(), req.user);
+        await buildProfile(user._id.toString(), user);
       } catch (e) {
         console.error('[musicProfile] Spotify build failed:', e.message);
       }
     });
 
     // Redirect to frontend integrations page so the web app can hydrate state
-    res.redirect(`${process.env.FRONTEND_URL}/integrations?music=spotify`);
-  } catch (err) {
-    next(err);
+    frontendRedirect(res, 'music=spotify');
+  } catch {
+    return fail(res, 'spotify_failed');
   }
 };
 
@@ -134,44 +147,44 @@ exports.playSpotifyTracks = async (req, res, next) => {
 
 // ── YouTube Music ─────────────────────────────────────────────────────────────
 
+// GET /api/integrations/youtube/connect  (auth required)
 exports.youtubeConnect = (req, res) => {
-  const state = crypto.randomBytes(16).toString('hex');
-  res.cookie('youtube_oauth_state', state, OAUTH_STATE_COOKIE_OPTS);
+  const state = signOauthState(req.user._id.toString(), 'youtube');
   res.redirect(youtube.getAuthUrl(state));
 };
 
-exports.youtubeCallback = async (req, res, next) => {
+// GET /api/integrations/youtube/callback  (PUBLIC — no auth middleware)
+exports.youtubeCallback = async (req, res) => {
   try {
     const { code, state, error } = req.query;
 
-    if (error) return res.status(400).json({ error: `YouTube denied access: ${error}` });
+    if (error) return fail(res, `youtube_${error}`);
 
-    const savedState = req.cookies.youtube_oauth_state;
-    res.clearCookie('youtube_oauth_state');
-    if (!state || state !== savedState) {
-      return res.status(403).json({ error: 'OAuth state mismatch — possible CSRF attack' });
-    }
+    const recovered = await userFromOauthState(state, 'youtube');
+    if (!recovered) return fail(res, 'youtube_state');
+    const { user, payload } = recovered;
 
     const tokens  = await youtube.exchangeCode(code);
-    const channel = await youtube.getChannel(tokens.accessToken);
+    await youtube.getChannel(tokens.accessToken); // verify token works before persisting
 
-    req.user.musicProvider = 'youtube';
-    req.user.setToken('youtubeMusicToken', tokens);
-    await req.user.save();
+    user.musicProvider = 'youtube';
+    user.setToken('youtubeMusicToken', tokens);
+    await user.save();
+    await burnState(payload); // single-use
 
     // Non-blocking: analyze full library and upsert MusicProfile in the background
     setImmediate(async () => {
       try {
-        await buildProfile(req.user._id.toString(), req.user);
+        await buildProfile(user._id.toString(), user);
       } catch (e) {
         console.error('[musicProfile] YouTube build failed:', e.message);
       }
     });
 
     // Redirect to frontend integrations page so the web app can hydrate state
-    res.redirect(`${process.env.FRONTEND_URL}/integrations?music=youtube`);
-  } catch (err) {
-    next(err);
+    frontendRedirect(res, 'music=youtube');
+  } catch {
+    return fail(res, 'youtube_failed');
   }
 };
 
@@ -204,28 +217,39 @@ const GARMIN_COOKIE_OPTS = {
   maxAge:   10 * 60 * 1000, // 10 minutes — matches Garmin's request token TTL
 };
 
-// Step 1: Fetch a request token from Garmin, store token + secret together,
-//         then redirect the user to Garmin's consent page.
+const GARMIN_REQUEST_TTL = 600; // seconds — matches Garmin's request token TTL
+
+// Step 1: Fetch a request token from Garmin, store {token, secret, uid} so the
+//         PUBLIC callback can validate token identity AND recover the user.
+//         OAuth 1.0a has no `state` param, so the request-token secret cannot go
+//         in the URL — it lives in a first-party cookie, mirrored to Redis (when
+//         available) keyed by oauth_token as a cookie-drop fallback.
 exports.garminConnect = async (req, res, next) => {
   try {
     const { oauthToken, oauthTokenSecret } = await garmin.getRequestToken();
 
-    // Store BOTH token and secret so the callback can validate token identity
-    // (prevents token fixation: attacker swapping their token into our session)
-    res.cookie(
-      'garmin_request',
-      JSON.stringify({ token: oauthToken, secret: oauthTokenSecret }),
-      GARMIN_COOKIE_OPTS
-    );
+    const payload = JSON.stringify({
+      token:  oauthToken,
+      secret: oauthTokenSecret,
+      uid:    req.user._id.toString(),
+    });
+
+    res.cookie('garmin_request', payload, GARMIN_COOKIE_OPTS);
+
+    const redis = getRedis();
+    if (redis) {
+      try { await redis.set(`garmin:req:${oauthToken}`, payload, 'EX', GARMIN_REQUEST_TTL); } catch { /* best-effort */ }
+    }
 
     res.redirect(garmin.getAuthUrl(oauthToken));
   } catch (err) { next(err); }
 };
 
-// Step 2: Garmin redirects here with oauth_token + oauth_verifier.
-//         Validate token identity, exchange for permanent access token,
-//         verify it works, then encrypt and store.
-exports.garminCallback = async (req, res, next) => {
+// Step 2 (PUBLIC — no auth middleware): Garmin redirects here with oauth_token +
+//         oauth_verifier. Recover {token, secret, uid} from the cookie (or Redis
+//         fallback), validate token identity, exchange for the permanent access
+//         token, verify it works, then encrypt and store against the recovered user.
+exports.garminCallback = async (req, res) => {
   try {
     const { oauth_token: returnedToken, oauth_verifier } = req.query;
 
@@ -233,26 +257,25 @@ exports.garminCallback = async (req, res, next) => {
     const raw = req.cookies.garmin_request;
     res.clearCookie('garmin_request', GARMIN_COOKIE_OPTS);
 
-    if (!raw) {
-      return res.status(403).json({ error: 'OAuth session expired or cookie missing — please reconnect' });
+    let stored = null;
+    if (raw) { try { stored = JSON.parse(raw); } catch { stored = null; } }
+
+    // Cookie-drop fallback: recover from Redis by the returned oauth_token
+    if (!stored && returnedToken) {
+      const redis = getRedis();
+      if (redis) {
+        try {
+          const r = await redis.get(`garmin:req:${returnedToken}`);
+          if (r) stored = JSON.parse(r);
+        } catch { /* fall through */ }
+      }
     }
 
-    let stored;
-    try {
-      stored = JSON.parse(raw);
-    } catch {
-      return res.status(403).json({ error: 'Malformed OAuth session — please reconnect' });
-    }
+    if (!stored) return fail(res, 'garmin_expired');
 
-    // Token fixation guard: the returned oauth_token must exactly match
-    // the one we originally received from Garmin in Step 1
-    if (!returnedToken || returnedToken !== stored.token) {
-      return res.status(403).json({ error: 'OAuth token mismatch — possible token fixation attack' });
-    }
-
-    if (!oauth_verifier) {
-      return res.status(400).json({ error: 'Missing oauth_verifier — user may have denied access' });
-    }
+    // Token fixation guard: the returned oauth_token must exactly match Step 1's
+    if (!returnedToken || returnedToken !== stored.token) return fail(res, 'garmin_mismatch');
+    if (!oauth_verifier) return fail(res, 'garmin_denied');
 
     // Exchange verifier for permanent access token
     const { accessToken, accessTokenSecret } = await garmin.getAccessToken(
@@ -264,14 +287,22 @@ exports.garminCallback = async (req, res, next) => {
     // Verify the access token actually works before persisting anything
     const { garminUserId } = await garmin.getUserProfile(accessToken, accessTokenSecret);
 
+    const user = await User.findById(stored.uid);
+    if (!user || user.deletedAt) return fail(res, 'session');
+
     // Encrypt both parts of the OAuth 1.0a credential pair (AES-256-GCM)
-    req.user.wearableProvider = 'garmin';
-    req.user.setToken('wearableToken', { accessToken, accessTokenSecret, garminUserId });
-    await req.user.save();
+    user.wearableProvider = 'garmin';
+    user.setToken('wearableToken', { accessToken, accessTokenSecret, garminUserId });
+    await user.save();
+
+    const redis = getRedis();
+    if (redis) { try { await redis.del(`garmin:req:${returnedToken}`); } catch { /* best-effort */ } }
 
     // Redirect to frontend integrations page so the web app can hydrate state
-    res.redirect(`${process.env.FRONTEND_URL}/integrations?biometric=garmin`);
-  } catch (err) { next(err); }
+    frontendRedirect(res, 'biometric=garmin');
+  } catch {
+    return fail(res, 'garmin_failed');
+  }
 };
 
 exports.garminDisconnect = async (req, res, next) => {

@@ -61,11 +61,14 @@ jest.mock('../app/services/wearable/suunto', () => ({
 jest.mock('../app/models/BiometricLog', () => ({}));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
+  findById:          jest.fn(),
 }));
 
 const spotify     = require('../app/services/spotify');
 const youtube     = require('../app/services/youtube');
 const garmin      = require('../app/services/wearable/garmin');
+const User        = require('../app/models/User');
+const { signOauthState } = require('../app/utils/jwt');
 
 const ctrl = require('../app/controllers/integrationsController');
 const { normalize } = require('../app/services/wearable/adapter');
@@ -103,7 +106,7 @@ describe('Spotify OAuth flow', () => {
   beforeEach(() => jest.clearAllMocks());
 
   describe('spotifyConnect', () => {
-    it('sets an HTTP-only state cookie and redirects to Spotify', () => {
+    it('redirects to Spotify with a signed state (no cookie needed)', () => {
       spotify.getAuthUrl.mockReturnValue('https://accounts.spotify.com/authorize?...');
 
       const req = { user: buildUser() };
@@ -111,62 +114,50 @@ describe('Spotify OAuth flow', () => {
 
       ctrl.spotifyConnect(req, res);
 
-      expect(res.cookie).toHaveBeenCalledWith(
-        'spotify_oauth_state',
-        expect.any(String),
-        expect.objectContaining({ httpOnly: true })
-      );
+      // No state cookie — identity travels in the signed state instead
+      expect(res.cookie).not.toHaveBeenCalled();
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('accounts.spotify.com'));
     });
 
-    it('passes a 32-char hex state token to getAuthUrl', () => {
+    it('passes a signed-JWT state token (3 dot-separated segments) to getAuthUrl', () => {
       spotify.getAuthUrl.mockReturnValue('https://accounts.spotify.com/authorize');
 
       ctrl.spotifyConnect({ user: buildUser() }, buildRes());
 
       const stateArg = spotify.getAuthUrl.mock.calls[0][0];
-      expect(stateArg).toMatch(/^[a-f0-9]{32}$/);
+      expect(stateArg.split('.')).toHaveLength(3); // header.payload.signature
     });
   });
 
   describe('spotifyCallback', () => {
-    it('rejects when Spotify returns an error param', async () => {
-      const req = { query: { error: 'access_denied' }, cookies: {}, user: buildUser() };
-      const res = buildRes();
-      await ctrl.spotifyCallback(req, res, jest.fn());
+    const validState = () => signOauthState('user-123', 'spotify');
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('denied') }));
+    it('redirects with an error when Spotify returns an error param', async () => {
+      const req = { query: { error: 'access_denied' }, cookies: {} };
+      const res = buildRes();
+      await ctrl.spotifyCallback(req, res);
+
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_access_denied'));
     });
 
-    it('rejects on CSRF state mismatch', async () => {
-      const req = {
-        query:   { code: 'abc', state: 'wrong-state' },
-        cookies: { spotify_oauth_state: 'correct-state' },
-        user:    buildUser(),
-      };
+    it('redirects with error=spotify_state on a tampered state', async () => {
+      const req = { query: { code: 'abc', state: 'wrong-state' }, cookies: {} };
       const res = buildRes();
-      await ctrl.spotifyCallback(req, res, jest.fn());
+      await ctrl.spotifyCallback(req, res);
 
-      expect(res.clearCookie).toHaveBeenCalledWith('spotify_oauth_state');
-      expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('CSRF') }));
+      expect(spotify.exchangeCode).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_state'));
     });
 
-    it('rejects when state cookie is missing', async () => {
-      const req = {
-        query:   { code: 'abc', state: 'some-state' },
-        cookies: {},
-        user:    buildUser(),
-      };
+    it('redirects with error=spotify_state when state is missing', async () => {
+      const req = { query: { code: 'abc' }, cookies: {} };
       const res = buildRes();
-      await ctrl.spotifyCallback(req, res, jest.fn());
+      await ctrl.spotifyCallback(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_state'));
     });
 
-    it('encrypts tokens and redirects to deep link on success', async () => {
-      const state = 'valid-state-abc123';
+    it('encrypts tokens and redirects to the app on success', async () => {
       const tokens  = { accessToken: 'at', refreshToken: 'rt', expiresAt: Date.now() + 3600000 };
       const profile = { spotifyId: 'sp123', displayName: 'Test User' };
 
@@ -174,38 +165,30 @@ describe('Spotify OAuth flow', () => {
       spotify.getProfile.mockResolvedValue(profile);
 
       const user = buildUser();
-      const req  = {
-        query:   { code: 'auth-code', state },
-        cookies: { spotify_oauth_state: state },
-        user,
-      };
+      User.findById.mockResolvedValue(user);
+      const req  = { query: { code: 'auth-code', state: validState() }, cookies: {} };
       const res  = buildRes();
-      const next = jest.fn();
 
-      await ctrl.spotifyCallback(req, res, next);
+      await ctrl.spotifyCallback(req, res);
 
       expect(spotify.exchangeCode).toHaveBeenCalledWith('auth-code');
       expect(spotify.getProfile).toHaveBeenCalledWith(tokens.accessToken);
       expect(user.setToken).toHaveBeenCalledWith('spotifyToken', tokens);
       expect(user.save).toHaveBeenCalled();
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
-      expect(next).not.toHaveBeenCalled();
     });
 
-    it('passes errors to next() on service failure', async () => {
-      const state = 'valid-state';
-      const err   = new Error('Spotify API down');
-      spotify.exchangeCode.mockRejectedValue(err);
+    it('redirects with error=spotify_failed on service failure (never raw JSON)', async () => {
+      spotify.exchangeCode.mockRejectedValue(new Error('Spotify API down'));
 
-      const req  = {
-        query:   { code: 'code', state },
-        cookies: { spotify_oauth_state: state },
-        user:    buildUser(),
-      };
-      const next = jest.fn();
-      await ctrl.spotifyCallback(req, buildRes(), next);
+      const user = buildUser();
+      User.findById.mockResolvedValue(user);
+      const req = { query: { code: 'code', state: validState() }, cookies: {} };
+      const res = buildRes();
+      await ctrl.spotifyCallback(req, res);
 
-      expect(next).toHaveBeenCalledWith(err);
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_failed'));
+      expect(res.json).not.toHaveBeenCalled();
     });
   });
 
@@ -246,27 +229,25 @@ describe('Spotify OAuth flow', () => {
 describe('YouTube OAuth flow', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('youtubeConnect sets state cookie and redirects', () => {
+  it('youtubeConnect redirects with a signed state and sets no cookie', () => {
     youtube.getAuthUrl.mockReturnValue('https://accounts.google.com/o/oauth2/auth?...');
 
-    ctrl.youtubeConnect({ user: buildUser() }, buildRes());
+    const res = buildRes();
+    ctrl.youtubeConnect({ user: buildUser() }, res);
 
     expect(youtube.getAuthUrl).toHaveBeenCalledWith(expect.any(String));
+    expect(res.cookie).not.toHaveBeenCalled();
   });
 
-  it('youtubeCallback rejects on state mismatch', async () => {
-    const req = {
-      query:   { code: 'c', state: 'bad' },
-      cookies: { youtube_oauth_state: 'good' },
-      user:    buildUser(),
-    };
+  it('youtubeCallback redirects with error=youtube_state on a tampered state', async () => {
+    const req = { query: { code: 'c', state: 'bad' }, cookies: {} };
     const res = buildRes();
-    await ctrl.youtubeCallback(req, res, jest.fn());
-    expect(res.status).toHaveBeenCalledWith(403);
+    await ctrl.youtubeCallback(req, res);
+    expect(youtube.exchangeCode).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=youtube_state'));
   });
 
   it('youtubeCallback encrypts tokens and redirects on success', async () => {
-    const state   = 'yt-state-123';
     const tokens  = { accessToken: 'ytat', refreshToken: 'ytrt', expiresAt: Date.now() + 3600000 };
     const channel = { channelId: 'UCxyz', displayName: 'My Channel' };
 
@@ -274,13 +255,10 @@ describe('YouTube OAuth flow', () => {
     youtube.getChannel.mockResolvedValue(channel);
 
     const user = buildUser();
-    const req  = {
-      query:   { code: 'yt-code', state },
-      cookies: { youtube_oauth_state: state },
-      user,
-    };
+    User.findById.mockResolvedValue(user);
+    const req  = { query: { code: 'yt-code', state: signOauthState('user-123', 'youtube') }, cookies: {} };
 
-    await ctrl.youtubeCallback(req, buildRes(), jest.fn());
+    await ctrl.youtubeCallback(req, buildRes());
 
     expect(user.setToken).toHaveBeenCalledWith('youtubeMusicToken', tokens);
     expect(user.save).toHaveBeenCalled();
@@ -301,7 +279,7 @@ describe('Garmin OAuth 1.0a flow', () => {
   beforeEach(() => jest.clearAllMocks());
 
   describe('garminConnect', () => {
-    it('stores { token, secret } JSON pair in cookie and redirects', async () => {
+    it('stores { token, secret, uid } JSON in cookie and redirects', async () => {
       garmin.getRequestToken.mockResolvedValue({
         oauthToken:       'req_token_abc',
         oauthTokenSecret: 'req_secret_xyz',
@@ -313,7 +291,7 @@ describe('Garmin OAuth 1.0a flow', () => {
 
       expect(res.cookie).toHaveBeenCalledWith(
         'garmin_request',
-        JSON.stringify({ token: 'req_token_abc', secret: 'req_secret_xyz' }),
+        JSON.stringify({ token: 'req_token_abc', secret: 'req_secret_xyz', uid: 'user-123' }),
         expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
       );
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('connect.garmin.com'));
@@ -321,74 +299,69 @@ describe('Garmin OAuth 1.0a flow', () => {
   });
 
   describe('garminCallback — security guards', () => {
-    it('rejects when garmin_request cookie is missing', async () => {
-      const req = { query: { oauth_token: 't', oauth_verifier: 'v' }, cookies: {}, user: buildUser() };
+    it('redirects with error=garmin_expired when garmin_request cookie is missing', async () => {
+      const req = { query: { oauth_token: 't', oauth_verifier: 'v' }, cookies: {} };
       const res = buildRes();
-      await ctrl.garminCallback(req, res, jest.fn());
+      await ctrl.garminCallback(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('expired') }));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_expired'));
+      expect(res.json).not.toHaveBeenCalled();
     });
 
-    it('rejects on token fixation — returned token does not match stored token', async () => {
-      const stored = JSON.stringify({ token: 'original_token', secret: 'secret' });
+    it('redirects with error=garmin_mismatch on token fixation (returned token ≠ stored)', async () => {
+      const stored = JSON.stringify({ token: 'original_token', secret: 'secret', uid: 'user-123' });
       const req = {
         query:   { oauth_token: 'attacker_token', oauth_verifier: 'v' },
         cookies: { garmin_request: stored },
-        user:    buildUser(),
       };
       const res = buildRes();
-      await ctrl.garminCallback(req, res, jest.fn());
+      await ctrl.garminCallback(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('fixation') }));
+      expect(garmin.getAccessToken).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_mismatch'));
     });
 
-    it('rejects when oauth_verifier is missing (user denied)', async () => {
-      const stored = JSON.stringify({ token: 'tok', secret: 'sec' });
+    it('redirects with error=garmin_denied when oauth_verifier is missing (user denied)', async () => {
+      const stored = JSON.stringify({ token: 'tok', secret: 'sec', uid: 'user-123' });
       const req = {
         query:   { oauth_token: 'tok' /* no oauth_verifier */ },
         cookies: { garmin_request: stored },
-        user:    buildUser(),
       };
       const res = buildRes();
-      await ctrl.garminCallback(req, res, jest.fn());
+      await ctrl.garminCallback(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('verifier') }));
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_denied'));
     });
 
-    it('rejects on malformed cookie JSON', async () => {
+    it('redirects with error=garmin_expired on malformed cookie JSON', async () => {
       const req = {
         query:   { oauth_token: 'tok', oauth_verifier: 'ver' },
         cookies: { garmin_request: 'not-json' },
-        user:    buildUser(),
       };
       const res = buildRes();
-      await ctrl.garminCallback(req, res, jest.fn());
+      await ctrl.garminCallback(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_expired'));
     });
   });
 
   describe('garminCallback — success path', () => {
     it('exchanges verifier, verifies profile, encrypts credential pair, redirects', async () => {
-      const stored = JSON.stringify({ token: 'req_tok', secret: 'req_sec' });
+      const stored = JSON.stringify({ token: 'req_tok', secret: 'req_sec', uid: 'user-123' });
       garmin.getAccessToken.mockResolvedValue({
         accessToken: 'acc_tok', accessTokenSecret: 'acc_sec',
       });
       garmin.getUserProfile.mockResolvedValue({ garminUserId: 'garmin-u1' });
 
       const user = buildUser();
+      User.findById.mockResolvedValue(user);
       const req  = {
         query:   { oauth_token: 'req_tok', oauth_verifier: 'verifier123' },
         cookies: { garmin_request: stored },
-        user,
       };
       const res  = buildRes();
-      const next = jest.fn();
 
-      await ctrl.garminCallback(req, res, next);
+      await ctrl.garminCallback(req, res);
 
       expect(garmin.getAccessToken).toHaveBeenCalledWith('req_tok', 'req_sec', 'verifier123');
       expect(garmin.getUserProfile).toHaveBeenCalledWith('acc_tok', 'acc_sec');
@@ -399,19 +372,18 @@ describe('Garmin OAuth 1.0a flow', () => {
       });
       expect(user.save).toHaveBeenCalled();
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?biometric=garmin'));
-      expect(next).not.toHaveBeenCalled();
     });
 
     it('clears the request cookie immediately (one-time use)', async () => {
-      const stored = JSON.stringify({ token: 'req_tok', secret: 'req_sec' });
+      const stored = JSON.stringify({ token: 'req_tok', secret: 'req_sec', uid: 'user-123' });
       garmin.getAccessToken.mockResolvedValue({ accessToken: 'at', accessTokenSecret: 'as' });
       garmin.getUserProfile.mockResolvedValue({ garminUserId: 'gid' });
+      User.findById.mockResolvedValue(buildUser());
 
       const res = buildRes();
       await ctrl.garminCallback(
-        { query: { oauth_token: 'req_tok', oauth_verifier: 'v' }, cookies: { garmin_request: stored }, user: buildUser() },
+        { query: { oauth_token: 'req_tok', oauth_verifier: 'v' }, cookies: { garmin_request: stored } },
         res,
-        jest.fn()
       );
 
       expect(res.clearCookie).toHaveBeenCalledWith('garmin_request', expect.objectContaining({ sameSite: 'lax' }));
