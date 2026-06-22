@@ -37,6 +37,7 @@ function friendlyConnectError(code: string): string {
     provider === 'spotify' ? 'Spotify' :
     provider === 'youtube' ? 'YouTube Music' :
     provider === 'garmin'  ? 'Garmin' : 'the service';
+  if (code.endsWith('_unconfigured')) return `${name} isn't available yet — check back soon.`;
   return `Couldn't connect ${name}. Please try again.`;
 }
 

@@ -31,6 +31,7 @@ jest.mock('../app/services/spotify', () => ({
 }));
 jest.mock('../app/services/youtube', () => ({
   getAuthUrl:              jest.fn(),
+  isConfigured:            jest.fn(),
   exchangeCode:            jest.fn(),
   getChannel:              jest.fn(),
   getValidToken:           jest.fn(),
@@ -227,7 +228,7 @@ describe('Spotify OAuth flow', () => {
 // YOUTUBE
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('YouTube OAuth flow', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); youtube.isConfigured.mockReturnValue(true); });
 
   it('youtubeConnect redirects with a signed state and sets no cookie', () => {
     youtube.getAuthUrl.mockReturnValue('https://accounts.google.com/o/oauth2/auth?...');
@@ -237,6 +238,16 @@ describe('YouTube OAuth flow', () => {
 
     expect(youtube.getAuthUrl).toHaveBeenCalledWith(expect.any(String));
     expect(res.cookie).not.toHaveBeenCalled();
+  });
+
+  it('youtubeConnect redirects with error=youtube_unconfigured when creds are missing', () => {
+    youtube.isConfigured.mockReturnValue(false);
+
+    const res = buildRes();
+    ctrl.youtubeConnect({ user: buildUser() }, res);
+
+    expect(youtube.getAuthUrl).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=youtube_unconfigured'));
   });
 
   it('youtubeCallback redirects with error=youtube_state on a tampered state', async () => {

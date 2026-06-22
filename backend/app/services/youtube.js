@@ -13,11 +13,26 @@ const SCOPES = [
   'https://www.googleapis.com/auth/youtube.readonly',
 ].join(' ');
 
+// One Google OAuth client can serve BOTH the GSI login flow and this server-side
+// YouTube code exchange, so the YouTube creds fall back to the GOOGLE_* the login
+// already uses. Without this, an unset YOUTUBE_CLIENT_ID sends an empty client_id
+// to Google → "Access blocked: invalid_client (OAuth client was not found)". Set a
+// dedicated YOUTUBE_CLIENT_ID/SECRET only if you want a distinct client.
+const clientId     = () => process.env.YOUTUBE_CLIENT_ID     || process.env.GOOGLE_CLIENT_ID     || '';
+const clientSecret = () => process.env.YOUTUBE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '';
+const redirectUri  = () => process.env.YOUTUBE_REDIRECT_URI || '';
+
+// True only when the connect flow can actually succeed. Lets the controller fail
+// with a clear in-app message instead of bouncing the user to Google's error page.
+function isConfigured() {
+  return Boolean(clientId() && clientSecret() && redirectUri());
+}
+
 function getAuthUrl(state) {
   const params = new URLSearchParams({
     response_type:   'code',
-    client_id:       process.env.YOUTUBE_CLIENT_ID,
-    redirect_uri:    process.env.YOUTUBE_REDIRECT_URI,
+    client_id:       clientId(),
+    redirect_uri:    redirectUri(),
     scope:           SCOPES,
     state,
     access_type:     'offline',  // required to receive a refresh token
@@ -31,9 +46,9 @@ async function exchangeCode(code) {
     `${BASE_AUTH}/token`,
     new URLSearchParams({
       code,
-      client_id:     process.env.YOUTUBE_CLIENT_ID,
-      client_secret: process.env.YOUTUBE_CLIENT_SECRET,
-      redirect_uri:  process.env.YOUTUBE_REDIRECT_URI,
+      client_id:     clientId(),
+      client_secret: clientSecret(),
+      redirect_uri:  redirectUri(),
       grant_type:    'authorization_code',
     }),
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
@@ -51,8 +66,8 @@ async function refreshAccessToken(refreshToken) {
     new URLSearchParams({
       grant_type:    'refresh_token',
       refresh_token: refreshToken,
-      client_id:     process.env.YOUTUBE_CLIENT_ID,
-      client_secret: process.env.YOUTUBE_CLIENT_SECRET,
+      client_id:     clientId(),
+      client_secret: clientSecret(),
     }),
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
   );
@@ -208,6 +223,6 @@ async function searchRecommendations(accessToken, { seed_genres, target_energy, 
 }
 
 module.exports = {
-  getAuthUrl, exchangeCode, getValidToken, getChannel, getLikedVideos,
+  getAuthUrl, isConfigured, exchangeCode, getValidToken, getChannel, getLikedVideos,
   paginateLikedVideos, paginatePlaylistItems, searchRecommendations,
 };

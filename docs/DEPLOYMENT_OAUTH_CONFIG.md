@@ -28,10 +28,12 @@ SPOTIFY_CLIENT_ID=<copy from backend/.env>
 SPOTIFY_CLIENT_SECRET=<copy from backend/.env>
 SPOTIFY_REDIRECT_URI=https://kokonada-backend-production.up.railway.app/api/integrations/spotify/callback
 
-# YouTube — reuse the SAME Google OAuth client as login (see §3)
-YOUTUBE_CLIENT_ID=225621926146-grk3ob6kjkbeq3adi3f42m4nas6mha0d.apps.googleusercontent.com
-YOUTUBE_CLIENT_SECRET=<same as GOOGLE_CLIENT_SECRET in backend/.env>
+# YouTube — the code auto-falls-back to GOOGLE_CLIENT_ID/SECRET (the login client),
+# so YOUTUBE_CLIENT_ID/SECRET are OPTIONAL. At minimum set YOUTUBE_REDIRECT_URI and
+# make sure a client secret exists on Railway (GOOGLE_CLIENT_SECRET works — note the
+# GSI login flow does NOT need the secret, so it may not be set yet).
 YOUTUBE_REDIRECT_URI=https://kokonada-backend-production.up.railway.app/api/integrations/youtube/callback
+GOOGLE_CLIENT_SECRET=<copy from backend/.env — required for the YouTube token exchange>
 ```
 
 - `FRONTEND_URL` must be the **exact** Vercel origin (no trailing slash) — the public
