@@ -94,4 +94,51 @@ describe('encryption utility', () => {
       expect(() => decrypt(tooShort)).toThrow();
     });
   });
+
+  describe('key rotation (ENCRYPTION_KEY_PREVIOUS)', () => {
+    afterEach(() => {
+      process.env.ENCRYPTION_KEY = 'a'.repeat(64);
+      delete process.env.ENCRYPTION_KEY_PREVIOUS;
+    });
+
+    it('decrypts data written under a previous key after rotation', () => {
+      const oldKey = 'a'.repeat(64);
+      const newKey = 'b'.repeat(64);
+      process.env.ENCRYPTION_KEY = oldKey;
+      const blob = encrypt('rotate me');
+
+      // Rotate: new primary, old demoted to previous
+      process.env.ENCRYPTION_KEY = newKey;
+      process.env.ENCRYPTION_KEY_PREVIOUS = oldKey;
+
+      expect(decrypt(blob)).toBe('rotate me');          // legacy blob still readable
+      expect(decrypt(encrypt('fresh'))).toBe('fresh');  // new writes use new key
+    });
+
+    it('fails to decrypt when no configured key matches', () => {
+      process.env.ENCRYPTION_KEY = 'a'.repeat(64);
+      const blob = encrypt('secret');
+      process.env.ENCRYPTION_KEY = 'c'.repeat(64);
+      expect(() => decrypt(blob)).toThrow();
+    });
+  });
+
+  describe('AAD context binding', () => {
+    beforeEach(() => { process.env.ENCRYPTION_KEY = 'a'.repeat(64); });
+
+    it('round-trips with matching aad', () => {
+      const blob = encrypt({ token: 't' }, 'user-123');
+      expect(decrypt(blob, true, 'user-123')).toEqual({ token: 't' });
+    });
+
+    it('fails when aad does not match', () => {
+      const blob = encrypt('bound', 'user-123');
+      expect(() => decrypt(blob, false, 'user-999')).toThrow();
+    });
+
+    it('fails when aad was set at encrypt but omitted at decrypt', () => {
+      const blob = encrypt('bound', 'ctx');
+      expect(() => decrypt(blob)).toThrow();
+    });
+  });
 });

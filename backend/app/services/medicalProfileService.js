@@ -1,6 +1,7 @@
 'use strict';
 
 const MedicalProfile = require('../models/MedicalProfile');
+const { encrypt } = require('../utils/encryption');
 
 // ── Priority-ordered state classification rules ────────────────────────────────
 //
@@ -192,11 +193,14 @@ function computeStateVector(telemetry) {
 async function upsertStateVector(userId, telemetry) {
   const { status, confidence } = computeStateVector(telemetry);
 
+  // The state label reveals the user's inferred emotional/physiological state, so
+  // it is encrypted at rest. Encrypt explicitly here because setters do not run on
+  // findOneAndUpdate($set). Read it back via decrypt(doc.stateVector.status). (audit F3)
   return MedicalProfile.findOneAndUpdate(
     { userId },
     {
       $set: {
-        stateVector: { status, confidence, computedAt: new Date() },
+        stateVector: { status: encrypt(status), confidence, computedAt: new Date() },
       },
     },
     { upsert: true, new: true }

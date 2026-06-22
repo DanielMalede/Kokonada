@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { encryptedNumber } = require('./encryptedField');
 
 const hrZoneSchema = new mongoose.Schema({
   label: { type: String }, // "easy", "fat-burn", "aerobic", "anaerobic", "max"
@@ -23,8 +24,9 @@ const medicalProfileSchema = new mongoose.Schema({
     unique: true,
   },
 
-  restingHeartRate: { type: Number, default: null }, // bpm, established from biometric history
-  maxHeartRate:     { type: Number, default: null }, // bpm, measured or user-provided
+  // Special-category health metrics — encrypted at rest (transparent get/set). (audit F3)
+  restingHeartRate: encryptedNumber({ default: null }), // bpm, established from biometric history
+  maxHeartRate:     encryptedNumber({ default: null }), // bpm, measured or user-provided
 
   hrZones: {
     zone1: { type: hrZoneSchema, default: null }, // 50-60% — recovery
@@ -43,25 +45,25 @@ const medicalProfileSchema = new mongoose.Schema({
   },
 
   // ── Pillar 1: Cardiovascular & Nervous System ────────────────────────────────
-  hrv: { type: Number, default: null }, // Heart Rate Variability in ms (higher = better recovery)
+  hrv: encryptedNumber({ default: null }), // Heart Rate Variability in ms (higher = better recovery)
 
   // ── Pillar 2: Respiratory Metrics ────────────────────────────────────────────
-  respirationRate: { type: Number, default: null }, // breaths per minute
-  spO2:            { type: Number, default: null }, // blood oxygen %, 0–100
+  respirationRate: encryptedNumber({ default: null }), // breaths per minute
+  spO2:            encryptedNumber({ default: null }), // blood oxygen %, 0–100
 
   // ── Pillar 3: Kinematics & Motion ────────────────────────────────────────────
-  stepsPerMinute:        { type: Number, default: null },
-  accelerometerVariance: { type: Number, default: null }, // unitless variance
-  gpsVelocityKmh:        { type: Number, default: null }, // km/h
+  stepsPerMinute:        encryptedNumber({ default: null }),
+  accelerometerVariance: encryptedNumber({ default: null }), // unitless variance
+  gpsVelocityKmh:        encryptedNumber({ default: null }), // km/h
 
   // ── Pillar 4: Sleep & Recovery State ─────────────────────────────────────────
   sleepStages: {
-    rem:   { type: Number, default: null }, // minutes in REM
-    deep:  { type: Number, default: null }, // minutes in Deep Sleep
-    light: { type: Number, default: null }, // minutes in Light Sleep
+    rem:   encryptedNumber({ default: null }), // minutes in REM
+    deep:  encryptedNumber({ default: null }), // minutes in Deep Sleep
+    light: encryptedNumber({ default: null }), // minutes in Light Sleep
   },
-  dailyReadiness: { type: Number, default: null }, // 0–100 (Garmin/Whoop readiness score)
-  bodyBattery:    { type: Number, default: null }, // 0–100 (Garmin Body Battery)
+  dailyReadiness: encryptedNumber({ default: null }), // 0–100 (Garmin/Whoop readiness score)
+  bodyBattery:    encryptedNumber({ default: null }), // 0–100 (Garmin Body Battery)
 
   // ── Pillar 5: Temporal & Device Context ──────────────────────────────────────
   bluetoothAudioConnected: { type: Boolean, default: null },
@@ -86,6 +88,11 @@ const medicalProfileSchema = new mongoose.Schema({
   lastAnalyzed: { type: Date, default: null },
 }, {
   timestamps: true,
+  toJSON:   { getters: true },
+  toObject: { getters: true },
+  // NOTE: the nested hrZones / activityBaselines sub-schemas are not yet written by
+  // any code path; when they begin storing real values, wrap them with
+  // encryptedNumber() the same way (and write via document .save(), not $set). (audit F3)
 });
 
 module.exports = mongoose.model('MedicalProfile', medicalProfileSchema);
