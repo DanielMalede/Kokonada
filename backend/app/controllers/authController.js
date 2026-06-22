@@ -1,6 +1,5 @@
 const { OAuth2Client } = require('google-auth-library');
 const appleSignin = require('apple-signin-auth');
-const axios = require('axios');
 const User = require('../models/User');
 const { signToken, setAuthCookie, clearAuthCookie } = require('../utils/jwt');
 const { revoke } = require('../utils/tokenDenylist');
@@ -27,37 +26,24 @@ async function verifyAppleToken(identityToken) {
   return { ssoId: p.sub, email: p.email || '', displayName: '', avatarUrl: '' };
 }
 
-async function verifyFacebookToken(accessToken) {
-  try {
-    const { data } = await axios.get('https://graph.facebook.com/me', {
-      params: { fields: 'id,name,email,picture.type(large)', access_token: accessToken },
-      timeout: 5000,
-    });
-    if (data.error) throw new Error(data.error.message);
-    if (!data.id) throw new Error('Facebook did not return a valid user id');
-    return {
-      ssoId: data.id,
-      email: data.email || '',
-      displayName: data.name || '',
-      avatarUrl: data.picture?.data?.url || '',
-    };
-  } catch (err) {
-    throw new Error(`Facebook token verification failed: ${err.message}`);
-  }
-}
-
 // ── Shared SSO handler ────────────────────────────────────────────────────────
 
 async function handleSso(provider, profile, deviceToken, platform, res) {
   // Deliberate: accounts are keyed by (provider, ssoId) and are NOT auto-linked by
   // email across providers. Auto-linking on email is an account-takeover footgun
-  // here — Apple may return a private relay address and Facebook emails aren't
-  // guaranteed verified, so a matching email is not proof of the same human. The
-  // cost is a possible duplicate account per provider; the benefit is no silent
-  // cross-provider takeover. (audit F15)
+  // here — Apple may return a private relay address, so a matching email is not
+  // proof of the same human. The cost is a possible duplicate account per provider;
+  // the benefit is no silent cross-provider takeover. (audit F15)
   let user = await User.findOne({ ssoProvider: provider, ssoId: profile.ssoId });
 
   if (!user) {
+    // A provider that doesn't share an email can't create an account here (email is
+    // required). Return a clear 422 instead of letting Mongoose throw a 500. (audit F-FB4)
+    if (!profile.email) {
+      return res.status(422).json({
+        error: 'Your account did not share an email address, which is required to sign up.',
+      });
+    }
     user = await User.create({
       ssoProvider: provider,
       ssoId: profile.ssoId,
@@ -111,15 +97,6 @@ exports.appleAuth = async (req, res, next) => {
     if (!identityToken) return res.status(400).json({ error: 'identityToken is required' });
     const profile = await verifyAppleToken(identityToken);
     await handleSso('apple', profile, deviceToken, platform, res);
-  } catch (err) { next(err); }
-};
-
-exports.facebookAuth = async (req, res, next) => {
-  try {
-    const { accessToken, deviceToken, platform } = req.body;
-    if (!accessToken) return res.status(400).json({ error: 'accessToken is required' });
-    const profile = await verifyFacebookToken(accessToken);
-    await handleSso('facebook', profile, deviceToken, platform, res);
   } catch (err) { next(err); }
 };
 

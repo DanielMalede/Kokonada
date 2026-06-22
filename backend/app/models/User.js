@@ -6,7 +6,7 @@ const encryptedTokenSchema = new mongoose.Schema({
 }, { _id: false });
 
 const userSchema = new mongoose.Schema({
-  ssoProvider: { type: String, enum: ['google', 'apple', 'facebook'], required: true },
+  ssoProvider: { type: String, enum: ['google', 'apple'], required: true },
   ssoId:       { type: String, required: true },
   email:       { type: String, required: true },
   displayName: { type: String, default: '' },

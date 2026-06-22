@@ -1,12 +1,11 @@
 const router = require('express').Router();
-const { googleAuth, appleAuth, facebookAuth, logout } = require('../controllers/authController');
+const { googleAuth, appleAuth, logout } = require('../controllers/authController');
 const { authLimiter } = require('../middleware/rateLimiter');
 const auth = require('../middleware/auth');
 
 // Mobile-first: clients send their provider token, backend verifies and issues JWT
 router.post('/google',   authLimiter, googleAuth);
 router.post('/apple',    authLimiter, appleAuth);
-router.post('/facebook', authLimiter, facebookAuth);
 
 // Protected routes
 router.post('/logout', auth, logout);
