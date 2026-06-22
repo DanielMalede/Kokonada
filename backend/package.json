@@ -16,7 +16,6 @@
     "@sentry/node": "^10.58.0",
     "apple-signin-auth": "^2.0.0",
     "axios": "^1.18.0",
-    "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

@@ -5,11 +5,12 @@ const { withRetry } = require('../utils/retry');
 const BASE_AUTH = 'https://accounts.google.com/o/oauth2';
 const BASE_API  = 'https://www.googleapis.com/youtube/v3';
 
-// Scopes required for playlist management and playback history
+// Least privilege: the code only reads (channel, liked videos, playlists, search).
+// The broad `youtube` (manage) and `youtube.force-ssl` (write) scopes were requested
+// but never exercised — drop them so a stolen token can't modify the user's account.
+// Re-add when write features land. (audit F12 / least-privilege)
 const SCOPES = [
-  'https://www.googleapis.com/auth/youtube',
   'https://www.googleapis.com/auth/youtube.readonly',
-  'https://www.googleapis.com/auth/youtube.force-ssl',
 ].join(' ');
 
 function getAuthUrl(state) {

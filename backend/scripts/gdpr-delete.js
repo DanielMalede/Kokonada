@@ -3,6 +3,12 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const mongoose = require('mongoose');
+const fs   = require('fs');
+const path = require('path');
+
+// The app connects with MONGO_URI; accept the legacy MONGODB_URI as a fallback so
+// a stale env name can never silently point erasure at the wrong/empty DB. (audit F11)
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 
 const BiometricLog    = require('../app/models/BiometricLog');
 const MedicalProfile  = require('../app/models/MedicalProfile');
@@ -29,6 +35,23 @@ function isValidObjectId(id) {
   return /^[0-9a-fA-F]{24}$/.test(id);
 }
 
+// Append-only erasure audit trail: who erased which user, when, and what counts.
+// Records the *fact* of erasure (Art. 30 accountability) without storing any of
+// the erased personal data itself. (audit F11)
+function appendAudit(record) {
+  const logPath = path.join(__dirname, '..', 'gdpr-erasure-audit.log');
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    operator: process.env.GDPR_OPERATOR || process.env.USER || process.env.USERNAME || 'unknown',
+    ...record,
+  }) + '\n';
+  try {
+    fs.appendFileSync(logPath, line, { flag: 'a' });
+  } catch (e) {
+    console.error(`WARNING: failed to write erasure audit log: ${e.message}`);
+  }
+}
+
 async function main() {
   const { userId, dryRun } = parseArgs();
 
@@ -42,12 +65,12 @@ async function main() {
     process.exit(1);
   }
 
-  if (!process.env.MONGODB_URI) {
-    console.error('Error: MONGODB_URI is not set');
+  if (!MONGO_URI) {
+    console.error('Error: MONGO_URI is not set');
     process.exit(1);
   }
 
-  await mongoose.connect(process.env.MONGODB_URI);
+  await mongoose.connect(MONGO_URI);
 
   try {
     if (dryRun) {
@@ -94,6 +117,17 @@ async function main() {
       } else {
         console.log('  User: deleted');
       }
+
+      appendAudit({
+        userId,
+        deleted: {
+          biometricLogs:    biometricResult.deletedCount,
+          medicalProfile:   medicalResult.deletedCount,
+          musicProfile:     musicResult.deletedCount,
+          playlistSessions: playlistResult.deletedCount,
+          user:             user ? 1 : 0,
+        },
+      });
 
       console.log('GDPR deletion complete.');
     }
