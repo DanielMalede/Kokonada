@@ -36,8 +36,24 @@ export function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-/** `?token=…` suffix for top-level navigations (OAuth connect) that can't set headers. */
-export function tokenQuery(): string {
-  const t = getToken();
-  return t ? `?token=${encodeURIComponent(t)}` : '';
+/**
+ * Builds an authenticated OAuth-connect URL for a top-level navigation that cannot
+ * send an Authorization header. Instead of leaking the long-lived session JWT in
+ * the URL, we mint a short-lived (120s) single-use connect token server-side and
+ * pass that as ?ct=. Falls back to the plain URL (cookie auth) if minting fails. (audit F1)
+ */
+export async function buildConnectUrl(backendUrl: string, path: string): Promise<string> {
+  const base = `${backendUrl}${path}`;
+  try {
+    const res = await fetch(`${backendUrl}/api/integrations/connect-token`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: authHeaders(),
+    });
+    if (!res.ok) return base;
+    const { connectToken } = await res.json();
+    return connectToken ? `${base}?ct=${encodeURIComponent(connectToken)}` : base;
+  } catch {
+    return base;
+  }
 }

@@ -5,20 +5,32 @@ const { normalize } = require('./adapter');
 
 const BASE = 'https://cloudapi.suunto.com/v2';
 
-// Verify Suunto webhook HMAC signature to reject forged payloads
+// Verify Suunto webhook HMAC signature to reject forged payloads.
+// Fail-closed: an unconfigured secret must never accept payloads in production
+// (a missing env var is a misconfiguration, not a reason to trust the world).
+// The dev-only skip is gated strictly on a non-production NODE_ENV. (audit F5)
 function verifyWebhookSignature(rawBody, signatureHeader) {
   const secret = process.env.SUUNTO_WEBHOOK_SECRET;
-  if (!secret) return true; // skip in dev if not configured
+  if (!secret) {
+    return process.env.NODE_ENV !== 'production'; // dev convenience only
+  }
 
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(rawBody)
-    .digest('hex');
+  let expected;
+  let provided;
+  try {
+    expected = Buffer.from(
+      crypto.createHmac('sha256', secret).update(rawBody).digest('hex'),
+      'hex'
+    );
+    provided = Buffer.from(signatureHeader || '', 'hex');
+  } catch {
+    return false; // non-hex signature header
+  }
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signatureHeader || '', 'hex'),
-    Buffer.from(expected, 'hex')
-  );
+  // timingSafeEqual throws on length mismatch — guard it explicitly. (audit F13)
+  if (provided.length !== expected.length) return false;
+
+  return crypto.timingSafeEqual(provided, expected);
 }
 
 // Handle an incoming Suunto webhook event

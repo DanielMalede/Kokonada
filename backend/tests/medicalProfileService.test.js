@@ -296,7 +296,7 @@ describe('upsertStateVector', () => {
       expect.objectContaining({
         $set: expect.objectContaining({
           stateVector: expect.objectContaining({
-            status:     'Peak Athletic Performance',
+            status:     expect.any(String),
             confidence: expect.any(Number),
             computedAt: expect.any(Date),
           }),
@@ -304,6 +304,12 @@ describe('upsertStateVector', () => {
       }),
       { upsert: true, new: true }
     );
+
+    // status is stored AES-256-GCM encrypted at rest (audit F3) — decrypt to verify
+    const { decrypt } = require('../app/utils/encryption');
+    const storedStatus = MedicalProfile.findOneAndUpdate.mock.calls[0][1].$set.stateVector.status;
+    expect(storedStatus).not.toBe('Peak Athletic Performance'); // not plaintext
+    expect(decrypt(storedStatus)).toBe('Peak Athletic Performance');
   });
 
   it('returns the document returned by findOneAndUpdate', async () => {

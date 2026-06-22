@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { encryptedString, encryptedNumber } = require('./encryptedField');
 
 // A single AI-generated playlist session.
 const emotionTapSchema = new mongoose.Schema({
@@ -11,11 +12,13 @@ const playlistSessionSchema = new mongoose.Schema({
 
   // Emotion input (multi-tap: 2-3 points)
   emotionTaps:   { type: [emotionTapSchema], required: true, validate: v => v.length >= 1 && v.length <= 3 },
-  contextPrompt: { type: String, default: '', maxlength: 500 },
+  // User free-text — the most re-identifying field; encrypted at rest. (audit F3)
+  contextPrompt: encryptedString({ default: '' }),
 
-  // Biometric snapshot at session creation (no raw logs — just summary values)
+  // Biometric snapshot at session creation (no raw logs — just summary values).
+  // heartRate is special-category health data — encrypted at rest. (audit F3)
   biometricSnapshot: {
-    heartRate: { type: Number, default: null },
+    heartRate: encryptedNumber({ default: null }),
     activity:  { type: String, default: null },
   },
 
@@ -41,6 +44,8 @@ const playlistSessionSchema = new mongoose.Schema({
   isFallback: { type: Boolean, default: false },
 }, {
   timestamps: true,
+  toJSON:   { getters: true },
+  toObject: { getters: true },
 });
 
 playlistSessionSchema.index({ userId: 1, createdAt: -1 });

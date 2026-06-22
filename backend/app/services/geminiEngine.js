@@ -139,6 +139,12 @@ Adjust tempo and energy to match the physiological state while preserving the us
 
 // ── Gemini call ────────────────────────────────────────────────────────────────
 
+// DATA EGRESS NOTE (audit F16): prompts are sent to Google Gemini, a third-party
+// sub-processor — document it in the privacy policy / DPA. Prompts are anonymised
+// (no name/email/userId; only taste signals, emotion coords, HR, and the user's
+// free-text note). The Redis cache key is md5(prompt) and the cached VALUE is only
+// the derived AI params (target_bpm, etc.) — raw biometrics are never stored in the
+// cache, and the md5 key is not reversible to the heart rate.
 async function _callGemini(prompt) {
   const redis = getRedis();
   let cacheKey = null;

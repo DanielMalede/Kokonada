@@ -494,15 +494,18 @@ describe('Suunto webhook signature verification', () => {
   // Mirror of the real verifyWebhookSignature function (pure crypto, no DB)
   function realVerify(rawBody, signatureHeader) {
     const secret = process.env.SUUNTO_WEBHOOK_SECRET;
-    if (!secret) return true;
-    const expected = crypto
-      .createHmac('sha256', secret)
-      .update(rawBody)
-      .digest('hex');
-    return crypto.timingSafeEqual(
-      Buffer.from(signatureHeader || '', 'hex'),
-      Buffer.from(expected, 'hex')
-    );
+    if (!secret) return process.env.NODE_ENV !== 'production'; // fail-closed in prod
+    let expected, provided;
+    try {
+      expected = Buffer.from(
+        crypto.createHmac('sha256', secret).update(rawBody).digest('hex'), 'hex'
+      );
+      provided = Buffer.from(signatureHeader || '', 'hex');
+    } catch {
+      return false;
+    }
+    if (provided.length !== expected.length) return false;
+    return crypto.timingSafeEqual(provided, expected);
   }
 
   it('accepts a valid HMAC-SHA256 signature', () => {
@@ -529,11 +532,21 @@ describe('Suunto webhook signature verification', () => {
     expect(result).toBe(false);
   });
 
-  it('skips verification and returns true when SUUNTO_WEBHOOK_SECRET is not set', () => {
+  it('skips verification (dev convenience) when SUUNTO_WEBHOOK_SECRET is not set in non-prod', () => {
     const saved = process.env.SUUNTO_WEBHOOK_SECRET;
     delete process.env.SUUNTO_WEBHOOK_SECRET;
     expect(realVerify('any body', 'any sig')).toBe(true);
     process.env.SUUNTO_WEBHOOK_SECRET = saved;
+  });
+
+  it('fails closed (returns false) when secret is unset in production', () => {
+    const savedSecret = process.env.SUUNTO_WEBHOOK_SECRET;
+    const savedEnv    = process.env.NODE_ENV;
+    delete process.env.SUUNTO_WEBHOOK_SECRET;
+    process.env.NODE_ENV = 'production';
+    expect(realVerify('any body', 'any sig')).toBe(false);
+    process.env.SUUNTO_WEBHOOK_SECRET = savedSecret;
+    process.env.NODE_ENV = savedEnv;
   });
 });
 

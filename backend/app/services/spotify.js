@@ -5,6 +5,10 @@ const { withRetry } = require('../utils/retry');
 const BASE_AUTH = 'https://accounts.spotify.com';
 const BASE_API  = 'https://api.spotify.com/v1';
 
+// Least privilege: only scopes the code actually uses. The playlist-modify-*
+// write scopes were requested but never exercised (no playlist-creation code path)
+// — drop them so a stolen access token can't rewrite the user's playlists. Re-add
+// them here if/when playlist saving is implemented. (audit F12 / least-privilege)
 const SCOPES = [
   'user-read-private',
   'user-read-email',
@@ -13,8 +17,6 @@ const SCOPES = [
   'user-read-currently-playing',
   'user-read-recently-played',
   'user-top-read',
-  'playlist-modify-public',
-  'playlist-modify-private',
   'streaming',
 ].join(' ');
 

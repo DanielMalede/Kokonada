@@ -198,4 +198,51 @@ describe('auth middleware', () => {
       expect(selectArg).toContain('-wearableToken');
     });
   });
+
+  describe('connect token (?ct=) and removal of raw ?token= — audit F1', () => {
+    const { signConnectToken } = require('../app/utils/jwt');
+    const fakeUser = { _id: 'ct-user', deletedAt: null };
+
+    it('authenticates via a valid oauth-connect ?ct= token', async () => {
+      const ct = signConnectToken('ct-user');
+      mockSelect.mockResolvedValue(fakeUser);
+
+      const req  = { cookies: {}, headers: {}, query: { ct } };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(req.user).toBe(fakeUser);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('rejects a normal session token presented as ?ct= (wrong purpose)', async () => {
+      const sessionTok = signToken({ userId: 'ct-user' });
+
+      const req  = { cookies: {}, headers: {}, query: { ct: sessionTok } };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid token purpose' });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('no longer accepts the raw session JWT via the ?token= query param', async () => {
+      const sessionTok = signToken({ userId: 'ct-user' });
+
+      const req  = { cookies: {}, headers: {}, query: { token: sessionTok } };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
 });

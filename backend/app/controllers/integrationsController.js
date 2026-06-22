@@ -6,6 +6,25 @@ const appleHealth = require('../services/wearable/appleHealth');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const { buildProfile } = require('../services/musicProfileService');
+const { signConnectToken } = require('../utils/jwt');
+
+// POST /api/integrations/connect-token
+// Mints a short-lived single-use token the web client appends as ?ct= to the
+// top-level OAuth connect navigation (which cannot send an auth header). Replaces
+// putting the long-lived session JWT in the URL. (audit F1)
+exports.connectToken = (req, res) => {
+  res.json({ connectToken: signConnectToken(req.user._id.toString()) });
+};
+
+// Shared options for short-lived OAuth state/CSRF cookies (Spotify, YouTube).
+// httpOnly + Secure(prod) + sameSite:'lax' (survives provider redirect, withheld
+// from cross-site sub-requests), 10-min TTL matching the OAuth flow window. (audit F10)
+const OAUTH_STATE_COOKIE_OPTS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax',
+  maxAge: 10 * 60 * 1000, // 10 minutes
+};
 
 // ── Spotify ───────────────────────────────────────────────────────────────────
 
@@ -15,12 +34,10 @@ const { buildProfile } = require('../services/musicProfileService');
 exports.spotifyConnect = (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
 
-  // Bind state to user session via a short-lived cookie (cleared after callback)
-  res.cookie('spotify_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 10 * 60 * 1000, // 10 minutes
-  });
+  // Bind state to user session via a short-lived cookie (cleared after callback).
+  // sameSite:'lax' so the cookie survives the provider's top-level GET redirect
+  // back to our callback, while still being withheld from cross-site sub-requests. (audit F10)
+  res.cookie('spotify_oauth_state', state, OAUTH_STATE_COOKIE_OPTS);
 
   res.redirect(spotify.getAuthUrl(state));
 };
@@ -119,11 +136,7 @@ exports.playSpotifyTracks = async (req, res, next) => {
 
 exports.youtubeConnect = (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
-  res.cookie('youtube_oauth_state', state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 10 * 60 * 1000,
-  });
+  res.cookie('youtube_oauth_state', state, OAUTH_STATE_COOKIE_OPTS);
   res.redirect(youtube.getAuthUrl(state));
 };
 

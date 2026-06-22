@@ -3,6 +3,7 @@ const appleSignin = require('apple-signin-auth');
 const axios = require('axios');
 const User = require('../models/User');
 const { signToken, setAuthCookie, clearAuthCookie } = require('../utils/jwt');
+const { revoke } = require('../utils/tokenDenylist');
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -48,6 +49,12 @@ async function verifyFacebookToken(accessToken) {
 // ── Shared SSO handler ────────────────────────────────────────────────────────
 
 async function handleSso(provider, profile, deviceToken, platform, res) {
+  // Deliberate: accounts are keyed by (provider, ssoId) and are NOT auto-linked by
+  // email across providers. Auto-linking on email is an account-takeover footgun
+  // here — Apple may return a private relay address and Facebook emails aren't
+  // guaranteed verified, so a matching email is not proof of the same human. The
+  // cost is a possible duplicate account per provider; the benefit is no silent
+  // cross-provider takeover. (audit F15)
   let user = await User.findOne({ ssoProvider: provider, ssoId: profile.ssoId });
 
   if (!user) {
@@ -116,7 +123,13 @@ exports.facebookAuth = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-exports.logout = (req, res) => {
+exports.logout = async (req, res) => {
+  // Revoke the presented token server-side so it can't be replayed if it was
+  // captured (e.g. from localStorage via XSS) before logout. (audit F7)
+  if (req.auth?.jti) {
+    const ttl = req.auth.exp ? req.auth.exp - Math.floor(Date.now() / 1000) : 7 * 24 * 3600;
+    await revoke(req.auth.jti, Math.max(ttl, 1));
+  }
   clearAuthCookie(res);
   res.json({ message: 'Logged out successfully' });
 };

@@ -147,12 +147,34 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
 // (e.g. garminPoller). Normalizes the raw reading, updates debounce state,
 // and triggers playlist generation when a sustained HR change is detected.
 
+// Reject physiologically impossible / malformed readings before they reach the
+// AI engine or state machine. The socket is authenticated, but the *content* of
+// biometric_push is fully attacker-controlled (a user can spoof their own client). (audit F14)
+function isValidReading(n) {
+  if (!n) return false;
+  // heartRate is the attacker-controlled physiological value — validate strictly.
+  if (typeof n.heartRate !== 'number' || !Number.isFinite(n.heartRate)) return false;
+  if (n.heartRate <= 0 || n.heartRate > 300) return false;
+  // recordedAt isn't persisted on the socket path, but if present it must be a
+  // real Date (rejects `new Date('garbage')` from a bad provider timestamp).
+  if (n.recordedAt !== undefined &&
+      (!(n.recordedAt instanceof Date) || Number.isNaN(n.recordedAt.getTime()))) {
+    return false;
+  }
+  return true;
+}
+
 function handleBiometricReading(socket, source, raw) {
   let normalized;
   try {
     normalized = normalize(source, raw);
   } catch (err) {
     socket.emit('connection_error', { message: err.message });
+    return;
+  }
+
+  if (!isValidReading(normalized)) {
+    socket.emit('connection_error', { message: 'Invalid biometric reading' });
     return;
   }
 
