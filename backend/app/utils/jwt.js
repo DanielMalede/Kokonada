@@ -44,8 +44,8 @@ function signConnectToken(userId) {
 // third-party-cookie blocking and mobile WebViews. It is also CSRF-safe: an
 // attacker cannot forge a state bound to the victim's userId without JWT_SECRET.
 // 10-min TTL matches the OAuth flow window; the unique jti makes it single-use. (audit F1)
-function signOauthState(userId, provider) {
-  return jwt.sign({ uid: userId, provider, purpose: 'oauth-state' }, process.env.JWT_SECRET, {
+function signOauthState(userId, provider, extra = {}) {
+  return jwt.sign({ uid: userId, provider, purpose: 'oauth-state', ...extra }, process.env.JWT_SECRET, {
     expiresIn: '10m',
     jwtid: crypto.randomUUID(),
   });

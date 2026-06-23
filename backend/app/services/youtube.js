@@ -1,9 +1,11 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const { URLSearchParams } = require('url');
 const { withRetry } = require('../utils/retry');
 
-const BASE_AUTH = 'https://accounts.google.com/o/oauth2';
-const BASE_API  = 'https://www.googleapis.com/youtube/v3';
+const BASE_AUTH     = 'https://accounts.google.com/o/oauth2/v2';
+const BASE_AUTH_TOKEN = 'https://oauth2.googleapis.com/token';
+const BASE_API      = 'https://www.googleapis.com/youtube/v3';
 
 // Least privilege: the code only reads (channel, liked videos, playlists, search).
 // The broad `youtube` (manage) and `youtube.force-ssl` (write) scopes were requested
@@ -28,29 +30,40 @@ function isConfigured() {
   return Boolean(clientId() && clientSecret() && redirectUri());
 }
 
-function getAuthUrl(state) {
+// Generates a PKCE code_verifier + code_challenge pair (S256 method).
+// Satisfies Google's "secure response handling" policy for sensitive scopes
+// on unverified apps / shared-hosting redirect URIs.
+function generatePKCE() {
+  const codeVerifier  = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+  return { codeVerifier, codeChallenge };
+}
+
+function getAuthUrl(state, codeChallenge) {
   const params = new URLSearchParams({
-    response_type:   'code',
-    client_id:       clientId(),
-    redirect_uri:    redirectUri(),
-    scope:           SCOPES,
+    response_type:          'code',
+    client_id:              clientId(),
+    redirect_uri:           redirectUri(),
+    scope:                  SCOPES,
     state,
-    access_type:     'offline',  // required to receive a refresh token
-    prompt:          'consent',  // forces refresh token even if already granted
+    access_type:            'offline',
+    prompt:                 'consent',
+    code_challenge:         codeChallenge,
+    code_challenge_method:  'S256',
   });
   return `${BASE_AUTH}/auth?${params}`;
 }
 
-async function exchangeCode(code) {
-  const { data } = await axios.post(
-    `${BASE_AUTH}/token`,
-    new URLSearchParams({
-      code,
-      client_id:     clientId(),
-      client_secret: clientSecret(),
-      redirect_uri:  redirectUri(),
-      grant_type:    'authorization_code',
-    }),
+async function exchangeCode(code, codeVerifier) {
+  const body = new URLSearchParams({
+    code,
+    client_id:     clientId(),
+    client_secret: clientSecret(),
+    redirect_uri:  redirectUri(),
+    grant_type:    'authorization_code',
+  });
+  if (codeVerifier) body.set('code_verifier', codeVerifier);
+  const { data } = await axios.post(BASE_AUTH_TOKEN, body,
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
   );
   return {
@@ -62,7 +75,7 @@ async function exchangeCode(code) {
 
 async function refreshAccessToken(refreshToken) {
   const { data } = await axios.post(
-    `${BASE_AUTH}/token`,
+    BASE_AUTH_TOKEN,
     new URLSearchParams({
       grant_type:    'refresh_token',
       refresh_token: refreshToken,
@@ -223,6 +236,6 @@ async function searchRecommendations(accessToken, { seed_genres, target_energy, 
 }
 
 module.exports = {
-  getAuthUrl, isConfigured, exchangeCode, getValidToken, getChannel, getLikedVideos,
+  getAuthUrl, generatePKCE, isConfigured, exchangeCode, getValidToken, getChannel, getLikedVideos,
   paginateLikedVideos, paginatePlaylistItems, searchRecommendations,
 };

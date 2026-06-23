@@ -149,15 +149,15 @@ exports.playSpotifyTracks = async (req, res, next) => {
 
 // GET /api/integrations/youtube/connect  (auth required)
 exports.youtubeConnect = (req, res) => {
-  // Fail in-app with a clear message instead of sending the user to Google's
-  // "Access blocked: invalid_client" page when the OAuth client / redirect URI
-  // isn't configured on this environment.
   if (!youtube.isConfigured()) {
     console.error('[youtube] connect blocked: set YOUTUBE_REDIRECT_URI and a YOUTUBE_/GOOGLE_ client id+secret');
     return fail(res, 'youtube_unconfigured');
   }
-  const state = signOauthState(req.user._id.toString(), 'youtube');
-  res.redirect(youtube.getAuthUrl(state));
+  const { codeVerifier, codeChallenge } = youtube.generatePKCE();
+  // Store the PKCE verifier inside the signed state so the public callback can
+  // retrieve it without any server-side session. The JWT signature prevents tampering.
+  const state = signOauthState(req.user._id.toString(), 'youtube', { cv: codeVerifier });
+  res.redirect(youtube.getAuthUrl(state, codeChallenge));
 };
 
 // GET /api/integrations/youtube/callback  (PUBLIC — no auth middleware)
@@ -171,7 +171,7 @@ exports.youtubeCallback = async (req, res) => {
     if (!recovered) return fail(res, 'youtube_state');
     const { user, payload } = recovered;
 
-    const tokens  = await youtube.exchangeCode(code);
+    const tokens  = await youtube.exchangeCode(code, payload.cv);
     await youtube.getChannel(tokens.accessToken); // verify token works before persisting
 
     user.musicProvider = 'youtube';
