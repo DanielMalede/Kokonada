@@ -35,7 +35,10 @@ import {
 import { toast } from 'sonner';
 import { authHeaders, buildConnectUrl } from '@/lib/api';
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+// Use the YouTube-specific client ID for the GIS popup if set; fall back to the
+// general Google client. The YouTube client ID in Vercel must match YOUTUBE_CLIENT_ID
+// in Railway — they must be the same OAuth client for the code exchange to succeed.
+const GOOGLE_CLIENT_ID = (import.meta.env.VITE_YOUTUBE_CLIENT_ID || import.meta.env.VITE_GOOGLE_CLIENT_ID) as string | undefined;
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -162,13 +165,17 @@ export default function IntegrationsPage() {
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ code: response.code }),
           });
-          const data = await res.json();
+          let data: Record<string, unknown> = {};
+          try { data = await res.json(); } catch { /* non-JSON body (e.g. 404 HTML) */ }
           if (data.success) {
             dispatch(setMusicProvider('youtube'));
           } else {
-            toast.error("Couldn't connect YouTube Music — please try again.");
+            const detail = data.error ? ` (${data.error})` : res.ok ? '' : ` (${res.status})`;
+            console.error('[youtube/connect-gis] failed', res.status, data);
+            toast.error(`Couldn't connect YouTube Music — please try again.${detail}`);
           }
-        } catch {
+        } catch (e) {
+          console.error('[youtube/connect-gis] fetch error', e);
           toast.error("Couldn't connect YouTube Music — please try again.");
         }
       },
