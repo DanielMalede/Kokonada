@@ -195,6 +195,37 @@ exports.youtubeCallback = async (req, res) => {
   }
 };
 
+// POST /api/integrations/youtube/exchange  (PUBLIC — called by the Vercel frontend callback page)
+// The frontend receives the OAuth code from Google and posts it here for server-side exchange.
+// Identity is recovered from the signed state (same as the GET callback).
+exports.youtubeExchange = async (req, res) => {
+  try {
+    const { code, state } = req.body ?? {};
+    if (!code || !state) return res.status(400).json({ error: 'youtube_missing_params' });
+
+    const recovered = await userFromOauthState(state, 'youtube');
+    if (!recovered) return res.status(400).json({ error: 'youtube_state' });
+    const { user, payload } = recovered;
+
+    const tokens = await youtube.exchangeCode(code, payload.cv);
+    await youtube.getChannel(tokens.accessToken);
+
+    user.musicProvider = 'youtube';
+    user.setToken('youtubeMusicToken', tokens);
+    await user.save();
+    await burnState(payload);
+
+    setImmediate(async () => {
+      try { await buildProfile(user._id.toString(), user); }
+      catch (e) { console.error('[musicProfile] YouTube build failed:', e.message); }
+    });
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'youtube_failed' });
+  }
+};
+
 exports.youtubeDisconnect = async (req, res, next) => {
   try {
     req.user.musicProvider = null;

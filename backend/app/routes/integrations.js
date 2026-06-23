@@ -5,7 +5,7 @@ const {
   connectToken,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   getSpotifyToken, playSpotifyTracks,
-  youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeStatus,
+  youtubeConnect, youtubeCallback, youtubeExchange, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect,
   appleHealthPush,
   suuntoWebhook,
@@ -17,9 +17,10 @@ const {
 // router.use(auth) — otherwise auth 401s before the handler runs (the
 // "Authentication required" connect bug). Identity is recovered from the signed
 // `state` (Spotify/YouTube) or the request cookie + Redis fallback (Garmin).
-router.get('/spotify/callback', spotifyCallback);
-router.get('/youtube/callback', youtubeCallback);
-router.get('/garmin/callback',  garminCallback);
+router.get('/spotify/callback',  spotifyCallback);
+router.get('/youtube/callback',  youtubeCallback);
+router.post('/youtube/exchange', youtubeExchange);
+router.get('/garmin/callback',   garminCallback);
 
 // All remaining integration routes require a logged-in user
 router.use(auth);

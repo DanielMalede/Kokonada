@@ -16,6 +16,7 @@ import UserProfilePage from './pages/UserProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import DiscoverPage from './pages/DiscoverPage';
 import SplashScreen from './components/SplashScreen';
+import YoutubeCallbackPage from './pages/YoutubeCallbackPage';
 import { authHeaders } from '@/lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
@@ -83,6 +84,9 @@ export const router = createBrowserRouter([
   {
     element: <RootLayout />,
     children: [
+      // Public OAuth callback — Google lands here after YouTube consent.
+      // Must be outside all auth guards; identity comes from the signed state param.
+      { path: '/auth/youtube/callback', element: <YoutubeCallbackPage /> },
       {
         element: <PublicOnlyGuard />,
         children: [
