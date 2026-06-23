@@ -14,21 +14,7 @@ const { getRedis } = require('../config/redis');
 // JSON on the backend domain. (Provider-redirect UX)
 const frontendRedirect = (res, query) =>
   res.redirect(`${process.env.FRONTEND_URL}/integrations?${query}`);
-const fail = (res, code, detail) =>
-  frontendRedirect(
-    res,
-    detail
-      ? `error=${encodeURIComponent(code)}&detail=${encodeURIComponent(String(detail).slice(0, 160))}`
-      : `error=${encodeURIComponent(code)}`
-  );
-
-// TEMP DEBUG (remove once OAuth root cause is fixed): pull the most useful,
-// non-secret message out of an axios/native error. Providers put the real reason
-// in response.data.error_description / .error (e.g. "Invalid redirect URI").
-const errDetail = (err) =>
-  err?.response?.data?.error_description ||
-  err?.response?.data?.error ||
-  err?.message || 'unknown';
+const fail = (res, code) => frontendRedirect(res, `error=${encodeURIComponent(code)}`);
 
 // Recover the authenticated user that a public OAuth callback belongs to, from
 // the signed `state` minted at connect. Verifies signature, purpose, provider,
@@ -112,7 +98,7 @@ exports.spotifyCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'spotify_failed', errDetail(err));
+    return fail(res, 'spotify_failed');
   }
 };
 
@@ -217,7 +203,7 @@ exports.youtubeCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'youtube_failed', errDetail(err));
+    return fail(res, 'youtube_failed');
   }
 };
 
@@ -280,7 +266,7 @@ exports.youtubeExchange = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    res.status(500).json({ error: 'youtube_failed', detail: errDetail(err) });
+    res.status(500).json({ error: 'youtube_failed' });
   }
 };
 
@@ -403,7 +389,7 @@ exports.garminCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'garmin_failed', errDetail(err));
+    return fail(res, 'garmin_failed');
   }
 };
 
