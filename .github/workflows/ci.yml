@@ -56,25 +56,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Railway CLI
         run: npm install -g @railway/cli
+      # RAILWAY_TOKEN holds a PROJECT token (Project → Settings → Tokens, scoped to the
+      # production environment). A project token implies its project + environment, so it
+      # belongs in RAILWAY_TOKEN — NOT RAILWAY_API_TOKEN, which only accepts account/
+      # workspace tokens (a project token there fails to authenticate). `--service` selects
+      # which service to deploy. `railway whoami` is omitted: project tokens have no user.
       - name: Deploy to Railway
-        # The RAILWAY_TOKEN secret holds an ACCOUNT/personal token, which MUST be
-        # passed as RAILWAY_API_TOKEN — the RAILWAY_TOKEN env var only accepts *project*
-        # tokens, so feeding an account token to it produced the persistent
-        # "Invalid RAILWAY_TOKEN". With an account token the CLI targets the deploy via
-        # these project/service/environment IDs. `railway whoami` fails fast with a clear
-        # message if the token itself is invalid.
-        run: |
-          railway --version
-          # whoami only resolves a *user*; team/workspace tokens have none, so don't
-          # let its failure abort the job — `railway up` is the real test.
-          railway whoami || echo "[whoami] no user identity (expected for team/workspace tokens) — continuing"
-          railway up --detach --service "$RAILWAY_SERVICE_ID"
+        run: railway up --detach --service "$RAILWAY_SERVICE_ID"
         working-directory: backend
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: 1dea751f-6230-491f-9229-29fa158d61df
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_SERVICE_ID: 85ed976d-122c-418b-9981-200929a5804c
-          RAILWAY_ENVIRONMENT_ID: d7f5952e-ddbf-41f2-850e-6938d3a5495b
 
   deploy-frontend:
     name: Deploy Frontend → Vercel
