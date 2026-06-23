@@ -32,7 +32,9 @@ jest.mock('../app/services/spotify', () => ({
 jest.mock('../app/services/youtube', () => ({
   getAuthUrl:              jest.fn(),
   isConfigured:            jest.fn(),
+  generatePKCE:            jest.fn().mockReturnValue({ codeVerifier: 'test-cv', codeChallenge: 'test-cc' }),
   exchangeCode:            jest.fn(),
+  exchangeCodeFromGIS:     jest.fn(),
   getChannel:              jest.fn(),
   getValidToken:           jest.fn(),
   getLikedVideos:          jest.fn(),
@@ -236,7 +238,7 @@ describe('YouTube OAuth flow', () => {
     const res = buildRes();
     ctrl.youtubeConnect({ user: buildUser() }, res);
 
-    expect(youtube.getAuthUrl).toHaveBeenCalledWith(expect.any(String));
+    expect(youtube.getAuthUrl).toHaveBeenCalledWith(expect.any(String), expect.any(String));
     expect(res.cookie).not.toHaveBeenCalled();
   });
 
