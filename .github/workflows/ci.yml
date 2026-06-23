@@ -53,29 +53,16 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Railway deployment via API
-        run: |
-          node -e "
-          const https = require('https');
-          const query = JSON.stringify({
-            query: 'mutation { serviceInstanceDeploy(serviceId: \"${{ secrets.RAILWAY_SERVICE_ID }}\", environmentId: \"${{ secrets.RAILWAY_ENVIRONMENT_ID }}\") }'
-          });
-          const req = https.request({
-            hostname: 'backboard.railway.app', path: '/graphql/v2', method: 'POST',
-            headers: { 'Authorization': 'Bearer ${{ secrets.RAILWAY_TOKEN }}', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(query) }
-          }, (res) => {
-            let body = '';
-            res.on('data', d => body += d);
-            res.on('end', () => {
-              const r = JSON.parse(body);
-              if (r.errors) { console.error('Railway error:', r.errors[0].message); process.exit(1); }
-              console.log('Railway deploy triggered:', JSON.stringify(r.data));
-            });
-          });
-          req.on('error', e => { console.error(e); process.exit(1); });
-          req.write(query);
-          req.end();
-          "
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      - name: Deploy to Railway
+        run: railway up --detach
+        working-directory: backend
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
 
   deploy-frontend:
     name: Deploy Frontend → Vercel
