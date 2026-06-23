@@ -239,21 +239,38 @@ async function searchRecommendations(accessToken, { seed_genres, target_energy, 
 // Google requires redirect_uri='postmessage' for codes issued through the popup
 // UX mode — this value is recognised internally and never needs to be registered.
 async function exchangeCodeFromGIS(code) {
-  const { data } = await axios.post(BASE_AUTH_TOKEN,
-    new URLSearchParams({
-      code,
-      client_id:     clientId(),
-      client_secret: clientSecret(),
-      redirect_uri:  'postmessage',
-      grant_type:    'authorization_code',
-    }),
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
-  );
-  return {
-    accessToken:  data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt:    Date.now() + data.expires_in * 1000,
-  };
+  try {
+    const { data } = await axios.post(BASE_AUTH_TOKEN,
+      new URLSearchParams({
+        code,
+        client_id:     clientId(),
+        client_secret: clientSecret(),
+        redirect_uri:  'postmessage',
+        grant_type:    'authorization_code',
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
+    );
+    return {
+      accessToken:  data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt:    Date.now() + data.expires_in * 1000,
+    };
+  } catch (err) {
+    // Google rejects the exchange with 4xx + { error, error_description }, e.g.
+    // invalid_client (client_id/secret pair is wrong or from a different OAuth
+    // client than the one the frontend used), invalid_grant (code expired/reused),
+    // or redirect_uri_mismatch. Surface that code instead of axios's opaque
+    // "Request failed with status code 401" so the failure is diagnosable. The
+    // error code is non-sensitive; the secret and auth code are never logged.
+    const g = err.response?.data;
+    if (g?.error) {
+      console.error('[youtube/exchangeCodeFromGIS] Google rejected token exchange:', g.error, '—', g.error_description);
+      const e = new Error(`youtube_exchange_${g.error}`);
+      e.statusCode = 400;
+      throw e;
+    }
+    throw err;
+  }
 }
 
 module.exports = {
