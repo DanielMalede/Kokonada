@@ -61,8 +61,9 @@ jobs:
         working-directory: backend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
-          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+          RAILWAY_PROJECT_ID: 1dea751f-6230-491f-9229-29fa158d61df
+          RAILWAY_SERVICE_ID: 85ed976d-122c-418b-9981-200929a5804c
+          RAILWAY_ENVIRONMENT_ID: d7f5952e-ddbf-41f2-850e-6938d3a5495b
 
   deploy-frontend:
     name: Deploy Frontend → Vercel
