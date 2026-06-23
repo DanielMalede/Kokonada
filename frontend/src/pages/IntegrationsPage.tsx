@@ -1,7 +1,20 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Music, HeartPulse, Disc3, Check } from 'lucide-react';
+
+declare const google: {
+  accounts: {
+    oauth2: {
+      initCodeClient(cfg: {
+        client_id: string;
+        scope: string;
+        ux_mode: 'popup' | 'redirect';
+        callback: (response: { code?: string; error?: string }) => void;
+      }): { requestCode(): void };
+    };
+  };
+} | undefined;
 import type { AppDispatch, RootState } from '../store';
 import {
   setMusicProvider,
@@ -21,6 +34,8 @@ import {
 } from '@/components/ui/accordion';
 import { toast } from 'sonner';
 import { authHeaders, buildConnectUrl } from '@/lib/api';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -79,6 +94,19 @@ export default function IntegrationsPage() {
   const biometric = useSelector((s: RootState) => s.integrations.biometricProvider);
   const moodOnly = useSelector((s: RootState) => s.integrations.moodOnly);
   const complete = useSelector(selectIsIntegrationsComplete);
+  const gsiRef = useRef<HTMLScriptElement | null>(null);
+
+  // Ensure the GIS library is loaded so google.accounts.oauth2 is available.
+  useEffect(() => {
+    if (document.getElementById('gsi-script')) return;
+    const s = document.createElement('script');
+    s.id = 'gsi-script';
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    document.body.appendChild(s);
+    gsiRef.current = s;
+    return () => { if (gsiRef.current?.parentNode) gsiRef.current.parentNode.removeChild(gsiRef.current); };
+  }, []);
 
   // Hydrate from backend on mount (handles hard refresh)
   useEffect(() => {
@@ -107,8 +135,46 @@ export default function IntegrationsPage() {
   // A short-lived single-use connect token authenticates the top-level navigation
   // (no headers possible). See buildConnectUrl — the session JWT never enters the URL.
   const connectSpotify = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/spotify/connect'); };
-  const connectYouTube = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/youtube/connect'); };
-  const connectGarmin = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/garmin/connect'); };
+  const connectGarmin  = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/garmin/connect'); };
+
+  // YouTube uses GIS popup mode — no redirect URI, so Google's shared-domain
+  // restriction never applies. The authorization code is returned to a JS callback
+  // and exchanged server-side using redirect_uri='postmessage'.
+  const connectYouTube = () => {
+    if (!GOOGLE_CLIENT_ID || typeof google === 'undefined' || !google?.accounts?.oauth2) {
+      toast.error("YouTube Music isn't available — reload the page and try again.");
+      return;
+    }
+    const client = google.accounts.oauth2.initCodeClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/youtube.readonly',
+      ux_mode: 'popup',
+      callback: async (response) => {
+        if (!response.code) {
+          if (response.error && response.error !== 'popup_closed_by_user') {
+            toast.error("Couldn't connect YouTube Music — please try again.");
+          }
+          return;
+        }
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/integrations/youtube/connect-gis`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ code: response.code }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            dispatch(setMusicProvider('youtube'));
+          } else {
+            toast.error("Couldn't connect YouTube Music — please try again.");
+          }
+        } catch {
+          toast.error("Couldn't connect YouTube Music — please try again.");
+        }
+      },
+    });
+    client.requestCode();
+  };
 
   const enableMoodOnly = () => {
     localStorage.setItem('koko-mood-only', '1');

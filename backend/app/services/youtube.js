@@ -235,7 +235,30 @@ async function searchRecommendations(accessToken, { seed_genres, target_energy, 
   return data.items ?? [];
 }
 
+// Exchange a code obtained via the GIS popup flow (client-side initCodeClient).
+// Google requires redirect_uri='postmessage' for codes issued through the popup
+// UX mode — this value is recognised internally and never needs to be registered.
+async function exchangeCodeFromGIS(code) {
+  const { data } = await axios.post(BASE_AUTH_TOKEN,
+    new URLSearchParams({
+      code,
+      client_id:     clientId(),
+      client_secret: clientSecret(),
+      redirect_uri:  'postmessage',
+      grant_type:    'authorization_code',
+    }),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8000 }
+  );
+  return {
+    accessToken:  data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt:    Date.now() + data.expires_in * 1000,
+  };
+}
+
 module.exports = {
-  getAuthUrl, generatePKCE, isConfigured, exchangeCode, getValidToken, getChannel, getLikedVideos,
+  getAuthUrl, generatePKCE, isConfigured,
+  exchangeCode, exchangeCodeFromGIS,
+  getValidToken, getChannel, getLikedVideos,
   paginateLikedVideos, paginatePlaylistItems, searchRecommendations,
 };

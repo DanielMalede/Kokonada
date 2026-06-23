@@ -5,7 +5,7 @@ const {
   connectToken,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   getSpotifyToken, playSpotifyTracks,
-  youtubeConnect, youtubeCallback, youtubeExchange, youtubeDisconnect, youtubeStatus,
+  youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect,
   appleHealthPush,
   suuntoWebhook,
@@ -39,9 +39,10 @@ router.get('/spotify/token',         getSpotifyToken);
 router.post('/spotify/play',         playSpotifyTracks);
 
 // YouTube Music (callback registered publicly above)
-router.get('/youtube/connect',       youtubeConnect);
-router.delete('/youtube/disconnect', youtubeDisconnect);
-router.get('/youtube/status',        youtubeStatus);
+router.get('/youtube/connect',        youtubeConnect);
+router.post('/youtube/connect-gis',   youtubeConnectGIS);
+router.delete('/youtube/disconnect',  youtubeDisconnect);
+router.get('/youtube/status',         youtubeStatus);
 
 // Garmin (OAuth 1.0a — two-legged flow; callback registered publicly above)
 router.get('/garmin/connect',        garminConnect);

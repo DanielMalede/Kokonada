@@ -195,6 +195,32 @@ exports.youtubeCallback = async (req, res) => {
   }
 };
 
+// POST /api/integrations/youtube/connect-gis  (auth required)
+// Receives the authorization code from the GIS popup flow (client-side initCodeClient).
+// Identity comes from the auth middleware (Bearer token), not from a state JWT.
+exports.youtubeConnectGIS = async (req, res, next) => {
+  try {
+    const { code } = req.body ?? {};
+    if (!code) return res.status(400).json({ error: 'youtube_missing_code' });
+
+    const tokens = await youtube.exchangeCodeFromGIS(code);
+    await youtube.getChannel(tokens.accessToken);
+
+    req.user.musicProvider = 'youtube';
+    req.user.setToken('youtubeMusicToken', tokens);
+    await req.user.save();
+
+    setImmediate(async () => {
+      try { await buildProfile(req.user._id.toString(), req.user); }
+      catch (e) { console.error('[musicProfile] YouTube build failed:', e.message); }
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // POST /api/integrations/youtube/exchange  (PUBLIC — called by the Vercel frontend callback page)
 // The frontend receives the OAuth code from Google and posts it here for server-side exchange.
 // Identity is recovered from the signed state (same as the GET callback).
