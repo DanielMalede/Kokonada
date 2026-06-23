@@ -93,7 +93,7 @@ async function start() {
   const io = createSocketServer(httpServer);
   startGarminPoller(io);
   httpServer.listen(PORT, () =>
-    console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}]`)
+    console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}] routes:ok`)
   );
 }
 
