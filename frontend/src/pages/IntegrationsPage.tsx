@@ -129,9 +129,15 @@ export default function IntegrationsPage() {
     const musicParam = params.get('music') as 'spotify' | 'youtube' | null;
     const biometricParam = params.get('biometric') as 'garmin' | 'applehealth' | null;
     const errorParam = params.get('error');
+    const detailParam = params.get('detail');
     if (musicParam === 'spotify' || musicParam === 'youtube') dispatch(setMusicProvider(musicParam));
     if (biometricParam === 'garmin' || biometricParam === 'applehealth') dispatch(setBiometricProvider(biometricParam));
-    if (errorParam) toast.error(friendlyConnectError(errorParam));
+    if (errorParam) {
+      toast.error(friendlyConnectError(errorParam), {
+        description: detailParam ? `Reason: ${detailParam}` : undefined,
+        duration: 12000,
+      });
+    }
     if (musicParam || biometricParam || errorParam) window.history.replaceState({}, '', '/integrations');
   }, [dispatch]);
 
