@@ -57,13 +57,18 @@ jobs:
       - name: Install Railway CLI
         run: npm install -g @railway/cli
       - name: Deploy to Railway
-        run: railway up --detach
+        # RAILWAY_TOKEN must be a *project* token (Project → Settings → Tokens),
+        # scoped to the production environment. A project token already implies its
+        # project + environment, so RAILWAY_PROJECT_ID/ENVIRONMENT_ID are intentionally
+        # omitted — setting them alongside a project token is the broken hybrid that
+        # produced "Invalid RAILWAY_TOKEN". Only the target service is selected explicitly.
+        run: |
+          railway --version
+          railway up --detach --service "$RAILWAY_SERVICE_ID"
         working-directory: backend
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: 1dea751f-6230-491f-9229-29fa158d61df
           RAILWAY_SERVICE_ID: 85ed976d-122c-418b-9981-200929a5804c
-          RAILWAY_ENVIRONMENT_ID: d7f5952e-ddbf-41f2-850e-6938d3a5495b
 
   deploy-frontend:
     name: Deploy Frontend → Vercel
