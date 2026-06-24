@@ -74,11 +74,21 @@ class SpotifyPlayerService {
 
     this.player.addListener('player_state_changed', (data: unknown) => {
       if (!data) return;
-      const s = data as { paused: boolean; position: number; duration: number };
+      const s = data as {
+        paused: boolean;
+        position: number;
+        duration: number;
+        track_window?: { current_track?: { uri?: string } };
+      };
       this.isCurrentlyPaused = s.paused;
       this.currentPositionMs = s.position;
       this.currentDurationMs = s.duration;
-      this.emit({ isPaused: s.paused, positionMs: s.position, durationMs: s.duration });
+      this.emit({
+        isPaused: s.paused,
+        positionMs: s.position,
+        durationMs: s.duration,
+        currentTrackUri: s.track_window?.current_track?.uri ?? null,
+      });
 
       if (!s.paused) {
         this.startProgressInterval();
