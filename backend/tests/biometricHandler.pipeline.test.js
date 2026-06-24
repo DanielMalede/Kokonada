@@ -477,3 +477,52 @@ describe('handleBiometricReading (direct)', () => {
     expect(socket.emit).toHaveBeenCalledWith('connection_error', expect.objectContaining({ message: expect.any(String) }));
   });
 });
+
+// ── handleBiometricReading — immediate (5-min watch) mode ─────────────────────
+
+describe('handleBiometricReading immediate mode', () => {
+  const { handleBiometricReading, _debounceMap } = require('../app/sockets/biometricHandler');
+
+  it('still emits biometric_ack', () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
+    expect(socket.emit).toHaveBeenCalledWith('biometric_ack',
+      expect.objectContaining({ normalized: expect.objectContaining({ heartRate: 100 }) }));
+  });
+
+  it('triggers generation on the first reading (no prior baseline)', async () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 140 }, { immediate: true });
+    await new Promise(r => setTimeout(r, 50));
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT re-trigger when the change is < 25 bpm', async () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
+    await new Promise(r => setTimeout(r, 50));
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+    handleBiometricReading(socket, 'garmin', { heartRate: 120 }, { immediate: true }); // delta 20
+    await new Promise(r => setTimeout(r, 50));
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+  });
+
+  it('re-triggers when the change is >= 25 bpm', async () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
+    await new Promise(r => setTimeout(r, 50));
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+    handleBiometricReading(socket, 'garmin', { heartRate: 130 }, { immediate: true }); // delta 30
+    await new Promise(r => setTimeout(r, 50));
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
+  });
+
+  it('never starts the 60s debounce (no recalibration_pending, timer stays null)', () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
+    handleBiometricReading(socket, 'garmin', { heartRate: 130 }, { immediate: true });
+    const events = socket.emit.mock.calls.map(c => c[0]);
+    expect(events).not.toContain('recalibration_pending');
+    expect(_debounceMap.get(socket.id).timer).toBeNull();
+  });
+});
