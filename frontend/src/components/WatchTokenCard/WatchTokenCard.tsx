@@ -108,11 +108,14 @@ export default function WatchTokenCard() {
               <Button onClick={copy} variant="outline" size="sm" className="gap-1 shrink-0" aria-label="Copy token">
                 <Copy className="size-3" /> Copy
               </Button>
+              <Button onClick={() => dispatch(setWatchToken(null))} variant="outline" size="sm" className="shrink-0">
+                Done
+              </Button>
             </div>
           </div>
         )}
 
-        {connected && (
+        {connected && !token && (
           <>
             <p className="text-xs text-muted-foreground">{relativeLastSeen(lastSeenAt)}</p>
             <div className="flex gap-2">

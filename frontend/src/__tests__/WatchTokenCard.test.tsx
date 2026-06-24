@@ -41,11 +41,18 @@ describe('WatchTokenCard', () => {
     expect(screen.getByRole('button', { name: /set up watch/i })).toBeInTheDocument();
   });
 
-  it('generates and displays the token after clicking set up', async () => {
+  it('generates and displays the token after clicking set up, then transitions to connected controls on Done', async () => {
     render(<Provider store={buildStore()}><WatchTokenCard /></Provider>);
     fireEvent.click(screen.getByRole('button', { name: /set up watch/i }));
     expect(await screen.findByText('whr_generated_token')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
+    // Regenerate/Disconnect must be hidden while the token is still on screen
+    expect(screen.queryByRole('button', { name: /regenerate/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /disconnect/i })).not.toBeInTheDocument();
+    // Clicking Done clears the token and reveals connected controls
+    fireEvent.click(screen.getByRole('button', { name: /done/i }));
+    expect(await screen.findByRole('button', { name: /regenerate/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
   });
 
   it('copies the token to the clipboard', async () => {
