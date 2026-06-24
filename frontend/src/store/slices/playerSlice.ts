@@ -33,8 +33,11 @@ interface PlayerState {
   sdkPositionMs: number;
   sdkDurationMs: number;
   // "Adjust upcoming queue only" — HR-driven playlists wait here until the
-  // current track ends, then usePendingPromotion promotes them.
+  // current track ends, then usePendingPromotion promotes them. pendingMode
+  // carries the incoming playlist's playbackMode so promotion applies the
+  // queued playlist's mode rather than silently inheriting the current one.
   pendingPlaylist: Track[];
+  pendingMode: 'live' | 'export' | null;
   sdkCurrentTrackUri: string | null;
 }
 
@@ -52,6 +55,7 @@ const initialState: PlayerState = {
   sdkPositionMs: 0,
   sdkDurationMs: 0,
   pendingPlaylist: [],
+  pendingMode: null,
   sdkCurrentTrackUri: null,
 };
 
@@ -72,8 +76,9 @@ const playerSlice = createSlice({
       state.currentIndex = (state.currentIndex + 1) % list.length;
       state.sdkPositionMs = 0;
     },
-    setPendingPlaylist(state, action: PayloadAction<Track[]>) {
-      state.pendingPlaylist = action.payload;
+    setPendingPlaylist(state, action: PayloadAction<{ tracks: Track[]; mode?: 'live' | 'export' }>) {
+      state.pendingPlaylist = action.payload.tracks;
+      state.pendingMode = action.payload.mode ?? 'live';
     },
     promotePendingPlaylist(state) {
       if (state.pendingPlaylist.length === 0) return;
@@ -81,7 +86,9 @@ const playerSlice = createSlice({
       state.currentIndex = 0;
       state.offlineBuffer = state.pendingPlaylist.slice(0, 10);
       state.sdkPositionMs = 0;
+      state.playbackMode = state.pendingMode ?? 'live';
       state.pendingPlaylist = [];
+      state.pendingMode = null;
     },
     setPlaying(state, action: PayloadAction<boolean>) {
       state.isPlaying = action.payload;
@@ -120,7 +127,7 @@ export const receivePlaylist =
     const { player } = getState();
     const activelyPlaying = player.playlist.length > 0 && player.sdkIsPaused === false;
     if (payload.trigger === 'biometric' && activelyPlaying) {
-      dispatch(setPendingPlaylist(payload.tracks));
+      dispatch(setPendingPlaylist({ tracks: payload.tracks, mode: payload.mode }));
     } else {
       dispatch(setPlaylist({ tracks: payload.tracks, trigger: payload.trigger }));
       dispatch(setPlaybackMode(payload.mode ?? 'live'));

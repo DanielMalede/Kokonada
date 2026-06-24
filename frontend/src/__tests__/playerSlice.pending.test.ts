@@ -11,20 +11,27 @@ const base = {
   playlist: [track('1')], offlineBuffer: [track('1')], currentIndex: 0,
   isPlaying: true, isOnline: true, trigger: 'emotion' as const, playbackMode: 'live' as const,
   sdkReady: true, deviceId: 'dev', sdkIsPaused: false, sdkPositionMs: 1000, sdkDurationMs: 200000,
-  pendingPlaylist: [], sdkCurrentTrackUri: 'spotify:track:1',
+  pendingPlaylist: [], pendingMode: null, sdkCurrentTrackUri: 'spotify:track:1',
 };
 
 describe('playerSlice — pending playlist', () => {
   it('setPendingPlaylist stores tracks without touching the active playlist', () => {
-    const next = playerReducer(base as never, setPendingPlaylist([track('9'), track('8')]));
+    const next = playerReducer(base as never, setPendingPlaylist({ tracks: [track('9'), track('8')] }));
     expect(next.pendingPlaylist).toHaveLength(2);
     expect(next.playlist).toEqual([track('1')]); // unchanged
   });
 
   it('setPendingPlaylist replaces any existing pending (newest wins)', () => {
     const withPending = { ...base, pendingPlaylist: [track('5')] };
-    const next = playerReducer(withPending as never, setPendingPlaylist([track('9')]));
+    const next = playerReducer(withPending as never, setPendingPlaylist({ tracks: [track('9')] }));
     expect(next.pendingPlaylist).toEqual([track('9')]);
+  });
+
+  it('setPendingPlaylist stores the mode, defaulting to live', () => {
+    const def = playerReducer(base as never, setPendingPlaylist({ tracks: [track('9')] }));
+    expect(def.pendingMode).toBe('live');
+    const exp = playerReducer(base as never, setPendingPlaylist({ tracks: [track('9')], mode: 'export' }));
+    expect(exp.pendingMode).toBe('export');
   });
 
   it('promotePendingPlaylist moves pending to active, resets index, clears pending', () => {
@@ -34,6 +41,13 @@ describe('playerSlice — pending playlist', () => {
     expect(next.currentIndex).toBe(0);
     expect(next.offlineBuffer).toEqual([track('9'), track('8')]);
     expect(next.pendingPlaylist).toEqual([]);
+  });
+
+  it('promotePendingPlaylist applies the pending mode to playbackMode and clears it', () => {
+    const withPending = { ...base, playbackMode: 'live' as const, pendingPlaylist: [track('9')], pendingMode: 'export' as const };
+    const next = playerReducer(withPending as never, promotePendingPlaylist());
+    expect(next.playbackMode).toBe('export');
+    expect(next.pendingMode).toBeNull();
   });
 
   it('promotePendingPlaylist is a no-op when pending is empty', () => {

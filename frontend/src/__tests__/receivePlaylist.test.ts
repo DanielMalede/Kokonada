@@ -16,12 +16,12 @@ function run(payload: Parameters<typeof receivePlaylist>[0], playerState: Record
 }
 
 describe('receivePlaylist thunk', () => {
-  it('queues a biometric playlist as pending when actively playing', () => {
+  it('queues a biometric playlist as pending, threading its mode, when actively playing', () => {
     const dispatch = run(
-      { tracks: [track('9')], trigger: 'biometric' },
+      { tracks: [track('9')], trigger: 'biometric', mode: 'export' },
       { playlist: [track('1')], sdkIsPaused: false },
     );
-    expect(dispatch).toHaveBeenCalledWith(setPendingPlaylist([track('9')]));
+    expect(dispatch).toHaveBeenCalledWith(setPendingPlaylist({ tracks: [track('9')], mode: 'export' }));
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: setPlaylist.type }));
   });
 
@@ -48,6 +48,6 @@ describe('receivePlaylist thunk', () => {
       { playlist: [track('1')], sdkIsPaused: false },
     );
     expect(dispatch).toHaveBeenCalledWith(setPlaylist({ tracks: [track('9')], trigger: 'emotion' }));
-    expect(dispatch).not.toHaveBeenCalledWith(setPendingPlaylist([track('9')]));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: setPendingPlaylist.type }));
   });
 });

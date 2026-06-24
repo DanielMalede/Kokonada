@@ -30,7 +30,7 @@ describe('usePendingPromotion', () => {
 
     // Establish the current track, then queue a pending playlist.
     act(() => { store.dispatch(setSdkState({ currentTrackUri: 'spotify:track:1' })); });
-    act(() => { store.dispatch(setPendingPlaylist([track('9'), track('8')])); });
+    act(() => { store.dispatch(setPendingPlaylist({ tracks: [track('9'), track('8')] })); });
 
     // Current track ends → SDK reports the next uri.
     act(() => { store.dispatch(setSdkState({ currentTrackUri: 'spotify:track:2' })); });
