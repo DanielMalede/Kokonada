@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
 const WATCH_INGEST_PATH = '/api/integrations/watch/hr';
 
@@ -42,7 +42,9 @@ exports.watchLimiter = rateLimit({
     if (header && header.startsWith('Bearer ')) {
       return crypto.createHash('sha256').update(header.slice(7)).digest('hex');
     }
-    return req.ip;
+    // ipKeyGenerator normalizes IPv6 to a /64 subnet so a client can't rotate
+    // addresses within its subnet to bypass the limit (express-rate-limit v8).
+    return ipKeyGenerator(req.ip);
   },
   message: { error: 'Too many heart-rate posts — slow down' },
 });
