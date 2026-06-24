@@ -10,6 +10,7 @@ const {
   appleHealthPush,
   suuntoWebhook,
   wearableStatus,
+  issueWatchToken, revokeWatchToken,
 } = require('../controllers/integrationsController');
 
 // Public OAuth callbacks. The browser arrives here from the provider as a
@@ -56,5 +57,9 @@ router.post('/suunto/webhook',       suuntoWebhook);
 
 // Unified wearable status
 router.get('/wearable/status',       wearableStatus);
+
+// Garmin watch device-token (sideloaded app HR streaming)
+router.post('/watch/token',   issueWatchToken);
+router.delete('/watch/token', revokeWatchToken);
 
 module.exports = router;

@@ -1,3 +1,4 @@
+const crypto      = require('crypto');
 const spotify     = require('../services/spotify');
 const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
@@ -435,6 +436,34 @@ exports.wearableStatus = (req, res) => {
     provider:  req.user.wearableProvider || null,
     connected: !!req.user.wearableToken?.blob || req.user.wearableProvider === 'apple_health',
   });
+};
+
+// ── Garmin watch (sideloaded app — opaque device-token HR streaming) ─────────
+
+const sha256Hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+// POST /api/integrations/watch/token  (auth required)
+// Mints a long-lived opaque device token for the watch app. Stores only the
+// hash; returns the plaintext once. Re-issuing overwrites the hash, which
+// instantly revokes any previously issued token.
+exports.issueWatchToken = async (req, res, next) => {
+  try {
+    const token = `whr_${crypto.randomBytes(32).toString('base64url')}`;
+    req.user.watchToken = { hash: sha256Hex(token), createdAt: new Date(), lastSeenAt: null };
+    req.user.wearableProvider = 'garmin';
+    await req.user.save();
+    res.status(201).json({ token });
+  } catch (err) { next(err); }
+};
+
+// DELETE /api/integrations/watch/token  (auth required)
+exports.revokeWatchToken = async (req, res, next) => {
+  try {
+    req.user.watchToken = null;
+    req.user.wearableProvider = null;
+    await req.user.save();
+    res.json({ message: 'Watch disconnected' });
+  } catch (err) { next(err); }
 };
 
 // GET /api/integrations/status
