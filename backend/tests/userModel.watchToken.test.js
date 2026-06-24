@@ -10,14 +10,20 @@ describe('User.watchToken schema', () => {
   });
 
   it('defines watchToken.createdAt and watchToken.lastSeenAt date paths', () => {
-    expect(User.schema.path('watchToken.createdAt').instance).toBe('Date');
-    expect(User.schema.path('watchToken.lastSeenAt').instance).toBe('Date');
+    const createdAt = User.schema.path('watchToken.createdAt');
+    const lastSeenAt = User.schema.path('watchToken.lastSeenAt');
+    expect(createdAt).toBeDefined();
+    expect(lastSeenAt).toBeDefined();
+    expect(createdAt.instance).toBe('Date');
+    expect(lastSeenAt.instance).toBe('Date');
   });
 
-  it('declares an index on watchToken.hash', () => {
-    const hasIndex = User.schema.indexes().some(
+  it('declares a sparse index on watchToken.hash', () => {
+    const entry = User.schema.indexes().find(
       ([fields]) => Object.prototype.hasOwnProperty.call(fields, 'watchToken.hash')
     );
-    expect(hasIndex).toBe(true);
+    expect(entry).toBeDefined();
+    const [, options] = entry;
+    expect(options.sparse).toBe(true);
   });
 });

@@ -43,7 +43,9 @@ const userSchema = new mongoose.Schema({
 
 userSchema.index({ ssoProvider: 1, ssoId: 1 }, { unique: true });
 userSchema.index({ email: 1 });
-userSchema.index({ 'watchToken.hash': 1 });
+// Sparse: most users never enroll a watch, so watchToken.hash is null for them
+// — sparse keeps those documents out of the index and the lookup unique-friendly.
+userSchema.index({ 'watchToken.hash': 1 }, { sparse: true });
 
 // Helpers for encrypting/decrypting token objects on the document
 userSchema.methods.setToken = function (field, tokenObj) {
