@@ -6,6 +6,10 @@ const { verifyToken, COOKIE_NAME } = require('../utils/jwt');
 const User = require('../models/User');
 const { registerBiometricHandler } = require('./biometricHandler');
 
+// Live Socket.IO server instance, captured on creation so non-socket code
+// (e.g. the watch HR ingest controller) can look up a user's browser socket.
+let _io = null;
+
 function createSocketServer(httpServer) {
   const io = new Server(httpServer, {
     cors: {
@@ -47,7 +51,12 @@ function createSocketServer(httpServer) {
     registerBiometricHandler(socket);
   });
 
+  _io = io;
   return io;
 }
 
-module.exports = { createSocketServer };
+function getIo() {
+  return _io;
+}
+
+module.exports = { createSocketServer, getIo };
