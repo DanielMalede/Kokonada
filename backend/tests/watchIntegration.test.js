@@ -99,3 +99,97 @@ describe('revokeWatchToken', () => {
     expect(next).toHaveBeenCalledWith(err);
   });
 });
+
+// ── watchHrIngest ─────────────────────────────────────────────────────────
+
+describe('watchHrIngest', () => {
+  // Builds a fake io whose room for `user:<id>` contains one socket.
+  function makeIo(userId) {
+    const socket = { id: `sock_${userId}`, emit: jest.fn(), data: { user: { _id: userId } } };
+    const rooms = new Map([[`user:${userId}`, new Set([socket.id])]]);
+    const sockets = new Map([[socket.id, socket]]);
+    return { io: { sockets: { adapter: { rooms }, sockets } }, socket };
+  }
+
+  function reqWith(token, body) {
+    return { headers: token ? { authorization: `Bearer ${token}` } : {}, body };
+  }
+
+  beforeEach(() => {
+    User.findOne = jest.fn();
+    User.updateOne = jest.fn().mockResolvedValue({});
+  });
+
+  it('202 on valid token + connected socket; calls handleBiometricReading immediate', async () => {
+    const userId = 'u_live';
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    const { io, socket } = makeIo(userId);
+    getIo.mockReturnValue(io);
+    const res = makeRes();
+
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 142, activityType: 1, ts: '2026-06-24T10:00:00Z' }), res, next);
+
+    expect(res.statusCode).toBe(202);
+    expect(handleBiometricReading).toHaveBeenCalledWith(
+      socket,
+      'garmin',
+      { heartRate: 142, activityType: 1, startTimeLocal: '2026-06-24T10:00:00Z' },
+      { immediate: true }
+    );
+    expect(User.updateOne).toHaveBeenCalled(); // lastSeenAt touched
+  });
+
+  it('401 when the Authorization header is missing', async () => {
+    const res = makeRes();
+    await watchHrIngest(reqWith(null, { heartRate: 120 }), res, next);
+    expect(res.statusCode).toBe(401);
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  it('401 when the token matches no user', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue(null) });
+    const res = makeRes();
+    await watchHrIngest(reqWith('whr_bad', { heartRate: 120 }), res, next);
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('400 when heartRate is out of range or non-numeric', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
+    const res1 = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 5 }), res1, next);
+    expect(res1.statusCode).toBe(400);
+
+    const res2 = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 'fast' }), res2, next);
+    expect(res2.statusCode).toBe(400);
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  it('409 { live:false } when the user has no connected browser socket', async () => {
+    const userId = 'u_offline';
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    getIo.mockReturnValue({ sockets: { adapter: { rooms: new Map() }, sockets: new Map() } });
+    const res = makeRes();
+
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 142, activityType: 1 }), res, next);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ live: false });
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  it('defaults activityType to 0 and supplies startTimeLocal when ts is absent', async () => {
+    const userId = 'u_def';
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    const { io } = makeIo(userId);
+    getIo.mockReturnValue(io);
+    const res = makeRes();
+
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 88 }), res, next);
+
+    const raw = handleBiometricReading.mock.calls[0][2];
+    expect(raw.heartRate).toBe(88);
+    expect(raw.activityType).toBe(0);
+    expect(typeof raw.startTimeLocal).toBe('string');
+  });
+});

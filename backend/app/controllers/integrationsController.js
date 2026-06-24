@@ -1,4 +1,6 @@
 const crypto      = require('crypto');
+const { getIo } = require('../sockets');
+const { handleBiometricReading } = require('../sockets/biometricHandler');
 const spotify     = require('../services/spotify');
 const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
@@ -463,6 +465,45 @@ exports.revokeWatchToken = async (req, res, next) => {
     req.user.wearableProvider = null;
     await req.user.save();
     res.json({ message: 'Watch disconnected' });
+  } catch (err) { next(err); }
+};
+
+// POST /api/integrations/watch/hr  (PUBLIC — device-token auth, not session)
+// The sideloaded watch app POSTs live HR here ~every 5 minutes. We authenticate
+// by hashing the Bearer token, look up the user's live browser socket, and feed
+// the reading into the biometric pipeline in immediate mode (each ping trusted
+// as the new sustained HR; see WATCH_HR_DELTA_THRESHOLD in biometricHandler).
+exports.watchHrIngest = async (req, res, next) => {
+  try {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing watch token' });
+    }
+    const hash = sha256Hex(header.slice(7));
+    const user = await User.findOne({ 'watchToken.hash': hash, deletedAt: null }).select('_id');
+    if (!user) return res.status(401).json({ error: 'Invalid watch token' });
+
+    const { heartRate, activityType, ts } = req.body || {};
+    if (typeof heartRate !== 'number' || heartRate < 30 || heartRate > 230) {
+      return res.status(400).json({ error: 'heartRate must be a number between 30 and 230' });
+    }
+    const activity = Number.isInteger(activityType) ? activityType : 0;
+    const startTimeLocal = typeof ts === 'string' && ts ? ts : new Date().toISOString();
+
+    // Record liveness for the frontend staleness indicator (fire-and-forget).
+    User.updateOne({ _id: user._id }, { $set: { 'watchToken.lastSeenAt': new Date() } })
+      .catch((e) => console.error('[watchHrIngest] lastSeenAt update failed:', e.message));
+
+    const io = getIo();
+    const room = io?.sockets?.adapter?.rooms?.get(`user:${user._id}`);
+    if (!room || room.size === 0) return res.status(409).json({ live: false });
+
+    const socketId = room.values().next().value;
+    const socket = io.sockets.sockets.get(socketId);
+    if (!socket) return res.status(409).json({ live: false });
+
+    handleBiometricReading(socket, 'garmin', { heartRate, activityType: activity, startTimeLocal }, { immediate: true });
+    return res.status(202).json({ ok: true });
   } catch (err) { next(err); }
 };
 

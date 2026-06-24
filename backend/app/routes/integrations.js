@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
+const { watchLimiter } = require('../middleware/rateLimiter');
 const {
   getIntegrationsStatus,
   connectToken,
@@ -10,7 +11,7 @@ const {
   appleHealthPush,
   suuntoWebhook,
   wearableStatus,
-  issueWatchToken, revokeWatchToken,
+  issueWatchToken, revokeWatchToken, watchHrIngest,
 } = require('../controllers/integrationsController');
 
 // Public OAuth callbacks. The browser arrives here from the provider as a
@@ -22,6 +23,10 @@ router.get('/spotify/callback',  spotifyCallback);
 router.get('/youtube/callback',  youtubeCallback);
 router.post('/youtube/exchange', youtubeExchange);
 router.get('/garmin/callback',   garminCallback);
+
+// Watch HR stream (PUBLIC — authenticated by the opaque device token, not the
+// session cookie; same placement rationale as the webhooks above).
+router.post('/watch/hr', watchLimiter, watchHrIngest);
 
 // All remaining integration routes require a logged-in user
 router.use(auth);
