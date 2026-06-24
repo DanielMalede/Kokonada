@@ -220,4 +220,224 @@ describe('watchHrIngest', () => {
     expect(raw.startTimeLocal).not.toBe('not-a-date');
     expect(Number.isNaN(new Date(raw.startTimeLocal).getTime())).toBe(false);
   });
+
+  // ── Test 2: Infinity and -Infinity → 400 ────────────────────────────────
+  it('heartRate: Infinity → 400; heartRate: -Infinity → 400', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
+
+    const res1 = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: Infinity }), res1, next);
+    expect(res1.statusCode).toBe(400);
+
+    const res2 = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: -Infinity }), res2, next);
+    expect(res2.statusCode).toBe(400);
+
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  // ── Test 3: boundary values ──────────────────────────────────────────────
+  it('boundary: heartRate 30 and 230 → 202; 29.999 and 230.001 → 400', async () => {
+    const userId = 'u_boundary';
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    const { io } = makeIo(userId);
+    getIo.mockReturnValue(io);
+
+    const res30 = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 30 }), res30, next);
+    expect(res30.statusCode).toBe(202);
+
+    const res230 = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 230 }), res230, next);
+    expect(res230.statusCode).toBe(202);
+
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
+
+    const resLow = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 29.999 }), resLow, next);
+    expect(resLow.statusCode).toBe(400);
+
+    const resHigh = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 230.001 }), resHigh, next);
+    expect(resHigh.statusCode).toBe(400);
+  });
+
+  // ── Test 4: wrong-type heartRate → 400 ─────────────────────────────────
+  it('heartRate as string/bool/array/object/missing → 400; handleBiometricReading NOT called', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
+    const badValues = ['120', true, [120], {}, undefined];
+
+    for (const hr of badValues) {
+      const body = hr === undefined ? {} : { heartRate: hr };
+      const res = makeRes();
+      await watchHrIngest(reqWith('whr_tok', body), res, next);
+      expect(res.statusCode).toBe(400);
+    }
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  // ── Test 6: various invalid ts values → startTimeLocal is a valid ISO ───
+  it('ts: empty string/number/array/null → startTimeLocal coerced to valid ISO date', async () => {
+    const userId = 'u_ts_coerce';
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    const { io } = makeIo(userId);
+    getIo.mockReturnValue(io);
+
+    const badTs = ['', 12345, [1, 2], null];
+    for (const ts of badTs) {
+      jest.clearAllMocks();
+      User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+      User.updateOne = jest.fn().mockResolvedValue({});
+      getIo.mockReturnValue(io);
+
+      const res = makeRes();
+      await watchHrIngest(reqWith('whr_tok', { heartRate: 80, ts }), res, next);
+      expect(res.statusCode).toBe(202);
+      const raw = handleBiometricReading.mock.calls[0][2];
+      expect(Number.isNaN(new Date(raw.startTimeLocal).getTime())).toBe(false);
+    }
+  });
+
+  // ── Test 7: activityType coercion ────────────────────────────────────────
+  it('activityType non-integer values → raw.activityType === 0; out-of-range integers preserved', async () => {
+    const userId = 'u_act';
+    const { io } = makeIo(userId);
+
+    const nonIntegers = [1.5, '1', null, {}];
+    for (const activityType of nonIntegers) {
+      jest.clearAllMocks();
+      User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+      User.updateOne = jest.fn().mockResolvedValue({});
+      getIo.mockReturnValue(io);
+
+      const res = makeRes();
+      await watchHrIngest(reqWith('whr_tok', { heartRate: 80, activityType }), res, next);
+      expect(res.statusCode).toBe(202);
+      const raw = handleBiometricReading.mock.calls[0][2];
+      expect(raw.activityType).toBe(0);
+    }
+
+    // Out-of-range integers are preserved as-is
+    for (const [activityType, expected] of [[-1, -1], [999999, 999999]]) {
+      jest.clearAllMocks();
+      User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+      User.updateOne = jest.fn().mockResolvedValue({});
+      getIo.mockReturnValue(io);
+
+      const res = makeRes();
+      await watchHrIngest(reqWith('whr_tok', { heartRate: 80, activityType }), res, next);
+      const raw = handleBiometricReading.mock.calls[0][2];
+      expect(raw.activityType).toBe(expected);
+    }
+  });
+
+  // ── Test 8: multi-socket room → exactly one handleBiometricReading call (pins Limitation 3) ──
+  it('multi-socket room: handleBiometricReading called exactly once (single-delivery limitation)', async () => {
+    const userId = 'u_multi';
+    // Two sockets in the room
+    const socket1 = { id: 'sock_a', emit: jest.fn(), data: {} };
+    const socket2 = { id: 'sock_b', emit: jest.fn(), data: {} };
+    const rooms = new Map([[`user:${userId}`, new Set([socket1.id, socket2.id])]]);
+    const sockets = new Map([[socket1.id, socket1], [socket2.id, socket2]]);
+    const io = { sockets: { adapter: { rooms }, sockets } };
+
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    User.updateOne = jest.fn().mockResolvedValue({});
+    getIo.mockReturnValue(io);
+
+    const res = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
+
+    expect(res.statusCode).toBe(202);
+    // Exactly ONE call despite two sockets — deliberate single-delivery limitation
+    expect(handleBiometricReading).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Test 9: malformed Authorization header edge cases → 401 ─────────────
+  it('Authorization: "Bearer " (empty token) with User.findOne null → 401', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue(null) });
+    const req = { headers: { authorization: 'Bearer ' }, body: { heartRate: 100 } };
+    const res = makeRes();
+    await watchHrIngest(req, res, next);
+    expect(res.statusCode).toBe(401);
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  it('Authorization: "Bearer" (no space) → 401 without any DB lookup', async () => {
+    const req = { headers: { authorization: 'Bearer' }, body: { heartRate: 100 } };
+    const res = makeRes();
+    await watchHrIngest(req, res, next);
+    expect(res.statusCode).toBe(401);
+    expect(User.findOne).not.toHaveBeenCalled();
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  // ── Test 10: getIo() returns null → 409 { live: false } ─────────────────
+  it('getIo() returns null → 409 { live: false }; handleBiometricReading NOT called', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
+    User.updateOne = jest.fn().mockResolvedValue({});
+    getIo.mockReturnValue(null);
+
+    const res = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ live: false });
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  // ── Test 11: socket id in room but vanished from sockets map → 409 ───────
+  it('socket id in room but missing from sockets map (vanished) → 409 { live: false }', async () => {
+    const userId = 'u_vanished';
+    // Room has the socket id, but sockets map does NOT
+    const rooms = new Map([[`user:${userId}`, new Set(['ghost_sock'])]]);
+    const sockets = new Map(); // empty — socket vanished
+    const io = { sockets: { adapter: { rooms }, sockets } };
+
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    User.updateOne = jest.fn().mockResolvedValue({});
+    getIo.mockReturnValue(io);
+
+    const res = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ live: false });
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+  });
+
+  // ── Test 12: req.body entirely undefined → 400, no throw ────────────────
+  it('req.body undefined → 400, no throw, next not called with error', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
+    const res = makeRes();
+    await watchHrIngest(reqWith('whr_tok', undefined), res, next);
+    expect(res.statusCode).toBe(400);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  // ── Test 13: User.updateOne rejects (DB down) → still 202; next NOT called ──
+  it('User.updateOne rejects (DB down) → still 202; next NOT called with error', async () => {
+    const userId = 'u_dberr';
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    const { io } = makeIo(userId);
+    getIo.mockReturnValue(io);
+
+    // Reject after a tick to simulate async fire-and-forget failure
+    let rejectFn;
+    const rejectedPromise = new Promise((_, reject) => { rejectFn = reject; });
+    User.updateOne = jest.fn().mockReturnValue(rejectedPromise);
+
+    const res = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
+
+    // The 202 must be sent before the promise settles
+    expect(res.statusCode).toBe(202);
+
+    // Settle the rejected promise and drain microtask queue so the .catch() fires
+    rejectFn(new Error('DB down'));
+    await Promise.resolve();
+
+    // next must NOT have been called — fire-and-forget swallows the error
+    expect(next).not.toHaveBeenCalled();
+  });
 });
