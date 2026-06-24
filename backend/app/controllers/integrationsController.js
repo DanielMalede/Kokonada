@@ -468,6 +468,16 @@ exports.revokeWatchToken = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// GET /api/integrations/watch/status  (auth required)
+// Powers the frontend connection badge. lastSeenAt is updated on each successful
+// HR ingest (see watchHrIngest); it is null until the first ping.
+exports.watchStatus = (req, res) => {
+  res.json({
+    connected:  !!req.user.watchToken?.hash,
+    lastSeenAt: req.user.watchToken?.lastSeenAt ?? null,
+  });
+};
+
 // POST /api/integrations/watch/hr  (PUBLIC — device-token auth, not session)
 // The sideloaded watch app POSTs live HR here ~every 5 minutes. We authenticate
 // by hashing the Bearer token, look up the user's live browser socket, and feed
