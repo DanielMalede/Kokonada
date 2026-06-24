@@ -84,5 +84,18 @@ describe('revokeWatchToken', () => {
     expect(user.save).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(200);
     expect(res.body.message).toMatch(/disconnect/i);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('forwards errors to next', async () => {
+    const err = new Error('db down');
+    const user = {
+      _id: 'u1',
+      watchToken: { hash: 'abc', createdAt: new Date(), lastSeenAt: new Date() },
+      save: jest.fn().mockRejectedValue(err),
+    };
+    const res = makeRes();
+    await revokeWatchToken({ user }, res, next);
+    expect(next).toHaveBeenCalledWith(err);
   });
 });
