@@ -8,7 +8,7 @@ export default function LivePlayer() {
   const dispatch = useDispatch<AppDispatch>();
   const { skipTrack } = useSocket();
   const {
-    playbackMode, playlist, currentIndex,
+    playbackMode, playlist, currentIndex, pendingPlaylist,
     sdkIsPaused, sdkPositionMs, sdkDurationMs,
   } = useSelector((s: RootState) => s.player);
 
@@ -50,6 +50,11 @@ export default function LivePlayer() {
           </button>
         </div>
       </div>
+      {pendingPlaylist.length > 0 && (
+        <p className="mb-2 text-xs text-[#e9c46a]">
+          ♥ New heart-rate mix queued — starts after this track
+        </p>
+      )}
       <div className="w-full bg-white/10 rounded-full h-1">
         <div
           className="bg-[#e9c46a] h-1 rounded-full transition-[width] duration-200"
