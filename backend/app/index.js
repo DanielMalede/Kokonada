@@ -91,7 +91,12 @@ async function start() {
   await connectRedis();
   const httpServer = http.createServer(app);
   const io = createSocketServer(httpServer);
-  startGarminPoller(io);
+  // The Garmin Web API is delayed/batched and the OAuth app is restricted; the
+  // sideloaded watch app pushes live HR instead. Keep the legacy poller off
+  // unless explicitly enabled. (Set ENABLE_GARMIN_POLLER=true to re-enable.)
+  if (process.env.ENABLE_GARMIN_POLLER === 'true') {
+    startGarminPoller(io);
+  }
   httpServer.listen(PORT, () =>
     console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}] routes:ok`)
   );
