@@ -163,6 +163,7 @@ describe('watchHrIngest', () => {
     await watchHrIngest(reqWith('whr_tok', { heartRate: 'fast' }), res2, next);
     expect(res2.statusCode).toBe(400);
     expect(handleBiometricReading).not.toHaveBeenCalled();
+    expect(User.updateOne).not.toHaveBeenCalled(); // validation rejects before the liveness update
   });
 
   it('409 { live:false } when the user has no connected browser socket', async () => {
