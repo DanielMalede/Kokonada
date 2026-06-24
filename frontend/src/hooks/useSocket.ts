@@ -3,13 +3,14 @@ import { useDispatch } from 'react-redux';
 import { io, Socket } from 'socket.io-client';
 import type { AppDispatch } from '../store';
 import { getToken } from '@/lib/api';
-import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, setPlaybackMode } from '../store/slices/playerSlice';
+import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, receivePlaylist } from '../store/slices/playerSlice';
 import {
   setBiometricAck,
   setRecalibrationPending,
   setRecalibrationCancelled,
   setRecalibrating,
 } from '../store/slices/biometricsSlice';
+import { markWatchSeen } from '../store/slices/integrationsSlice';
 
 interface Track { id: string; title: string; artist: string; uri: string; }
 
@@ -68,6 +69,7 @@ function initSocket(dispatch: AppDispatch): Socket {
     if (now - lastBiometricDispatch >= BIOMETRIC_THROTTLE_MS) {
       lastBiometricDispatch = now;
       dispatch(setBiometricAck(data as never));
+      dispatch(markWatchSeen());
     }
   });
   socket.on('recalibration_pending', (data: unknown) => dispatch(setRecalibrationPending(data as never)));
@@ -75,8 +77,8 @@ function initSocket(dispatch: AppDispatch): Socket {
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
 
   socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop'; mode?: 'live' | 'export' }) => {
-    dispatch(setPlaylist({ tracks: data.tracks, trigger: data.trigger }));
-    dispatch(setPlaybackMode(data.mode ?? 'live'));
+    if (data.trigger === 'biometric') dispatch(markWatchSeen());
+    dispatch(receivePlaylist({ tracks: data.tracks, trigger: data.trigger, mode: data.mode }));
   });
 
   socket.on('playlist_error', (data: { message: string; fallbackTracks?: Track[] }) => {

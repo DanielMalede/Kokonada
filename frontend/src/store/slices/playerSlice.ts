@@ -1,5 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
+import type { RootState, AppDispatch } from '../index';
 
 interface Track {
   id: string;
@@ -107,4 +108,23 @@ export const {
   setPlaylist, skipTrack, setPlaying, setIsOnline, setPlaybackMode, setSdkState,
   setPendingPlaylist, promotePendingPlaylist,
 } = playerSlice.actions;
+
+/**
+ * Route an incoming playlist. Biometric (watch-HR) playlists defer to the
+ * pending queue when a track is actively playing so they never interrupt the
+ * current song; everything else replaces playback immediately.
+ */
+export const receivePlaylist =
+  (payload: { tracks: Track[]; trigger: PlayerState['trigger']; mode?: 'live' | 'export' }) =>
+  (dispatch: AppDispatch, getState: () => RootState) => {
+    const { player } = getState();
+    const activelyPlaying = player.playlist.length > 0 && player.sdkIsPaused === false;
+    if (payload.trigger === 'biometric' && activelyPlaying) {
+      dispatch(setPendingPlaylist(payload.tracks));
+    } else {
+      dispatch(setPlaylist({ tracks: payload.tracks, trigger: payload.trigger }));
+      dispatch(setPlaybackMode(payload.mode ?? 'live'));
+    }
+  };
+
 export default playerSlice.reducer;
