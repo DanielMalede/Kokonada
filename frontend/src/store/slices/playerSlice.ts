@@ -14,6 +14,7 @@ export interface SpotifySDKState {
   isPaused?: boolean;
   positionMs?: number;
   durationMs?: number;
+  currentTrackUri?: string | null;
 }
 
 interface PlayerState {
@@ -30,6 +31,10 @@ interface PlayerState {
   sdkIsPaused: boolean;
   sdkPositionMs: number;
   sdkDurationMs: number;
+  // "Adjust upcoming queue only" — HR-driven playlists wait here until the
+  // current track ends, then usePendingPromotion promotes them.
+  pendingPlaylist: Track[];
+  sdkCurrentTrackUri: string | null;
 }
 
 const initialState: PlayerState = {
@@ -45,6 +50,8 @@ const initialState: PlayerState = {
   sdkIsPaused: true,
   sdkPositionMs: 0,
   sdkDurationMs: 0,
+  pendingPlaylist: [],
+  sdkCurrentTrackUri: null,
 };
 
 const playerSlice = createSlice({
@@ -64,6 +71,17 @@ const playerSlice = createSlice({
       state.currentIndex = (state.currentIndex + 1) % list.length;
       state.sdkPositionMs = 0;
     },
+    setPendingPlaylist(state, action: PayloadAction<Track[]>) {
+      state.pendingPlaylist = action.payload;
+    },
+    promotePendingPlaylist(state) {
+      if (state.pendingPlaylist.length === 0) return;
+      state.playlist = state.pendingPlaylist;
+      state.currentIndex = 0;
+      state.offlineBuffer = state.pendingPlaylist.slice(0, 10);
+      state.sdkPositionMs = 0;
+      state.pendingPlaylist = [];
+    },
     setPlaying(state, action: PayloadAction<boolean>) {
       state.isPlaying = action.payload;
     },
@@ -74,17 +92,19 @@ const playerSlice = createSlice({
       state.playbackMode = action.payload;
     },
     setSdkState(state, action: PayloadAction<SpotifySDKState>) {
-      const { deviceId, isReady, isPaused, positionMs, durationMs } = action.payload;
+      const { deviceId, isReady, isPaused, positionMs, durationMs, currentTrackUri } = action.payload;
       if (deviceId !== undefined) state.deviceId = deviceId;
       if (isReady !== undefined) state.sdkReady = isReady;
       if (isPaused !== undefined) state.sdkIsPaused = isPaused;
       if (positionMs !== undefined) state.sdkPositionMs = positionMs;
       if (durationMs !== undefined) state.sdkDurationMs = durationMs;
+      if (currentTrackUri !== undefined) state.sdkCurrentTrackUri = currentTrackUri;
     },
   },
 });
 
 export const {
   setPlaylist, skipTrack, setPlaying, setIsOnline, setPlaybackMode, setSdkState,
+  setPendingPlaylist, promotePendingPlaylist,
 } = playerSlice.actions;
 export default playerSlice.reducer;
