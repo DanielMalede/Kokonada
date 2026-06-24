@@ -19,6 +19,15 @@ const userSchema = new mongoose.Schema({
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },
 
+  // Opaque device token for the sideloaded Garmin watch app (HR streaming).
+  // We store ONLY the sha256 hash — the plaintext (whr_…) is shown to the user
+  // once at generation time and pasted into Garmin Connect app settings.
+  watchToken: {
+    hash:       { type: String, default: null },
+    createdAt:  { type: Date,   default: null },
+    lastSeenAt: { type: Date,   default: null },
+  },
+
   // Mobile push notification tokens (FCM for Android, APNs for iOS)
   pushTokens: [{
     token:     { type: String, required: true },
@@ -34,6 +43,9 @@ const userSchema = new mongoose.Schema({
 
 userSchema.index({ ssoProvider: 1, ssoId: 1 }, { unique: true });
 userSchema.index({ email: 1 });
+// Sparse: most users never enroll a watch, so watchToken.hash is null for them
+// — sparse keeps those documents out of the index and the lookup unique-friendly.
+userSchema.index({ 'watchToken.hash': 1 }, { sparse: true });
 
 // Helpers for encrypting/decrypting token objects on the document
 userSchema.methods.setToken = function (field, tokenObj) {

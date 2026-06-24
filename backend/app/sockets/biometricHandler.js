@@ -12,6 +12,10 @@ const { mixPlaylist, generateFallbackPlaylist }  = require('../services/playlist
 const debounceMap = new Map();
 const HR_DELTA_THRESHOLD = 10;
 const DEBOUNCE_MS        = 60_000;
+// Watch (5-min cadence) path: each ping is trusted as the new sustained HR.
+// A larger 25 bpm gate ensures we only re-adapt on a real activity-state change
+// (vs the 10 bpm streaming threshold), so a flat HR never churns Spotify.
+const WATCH_HR_DELTA_THRESHOLD = 25;
 
 function getState(socketId) {
   if (!debounceMap.has(socketId)) {
@@ -164,7 +168,7 @@ function isValidReading(n) {
   return true;
 }
 
-function handleBiometricReading(socket, source, raw) {
+function handleBiometricReading(socket, source, raw, opts = {}) {
   let normalized;
   try {
     normalized = normalize(source, raw);
@@ -183,6 +187,17 @@ function handleBiometricReading(socket, source, raw) {
   const state = getState(socket.id);
   state.consecutiveSkips = 0;
   state.latestActivity   = normalized.activity;
+
+  // Immediate (trusted) mode for the 5-minute watch ingest path: no 60s debounce.
+  // First reading (no baseline) or a change >= 25 bpm regenerates synchronously.
+  if (opts.immediate) {
+    const prev = state.stableHR;
+    state.stableHR = normalized.heartRate;
+    if (prev === null || Math.abs(normalized.heartRate - prev) >= WATCH_HR_DELTA_THRESHOLD) {
+      generateAndEmitPlaylist(socket, 'biometric', state);
+    }
+    return;
+  }
 
   if (state.stableHR === null) {
     state.stableHR = normalized.heartRate;

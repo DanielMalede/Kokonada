@@ -1,3 +1,6 @@
+const crypto      = require('crypto');
+const { getIo } = require('../sockets');
+const { handleBiometricReading } = require('../sockets/biometricHandler');
 const spotify     = require('../services/spotify');
 const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
@@ -435,6 +438,80 @@ exports.wearableStatus = (req, res) => {
     provider:  req.user.wearableProvider || null,
     connected: !!req.user.wearableToken?.blob || req.user.wearableProvider === 'apple_health',
   });
+};
+
+// ── Garmin watch (sideloaded app — opaque device-token HR streaming) ─────────
+
+const sha256Hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+// POST /api/integrations/watch/token  (auth required)
+// Mints a long-lived opaque device token for the watch app. Stores only the
+// hash; returns the plaintext once. Re-issuing overwrites the hash, which
+// instantly revokes any previously issued token.
+exports.issueWatchToken = async (req, res, next) => {
+  try {
+    const token = `whr_${crypto.randomBytes(32).toString('base64url')}`;
+    req.user.watchToken = { hash: sha256Hex(token), createdAt: new Date(), lastSeenAt: null };
+    req.user.wearableProvider = 'garmin';
+    await req.user.save();
+    res.status(201).json({ token });
+  } catch (err) { next(err); }
+};
+
+// DELETE /api/integrations/watch/token  (auth required)
+exports.revokeWatchToken = async (req, res, next) => {
+  try {
+    req.user.watchToken = null;
+    req.user.wearableProvider = null;
+    await req.user.save();
+    res.json({ message: 'Watch disconnected' });
+  } catch (err) { next(err); }
+};
+
+// POST /api/integrations/watch/hr  (PUBLIC — device-token auth, not session)
+// The sideloaded watch app POSTs live HR here ~every 5 minutes. We authenticate
+// by hashing the Bearer token, look up the user's live browser socket, and feed
+// the reading into the biometric pipeline in immediate mode (each ping trusted
+// as the new sustained HR; see WATCH_HR_DELTA_THRESHOLD in biometricHandler).
+exports.watchHrIngest = async (req, res, next) => {
+  try {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing watch token' });
+    }
+    const hash = sha256Hex(header.slice(7));
+    const user = await User.findOne({ 'watchToken.hash': hash, deletedAt: null }).select('_id');
+    if (!user) return res.status(401).json({ error: 'Invalid watch token' });
+
+    const { heartRate, activityType, ts } = req.body || {};
+    if (!Number.isFinite(heartRate) || heartRate < 30 || heartRate > 230) {
+      return res.status(400).json({ error: 'heartRate must be a finite number between 30 and 230' });
+    }
+    const activity = Number.isInteger(activityType) ? activityType : 0;
+    const startTimeLocal =
+      typeof ts === 'string' && ts && !Number.isNaN(new Date(ts).getTime())
+        ? ts
+        : new Date().toISOString();
+
+    // Record liveness for the frontend staleness indicator (fire-and-forget).
+    User.updateOne({ _id: user._id }, { $set: { 'watchToken.lastSeenAt': new Date() } })
+      .catch((e) => console.error('[watchHrIngest] lastSeenAt update failed:', e.message));
+
+    const io = getIo();
+    const room = io?.sockets?.adapter?.rooms?.get(`user:${user._id}`);
+    if (!room || room.size === 0) return res.status(409).json({ live: false });
+
+    // DELIBERATE LIMITATION: delivers to only the first socket in the room.
+    // Multi-tab delivery is intentionally deferred — issuing the same Spotify
+    // play command to every tab's independent Web Playback SDK device would
+    // cause duplicate playback. See final-hardening-workorder.md §Limitation 3.
+    const socketId = room.values().next().value;
+    const socket = io.sockets.sockets.get(socketId);
+    if (!socket) return res.status(409).json({ live: false });
+
+    handleBiometricReading(socket, 'garmin', { heartRate, activityType: activity, startTimeLocal }, { immediate: true });
+    return res.status(202).json({ ok: true });
+  } catch (err) { next(err); }
 };
 
 // GET /api/integrations/status
