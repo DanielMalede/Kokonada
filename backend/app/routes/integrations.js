@@ -63,7 +63,7 @@ router.post('/suunto/webhook',       suuntoWebhook);
 // Unified wearable status
 router.get('/wearable/status',       wearableStatus);
 
-// Garmin watch device-token (sideloaded app HR streaming)
+// Garmin watch endpoints
 router.post('/watch/token',   issueWatchToken);
 router.delete('/watch/token', revokeWatchToken);
 router.get('/watch/status',   watchStatus);
