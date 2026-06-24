@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import integrationsReducer from '../store/slices/integrationsSlice';
@@ -36,8 +36,9 @@ describe('WatchTokenCard', () => {
     });
   });
 
-  it('shows a set-up button when not connected', () => {
+  it('shows a set-up button when not connected', async () => {
     render(<Provider store={buildStore()}><WatchTokenCard /></Provider>);
+    await act(async () => {});
     expect(screen.getByRole('button', { name: /set up watch/i })).toBeInTheDocument();
   });
 
@@ -56,18 +57,25 @@ describe('WatchTokenCard', () => {
   });
 
   it('copies the token to the clipboard', async () => {
+    const api = await import('../lib/api');
+    vi.mocked(api.fetchWatchStatus).mockResolvedValueOnce({ connected: true, lastSeenAt: null });
     render(<Provider store={buildStore({ watchToken: 'whr_generated_token', watchConnected: true })}><WatchTokenCard /></Provider>);
+    await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /copy/i }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('whr_generated_token'));
   });
 
-  it('shows a connected badge plus regenerate and disconnect when connected', () => {
+  it('shows a connected badge plus regenerate and disconnect when connected', async () => {
+    const api = await import('../lib/api');
     const now = Date.now();
+    const lastSeenAt = new Date(now - 30_000).toISOString();
+    vi.mocked(api.fetchWatchStatus).mockResolvedValueOnce({ connected: true, lastSeenAt });
     render(
-      <Provider store={buildStore({ watchConnected: true, watchLastSeenAt: new Date(now - 30_000).toISOString() })}>
+      <Provider store={buildStore({ watchConnected: true, watchLastSeenAt: lastSeenAt })}>
         <WatchTokenCard />
       </Provider>,
     );
+    await act(async () => {});
     expect(screen.getByText(/connected/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
@@ -75,7 +83,10 @@ describe('WatchTokenCard', () => {
 
   it('revokes the token on disconnect', async () => {
     const api = await import('../lib/api');
-    render(<Provider store={buildStore({ watchConnected: true, watchLastSeenAt: new Date().toISOString() })}><WatchTokenCard /></Provider>);
+    const lastSeenAt = new Date().toISOString();
+    vi.mocked(api.fetchWatchStatus).mockResolvedValueOnce({ connected: true, lastSeenAt });
+    render(<Provider store={buildStore({ watchConnected: true, watchLastSeenAt: lastSeenAt })}><WatchTokenCard /></Provider>);
+    await act(async () => {});
     fireEvent.click(screen.getByRole('button', { name: /disconnect/i }));
     await waitFor(() => expect(api.revokeWatchToken).toHaveBeenCalled());
   });
