@@ -49,6 +49,8 @@ function buildStore(playerOverrides = {}) {
         sdkIsPaused: true,
         sdkPositionMs: 0,
         sdkDurationMs: 210000,
+        pendingPlaylist: [],
+        sdkCurrentTrackUri: null,
         ...playerOverrides,
       },
     } as never,
@@ -115,5 +117,19 @@ describe('LivePlayer', () => {
       <Provider store={buildStore({ playbackMode: null })}><LivePlayer /></Provider>
     );
     expect(container.firstChild).toBeNull();
+  });
+
+  it('shows the queued-mix badge when a pending playlist exists', () => {
+    render(
+      <Provider store={buildStore({ pendingPlaylist: [{ id: 'z', title: 'Z', artist: 'Q', uri: 'spotify:track:z' }] })}>
+        <LivePlayer />
+      </Provider>,
+    );
+    expect(screen.getByText(/heart-rate mix queued/i)).toBeInTheDocument();
+  });
+
+  it('hides the queued-mix badge when there is no pending playlist', () => {
+    render(<Provider store={buildStore({ pendingPlaylist: [] })}><LivePlayer /></Provider>);
+    expect(screen.queryByText(/heart-rate mix queued/i)).not.toBeInTheDocument();
   });
 });

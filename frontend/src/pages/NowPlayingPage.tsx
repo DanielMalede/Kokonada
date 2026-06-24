@@ -21,7 +21,7 @@ export default function NowPlayingPage() {
   const dispatch = useDispatch<AppDispatch>();
   const { skipTrack } = useSocket();
   const {
-    playlist, offlineBuffer, currentIndex, isOnline,
+    playlist, offlineBuffer, currentIndex, isOnline, pendingPlaylist,
     sdkIsPaused, sdkPositionMs, sdkDurationMs,
   } = useSelector((s: RootState) => s.player);
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
@@ -122,6 +122,11 @@ export default function NowPlayingPage() {
         </div>
 
         {/* Queue */}
+        {pendingPlaylist.length > 0 && (
+          <p className="mb-3 flex items-center gap-1 text-xs text-coral">
+            <Heart className="size-3" /> New heart-rate mix queued — starts after this track
+          </p>
+        )}
         {upNext.length > 0 && (
           <div className="mt-10 w-full">
             <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Up next</h3>

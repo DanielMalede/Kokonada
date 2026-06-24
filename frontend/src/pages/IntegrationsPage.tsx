@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/accordion';
 import { toast } from 'sonner';
 import { authHeaders, buildConnectUrl } from '@/lib/api';
+import WatchTokenCard from '@/components/WatchTokenCard';
 
 // Use the YouTube-specific client ID for the GIS popup if set; fall back to the
 // general Google client. The YouTube client ID in Vercel must match YOUTUBE_CLIENT_ID
@@ -144,7 +145,6 @@ export default function IntegrationsPage() {
   // A short-lived single-use connect token authenticates the top-level navigation
   // (no headers possible). See buildConnectUrl — the session JWT never enters the URL.
   const connectSpotify = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/spotify/connect'); };
-  const connectGarmin  = async () => { window.location.href = await buildConnectUrl(BACKEND_URL, '/api/integrations/garmin/connect'); };
 
   // YouTube uses GIS popup mode — no redirect URI, so Google's shared-domain
   // restriction never applies. The authorization code is returned to a JS callback
@@ -236,7 +236,7 @@ export default function IntegrationsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="divide-y divide-border">
-              <ServiceRow name="Garmin" connected={biometric === 'garmin'} onConnect={connectGarmin} />
+              <WatchTokenCard />
               <ServiceRow name="Apple Health" hint="Available in the iOS app" connected={biometric === 'applehealth'} disabled />
               {!biometric && !moodOnly && (
                 <button

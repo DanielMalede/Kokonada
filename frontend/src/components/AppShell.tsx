@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '@/store';
 import { useSocket } from '@/hooks/useSocket';
 import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer';
+import { usePendingPromotion } from '@/hooks/usePendingPromotion';
 import { authHeaders } from '@/lib/api';
 import EmotionAura from './EmotionAura';
 import BottomNav from './BottomNav';
@@ -24,6 +25,7 @@ export default function AppShell() {
 
   useSocket();
   useSpotifyPlayer(musicProvider);
+  usePendingPromotion();
 
   useEffect(() => {
     if (playbackMode !== 'live' || musicProvider !== 'spotify' || !deviceId || playlist.length === 0)

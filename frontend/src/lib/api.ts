@@ -57,3 +57,37 @@ export async function buildConnectUrl(backendUrl: string, path: string): Promise
     return base;
   }
 }
+
+/** Mint a new watch device token (plaintext returned once). Throws on failure. */
+export async function issueWatchToken(backendUrl: string): Promise<string> {
+  const res = await fetch(`${backendUrl}/api/integrations/watch/token`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`issueWatchToken failed: ${res.status}`);
+  const { token } = await res.json();
+  return token as string;
+}
+
+/** Revoke the current watch device token. Throws on failure. */
+export async function revokeWatchToken(backendUrl: string): Promise<void> {
+  const res = await fetch(`${backendUrl}/api/integrations/watch/token`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`revokeWatchToken failed: ${res.status}`);
+}
+
+/** Fetch watch connection status for the badge (hydrate on page load). */
+export async function fetchWatchStatus(
+  backendUrl: string,
+): Promise<{ connected: boolean; lastSeenAt: string | null }> {
+  const res = await fetch(`${backendUrl}/api/integrations/watch/status`, {
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`fetchWatchStatus failed: ${res.status}`);
+  return res.json();
+}

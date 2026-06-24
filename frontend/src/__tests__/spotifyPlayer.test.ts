@@ -81,6 +81,33 @@ describe('SpotifyPlayerService', () => {
     }));
   });
 
+  it('emits currentTrackUri from player_state_changed', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    const cb = vi.fn();
+    spotifyPlayerService.onStateChange(cb);
+
+    await spotifyPlayerService.init(async () => 'test_token');
+    mockPlayer._emit('player_state_changed', {
+      paused: false,
+      position: 5000,
+      duration: 210000,
+      track_window: { current_track: { uri: 'spotify:track:abc' } },
+    });
+
+    expect(cb).toHaveBeenCalledWith(expect.objectContaining({ currentTrackUri: 'spotify:track:abc' }));
+  });
+
+  it('emits currentTrackUri=null when track_window is absent', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    const cb = vi.fn();
+    spotifyPlayerService.onStateChange(cb);
+
+    await spotifyPlayerService.init(async () => 'test_token');
+    mockPlayer._emit('player_state_changed', { paused: true, position: 0, duration: 0 });
+
+    expect(cb).toHaveBeenCalledWith(expect.objectContaining({ currentTrackUri: null }));
+  });
+
   it('pause() delegates to player.pause()', async () => {
     const { spotifyPlayerService } = await import('../services/spotifyPlayer');
     await spotifyPlayerService.init(async () => 'test_token');
