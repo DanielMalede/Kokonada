@@ -484,11 +484,14 @@ exports.watchHrIngest = async (req, res, next) => {
     if (!user) return res.status(401).json({ error: 'Invalid watch token' });
 
     const { heartRate, activityType, ts } = req.body || {};
-    if (typeof heartRate !== 'number' || heartRate < 30 || heartRate > 230) {
-      return res.status(400).json({ error: 'heartRate must be a number between 30 and 230' });
+    if (!Number.isFinite(heartRate) || heartRate < 30 || heartRate > 230) {
+      return res.status(400).json({ error: 'heartRate must be a finite number between 30 and 230' });
     }
     const activity = Number.isInteger(activityType) ? activityType : 0;
-    const startTimeLocal = typeof ts === 'string' && ts ? ts : new Date().toISOString();
+    const startTimeLocal =
+      typeof ts === 'string' && ts && !Number.isNaN(new Date(ts).getTime())
+        ? ts
+        : new Date().toISOString();
 
     // Record liveness for the frontend staleness indicator (fire-and-forget).
     User.updateOne({ _id: user._id }, { $set: { 'watchToken.lastSeenAt': new Date() } })
@@ -498,6 +501,10 @@ exports.watchHrIngest = async (req, res, next) => {
     const room = io?.sockets?.adapter?.rooms?.get(`user:${user._id}`);
     if (!room || room.size === 0) return res.status(409).json({ live: false });
 
+    // DELIBERATE LIMITATION: delivers to only the first socket in the room.
+    // Multi-tab delivery is intentionally deferred — issuing the same Spotify
+    // play command to every tab's independent Web Playback SDK device would
+    // cause duplicate playback. See final-hardening-workorder.md §Limitation 3.
     const socketId = room.values().next().value;
     const socket = io.sockets.sockets.get(socketId);
     if (!socket) return res.status(409).json({ live: false });

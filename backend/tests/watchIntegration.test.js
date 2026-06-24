@@ -193,4 +193,31 @@ describe('watchHrIngest', () => {
     expect(raw.activityType).toBe(0);
     expect(typeof raw.startTimeLocal).toBe('string');
   });
+
+  // ── TDD FIX 1: heartRate NaN must be rejected (400) ─────────────────────
+  it('[FIX1] heartRate: NaN → 400; handleBiometricReading and User.updateOne NOT called', async () => {
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
+    const res = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: NaN }), res, next);
+    expect(res.statusCode).toBe(400);
+    expect(handleBiometricReading).not.toHaveBeenCalled();
+    expect(User.updateOne).not.toHaveBeenCalled();
+  });
+
+  // ── TDD FIX 2: garbage ts must be coerced to now, not passed through ────
+  it('[FIX2] ts: "not-a-date" with live socket → 202; startTimeLocal coerced to valid ISO (NOT "not-a-date")', async () => {
+    const userId = 'u_ts_fix';
+    User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+    const { io } = makeIo(userId);
+    getIo.mockReturnValue(io);
+    const res = makeRes();
+
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 100, ts: 'not-a-date' }), res, next);
+
+    expect(res.statusCode).toBe(202);
+    expect(handleBiometricReading).toHaveBeenCalledTimes(1);
+    const raw = handleBiometricReading.mock.calls[0][2];
+    expect(raw.startTimeLocal).not.toBe('not-a-date');
+    expect(Number.isNaN(new Date(raw.startTimeLocal).getTime())).toBe(false);
+  });
 });
