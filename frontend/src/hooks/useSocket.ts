@@ -68,7 +68,9 @@ function initSocket(dispatch: AppDispatch): Socket {
     const now = Date.now();
     if (now - lastBiometricDispatch >= BIOMETRIC_THROTTLE_MS) {
       lastBiometricDispatch = now;
-      dispatch(setBiometricAck(data as never));
+      // Backend sends { normalized: { heartRate, activity, lastAck } } — unwrap one level.
+      const payload = (data as { normalized: never }).normalized ?? data;
+      dispatch(setBiometricAck(payload));
       dispatch(markWatchSeen());
     }
   });

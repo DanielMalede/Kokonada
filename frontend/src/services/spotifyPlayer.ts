@@ -69,7 +69,18 @@ class SpotifyPlayerService {
     });
 
     this.player.addListener('not_ready', () => {
+      console.warn('[SpotifySDK] device went not_ready');
       this.emit({ isReady: false });
+    });
+
+    this.player.addListener('initialization_error', (e: unknown) => {
+      console.error('[SpotifySDK] initialization_error — Spotify Premium required:', e);
+    });
+    this.player.addListener('authentication_error', (e: unknown) => {
+      console.error('[SpotifySDK] authentication_error — token may be expired:', e);
+    });
+    this.player.addListener('account_error', (e: unknown) => {
+      console.error('[SpotifySDK] account_error — Spotify Premium required for Web Playback SDK:', e);
     });
 
     this.player.addListener('player_state_changed', (data: unknown) => {

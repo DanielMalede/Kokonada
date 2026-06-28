@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { Outlet } from 'react-router-dom';
-import { useSelector } from 'react-redux';
-import type { RootState } from '@/store';
+import { useDispatch, useSelector } from 'react-redux';
+import type { AppDispatch, RootState } from '@/store';
 import { useSocket } from '@/hooks/useSocket';
 import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer';
 import { usePendingPromotion } from '@/hooks/usePendingPromotion';
 import { authHeaders } from '@/lib/api';
+import { setMusicProvider, setBiometricProvider } from '@/store/slices/integrationsSlice';
 import EmotionAura from './EmotionAura';
 import BottomNav from './BottomNav';
 import DesktopSidebar from './DesktopSidebar';
@@ -19,9 +20,26 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
  * "play this playlist when it arrives" trigger that used to live on AppPage.
  */
 export default function AppShell() {
+  const dispatch = useDispatch<AppDispatch>();
   const musicProvider = useSelector((s: RootState) => s.integrations.musicProvider);
   const { playlist, playbackMode, deviceId } = useSelector((s: RootState) => s.player);
   const playedPlaylistRef = useRef<string | null>(null);
+
+  // Redux resets on every page refresh — rehydrate integration state so the
+  // Spotify SDK initializes and AppShell's autoplay effect can fire.
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/integrations/status`, {
+      credentials: 'include',
+      headers: authHeaders(),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        dispatch(setMusicProvider(data.musicProvider));
+        dispatch(setBiometricProvider(data.biometricProvider));
+      })
+      .catch(() => {});
+  }, [dispatch]);
 
   useSocket();
   useSpotifyPlayer(musicProvider);
