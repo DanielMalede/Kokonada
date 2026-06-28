@@ -1,0 +1,4 @@
+# Connect IQ build configuration.
+# `source/` and `resources/` are auto-discovered, so the manifest pointer is all
+# that's required for a single-target project.
+project.manifest = manifest.xml

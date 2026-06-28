@@ -1,0 +1,5 @@
+<strings>
+    <string id="AppName">Kokonada HR</string>
+    <string id="SettingBackendUrl">Backend URL</string>
+    <string id="SettingToken">Watch Token (whr_…)</string>
+</strings>

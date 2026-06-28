@@ -1,0 +1,10 @@
+# Connect IQ build artifacts
+bin/
+*.iq
+*.prg
+*.prg.debug.xml
+
+# Developer signing key — never commit
+developer_key
+*.der
+*.pem

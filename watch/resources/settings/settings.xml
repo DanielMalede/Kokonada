@@ -1,0 +1,8 @@
+<settings>
+    <setting propertyKey="@Properties.backendUrl" title="@Strings.SettingBackendUrl">
+        <settingConfig type="alphaNumeric"/>
+    </setting>
+    <setting propertyKey="@Properties.watchToken" title="@Strings.SettingToken">
+        <settingConfig type="alphaNumeric"/>
+    </setting>
+</settings>

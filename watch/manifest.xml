@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!--
+  Kokonada HR — Connect IQ watch-app manifest.
+  Products/permissions are normally edited via the VS Code "Monkey C: Edit
+  Application > Products / Permissions" UI. The minimal set below is enough to
+  build + run in the simulator. Add more products via that UI as needed.
+-->
+<iq:manifest xmlns:iq="http://www.garmin.com/xml/connectiq" version="3">
+    <iq:application entry="KokonadaApp" id="7c9e6a1b3f4d42a8b1e05f2c9d6a4b3e" launcherIcon="@Drawables.LauncherIcon" name="@Strings.AppName" type="watch-app" minApiLevel="3.1.0">
+        <iq:products>
+            <iq:product id="fenix7"/>
+            <iq:product id="fenix847mm"/>
+            <iq:product id="fr255"/>
+            <iq:product id="venu2"/>
+        </iq:products>
+        <iq:permissions>
+            <iq:uses-permission id="Communications"/>
+            <iq:uses-permission id="Sensor"/>
+        </iq:permissions>
+        <iq:languages>
+            <iq:language>eng</iq:language>
+        </iq:languages>
+        <iq:barrels/>
+    </iq:application>
+</iq:manifest>
