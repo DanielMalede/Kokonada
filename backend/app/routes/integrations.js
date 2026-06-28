@@ -5,7 +5,7 @@ const {
   getIntegrationsStatus,
   connectToken,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
-  getSpotifyToken, playSpotifyTracks,
+  getSpotifyToken, playSpotifyTracks, exportSpotifyPlaylist,
   youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect,
   appleHealthPush,
@@ -43,6 +43,7 @@ router.delete('/spotify/disconnect', spotifyDisconnect);
 router.get('/spotify/status',        spotifyStatus);
 router.get('/spotify/token',         getSpotifyToken);
 router.post('/spotify/play',         playSpotifyTracks);
+router.post('/spotify/export',       exportSpotifyPlaylist);
 
 // YouTube Music (callback registered publicly above)
 router.get('/youtube/connect',        youtubeConnect);

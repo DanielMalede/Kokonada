@@ -12,7 +12,8 @@ export default function ContextPrompt() {
   const dispatch = useDispatch<AppDispatch>();
   const textPrompt = useSelector((state: RootState) => state.emotion.textPrompt);
   const taps = useSelector((state: RootState) => state.emotion.taps);
-  const { emitEmotionUpdate } = useSocket();
+  const lastErrorAt = useSelector((state: RootState) => state.player.lastErrorAt);
+  const { requestPlaylist } = useSocket();
   const [status, setStatus] = useState<Status>('idle');
   const [modalOpen, setModalOpen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -22,6 +23,16 @@ export default function ContextPrompt() {
       if (timerRef.current !== null) clearTimeout(timerRef.current);
     };
   }, []);
+
+  // Reset the "request sent" state if generation fails (useSocket toasts the why).
+  const lastErrorRef = useRef(lastErrorAt);
+  useEffect(() => {
+    if (lastErrorAt !== lastErrorRef.current) {
+      lastErrorRef.current = lastErrorAt;
+      setStatus('idle');
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    }
+  }, [lastErrorAt]);
 
   const handleGenerate = () => {
     setModalOpen(true);
@@ -55,7 +66,8 @@ export default function ContextPrompt() {
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onSelect={(mode) => {
-          emitEmotionUpdate(taps, textPrompt, mode);
+          if (status === 'requested') return; // race guard
+          requestPlaylist(taps, textPrompt, mode);
           dispatch(setPlaybackMode(mode));
           setStatus('requested');
           timerRef.current = setTimeout(() => setStatus('idle'), 3000);

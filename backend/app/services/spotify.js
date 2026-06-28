@@ -5,10 +5,10 @@ const { withRetry } = require('../utils/retry');
 const BASE_AUTH = 'https://accounts.spotify.com';
 const BASE_API  = 'https://api.spotify.com/v1';
 
-// Least privilege: only scopes the code actually uses. The playlist-modify-*
-// write scopes were requested but never exercised (no playlist-creation code path)
-// — drop them so a stolen access token can't rewrite the user's playlists. Re-add
-// them here if/when playlist saving is implemented. (audit F12 / least-privilege)
+// Least privilege: only scopes the code actually uses. playlist-modify-public/
+// private are required by the "Save to library" export (createPlaylist +
+// addTracksToPlaylist). NOTE: re-granting a new scope requires each user to
+// reconnect Spotify once — exportSpotifyPlaylist detects the 403 and prompts it.
 const SCOPES = [
   'user-read-private',
   'user-read-email',
@@ -18,6 +18,8 @@ const SCOPES = [
   'user-read-recently-played',
   'user-top-read',
   'streaming',
+  'playlist-modify-public',
+  'playlist-modify-private',
 ].join(' ');
 
 function getAuthHeader() {
@@ -101,6 +103,35 @@ async function getValidToken(user) {
   user.setToken('spotifyToken', refreshed);
   await user.save();
   return refreshed.accessToken;
+}
+
+// Run a Spotify API call with the user's valid token. On a 401 (Spotify rejected
+// the token despite our 5-min refresh buffer — clock skew, mid-flight expiry, or a
+// revoke), force ONE refresh and retry so a save/play never silently fails on a
+// stale token. A 403 means the token lacks a required scope (user authorized before
+// playlist-modify-* was added) — surface a typed error so the caller can prompt a
+// reconnect rather than 500-ing.
+async function withFreshToken(user, fn) {
+  const token = await getValidToken(user);
+  try {
+    return await fn(token);
+  } catch (err) {
+    const status = err.response?.status;
+    if (status === 401) {
+      const stored = user.getToken('spotifyToken');
+      const refreshed = await refreshAccessToken(stored.refreshToken);
+      user.setToken('spotifyToken', refreshed);
+      await user.save();
+      return await fn(refreshed.accessToken);
+    }
+    if (status === 403) {
+      throw Object.assign(
+        new Error('Spotify permission missing — reconnect Spotify to grant playlist access'),
+        { statusCode: 403, code: 'insufficient_scope' },
+      );
+    }
+    throw err;
+  }
 }
 
 // Fetch the user's Spotify profile (used to verify connection)
@@ -257,10 +288,11 @@ async function getRecommendations(accessToken, {
 }
 
 /**
- * Sends a play command to the Spotify Web Playback SDK device.
+ * Sends a play command to a Spotify device.
  * @param {string} accessToken
  * @param {string[]} uris  Spotify track URIs — e.g. ['spotify:track:abc123']
- * @param {string} deviceId  Device ID from the SDK 'ready' event
+ * @param {string} [deviceId]  Device ID from the SDK 'ready' event. Omitted on
+ *   mobile (no Web Playback SDK device) — Spotify then plays on the active device.
  */
 async function playTracks(accessToken, uris, deviceId) {
   await axios.put(
@@ -268,14 +300,63 @@ async function playTracks(accessToken, uris, deviceId) {
     { uris },
     {
       headers: { Authorization: `Bearer ${accessToken}` },
-      params:  { device_id: deviceId },
+      params:  deviceId ? { device_id: deviceId } : {},
       timeout: 8_000,
     }
   );
 }
 
+/**
+ * Returns the id of the user's active (or first available) Spotify device, or
+ * null if none. Used to transfer playback on mobile, where there is no in-app
+ * Web Playback SDK device.
+ */
+async function getActiveDevice(accessToken) {
+  const { data } = await axios.get(`${BASE_API}/me/player/devices`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: 5_000,
+  });
+  const devices = data.devices ?? [];
+  const chosen = devices.find((d) => d.is_active) ?? devices[0] ?? null;
+  return chosen ? chosen.id : null;
+}
+
+/**
+ * Creates a new (private) playlist in the user's account.
+ * @returns {Promise<{ id: string, url: string|null }>}
+ */
+async function createPlaylist(accessToken, spotifyUserId, name, description = '') {
+  const { data } = await axios.post(
+    `${BASE_API}/users/${encodeURIComponent(spotifyUserId)}/playlists`,
+    { name, description, public: false },
+    {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      timeout: 8_000,
+    }
+  );
+  return { id: data.id, url: data.external_urls?.spotify ?? null };
+}
+
+/**
+ * Adds track URIs to a playlist, batching in groups of 100 (Spotify's per-request limit).
+ */
+async function addTracksToPlaylist(accessToken, playlistId, uris) {
+  const BATCH = 100;
+  for (let i = 0; i < uris.length; i += BATCH) {
+    const batch = uris.slice(i, i + BATCH);
+    await axios.post(
+      `${BASE_API}/playlists/${playlistId}/tracks`,
+      { uris: batch },
+      {
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        timeout: 8_000,
+      }
+    );
+  }
+}
+
 module.exports = {
-  getAuthUrl, exchangeCode, getValidToken, getProfile, getTopTrackFeatures,
+  getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
-  playTracks,
+  playTracks, getActiveDevice, createPlaylist, addTracksToPlaylist,
 };

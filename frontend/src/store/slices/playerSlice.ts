@@ -39,6 +39,10 @@ interface PlayerState {
   pendingPlaylist: Track[];
   pendingMode: 'live' | 'export' | null;
   sdkCurrentTrackUri: string | null;
+  // Bumped to Date.now() whenever generation fails or returns an empty/malformed
+  // payload, so views can clear a "generating…" overlay and toast the error
+  // instead of spinning until a timeout.
+  lastErrorAt: number | null;
 }
 
 const initialState: PlayerState = {
@@ -57,6 +61,7 @@ const initialState: PlayerState = {
   pendingPlaylist: [],
   pendingMode: null,
   sdkCurrentTrackUri: null,
+  lastErrorAt: null,
 };
 
 const playerSlice = createSlice({
@@ -108,12 +113,15 @@ const playerSlice = createSlice({
       if (durationMs !== undefined) state.sdkDurationMs = durationMs;
       if (currentTrackUri !== undefined) state.sdkCurrentTrackUri = currentTrackUri;
     },
+    setPlaylistError(state) {
+      state.lastErrorAt = Date.now();
+    },
   },
 });
 
 export const {
   setPlaylist, skipTrack, setPlaying, setIsOnline, setPlaybackMode, setSdkState,
-  setPendingPlaylist, promotePendingPlaylist,
+  setPendingPlaylist, promotePendingPlaylist, setPlaylistError,
 } = playerSlice.actions;
 
 /**
@@ -124,6 +132,12 @@ export const {
 export const receivePlaylist =
   (payload: { tracks: Track[]; trigger: PlayerState['trigger']; mode?: 'live' | 'export' }) =>
   (dispatch: AppDispatch, getState: () => RootState) => {
+    // Defense-in-depth empty-payload guard: never blank the active queue on a
+    // malformed/empty playlist. Flag the error instead so the UI can recover.
+    if (!Array.isArray(payload.tracks) || payload.tracks.length === 0) {
+      dispatch(setPlaylistError());
+      return;
+    }
     const { player } = getState();
     const activelyPlaying = player.playlist.length > 0 && player.sdkIsPaused === false;
     if (payload.trigger === 'biometric' && activelyPlaying) {

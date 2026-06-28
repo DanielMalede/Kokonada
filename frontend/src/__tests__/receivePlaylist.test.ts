@@ -4,6 +4,7 @@ import {
   setPendingPlaylist,
   setPlaylist,
   setPlaybackMode,
+  setPlaylistError,
 } from '../store/slices/playerSlice';
 
 const track = (id: string) => ({ id, title: `T${id}`, artist: `A${id}`, uri: `spotify:track:${id}` });
@@ -48,6 +49,16 @@ describe('receivePlaylist thunk', () => {
       { playlist: [track('1')], sdkIsPaused: false },
     );
     expect(dispatch).toHaveBeenCalledWith(setPlaylist({ tracks: [track('9')], trigger: 'emotion' }));
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: setPendingPlaylist.type }));
+  });
+
+  it('flags an error and leaves the queue untouched on an empty payload', () => {
+    const dispatch = run(
+      { tracks: [], trigger: 'emotion' },
+      { playlist: [track('1')], sdkIsPaused: false },
+    );
+    expect(dispatch).toHaveBeenCalledWith(setPlaylistError());
+    expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: setPlaylist.type }));
     expect(dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: setPendingPlaylist.type }));
   });
 });
