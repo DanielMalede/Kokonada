@@ -3,6 +3,7 @@
 const { normalize }  = require('../services/wearable/adapter');
 const User           = require('../models/User');
 const MusicProfile   = require('../models/MusicProfile');
+const BiometricLog   = require('../models/BiometricLog');
 const PlaylistSession = require('../models/PlaylistSession');
 const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
@@ -21,6 +22,30 @@ const WATCH_HR_DELTA_THRESHOLD = 25;
 // DEBUG_PLAYLIST=1 (always on in `development`; silent in test/production).
 const DEBUG = process.env.DEBUG_PLAYLIST === '1' || process.env.NODE_ENV === 'development';
 function log(...args) { if (DEBUG) console.log(...args); }
+
+// Normalize a track to the frontend contract { id, title, artist, uri } before
+// emitting. Library/"familiar" tracks are stored without a uri or title (only
+// id/artist/audio-features), and Spotify recommendation objects use name/artists
+// rather than title/artist — without this, 70% of every playlist is unplayable
+// and the client (which requires a uri) rejects the whole list. For Spotify the
+// uri is reconstructed from the track id (`spotify:track:<id>`); anything still
+// lacking a uri is dropped as unplayable.
+function toClientTrack(t, provider) {
+  if (!t) return null;
+  const id = t.id ?? null;
+  let uri = t.uri ?? null;
+  if (!uri && id && provider === 'spotify') uri = `spotify:track:${id}`;
+  if (!uri) return null;
+  return {
+    id,
+    uri,
+    title:  t.title ?? t.name ?? 'Unknown title',
+    artist: t.artist ?? t.artists?.[0]?.name ?? 'Unknown artist',
+  };
+}
+function toClientTracks(list, provider) {
+  return (Array.isArray(list) ? list : []).map((t) => toClientTrack(t, provider)).filter(Boolean);
+}
 
 function getState(socketId) {
   if (!debounceMap.has(socketId)) {
@@ -56,6 +81,47 @@ function clearTimer(state) {
     state.pendingHR = null;
     state.pendingActivity = null;
   }
+}
+
+const THIRTY_MIN_MS = 30 * 60 * 1000;
+
+// "Listen to your heart": resolve the heart-rate context to drive a playlist,
+// preferring richer/more-recent data and degrading gracefully:
+//   1. last 30 min of logged readings (Apple Health / Suunto push) — averaged
+//   2. current live HR held in socket state (Garmin watch / streaming)
+//   3. client-reported current HR (frontend hint)
+//   4. resting HR from the health/music profile
+// Returns null only when no heart data of any kind is available.
+async function resolveHeartContext(socket, state, clientHeartRate) {
+  const userId = socket.data.user._id.toString();
+
+  try {
+    const since = new Date(Date.now() - THIRTY_MIN_MS);
+    // No .lean(): heartRate is encrypted and decrypted via a mongoose getter.
+    const logs = await BiometricLog.find({ userId, recordedAt: { $gte: since } })
+      .sort({ recordedAt: -1 })
+      .limit(500);
+    const hrs = logs.map((l) => l.heartRate).filter((n) => Number.isFinite(n));
+    if (hrs.length > 0) {
+      const avg = Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length);
+      return { heartRate: avg, activity: logs[0].activity || state.latestActivity || 'unknown', source: 'last_30min' };
+    }
+  } catch (e) {
+    log(`[heart] BiometricLog query failed: ${e.message}`);
+  }
+
+  if (Number.isFinite(state.stableHR)) {
+    return { heartRate: state.stableHR, activity: state.latestActivity || 'unknown', source: 'current' };
+  }
+  if (Number.isFinite(clientHeartRate)) {
+    return { heartRate: clientHeartRate, activity: state.latestActivity || 'unknown', source: 'client' };
+  }
+
+  const profile = await MusicProfile.findOne({ userId });
+  if (profile && Number.isFinite(profile.restingHeartRate)) {
+    return { heartRate: profile.restingHeartRate, activity: 'resting', source: 'resting' };
+  }
+  return null;
 }
 
 // ── Core pipeline ──────────────────────────────────────────────────────────────
@@ -137,7 +203,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         });
       }
     } catch (err) {
-      const fallbackTracks = generateFallbackPlaylist(musicProfile ?? {});
+      const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}), provider);
       if (fallbackTracks.length > 0) {
         log(`[generate] AI failed → fallback tracks=${fallbackTracks.length} reqId=${reqId}`);
         socket.emit('playlist_ready', {
@@ -162,11 +228,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
     });
 
-    // Empty/malformed-payload guard: never push an empty playlist to the client —
-    // it would blank the queue and spin the generating overlay forever. Surface a
-    // recoverable error the UI can toast instead.
-    if (!playlist || !Array.isArray(playlist.merged) || playlist.merged.length === 0) {
-      log(`[generate] empty merged → playlist_error trigger=${trigger} reqId=${reqId}`);
+    // Normalize to the client contract (and reconstruct/validate uris). Guard on
+    // the PLAYABLE result: never push an empty/unplayable playlist — it would blank
+    // the queue and spin the overlay forever. Surface a recoverable error instead.
+    const clientTracks = toClientTracks(playlist?.merged, provider);
+    if (clientTracks.length === 0) {
+      log(`[generate] no playable tracks → playlist_error trigger=${trigger} reqId=${reqId}`);
       socket.emit('playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
       return;
     }
@@ -176,11 +243,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       mode,
       reqId,
       params:    aiResult.params,
-      tracks:    playlist.merged,
+      tracks:    clientTracks,
       familiar:  playlist.familiar.length,
       discovery: playlist.discovery.length,
     });
-    log(`[generate] done trigger=${trigger} familiar=${playlist.familiar.length} discovery=${playlist.discovery.length} reqId=${reqId}`);
+    log(`[generate] done trigger=${trigger} tracks=${clientTracks.length} familiar=${playlist.familiar.length} discovery=${playlist.discovery.length} reqId=${reqId}`);
 
     PlaylistSession.create({
       userId,
@@ -326,6 +393,25 @@ function registerBiometricHandler(socket) {
     if (reqId !== undefined) state.lastReqId = reqId;
     log(`[request_playlist] reqId=${reqId} mode=${state.lastMode}`);
     generateAndEmitPlaylist(socket, 'emotion', state);
+  });
+
+  // "Listen to your heart" — an explicit, user-initiated biometric playlist.
+  // Uses the 'heart' trigger (not 'biometric') so the client replaces playback
+  // immediately rather than queueing it behind the current track.
+  socket.on('request_heart_playlist', async ({ mode, reqId, heartRate } = {}) => {
+    const state = getState(socketId);
+    if (mode) state.lastMode = mode;
+    if (reqId !== undefined) state.lastReqId = reqId;
+
+    const ctx = await resolveHeartContext(socket, state, heartRate);
+    if (!ctx) {
+      socket.emit('playlist_error', { message: 'No heart-rate data yet — connect your watch or wait for a reading', reqId });
+      return;
+    }
+    state.stableHR       = ctx.heartRate;
+    state.latestActivity = ctx.activity;
+    log(`[heart] generate hr=${ctx.heartRate} activity=${ctx.activity} source=${ctx.source} reqId=${reqId}`);
+    generateAndEmitPlaylist(socket, 'heart', state);
   });
 
   socket.on('track_skipped', () => {

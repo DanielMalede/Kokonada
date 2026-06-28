@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Headphones, Save, ListMusic } from 'lucide-react';
+import { Sparkles, Headphones, Save, ListMusic, HeartPulse } from 'lucide-react';
 import type { RootState, AppDispatch } from '../store';
 import { setTextPrompt } from '../store/slices/emotionSlice';
 import { setPlaybackMode } from '../store/slices/playerSlice';
@@ -42,7 +42,7 @@ export default function AppPage() {
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
   const activity = useSelector((s: RootState) => s.biometrics.activity);
   const lastErrorAt = useSelector((s: RootState) => s.player.lastErrorAt);
-  const { requestPlaylist } = useSocket();
+  const { requestPlaylist, requestHeartPlaylist } = useSocket();
 
   const [modeOpen, setModeOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -80,6 +80,26 @@ export default function AppPage() {
     };
     requestPlaylist(taps, textPrompt, mode);
     dispatch(setPlaybackMode(mode));
+    setGenerating(true);
+    timeoutRef.current = setTimeout(() => setGenerating(false), 9000);
+  };
+
+  // "Listen to your heart" — generate from heart rate alone (no mood required) and
+  // stream it live. Backend uses the last 30 min of health data, else current HR.
+  const listenToYourHeart = () => {
+    if (generating) return;
+    modeRef.current = 'live';
+    lastKeyRef.current = playlist.map((t) => t.uri).join(',');
+    pendingRef.current = {
+      moodKey: null,
+      moodLabel: 'Heartbeat',
+      textPrompt: '',
+      mode: 'live',
+      heartRate,
+      activity,
+    };
+    requestHeartPlaylist('live', heartRate);
+    dispatch(setPlaybackMode('live'));
     setGenerating(true);
     timeoutRef.current = setTimeout(() => setGenerating(false), 9000);
   };
@@ -174,8 +194,20 @@ export default function AppPage() {
           <CardHeader>
             <CardTitle className="text-sm">Your body right now</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col gap-4">
             <HRZoneBar />
+            <Button
+              onClick={listenToYourHeart}
+              disabled={generating}
+              variant="secondary"
+              className="h-11 rounded-full"
+            >
+              <HeartPulse className="size-4" />
+              {generating ? 'Generating…' : 'Listen to your heart'}
+            </Button>
+            <p className="-mt-1 text-center text-xs text-muted-foreground">
+              No mood needed — a playlist tuned to your heart rate.
+            </p>
           </CardContent>
         </Card>
 

@@ -62,6 +62,11 @@ function _analyzeSpotifyTracks(tracks, features) {
     return {
       id:           track.id,
       provider:     'spotify',
+      // name + uri let familiar tracks render a real title and play directly.
+      // Older profiles lack these; the playlist pipeline reconstructs the uri
+      // from the id (`spotify:track:<id>`) so they still play until a rebuild.
+      name:         track.name ?? null,
+      uri:          track.uri  ?? null,
       tempo:        f?.tempo        ?? null,
       energy:       f?.energy       ?? null,
       valence:      f?.valence      ?? null,
