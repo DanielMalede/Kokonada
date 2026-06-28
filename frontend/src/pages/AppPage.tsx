@@ -41,7 +41,8 @@ export default function AppPage() {
   const { playlist, offlineBuffer, currentIndex, isOnline } = useSelector((s: RootState) => s.player);
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
   const activity = useSelector((s: RootState) => s.biometrics.activity);
-  const { emitEmotionUpdate } = useSocket();
+  const lastErrorAt = useSelector((s: RootState) => s.player.lastErrorAt);
+  const { requestPlaylist } = useSocket();
 
   const [modeOpen, setModeOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -65,6 +66,7 @@ export default function AppPage() {
   const upNext = list.slice(currentIndex + 1, currentIndex + 5);
 
   const chooseMode = (mode: Mode) => {
+    if (generating) return; // race guard: ignore a second mode pick mid-generation
     modeRef.current = mode;
     setModeOpen(false);
     lastKeyRef.current = playlist.map((t) => t.uri).join(',');
@@ -76,7 +78,7 @@ export default function AppPage() {
       heartRate,
       activity,
     };
-    emitEmotionUpdate(taps, textPrompt, mode);
+    requestPlaylist(taps, textPrompt, mode);
     dispatch(setPlaybackMode(mode));
     setGenerating(true);
     timeoutRef.current = setTimeout(() => setGenerating(false), 9000);
@@ -103,6 +105,18 @@ export default function AppPage() {
       if (modeRef.current === 'live') navigate('/now-playing');
     }
   }, [playlist, generating, navigate]);
+
+  // Generation failed / returned an empty payload (useSocket already toasted the
+  // reason) — stop the overlay instead of spinning until the 9s timeout.
+  const lastErrorRef = useRef(lastErrorAt);
+  useEffect(() => {
+    if (lastErrorAt !== lastErrorRef.current) {
+      lastErrorRef.current = lastErrorAt;
+      setGenerating(false);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      pendingRef.current = null;
+    }
+  }, [lastErrorAt]);
 
   useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); }, []);
 
@@ -140,12 +154,12 @@ export default function AppPage() {
             </div>
             <Button
               onClick={() => setModeOpen(true)}
-              disabled={!hasMood}
+              disabled={!hasMood || generating}
               className="h-12 rounded-full text-base"
               title={!hasMood ? 'Pick a mood first' : undefined}
             >
               <Sparkles className="size-4" />
-              Generate playlist
+              {generating ? 'Generating…' : 'Generate playlist'}
             </Button>
             {!hasMood && (
               <p className="-mt-2 text-center text-xs text-muted-foreground">

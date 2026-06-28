@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { io, Socket } from 'socket.io-client';
+import { toast } from 'sonner';
 import type { AppDispatch } from '../store';
 import { getToken } from '@/lib/api';
-import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, receivePlaylist } from '../store/slices/playerSlice';
+import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, receivePlaylist, setPlaylistError } from '../store/slices/playerSlice';
 import {
   setBiometricAck,
   setRecalibrationPending,
@@ -27,6 +28,11 @@ let retryCount = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let lastBiometricDispatch = 0;
 const BIOMETRIC_THROTTLE_MS = 300;
+// Monotonic id stamped on each emotion "Generate" request. The backend echoes it
+// in playlist_ready so we can drop results from a superseded request (rapid
+// re-generate / mode toggling). Biometric playlists carry no reqId and are exempt.
+let playlistReqId = 0;
+let latestReqId = 0;
 
 function clearRetryTimer() {
   if (retryTimer !== null) {
@@ -78,15 +84,33 @@ function initSocket(dispatch: AppDispatch): Socket {
   socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
 
-  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop'; mode?: 'live' | 'export' }) => {
+  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop'; mode?: 'live' | 'export'; reqId?: number }) => {
+    // Drop stale emotion results — a newer Generate request supersedes this one.
+    // Biometric/watch playlists carry no reqId and are never dropped here.
+    if (data.trigger === 'emotion' && typeof data.reqId === 'number' && data.reqId < latestReqId) {
+      console.warn(`[socket] dropped stale playlist_ready reqId=${data.reqId} < ${latestReqId}`);
+      return;
+    }
+    // Empty/malformed-payload guard — surface an error rather than blanking the UI.
+    if (!Array.isArray(data.tracks) || data.tracks.length === 0 || !data.tracks.every((t) => t && t.uri)) {
+      console.error('[socket] playlist_ready had no usable tracks', data);
+      toast.error('Could not build a playlist — please try again.');
+      dispatch(setPlaylistError());
+      return;
+    }
+    console.info(`[socket] playlist_ready reqId=${data.reqId} tracks=${data.tracks.length} trigger=${data.trigger} mode=${data.mode}`);
     if (data.trigger === 'biometric') dispatch(markWatchSeen());
     dispatch(receivePlaylist({ tracks: data.tracks, trigger: data.trigger, mode: data.mode }));
   });
 
-  socket.on('playlist_error', (data: { message: string; fallbackTracks?: Track[] }) => {
+  socket.on('playlist_error', (data: { message?: string; fallbackTracks?: Track[] }) => {
     if (data.fallbackTracks && data.fallbackTracks.length > 0) {
       dispatch(setPlaylist({ tracks: data.fallbackTracks, trigger: 'biometric' }));
+      return;
     }
+    console.error('[socket] playlist_error:', data.message);
+    toast.error(data.message || 'Could not build a playlist — please try again.');
+    dispatch(setPlaylistError());
   });
 
   return socket;
@@ -129,6 +153,19 @@ export function useSocket() {
     socketRef.current?.emit('emotion_update', { taps, textPrompt, mode });
   };
 
+  // Trigger a playlist generation. Caches the latest taps/prompt/mode, then asks
+  // the server to generate — the bug was that the UI only ever emitted
+  // emotion_update (which just caches) and never request_playlist, so nothing
+  // generated. Socket.IO preserves per-socket order, so the cache lands first.
+  const requestPlaylist = (taps: EmotionTap[], textPrompt?: string, mode: 'live' | 'export' = 'live'): number => {
+    playlistReqId += 1;
+    latestReqId = playlistReqId;
+    console.info(`[gen] emit reqId=${playlistReqId} mode=${mode}`);
+    socketRef.current?.emit('emotion_update', { taps, textPrompt, mode });
+    socketRef.current?.emit('request_playlist', { mode, reqId: playlistReqId });
+    return playlistReqId;
+  };
+
   const disconnect = () => {
     clearRetryTimer();
     socket?.disconnect();
@@ -139,6 +176,7 @@ export function useSocket() {
     connected: socket?.connected ?? false,
     skipTrack,
     emitEmotionUpdate,
+    requestPlaylist,
     disconnect,
   };
 }

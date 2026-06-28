@@ -9,6 +9,7 @@ export default function PlaylistView() {
   const currentIndex = useSelector((state: RootState) => state.player.currentIndex);
   const isPlaying = useSelector((state: RootState) => state.player.isPlaying);
   const isOnline = useSelector((state: RootState) => state.player.isOnline);
+  const pendingPlaylist = useSelector((state: RootState) => state.player.pendingPlaylist);
   const { skipTrack } = useSocket();
   const player = AudioPlayerService.getInstance();
 
@@ -50,6 +51,11 @@ export default function PlaylistView() {
         <div className="bg-[#e63946] text-white text-center text-xs px-3 py-1.5 rounded mb-3">
           Offline — playing buffered tracks
         </div>
+      )}
+      {pendingPlaylist.length > 0 && (
+        <p className="mb-3 text-xs text-[#e9c46a]">
+          ♥ New heart-rate mix queued — starts after this track
+        </p>
       )}
       <ul className="list-none m-0 p-0 flex flex-col mb-3">
         {displayList.map((track, i) => (

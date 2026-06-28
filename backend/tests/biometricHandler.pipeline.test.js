@@ -381,6 +381,47 @@ describe('error handling', () => {
     }));
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
+
+  it('emits playlist_error (not an empty playlist_ready) when the mixed playlist is empty', async () => {
+    playlistMixer.mixPlaylist.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [] });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }] }));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: expect.any(String) }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+});
+
+// ── mode + reqId threading (Bugs 1-3: export mode survives, stale results dropped) ─
+
+describe('mode + reqId threading', () => {
+  it('echoes the chosen mode and reqId back in playlist_ready', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({
+      lastEmotionTaps: [{ x: 0.5, y: 0.5 }],
+      lastMode:  'export',
+      lastReqId: 7,
+    }));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({
+      mode:  'export',
+      reqId: 7,
+    }));
+  });
+
+  it('in-flight guard prevents a second overlapping generation on the same state', async () => {
+    const socket = makeSocket();
+    const state = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }] });
+
+    // Fire two without awaiting the first — the second must be collapsed.
+    const p1 = generateAndEmitPlaylist(socket, 'emotion', state);
+    const p2 = generateAndEmitPlaylist(socket, 'emotion', state);
+    await Promise.all([p1, p2]);
+
+    const readyCalls = socket.emit.mock.calls.filter(c => c[0] === 'playlist_ready');
+    expect(readyCalls).toHaveLength(1);
+  });
 });
 
 // ── Socket event dispatch wiring ──────────────────────────────────────────────
@@ -524,5 +565,44 @@ describe('handleBiometricReading immediate mode', () => {
     const events = socket.emit.mock.calls.map(c => c[0]);
     expect(events).not.toContain('recalibration_pending');
     expect(_debounceMap.get(socket.id).timer).toBeNull();
+  });
+});
+
+// ── Activity-mode change trigger (Bug 4) ──────────────────────────────────────
+
+describe('activity-mode change triggers regeneration', () => {
+  const { handleBiometricReading } = require('../app/sockets/biometricHandler');
+
+  it('immediate: re-triggers on a new activity even when HR is flat', async () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 100, activityType: 0 }, { immediate: true }); // resting
+    await new Promise(r => setTimeout(r, 50));
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+
+    handleBiometricReading(socket, 'garmin', { heartRate: 100, activityType: 1 }, { immediate: true }); // running, same HR
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
+  });
+
+  it('immediate: does NOT re-trigger when activity is unchanged and HR delta < 25', async () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 100, activityType: 0 }, { immediate: true });
+    await new Promise(r => setTimeout(r, 50));
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+
+    handleBiometricReading(socket, 'garmin', { heartRate: 110, activityType: 0 }, { immediate: true }); // delta 10, same activity
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+  });
+
+  it('streaming: starts recalibration on an activity change with a small HR delta', () => {
+    const socket = makeSocket();
+    handleBiometricReading(socket, 'garmin', { heartRate: 100, activityType: 0 }); // baseline resting
+    handleBiometricReading(socket, 'garmin', { heartRate: 103, activityType: 1 }); // delta 3, resting→running
+
+    const events = socket.emit.mock.calls.map(c => c[0]);
+    expect(events).toContain('recalibration_pending');
   });
 });
