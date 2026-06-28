@@ -14,6 +14,10 @@ jest.mock('../app/models/MusicProfile', () => ({
   findOne: jest.fn(),
 }));
 
+jest.mock('../app/models/BiometricLog', () => ({
+  find: jest.fn(),
+}));
+
 jest.mock('../app/models/PlaylistSession', () => ({
   create: jest.fn().mockResolvedValue({}),
 }));
@@ -53,6 +57,7 @@ jest.mock('../app/services/wearable/adapter', () => ({
 
 const User            = require('../app/models/User');
 const MusicProfile    = require('../app/models/MusicProfile');
+const BiometricLog    = require('../app/models/BiometricLog');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const spotify         = require('../app/services/spotify');
 const youtube         = require('../app/services/youtube');
@@ -164,7 +169,12 @@ beforeEach(() => {
   geminiEngine.adjustBiometricPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   playlistMixer.mixPlaylist.mockResolvedValue(makeMixedPlaylist());
+  BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
 });
+
+function mockBiometricLogs(logs) {
+  BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve(logs) }) });
+}
 
 // ── generateAndEmitPlaylist — biometric trigger ───────────────────────────────
 
@@ -182,14 +192,17 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
     );
   });
 
-  it('emits playlist_ready with merged tracks and trigger=biometric', async () => {
+  it('emits playlist_ready with normalized merged tracks and trigger=biometric', async () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
 
-    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({
-      trigger: 'biometric',
-      tracks:  MERGED_TRACKS,
-    }));
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call[1].trigger).toBe('biometric');
+    expect(call[1].tracks).toHaveLength(MERGED_TRACKS.length);
+    // Library/discovery fixtures carry only id+name; the pipeline reconstructs the
+    // Spotify uri from the id and maps name → title.
+    expect(call[1].tracks[0]).toMatchObject({ id: 'lib-1', uri: 'spotify:track:lib-1', title: 'Familiar 1' });
+    expect(call[1].tracks.every(t => typeof t.uri === 'string')).toBe(true);
   });
 
   it('passes familiar and discovery counts in playlist_ready', async () => {
@@ -241,16 +254,16 @@ describe('generateAndEmitPlaylist — emotion trigger', () => {
     );
   });
 
-  it('emits playlist_ready with trigger=emotion', async () => {
+  it('emits playlist_ready with trigger=emotion and normalized tracks', async () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'emotion', makeState({
       lastEmotionTaps: [{ x: 0.5, y: 0.5 }],
     }));
 
-    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({
-      trigger: 'emotion',
-      tracks:  MERGED_TRACKS,
-    }));
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call[1].trigger).toBe('emotion');
+    expect(call[1].tracks).toHaveLength(MERGED_TRACKS.length);
+    expect(call[1].tracks.every(t => typeof t.uri === 'string')).toBe(true);
   });
 
   it('falls back to adjustBiometricPlaylist when emotion taps are empty', async () => {
@@ -390,6 +403,66 @@ describe('error handling', () => {
 
     expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: expect.any(String) }));
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+});
+
+// ── "Listen to your heart" (request_heart_playlist) ───────────────────────────
+
+describe('request_heart_playlist', () => {
+  async function fireHeart(socket, payload) {
+    registerBiometricHandler(socket);
+    socket._trigger('request_heart_playlist', payload);
+    await new Promise(r => setTimeout(r, 50));
+  }
+
+  it('uses the averaged HR from the last 30 min of logs when available', async () => {
+    mockBiometricLogs([
+      { heartRate: 120, activity: 'running' },
+      { heartRate: 100, activity: 'running' },
+    ]);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 1 });
+
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 110 }) }),
+    );
+  });
+
+  it('falls back to the client-reported current HR when there is no logged data', async () => {
+    mockBiometricLogs([]);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 2, heartRate: 88 });
+
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 88 }) }),
+    );
+  });
+
+  it('falls back to resting HR from the profile when no logs or current HR exist', async () => {
+    mockBiometricLogs([]);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 3 }); // no client HR, fresh state → no stableHR
+
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 60 }) }), // makeMusicProfile.restingHeartRate
+    );
+  });
+
+  it('emits playlist_ready with trigger=heart (immediate, not queued)', async () => {
+    mockBiometricLogs([{ heartRate: 95, activity: 'walking' }]);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 4 });
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({ trigger: 'heart', reqId: 4 }));
+  });
+
+  it('emits playlist_error when there is no heart data of any kind', async () => {
+    mockBiometricLogs([]);
+    MusicProfile.findOne.mockResolvedValue({ ...makeMusicProfile(), restingHeartRate: null });
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 5 });
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: expect.any(String) }));
   });
 });
 

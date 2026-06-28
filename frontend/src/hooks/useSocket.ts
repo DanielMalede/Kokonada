@@ -84,23 +84,25 @@ function initSocket(dispatch: AppDispatch): Socket {
   socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
 
-  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop'; mode?: 'live' | 'export'; reqId?: number }) => {
+  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop' | 'heart'; mode?: 'live' | 'export'; reqId?: number }) => {
     // Drop stale emotion results — a newer Generate request supersedes this one.
     // Biometric/watch playlists carry no reqId and are never dropped here.
     if (data.trigger === 'emotion' && typeof data.reqId === 'number' && data.reqId < latestReqId) {
       console.warn(`[socket] dropped stale playlist_ready reqId=${data.reqId} < ${latestReqId}`);
       return;
     }
-    // Empty/malformed-payload guard — surface an error rather than blanking the UI.
-    if (!Array.isArray(data.tracks) || data.tracks.length === 0 || !data.tracks.every((t) => t && t.uri)) {
+    // Keep only playable tracks (must have a uri). Only error when NONE are usable
+    // — don't reject a whole playlist because some entries are malformed.
+    const usable = Array.isArray(data.tracks) ? data.tracks.filter((t) => t && t.uri) : [];
+    if (usable.length === 0) {
       console.error('[socket] playlist_ready had no usable tracks', data);
       toast.error('Could not build a playlist — please try again.');
       dispatch(setPlaylistError());
       return;
     }
-    console.info(`[socket] playlist_ready reqId=${data.reqId} tracks=${data.tracks.length} trigger=${data.trigger} mode=${data.mode}`);
+    console.info(`[socket] playlist_ready reqId=${data.reqId} tracks=${usable.length} trigger=${data.trigger} mode=${data.mode}`);
     if (data.trigger === 'biometric') dispatch(markWatchSeen());
-    dispatch(receivePlaylist({ tracks: data.tracks, trigger: data.trigger, mode: data.mode }));
+    dispatch(receivePlaylist({ tracks: usable, trigger: data.trigger, mode: data.mode }));
   });
 
   socket.on('playlist_error', (data: { message?: string; fallbackTracks?: Track[] }) => {
@@ -166,6 +168,21 @@ export function useSocket() {
     return playlistReqId;
   };
 
+  // "Listen to your heart" — a playlist from the user's heart rate alone (no mood
+  // needed). The backend derives HR from the last 30 min of health data, falling
+  // back to the current/live HR (passed as a hint), then resting HR.
+  const requestHeartPlaylist = (mode: 'live' | 'export' = 'live', heartRate?: number | null): number => {
+    playlistReqId += 1;
+    latestReqId = playlistReqId;
+    console.info(`[gen] heart emit reqId=${playlistReqId} mode=${mode} hr=${heartRate ?? 'n/a'}`);
+    socketRef.current?.emit('request_heart_playlist', {
+      mode,
+      reqId: playlistReqId,
+      heartRate: heartRate ?? undefined,
+    });
+    return playlistReqId;
+  };
+
   const disconnect = () => {
     clearRetryTimer();
     socket?.disconnect();
@@ -177,6 +194,7 @@ export function useSocket() {
     skipTrack,
     emitEmotionUpdate,
     requestPlaylist,
+    requestHeartPlaylist,
     disconnect,
   };
 }

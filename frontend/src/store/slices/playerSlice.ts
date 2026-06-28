@@ -24,7 +24,7 @@ interface PlayerState {
   currentIndex: number;
   isPlaying: boolean;
   isOnline: boolean;
-  trigger: 'emotion' | 'biometric' | 'skip_loop' | null;
+  trigger: 'emotion' | 'biometric' | 'skip_loop' | 'heart' | null;
   playbackMode: 'live' | 'export' | null;
   // Spotify Web Playback SDK state
   sdkReady: boolean;
