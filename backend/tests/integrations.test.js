@@ -11,8 +11,10 @@ process.env.YOUTUBE_CLIENT_SECRET = 'yt_client_secret';
 process.env.YOUTUBE_REDIRECT_URI  = 'http://localhost:5000/api/integrations/youtube/callback';
 process.env.GARMIN_CONSUMER_KEY   = 'garmin_key';
 process.env.GARMIN_CONSUMER_SECRET = 'garmin_secret';
+process.env.GARMIN_REDIRECT_URI   = 'http://localhost:5000/api/integrations/garmin/callback';
 process.env.SUUNTO_WEBHOOK_SECRET = 'suunto_secret';
 process.env.MOBILE_DEEP_LINK      = 'kokonada://';
+process.env.GARMIN_WEBHOOK_SECRET = 'garmin_webhook_secret';
 
 // ── Service mocks (factory form — never loads the real modules, avoids mongoose) ─
 jest.mock('../app/services/musicProfileService', () => ({
@@ -43,11 +45,15 @@ jest.mock('../app/services/youtube', () => ({
   searchRecommendations:   jest.fn(),
 }));
 jest.mock('../app/services/wearable/garmin', () => ({
-  getRequestToken:   jest.fn(),
-  getAuthUrl:        jest.fn(),
-  getAccessToken:    jest.fn(),
-  getUserProfile:    jest.fn(),
-  getDailyHeartRate: jest.fn(),
+  isConfigured:            jest.fn().mockReturnValue(true),
+  generatePKCE:            jest.fn().mockReturnValue({ codeVerifier: 'test-cv', codeChallenge: 'test-cc' }),
+  getAuthUrl:              jest.fn(),
+  exchangeCode:            jest.fn(),
+  getUserId:               jest.fn(),
+  requestSixMonthBackfill: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../app/services/wearable/garminIngest', () => ({
+  ingestSummaries: jest.fn(),
 }));
 jest.mock('../app/services/wearable/appleHealth', () => ({
   ingestBatch: jest.fn(),
@@ -68,12 +74,14 @@ jest.mock('../app/models/BiometricLog', () => ({}));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
+  findOne:           jest.fn(),
 }));
 
 const spotify     = require('../app/services/spotify');
 const youtube     = require('../app/services/youtube');
 const garmin      = require('../app/services/wearable/garmin');
 const healthStore = require('../app/services/wearable/healthStore');
+const garminIngest = require('../app/services/wearable/garminIngest');
 const User        = require('../app/models/User');
 const { signOauthState } = require('../app/utils/jwt');
 
@@ -292,119 +300,63 @@ describe('YouTube OAuth flow', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // GARMIN (OAuth 1.0a)
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('Garmin OAuth 1.0a flow', () => {
-  beforeEach(() => jest.clearAllMocks());
+describe('Garmin OAuth 2.0 + PKCE flow', () => {
+  beforeEach(() => { jest.clearAllMocks(); garmin.isConfigured.mockReturnValue(true); });
 
-  describe('garminConnect', () => {
-    it('stores { token, secret, uid } JSON in cookie and redirects', async () => {
-      garmin.getRequestToken.mockResolvedValue({
-        oauthToken:       'req_token_abc',
-        oauthTokenSecret: 'req_secret_xyz',
-      });
-      garmin.getAuthUrl.mockReturnValue('https://connect.garmin.com/oauthConfirm?oauth_token=req_token_abc');
+  it('garminConnect redirects with a signed PKCE state and sets no cookie', () => {
+    garmin.getAuthUrl.mockReturnValue('https://connect.garmin.com/oauth2Confirm?...');
+    const res = buildRes();
+    ctrl.garminConnect({ user: buildUser() }, res);
 
-      const res = buildRes();
-      await ctrl.garminConnect({ user: buildUser() }, res, jest.fn());
-
-      expect(res.cookie).toHaveBeenCalledWith(
-        'garmin_request',
-        JSON.stringify({ token: 'req_token_abc', secret: 'req_secret_xyz', uid: 'user-123' }),
-        expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
-      );
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('connect.garmin.com'));
-    });
+    expect(garmin.generatePKCE).toHaveBeenCalled();
+    expect(garmin.getAuthUrl).toHaveBeenCalledWith(expect.any(String), 'test-cc'); // (state, codeChallenge)
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('connect.garmin.com'));
   });
 
-  describe('garminCallback — security guards', () => {
-    it('redirects with error=garmin_expired when garmin_request cookie is missing', async () => {
-      const req = { query: { oauth_token: 't', oauth_verifier: 'v' }, cookies: {} };
-      const res = buildRes();
-      await ctrl.garminCallback(req, res);
+  it('garminConnect redirects with error=garmin_unconfigured when creds are missing', () => {
+    garmin.isConfigured.mockReturnValue(false);
+    const res = buildRes();
+    ctrl.garminConnect({ user: buildUser() }, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_expired'));
-      expect(res.json).not.toHaveBeenCalled();
-    });
-
-    it('redirects with error=garmin_mismatch on token fixation (returned token ≠ stored)', async () => {
-      const stored = JSON.stringify({ token: 'original_token', secret: 'secret', uid: 'user-123' });
-      const req = {
-        query:   { oauth_token: 'attacker_token', oauth_verifier: 'v' },
-        cookies: { garmin_request: stored },
-      };
-      const res = buildRes();
-      await ctrl.garminCallback(req, res);
-
-      expect(garmin.getAccessToken).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_mismatch'));
-    });
-
-    it('redirects with error=garmin_denied when oauth_verifier is missing (user denied)', async () => {
-      const stored = JSON.stringify({ token: 'tok', secret: 'sec', uid: 'user-123' });
-      const req = {
-        query:   { oauth_token: 'tok' /* no oauth_verifier */ },
-        cookies: { garmin_request: stored },
-      };
-      const res = buildRes();
-      await ctrl.garminCallback(req, res);
-
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_denied'));
-    });
-
-    it('redirects with error=garmin_expired on malformed cookie JSON', async () => {
-      const req = {
-        query:   { oauth_token: 'tok', oauth_verifier: 'ver' },
-        cookies: { garmin_request: 'not-json' },
-      };
-      const res = buildRes();
-      await ctrl.garminCallback(req, res);
-
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_expired'));
-    });
+    expect(garmin.getAuthUrl).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_unconfigured'));
   });
 
-  describe('garminCallback — success path', () => {
-    it('exchanges verifier, verifies profile, encrypts credential pair, redirects', async () => {
-      const stored = JSON.stringify({ token: 'req_tok', secret: 'req_sec', uid: 'user-123' });
-      garmin.getAccessToken.mockResolvedValue({
-        accessToken: 'acc_tok', accessTokenSecret: 'acc_sec',
-      });
-      garmin.getUserProfile.mockResolvedValue({ garminUserId: 'garmin-u1' });
+  it('garminCallback redirects with error=garmin_state on a tampered state', async () => {
+    const res = buildRes();
+    await ctrl.garminCallback({ query: { code: 'c', state: 'bad' }, cookies: {} }, res);
 
-      const user = buildUser();
-      User.findById.mockResolvedValue(user);
-      const req  = {
-        query:   { oauth_token: 'req_tok', oauth_verifier: 'verifier123' },
-        cookies: { garmin_request: stored },
-      };
-      const res  = buildRes();
+    expect(garmin.exchangeCode).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_state'));
+  });
 
-      await ctrl.garminCallback(req, res);
+  it('garminCallback exchanges the code, stores OAuth2 tokens + garminUserId, and redirects', async () => {
+    const tokens = { accessToken: 'gat', refreshToken: 'grt', expiresAt: Date.now() + 3600000 };
+    garmin.exchangeCode.mockResolvedValue(tokens);
+    garmin.getUserId.mockResolvedValue({ garminUserId: 'garmin-99' });
 
-      expect(garmin.getAccessToken).toHaveBeenCalledWith('req_tok', 'req_sec', 'verifier123');
-      expect(garmin.getUserProfile).toHaveBeenCalledWith('acc_tok', 'acc_sec');
-      expect(user.setToken).toHaveBeenCalledWith('wearableToken', {
-        accessToken: 'acc_tok',
-        accessTokenSecret: 'acc_sec',
-        garminUserId: 'garmin-u1',
-      });
-      expect(user.save).toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?biometric=garmin'));
-    });
+    const user = buildUser();
+    User.findById.mockResolvedValue(user);
+    const req = { query: { code: 'auth-code', state: signOauthState('user-123', 'garmin', { cv: 'verifier' }) }, cookies: {} };
 
-    it('clears the request cookie immediately (one-time use)', async () => {
-      const stored = JSON.stringify({ token: 'req_tok', secret: 'req_sec', uid: 'user-123' });
-      garmin.getAccessToken.mockResolvedValue({ accessToken: 'at', accessTokenSecret: 'as' });
-      garmin.getUserProfile.mockResolvedValue({ garminUserId: 'gid' });
-      User.findById.mockResolvedValue(buildUser());
+    await ctrl.garminCallback(req, buildRes());
 
-      const res = buildRes();
-      await ctrl.garminCallback(
-        { query: { oauth_token: 'req_tok', oauth_verifier: 'v' }, cookies: { garmin_request: stored } },
-        res,
-      );
+    expect(garmin.exchangeCode).toHaveBeenCalledWith('auth-code', 'verifier');
+    expect(garmin.getUserId).toHaveBeenCalledWith('gat');
+    expect(user.garminUserId).toBe('garmin-99'); // plaintext for webhook routing
+    expect(user.setToken).toHaveBeenCalledWith('wearableToken',
+      expect.objectContaining({ accessToken: 'gat', refreshToken: 'grt', garminUserId: 'garmin-99' }));
+    expect(user.save).toHaveBeenCalled();
+  });
 
-      expect(res.clearCookie).toHaveBeenCalledWith('garmin_request', expect.objectContaining({ sameSite: 'lax' }));
-    });
+  it('garminCallback redirects with error=garmin_failed on token-exchange failure', async () => {
+    garmin.exchangeCode.mockRejectedValue(new Error('Garmin token endpoint down'));
+    User.findById.mockResolvedValue(buildUser());
+    const res = buildRes();
+    await ctrl.garminCallback({ query: { code: 'c', state: signOauthState('user-123', 'garmin', { cv: 'v' }) }, cookies: {} }, res);
+
+    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_failed'));
   });
 
   describe('garminDisconnect', () => {
@@ -562,6 +514,48 @@ describe('wearableStatus', () => {
     const res = buildRes();
     ctrl.wearableStatus(req, res);
     expect(res.json).toHaveBeenCalledWith({ provider: null, connected: false });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GARMIN HEALTH API WEBHOOK (server-to-server push)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('garminWebhook', () => {
+  const secret = 'garmin_webhook_secret';
+  beforeEach(() => jest.clearAllMocks());
+
+  it('rejects a wrong/missing secret with 401 and never ingests', async () => {
+    const res = buildRes();
+    await ctrl.garminWebhook({ query: { secret: 'nope' }, body: {} }, res, jest.fn());
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(garminIngest.ingestSummaries).not.toHaveBeenCalled();
+  });
+
+  it('groups summaries per Garmin user and ingests for a known user', async () => {
+    User.findOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'user-1' }) });
+    garminIngest.ingestSummaries.mockResolvedValue({ accepted: 2, inserted: 1, profileMetrics: {} });
+
+    const body = {
+      sleeps:  [{ userId: 'g1', startTimeInSeconds: 1, deepSleepDurationInSeconds: 3600 }],
+      dailies: [{ userId: 'g1', startTimeInSeconds: 1, restingHeartRateInBeatsPerMinute: 52 }],
+    };
+    const res = buildRes();
+    await ctrl.garminWebhook({ query: { secret }, body }, res, jest.fn());
+
+    expect(User.findOne).toHaveBeenCalledWith({ garminUserId: 'g1', deletedAt: null });
+    const [uid, items] = garminIngest.ingestSummaries.mock.calls[0];
+    expect(uid).toBe('user-1');
+    expect(items).toHaveLength(2); // sleeps + dailies grouped for g1
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ received: true, users: 1 });
+  });
+
+  it('skips summaries whose Garmin userId maps to no user', async () => {
+    User.findOne.mockReturnValue({ select: () => Promise.resolve(null) });
+    const res = buildRes();
+    await ctrl.garminWebhook({ query: { secret }, body: { sleeps: [{ userId: 'ghost', startTimeInSeconds: 1 }] } }, res, jest.fn());
+    expect(garminIngest.ingestSummaries).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({ received: true, users: 0 });
   });
 });
 

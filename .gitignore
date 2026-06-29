@@ -26,3 +26,6 @@ Thumbs.db
 # Docker volumes
 mongo-data/
 redis-data/
+
+# Generated RN companion app (regenerable; has its own git repo)
+KokonadaHealth/

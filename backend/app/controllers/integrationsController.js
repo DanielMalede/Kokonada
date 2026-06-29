@@ -6,6 +6,7 @@ const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
 const appleHealth = require('../services/wearable/appleHealth');
 const healthStore = require('../services/wearable/healthStore');
+const garminIngest = require('../services/wearable/garminIngest');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const { buildProfile } = require('../services/musicProfileService');
@@ -371,101 +372,52 @@ exports.youtubeStatus = (req, res) => {
   res.json({ connected });
 };
 
-// ── Garmin (OAuth 1.0a) ───────────────────────────────────────────────────────
+// ── Garmin (OAuth 2.0 + PKCE) ─────────────────────────────────────────────────
 
-// ── Garmin OAuth 1.0a cookie options ─────────────────────────────────────────
-// sameSite must be 'lax' (not 'strict') — OAuth redirect flows require the
-// browser to send the cookie when Garmin redirects back to our callback URL.
-// 'strict' silently drops the cookie on cross-site redirects, breaking the flow.
-const GARMIN_COOKIE_OPTS = {
-  httpOnly: true,
-  secure:   process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
-  maxAge:   10 * 60 * 1000, // 10 minutes — matches Garmin's request token TTL
+// GET /api/integrations/garmin/connect  (auth required)
+// PKCE: generate verifier+challenge, carry the verifier inside the signed `state`
+// so the PUBLIC callback recovers it with no server-side session (same pattern as
+// YouTube). OAuth 1.0a (request-token cookie/Redis dance) was retired by Garmin.
+exports.garminConnect = (req, res) => {
+  if (!garmin.isConfigured()) {
+    console.error('[garmin] connect blocked: set GARMIN_CONSUMER_KEY/SECRET and GARMIN_REDIRECT_URI');
+    return fail(res, 'garmin_unconfigured');
+  }
+  const { codeVerifier, codeChallenge } = garmin.generatePKCE();
+  const state = signOauthState(req.user._id.toString(), 'garmin', { cv: codeVerifier });
+  res.redirect(garmin.getAuthUrl(state, codeChallenge));
 };
 
-const GARMIN_REQUEST_TTL = 600; // seconds — matches Garmin's request token TTL
-
-// Step 1: Fetch a request token from Garmin, store {token, secret, uid} so the
-//         PUBLIC callback can validate token identity AND recover the user.
-//         OAuth 1.0a has no `state` param, so the request-token secret cannot go
-//         in the URL — it lives in a first-party cookie, mirrored to Redis (when
-//         available) keyed by oauth_token as a cookie-drop fallback.
-exports.garminConnect = async (req, res, next) => {
-  try {
-    const { oauthToken, oauthTokenSecret } = await garmin.getRequestToken();
-
-    const payload = JSON.stringify({
-      token:  oauthToken,
-      secret: oauthTokenSecret,
-      uid:    req.user._id.toString(),
-    });
-
-    res.cookie('garmin_request', payload, GARMIN_COOKIE_OPTS);
-
-    const redis = getRedis();
-    if (redis) {
-      try { await redis.set(`garmin:req:${oauthToken}`, payload, 'EX', GARMIN_REQUEST_TTL); } catch { /* best-effort */ }
-    }
-
-    res.redirect(garmin.getAuthUrl(oauthToken));
-  } catch (err) { next(err); }
-};
-
-// Step 2 (PUBLIC — no auth middleware): Garmin redirects here with oauth_token +
-//         oauth_verifier. Recover {token, secret, uid} from the cookie (or Redis
-//         fallback), validate token identity, exchange for the permanent access
-//         token, verify it works, then encrypt and store against the recovered user.
+// GET /api/integrations/garmin/callback  (PUBLIC — no auth middleware)
+// Garmin redirects here with ?code&state. Recover the user + PKCE verifier from the
+// signed state, exchange the code for tokens, verify, store, then kick off backfill.
 exports.garminCallback = async (req, res) => {
   try {
-    const { oauth_token: returnedToken, oauth_verifier } = req.query;
+    const { code, state, error } = req.query;
+    if (error) return fail(res, `garmin_${error}`);
 
-    // Read and immediately clear the request cookie (one-time use)
-    const raw = req.cookies.garmin_request;
-    res.clearCookie('garmin_request', GARMIN_COOKIE_OPTS);
+    const recovered = await userFromOauthState(state, 'garmin');
+    if (!recovered) return fail(res, 'garmin_state');
+    const { user, payload } = recovered;
 
-    let stored = null;
-    if (raw) { try { stored = JSON.parse(raw); } catch { stored = null; } }
+    const tokens = await garmin.exchangeCode(code, payload.cv);
+    const { garminUserId } = await garmin.getUserId(tokens.accessToken); // verify token works
 
-    // Cookie-drop fallback: recover from Redis by the returned oauth_token
-    if (!stored && returnedToken) {
-      const redis = getRedis();
-      if (redis) {
-        try {
-          const r = await redis.get(`garmin:req:${returnedToken}`);
-          if (r) stored = JSON.parse(r);
-        } catch { /* fall through */ }
-      }
-    }
-
-    if (!stored) return fail(res, 'garmin_expired');
-
-    // Token fixation guard: the returned oauth_token must exactly match Step 1's
-    if (!returnedToken || returnedToken !== stored.token) return fail(res, 'garmin_mismatch');
-    if (!oauth_verifier) return fail(res, 'garmin_denied');
-
-    // Exchange verifier for permanent access token
-    const { accessToken, accessTokenSecret } = await garmin.getAccessToken(
-      stored.token,
-      stored.secret,
-      oauth_verifier
-    );
-
-    // Verify the access token actually works before persisting anything
-    const { garminUserId } = await garmin.getUserProfile(accessToken, accessTokenSecret);
-
-    const user = await User.findById(stored.uid);
-    if (!user || user.deletedAt) return fail(res, 'session');
-
-    // Encrypt both parts of the OAuth 1.0a credential pair (AES-256-GCM)
+    // Store the OAuth2 token set (access + refresh + expiry). garminUserId is also
+    // kept in plaintext so the server-to-server webhook can route pushes.
     user.wearableProvider = 'garmin';
-    user.setToken('wearableToken', { accessToken, accessTokenSecret, garminUserId });
+    user.garminUserId = garminUserId;
+    user.setToken('wearableToken', { ...tokens, garminUserId });
     await user.save();
+    await burnState(payload); // single-use
 
-    const redis = getRedis();
-    if (redis) { try { await redis.del(`garmin:req:${returnedToken}`); } catch { /* best-effort */ } }
+    // Kick off the ~6-month historical backfill (async, best-effort) — Garmin then
+    // pushes the historical summaries to our webhook. (garmin.requestSixMonthBackfill)
+    setImmediate(async () => {
+      try { await garmin.requestSixMonthBackfill(tokens.accessToken); }
+      catch (e) { console.error('[garmin] backfill kickoff failed:', e.message); }
+    });
 
-    // Redirect to frontend integrations page so the web app can hydrate state
     frontendRedirect(res, 'biometric=garmin');
   } catch (err) {
     console.error('[Garmin Callback Catch]', {
@@ -482,8 +434,43 @@ exports.garminDisconnect = async (req, res, next) => {
   try {
     req.user.wearableProvider = null;
     req.user.wearableToken    = null;
+    req.user.garminUserId     = null;
     await req.user.save();
     res.json({ message: 'Garmin disconnected' });
+  } catch (err) { next(err); }
+};
+
+// POST /api/integrations/garmin/webhook  (PUBLIC — Garmin Health API server-to-server push)
+// Garmin posts { <summaryType>: [ { userId, ...summary }, ... ], ... }. There is no
+// per-request auth header from Garmin, so the route is guarded by an unguessable
+// secret (GARMIN_WEBHOOK_SECRET) and we only ingest summaries whose Garmin userId
+// maps to a known user. Summaries are grouped per user, then handed to garminIngest.
+exports.garminWebhook = async (req, res, next) => {
+  try {
+    if (process.env.GARMIN_WEBHOOK_SECRET && req.query.secret !== process.env.GARMIN_WEBHOOK_SECRET) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+
+    const byGarminUser = new Map(); // garminUserId -> [{ type, summary }]
+    for (const [type, list] of Object.entries(req.body || {})) {
+      if (!Array.isArray(list)) continue;
+      for (const summary of list) {
+        const gid = summary?.userId;
+        if (!gid) continue;
+        if (!byGarminUser.has(gid)) byGarminUser.set(gid, []);
+        byGarminUser.get(gid).push({ type, summary });
+      }
+    }
+
+    let users = 0;
+    for (const [gid, items] of byGarminUser) {
+      const user = await User.findOne({ garminUserId: gid, deletedAt: null }).select('_id');
+      if (!user) continue;
+      await garminIngest.ingestSummaries(user._id, items);
+      users += 1;
+    }
+
+    res.status(200).json({ received: true, users });
   } catch (err) { next(err); }
 };
 

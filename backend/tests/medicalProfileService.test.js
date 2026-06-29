@@ -318,6 +318,11 @@ describe('aggregateProfileMetrics', () => {
     expect(out).toEqual({ restingHeartRate: 55, spO2: 97, respirationRate: 14 });
   });
 
+  it('aggregates bodyBattery median (Garmin proprietary metric)', () => {
+    const out = aggregateProfileMetrics([m('bodyBattery', 70), m('bodyBattery', 80), m('bodyBattery', 60)]);
+    expect(out).toEqual({ bodyBattery: 70 });
+  });
+
   it('aggregates sleep stage medians (deep/light/rem)', () => {
     const out = aggregateProfileMetrics([
       m('sleepDeep', 60), m('sleepDeep', 80),

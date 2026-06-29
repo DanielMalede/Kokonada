@@ -162,4 +162,74 @@ function normalizeHealthStoreSamples(platform, samples) {
   return out;
 }
 
-module.exports = { normalize, normalizeHealthStoreSamples };
+// ── Garmin Health API summary normalizer (server-to-server push/backfill) ───────
+//
+// Garmin's cloud pushes (and backfills) health summaries to our webhook. Each
+// summary type carries a different shape; this maps them to the SAME canonical
+// metric records the rest of the pipeline consumes (aggregateProfileMetrics +
+// BiometricLog), so storage/aggregation/dedupe are reused unchanged.
+//
+// Field names follow Garmin's documented Health API schema (developer-portal docs
+// are gated). Tolerant of the known rem-sleep variant. VERIFY against the approved
+// app's sandbox payloads before go-live.
+
+const SECONDS = (s) => new Date(s * 1000);
+const isPos = (v) => Number.isFinite(v) && v > 0;
+
+// Emit one canonical record per entry of a Garmin {offsetSeconds: value} map.
+function fromOffsetMap(map, startSec, metric, unit, out) {
+  for (const [offset, raw] of Object.entries(map || {})) {
+    const value = Number(raw);
+    if (!isPos(value)) continue;
+    out.push({ metric, value, unit, recordedAt: SECONDS(startSec + Number(offset)), source: 'garmin' });
+  }
+}
+
+/**
+ * Normalize one Garmin Health API summary into canonical metric records.
+ * @param {'sleeps'|'dailies'|'hrv'|'stressDetails'|'respiration'|'pulseox'} type
+ * @param {object} s  the summary object
+ * @returns {Array<{metric,value,unit,recordedAt,source}>}  (empty for unknown types)
+ */
+function normalizeGarminSummaries(type, s) {
+  if (!s || !Number.isFinite(s.startTimeInSeconds)) return [];
+  const start = s.startTimeInSeconds;
+  const at = SECONDS(start);
+  const out = [];
+
+  switch (type) {
+    case 'sleeps': {
+      const push = (metric, secs) => { const m = Math.round(Number(secs) / 60); if (isPos(m)) out.push({ metric, value: m, unit: 'min', recordedAt: at, source: 'garmin' }); };
+      push('sleepDeep', s.deepSleepDurationInSeconds);
+      push('sleepLight', s.lightSleepDurationInSeconds);
+      push('sleepRem', s.remSleepInSeconds ?? s.remSleepDurationInSeconds);
+      break;
+    }
+    case 'dailies': {
+      if (isPos(Number(s.restingHeartRateInBeatsPerMinute))) {
+        out.push({ metric: 'restingHeartRate', value: Number(s.restingHeartRateInBeatsPerMinute), unit: 'bpm', recordedAt: at, source: 'garmin' });
+      }
+      fromOffsetMap(s.timeOffsetHeartRateSamples, start, 'heartRate', 'bpm', out);
+      break;
+    }
+    case 'hrv': {
+      const v = Number(s.lastNightAvg);
+      if (isPos(v)) out.push({ metric: 'hrv', value: v, unit: 'ms', recordedAt: at, source: 'garmin' });
+      break;
+    }
+    case 'respiration':
+      fromOffsetMap(s.timeOffsetEpochToBreaths, start, 'respirationRate', 'brpm', out);
+      break;
+    case 'pulseox':
+      fromOffsetMap(s.timeOffsetSpo2Values, start, 'spO2', '%', out);
+      break;
+    case 'stressDetails':
+      fromOffsetMap(s.timeOffsetBodyBatteryValues, start, 'bodyBattery', 'score', out);
+      break;
+    default:
+      return []; // unhandled type — skip (Garmin pushes many types)
+  }
+  return out;
+}
+
+module.exports = { normalize, normalizeHealthStoreSamples, normalizeGarminSummaries };

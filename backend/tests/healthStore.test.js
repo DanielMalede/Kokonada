@@ -5,7 +5,7 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 // Mock the mongoose models (Node 21 / mongoose 9 incompatibility — same pattern as
 // the other backend suites). The adapter + aggregation it uses are real (pure).
-jest.mock('../app/models/BiometricLog', () => ({ insertMany: jest.fn().mockResolvedValue([]) }));
+jest.mock('../app/models/BiometricLog', () => ({ insertMany: jest.fn().mockResolvedValue([]), find: jest.fn() }));
 jest.mock('../app/models/MedicalProfile', () => ({ findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
 
 const BiometricLog   = require('../app/models/BiometricLog');
@@ -15,8 +15,14 @@ const { ingestBatch } = require('../app/services/wearable/healthStore');
 
 const ts = '2026-01-15T03:30:00Z';
 
+// Mock the dedupe lookup `BiometricLog.find(...).select(...).lean()` to return the
+// given already-stored rows (default: none).
+function mockExisting(rows = []) {
+  BiometricLog.find.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(rows) }) });
+}
+
 describe('healthStore.ingestBatch', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); mockExisting([]); });
 
   it('writes heart-rate samples to BiometricLog tagged with the platform source', async () => {
     await ingestBatch('user-1', 'healthkit', [
@@ -68,6 +74,33 @@ describe('healthStore.ingestBatch', () => {
     expect(update.$set.sleepDeep).toBeUndefined();
   });
 
+  it('skips heart-rate samples already stored at the same timestamp (idempotent re-sync)', async () => {
+    mockExisting([{ source: 'apple_health', recordedAt: new Date(ts) }]); // ts already stored
+    await ingestBatch('user-1', 'healthkit', [
+      { type: 'heart_rate', value: 72, startDate: ts },                       // dup → skip
+      { type: 'heart_rate', value: 70, startDate: '2026-01-15T03:31:00Z' },   // new → insert
+    ]);
+    const [docs] = BiometricLog.insertMany.mock.calls[0];
+    expect(docs).toHaveLength(1);
+    expect(docs[0].recordedAt).toEqual(new Date('2026-01-15T03:31:00Z'));
+  });
+
+  it('reports inserted=0 when every heart-rate sample already exists, without calling insertMany', async () => {
+    mockExisting([{ source: 'apple_health', recordedAt: new Date(ts) }]);
+    const result = await ingestBatch('user-1', 'healthkit', [{ type: 'heart_rate', value: 72, startDate: ts }]);
+    expect(BiometricLog.insertMany).not.toHaveBeenCalled();
+    expect(result.inserted).toBe(0);
+  });
+
+  it('de-duplicates repeated timestamps within a single batch', async () => {
+    await ingestBatch('user-1', 'healthkit', [
+      { type: 'heart_rate', value: 72, startDate: ts },
+      { type: 'heart_rate', value: 99, startDate: ts }, // same instant → one row only
+    ]);
+    const [docs] = BiometricLog.insertMany.mock.calls[0];
+    expect(docs).toHaveLength(1);
+  });
+
   it('does not touch MedicalProfile when the batch has only heart-rate samples', async () => {
     await ingestBatch('user-1', 'healthkit', [{ type: 'heart_rate', value: 70, startDate: ts }]);
     expect(MedicalProfile.findOneAndUpdate).not.toHaveBeenCalled();
@@ -91,6 +124,7 @@ describe('healthStore.ingestBatch', () => {
       { type: 'resting_heart_rate', value: 55, startDate: ts },
     ]);
     expect(result.accepted).toBe(2);
+    expect(result.inserted).toBe(1); // 1 new heart-rate row
     expect(result.profileMetrics).toEqual({ restingHeartRate: 55 });
   });
 });
