@@ -100,3 +100,44 @@ describe('createPlaylist + addTracksToPlaylist', () => {
     expect(axios.post).toHaveBeenCalledTimes(3); // 100 + 100 + 50
   });
 });
+
+describe('getRecommendations', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  const PARAMS = {
+    seed_genres: ['pop'], target_bpm: 120, target_energy: 0.5,
+    target_valence: 0.5, target_acousticness: 0.2, limit: 2,
+  };
+
+  it('returns recommendation tracks when the endpoint works', async () => {
+    axios.get.mockResolvedValue({ data: { tracks: [{ id: 'r1' }, { id: 'r2' }] } });
+    const out = await spotify.getRecommendations('tok', PARAMS);
+    expect(out).toEqual([{ id: 'r1' }, { id: 'r2' }]);
+  });
+
+  it('returns [] when there are no seed genres (no call made)', async () => {
+    expect(await spotify.getRecommendations('tok', { seed_genres: [] })).toEqual([]);
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  it('falls back to genre search when /recommendations is deprecated (404)', async () => {
+    axios.get
+      .mockRejectedValueOnce(Object.assign(new Error('not found'), { response: { status: 404 } })) // recommendations
+      .mockResolvedValueOnce({ data: { tracks: { items: [{ id: 's1' }, { id: 's2' }] } } });        // search
+    const out = await spotify.getRecommendations('tok', PARAMS);
+    expect(out.map(t => t.id)).toEqual(['s1', 's2']);
+  });
+
+  it('also falls back on a 403 (no recommendations access)', async () => {
+    axios.get
+      .mockRejectedValueOnce(Object.assign(new Error('forbidden'), { response: { status: 403 } }))
+      .mockResolvedValueOnce({ data: { tracks: { items: [{ id: 's9' }] } } });
+    const out = await spotify.getRecommendations('tok', PARAMS);
+    expect(out.map(t => t.id)).toEqual(['s9']);
+  });
+
+  it('rethrows non-404/403 errors', async () => {
+    axios.get.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 500 } }));
+    await expect(spotify.getRecommendations('tok', PARAMS)).rejects.toThrow('boom');
+  });
+});

@@ -293,21 +293,70 @@ async function getRecommendations(accessToken, {
   const validGenres = (seed_genres || []).slice(0, 5);
   if (!validGenres.length) return [];
 
-  const { data } = await withRetry(() =>
-    axios.get(`${BASE_API}/recommendations`, {
-      headers: authHeader(accessToken),
-      params: {
-        seed_genres:         validGenres.join(','),
-        target_tempo:        target_bpm,
-        target_energy,
-        target_valence,
-        target_acousticness,
-        limit,
-      },
-      timeout: 8_000,
-    })
-  );
-  return data.tracks ?? [];
+  try {
+    const { data } = await withRetry(() =>
+      axios.get(`${BASE_API}/recommendations`, {
+        headers: authHeader(accessToken),
+        params: {
+          seed_genres:         validGenres.join(','),
+          target_tempo:        target_bpm,
+          target_energy,
+          target_valence,
+          target_acousticness,
+          limit,
+        },
+        timeout: 8_000,
+      })
+    );
+    return data.tracks ?? [];
+  } catch (err) {
+    const status = err.response?.status;
+    // Spotify deprecated /recommendations (Nov 2024) — apps without prior access
+    // get 404/403. Degrade to genre search so discovery still yields real,
+    // playable tracks (no audio-target precision, but a working playlist).
+    if (status === 404 || status === 403) {
+      console.warn(`[spotify] /recommendations unavailable (${status}) — falling back to search`);
+      return searchTracksByGenres(accessToken, validGenres, limit);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Discovery fallback when /recommendations is unavailable: searches each seed
+ * genre and returns de-duplicated, playable tracks (id + uri + name + artists),
+ * the same shape /recommendations returns, so the pipeline is unchanged.
+ */
+async function searchTracksByGenres(accessToken, genres, limit = 10) {
+  const per = Math.max(1, Math.ceil(limit / genres.length));
+  const collected = [];
+
+  for (const genre of genres) {
+    // Try the `genre:` filter first, then a plain keyword if it returns nothing.
+    for (const q of [`genre:"${genre}"`, genre]) {
+      try {
+        const { data } = await withRetry(() =>
+          axios.get(`${BASE_API}/search`, {
+            headers: authHeader(accessToken),
+            params:  { q, type: 'track', limit: per },
+            timeout: 8_000,
+          })
+        );
+        const items = data.tracks?.items ?? [];
+        if (items.length) { collected.push(...items); break; }
+      } catch { /* try the next query form / genre */ }
+    }
+  }
+
+  const seen = new Set();
+  const out = [];
+  for (const t of collected) {
+    if (!t?.id || seen.has(t.id)) continue;
+    seen.add(t.id);
+    out.push(t);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /**
