@@ -22,8 +22,20 @@ interface SpotifyPlayer {
   pause(): Promise<void>;
   resume(): Promise<void>;
   nextTrack(): Promise<void>;
+  seek(positionMs: number): Promise<void>;
   addListener(event: string, cb: (data: unknown) => void): boolean;
   removeListener(event: string, cb?: (data: unknown) => void): boolean;
+}
+
+/**
+ * Clamps a requested seek position into the valid [0, duration] window so the
+ * SDK never receives a negative, NaN, or past-the-end value. When the duration
+ * is unknown (0) we can only enforce the lower bound.
+ */
+export function clampSeekMs(positionMs: number, durationMs: number): number {
+  if (!Number.isFinite(positionMs) || positionMs < 0) return 0;
+  if (durationMs > 0 && positionMs > durationMs) return durationMs;
+  return Math.round(positionMs);
 }
 
 type SDKStateCallback = (state: SpotifySDKState) => void;
@@ -145,6 +157,18 @@ class SpotifyPlayerService {
 
   async nextTrack(): Promise<void> {
     await this.player?.nextTrack();
+  }
+
+  /**
+   * Seeks to an absolute position (ms). Clamped to the current track length, and
+   * the position is emitted immediately so the scrubber reflects the jump without
+   * waiting for the next player_state_changed tick.
+   */
+  async seek(positionMs: number): Promise<void> {
+    const target = clampSeekMs(positionMs, this.currentDurationMs);
+    await this.player?.seek(target);
+    this.currentPositionMs = target;
+    this.emit({ positionMs: target });
   }
 
   destroy(): void {

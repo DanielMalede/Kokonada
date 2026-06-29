@@ -1,7 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Play, Pause, SkipForward, Disc3, Heart } from 'lucide-react';
 import type { AppDispatch, RootState } from '@/store';
-import { skipTrack as skipTrackAction } from '@/store/slices/playerSlice';
+import { skipTrack as skipTrackAction, setSdkState } from '@/store/slices/playerSlice';
 import { spotifyPlayerService } from '@/services/spotifyPlayer';
 import { useSocket } from '@/hooks/useSocket';
 import { MOODS, selectedMoodKey } from '@/lib/moods';
@@ -22,10 +23,19 @@ export default function NowPlayingPage() {
   const { skipTrack } = useSocket();
   const {
     playlist, offlineBuffer, currentIndex, isOnline, pendingPlaylist,
-    sdkIsPaused, sdkPositionMs, sdkDurationMs,
+    sdkIsPaused, sdkPositionMs, sdkDurationMs, sdkCurrentTrackUri,
   } = useSelector((s: RootState) => s.player);
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
   const taps = useSelector((s: RootState) => s.emotion.taps);
+
+  // Local scrub state: while the user is dragging, the thumb follows their finger
+  // and SDK position ticks are ignored, so the 1s progress interval and
+  // player_state_changed events don't fight the drag.
+  const [scrubbing, setScrubbing] = useState(false);
+  const [scrubPct, setScrubPct] = useState(0);
+
+  // A track change mid-drag would otherwise commit a seek against the wrong track.
+  useEffect(() => { setScrubbing(false); }, [sdkCurrentTrackUri]);
 
   const list = isOnline ? playlist : offlineBuffer;
   const track = list[currentIndex];
@@ -46,8 +56,24 @@ export default function NowPlayingPage() {
     );
   }
 
-  const pct = sdkDurationMs > 0 ? (sdkPositionMs / sdkDurationMs) * 100 : 0;
+  const canSeek = sdkDurationMs > 0;
+  const pct = canSeek ? (sdkPositionMs / sdkDurationMs) * 100 : 0;
+  const sliderPct = scrubbing ? scrubPct : pct;
+  const displayMs = scrubbing ? (scrubPct / 100) * sdkDurationMs : sdkPositionMs;
   const upNext = list.slice(currentIndex + 1, currentIndex + 8);
+
+  const onScrub = ([v]: number[]) => {
+    if (!canSeek) return;
+    setScrubbing(true);
+    setScrubPct(v);
+  };
+  const onScrubCommit = ([v]: number[]) => {
+    if (!canSeek) return;
+    const ms = Math.round((v / 100) * sdkDurationMs);
+    spotifyPlayerService.seek(ms).catch(console.error);
+    dispatch(setSdkState({ positionMs: ms })); // optimistic — resyncs on next SDK tick
+    setScrubbing(false);
+  };
 
   const toggle = () => {
     if (sdkIsPaused) spotifyPlayerService.resume().catch(console.error);
@@ -93,12 +119,21 @@ export default function NowPlayingPage() {
           {!isOnline && <Badge variant="outline">Offline</Badge>}
         </div>
 
-        {/* Progress (visual) */}
+        {/* Progress / seek */}
         <div className="mt-6 w-full">
-          <Slider value={[pct]} max={100} aria-label="Playback progress" className="pointer-events-none" />
+          <Slider
+            value={[sliderPct]}
+            max={100}
+            step={0.1}
+            aria-label="Seek"
+            disabled={!canSeek}
+            onValueChange={onScrub}
+            onValueCommit={onScrubCommit}
+            className={canSeek ? 'cursor-pointer' : 'pointer-events-none opacity-50'}
+          />
           <div className="mt-2 flex justify-between font-mono text-xs text-muted-foreground">
-            <span>{fmt(sdkPositionMs)}</span>
-            <span>{sdkDurationMs > 0 ? fmt(sdkDurationMs) : '--:--'}</span>
+            <span>{fmt(displayMs)}</span>
+            <span>{canSeek ? fmt(sdkDurationMs) : '--:--'}</span>
           </div>
         </div>
 

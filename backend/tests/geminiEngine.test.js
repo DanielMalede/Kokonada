@@ -134,10 +134,43 @@ describe('_parseAndValidate', () => {
   });
 });
 
+// ── _parseAndValidate — mood_keywords (post-audio-features mood signal) ────────
+
+describe('_parseAndValidate — mood_keywords', () => {
+  it('preserves a mood_keywords array when the model returns one', () => {
+    const out = _parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, mood_keywords: ['calm', 'acoustic'] }));
+    expect(out.mood_keywords).toEqual(['calm', 'acoustic']);
+  });
+
+  it('throws when mood_keywords is present but not an array', () => {
+    expect(() => _parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, mood_keywords: 'calm' })))
+      .toThrow('mood_keywords');
+  });
+
+  it('does not inject mood_keywords when absent (params stay exact)', () => {
+    expect(_parseAndValidate(JSON.stringify(VALID_AI_PARAMS))).toEqual(VALID_AI_PARAMS);
+  });
+});
+
 // ── _buildEmotionPrompt ────────────────────────────────────────────────────────
 
 describe('_buildEmotionPrompt', () => {
   const emotionTaps = [{ x: 0.5, y: 0.3 }, { x: -0.2, y: 0.8 }];
+
+  it('asks the model for mood_keywords (mood signal that replaces audio targets)', () => {
+    expect(_buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null)).toContain('mood_keywords');
+  });
+
+  it('embeds a variety seed so identical taps yield a different prompt each press', () => {
+    const a = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, 'seed-A');
+    const b = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, 'seed-B');
+    expect(a).toContain('seed-A');
+    expect(a).not.toEqual(b);
+  });
+
+  it('omits the variation line when no seed is given (back-compat)', () => {
+    expect(_buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null)).not.toMatch(/variation/i);
+  });
 
   it('includes every top genre from the music profile', () => {
     const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);

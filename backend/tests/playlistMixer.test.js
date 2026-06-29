@@ -4,245 +4,233 @@ process.env.NODE_ENV = 'test';
 
 const {
   mixPlaylist,
-  _selectFamiliarTracks,
+  _orderFamiliar,
+  _isNovel,
   _mergeNatural,
 } = require('../app/services/playlistMixer');
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
-function makeLibraryTrack(id, tempo, energy, provider = 'spotify') {
-  return { id, tempo, energy, valence: 0.6, acousticness: 0.2, genres: [], artist: 'Artist', provider };
+// Library track now carries genres + affinity (listening-history model). tempo/
+// energy are gone — matching is genre/affinity based.
+function libTrack(id, { genres = ['electronic'], affinity = 1, provider = 'spotify', artistIds } = {}) {
+  return {
+    id, name: `Lib ${id}`, uri: `spotify:track:${id}`,
+    genres, affinity, provider, artistIds: artistIds ?? [`la-${id}`],
+  };
 }
 
-function makeDiscoveryTrack(id) {
-  return { id, name: `Discovery ${id}`, provider: 'spotify' };
+// Discovery candidate as the handler hands it to the mixer: already tagged with
+// the artists' genres + artistIds so the mixer can judge relevance/novelty.
+function discTrack(id, { genres = ['electronic'], artistIds, provider } = {}) {
+  return {
+    id, name: `Disc ${id}`, genres, artistIds: artistIds ?? [`da-${id}`],
+    ...(provider ? { provider } : {}),
+  };
 }
 
-const AI_PARAMS = {
-  target_bpm:         128,
-  target_energy:      0.8,
-  target_valence:     0.7,
-  target_acousticness: 0.1,
-  seed_genres:        ['electronic'],
-  seed_artists:       [],
-};
+const AI_PARAMS = { seed_genres: ['electronic'], seed_artists: [] };
 
-// Library with varied BPM/energy to test all fallback tiers
-const LIBRARY = [
-  makeLibraryTrack('f1', 128, 0.80), // tight match
-  makeLibraryTrack('f2', 130, 0.85), // tight match
-  makeLibraryTrack('f3', 120, 0.75), // tight match
-  makeLibraryTrack('f4', 145, 0.90), // relaxed match (BPM delta 17)
-  makeLibraryTrack('f5', 100, 0.60), // relaxed match (energy delta 0.2)
-  makeLibraryTrack('f6',  80, 0.40), // broadest fallback only
-  makeLibraryTrack('yt1', null, null, 'youtube_music'), // no tempo — must be excluded
-];
+const PROFILE_GENRES = ['electronic', 'techno', 'house'];
 
-// ── _selectFamiliarTracks ──────────────────────────────────────────────────────
+function profile(library, { genreSet = PROFILE_GENRES, knownArtistIds = [] } = {}) {
+  return { library, genreSet, knownArtistIds };
+}
 
-describe('_selectFamiliarTracks', () => {
-  it('returns empty array when library is empty', () => {
-    expect(_selectFamiliarTracks([], AI_PARAMS, 14)).toEqual([]);
+const uniq = (arr) => new Set(arr.map(t => t.id)).size === arr.length;
+
+// ── _orderFamiliar ───────────────────────────────────────────────────────────
+
+describe('_orderFamiliar', () => {
+  it('returns [] for an empty library', () => {
+    expect(_orderFamiliar([], new Set(['electronic']), null)).toEqual([]);
   });
 
-  it('excludes tracks with null tempo (YouTube tracks)', () => {
-    const result = _selectFamiliarTracks(LIBRARY, AI_PARAMS, 10);
-    const ids = result.map(t => t.id);
-    expect(ids).not.toContain('yt1');
+  it('orders mood-genre matches ahead of non-matching tracks', () => {
+    const lib = [
+      libTrack('miss', { genres: ['polka'] }),
+      libTrack('hit', { genres: ['electronic'] }),
+    ];
+    const out = _orderFamiliar(lib, new Set(['electronic']), null);
+    expect(out[0].id).toBe('hit');
   });
 
-  it('selects tight matches (BPM ±15, energy ±0.2) first', () => {
-    const result = _selectFamiliarTracks(LIBRARY, AI_PARAMS, 3);
-    const ids = result.map(t => t.id);
-    // f1, f2, f3 are tight matches
-    expect(ids).toContain('f1');
-    expect(ids).toContain('f2');
-    expect(ids).toContain('f3');
+  it('sorts by affinity within a tier (favourites first)', () => {
+    const lib = [
+      libTrack('low', { genres: ['electronic'], affinity: 1 }),
+      libTrack('high', { genres: ['electronic'], affinity: 9 }),
+    ];
+    const out = _orderFamiliar(lib, new Set(['electronic']), null);
+    expect(out.map(t => t.id)).toEqual(['high', 'low']);
   });
 
-  it('falls back to relaxed match when tight match count < familiarTarget', () => {
-    // Only 3 tight matches exist; ask for 5 → should include relaxed matches
-    const result = _selectFamiliarTracks(LIBRARY, AI_PARAMS, 5);
-    expect(result.length).toBe(5);
-    const ids = result.map(t => t.id);
-    // Should pull in relaxed matches f4 and f5
-    expect(ids.some(id => ['f4', 'f5'].includes(id))).toBe(true);
-  });
-
-  it('falls back to broadest match sorted by BPM proximity when relaxed still insufficient', () => {
-    // Ask for more tracks than tight + relaxed can provide (only 5 non-null-tempo tracks match)
-    const result = _selectFamiliarTracks(LIBRARY, AI_PARAMS, 6);
-    expect(result.length).toBe(6);
-    const ids = result.map(t => t.id);
-    expect(ids).toContain('f6'); // broadest fallback
-  });
-
-  it('never returns more than familiarTarget tracks', () => {
-    const result = _selectFamiliarTracks(LIBRARY, AI_PARAMS, 3);
-    expect(result.length).toBeLessThanOrEqual(3);
-  });
-
-  it('returns all available tracks when library has fewer than familiarTarget', () => {
-    const small = [makeLibraryTrack('a', 128, 0.8), makeLibraryTrack('b', 130, 0.82)];
-    const result = _selectFamiliarTracks(small, AI_PARAMS, 14);
-    expect(result.length).toBe(2);
-  });
-
-  it('never includes youtube_music tracks (null tempo)', () => {
-    const ytOnly = [makeLibraryTrack('yt1', null, null, 'youtube_music')];
-    const result = _selectFamiliarTracks(ytOnly, AI_PARAMS, 5);
-    expect(result).toEqual([]);
+  it('filters out tracks that do not match the active provider', () => {
+    const lib = [
+      libTrack('sp', { provider: 'spotify' }),
+      libTrack('yt', { provider: 'youtube_music' }),
+    ];
+    const out = _orderFamiliar(lib, new Set(['electronic']), 'spotify');
+    expect(out.map(t => t.id)).toEqual(['sp']);
   });
 });
 
-// ── _mergeNatural ──────────────────────────────────────────────────────────────
+// ── _isNovel ─────────────────────────────────────────────────────────────────
+
+describe('_isNovel', () => {
+  it('is false when the track is already in the library', () => {
+    expect(_isNovel(discTrack('t1'), new Set(['t1']), new Set())).toBe(false);
+  });
+
+  it('is false when the artist is already known', () => {
+    expect(_isNovel(discTrack('t1', { artistIds: ['a1'] }), new Set(), new Set(['a1']))).toBe(false);
+  });
+
+  it('is true for a genuinely new track + artist', () => {
+    expect(_isNovel(discTrack('t1', { artistIds: ['a1'] }), new Set(['other']), new Set(['known']))).toBe(true);
+  });
+});
+
+// ── _mergeNatural (unchanged 2:1 interleave) ──────────────────────────────────
 
 describe('_mergeNatural', () => {
-  it('returns empty array when both inputs are empty', () => {
-    expect(_mergeNatural([], [])).toEqual([]);
+  it('interleaves in a 2:1 pattern [f, f, d, f, f, d, ...]', () => {
+    const f = ['f1', 'f2', 'f3', 'f4'].map(id => libTrack(id));
+    const d = ['d1', 'd2'].map(id => discTrack(id));
+    const out = _mergeNatural(f, d);
+    expect(out.map(t => t.id)).toEqual(['f1', 'f2', 'd1', 'f3', 'f4', 'd2']);
   });
 
-  it('returns only familiar tracks when discovery is empty', () => {
-    const f = [makeLibraryTrack('f1', 128, 0.8), makeLibraryTrack('f2', 130, 0.82)];
-    const result = _mergeNatural(f, []);
-    expect(result).toEqual(f);
-  });
-
-  it('returns only discovery tracks when familiar is empty', () => {
-    const d = [makeDiscoveryTrack('d1'), makeDiscoveryTrack('d2')];
-    const result = _mergeNatural([], d);
-    expect(result).toEqual(d);
-  });
-
-  it('interleaves in 2:1 pattern [f, f, d, f, f, d, ...]', () => {
-    const f = ['f1', 'f2', 'f3', 'f4'].map(id => makeLibraryTrack(id, 128, 0.8));
-    const d = ['d1', 'd2'].map(id => makeDiscoveryTrack(id));
-    const result = _mergeNatural(f, d);
-    // Expected: f1, f2, d1, f3, f4, d2
-    expect(result[0].id).toBe('f1');
-    expect(result[1].id).toBe('f2');
-    expect(result[2].id).toBe('d1');
-    expect(result[3].id).toBe('f3');
-    expect(result[4].id).toBe('f4');
-    expect(result[5].id).toBe('d2');
-  });
-
-  it('appends remaining familiar tracks when discovery is exhausted', () => {
-    const f = ['f1', 'f2', 'f3', 'f4', 'f5'].map(id => makeLibraryTrack(id, 128, 0.8));
-    const d = [makeDiscoveryTrack('d1')];
-    const result = _mergeNatural(f, d);
-    expect(result).toHaveLength(6);
-    // All familiar tracks must be present
-    ['f1', 'f2', 'f3', 'f4', 'f5'].forEach(id => {
-      expect(result.map(t => t.id)).toContain(id);
-    });
-  });
-
-  it('appends remaining discovery tracks when familiar is exhausted', () => {
-    const f = ['f1', 'f2'].map(id => makeLibraryTrack(id, 128, 0.8));
-    const d = ['d1', 'd2', 'd3', 'd4'].map(id => makeDiscoveryTrack(id));
-    const result = _mergeNatural(f, d);
-    expect(result).toHaveLength(6);
-    ['d1', 'd2', 'd3', 'd4'].forEach(id => {
-      expect(result.map(t => t.id)).toContain(id);
-    });
-  });
-
-  it('total length always equals familiar.length + discovery.length', () => {
-    const f = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(i => makeLibraryTrack(`f${i}`, 128, 0.8));
-    const d = [1, 2, 3, 4, 5, 6].map(i => makeDiscoveryTrack(`d${i}`));
-    const result = _mergeNatural(f, d);
-    expect(result).toHaveLength(f.length + d.length);
+  it('total length equals familiar + discovery', () => {
+    const f = Array.from({ length: 35 }, (_, i) => libTrack(`f${i}`));
+    const d = Array.from({ length: 15 }, (_, i) => discTrack(`d${i}`));
+    expect(_mergeNatural(f, d)).toHaveLength(50);
   });
 });
 
-// ── mixPlaylist ────────────────────────────────────────────────────────────────
+// ── mixPlaylist — always exactly 50, taste-filtered discovery ─────────────────
 
-describe('mixPlaylist', () => {
-  const discoveryTracks = [1, 2, 3, 4, 5, 6].map(i => makeDiscoveryTrack(`d${i}`));
-  const fetchDiscoveryTracks = jest.fn().mockResolvedValue(discoveryTracks);
-  const musicProfile = { library: LIBRARY };
+describe('mixPlaylist (50-song guarantee + discovery relevance)', () => {
+  const richLibrary   = (n = 60) => Array.from({ length: n }, (_, i) => libTrack(`f${i}`, { affinity: n - i }));
+  const richDiscovery = (n = 40) => Array.from({ length: n }, (_, i) => discTrack(`d${i}`));
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
 
-  beforeEach(() => fetchDiscoveryTracks.mockClear());
-
-  it('calls fetchDiscoveryTracks with the aiParams', async () => {
-    await mixPlaylist({ musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks });
-    expect(fetchDiscoveryTracks).toHaveBeenCalledWith(AI_PARAMS);
-  });
-
-  it('returns familiar, discovery, and merged arrays', async () => {
-    const result = await mixPlaylist({ musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks });
-    expect(result).toHaveProperty('familiar');
-    expect(result).toHaveProperty('discovery');
-    expect(result).toHaveProperty('merged');
-  });
-
-  it('merged length equals familiar + discovery lengths', async () => {
-    const result = await mixPlaylist({ musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks });
-    expect(result.merged).toHaveLength(result.familiar.length + result.discovery.length);
-  });
-
-  it('enforces 70/30 split for playlistSize=20', async () => {
-    const result = await mixPlaylist({
-      musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks, playlistSize: 20,
-    });
-    expect(result.familiar.length).toBeLessThanOrEqual(14); // 70% of 20
-    expect(result.discovery.length).toBeLessThanOrEqual(6); // 30% of 20
-  });
-
-  it('enforces 70/30 split for playlistSize=10', async () => {
-    const result = await mixPlaylist({
-      musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks, playlistSize: 10,
-    });
-    expect(result.familiar.length).toBeLessThanOrEqual(7);  // 70% of 10
-    expect(result.discovery.length).toBeLessThanOrEqual(3); // 30% of 10
-  });
-
-  it('familiar tracks come from the library (not discovery)', async () => {
-    const result = await mixPlaylist({ musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks });
-    const libraryIds = LIBRARY.map(t => t.id);
-    result.familiar.forEach(t => expect(libraryIds).toContain(t.id));
-  });
-
-  it('discovery tracks come from fetchDiscoveryTracks', async () => {
-    const result = await mixPlaylist({ musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks });
-    const discoveryIds = discoveryTracks.map(t => t.id);
-    result.discovery.forEach(t => expect(discoveryIds).toContain(t.id));
-  });
-
-  it('returns empty merged when library is empty and discovery returns empty', async () => {
-    fetchDiscoveryTracks.mockResolvedValueOnce([]);
-    const result = await mixPlaylist({
-      musicProfile: { library: [] },
+  it('2.1 returns exactly 50 unique tracks from a rich library + discovery', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary()),
       aiParams: AI_PARAMS,
-      fetchDiscoveryTracks,
+      fetchDiscoveryTracks: fetchOf(richDiscovery()),
     });
-    expect(result.merged).toEqual([]);
-    expect(result.familiar).toEqual([]);
-    expect(result.discovery).toEqual([]);
+    expect(res.merged).toHaveLength(50);
+    expect(uniq(res.merged)).toBe(true);
+    expect(res.familiar.length).toBe(35);  // 70%
+    expect(res.discovery.length).toBe(15);  // 30%
   });
 
-  it('uses all available library tracks when library < familiarTarget', async () => {
-    const tinyLibrary = { library: [makeLibraryTrack('only1', 128, 0.8)] };
-    const result = await mixPlaylist({
-      musicProfile: tinyLibrary, aiParams: AI_PARAMS, fetchDiscoveryTracks,
+  it('2.2 fills 50 entirely from discovery when the library is empty', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile([]),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(richDiscovery(80)),
     });
-    expect(result.familiar).toHaveLength(1);
+    expect(res.merged).toHaveLength(50);
+    expect(uniq(res.merged)).toBe(true);
+    expect(res.familiar).toHaveLength(0);
   });
 
-  it('fills entirely from discovery when library has no Spotify tracks', async () => {
-    const ytOnlyLibrary = { library: [makeLibraryTrack('yt1', null, null, 'youtube_music')] };
-    const result = await mixPlaylist({
-      musicProfile: ytOnlyLibrary, aiParams: AI_PARAMS, fetchDiscoveryTracks,
+  it('2.3 relaxes + backfills to 50 with a tiny library and thin relevant discovery', async () => {
+    // 3 familiar; 5 relevant + 60 "looser" (genre-unknown) discovery candidates.
+    const lib = [libTrack('f0'), libTrack('f1'), libTrack('f2')];
+    const disc = [
+      ...Array.from({ length: 5 }, (_, i) => discTrack(`rel${i}`)),
+      ...Array.from({ length: 60 }, (_, i) => discTrack(`loose${i}`, { genres: [] })),
+    ];
+    const res = await mixPlaylist({
+      musicProfile: profile(lib),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(disc),
     });
-    expect(result.familiar).toHaveLength(0);
-    expect(result.discovery.length).toBeGreaterThan(0);
+    expect(res.merged).toHaveLength(50);
+    expect(uniq(res.merged)).toBe(true);
+  });
+
+  it('2.6 returns all unique it can when fewer than 50 exist worldwide', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile([libTrack('f0'), libTrack('f1')]),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(richDiscovery(10)),
+    });
+    expect(res.merged).toHaveLength(12); // 2 familiar + 10 discovery, no padding/dupes
+    expect(uniq(res.merged)).toBe(true);
+  });
+
+  it('4.4 drops discovery outliers whose genres are outside the user taste', async () => {
+    const disc = [
+      ...Array.from({ length: 20 }, (_, i) => discTrack(`rel${i}`, { genres: ['techno'] })),
+      discTrack('OUTLIER', { genres: ['polka', 'death metal'] }),
+    ];
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary()),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(disc),
+    });
+    // With enough relevant supply, the off-taste outlier is never reached.
+    expect(res.merged.map(t => t.id)).not.toContain('OUTLIER');
+  });
+
+  it('4.5 excludes discovery tracks already in the library (non-novel)', async () => {
+    const lib = richLibrary();
+    const dupId = lib[0].id;
+    const disc = [discTrack(dupId), ...richDiscovery()];
+    const res = await mixPlaylist({
+      musicProfile: profile(lib),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(disc),
+    });
+    // The duplicate id appears at most once (as a familiar track, never as discovery).
+    expect(res.discovery.map(t => t.id)).not.toContain(dupId);
+    expect(res.merged.filter(t => t.id === dupId)).toHaveLength(1);
+  });
+
+  it('4.5b excludes discovery by a known artist (novelty against baseline)', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary(), { knownArtistIds: ['known-artist'] }),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf([
+        discTrack('byKnown', { artistIds: ['known-artist'] }),
+        ...richDiscovery(),
+      ]),
+    });
+    expect(res.discovery.map(t => t.id)).not.toContain('byKnown');
+  });
+
+  it('4.6 keeps discovery whose genre is adjacent (in the user genreSet)', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile([], { genreSet: ['electronic', 'techno'] }),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf([discTrack('adj', { genres: ['techno'] })]),
+    });
+    expect(res.discovery.map(t => t.id)).toContain('adj');
+  });
+
+  it('filters familiar tracks to the active provider so URIs stay valid', async () => {
+    const lib = [
+      ...Array.from({ length: 40 }, (_, i) => libTrack(`sp${i}`, { provider: 'spotify', affinity: 40 - i })),
+      libTrack('yt', { provider: 'youtube_music' }),
+    ];
+    const res = await mixPlaylist({
+      musicProfile: profile(lib),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf([]),
+      provider: 'spotify',
+    });
+    expect(res.familiar.map(t => t.id)).not.toContain('yt');
   });
 
   it('propagates errors from fetchDiscoveryTracks', async () => {
-    fetchDiscoveryTracks.mockRejectedValueOnce(new Error('Spotify 500'));
-    await expect(
-      mixPlaylist({ musicProfile, aiParams: AI_PARAMS, fetchDiscoveryTracks })
-    ).rejects.toThrow('Spotify 500');
+    await expect(mixPlaylist({
+      musicProfile: profile(richLibrary()),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: () => Promise.reject(new Error('Spotify 500')),
+    })).rejects.toThrow('Spotify 500');
   });
 });

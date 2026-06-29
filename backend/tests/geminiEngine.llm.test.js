@@ -61,6 +61,19 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
     ).rejects.toThrow('empty response');
   });
 
+  it('threads a variety seed into the prompt so repeated presses differ', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: JSON.stringify(VALID) } }] } });
+    const fetchTracks = jest.fn().mockResolvedValue([]);
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks, seed: 'press-1' });
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks, seed: 'press-2' });
+
+    const content1 = axios.post.mock.calls[0][1].messages[0].content;
+    const content2 = axios.post.mock.calls[1][1].messages[0].content;
+    expect(content1).toContain('press-1');
+    expect(content1).not.toEqual(content2); // different seed → different prompt → different cache key
+  });
+
   it('surfaces the provider error message on a model 404 (not axios\'s opaque text)', async () => {
     axios.post.mockRejectedValue({
       response: { status: 404, data: { error: { message: 'The model `foo` does not exist or you do not have access to it.' } } },

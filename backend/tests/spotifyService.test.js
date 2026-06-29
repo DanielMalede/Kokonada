@@ -141,3 +141,87 @@ describe('getRecommendations', () => {
     await expect(spotify.getRecommendations('tok', PARAMS)).rejects.toThrow('boom');
   });
 });
+
+describe('OAuth scopes', () => {
+  it('requests the scopes needed to build a profile from listening history', () => {
+    const url = spotify.getAuthUrl('state123');
+    const scope = decodeURIComponent(new URL(url).searchParams.get('scope'));
+    // Saved tracks (/me/tracks), top tracks/artists, and recently-played all need these.
+    expect(scope).toContain('user-library-read');
+    expect(scope).toContain('user-top-read');
+    expect(scope).toContain('user-read-recently-played');
+  });
+});
+
+describe('getTopTracks', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('fetches /me/top/tracks for the given time range and returns items', async () => {
+    axios.get.mockResolvedValue({ data: { items: [{ id: 't1' }, { id: 't2' }] } });
+    const out = await spotify.getTopTracks('tok', 'short_term', 50);
+    expect(out.map(t => t.id)).toEqual(['t1', 't2']);
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/me/top/tracks',
+      expect.objectContaining({ params: { limit: 50, time_range: 'short_term' } }),
+    );
+  });
+
+  it('returns [] when Spotify returns no items', async () => {
+    axios.get.mockResolvedValue({ data: {} });
+    expect(await spotify.getTopTracks('tok', 'long_term', 50)).toEqual([]);
+  });
+});
+
+describe('getTopArtists', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('fetches /me/top/artists and returns artist objects with genres', async () => {
+    axios.get.mockResolvedValue({ data: { items: [
+      { id: 'a1', name: 'Artist One', genres: ['indie', 'dream pop'] },
+    ] } });
+    const out = await spotify.getTopArtists('tok', 'medium_term', 50);
+    expect(out[0]).toMatchObject({ id: 'a1', genres: ['indie', 'dream pop'] });
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/me/top/artists',
+      expect.objectContaining({ params: { limit: 50, time_range: 'medium_term' } }),
+    );
+  });
+});
+
+describe('getRecentlyPlayed', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('unwraps items[].track and drops null entries', async () => {
+    axios.get.mockResolvedValue({ data: { items: [
+      { track: { id: 'r1' } }, { track: null }, { track: { id: 'r2' } },
+    ] } });
+    const out = await spotify.getRecentlyPlayed('tok', 50);
+    expect(out.map(t => t.id)).toEqual(['r1', 'r2']);
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/me/player/recently-played',
+      expect.objectContaining({ params: { limit: 50 } }),
+    );
+  });
+});
+
+describe('getArtistsGenres', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns an id→genres map and makes no call for empty ids', async () => {
+    expect(await spotify.getArtistsGenres('tok', [])).toEqual({});
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  it('batches ids in groups of 50 and merges genres', async () => {
+    const ids = Array.from({ length: 120 }, (_, i) => `a${i}`);
+    axios.get.mockImplementation((_url, cfg) => {
+      const batch = cfg.params.ids.split(',');
+      return Promise.resolve({ data: { artists: batch.map(id => ({ id, genres: [`g-${id}`] })) } });
+    });
+    const map = await spotify.getArtistsGenres('tok', ids);
+    expect(axios.get).toHaveBeenCalledTimes(3); // 50 + 50 + 20
+    expect(map['a0']).toEqual(['g-a0']);
+    expect(map['a119']).toEqual(['g-a119']);
+    expect(Object.keys(map)).toHaveLength(120);
+  });
+});

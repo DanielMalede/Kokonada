@@ -124,8 +124,23 @@ function _parseAndValidate(raw) {
   if (!Array.isArray(parsed.seed_genres)) {
     throw new Error('seed_genres must be an array');
   }
+  // mood_keywords is the post-audio-features mood signal (e.g. ["calm","lo-fi"]).
+  // Optional for back-compat — only validated when the model returns it, and never
+  // injected as a default so callers that expect the bare param set stay unaffected.
+  if (parsed.mood_keywords !== undefined && !Array.isArray(parsed.mood_keywords)) {
+    throw new Error('mood_keywords must be an array');
+  }
 
   return parsed;
+}
+
+// Variation directive appended to a prompt so repeated generations with identical
+// inputs produce a *different* playlist. The seed also changes the md5 cache key,
+// so the 24h cache no longer pins one playlist to one emotional state.
+function _variationLine(seed) {
+  return seed == null
+    ? ''
+    : `\n\nVariation token: ${seed} — pick a fresh, different selection of artists/genres than you would for other tokens, while staying within the user's taste above.`;
 }
 
 // ── Prompt builders ────────────────────────────────────────────────────────────
@@ -134,7 +149,7 @@ function _parseAndValidate(raw) {
  * Builds the deep contextual prompt for the emotion-driven pipeline.
  * No PII is included — only anonymised taste signals and emotion coordinates.
  */
-function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt) {
+function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null) {
   const { topGenres, tempoBaseline, energy, valence, acousticness } = musicProfile;
   const allowedGenres = topGenres.join(', ');
 
@@ -158,15 +173,16 @@ Analyse the emotional coordinates in the context of the user's taste profile and
   "target_valence": <number 0–1>,
   "target_acousticness": <number 0–1>,
   "seed_artists": <array of 0–3 artist names chosen ONLY from the user's known favourites — never invent names>,
-  "seed_genres": <array of 1–3 genres chosen ONLY from this allowed list: ${allowedGenres}>
-}`;
+  "seed_genres": <array of 1–3 genres chosen ONLY from this allowed list: ${allowedGenres}>,
+  "mood_keywords": <array of 2–4 short search descriptors capturing the mood (e.g. "calm", "uplifting", "lo-fi", "late night") — these drive the actual track search>
+}${_variationLine(seed)}`;
 }
 
 /**
  * Builds the lightweight prompt for the biometric-driven pipeline.
  * Focuses on BPM and energy adjustment without a full mood overhaul.
  */
-function _buildBiometricPrompt(musicProfile, biometric) {
+function _buildBiometricPrompt(musicProfile, biometric, seed = null) {
   const { topGenres, tempoBaseline, restingHeartRate } = musicProfile;
   const { heartRate, activity } = biometric;
   const allowedGenres = topGenres.join(', ');
@@ -189,8 +205,9 @@ Adjust tempo and energy to match the physiological state while preserving the us
   "target_valence": <number 0–1>,
   "target_acousticness": <number 0–1>,
   "seed_artists": [],
-  "seed_genres": <array of 1–2 genres chosen ONLY from: ${allowedGenres}>
-}`;
+  "seed_genres": <array of 1–2 genres chosen ONLY from: ${allowedGenres}>,
+  "mood_keywords": <array of 2–4 short search descriptors matching the energy of this physiological state>
+}${_variationLine(seed)}`;
 }
 
 // ── Gemini call ────────────────────────────────────────────────────────────────
@@ -231,8 +248,8 @@ async function _callGemini(prompt) {
  * @param {{ musicProfile, emotionTaps, textPrompt?, fetchTracks }} opts
  * @returns {Promise<{ params, tracks }>}
  */
-async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, fetchTracks }) {
-  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt);
+async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, fetchTracks, seed = null }) {
+  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed);
   const params = await _callGemini(prompt);
   return { params, tracks: await fetchTracks(params) };
 }
@@ -244,8 +261,8 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
  * @param {{ musicProfile, biometric, fetchTracks }} opts
  * @returns {Promise<{ params, tracks }>}
  */
-async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks }) {
-  const prompt = _buildBiometricPrompt(musicProfile, biometric);
+async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, seed = null }) {
+  const prompt = _buildBiometricPrompt(musicProfile, biometric, seed);
   const params = await _callGemini(prompt);
   return { params, tracks: await fetchTracks(params) };
 }

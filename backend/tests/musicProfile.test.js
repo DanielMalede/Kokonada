@@ -24,7 +24,7 @@ const youtube = require('../app/services/youtube');
 // ── Service under test (required after mocks are set up) ─────────────────────
 const {
   buildProfile,
-  _analyzeSpotifyTracks,
+  _analyzeSpotifyProfile,
   _analyzeYouTubeTracks,
   _deduplicateById,
   _rankByFrequency,
@@ -106,61 +106,97 @@ describe('_deduplicateById', () => {
   });
 });
 
-// ── _analyzeSpotifyTracks ─────────────────────────────────────────────────────
+// ── _analyzeSpotifyProfile (listening-history based) ──────────────────────────
 
-describe('_analyzeSpotifyTracks', () => {
-  it('calculates correct averages for energy, valence, acousticness and tempo', () => {
-    const tracks = [makeTrack('1', 'ArtistA'), makeTrack('2', 'ArtistB')];
-    const features = [
-      makeFeature('1', { tempo: 100, energy: 0.5, valence: 0.4, acousticness: 0.3 }),
-      makeFeature('2', { tempo: 140, energy: 0.9, valence: 0.8, acousticness: 0.1 }),
-    ];
-    const { averages } = _analyzeSpotifyTracks(tracks, features);
-    expect(averages.tempoBaseline).toBeCloseTo(120);
-    expect(averages.energy).toBeCloseTo(0.7);
-    expect(averages.valence).toBeCloseTo(0.6);
-    expect(averages.acousticness).toBeCloseTo(0.2);
+describe('_analyzeSpotifyProfile', () => {
+  const artist = (id, name, genres = []) => ({ id, name, genres });
+  const spTrack = (id, artists = [artist('a1', 'A1')], extra = {}) => ({
+    id, name: `Song ${id}`, uri: `spotify:track:${id}`, popularity: 50, artists, ...extra,
   });
 
-  it('ranks artists by appearance frequency', () => {
-    const tracks = [
-      makeTrack('1', 'Bonobo'), makeTrack('2', 'Bonobo'), makeTrack('3', 'Tycho'),
-    ];
-    const features = tracks.map(t => makeFeature(t.id));
-    const { topArtists } = _analyzeSpotifyTracks(tracks, features);
-    expect(topArtists[0]).toBe('Bonobo');
-    expect(topArtists[1]).toBe('Tycho');
+  it('ranks tracks by weighted affinity across sources (top > recent)', () => {
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [
+        { tracks: [spTrack('t1')], weight: 6 }, // top short-term
+        { tracks: [spTrack('t2')], weight: 2 }, // recently played
+      ],
+      artistLists: [],
+      artistGenres: {},
+    });
+    expect(library[0].id).toBe('t1');
+    expect(library[0].affinity).toBeGreaterThan(library[1].affinity);
   });
 
-  it('returns null averages when no features match tracks', () => {
-    const tracks = [makeTrack('1')];
-    const features = [makeFeature('999')]; // mismatched id
-    const { averages } = _analyzeSpotifyTracks(tracks, features);
-    expect(averages.tempoBaseline).toBeNull();
-    expect(averages.energy).toBeNull();
+  it('dedupes a track present in multiple sources, summing affinity', () => {
+    const t1 = spTrack('t1');
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [
+        { tracks: [t1], weight: 6 },
+        { tracks: [t1], weight: 2 },
+      ],
+      artistLists: [], artistGenres: {},
+    });
+    expect(library).toHaveLength(1);
+    expect(library[0].affinity).toBeGreaterThan(7); // 6 + 2 + position bonuses
   });
 
-  it('includes all tracks in library with provider=spotify', () => {
-    const tracks = [makeTrack('1'), makeTrack('2')];
-    const features = tracks.map(t => makeFeature(t.id));
-    const { library } = _analyzeSpotifyTracks(tracks, features);
-    expect(library).toHaveLength(2);
-    expect(library.every(t => t.provider === 'spotify')).toBe(true);
+  it('derives topGenres and genreSet from artist objects, not albums', () => {
+    const { topGenres, genreSet } = _analyzeSpotifyProfile({
+      trackSources: [],
+      artistLists: [{ artists: [artist('a1', 'A1', ['indie', 'dream pop'])], weight: 3 }],
+      artistGenres: {},
+    });
+    expect(topGenres).toContain('indie');
+    expect(genreSet).toEqual(expect.arrayContaining(['indie', 'dream pop']));
+  });
+
+  it('tags each library track with its artists\' genres', () => {
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [{ tracks: [spTrack('t1', [artist('a1', 'A1')])], weight: 6 }],
+      artistLists: [{ artists: [artist('a1', 'A1', ['techno'])], weight: 3 }],
+      artistGenres: {},
+    });
+    expect(library[0].genres).toContain('techno');
+    expect(library[0].artistIds).toContain('a1');
+  });
+
+  it('falls back to fetched artistGenres for artists not in the top lists', () => {
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [{ tracks: [spTrack('t1', [artist('a9', 'A9')])], weight: 3 }],
+      artistLists: [],
+      artistGenres: { a9: ['ambient'] },
+    });
+    expect(library[0].genres).toContain('ambient');
+  });
+
+  it('records knownArtistIds spanning top artists and track artists', () => {
+    const { knownArtistIds } = _analyzeSpotifyProfile({
+      trackSources: [{ tracks: [spTrack('t1', [artist('a2', 'A2')])], weight: 3 }],
+      artistLists: [{ artists: [artist('a1', 'A1', ['rock'])], weight: 3 }],
+      artistGenres: {},
+    });
+    expect(knownArtistIds).toEqual(expect.arrayContaining(['a1', 'a2']));
+  });
+
+  it('leaves audio fields null (audio-features is gone) and keeps name/uri', () => {
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [{ tracks: [spTrack('t1')], weight: 6 }],
+      artistLists: [], artistGenres: {},
+    });
+    expect(library[0].tempo).toBeNull();
+    expect(library[0].energy).toBeNull();
+    expect(library[0].name).toBe('Song t1');
+    expect(library[0].uri).toBe('spotify:track:t1');
+    expect(library[0].provider).toBe('spotify');
   });
 
   it('caps library at 10000 tracks', () => {
-    const tracks = Array.from({ length: 12000 }, (_, i) => makeTrack(String(i)));
-    const features = tracks.map(t => makeFeature(t.id));
-    const { library } = _analyzeSpotifyTracks(tracks, features);
+    const many = Array.from({ length: 12000 }, (_, i) => spTrack(String(i)));
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [{ tracks: many, weight: 1 }],
+      artistLists: [], artistGenres: {},
+    });
     expect(library).toHaveLength(10000);
-  });
-
-  it('handles tracks with no matching audio features (sets null fields)', () => {
-    const tracks = [makeTrack('1')];
-    const features = []; // no features
-    const { library } = _analyzeSpotifyTracks(tracks, features);
-    expect(library[0].tempo).toBeNull();
-    expect(library[0].energy).toBeNull();
   });
 });
 
@@ -413,106 +449,99 @@ describe('youtube.paginatePlaylistItems', () => {
 // ── buildProfile — integration ────────────────────────────────────────────────
 
 describe('buildProfile', () => {
-  let spotifyLikedSpy, spotifyPlaylistSpy, spotifyFeaturesSpy;
-  let ytLikedSpy, ytPlaylistSpy;
-  const TRACKS = [makeTrack('t1', 'Bonobo'), makeTrack('t2', 'Tycho')];
-  const FEATURES = TRACKS.map(t => makeFeature(t.id));
-  const VIDEOS = [makeYouTubeVideo('v1', ['electronic'], 'Aphex Twin')];
+  // Spotify track with artist IDs (needed for genre tagging via artist objects)
+  const spTrack = (id, artistId = 'a1', artistName = 'Bonobo') => ({
+    id, name: `Song ${id}`, uri: `spotify:track:${id}`, popularity: 50,
+    artists: [{ id: artistId, name: artistName }],
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
-    spotifyLikedSpy    = jest.spyOn(spotify, 'paginateLikedSongs').mockResolvedValue(TRACKS);
-    spotifyPlaylistSpy = jest.spyOn(spotify, 'paginatePlaylistTracks').mockResolvedValue([]);
-    spotifyFeaturesSpy = jest.spyOn(spotify, 'batchAudioFeatures').mockResolvedValue(FEATURES);
-    ytLikedSpy         = jest.spyOn(youtube, 'paginateLikedVideos').mockResolvedValue(VIDEOS);
-    ytPlaylistSpy      = jest.spyOn(youtube, 'paginatePlaylistItems').mockResolvedValue([]);
+    // Top tracks only on short_term; top artists only on medium_term — proves all
+    // ranges are queried and merged.
+    jest.spyOn(spotify, 'getTopTracks').mockImplementation((_t, range) =>
+      Promise.resolve(range === 'short_term' ? [spTrack('t1', 'a1', 'Bonobo')] : []));
+    jest.spyOn(spotify, 'getTopArtists').mockImplementation((_t, range) =>
+      Promise.resolve(range === 'medium_term'
+        ? [{ id: 'a1', name: 'Bonobo', genres: ['electronic', 'downtempo'] }] : []));
+    jest.spyOn(spotify, 'paginateLikedSongs').mockResolvedValue([spTrack('t2', 'a2', 'Tycho')]);
+    jest.spyOn(spotify, 'getRecentlyPlayed').mockResolvedValue([spTrack('t3', 'a1', 'Bonobo')]);
+    jest.spyOn(spotify, 'paginatePlaylistTracks').mockResolvedValue([]);
+    jest.spyOn(spotify, 'getArtistsGenres').mockResolvedValue({ a2: ['ambient'] });
+    jest.spyOn(spotify, 'batchAudioFeatures');
+    jest.spyOn(youtube, 'paginateLikedVideos').mockResolvedValue([]);
+    jest.spyOn(youtube, 'paginatePlaylistItems').mockResolvedValue([]);
     MusicProfile.findOneAndUpdate.mockResolvedValue({ userId: 'user123' });
   });
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('fetches Spotify liked songs and playlist tracks in parallel', async () => {
-    const user = makeMockUser({ hasSpotify: true });
-    await buildProfile('user123', user);
-    expect(spotifyLikedSpy).toHaveBeenCalledWith('sp-token');
-    expect(spotifyPlaylistSpy).toHaveBeenCalledWith('sp-token');
+  const savedSet = () => MusicProfile.findOneAndUpdate.mock.calls[0][1].$set;
+
+  it('builds from listening history (top/saved/recent) without calling audio-features', async () => {
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+    expect(spotify.getTopTracks).toHaveBeenCalled();
+    expect(spotify.getTopArtists).toHaveBeenCalled();
+    expect(spotify.getRecentlyPlayed).toHaveBeenCalledWith('sp-token', 50);
+    expect(spotify.batchAudioFeatures).not.toHaveBeenCalled(); // regression guard
   });
 
-  it('deduplicates tracks appearing in both liked songs and playlists', async () => {
-    // t1 appears in both liked songs and playlists
-    spotifyPlaylistSpy.mockResolvedValue([makeTrack('t1'), makeTrack('t3', 'Burial')]);
-    const allFeatures = [...FEATURES, makeFeature('t3')];
-    spotifyFeaturesSpy.mockResolvedValue(allFeatures);
-
-    const user = makeMockUser({ hasSpotify: true });
-    await buildProfile('user123', user);
-
-    // batchAudioFeatures should only receive unique ids: t1, t2, t3
-    const calledIds = spotifyFeaturesSpy.mock.calls[0][1];
-    expect(calledIds.filter(id => id === 't1')).toHaveLength(1);
-    expect(calledIds).toHaveLength(3);
+  it('saves topGenres from artist objects, plus genreSet, knownArtistIds and topArtists', async () => {
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+    const saved = savedSet();
+    expect(saved.topGenres).toContain('electronic');
+    expect(saved.genreSet).toEqual(expect.arrayContaining(['electronic', 'downtempo']));
+    expect(saved.knownArtistIds).toEqual(expect.arrayContaining(['a1']));
+    expect(saved.topArtists).toContain('Bonobo');
+    expect(saved.lastAnalyzed).toBeInstanceOf(Date);
   });
 
-  it('saves computed averages and topArtists to MusicProfile', async () => {
-    const user = makeMockUser({ hasSpotify: true });
-    await buildProfile('user123', user);
+  it('ranks a top track above a recently-played track by affinity', async () => {
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+    const lib = savedSet().library;
+    const t1 = lib.find(t => t.id === 't1'); // from top tracks (short_term)
+    const t3 = lib.find(t => t.id === 't3'); // from recently played
+    expect(t1.affinity).toBeGreaterThan(t3.affinity);
+  });
 
-    const savedData = MusicProfile.findOneAndUpdate.mock.calls[0][1].$set;
-    expect(savedData.tempoBaseline).toBeCloseTo(120);
-    expect(savedData.energy).toBeCloseTo(0.7);
-    expect(savedData.topArtists).toContain('Bonobo');
-    expect(savedData.topArtists).toContain('Tycho');
-    expect(savedData.lastAnalyzed).toBeInstanceOf(Date);
+  it('degrades gracefully when top endpoints 403 (token predates new scopes)', async () => {
+    const forbidden = Object.assign(new Error('forbidden'), { response: { status: 403 } });
+    spotify.getTopTracks.mockRejectedValue(forbidden);
+    spotify.getTopArtists.mockRejectedValue(forbidden);
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+    // Still builds from saved + recently-played rather than throwing.
+    expect(savedSet().library.length).toBeGreaterThan(0);
   });
 
   it('upserts the MusicProfile (creates if not exists)', async () => {
-    const user = makeMockUser({ hasSpotify: true });
-    await buildProfile('user123', user);
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
     expect(MusicProfile.findOneAndUpdate).toHaveBeenCalledWith(
       { userId: 'user123' },
       expect.objectContaining({ $set: expect.any(Object) }),
-      { upsert: true, new: true }
+      { upsert: true, new: true },
     );
   });
 
-  it('fetches YouTube library when YouTube is connected', async () => {
-    const user = makeMockUser({ hasSpotify: false, hasYouTube: true });
-    await buildProfile('user123', user);
-    expect(ytLikedSpy).toHaveBeenCalledWith('yt-token');
-    expect(ytPlaylistSpy).toHaveBeenCalledWith('yt-token');
-    expect(spotifyLikedSpy).not.toHaveBeenCalled();
+  it('fetches YouTube library when YouTube is connected and skips Spotify', async () => {
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
+    expect(youtube.paginateLikedVideos).toHaveBeenCalledWith('yt-token');
+    expect(spotify.getTopTracks).not.toHaveBeenCalled();
   });
 
-  it('merges genres from both Spotify and YouTube when both are connected', async () => {
-    // Spotify track has album genres
-    const trackWithGenre = { ...makeTrack('t1'), album: { genres: ['indie'] } };
-    spotifyLikedSpy.mockResolvedValue([trackWithGenre]);
-    spotifyFeaturesSpy.mockResolvedValue([makeFeature('t1')]);
-    // YouTube video has different genre tag
-    ytLikedSpy.mockResolvedValue([makeYouTubeVideo('v1', ['electronic'])]);
-
-    const user = makeMockUser({ hasSpotify: true, hasYouTube: true });
-    await buildProfile('user123', user);
-
-    const savedData = MusicProfile.findOneAndUpdate.mock.calls[0][1].$set;
-    expect(savedData.topGenres).toContain('electronic');
-  });
-
-  it('saves an empty library gracefully when no provider is connected', async () => {
-    const user = makeMockUser({ hasSpotify: false, hasYouTube: false });
-    await buildProfile('user123', user);
-
-    const savedData = MusicProfile.findOneAndUpdate.mock.calls[0][1].$set;
-    expect(savedData.library).toEqual([]);
-    expect(savedData.topGenres).toEqual([]);
-    expect(savedData.topArtists).toEqual([]);
+  it('saves empty arrays gracefully when no provider is connected', async () => {
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: false }));
+    const saved = savedSet();
+    expect(saved.library).toEqual([]);
+    expect(saved.topGenres).toEqual([]);
+    expect(saved.topArtists).toEqual([]);
+    expect(saved.genreSet).toEqual([]);
+    expect(saved.knownArtistIds).toEqual([]);
   });
 
   it('returns the saved MusicProfile document', async () => {
-    const mockProfile = { userId: 'user123', tempoBaseline: 120 };
+    const mockProfile = { userId: 'user123' };
     MusicProfile.findOneAndUpdate.mockResolvedValue(mockProfile);
-    const user = makeMockUser({ hasSpotify: true });
-    const result = await buildProfile('user123', user);
+    const result = await buildProfile('user123', makeMockUser({ hasSpotify: true }));
     expect(result).toEqual(mockProfile);
   });
 });

@@ -17,6 +17,10 @@ const SCOPES = [
   'user-read-currently-playing',
   'user-read-recently-played',
   'user-top-read',
+  // Required to read Saved Tracks (/me/tracks) when building the taste profile
+  // from listening history. Adding a scope means each user must reconnect Spotify
+  // once to re-consent (buildProfile degrades gracefully on a pre-consent token).
+  'user-library-read',
   'streaming',
   'playlist-modify-public',
   'playlist-modify-private',
@@ -186,6 +190,88 @@ async function getTopTrackFeatures(accessToken, limit = 50) {
   return featData.audio_features.filter(Boolean);
 }
 
+// ── Listening-history endpoints (post-2024 profile foundation) ──────────────────
+// /audio-features and /recommendations are dead for new apps (Spotify, Nov 2024),
+// so taste is now inferred from what the user actually listens to: top tracks/
+// artists, saved tracks, and recently-played — all still available to every app.
+
+/**
+ * The user's top tracks for a listening window.
+ * @param {'short_term'|'medium_term'|'long_term'} timeRange
+ * @returns {Promise<SpotifyTrack[]>}
+ */
+async function getTopTracks(accessToken, timeRange = 'medium_term', limit = 50) {
+  const { data } = await withRetry(() =>
+    axios.get(`${BASE_API}/me/top/tracks`, {
+      headers: authHeader(accessToken),
+      params:  { limit, time_range: timeRange },
+      timeout: 10_000,
+    })
+  );
+  return data.items ?? [];
+}
+
+/**
+ * The user's top artists for a listening window. Each artist object carries the
+ * `genres` array — the accurate genre signal that replaces dead audio-features.
+ * @param {'short_term'|'medium_term'|'long_term'} timeRange
+ * @returns {Promise<Array<{ id: string, name: string, genres: string[] }>>}
+ */
+async function getTopArtists(accessToken, timeRange = 'medium_term', limit = 50) {
+  const { data } = await withRetry(() =>
+    axios.get(`${BASE_API}/me/top/artists`, {
+      headers: authHeader(accessToken),
+      params:  { limit, time_range: timeRange },
+      timeout: 10_000,
+    })
+  );
+  return data.items ?? [];
+}
+
+/**
+ * The user's recently-played tracks (real-time listening signal).
+ * @returns {Promise<SpotifyTrack[]>}
+ */
+async function getRecentlyPlayed(accessToken, limit = 50) {
+  const { data } = await withRetry(() =>
+    axios.get(`${BASE_API}/me/player/recently-played`, {
+      headers: authHeader(accessToken),
+      params:  { limit },
+      timeout: 10_000,
+    })
+  );
+  return (data.items ?? []).map(i => i.track).filter(Boolean);
+}
+
+/**
+ * Resolves genres for a set of artist IDs, batching in groups of 50 (the /artists
+ * per-request limit). Used to tag library + discovery tracks with their artists'
+ * genres so the mixer can match/filter on taste.
+ * @param {string[]} ids
+ * @returns {Promise<Record<string, string[]>>} map of artistId → genres
+ */
+async function getArtistsGenres(accessToken, ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  if (!unique.length) return {};
+
+  const BATCH = 50;
+  const map = {};
+  for (let i = 0; i < unique.length; i += BATCH) {
+    const batch = unique.slice(i, i + BATCH);
+    const { data } = await withRetry(() =>
+      axios.get(`${BASE_API}/artists`, {
+        headers: authHeader(accessToken),
+        params:  { ids: batch.join(',') },
+        timeout: 10_000,
+      })
+    );
+    for (const a of data.artists ?? []) {
+      if (a?.id) map[a.id] = a.genres ?? [];
+    }
+  }
+  return map;
+}
+
 // ── Deep-pagination helpers ───────────────────────────────────────────────────
 
 function authHeader(accessToken) {
@@ -288,7 +374,7 @@ async function batchAudioFeatures(accessToken, ids) {
  * @returns {Promise<SpotifyTrack[]>}
  */
 async function getRecommendations(accessToken, {
-  target_bpm, target_energy, target_valence, target_acousticness, seed_genres, limit = 10,
+  target_bpm, target_energy, target_valence, target_acousticness, seed_genres, mood_keywords = [], limit = 10,
 }) {
   const validGenres = (seed_genres || []).slice(0, 5);
   if (!validGenres.length) return [];
@@ -313,10 +399,11 @@ async function getRecommendations(accessToken, {
     const status = err.response?.status;
     // Spotify deprecated /recommendations (Nov 2024) — apps without prior access
     // get 404/403. Degrade to genre search so discovery still yields real,
-    // playable tracks (no audio-target precision, but a working playlist).
+    // playable tracks (no audio-target precision, but a working playlist). The
+    // mood_keywords (from the LLM) bias the query so results actually match mood.
     if (status === 404 || status === 403) {
       console.warn(`[spotify] /recommendations unavailable (${status}) — falling back to search`);
-      return searchTracksByGenres(accessToken, validGenres, limit);
+      return searchTracksByGenres(accessToken, validGenres, limit, mood_keywords);
     }
     throw err;
   }
@@ -324,16 +411,22 @@ async function getRecommendations(accessToken, {
 
 /**
  * Discovery fallback when /recommendations is unavailable: searches each seed
- * genre and returns de-duplicated, playable tracks (id + uri + name + artists),
- * the same shape /recommendations returns, so the pipeline is unchanged.
+ * genre (optionally biased by mood keywords) and returns de-duplicated, playable
+ * tracks (id + uri + name + artists), the same shape /recommendations returns, so
+ * the pipeline is unchanged.
  */
-async function searchTracksByGenres(accessToken, genres, limit = 10) {
-  const per = Math.max(1, Math.ceil(limit / genres.length));
+async function searchTracksByGenres(accessToken, genres, limit = 10, keywords = []) {
+  const per = Math.max(1, Math.ceil(limit / Math.max(genres.length, 1)));
   const collected = [];
+  const kw = (keywords || []).filter(Boolean).slice(0, 2).join(' ');
 
   for (const genre of genres) {
-    // Try the `genre:` filter first, then a plain keyword if it returns nothing.
-    for (const q of [`genre:"${genre}"`, genre]) {
+    // Bias by mood keywords first (best mood fit), then plain genre as a fallback
+    // so we never come back empty.
+    const queries = kw
+      ? [`genre:"${genre}" ${kw}`, `genre:"${genre}"`, `${genre} ${kw}`, genre]
+      : [`genre:"${genre}"`, genre];
+    for (const q of queries) {
       try {
         const { data } = await withRetry(() =>
           axios.get(`${BASE_API}/search`, {
@@ -429,6 +522,7 @@ async function addTracksToPlaylist(accessToken, playlistId, uris) {
 
 module.exports = {
   getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
+  getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
   playTracks, getActiveDevice, createPlaylist, addTracksToPlaylist,
 };

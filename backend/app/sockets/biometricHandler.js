@@ -18,6 +18,10 @@ const DEBOUNCE_MS        = 60_000;
 // A larger 25 bpm gate ensures we only re-adapt on a real activity-state change
 // (vs the 10 bpm streaming threshold), so a flat HR never churns Spotify.
 const WATCH_HR_DELTA_THRESHOLD = 25;
+// Over-fetch discovery candidates so the mixer can filter to the user's taste and
+// still fill 50 (15 discovery + library backfill, or all 50 from discovery when
+// the library is empty). The mixer trims to the 30% target / fills the rest.
+const DISCOVERY_FETCH_LIMIT = 60;
 
 // Opt-in boundary tracing for debugging the generation pipeline. Enable with
 // DEBUG_PLAYLIST=1 (always on in `development`; silent in test/production).
@@ -54,6 +58,29 @@ function toClientTrack(t, provider) {
 }
 function toClientTracks(list, provider) {
   return (Array.isArray(list) ? list : []).map((t) => toClientTrack(t, provider)).filter(Boolean);
+}
+
+// Tags Spotify discovery candidates with their artists' genres + ids so the mixer
+// can filter them against the user's real taste (genreSet / knownArtistIds).
+// /audio-features is dead, but artist genres are still available, so relevance is
+// judged on genre overlap + artist novelty. Resolution failures degrade to
+// genre-less tracks (the mixer treats them as "looser", not outliers).
+async function tagSpotifyDiscovery(accessToken, tracks) {
+  const list = Array.isArray(tracks) ? tracks : [];
+  const idsByTrack = list.map((t) => (t.artists || []).map((a) => a.id).filter(Boolean));
+  const allIds = [...new Set(idsByTrack.flat())];
+
+  let genreMap = {};
+  if (allIds.length) {
+    try { genreMap = await spotify.getArtistsGenres(accessToken, allIds); }
+    catch (e) { log(`[generate] artist-genre tagging failed: ${e.message}`); }
+  }
+
+  return list.map((t, i) => {
+    const artistIds = idsByTrack[i];
+    const genres = [...new Set(artistIds.flatMap((id) => genreMap[id] || []))];
+    return { ...t, provider: t.provider ?? 'spotify', artistIds, genres };
+  });
 }
 
 function getState(socketId) {
@@ -179,10 +206,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     try {
       if (provider === 'spotify') {
         const accessToken = await spotify.getValidToken(user);
-        fetchTracks = (params) => spotify.getRecommendations(accessToken, params);
+        // Over-fetch a large candidate pool, then tag with artist genres so the
+        // mixer can filter to the user's taste and still fill 50.
+        fetchTracks = async (params) => {
+          const tracks = await spotify.getRecommendations(accessToken, { ...params, limit: DISCOVERY_FETCH_LIMIT });
+          return tagSpotifyDiscovery(accessToken, tracks);
+        };
       } else {
         const accessToken = await youtube.getValidToken(user);
-        fetchTracks = (params) => youtube.searchRecommendations(accessToken, params);
+        fetchTracks = (params) => youtube.searchRecommendations(accessToken, { ...params, limit: DISCOVERY_FETCH_LIMIT });
       }
     } catch (err) {
       socket.emit('playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
@@ -190,6 +222,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     }
 
     log(`[generate] start trigger=${trigger} hr=${state.stableHR} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
+
+    // Fresh seed per generation so identical emotion/biometric state yields a
+    // DIFFERENT playlist each press — varies the LLM picks and busts the 24h
+    // cache key (which is md5(prompt)).
+    const seed = `${reqId ?? 'auto'}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
     let aiResult;
     try {
@@ -199,6 +236,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           emotionTaps:  state.lastEmotionTaps,
           textPrompt:   state.lastTextPrompt || null,
           fetchTracks,
+          seed,
         });
       } else {
         aiResult = await adjustBiometricPlaylist({
@@ -209,6 +247,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             restingHR:  musicProfile.restingHeartRate,
           },
           fetchTracks,
+          seed,
         });
       }
     } catch (err) {
@@ -235,6 +274,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       musicProfile,
       aiParams:            aiResult.params,
       fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
+      provider,
     });
 
     // Normalize to the client contract (and reconstruct/validate uris). Guard on
