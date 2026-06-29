@@ -20,7 +20,10 @@ function _withTimeout(ms, promise) {
 
 function getModel() {
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  return genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
+  // gemini-1.5-flash was retired by Google (v1beta generateContent now 404s it).
+  // gemini-2.0-flash is the current fast/cheap GA model — ideal for this small,
+  // latency-sensitive JSON task (see GEMINI_TIMEOUT_MS). Override via GEMINI_MODEL.
+  return genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
 }
 
 // ── Response validation ────────────────────────────────────────────────────────
