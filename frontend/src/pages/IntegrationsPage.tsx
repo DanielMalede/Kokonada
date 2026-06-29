@@ -35,6 +35,8 @@ import {
 import { toast } from 'sonner';
 import { authHeaders, buildConnectUrl } from '@/lib/api';
 import WatchTokenCard from '@/components/WatchTokenCard';
+import DisconnectButton from '@/components/DisconnectButton';
+import type { DisconnectKind } from '@/hooks/useConnections';
 
 // Use the YouTube-specific client ID for the GIS popup if set; fall back to the
 // general Google client. The YouTube client ID in Vercel must match YOUTUBE_CLIENT_ID
@@ -66,9 +68,11 @@ interface RowProps {
   connected: boolean;
   disabled?: boolean;
   onConnect?: () => void;
+  /** When set, a connected row shows a Disconnect action for this provider. */
+  disconnectKind?: DisconnectKind;
 }
 
-function ServiceRow({ name, hint, connected, disabled, onConnect }: RowProps) {
+function ServiceRow({ name, hint, connected, disabled, onConnect, disconnectKind }: RowProps) {
   return (
     <div className="flex items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
@@ -76,9 +80,12 @@ function ServiceRow({ name, hint, connected, disabled, onConnect }: RowProps) {
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
       {connected ? (
-        <Badge className="gap-1 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-          <Check className="size-3" /> Connected
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge className="gap-1 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            <Check className="size-3" /> Connected
+          </Badge>
+          {disconnectKind && <DisconnectButton kind={disconnectKind} />}
+        </div>
       ) : (
         <Switch
           checked={false}
@@ -220,8 +227,8 @@ export default function IntegrationsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="divide-y divide-border">
-              <ServiceRow name="Spotify" connected={music === 'spotify'} onConnect={connectSpotify} />
-              <ServiceRow name="YouTube Music" connected={music === 'youtube'} onConnect={connectYouTube} />
+              <ServiceRow name="Spotify" connected={music === 'spotify'} onConnect={connectSpotify} disconnectKind="spotify" />
+              <ServiceRow name="YouTube Music" connected={music === 'youtube'} onConnect={connectYouTube} disconnectKind="youtube" />
             </CardContent>
           </Card>
 
@@ -237,6 +244,9 @@ export default function IntegrationsPage() {
             </CardHeader>
             <CardContent className="divide-y divide-border">
               <WatchTokenCard />
+              {biometric === 'garmin' && (
+                <ServiceRow name="Garmin" hint="Connected via Garmin Connect" connected disconnectKind="garmin" />
+              )}
               <ServiceRow name="Apple Health" hint="Available in the iOS app" connected={biometric === 'applehealth'} disabled />
               {!biometric && !moodOnly && (
                 <button

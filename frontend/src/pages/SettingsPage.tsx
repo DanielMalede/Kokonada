@@ -1,5 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'sonner';
+import type { AppDispatch, RootState } from '@/store';
+import { setMusicProvider, setBiometricProvider } from '@/store/slices/integrationsSlice';
+import { authHeaders } from '@/lib/api';
+import { useConnections } from '@/hooks/useConnections';
+import DisconnectButton from '@/components/DisconnectButton';
 import PageHeader from '@/components/PageHeader';
 import ThemeToggle from '@/components/ThemeToggle';
 import { Switch } from '@/components/ui/switch';
@@ -16,6 +23,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 function readBool(key: string, fallback: boolean): boolean {
   const v = localStorage.getItem(key);
@@ -44,6 +53,24 @@ function Row({ label, hint, control }: { label: string; hint?: string; control: 
 }
 
 export default function SettingsPage() {
+  const dispatch = useDispatch<AppDispatch>();
+  const music = useSelector((s: RootState) => s.integrations.musicProvider);
+  const biometric = useSelector((s: RootState) => s.integrations.biometricProvider);
+  const { signOut } = useConnections();
+
+  // Hydrate connection state on mount so Settings reflects reality even when
+  // opened directly (not via the Integrations page).
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/integrations/status`, { credentials: 'include', headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        dispatch(setMusicProvider(data.musicProvider));
+        dispatch(setBiometricProvider(data.biometricProvider));
+      })
+      .catch(() => {});
+  }, [dispatch]);
+
   const [aura, setAura] = useState(() => readBool('koko-aura', true));
   const [notifReady, setNotifReady] = useState(() => readBool('koko-notif-ready', true));
   const [notifRecal, setNotifRecal] = useState(() => readBool('koko-notif-recal', false));
@@ -121,6 +148,33 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      <Section title="Connections">
+        {!music && biometric !== 'garmin' ? (
+          <Row
+            label="No services connected"
+            hint="Link Spotify, YouTube Music, or a wearable"
+            control={
+              <Link to="/integrations" className="text-sm font-medium text-primary hover:underline">
+                Connect →
+              </Link>
+            }
+          />
+        ) : (
+          <>
+            {music && (
+              <Row
+                label={music === 'spotify' ? 'Spotify' : 'YouTube Music'}
+                hint="Music source"
+                control={<DisconnectButton kind={music === 'spotify' ? 'spotify' : 'youtube'} />}
+              />
+            )}
+            {biometric === 'garmin' && (
+              <Row label="Garmin" hint="Wearable" control={<DisconnectButton kind="garmin" />} />
+            )}
+          </>
+        )}
+      </Section>
+
       <Section title="Data & privacy">
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -143,6 +197,28 @@ export default function SettingsPage() {
         </AlertDialog>
         <Row label="Privacy Policy" control={<span className="text-muted-foreground">→</span>} />
         <Row label="Terms of Service" control={<span className="text-muted-foreground">→</span>} />
+      </Section>
+
+      <Section title="Account">
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button className="w-full py-3.5 text-left text-sm font-medium text-destructive">
+              Log out
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Log out of Kokonada?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You’ll need to sign in again to generate playlists. Your connected services stay linked.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { void signOut(); }}>Log out</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </Section>
 
       <Separator className="my-6" />
