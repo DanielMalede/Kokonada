@@ -334,29 +334,43 @@ async function buildProfile(userId, user) {
   // Audio-feature baselines are gone (Spotify deprecation); kept null for back-compat.
   const averages = { tempoBaseline: null, energy: null, valence: null, acousticness: null, danceability: null };
 
+  // Each provider is failure-ISOLATED: a stale/expired token (or any unexpected
+  // error) for one provider must never abort the other's analysis or block the save.
+  // (Bug: an unguarded YouTube 401 threw past the Spotify analysis, so the whole
+  // build aborted and no MusicProfile was ever persisted → generation produced
+  // nothing.) `_buildSpotifyProfile` already degrades per-endpoint via _safeFetch;
+  // this outer guard catches anything that still escapes.
   if (spotifyToken) {
-    const analysis = await _buildSpotifyProfile(spotifyToken);
-    library.push(...analysis.library);
-    topGenres      = analysis.topGenres;
-    topArtists     = analysis.topArtists;
-    genreSet       = analysis.genreSet;
-    knownArtistIds = analysis.knownArtistIds;
+    try {
+      const analysis = await _buildSpotifyProfile(spotifyToken);
+      library.push(...analysis.library);
+      topGenres      = analysis.topGenres;
+      topArtists     = analysis.topArtists;
+      genreSet       = analysis.genreSet;
+      knownArtistIds = analysis.knownArtistIds;
+    } catch (err) {
+      console.warn(`[musicProfile] Spotify analysis skipped: ${err.message}`);
+    }
   }
 
   if (youtubeToken) {
-    const [likedVideos, playlistItems] = await Promise.all([
-      youtube.paginateLikedVideos(youtubeToken),
-      youtube.paginatePlaylistItems(youtubeToken),
-    ]);
+    try {
+      const [likedVideos, playlistItems] = await Promise.all([
+        youtube.paginateLikedVideos(youtubeToken),
+        youtube.paginatePlaylistItems(youtubeToken),
+      ]);
 
-    const allVideos  = _deduplicateById([...likedVideos, ...playlistItems]);
-    const ytAnalysis = _analyzeYouTubeTracks(allVideos);
+      const allVideos  = _deduplicateById([...likedVideos, ...playlistItems]);
+      const ytAnalysis = _analyzeYouTubeTracks(allVideos);
 
-    library.push(...ytAnalysis.library);
-    // Merge rankings — YouTube fills the genre gap where Spotify is sparse.
-    topGenres  = _rankByFrequency([...topGenres,  ...ytAnalysis.topGenres]).slice(0, 10);
-    topArtists = _rankByFrequency([...topArtists, ...ytAnalysis.topArtists]).slice(0, 20);
-    genreSet   = [...new Set([...genreSet, ...ytAnalysis.topGenres])];
+      library.push(...ytAnalysis.library);
+      // Merge rankings — YouTube fills the genre gap where Spotify is sparse.
+      topGenres  = _rankByFrequency([...topGenres,  ...ytAnalysis.topGenres]).slice(0, 10);
+      topArtists = _rankByFrequency([...topArtists, ...ytAnalysis.topArtists]).slice(0, 20);
+      genreSet   = [...new Set([...genreSet, ...ytAnalysis.topGenres])];
+    } catch (err) {
+      console.warn(`[musicProfile] YouTube analysis skipped: ${err.message}`);
+    }
   }
 
   return MusicProfile.findOneAndUpdate(

@@ -544,4 +544,38 @@ describe('buildProfile', () => {
     const result = await buildProfile('user123', makeMockUser({ hasSpotify: true }));
     expect(result).toEqual(mockProfile);
   });
+
+  it('isolates a YouTube failure so the Spotify profile is still saved (stale YT token must not abort)', async () => {
+    // Real-world bug: a stale YouTube token threw an unguarded 401 that aborted the
+    // ENTIRE build before the (good) Spotify data was saved — so no profile existed
+    // and generation produced nothing. A provider failure must be isolated.
+    const unauthorized = Object.assign(new Error('Request failed with status code 401'), { response: { status: 401 } });
+    youtube.paginateLikedVideos.mockRejectedValue(unauthorized);
+    youtube.paginatePlaylistItems.mockRejectedValue(unauthorized);
+
+    await expect(
+      buildProfile('user123', makeMockUser({ hasSpotify: true, hasYouTube: true })),
+    ).resolves.toBeDefined();
+
+    // The good Spotify data is still persisted despite YouTube failing.
+    expect(MusicProfile.findOneAndUpdate).toHaveBeenCalled();
+    expect(savedSet().library.length).toBeGreaterThan(0);
+  });
+
+  it('isolates a Spotify failure so a YouTube profile is still saved', async () => {
+    const unauthorized = Object.assign(new Error('Request failed with status code 401'), { response: { status: 401 } });
+    // An unexpected Spotify throw (not a per-endpoint 403 caught by _safeFetch) must
+    // not abort a YouTube-connected user's build either.
+    spotify.getTopTracks.mockRejectedValue(unauthorized);
+    spotify.getTopArtists.mockRejectedValue(unauthorized);
+    spotify.paginateLikedSongs.mockRejectedValue(unauthorized);
+    spotify.getRecentlyPlayed.mockRejectedValue(unauthorized);
+    spotify.paginatePlaylistTracks.mockRejectedValue(unauthorized);
+    youtube.paginateLikedVideos.mockResolvedValue([makeYouTubeVideo('v1', ['pop'])]);
+
+    await expect(
+      buildProfile('user123', makeMockUser({ hasSpotify: true, hasYouTube: true })),
+    ).resolves.toBeDefined();
+    expect(MusicProfile.findOneAndUpdate).toHaveBeenCalled();
+  });
 });
