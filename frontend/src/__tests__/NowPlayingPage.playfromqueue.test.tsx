@@ -66,6 +66,7 @@ function buildStore(playerOverrides = {}) {
         sdkDurationMs: 240_000,
         pendingPlaylist: [],
         sdkCurrentTrackUri: 'spotify:track:t0',
+        ...playerOverrides,
       },
     } as never,
   });
