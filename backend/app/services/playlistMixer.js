@@ -271,6 +271,23 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   fillFrom(discoveryPool.slice(discovery.length), discovery);
   fillFrom(familiarPool.slice(familiar.length), familiar);
 
+  // Mood relaxation ladder: a narrow zero-tolerance allow-list (e.g. "Calm" only
+  // allows ambient/acoustic/lo-fi) can starve BOTH pools when the user's taste
+  // doesn't cover the mood and Spotify discovery is dead — which surfaced as the
+  // "Could not build a playlist from the current sources" failure. When strict
+  // filtering leaves us short, backfill from the user's NON-excluded library with
+  // the allow-list dropped. The exclude_genres floor is still honoured (off-vibe
+  // genres never leak in), so this never returns an empty playlist for a connected
+  // user without weakening the hard sonic floor. Only runs in strict mode, so the
+  // soft-bias (HR/biometric) path is byte-identical.
+  if (strict && chosen.size < playlistSize) {
+    const relaxedFamiliar = _varietyWindow(
+      _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres: EMPTY_SET, strict: true }),
+      familiarTarget,
+    );
+    fillFrom(relaxedFamiliar, familiar);
+  }
+
   const merged = _dedupeById(_mergeNatural(familiar, discovery)).slice(0, playlistSize);
   return { familiar, discovery, merged };
 }

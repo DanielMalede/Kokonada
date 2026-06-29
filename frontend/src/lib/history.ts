@@ -49,6 +49,23 @@ export function saveSession(session: Session): void {
   }
 }
 
+/** Delete a single session by id. No-op if it isn't present. */
+export function deleteSession(id: string): void {
+  deleteSessions([id]);
+}
+
+/** Delete every session whose id is in `ids`, in a single write (bulk select). */
+export function deleteSessions(ids: string[]): void {
+  if (ids.length === 0) return;
+  try {
+    const remove = new Set(ids);
+    const next = getSessions().filter((s) => !remove.has(s.id));
+    localStorage.setItem(KEY, JSON.stringify(next));
+  } catch {
+    /* storage unavailable — history is best-effort */
+  }
+}
+
 export function makeSessionId(): string {
   return `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }

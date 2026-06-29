@@ -365,6 +365,60 @@ describe('mixPlaylist — strict mood filter (zero-tolerance vibe)', () => {
   });
 });
 
+// ── Mood relaxation ladder: never empty for a connected user ──────────────────
+// The zero-tolerance allow-list can starve BOTH pools (e.g. "Calm" allows only
+// ambient/acoustic/lo-fi but the user listens to pop/soul, and Spotify discovery is
+// dead → 0 on-vibe candidates). That produced the "Could not build a playlist from
+// the current sources" failure. The ladder backfills from the user's non-excluded
+// library while STILL honouring the exclude_genres floor.
+
+describe('mixPlaylist — mood relaxation ladder (never empty for a connected user)', () => {
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
+
+  const CALMISH = {
+    seed_genres:    ['ambient'],
+    allow_genres:   ['ambient', 'acoustic', 'lo-fi'],   // narrow on-vibe allow-list
+    exclude_genres: ['metal', 'edm', 'trap'],           // hard floor
+    seed_artists:   [],
+  };
+
+  it('backfills from the non-excluded library when allow-list + discovery are both empty', async () => {
+    // Diverse library the allow-list doesn't cover (pop), plus a couple of excluded
+    // (trap) tracks. Discovery returns nothing (dead Spotify endpoints).
+    const lib = [
+      ...Array.from({ length: 60 }, (_, i) => libTrack(`pop${i}`, { genres: ['pop'], affinity: 60 - i })),
+      libTrack('TRAP', { genres: ['trap'], affinity: 999 }),
+    ];
+    const res = await mixPlaylist({
+      musicProfile: profile(lib, { genreSet: ['pop'] }),
+      aiParams: CALMISH,
+      fetchDiscoveryTracks: fetchOf([]),
+    });
+    // Was 0 (empty → playlist_error). Now fills toward 50 from the non-excluded library.
+    expect(res.merged.length).toBeGreaterThan(0);
+    expect(uniq(res.merged)).toBe(true);
+    // The exclude floor still holds even under relaxation: no trap leaks in.
+    expect(res.merged.map((t) => t.id)).not.toContain('TRAP');
+    expect(res.merged.some((t) => (t.genres || []).includes('trap'))).toBe(false);
+  });
+
+  it('still prefers on-vibe allow-list tracks before relaxing', async () => {
+    // 5 genuinely on-vibe (ambient) + plenty of off-vibe-but-allowed (pop) tracks.
+    const lib = [
+      ...Array.from({ length: 5 },  (_, i) => libTrack(`amb${i}`, { genres: ['ambient'], affinity: 100 - i })),
+      ...Array.from({ length: 60 }, (_, i) => libTrack(`pop${i}`, { genres: ['pop'],     affinity: 60 - i })),
+    ];
+    const res = await mixPlaylist({
+      musicProfile: profile(lib, { genreSet: ['ambient', 'pop'] }),
+      aiParams: CALMISH,
+      fetchDiscoveryTracks: fetchOf([]),
+    });
+    // The on-vibe ambient tracks must be chosen ahead of the relaxed pop backfill.
+    const ids = res.merged.map((t) => t.id);
+    expect(ids).toEqual(expect.arrayContaining(['amb0', 'amb1', 'amb2', 'amb3', 'amb4']));
+  });
+});
+
 // ── strictPersonalize: the vibe pool is constrained to the user's taste ────────
 
 describe('mixPlaylist — strictPersonalize (personalization is the absolute filter)', () => {

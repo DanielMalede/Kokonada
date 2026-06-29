@@ -168,6 +168,32 @@ export async function exportPlaylist(
   return res.json();
 }
 
+/**
+ * Start Spotify playback of the given track URIs (jump-to-track from the queue).
+ * Pass the Web Playback SDK `deviceId` on desktop; omit it on mobile so the backend
+ * transfers playback to the user's active device. A 409 carries a reason: a missing
+ * scope surfaces as a `reconnect`-flagged error; no active device as `noActiveDevice`.
+ */
+export async function playTracks(
+  backendUrl: string,
+  uris: string[],
+  deviceId?: string | null,
+): Promise<void> {
+  const res = await fetch(`${backendUrl}/api/integrations/spotify/play`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(deviceId ? { uris, deviceId } : { uris }),
+  });
+  if (res.ok) return;
+  if (res.status === 409) {
+    const data = await res.json().catch(() => ({}));
+    if (data.reason === 'no_active_device') throw Object.assign(new Error('no_active_device'), { noActiveDevice: true });
+    throw Object.assign(new Error('reconnect_required'), { reconnect: true });
+  }
+  throw new Error(`playTracks failed: ${res.status}`);
+}
+
 /** Fetch watch connection status for the badge (hydrate on page load). */
 export async function fetchWatchStatus(
   backendUrl: string,
