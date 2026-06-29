@@ -2,5 +2,5 @@
     <!-- Backend base URL. Defaults to production; override for local dev. -->
     <property id="backendUrl" type="string">https://kokonada-backend-production.up.railway.app</property>
     <!-- The whr_… device token, pasted from the web app's WatchTokenCard. -->
-    <property id="watchToken" type="string"></property>
+    <property id="watchToken" type="string">YOUR_TOKEN_HERE</property>
 </properties>
