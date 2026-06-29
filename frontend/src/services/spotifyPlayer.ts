@@ -22,6 +22,7 @@ interface SpotifyPlayer {
   pause(): Promise<void>;
   resume(): Promise<void>;
   nextTrack(): Promise<void>;
+  previousTrack(): Promise<void>;
   seek(positionMs: number): Promise<void>;
   addListener(event: string, cb: (data: unknown) => void): boolean;
   removeListener(event: string, cb?: (data: unknown) => void): boolean;
@@ -101,7 +102,10 @@ class SpotifyPlayerService {
         paused: boolean;
         position: number;
         duration: number;
-        track_window?: { current_track?: { uri?: string } };
+        track_window?: { current_track?: {
+          uri?: string;
+          album?: { images?: { url?: string }[] };
+        } };
       };
       this.isCurrentlyPaused = s.paused;
       this.currentPositionMs = s.position;
@@ -111,6 +115,10 @@ class SpotifyPlayerService {
         positionMs: s.position,
         durationMs: s.duration,
         currentTrackUri: s.track_window?.current_track?.uri ?? null,
+        // Bug 4: surface the cover art (first/largest image) so the player can
+        // render it. Optional-chained so podcasts/local tracks with no album art
+        // degrade to null rather than throwing on images[0].
+        currentTrackImage: s.track_window?.current_track?.album?.images?.[0]?.url ?? null,
       });
 
       if (!s.paused) {
@@ -157,6 +165,10 @@ class SpotifyPlayerService {
 
   async nextTrack(): Promise<void> {
     await this.player?.nextTrack();
+  }
+
+  async previousTrack(): Promise<void> {
+    await this.player?.previousTrack();
   }
 
   /**

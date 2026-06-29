@@ -16,6 +16,7 @@ export interface SpotifySDKState {
   positionMs?: number;
   durationMs?: number;
   currentTrackUri?: string | null;
+  currentTrackImage?: string | null;
 }
 
 interface PlayerState {
@@ -39,6 +40,7 @@ interface PlayerState {
   pendingPlaylist: Track[];
   pendingMode: 'live' | 'export' | null;
   sdkCurrentTrackUri: string | null;
+  sdkCurrentTrackImage: string | null;
   // Bumped to Date.now() whenever generation fails or returns an empty/malformed
   // payload, so views can clear a "generating…" overlay and toast the error
   // instead of spinning until a timeout.
@@ -61,6 +63,7 @@ const initialState: PlayerState = {
   pendingPlaylist: [],
   pendingMode: null,
   sdkCurrentTrackUri: null,
+  sdkCurrentTrackImage: null,
   lastErrorAt: null,
 };
 
@@ -105,13 +108,26 @@ const playerSlice = createSlice({
       state.playbackMode = action.payload;
     },
     setSdkState(state, action: PayloadAction<SpotifySDKState>) {
-      const { deviceId, isReady, isPaused, positionMs, durationMs, currentTrackUri } = action.payload;
+      const { deviceId, isReady, isPaused, positionMs, durationMs, currentTrackUri, currentTrackImage } = action.payload;
       if (deviceId !== undefined) state.deviceId = deviceId;
       if (isReady !== undefined) state.sdkReady = isReady;
       if (isPaused !== undefined) state.sdkIsPaused = isPaused;
       if (positionMs !== undefined) state.sdkPositionMs = positionMs;
       if (durationMs !== undefined) state.sdkDurationMs = durationMs;
-      if (currentTrackUri !== undefined) state.sdkCurrentTrackUri = currentTrackUri;
+      if (currentTrackImage !== undefined) state.sdkCurrentTrackImage = currentTrackImage;
+      if (currentTrackUri !== undefined) {
+        state.sdkCurrentTrackUri = currentTrackUri;
+        // Bug 3: the SDK's reported track is the single source of truth. Snap
+        // currentIndex to whatever Spotify is actually playing (button press OR
+        // auto-advance) so the displayed track + queue never drift. A uri that
+        // isn't in the active list (null, or playback of something external)
+        // leaves the index where it was.
+        if (currentTrackUri) {
+          const list = state.isOnline ? state.playlist : state.offlineBuffer;
+          const idx = list.findIndex((t) => t.uri === currentTrackUri);
+          if (idx >= 0) state.currentIndex = idx;
+        }
+      }
     },
     setPlaylistError(state) {
       state.lastErrorAt = Date.now();

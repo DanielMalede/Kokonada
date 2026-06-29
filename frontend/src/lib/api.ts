@@ -115,6 +115,59 @@ export async function revokeWatchToken(backendUrl: string): Promise<void> {
   if (!res.ok) throw new Error(`revokeWatchToken failed: ${res.status}`);
 }
 
+/**
+ * Like (save) or unlike (remove) a track in the user's Spotify "Liked Songs"
+ * (Bug 7). PUT to save, DELETE to remove. A 409 means the stored token predates
+ * the user-library-modify scope — surfaced as a `reconnect`-flagged error so the
+ * caller can prompt a Spotify reconnect.
+ */
+export async function setTrackSaved(backendUrl: string, id: string, saved: boolean): Promise<void> {
+  const res = await fetch(`${backendUrl}/api/integrations/spotify/saved-tracks`, {
+    method: saved ? 'PUT' : 'DELETE',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ ids: [id] }),
+  });
+  if (res.status === 409) throw Object.assign(new Error('reconnect_required'), { reconnect: true });
+  if (!res.ok) throw new Error(`setTrackSaved failed: ${res.status}`);
+}
+
+/** Fetch the liked-state map for the given track ids (Bug 7 heart state). */
+export async function fetchTracksSaved(
+  backendUrl: string,
+  ids: string[],
+): Promise<Record<string, boolean>> {
+  const clean = ids.filter(Boolean);
+  if (clean.length === 0) return {};
+  const res = await fetch(
+    `${backendUrl}/api/integrations/spotify/saved-tracks?ids=${encodeURIComponent(clean.join(','))}`,
+    { method: 'GET', credentials: 'include', headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error(`fetchTracksSaved failed: ${res.status}`);
+  const data = await res.json();
+  return (data.saved ?? {}) as Record<string, boolean>;
+}
+
+/**
+ * Export the current playlist as a new private Spotify playlist (Bug 6). Returns
+ * { playlistId?, url? }. Throws a `reconnect`-flagged error on a 409.
+ */
+export async function exportPlaylist(
+  backendUrl: string,
+  uris: string[],
+  name: string,
+): Promise<{ playlistId?: string; url?: string }> {
+  const res = await fetch(`${backendUrl}/api/integrations/spotify/export`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ uris, name }),
+  });
+  if (res.status === 409) throw Object.assign(new Error('reconnect_required'), { reconnect: true });
+  if (!res.ok) throw new Error(`exportPlaylist failed: ${res.status}`);
+  return res.json();
+}
+
 /** Fetch watch connection status for the badge (hydrate on page load). */
 export async function fetchWatchStatus(
   backendUrl: string,

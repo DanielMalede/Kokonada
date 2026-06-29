@@ -11,6 +11,7 @@ function makeMockPlayer() {
     pause:        vi.fn().mockResolvedValue(undefined),
     resume:       vi.fn().mockResolvedValue(undefined),
     nextTrack:    vi.fn().mockResolvedValue(undefined),
+    previousTrack: vi.fn().mockResolvedValue(undefined),
     _listeners:   {} as Record<string, ((data: unknown) => void)[]>,
     addListener(event: string, cb: (data: unknown) => void) {
       this._listeners[event] = this._listeners[event] ?? [];
@@ -106,6 +107,48 @@ describe('SpotifyPlayerService', () => {
     mockPlayer._emit('player_state_changed', { paused: true, position: 0, duration: 0 });
 
     expect(cb).toHaveBeenCalledWith(expect.objectContaining({ currentTrackUri: null }));
+  });
+
+  it('emits the album art url from player_state_changed (Bug 4)', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    const cb = vi.fn();
+    spotifyPlayerService.onStateChange(cb);
+
+    await spotifyPlayerService.init(async () => 'test_token');
+    mockPlayer._emit('player_state_changed', {
+      paused: false,
+      position: 1000,
+      duration: 200000,
+      track_window: {
+        current_track: {
+          uri: 'spotify:track:abc',
+          album: { images: [{ url: 'https://img/cover.jpg' }, { url: 'https://img/small.jpg' }] },
+        },
+      },
+    });
+
+    expect(cb).toHaveBeenCalledWith(expect.objectContaining({ currentTrackImage: 'https://img/cover.jpg' }));
+  });
+
+  it('emits currentTrackImage=null when the track has no album art', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    const cb = vi.fn();
+    spotifyPlayerService.onStateChange(cb);
+
+    await spotifyPlayerService.init(async () => 'test_token');
+    mockPlayer._emit('player_state_changed', {
+      paused: true, position: 0, duration: 0,
+      track_window: { current_track: { uri: 'spotify:track:abc', album: { images: [] } } },
+    });
+
+    expect(cb).toHaveBeenCalledWith(expect.objectContaining({ currentTrackImage: null }));
+  });
+
+  it('previousTrack() delegates to player.previousTrack() (Bug 2/5)', async () => {
+    const { spotifyPlayerService } = await import('../services/spotifyPlayer');
+    await spotifyPlayerService.init(async () => 'test_token');
+    await spotifyPlayerService.previousTrack();
+    expect(mockPlayer.previousTrack).toHaveBeenCalledOnce();
   });
 
   it('pause() delegates to player.pause()', async () => {
