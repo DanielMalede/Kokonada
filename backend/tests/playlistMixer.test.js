@@ -122,8 +122,8 @@ describe('mixPlaylist (50-song guarantee + discovery relevance)', () => {
     });
     expect(res.merged).toHaveLength(50);
     expect(uniq(res.merged)).toBe(true);
-    expect(res.familiar.length).toBe(35);  // 70%
-    expect(res.discovery.length).toBe(15);  // 30%
+    expect(res.familiar.length).toBe(28);  // 55% (lowered from 70% for more freshness)
+    expect(res.discovery.length).toBe(22);  // 45%
   });
 
   it('2.2 fills 50 entirely from discovery when the library is empty', async () => {
@@ -165,7 +165,9 @@ describe('mixPlaylist (50-song guarantee + discovery relevance)', () => {
 
   it('4.4 drops discovery outliers whose genres are outside the user taste', async () => {
     const disc = [
-      ...Array.from({ length: 20 }, (_, i) => discTrack(`rel${i}`, { genres: ['techno'] })),
+      // Supply must exceed the discovery target (45% of 50 = 22) so the off-taste
+      // outlier is never reached as backfill.
+      ...Array.from({ length: 30 }, (_, i) => discTrack(`rel${i}`, { genres: ['techno'] })),
       discTrack('OUTLIER', { genres: ['polka', 'death metal'] }),
     ];
     const res = await mixPlaylist({
@@ -186,9 +188,10 @@ describe('mixPlaylist (50-song guarantee + discovery relevance)', () => {
       aiParams: AI_PARAMS,
       fetchDiscoveryTracks: fetchOf(disc),
     });
-    // The duplicate id appears at most once (as a familiar track, never as discovery).
+    // The duplicate id is never resurfaced as discovery, and never double-counted
+    // (it may or may not be one of the variety-shuffled familiar picks).
     expect(res.discovery.map(t => t.id)).not.toContain(dupId);
-    expect(res.merged.filter(t => t.id === dupId)).toHaveLength(1);
+    expect(res.merged.filter(t => t.id === dupId).length).toBeLessThanOrEqual(1);
   });
 
   it('4.5b excludes discovery by a known artist (novelty against baseline)', async () => {
@@ -232,5 +235,85 @@ describe('mixPlaylist (50-song guarantee + discovery relevance)', () => {
       aiParams: AI_PARAMS,
       fetchDiscoveryTracks: () => Promise.reject(new Error('Spotify 500')),
     })).rejects.toThrow('Spotify 500');
+  });
+});
+
+// ── Bug 1: variety — the familiar block must not be a static lock ──────────────
+
+describe('mixPlaylist — familiar variety (Bug 1)', () => {
+  const richLibrary   = (n = 60) => Array.from({ length: n }, (_, i) => libTrack(`f${i}`, { affinity: n - i }));
+  const richDiscovery = (n = 40) => Array.from({ length: n }, (_, i) => discTrack(`d${i}`));
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
+
+  it('surfaces a different familiar subset across repeated generations', async () => {
+    const seen = new Set();
+    for (let n = 0; n < 6; n++) {
+      const res = await mixPlaylist({
+        musicProfile: profile(richLibrary(60)),
+        aiParams: AI_PARAMS,
+        fetchDiscoveryTracks: fetchOf(richDiscovery(40)),
+      });
+      res.familiar.forEach((t) => seen.add(t.id));
+    }
+    // A static 70%/55% block would only ever expose `familiarTarget` (28) ids.
+    // The variety window must surface strictly more than that across runs.
+    expect(seen.size).toBeGreaterThan(28);
+  });
+
+  it('still favours the highest-affinity tracks (window stays near the top)', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary(60)),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(richDiscovery(40)),
+    });
+    // Every familiar pick comes from the top-affinity window (~1.7×28 ≈ 48), never
+    // the long tail of low-affinity tracks (f48..f59).
+    const tailIds = Array.from({ length: 12 }, (_, i) => `f${48 + i}`);
+    expect(res.familiar.every((t) => !tailIds.includes(t.id))).toBe(true);
+  });
+});
+
+// ── Zero-tolerance strict sonic filter ────────────────────────────────────────
+
+describe('mixPlaylist — strict mood filter (zero-tolerance vibe)', () => {
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
+
+  const INTENSE_PARAMS = {
+    seed_genres:    ['metal', 'hard rock'],
+    allow_genres:   ['metal', 'hard rock', 'drum and bass', 'punk', 'hardcore'],
+    exclude_genres: ['acoustic', 'ambient', 'singer-songwriter'],
+    seed_artists:   [],
+  };
+
+  it('hard-excludes an off-vibe (acoustic) library favourite even at top affinity', async () => {
+    const lib = [
+      ...Array.from({ length: 20 }, (_, i) => libTrack(`m${i}`, { genres: ['metal'], affinity: 20 - i })),
+      libTrack('BALLAD', { genres: ['acoustic', 'singer-songwriter'], affinity: 999 }),
+    ];
+    const disc = [
+      ...Array.from({ length: 20 }, (_, i) => discTrack(`dm${i}`, { genres: ['hard rock'] })),
+      discTrack('DISC_BALLAD', { genres: ['acoustic'] }),
+    ];
+    const res = await mixPlaylist({
+      musicProfile: profile(lib, { genreSet: ['metal', 'hard rock'] }),
+      aiParams: INTENSE_PARAMS,
+      fetchDiscoveryTracks: fetchOf(disc),
+    });
+    const ids = res.merged.map((t) => t.id);
+    expect(ids).not.toContain('BALLAD');       // off-vibe familiar dropped
+    expect(ids).not.toContain('DISC_BALLAD');  // off-vibe discovery dropped
+  });
+
+  it('with no on-vibe familiar, fills from on-vibe discovery and never off-vibe library', async () => {
+    const lib = Array.from({ length: 30 }, (_, i) => libTrack(`a${i}`, { genres: ['acoustic'], affinity: 30 - i }));
+    const disc = Array.from({ length: 60 }, (_, i) => discTrack(`dm${i}`, { genres: ['metal'] }));
+    const res = await mixPlaylist({
+      musicProfile: profile(lib, { genreSet: ['metal'] }),
+      aiParams: INTENSE_PARAMS,
+      fetchDiscoveryTracks: fetchOf(disc),
+    });
+    expect(res.familiar).toHaveLength(0);                       // all library is off-vibe
+    expect(res.merged.length).toBeGreaterThan(0);              // still produces a playlist
+    expect(res.merged.every((t) => !(t.genres || []).includes('acoustic'))).toBe(true);
   });
 });

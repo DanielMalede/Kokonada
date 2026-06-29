@@ -4,6 +4,7 @@ const crypto           = require('crypto');
 const axios            = require('axios');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -140,7 +141,18 @@ function _parseAndValidate(raw) {
 function _variationLine(seed) {
   return seed == null
     ? ''
-    : `\n\nVariation token: ${seed} — pick a fresh, different selection of artists/genres than you would for other tokens, while staying within the user's taste above.`;
+    : `\n\nVariation token: ${seed} — deliberately pick a FRESH, different selection of seed_genres, seed_artists and mood_keywords than you would for any other token, while staying within the strict vibe and the user's taste above.`;
+}
+
+// Strict-curator directive (zero-tolerance vibe). Resolved from the emotion taps so
+// the LLM is nudged to avoid off-vibe genres and lean into the mood's energy. The
+// post-LLM applyMoodFallback then ENFORCES this deterministically — the directive is
+// only a nudge, the fallback is the guarantee.
+function _strictMoodLine(emotionTaps) {
+  const key = resolveMoodKey(emotionTaps);
+  if (!key) return '';
+  const d = MOOD_DESCRIPTORS[key];
+  return `\n\nAct as a STRICT CURATOR for a "${key}" session. You MUST AVOID these off-vibe genres entirely — never include them: ${d.exclude_genres.join(', ')}. Lean hard into this energy: ${d.mood_keywords.join(', ')}.`;
 }
 
 // ── Prompt builders ────────────────────────────────────────────────────────────
@@ -175,7 +187,7 @@ Analyse the emotional coordinates in the context of the user's taste profile and
   "seed_artists": <array of 0–3 artist names chosen ONLY from the user's known favourites — never invent names>,
   "seed_genres": <array of 1–3 genres chosen ONLY from this allowed list: ${allowedGenres}>,
   "mood_keywords": <array of 2–4 short search descriptors capturing the mood (e.g. "calm", "uplifting", "lo-fi", "late night") — these drive the actual track search>
-}${_variationLine(seed)}`;
+}${_strictMoodLine(emotionTaps)}${_variationLine(seed)}`;
 }
 
 /**
@@ -250,7 +262,11 @@ async function _callGemini(prompt) {
  */
 async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, fetchTracks, seed = null }) {
   const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed);
-  const params = await _callGemini(prompt);
+  const rawParams = await _callGemini(prompt);
+  // Zero-tolerance enforcement: deterministically override (empty text) or merge
+  // (custom text) the LLM picks with the strict mood descriptors so a stray off-vibe
+  // genre/keyword can never reach the Spotify search or the mixer.
+  const params = applyMoodFallback(rawParams, emotionTaps, textPrompt, musicProfile);
   return { params, tracks: await fetchTracks(params) };
 }
 
@@ -264,6 +280,11 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
 async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, seed = null }) {
   const prompt = _buildBiometricPrompt(musicProfile, biometric, seed);
   const params = await _callGemini(prompt);
+  // Robustness: an empty genre seed makes Spotify discovery early-return [] — backfill
+  // from the user's top genres so the heart-rate branch always has something to search.
+  if (!Array.isArray(params.seed_genres) || params.seed_genres.length === 0) {
+    params.seed_genres = (musicProfile.topGenres || []).slice(0, 2);
+  }
   return { params, tracks: await fetchTracks(params) };
 }
 

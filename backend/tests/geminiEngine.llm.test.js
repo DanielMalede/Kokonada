@@ -41,8 +41,10 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
       expect.objectContaining({ messages: [{ role: 'user', content: expect.any(String) }] }),
       expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-llm-key' }) }),
     );
-    expect(result.params).toEqual(VALID);
-    expect(fetchTracks).toHaveBeenCalledWith(VALID);
+    // Params are mood-normalized (strict vibe enforced) but the LLM's audio targets survive.
+    expect(result.params.target_bpm).toBe(120);
+    expect(result.params.exclude_genres.length).toBeGreaterThan(0);
+    expect(fetchTracks).toHaveBeenCalledWith(result.params);
   });
 
   it('throws (so the caller can fall back) when the provider returns invalid JSON', async () => {

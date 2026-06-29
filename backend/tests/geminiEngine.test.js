@@ -204,6 +204,14 @@ describe('_buildEmotionPrompt', () => {
     expect(prompt).toContain('indie');
     expect(prompt).toContain('ambient');
   });
+
+  it('injects a strict-curator directive naming the mood exclude genres (zero-tolerance)', () => {
+    const intenseTaps = [{ x: 0.1, y: 0.95 }];
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, intenseTaps, null);
+    expect(prompt.toLowerCase()).toMatch(/strict curator|must avoid|never include/);
+    // A specific INTENSE exclude genre that is NOT already present in the base prompt.
+    expect(prompt).toContain('singer-songwriter');
+  });
 });
 
 // ── _buildBiometricPrompt ──────────────────────────────────────────────────────
@@ -249,20 +257,23 @@ describe('buildEmotionPlaylist (Spotify provider)', () => {
     mockGenerateContent.mockClear();
   });
 
-  it('calls fetchTracks with the AI-generated parameters', async () => {
+  it('calls fetchTracks with the normalized (mood-enforced) parameters', async () => {
     makeGeminiResponse(VALID_AI_PARAMS);
     await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch });
-    expect(spotifyFetch).toHaveBeenCalledWith(VALID_AI_PARAMS);
+    expect(spotifyFetch).toHaveBeenCalledTimes(1);
+    const passed = spotifyFetch.mock.calls[0][0];
+    expect(passed.target_bpm).toBe(128);                 // LLM audio targets preserved
+    expect(passed.exclude_genres.length).toBeGreaterThan(0); // strict vibe attached
   });
 
-  it('returns both params and tracks', async () => {
+  it('returns both params and tracks (audio targets preserved)', async () => {
     makeGeminiResponse(VALID_AI_PARAMS);
     const result = await buildEmotionPlaylist({
       musicProfile: MUSIC_PROFILE,
       emotionTaps,
       fetchTracks: spotifyFetch,
     });
-    expect(result.params).toEqual(VALID_AI_PARAMS);
+    expect(result.params.target_bpm).toBe(128);
     expect(result.tracks).toEqual(spotifyTracks);
   });
 
@@ -313,6 +324,52 @@ describe('buildEmotionPlaylist (Spotify provider)', () => {
   });
 });
 
+// ── buildEmotionPlaylist — strict mood fallback (zero-tolerance vibe) ──────────
+
+describe('buildEmotionPlaylist — strict mood fallback', () => {
+  const intenseTaps = [{ x: 0.1, y: 0.95 }];
+  const fetch = jest.fn().mockResolvedValue([]);
+
+  beforeEach(() => {
+    fetch.mockClear();
+    mockGenerateContent.mockClear();
+  });
+
+  it('overrides an off-vibe LLM genre pick + attaches exclude_genres in the params fed to search', async () => {
+    makeGeminiResponse({ ...VALID_AI_PARAMS, seed_genres: ['jazz'] });
+    const res = await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps: intenseTaps, fetchTracks: fetch });
+    const passed = fetch.mock.calls[0][0];
+    expect(passed.seed_genres).not.toContain('jazz');
+    expect(passed.exclude_genres).toEqual(expect.arrayContaining(['acoustic']));
+    expect(res.params.exclude_genres).toEqual(expect.arrayContaining(['acoustic']));
+  });
+
+  it('preserves the LLM audio targets while overriding the vibe genres', async () => {
+    makeGeminiResponse({ ...VALID_AI_PARAMS, target_bpm: 142 });
+    const res = await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps: intenseTaps, fetchTracks: fetch });
+    expect(res.params.target_bpm).toBe(142);
+  });
+});
+
+// ── adjustBiometricPlaylist — empty-genre robustness ───────────────────────────
+
+describe('adjustBiometricPlaylist — empty seed_genres robustness', () => {
+  const biometric = { heartRate: 150, activity: 'running' };
+  const fetch = jest.fn().mockResolvedValue([]);
+
+  beforeEach(() => {
+    fetch.mockClear();
+    mockGenerateContent.mockClear();
+  });
+
+  it('backfills seed_genres from the user top genres when the LLM returns none', async () => {
+    makeGeminiResponse({ ...VALID_AI_PARAMS, seed_genres: [] });
+    const res = await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: fetch });
+    expect(res.params.seed_genres.length).toBeGreaterThan(0);
+    res.params.seed_genres.forEach((g) => expect(MUSIC_PROFILE.topGenres).toContain(g));
+  });
+});
+
 // ── buildEmotionPlaylist — YouTube Music provider ──────────────────────────────
 
 describe('buildEmotionPlaylist (YouTube Music provider)', () => {
@@ -325,10 +382,11 @@ describe('buildEmotionPlaylist (YouTube Music provider)', () => {
     mockGenerateContent.mockClear();
   });
 
-  it('calls YouTube fetchTracks with the same AI parameters', async () => {
+  it('calls YouTube fetchTracks with the normalized (mood-enforced) parameters', async () => {
     makeGeminiResponse(VALID_AI_PARAMS);
     await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: youtubeFetch });
-    expect(youtubeFetch).toHaveBeenCalledWith(VALID_AI_PARAMS);
+    expect(youtubeFetch).toHaveBeenCalledTimes(1);
+    expect(youtubeFetch.mock.calls[0][0].target_bpm).toBe(128);
   });
 
   it('returns YouTube tracks in the result', async () => {

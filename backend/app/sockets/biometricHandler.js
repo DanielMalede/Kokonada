@@ -9,7 +9,15 @@ const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../services/geminiEngine');
 const { mixPlaylist, generateFallbackPlaylist }  = require('../services/playlistMixer');
+const { buildMoodParams }      = require('../services/moodDescriptors');
 const { resolveMusicProvider } = require('../utils/providerSelect');
+
+// A heart rate must be physiologically plausible before it can drive a playlist.
+// The biometric_push content is attacker-controlled and a watch can momentarily
+// report 0 (no contact) or a spike — neither should mint a garbage target_bpm.
+function isPhysiologicalHR(n) {
+  return Number.isFinite(n) && n >= 30 && n <= 220;
+}
 
 const debounceMap = new Map();
 const HR_DELTA_THRESHOLD = 10;
@@ -137,7 +145,9 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
     const logs = await BiometricLog.find({ userId, recordedAt: { $gte: since } })
       .sort({ recordedAt: -1 })
       .limit(500);
-    const hrs = logs.map((l) => l.heartRate).filter((n) => Number.isFinite(n));
+    // Filter to physiological readings BEFORE averaging so a stray 0 (no-contact) or
+    // spiked sample can't drag the average to a junk value.
+    const hrs = logs.map((l) => l.heartRate).filter(isPhysiologicalHR);
     if (hrs.length > 0) {
       const avg = Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length);
       return { heartRate: avg, activity: logs[0].activity || state.latestActivity || 'unknown', source: 'last_30min' };
@@ -146,15 +156,15 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
     log(`[heart] BiometricLog query failed: ${e.message}`);
   }
 
-  if (Number.isFinite(state.stableHR)) {
+  if (isPhysiologicalHR(state.stableHR)) {
     return { heartRate: state.stableHR, activity: state.latestActivity || 'unknown', source: 'current' };
   }
-  if (Number.isFinite(clientHeartRate)) {
+  if (isPhysiologicalHR(clientHeartRate)) {
     return { heartRate: clientHeartRate, activity: state.latestActivity || 'unknown', source: 'client' };
   }
 
   const profile = await MusicProfile.findOne({ userId });
-  if (profile && Number.isFinite(profile.restingHeartRate)) {
+  if (profile && isPhysiologicalHR(profile.restingHeartRate)) {
     return { heartRate: profile.restingHeartRate, activity: 'resting', source: 'resting' };
   }
   return null;
@@ -228,9 +238,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // cache key (which is md5(prompt)).
     const seed = `${reqId ?? 'auto'}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
+    // Bug 8 — strict branch routing. Route to the mood/emotion pipeline whenever there
+    // is ANY emotion intent (mood taps OR a custom text prompt); a custom-text-only
+    // request must never fall through to the heart-rate branch and be ignored.
+    const useEmotion = trigger === 'emotion'
+      && (state.lastEmotionTaps.length > 0 || !!state.lastTextPrompt);
+
     let aiResult;
     try {
-      if (trigger === 'emotion' && state.lastEmotionTaps.length > 0) {
+      if (useEmotion) {
         aiResult = await buildEmotionPlaylist({
           musicProfile,
           emotionTaps:  state.lastEmotionTaps,
@@ -251,6 +267,39 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         });
       }
     } catch (err) {
+      // Zero-tolerance fallback: if the LLM is down mid-mood, build a deterministic,
+      // strictly on-vibe playlist from the mood descriptors (no AI, library-only so it
+      // never depends on a possibly-failing Spotify) rather than dumping off-vibe
+      // top-affinity favourites that violate the chosen vibe.
+      const moodParams = useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : null;
+      if (moodParams) {
+        try {
+          const moodPlaylist = await mixPlaylist({
+            musicProfile,
+            aiParams:             moodParams,
+            fetchDiscoveryTracks: () => Promise.resolve([]),
+            provider,
+          });
+          const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
+          if (moodTracks.length > 0) {
+            log(`[generate] LLM failed → on-vibe mood fallback tracks=${moodTracks.length} reqId=${reqId}`);
+            socket.emit('playlist_ready', {
+              trigger,
+              mode,
+              reqId,
+              params:    moodParams,
+              tracks:    moodTracks,
+              familiar:  moodPlaylist.familiar.length,
+              discovery: moodPlaylist.discovery.length,
+              fallback:  true,
+            });
+            return;
+          }
+        } catch (e2) {
+          log(`[generate] mood fallback failed: ${e2.message}`);
+        }
+      }
+
       const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}, provider), provider);
       if (fallbackTracks.length > 0) {
         log(`[generate] AI failed → fallback tracks=${fallbackTracks.length} reqId=${reqId}`);
@@ -298,10 +347,13 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     });
     log(`[generate] done trigger=${trigger} tracks=${clientTracks.length} familiar=${playlist.familiar.length} discovery=${playlist.discovery.length} reqId=${reqId}`);
 
+    // Session-history honesty: only record the emotion taps / prompt when the emotion
+    // pipeline actually drove this generation. A heart/biometric mix must not be
+    // labelled with stale mood context it never used.
     PlaylistSession.create({
       userId,
-      emotionTaps:       state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
-      contextPrompt:     state.lastTextPrompt || '',
+      emotionTaps:       useEmotion && state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
+      contextPrompt:     useEmotion ? (state.lastTextPrompt || '') : '',
       biometricSnapshot: { heartRate: state.stableHR, activity: state.latestActivity },
       targetBpm:         aiResult.params.target_bpm,
       targetGenres:      aiResult.params.seed_genres || [],

@@ -497,6 +497,70 @@ describe('mode + reqId threading', () => {
   });
 });
 
+// ── Agent 1: Bug 8 routing, session honesty, HR validation, mood fallback ─────
+
+describe('Bug 8 — strict branch routing', () => {
+  it('routes a custom-text-only request (no taps) to the emotion pipeline, not HR', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({
+      lastEmotionTaps: [],
+      lastTextPrompt:  'rainy day jazz',
+    }));
+    expect(geminiEngine.buildEmotionPlaylist).toHaveBeenCalled();
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+  });
+});
+
+describe('session-history honesty (records what actually drove the generation)', () => {
+  it('records the emotion taps + prompt for an emotion generation', async () => {
+    const socket = makeSocket();
+    const taps = [{ x: 0.1, y: 0.95 }];
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: taps, lastTextPrompt: 'gym' }));
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      emotionTaps: taps, contextPrompt: 'gym',
+    }));
+  });
+
+  it('does NOT record stale emotion context for a heart/biometric generation', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({
+      lastEmotionTaps: [{ x: 0.9, y: 0.9 }],
+      lastTextPrompt:  'stale mood',
+    }));
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      emotionTaps: [{ x: 0, y: 0 }], contextPrompt: '',
+    }));
+  });
+});
+
+describe('HR physiological validation (Bug: HR=0 / garbage / stale)', () => {
+  it('rejects a non-physiological logged HR and falls back to resting', async () => {
+    mockBiometricLogs([{ heartRate: 0, activity: 'x' }]);
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('request_heart_playlist', { mode: 'live', reqId: 11 });
+    await new Promise(r => setTimeout(r, 50));
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 60 }) }),
+    );
+  });
+});
+
+describe('mood-aware fallback when the LLM fails (zero-tolerance holds without AI)', () => {
+  it('builds a strictly on-vibe playlist instead of off-vibe library tracks', async () => {
+    geminiEngine.buildEmotionPlaylist.mockRejectedValue(new Error('Groq 429'));
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    // The fallback mix carried the strict mood exclude_genres (never a plain top-affinity dump).
+    const mixCall = playlistMixer.mixPlaylist.mock.calls.find(c => c[0].aiParams && c[0].aiParams.exclude_genres);
+    expect(mixCall).toBeDefined();
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({
+      trigger: 'emotion', fallback: true,
+    }));
+  });
+});
+
 // ── Socket event dispatch wiring ──────────────────────────────────────────────
 // Verify that socket events route to the correct trigger.
 // Uses fake timers only for the 60s debounce test.

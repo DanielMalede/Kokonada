@@ -1,8 +1,15 @@
 'use strict';
 
-const FAMILIAR_RATIO = 0.7;
+// Familiar share of each playlist. Lowered 0.7 → 0.55 so every generation pulls in
+// more fresh music (Bug 1: less of the same top-affinity block). Overridable for tuning.
+const FAMILIAR_RATIO = Number(process.env.FAMILIAR_RATIO) || 0.55;
 // Strictly 50 songs per generation (overridable for tests / future tuning).
 const PLAYLIST_SIZE = Number(process.env.PLAYLIST_SIZE) || 50;
+// Variety window: shuffle within the top (target × this) highest-affinity tracks so
+// repeated presses surface a different on-vibe subset instead of the same static block.
+const VARIETY_WINDOW = 1.7;
+
+const EMPTY_SET = new Set();
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
 
@@ -13,6 +20,18 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+/**
+ * Bug 1 fix: shuffle within the top-affinity window so the familiar block varies
+ * across presses, while never reaching into the low-affinity long tail. The first
+ * `target × VARIETY_WINDOW` tracks (all high-affinity) are shuffled; everything
+ * past the window keeps its affinity order as the backfill tail.
+ */
+function _varietyWindow(ordered, target) {
+  if (target <= 0 || ordered.length <= target) return shuffle(ordered);
+  const windowSize = Math.min(ordered.length, Math.ceil(target * VARIETY_WINDOW));
+  return [...shuffle(ordered.slice(0, windowSize)), ...ordered.slice(windowSize)];
 }
 
 function _dedupeById(tracks) {
@@ -60,13 +79,23 @@ function _isNovel(track, libraryIds, knownArtistIds) {
  * @param {Set<string>} moodGenres   lower-cased mood seed genres
  * @param {string|null} provider
  */
-function _orderFamiliar(library, moodGenres, provider) {
+function _orderFamiliar(library, moodGenres, provider, opts = {}) {
+  const excludeGenres = opts.excludeGenres || EMPTY_SET;
+  const allowGenres   = opts.allowGenres   || EMPTY_SET;
+  const strict        = !!opts.strict;
   const byAffinity = (a, b) => (b.affinity ?? 0) - (a.affinity ?? 0);
   const relevant = [];
   const rest     = [];
   for (const t of library) {
     if (!_matchesProvider(t, provider)) continue;
     const g = (t.genres || []).map(x => x.toLowerCase());
+    // Zero-tolerance strict filter (mood active): hard-exclude off-vibe genres and
+    // keep ONLY allow-list matches eligible — an off-vibe favourite is dropped, not
+    // ranked lower, and is never used to backfill an on-vibe mood.
+    if (strict) {
+      if (g.some(x => excludeGenres.has(x))) continue;
+      if (allowGenres.size && !g.some(x => allowGenres.has(x))) continue;
+    }
     if (moodGenres.size && g.some(x => moodGenres.has(x))) relevant.push(t);
     else rest.push(t);
   }
@@ -108,7 +137,7 @@ function _mergeNatural(familiar, discovery) {
  *   nonNovel  — already in the library / by a known artist (last-resort only)
  * Each tier is shuffled so repeated generations vary ("fresh every press").
  */
-function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider }) {
+function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres = EMPTY_SET }) {
   const eligible = _dedupeById(rawDiscovery.filter(t => t?.id && _matchesProvider(t, provider)));
 
   const relevant = [];
@@ -117,11 +146,14 @@ function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, p
   const nonNovel = [];
 
   for (const t of eligible) {
+    const g = (t.genres || []).map(x => x.toLowerCase());
+    // Zero-tolerance strict filter: drop off-vibe discovery candidates outright so a
+    // mood never surfaces an excluded genre (e.g. an acoustic track in an intense mix).
+    if (excludeGenres.size && g.some(x => excludeGenres.has(x))) continue;
     if (!_isNovel(t, libraryIds, knownArtistIds)) {
       if (!libraryIds.has(t.id)) nonNovel.push(t); // never resurface a library track as "discovery"
       continue;
     }
-    const g = (t.genres || []).map(x => x.toLowerCase());
     if (!g.length) looser.push(t);
     else if (g.some(x => genreSet.has(x))) relevant.push(t);
     else outliers.push(t);
@@ -156,10 +188,20 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   const knownArtistIds = new Set(musicProfile.knownArtistIds || []);
   const genreSet       = new Set((musicProfile.genreSet || []).map(g => g.toLowerCase()));
   const moodGenres     = new Set((aiParams.seed_genres || []).map(g => g.toLowerCase()));
+  // Strict sonic filter is active only when the mood attached exclude_genres
+  // (the HR/biometric branch attaches none, so it keeps the soft-bias behaviour).
+  const excludeGenres  = new Set((aiParams.exclude_genres || []).map(g => g.toLowerCase()));
+  const allowGenres    = new Set((aiParams.allow_genres || aiParams.seed_genres || []).map(g => g.toLowerCase()));
+  const strict         = excludeGenres.size > 0;
 
-  const familiarPool  = _orderFamiliar(library, moodGenres, provider);
+  // Variety window keeps the familiar block fresh across presses; in strict mode the
+  // pool is already filtered to on-vibe tracks, so it can never introduce off-vibe.
+  const familiarPool  = _varietyWindow(
+    _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres, strict }),
+    familiarTarget,
+  );
   const rawDiscovery  = (await fetchDiscoveryTracks(aiParams)) || [];
-  const discoveryPool = _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider });
+  const discoveryPool = _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres });
 
   // Initial 70/30 split.
   const familiar  = familiarPool.slice(0, familiarTarget);
