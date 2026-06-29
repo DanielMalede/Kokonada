@@ -14,7 +14,7 @@ const biometricLogSchema = new mongoose.Schema({
   },
   source: {
     type: String,
-    enum: ['garmin', 'apple_health', 'suunto'],
+    enum: ['garmin', 'apple_health', 'health_connect', 'suunto'],
     required: true,
   },
   recordedAt: { type: Date, required: true, default: Date.now },

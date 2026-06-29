@@ -66,22 +66,45 @@ async function exchangeCode(code) {
   };
 }
 
-// Refresh an expired access token using the stored refresh token
+// Refresh an expired access token using the stored refresh token.
+// A 400/401 from Spotify's token endpoint is not a transient error: the refresh
+// token has been revoked/expired, or SPOTIFY_CLIENT_ID/SECRET are wrong. There
+// is no automatic recovery — the user must reconnect Spotify. We log Spotify's
+// real status + error body (e.g. `invalid_grant` vs `invalid_client`) so the
+// true cause is visible, and surface a typed `reconnect_required` error instead
+// of an opaque 400 the frontend can't act on.
 async function refreshAccessToken(refreshToken) {
-  const { data } = await axios.post(
-    `${BASE_AUTH}/api/token`,
-    new URLSearchParams({
-      grant_type:    'refresh_token',
-      refresh_token: refreshToken,
-    }),
-    {
-      headers: {
-        Authorization: getAuthHeader(),
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      timeout: 8000,
+  let data;
+  try {
+    ({ data } = await axios.post(
+      `${BASE_AUTH}/api/token`,
+      new URLSearchParams({
+        grant_type:    'refresh_token',
+        refresh_token: refreshToken,
+      }),
+      {
+        headers: {
+          Authorization: getAuthHeader(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 8000,
+      }
+    ));
+  } catch (err) {
+    const status = err.response?.status;
+    console.error('[spotify] token refresh failed', {
+      status,
+      error: err.response?.data?.error ?? err.message,
+      description: err.response?.data?.error_description,
+    });
+    if (status === 400 || status === 401) {
+      throw Object.assign(
+        new Error('Spotify session expired — reconnect Spotify'),
+        { statusCode: 401, code: 'reconnect_required' },
+      );
     }
-  );
+    throw err; // network / 5xx — surface as a server error, not a reconnect prompt
+  }
   return {
     accessToken:  data.access_token,
     refreshToken: data.refresh_token || refreshToken, // Spotify may or may not rotate it
@@ -92,7 +115,7 @@ async function refreshAccessToken(refreshToken) {
 // Get a valid access token — refreshes automatically if within 5 min of expiry
 async function getValidToken(user) {
   const stored = user.getToken('spotifyToken');
-  if (!stored) throw Object.assign(new Error('Spotify not connected'), { statusCode: 400 });
+  if (!stored) throw Object.assign(new Error('Spotify not connected'), { statusCode: 400, code: 'spotify_not_connected' });
 
   const bufferMs = 5 * 60 * 1000;
   if (Date.now() < stored.expiresAt - bufferMs) {

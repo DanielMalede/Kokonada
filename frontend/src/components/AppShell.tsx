@@ -7,6 +7,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer';
 import { usePendingPromotion } from '@/hooks/usePendingPromotion';
 import { authHeaders } from '@/lib/api';
+import { sanitizeTrackUris } from '@/lib/spotifyUri';
 import { setMusicProvider, setBiometricProvider } from '@/store/slices/integrationsSlice';
 import EmotionAura from './EmotionAura';
 import BottomNav from './BottomNav';
@@ -64,10 +65,20 @@ export default function AppShell() {
     if (musicProvider !== 'spotify' || playlist.length === 0) return;
     if (playbackMode !== 'live' && playbackMode !== 'export') return;
 
-    const uris = playlist.map((t) => t.uri);
-    const key = `${playbackMode}:${uris.join(',')}`;
+    const rawUris = playlist.map((t) => t.uri);
+    // Drop malformed/cross-provider URIs before they reach Spotify (one bad URI
+    // 400s the whole request). Dedupe the effect on the RAW list so we act — or
+    // warn — exactly once per generated playlist.
+    const uris = sanitizeTrackUris(rawUris);
+    const key = `${playbackMode}:${rawUris.join(',')}`;
     if (handledPlaylistRef.current === key) return;
     handledPlaylistRef.current = key;
+
+    if (uris.length === 0) {
+      console.error(`[play] no valid Spotify URIs (of ${rawUris.length}) — skipping ${playbackMode}`);
+      toast.error('These tracks can’t be played on Spotify — try regenerating the playlist.');
+      return;
+    }
 
     if (playbackMode === 'export') {
       const name = `Kokonada — ${new Date().toLocaleDateString()}`;

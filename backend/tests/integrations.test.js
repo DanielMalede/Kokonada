@@ -52,6 +52,9 @@ jest.mock('../app/services/wearable/garmin', () => ({
 jest.mock('../app/services/wearable/appleHealth', () => ({
   ingestBatch: jest.fn(),
 }));
+jest.mock('../app/services/wearable/healthStore', () => ({
+  ingestBatch: jest.fn(),
+}));
 // suunto mock — only handleWebhook and getWorkouts need mocking here;
 // verifyWebhookSignature is tested via its real crypto logic below
 jest.mock('../app/services/wearable/suunto', () => ({
@@ -70,6 +73,7 @@ jest.mock('../app/models/User', () => ({
 const spotify     = require('../app/services/spotify');
 const youtube     = require('../app/services/youtube');
 const garmin      = require('../app/services/wearable/garmin');
+const healthStore = require('../app/services/wearable/healthStore');
 const User        = require('../app/models/User');
 const { signOauthState } = require('../app/utils/jwt');
 
@@ -558,5 +562,61 @@ describe('wearableStatus', () => {
     const res = buildRes();
     ctrl.wearableStatus(req, res);
     expect(res.json).toHaveBeenCalledWith({ provider: null, connected: false });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HEALTH-STORE BATCH INGEST (HealthKit / Health Connect medical-profile backfill)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('healthBatchIngest', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('ingests the batch via the health-store service and returns its result', async () => {
+    healthStore.ingestBatch.mockResolvedValue({ accepted: 3, profileMetrics: { restingHeartRate: 55 } });
+    const user = buildUser({ wearableProvider: 'apple_health' });
+    const samples = [{ type: 'heart_rate', value: 72, startDate: '2026-01-15T03:30:00Z' }];
+    const req = { user, body: { platform: 'healthkit', samples } };
+    const res = buildRes();
+
+    await ctrl.healthBatchIngest(req, res, jest.fn());
+
+    expect(healthStore.ingestBatch).toHaveBeenCalledWith(user._id, 'healthkit', samples);
+    expect(res.json).toHaveBeenCalledWith({ accepted: 3, profileMetrics: { restingHeartRate: 55 } });
+  });
+
+  it('marks wearableProvider on first push (health_connect → health_connect)', async () => {
+    healthStore.ingestBatch.mockResolvedValue({ accepted: 1 });
+    const user = buildUser({ wearableProvider: null });
+
+    await ctrl.healthBatchIngest({ user, body: { platform: 'health_connect', samples: [] } }, buildRes(), jest.fn());
+
+    expect(User.findByIdAndUpdate).toHaveBeenCalledWith(user._id, { wearableProvider: 'health_connect' });
+  });
+
+  it('does not re-set wearableProvider when already on the same provider', async () => {
+    healthStore.ingestBatch.mockResolvedValue({ accepted: 1 });
+    const user = buildUser({ wearableProvider: 'apple_health' });
+
+    await ctrl.healthBatchIngest({ user, body: { platform: 'healthkit', samples: [] } }, buildRes(), jest.fn());
+
+    expect(User.findByIdAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an unrecognised platform and never calls the service', async () => {
+    const res = buildRes();
+    await ctrl.healthBatchIngest({ user: buildUser(), body: { platform: 'fitbit', samples: [] } }, res, jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(healthStore.ingestBatch).not.toHaveBeenCalled();
+  });
+
+  it('forwards service errors to next (no raw 500 body)', async () => {
+    const err = new Error('db down');
+    healthStore.ingestBatch.mockRejectedValue(err);
+    const next = jest.fn();
+
+    await ctrl.healthBatchIngest({ user: buildUser(), body: { platform: 'healthkit', samples: [] } }, buildRes(), next);
+
+    expect(next).toHaveBeenCalledWith(err);
   });
 });

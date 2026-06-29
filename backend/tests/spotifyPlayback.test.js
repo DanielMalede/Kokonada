@@ -1,5 +1,5 @@
 const {
-  getSpotifyToken, playSpotifyTracks, exportSpotifyPlaylist,
+  getSpotifyToken, playSpotifyTracks, exportSpotifyPlaylist, getIntegrationsStatus,
 } = require('../app/controllers/integrationsController');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -13,6 +13,13 @@ function makeRes() {
 }
 
 const next = jest.fn();
+
+// Real-shaped 22-char Spotify track URIs (what the API actually accepts).
+const T1 = 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh';
+const T2 = 'spotify:track:1301WleyT98MSxVHPZCA6M';
+const T3 = 'spotify:track:7ouMYWpwJ422jRcDASZB7P';
+// Unplayable: a YouTube video id reconstructed as a Spotify URI (the prod bug).
+const BAD_YT = 'spotify:track:dQw4w9WgXcQ';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -52,13 +59,38 @@ describe('getSpotifyToken', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('calls next with error when getValidToken throws', async () => {
-    const err = Object.assign(new Error('Spotify not connected'), { statusCode: 400 });
-    spotify.getValidToken.mockRejectedValue(err);
-    const req = { user: {} };
+  it('returns 401 reconnect_required when the refresh token is rejected', async () => {
+    spotify.getValidToken.mockRejectedValue(
+      Object.assign(new Error('Spotify session expired — reconnect Spotify'), { statusCode: 401, code: 'reconnect_required' }),
+    );
     const res = makeRes();
 
-    await getSpotifyToken(req, res, next);
+    await getSpotifyToken({ user: {} }, res, next);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toMatchObject({ code: 'reconnect_required' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 spotify_not_connected when no token is stored', async () => {
+    spotify.getValidToken.mockRejectedValue(
+      Object.assign(new Error('Spotify not connected'), { statusCode: 400, code: 'spotify_not_connected' }),
+    );
+    const res = makeRes();
+
+    await getSpotifyToken({ user: {} }, res, next);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: 'spotify_not_connected' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('forwards an uncoded error to next', async () => {
+    const err = Object.assign(new Error('network down'), { statusCode: 500 });
+    spotify.getValidToken.mockRejectedValue(err);
+    const res = makeRes();
+
+    await getSpotifyToken({ user: {} }, res, next);
 
     expect(next).toHaveBeenCalledWith(err);
   });
@@ -74,15 +106,12 @@ describe('playSpotifyTracks', () => {
 
   it('plays on the given deviceId (desktop SDK) and responds 204', async () => {
     spotify.playTracks.mockResolvedValue();
-    const req = {
-      user: {},
-      body: { uris: ['spotify:track:aaa', 'spotify:track:bbb'], deviceId: 'dev_123' },
-    };
+    const req = { user: {}, body: { uris: [T1, T2], deviceId: 'dev_123' } };
     const res = makeRes();
 
     await playSpotifyTracks(req, res, next);
 
-    expect(spotify.playTracks).toHaveBeenCalledWith('tok_abc', ['spotify:track:aaa', 'spotify:track:bbb'], 'dev_123');
+    expect(spotify.playTracks).toHaveBeenCalledWith('tok_abc', [T1, T2], 'dev_123');
     expect(spotify.getActiveDevice).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(204);
     expect(res.ended).toBe(true);
@@ -99,22 +128,44 @@ describe('playSpotifyTracks', () => {
     expect(spotify.playTracks).not.toHaveBeenCalled();
   });
 
+  it('forwards only the valid URIs when the list is mixed (drops malformed/cross-provider)', async () => {
+    spotify.playTracks.mockResolvedValue();
+    const req = { user: {}, body: { uris: [T1, BAD_YT, 'spotify:track:short', T2, undefined], deviceId: 'dev_123' } };
+    const res = makeRes();
+
+    await playSpotifyTracks(req, res, next);
+
+    expect(spotify.playTracks).toHaveBeenCalledWith('tok_abc', [T1, T2], 'dev_123');
+    expect(res.statusCode).toBe(204);
+  });
+
+  it('returns 422 no_playable_tracks when no URI is a valid Spotify track', async () => {
+    const req = { user: {}, body: { uris: [BAD_YT, 'https://open.spotify.com/track/x', null], deviceId: 'dev_123' } };
+    const res = makeRes();
+
+    await playSpotifyTracks(req, res, next);
+
+    expect(res.statusCode).toBe(422);
+    expect(res.body).toMatchObject({ code: 'no_playable_tracks' });
+    expect(spotify.playTracks).not.toHaveBeenCalled();
+  });
+
   it('transfers to the active device when no deviceId is supplied (mobile)', async () => {
     spotify.getActiveDevice.mockResolvedValue('active_dev');
     spotify.playTracks.mockResolvedValue();
-    const req = { user: {}, body: { uris: ['spotify:track:aaa'] } };
+    const req = { user: {}, body: { uris: [T1] } };
     const res = makeRes();
 
     await playSpotifyTracks(req, res, next);
 
     expect(spotify.getActiveDevice).toHaveBeenCalledWith('tok_abc');
-    expect(spotify.playTracks).toHaveBeenCalledWith('tok_abc', ['spotify:track:aaa'], 'active_dev');
+    expect(spotify.playTracks).toHaveBeenCalledWith('tok_abc', [T1], 'active_dev');
     expect(res.statusCode).toBe(204);
   });
 
   it('returns 409 no_active_device when no deviceId and no active device exists', async () => {
     spotify.getActiveDevice.mockResolvedValue(null);
-    const req = { user: {}, body: { uris: ['spotify:track:aaa'] } };
+    const req = { user: {}, body: { uris: [T1] } };
     const res = makeRes();
 
     await playSpotifyTracks(req, res, next);
@@ -127,7 +178,7 @@ describe('playSpotifyTracks', () => {
   it('calls next with error when playback throws', async () => {
     const err = new Error('Device not found');
     spotify.playTracks.mockRejectedValue(err);
-    const req = { user: {}, body: { uris: ['spotify:track:aaa'], deviceId: 'dev_123' } };
+    const req = { user: {}, body: { uris: [T1], deviceId: 'dev_123' } };
     const res = makeRes();
 
     await playSpotifyTracks(req, res, next);
@@ -148,19 +199,28 @@ describe('exportSpotifyPlaylist', () => {
   });
 
   it('creates a playlist, adds tracks, and returns 201 with id + url', async () => {
-    const req = { user: {}, body: { uris: ['spotify:track:aaa', 'spotify:track:bbb'], name: 'Focus' } };
+    const req = { user: {}, body: { uris: [T1, T2], name: 'Focus' } };
     const res = makeRes();
 
     await exportSpotifyPlaylist(req, res, next);
 
     expect(spotify.createPlaylist).toHaveBeenCalledWith('tok_abc', 'spuser', 'Focus', expect.any(String));
-    expect(spotify.addTracksToPlaylist).toHaveBeenCalledWith('tok_abc', 'pl_1', ['spotify:track:aaa', 'spotify:track:bbb']);
+    expect(spotify.addTracksToPlaylist).toHaveBeenCalledWith('tok_abc', 'pl_1', [T1, T2]);
     expect(res.statusCode).toBe(201);
     expect(res.body).toMatchObject({ playlistId: 'pl_1', url: 'https://open.spotify.com/playlist/pl_1' });
   });
 
+  it('sanitizes URIs before adding (drops malformed)', async () => {
+    const req = { user: {}, body: { uris: [T1, BAD_YT, T3], name: 'Mix' } };
+    const res = makeRes();
+
+    await exportSpotifyPlaylist(req, res, next);
+
+    expect(spotify.addTracksToPlaylist).toHaveBeenCalledWith('tok_abc', 'pl_1', [T1, T3]);
+  });
+
   it('falls back to a default name when none is supplied', async () => {
-    const req = { user: {}, body: { uris: ['spotify:track:aaa'] } };
+    const req = { user: {}, body: { uris: [T1] } };
     const res = makeRes();
 
     await exportSpotifyPlaylist(req, res, next);
@@ -179,11 +239,22 @@ describe('exportSpotifyPlaylist', () => {
     expect(spotify.createPlaylist).not.toHaveBeenCalled();
   });
 
+  it('returns 422 no_playable_tracks when no URI is valid', async () => {
+    const req = { user: {}, body: { uris: [BAD_YT, 'nope'] } };
+    const res = makeRes();
+
+    await exportSpotifyPlaylist(req, res, next);
+
+    expect(res.statusCode).toBe(422);
+    expect(res.body).toMatchObject({ code: 'no_playable_tracks' });
+    expect(spotify.createPlaylist).not.toHaveBeenCalled();
+  });
+
   it('returns 409 reconnect_required on insufficient scope (403)', async () => {
     spotify.withFreshToken.mockRejectedValue(
       Object.assign(new Error('reconnect'), { statusCode: 403, code: 'insufficient_scope' }),
     );
-    const req = { user: {}, body: { uris: ['spotify:track:aaa'], name: 'X' } };
+    const req = { user: {}, body: { uris: [T1], name: 'X' } };
     const res = makeRes();
 
     await exportSpotifyPlaylist(req, res, next);
@@ -196,11 +267,39 @@ describe('exportSpotifyPlaylist', () => {
   it('forwards other errors to next', async () => {
     const err = new Error('network down');
     spotify.withFreshToken.mockRejectedValue(err);
-    const req = { user: {}, body: { uris: ['spotify:track:aaa'] } };
+    const req = { user: {}, body: { uris: [T1] } };
     const res = makeRes();
 
     await exportSpotifyPlaylist(req, res, next);
 
     expect(next).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── getIntegrationsStatus ─────────────────────────────────────────────────────
+
+describe('getIntegrationsStatus', () => {
+  it('reports the token-backed provider, not a stale musicProvider string', () => {
+    // musicProvider says spotify but only YouTube is connected — heal the desync.
+    const req = { user: {
+      musicProvider: 'spotify',
+      spotifyToken: null,
+      youtubeMusicToken: { blob: 'enc-yt' },
+      wearableProvider: 'garmin',
+    } };
+    const res = makeRes();
+
+    getIntegrationsStatus(req, res);
+
+    expect(res.body).toEqual({ musicProvider: 'youtube', biometricProvider: 'garmin' });
+  });
+
+  it('reports null music provider when neither token is stored', () => {
+    const req = { user: { musicProvider: 'spotify', spotifyToken: null, youtubeMusicToken: null, wearableProvider: null } };
+    const res = makeRes();
+
+    getIntegrationsStatus(req, res);
+
+    expect(res.body).toEqual({ musicProvider: null, biometricProvider: null });
   });
 });

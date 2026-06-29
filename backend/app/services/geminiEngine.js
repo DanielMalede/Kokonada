@@ -33,6 +33,13 @@ function getModel() {
  * @returns {{ target_bpm, target_energy, target_valence, target_acousticness, seed_artists, seed_genres }}
  */
 function _parseAndValidate(raw) {
+  // Empty / non-string responses (model returned nothing, a safety block, or a
+  // timeout surfaced an undefined body) must fail loudly so the caller falls
+  // back — never let them crash on `raw.slice` inside the catch below.
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    throw new Error('Gemini returned an empty response');
+  }
+
   let parsed;
   try {
     // Strip markdown code fences Gemini sometimes wraps responses in
@@ -50,8 +57,11 @@ function _parseAndValidate(raw) {
 
   const inRange = (v) => typeof v === 'number' && v >= 0 && v <= 1;
 
-  if (typeof parsed.target_bpm !== 'number') {
-    throw new Error('target_bpm must be a number');
+  // `typeof NaN === 'number'`, so an unconstrained check would let NaN / Infinity
+  // / absurd tempos (negative, 9999) through into the recommendations call.
+  if (typeof parsed.target_bpm !== 'number' || !Number.isFinite(parsed.target_bpm)
+      || parsed.target_bpm < 30 || parsed.target_bpm > 250) {
+    throw new Error('target_bpm must be a finite number between 30 and 250');
   }
   if (!inRange(parsed.target_energy)) {
     throw new Error('target_energy must be a number between 0 and 1');

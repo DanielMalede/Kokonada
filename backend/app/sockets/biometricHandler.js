@@ -9,6 +9,7 @@ const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../services/geminiEngine');
 const { mixPlaylist, generateFallbackPlaylist }  = require('../services/playlistMixer');
+const { resolveMusicProvider } = require('../utils/providerSelect');
 
 const debounceMap = new Map();
 const HR_DELTA_THRESHOLD = 10;
@@ -34,7 +35,15 @@ function toClientTrack(t, provider) {
   if (!t) return null;
   const id = t.id ?? null;
   let uri = t.uri ?? null;
-  if (!uri && id && provider === 'spotify') uri = `spotify:track:${id}`;
+  // Only reconstruct a Spotify URI for a GENUINELY Spotify track. A familiar/
+  // fallback library entry tagged with a different provider (e.g.
+  // `youtube_music`) has a YouTube video id — rebuilding `spotify:track:<id>`
+  // from it mints a malformed URI that Spotify rejects with a 400 for the whole
+  // play request. Untagged tracks (legacy entries, Spotify recommendation
+  // objects) are assumed to match the active provider.
+  if (!uri && id && provider === 'spotify' && (!t.provider || t.provider === 'spotify')) {
+    uri = `spotify:track:${id}`;
+  }
   if (!uri) return null;
   return {
     id,
@@ -156,24 +165,24 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       return;
     }
 
-    const hasSpotify = !!user.spotifyToken?.blob;
-    const hasYoutube = !!user.youtubeMusicToken?.blob;
-    if (!hasSpotify && !hasYoutube) {
+    // Select the provider with a stored token (token-aware), so generation,
+    // GET /integrations/status, and the frontend SDK/playback all agree on one
+    // usable provider — no more "musicProvider says spotify but only YouTube is
+    // connected" desync that 400s the token + play calls.
+    const provider = resolveMusicProvider(user);
+    if (!provider) {
       socket.emit('playlist_error', { message: 'No music provider connected', reqId });
       return;
     }
 
     let fetchTracks;
-    let provider;
     try {
-      if (hasSpotify) {
+      if (provider === 'spotify') {
         const accessToken = await spotify.getValidToken(user);
         fetchTracks = (params) => spotify.getRecommendations(accessToken, params);
-        provider = 'spotify';
       } else {
         const accessToken = await youtube.getValidToken(user);
         fetchTracks = (params) => youtube.searchRecommendations(accessToken, params);
-        provider = 'youtube';
       }
     } catch (err) {
       socket.emit('playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
@@ -203,7 +212,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         });
       }
     } catch (err) {
-      const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}), provider);
+      const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}, provider), provider);
       if (fallbackTracks.length > 0) {
         log(`[generate] AI failed → fallback tracks=${fallbackTracks.length} reqId=${reqId}`);
         socket.emit('playlist_ready', {
@@ -439,4 +448,7 @@ module.exports = {
   generateAndEmitPlaylist,
   handleBiometricReading,
   _debounceMap: debounceMap,
+  // Exported for unit testing
+  toClientTrack,
+  toClientTracks,
 };

@@ -9,6 +9,7 @@ const MedicalProfile = require('../app/models/MedicalProfile');
 const {
   computeStateVector,
   upsertStateVector,
+  aggregateProfileMetrics,
 } = require('../app/services/medicalProfileService');
 
 // ── Fixture helpers ────────────────────────────────────────────────────────────
@@ -278,6 +279,60 @@ describe('computeStateVector — priority ordering', () => {
     });
     // Peak Athletic (priority 2) should win over Exhausted Commute (priority 5)
     expect(result.status).toBe('Peak Athletic Performance');
+  });
+});
+
+// ── aggregateProfileMetrics ────────────────────────────────────────────────────
+
+describe('aggregateProfileMetrics', () => {
+  const m = (metric, value) => ({ metric, value, unit: 'x', recordedAt: new Date(), source: 'apple_health' });
+
+  it('returns an empty object for no metrics', () => {
+    expect(aggregateProfileMetrics([])).toEqual({});
+  });
+
+  it('uses the single value when only one sample of a metric is present', () => {
+    expect(aggregateProfileMetrics([m('restingHeartRate', 55)])).toEqual({ restingHeartRate: 55 });
+  });
+
+  it('takes the median (odd count) of a profile-scalar metric', () => {
+    const out = aggregateProfileMetrics([
+      m('restingHeartRate', 58), m('restingHeartRate', 50), m('restingHeartRate', 54),
+    ]);
+    expect(out.restingHeartRate).toBe(54);
+  });
+
+  it('rounds the median of an even count to the nearest integer', () => {
+    const out = aggregateProfileMetrics([
+      m('hrv', 40), m('hrv', 42), m('hrv', 50), m('hrv', 52),
+    ]);
+    expect(out.hrv).toBe(46); // (42 + 50) / 2
+  });
+
+  it('aggregates several metric types independently', () => {
+    const out = aggregateProfileMetrics([
+      m('restingHeartRate', 60), m('restingHeartRate', 50),
+      m('spO2', 97), m('spO2', 95), m('spO2', 99),
+      m('respirationRate', 14),
+    ]);
+    expect(out).toEqual({ restingHeartRate: 55, spO2: 97, respirationRate: 14 });
+  });
+
+  it('aggregates sleep stage medians (deep/light/rem)', () => {
+    const out = aggregateProfileMetrics([
+      m('sleepDeep', 60), m('sleepDeep', 80),
+      m('sleepLight', 120),
+      m('sleepRem', 30),
+    ]);
+    expect(out).toEqual({ sleepDeep: 70, sleepLight: 120, sleepRem: 30 });
+  });
+
+  it('ignores raw heartRate samples (time-series, not a profile scalar)', () => {
+    const out = aggregateProfileMetrics([
+      m('heartRate', 72), m('heartRate', 130),
+      m('restingHeartRate', 55),
+    ]);
+    expect(out).toEqual({ restingHeartRate: 55 });
   });
 });
 

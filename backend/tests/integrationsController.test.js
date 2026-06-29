@@ -35,6 +35,7 @@ jest.mock('../app/services/youtube', () => ({
 }));
 jest.mock('../app/services/wearable/garmin',      () => ({ getRequestToken: jest.fn(), getAuthUrl: jest.fn(), getAccessToken: jest.fn(), getUserProfile: jest.fn() }));
 jest.mock('../app/services/wearable/appleHealth', () => ({ ingestBatch: jest.fn() }));
+jest.mock('../app/services/wearable/healthStore', () => ({ ingestBatch: jest.fn() }));
 jest.mock('../app/services/wearable/suunto',      () => ({ verifyWebhookSignature: jest.fn(), handleWebhook: jest.fn() }));
 jest.mock('../app/models/BiometricLog',  () => ({}));
 jest.mock('../app/models/User', () => ({

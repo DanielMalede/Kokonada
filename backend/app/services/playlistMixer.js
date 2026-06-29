@@ -131,13 +131,28 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
 
 /**
  * Emergency fallback — no AI. Returns the user's top N most-listened tracks.
- * @param {{ library?: Array<{ listenCount?: number }> }} musicProfile
+ *
+ * When a `provider` is given, only tracks from that provider (plus untagged
+ * legacy entries) are returned. This prevents a Spotify playback session from
+ * being seeded with YouTube library entries: their ids are YouTube video ids, so
+ * the pipeline would mint malformed `spotify:track:<youtube-id>` URIs that
+ * Spotify 400s. Omitting `provider` keeps the original unfiltered behavior.
+ *
+ * @param {{ library?: Array<{ listenCount?: number, provider?: string }> }} musicProfile
+ * @param {'spotify'|'youtube'|null} [provider=null]
  * @param {number} [n=10]
  * @returns {Array}
  */
-function generateFallbackPlaylist(musicProfile, n = 10) {
+function generateFallbackPlaylist(musicProfile, provider = null, n = 10) {
   const lib = musicProfile?.library ?? [];
+  const matchesProvider = (t) => {
+    if (!provider || !t.provider) return true; // no filter, or untagged legacy entry
+    if (provider === 'spotify') return t.provider === 'spotify';
+    if (provider === 'youtube') return t.provider === 'youtube' || t.provider === 'youtube_music';
+    return true;
+  };
   return [...lib]
+    .filter(matchesProvider)
     .sort((a, b) => (b.listenCount ?? 0) - (a.listenCount ?? 0))
     .slice(0, n);
 }

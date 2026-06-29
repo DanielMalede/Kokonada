@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '../store';
 import { setSdkState } from '../store/slices/playerSlice';
+import { toast } from 'sonner';
 import { spotifyPlayerService } from '../services/spotifyPlayer';
 import { authHeaders } from '@/lib/api';
 
@@ -12,7 +13,19 @@ async function fetchSpotifyToken(): Promise<string> {
     credentials: 'include',
     headers: authHeaders(),
   });
-  if (!res.ok) throw new Error(`Spotify token fetch failed: ${res.status}`);
+  if (!res.ok) {
+    // 401 reconnect_required = the stored refresh token was revoked/expired.
+    // Prompt a reconnect instead of silently failing the SDK forever.
+    if (res.status === 401) {
+      const data = await res.json().catch(() => ({}));
+      if (data.code === 'reconnect_required') {
+        toast.error('Reconnect Spotify to keep playing', {
+          action: { label: 'Reconnect', onClick: () => { window.location.href = '/integrations'; } },
+        });
+      }
+    }
+    throw new Error(`Spotify token fetch failed: ${res.status}`);
+  }
   const data = await res.json() as { access_token: string };
   return data.access_token;
 }

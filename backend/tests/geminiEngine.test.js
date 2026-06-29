@@ -97,6 +97,41 @@ describe('_parseAndValidate', () => {
   it('returns the parsed object on valid input', () => {
     expect(_parseAndValidate(JSON.stringify(VALID_AI_PARAMS))).toEqual(VALID_AI_PARAMS);
   });
+
+  // ── Hardening: empty / non-finite / out-of-range ─────────────────────────────
+
+  it('throws on an empty string response', () => {
+    expect(() => _parseAndValidate('')).toThrow('empty response');
+  });
+
+  it('throws on a whitespace-only response', () => {
+    expect(() => _parseAndValidate('   \n  ')).toThrow('empty response');
+  });
+
+  it('throws on undefined / non-string (no crash in the catch)', () => {
+    expect(() => _parseAndValidate(undefined)).toThrow('empty response');
+    expect(() => _parseAndValidate(null)).toThrow('empty response');
+  });
+
+  it('throws when target_bpm is NaN (typeof NaN === "number" must not slip through)', () => {
+    // NaN cannot survive JSON, so build the object and re-stringify a sentinel.
+    expect(() => _parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, target_bpm: 'x' }).replace('"x"', 'NaN')))
+      .toThrow(/JSON|target_bpm/);
+  });
+
+  it('throws when target_bpm is below the sane floor', () => {
+    expect(() => _parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, target_bpm: -5 })))
+      .toThrow('target_bpm');
+  });
+
+  it('throws when target_bpm is an absurdly high tempo', () => {
+    expect(() => _parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, target_bpm: 9999 })))
+      .toThrow('target_bpm');
+  });
+
+  it('accepts a finite in-range target_bpm', () => {
+    expect(_parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, target_bpm: 90 })).target_bpm).toBe(90);
+  });
 });
 
 // ── _buildEmotionPrompt ────────────────────────────────────────────────────────
@@ -233,6 +268,15 @@ describe('buildEmotionPlaylist (Spotify provider)', () => {
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch })
     ).rejects.toThrow('missing required field');
+  });
+
+  it('throws a clear error when Gemini returns an empty body (caller falls back)', async () => {
+    mockGenerateContent.mockResolvedValueOnce({ response: { text: () => '' } });
+    await expect(
+      buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch })
+    ).rejects.toThrow('empty response');
+    // A failed parse must NOT reach the recommendations call.
+    expect(spotifyFetch).not.toHaveBeenCalled();
   });
 });
 

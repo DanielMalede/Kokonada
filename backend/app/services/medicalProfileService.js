@@ -207,4 +207,45 @@ async function upsertStateVector(userId, telemetry) {
   );
 }
 
-module.exports = { computeStateVector, upsertStateVector };
+// ── Backfill aggregation ────────────────────────────────────────────────────────
+
+// MedicalProfile scalar fields that summarise a baseline. Raw `heartRate` is
+// deliberately excluded — it is high-frequency time-series data stored per-row in
+// BiometricLog, not a single profile baseline.
+const PROFILE_SCALAR_METRICS = [
+  'restingHeartRate', 'hrv', 'respirationRate', 'spO2',
+  'sleepDeep', 'sleepLight', 'sleepRem',
+];
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+/**
+ * Collapse a batch of normalized health-store metrics into the scalar baselines
+ * stored on MedicalProfile. Uses the median per metric so a single workout HR
+ * spike or a dropped reading cannot skew the user's resting baseline.
+ *
+ * @param {Array<{ metric: string, value: number }>} metrics
+ * @returns {Object} subset of { restingHeartRate, hrv, respirationRate, spO2 }
+ */
+function aggregateProfileMetrics(metrics) {
+  const buckets = {};
+  for (const { metric, value } of metrics || []) {
+    if (!PROFILE_SCALAR_METRICS.includes(metric)) continue;
+    if (!Number.isFinite(value)) continue;
+    (buckets[metric] ||= []).push(value);
+  }
+
+  const out = {};
+  for (const metric of PROFILE_SCALAR_METRICS) {
+    if (buckets[metric]?.length) out[metric] = Math.round(median(buckets[metric]));
+  }
+  return out;
+}
+
+module.exports = { computeStateVector, upsertStateVector, aggregateProfileMetrics };

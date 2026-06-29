@@ -9,6 +9,7 @@ const {
   youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect,
   appleHealthPush,
+  healthBatchIngest,
   suuntoWebhook,
   wearableStatus,
   issueWatchToken, revokeWatchToken, watchHrIngest, watchStatus,
@@ -57,6 +58,9 @@ router.delete('/garmin/disconnect',  garminDisconnect);
 
 // Apple HealthKit (mobile push — no server-side OAuth needed)
 router.post('/apple/push',           appleHealthPush);
+
+// Health store batch (HealthKit / Health Connect medical-profile backfill + delta sync)
+router.post('/health/batch',         healthBatchIngest);
 
 // Suunto (webhook — raw body needed for HMAC)
 router.post('/suunto/webhook',       suuntoWebhook);
