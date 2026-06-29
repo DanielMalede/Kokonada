@@ -126,11 +126,22 @@ exports.spotifyStatus = (req, res) => {
   res.json({ connected });
 };
 
+// The auth middleware loads req.user with the encrypted token blobs stripped
+// (`.select('-spotifyToken -youtubeMusicToken -wearableToken')`) so they never
+// ride along on the request object. Any handler that must READ or REFRESH a
+// provider token — or report which provider is actually connected — has to
+// re-load the full document, or getToken()/resolveMusicProvider see no token and
+// wrongly report "not connected" (the silent token + playback 400 bug).
+function loadUserWithTokens(req) {
+  return User.findById(req.user._id);
+}
+
 // GET /api/integrations/spotify/token
 // Returns a valid (auto-refreshed) decrypted Spotify access token for the Web Playback SDK.
 exports.getSpotifyToken = async (req, res, next) => {
   try {
-    const accessToken = await spotify.getValidToken(req.user);
+    const user = await loadUserWithTokens(req);
+    const accessToken = await spotify.getValidToken(user);
     res.json({ access_token: accessToken });
   } catch (err) {
     // Differentiate so the frontend can act: a revoked/expired refresh token
@@ -167,7 +178,8 @@ exports.playSpotifyTracks = async (req, res, next) => {
       return res.status(422).json({ error: 'No playable Spotify track URIs', code: 'no_playable_tracks' });
     }
 
-    await spotify.withFreshToken(req.user, async (token) => {
+    const user = await loadUserWithTokens(req);
+    await spotify.withFreshToken(user, async (token) => {
       let target = deviceId;
       if (!target) {
         target = await spotify.getActiveDevice(token);
@@ -204,7 +216,8 @@ exports.exportSpotifyPlaylist = async (req, res, next) => {
     }
     const playlistName = (typeof name === 'string' && name.trim()) || 'Kokonada session';
 
-    const result = await spotify.withFreshToken(req.user, async (token) => {
+    const user = await loadUserWithTokens(req);
+    const result = await spotify.withFreshToken(user, async (token) => {
       const { spotifyId } = await spotify.getProfile(token);
       const playlist = await spotify.createPlaylist(
         token, spotifyId, playlistName,
@@ -622,12 +635,18 @@ exports.watchHrIngest = async (req, res, next) => {
 
 // GET /api/integrations/status
 // Returns the active music and biometric provider for the authenticated user.
-exports.getIntegrationsStatus = (req, res) => {
-  res.json({
-    // Report the EFFECTIVE provider (the one with a stored token), not a stale
-    // `musicProvider` string. This keeps the frontend from initializing the
-    // Spotify SDK / calling /spotify/play when no usable Spotify token exists.
-    musicProvider:    resolveMusicProvider(req.user),
-    biometricProvider: req.user.wearableProvider ?? null,
-  });
+exports.getIntegrationsStatus = async (req, res, next) => {
+  try {
+    // Re-load with the token blobs so resolveMusicProvider can actually see them
+    // (req.user has them stripped). Report the EFFECTIVE provider — the one with
+    // a stored token — not a stale `musicProvider` string, so the frontend drives
+    // the SDK/playback for a provider that really has a usable token.
+    const user = await loadUserWithTokens(req);
+    res.json({
+      musicProvider:     resolveMusicProvider(user),
+      biometricProvider: user.wearableProvider ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
