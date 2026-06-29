@@ -6,6 +6,7 @@ const {
   connectToken,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   getSpotifyToken, playSpotifyTracks, exportSpotifyPlaylist,
+  saveSpotifyTracks, removeSpotifyTracks, getSpotifyTracksSaved,
   youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect, garminWebhook,
   appleHealthPush,
@@ -46,6 +47,9 @@ router.get('/spotify/status',        spotifyStatus);
 router.get('/spotify/token',         getSpotifyToken);
 router.post('/spotify/play',         playSpotifyTracks);
 router.post('/spotify/export',       exportSpotifyPlaylist);
+router.get('/spotify/saved-tracks',     getSpotifyTracksSaved);  // ?ids=a,b → heart state
+router.put('/spotify/saved-tracks',     saveSpotifyTracks);      // Like  (Bug 7)
+router.delete('/spotify/saved-tracks',  removeSpotifyTracks);    // Unlike
 
 // YouTube Music (callback registered publicly above)
 router.get('/youtube/connect',        youtubeConnect);

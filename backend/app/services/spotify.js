@@ -21,6 +21,10 @@ const SCOPES = [
   // from listening history. Adding a scope means each user must reconnect Spotify
   // once to re-consent (buildProfile degrades gracefully on a pre-consent token).
   'user-library-read',
+  // Required to save/remove "Liked Songs" (PUT/DELETE /me/tracks) for the Like
+  // button. Another scope add → existing users must reconnect once; the save
+  // endpoint detects the 403 and prompts a reconnect (same as the export flow).
+  'user-library-modify',
   'streaming',
   'playlist-modify-public',
   'playlist-modify-private',
@@ -525,9 +529,61 @@ async function addTracksToPlaylist(accessToken, playlistId, uris) {
   }
 }
 
+// /me/tracks PUT/DELETE/contains all cap at 50 ids per request.
+const SAVED_TRACKS_BATCH = 50;
+
+/**
+ * Saves track ids to the user's "Liked Songs" (PUT /me/tracks). Idempotent on
+ * Spotify's side. Batched by 50. Requires the user-library-modify scope.
+ */
+async function saveTracks(accessToken, ids) {
+  const list = (ids || []).filter(Boolean);
+  for (let i = 0; i < list.length; i += SAVED_TRACKS_BATCH) {
+    const batch = list.slice(i, i + SAVED_TRACKS_BATCH);
+    await axios.put(
+      `${BASE_API}/me/tracks`,
+      { ids: batch },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 8_000 },
+    );
+  }
+}
+
+/**
+ * Removes track ids from the user's "Liked Songs" (DELETE /me/tracks). The ids go
+ * in the request BODY (axios `data`). Batched by 50. Requires user-library-modify.
+ */
+async function removeSavedTracks(accessToken, ids) {
+  const list = (ids || []).filter(Boolean);
+  for (let i = 0; i < list.length; i += SAVED_TRACKS_BATCH) {
+    const batch = list.slice(i, i + SAVED_TRACKS_BATCH);
+    await axios.delete(
+      `${BASE_API}/me/tracks`,
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, data: { ids: batch }, timeout: 8_000 },
+    );
+  }
+}
+
+/**
+ * Checks which of the given track ids are in the user's "Liked Songs"
+ * (GET /me/tracks/contains). Returns an id→boolean map. Only reads the first 50.
+ */
+async function areTracksSaved(accessToken, ids) {
+  const list = (ids || []).filter(Boolean).slice(0, SAVED_TRACKS_BATCH);
+  if (list.length === 0) return {};
+  const { data } = await axios.get(`${BASE_API}/me/tracks/contains`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: { ids: list.join(',') },
+    timeout: 8_000,
+  });
+  const out = {};
+  list.forEach((id, i) => { out[id] = Boolean(Array.isArray(data) ? data[i] : false); });
+  return out;
+}
+
 module.exports = {
   getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
   playTracks, getActiveDevice, createPlaylist, addTracksToPlaylist,
+  saveTracks, removeSavedTracks, areTracksSaved,
 };

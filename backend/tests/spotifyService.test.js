@@ -241,3 +241,45 @@ describe('getArtistsGenres', () => {
     expect(Object.keys(map)).toHaveLength(120);
   });
 });
+
+// ── Saved tracks (Bug 7 — Like / Liked Songs) ──────────────────────────────────
+
+describe('saveTracks / removeSavedTracks / areTracksSaved', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('saveTracks PUTs ids to /me/tracks, batched in groups of 50', async () => {
+    axios.put.mockResolvedValue({ data: '' });
+    const ids = Array.from({ length: 120 }, (_, i) => `id${i}`);
+    await spotify.saveTracks('tok', ids);
+    expect(axios.put).toHaveBeenCalledTimes(3); // 50 + 50 + 20
+    expect(axios.put.mock.calls[0][0]).toContain('/me/tracks');
+    expect(axios.put.mock.calls[0][1]).toEqual({ ids: ids.slice(0, 50) });
+  });
+
+  it('saveTracks no-ops on an empty id list', async () => {
+    await spotify.saveTracks('tok', []);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it('removeSavedTracks DELETEs ids from /me/tracks (ids in the request body), batched by 50', async () => {
+    axios.delete.mockResolvedValue({ data: '' });
+    const ids = Array.from({ length: 60 }, (_, i) => `id${i}`);
+    await spotify.removeSavedTracks('tok', ids);
+    expect(axios.delete).toHaveBeenCalledTimes(2);
+    expect(axios.delete.mock.calls[0][0]).toContain('/me/tracks');
+    expect(axios.delete.mock.calls[0][1]).toEqual(expect.objectContaining({ data: { ids: ids.slice(0, 50) } }));
+  });
+
+  it('areTracksSaved GETs /me/tracks/contains and returns an id→bool map', async () => {
+    axios.get.mockResolvedValue({ data: [true, false] });
+    const out = await spotify.areTracksSaved('tok', ['a', 'b']);
+    expect(axios.get.mock.calls[0][0]).toContain('/me/tracks/contains');
+    expect(axios.get.mock.calls[0][1].params.ids).toBe('a,b');
+    expect(out).toEqual({ a: true, b: false });
+  });
+
+  it('areTracksSaved returns {} for empty ids without calling the API', async () => {
+    expect(await spotify.areTracksSaved('tok', [])).toEqual({});
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+});

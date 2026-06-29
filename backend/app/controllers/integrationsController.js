@@ -237,6 +237,51 @@ exports.exportSpotifyPlaylist = async (req, res, next) => {
   }
 };
 
+// Like button (Bug 7). PUT/DELETE/GET /api/integrations/spotify/saved-tracks.
+// A 409 { reason: 'reconnect_required' } means the stored token predates the
+// user-library-modify scope, so the frontend prompts a Spotify reconnect.
+// PUT body: { ids: string[] } — save to Liked Songs.
+exports.saveSpotifyTracks = async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.filter(Boolean) : [];
+    if (ids.length === 0) return res.status(400).json({ error: 'ids must be a non-empty array' });
+    const user = await loadUserWithTokens(req);
+    await spotify.withFreshToken(user, (token) => spotify.saveTracks(token, ids));
+    res.status(204).end();
+  } catch (err) {
+    if (err.code === 'insufficient_scope') return res.status(409).json({ reason: 'reconnect_required', error: err.message });
+    next(err);
+  }
+};
+
+// DELETE body: { ids: string[] } — remove from Liked Songs.
+exports.removeSpotifyTracks = async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.filter(Boolean) : [];
+    if (ids.length === 0) return res.status(400).json({ error: 'ids must be a non-empty array' });
+    const user = await loadUserWithTokens(req);
+    await spotify.withFreshToken(user, (token) => spotify.removeSavedTracks(token, ids));
+    res.status(204).end();
+  } catch (err) {
+    if (err.code === 'insufficient_scope') return res.status(409).json({ reason: 'reconnect_required', error: err.message });
+    next(err);
+  }
+};
+
+// GET ?ids=a,b — returns { saved: { id: boolean } } so the UI can show the heart state.
+exports.getSpotifyTracksSaved = async (req, res, next) => {
+  try {
+    const ids = String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (ids.length === 0) return res.json({ saved: {} });
+    const user = await loadUserWithTokens(req);
+    const saved = await spotify.withFreshToken(user, (token) => spotify.areTracksSaved(token, ids));
+    res.json({ saved });
+  } catch (err) {
+    if (err.code === 'insufficient_scope') return res.status(409).json({ reason: 'reconnect_required', error: err.message });
+    next(err);
+  }
+};
+
 // ── YouTube Music ─────────────────────────────────────────────────────────────
 
 // GET /api/integrations/youtube/connect  (auth required)
