@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto           = require('crypto');
+const axios            = require('axios');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
 
@@ -24,6 +25,37 @@ function getModel() {
   // gemini-2.0-flash is the current fast/cheap GA model — ideal for this small,
   // latency-sensitive JSON task (see GEMINI_TIMEOUT_MS). Override via GEMINI_MODEL.
   return genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
+}
+
+// Provider-agnostic generation. If an OpenAI-compatible key is set (LLM_API_KEY,
+// e.g. a free Groq key — no credit card needed), call that endpoint; otherwise
+// fall back to the Gemini SDK. This lets the app run on a free provider when a
+// Google account has no Gemini quota (free_tier limit: 0). Returns the raw text.
+async function _generate(prompt) {
+  const llmKey = process.env.LLM_API_KEY || process.env.GROQ_API_KEY;
+  if (llmKey) {
+    const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
+    const model   = process.env.LLM_MODEL   || 'llama-3.3-70b-versatile';
+    const { data } = await axios.post(
+      `${baseUrl}/chat/completions`,
+      {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        // The prompts already demand strict JSON; json_object mode guarantees it.
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
+        timeout: GEMINI_TIMEOUT_MS,
+      },
+    );
+    return data.choices?.[0]?.message?.content ?? '';
+  }
+
+  const model  = getModel();
+  const result = await _withTimeout(GEMINI_TIMEOUT_MS, model.generateContent(prompt));
+  return result.response.text();
 }
 
 // ── Response validation ────────────────────────────────────────────────────────
@@ -170,9 +202,7 @@ async function _callGemini(prompt) {
     } catch { /* cache miss — proceed to API */ }
   }
 
-  const model  = getModel();
-  const result = await _withTimeout(GEMINI_TIMEOUT_MS, model.generateContent(prompt));
-  const parsed = _parseAndValidate(result.response.text());
+  const parsed = _parseAndValidate(await _generate(prompt));
 
   if (redis && cacheKey) {
     redis.setex(cacheKey, 86_400, JSON.stringify(parsed)).catch(() => {});
