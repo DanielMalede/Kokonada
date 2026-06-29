@@ -58,6 +58,41 @@ export async function buildConnectUrl(backendUrl: string, path: string): Promise
   }
 }
 
+/**
+ * Disconnects a connected music/biometric provider — revokes its stored token
+ * server-side and clears the connection. The user's derived taste/biometric
+ * profile is kept, so reconnecting is instant. Throws on a non-ok response.
+ */
+export async function disconnectProvider(
+  backendUrl: string,
+  provider: 'spotify' | 'youtube' | 'garmin',
+): Promise<void> {
+  const res = await fetch(`${backendUrl}/api/integrations/${provider}/disconnect`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`disconnect ${provider} failed: ${res.status}`);
+}
+
+/**
+ * Logs out of Kokonada: best-effort server-side token revoke (denylists the JWT),
+ * then ALWAYS clears the local session token so the user is signed out even if the
+ * network call fails. Never throws — local sign-out must always succeed.
+ */
+export async function logout(backendUrl: string): Promise<void> {
+  try {
+    await fetch(`${backendUrl}/api/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: authHeaders(),
+    });
+  } catch {
+    /* offline / server error — the local token clear below still signs the user out */
+  }
+  clearToken();
+}
+
 /** Mint a new watch device token (plaintext returned once). Throws on failure. */
 export async function issueWatchToken(backendUrl: string): Promise<string> {
   const res = await fetch(`${backendUrl}/api/integrations/watch/token`, {
