@@ -20,6 +20,7 @@ jest.mock('../app/models/BiometricLog', () => ({
 
 jest.mock('../app/models/PlaylistSession', () => ({
   create: jest.fn().mockResolvedValue({}),
+  find:   jest.fn(),
 }));
 
 jest.mock('../app/services/spotify', () => ({
@@ -180,10 +181,18 @@ beforeEach(() => {
   playlistMixer.mixPlaylist.mockResolvedValue(makeMixedPlaylist());
   playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
+  mockRecentSessions([]);
 });
 
 function mockBiometricLogs(logs) {
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve(logs) }) });
+}
+
+// Mock the recent-playlist cooldown read: find().sort().limit().select().lean().
+function mockRecentSessions(sessions) {
+  PlaylistSession.find.mockReturnValue({
+    sort: () => ({ limit: () => ({ select: () => ({ lean: () => Promise.resolve(sessions) }) }) }),
+  });
 }
 
 // ── generateAndEmitPlaylist — biometric trigger ───────────────────────────────
@@ -223,6 +232,20 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
       familiar:  FAMILIAR_TRACKS.length,
       discovery: DISCOVERY_TRACKS.length,
     }));
+  });
+
+  it('passes a cooldown set built from the last 3 playlists into mixPlaylist', async () => {
+    mockRecentSessions([
+      { trackIds: ['a', 'b'] },
+      { trackIds: ['b', 'c'] },
+      { trackIds: ['d'] },
+    ]);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    const arg = playlistMixer.mixPlaylist.mock.calls.at(-1)[0];
+    expect(arg.cooldownIds).toBeInstanceOf(Set);
+    expect([...arg.cooldownIds].sort()).toEqual(['a', 'b', 'c', 'd']);
   });
 
   it('calls mixPlaylist with aiParams from adjustBiometricPlaylist', async () => {

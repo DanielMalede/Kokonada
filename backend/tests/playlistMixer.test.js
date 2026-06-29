@@ -169,8 +169,25 @@ describe('mixPlaylist (50-song guarantee + discovery relevance)', () => {
     });
     expect(res.merged).toHaveLength(50);
     expect(uniq(res.merged)).toBe(true);
-    expect(res.familiar.length).toBe(28);  // 55% (lowered from 70% for more freshness)
-    expect(res.discovery.length).toBe(22);  // 45%
+    // 40/40/20 partition: 40% rotation + 40% deep cuts = 80% familiar (deep cuts are
+    // empty for a <100-track library, so the deep-cuts quota backfills from rotation).
+    expect(res.familiar.length).toBe(40);
+    expect(res.discovery.length).toBe(10);  // 20% true discovery
+  });
+
+  it('2.1b surfaces DEEP CUTS — loved tracks beyond the top-100 rotation', async () => {
+    // 130-track library: f0..f99 are the current rotation (highest affinity), f100..f129
+    // are deep cuts (lowest affinity). With no discovery, the playlist must surface some
+    // of those forgotten gems rather than only the top rotation.
+    const lib = Array.from({ length: 130 }, (_, i) => libTrack(`f${i}`, { affinity: 130 - i }));
+    const res = await mixPlaylist({
+      musicProfile: profile(lib),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf([]),
+    });
+    expect(res.merged).toHaveLength(50);
+    const deepCutIds = Array.from({ length: 30 }, (_, i) => `f${100 + i}`);
+    expect(res.merged.some((t) => deepCutIds.includes(t.id))).toBe(true);
   });
 
   it('2.2 fills 50 entirely from discovery when the library is empty', async () => {
@@ -362,6 +379,80 @@ describe('mixPlaylist — strict mood filter (zero-tolerance vibe)', () => {
     expect(res.familiar).toHaveLength(0);                       // all library is off-vibe
     expect(res.merged.length).toBeGreaterThan(0);              // still produces a playlist
     expect(res.merged.every((t) => !(t.genres || []).includes('acoustic'))).toBe(true);
+  });
+});
+
+// ── Tiered familiar rotation (seed picks the leading affinity band) ───────────
+describe('mixPlaylist — tiered familiar rotation (seed-weighted)', () => {
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
+  // A big rotation pool (>100) so the three affinity bands are distinct.
+  const bigLibrary = (n = 99) => Array.from({ length: n }, (_, i) => libTrack(`f${i}`, { affinity: n - i }));
+
+  it('different seeds lead with different affinity bands of the rotation', async () => {
+    // Collect the leading familiar id for many seeds; a fixed top-affinity lock would
+    // only ever lead with the same handful, so distinct leaders prove tier rotation.
+    const leaders = new Set();
+    for (let i = 0; i < 24; i++) {
+      const res = await mixPlaylist({
+        musicProfile: profile(bigLibrary()),
+        aiParams: AI_PARAMS,
+        fetchDiscoveryTracks: fetchOf([]),
+        seed: `seed-${i}`,
+      });
+      leaders.add(res.familiar[0].id);
+    }
+    expect(leaders.size).toBeGreaterThan(1);
+  });
+
+  it('is deterministic for a given seed (same leading band)', async () => {
+    // The leading TIER is seed-stable even though the variety window shuffles within it,
+    // so the same seed keeps drawing its leader from the same affinity band.
+    const band = (id) => Math.floor(Number(id.slice(1)) / Math.ceil(99 / 3));
+    const a = await mixPlaylist({ musicProfile: profile(bigLibrary()), aiParams: AI_PARAMS, fetchDiscoveryTracks: fetchOf([]), seed: 'fixed' });
+    const b = await mixPlaylist({ musicProfile: profile(bigLibrary()), aiParams: AI_PARAMS, fetchDiscoveryTracks: fetchOf([]), seed: 'fixed' });
+    expect(band(a.familiar[0].id)).toBe(band(b.familiar[0].id));
+  });
+});
+
+// ── Track cooldown (anti-repetition blacklist) ────────────────────────────────
+describe('mixPlaylist — track cooldown (anti-repetition)', () => {
+  const richLibrary   = (n = 60) => Array.from({ length: n }, (_, i) => libTrack(`f${i}`, { affinity: n - i }));
+  const richDiscovery = (n = 40) => Array.from({ length: n }, (_, i) => discTrack(`d${i}`));
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
+
+  it('excludes cooled-down ids from BOTH the familiar and discovery output', async () => {
+    const cooldownIds = new Set(['f0', 'f1', 'f2', 'f3', 'd0', 'd1', 'd2', 'd3']);
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary()),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(richDiscovery()),
+      cooldownIds,
+    });
+    const ids = res.merged.map((t) => t.id);
+    for (const id of cooldownIds) expect(ids).not.toContain(id);
+    expect(res.merged).toHaveLength(50); // ample fresh supply → still full
+  });
+
+  it('relaxes the cooldown only as a last resort rather than returning short', async () => {
+    // Every track that exists is on cooldown — a repeat still beats an empty playlist.
+    const lib = Array.from({ length: 50 }, (_, i) => libTrack(`f${i}`, { affinity: 50 - i }));
+    const cooldownIds = new Set(lib.map((t) => t.id));
+    const res = await mixPlaylist({
+      musicProfile: profile(lib),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf([]),
+      cooldownIds,
+    });
+    expect(res.merged.length).toBeGreaterThan(0);
+  });
+
+  it('defaults to no cooldown when none is supplied (back-compat)', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary()),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(richDiscovery()),
+    });
+    expect(res.merged).toHaveLength(50);
   });
 });
 
