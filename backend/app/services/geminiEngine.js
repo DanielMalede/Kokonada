@@ -35,22 +35,33 @@ async function _generate(prompt) {
   const llmKey = process.env.LLM_API_KEY || process.env.GROQ_API_KEY;
   if (llmKey) {
     const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
-    const model   = process.env.LLM_MODEL   || 'llama-3.3-70b-versatile';
-    const { data } = await axios.post(
-      `${baseUrl}/chat/completions`,
-      {
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        // The prompts already demand strict JSON; json_object mode guarantees it.
-        response_format: { type: 'json_object' },
-      },
-      {
-        headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
-        timeout: GEMINI_TIMEOUT_MS,
-      },
-    );
-    return data.choices?.[0]?.message?.content ?? '';
+    // 8b-instant is Groq's most stable always-on model and is plenty for this
+    // small structured-JSON task. Providers rotate larger models, so default to
+    // the safe one; override with LLM_MODEL for a bigger model.
+    const model   = process.env.LLM_MODEL   || 'llama-3.1-8b-instant';
+    try {
+      const { data } = await axios.post(
+        `${baseUrl}/chat/completions`,
+        {
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.7,
+          // The prompts already demand strict JSON; json_object mode guarantees it.
+          response_format: { type: 'json_object' },
+        },
+        {
+          headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
+          timeout: GEMINI_TIMEOUT_MS,
+        },
+      );
+      return data.choices?.[0]?.message?.content ?? '';
+    } catch (err) {
+      // Surface the provider's real reason (e.g. a decommissioned model) instead
+      // of axios's opaque "Request failed with status code 404".
+      const apiMsg = err.response?.data?.error?.message || err.message;
+      console.error('[llm] request failed', { status: err.response?.status, model, error: apiMsg });
+      throw new Error(`LLM request failed (${model}): ${apiMsg}`);
+    }
   }
 
   const model  = getModel();

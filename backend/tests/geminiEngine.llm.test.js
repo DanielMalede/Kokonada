@@ -60,4 +60,14 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn() }),
     ).rejects.toThrow('empty response');
   });
+
+  it('surfaces the provider error message on a model 404 (not axios\'s opaque text)', async () => {
+    axios.post.mockRejectedValue({
+      response: { status: 404, data: { error: { message: 'The model `foo` does not exist or you do not have access to it.' } } },
+    });
+
+    await expect(
+      buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn() }),
+    ).rejects.toThrow('does not exist');
+  });
 });
