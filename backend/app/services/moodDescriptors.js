@@ -29,16 +29,21 @@ const MOODS = [
 ];
 
 // Each mood is deliberately EXTREME and specific so the genre filter bites hard.
-//   allow_genres   — strict on-vibe allow-list (also seeds the Spotify search)
-//   exclude_genres — off-vibe genres hard-excluded from familiar + discovery
-//   mood_keywords  — extreme free-text descriptors that drive the Spotify search
-//   energy_floor   — coarse 0–1 energy target (LLM hint + no-AI fallback math)
-//   valence_hint   — coarse 0–1 valence target (same)
+//   allow_genres     — strict on-vibe allow-list (also seeds the Spotify search)
+//   exclude_genres   — off-vibe genres hard-excluded from familiar + discovery
+//   mood_keywords    — extreme free-text descriptors that drive the Spotify search
+//   playlist_queries — vibe-playlist search terms for Layer-1 sourcing: pull tracks
+//                      from curated playlists (e.g. "beast mode") whose human/algorithmic
+//                      curation already encodes energy+tempo, independent of genre tag.
+//                      The candidate pool is later STRICT-personalized to the user's taste.
+//   energy_floor     — coarse 0–1 energy target (LLM hint + no-AI fallback math)
+//   valence_hint     — coarse 0–1 valence target (same)
 const MOOD_DESCRIPTORS = {
   focus: {
     allow_genres:   ['instrumental', 'ambient', 'classical', 'lo-fi', 'post-rock', 'minimal techno'],
     exclude_genres: ['hardcore', 'metalcore', 'trap', 'reggaeton', 'pop punk', 'screamo'],
     mood_keywords:  ['focus', 'concentration', 'instrumental', 'steady'],
+    playlist_queries: ['deep focus', 'instrumental study', 'concentration', 'focus flow'],
     energy_floor:   0.35,
     valence_hint:   0.55,
   },
@@ -46,6 +51,7 @@ const MOOD_DESCRIPTORS = {
     allow_genres:   ['dance', 'electronic', 'house', 'pop', 'electropop', 'nu-disco'],
     exclude_genres: ['ambient', 'sleep', 'slowcore', 'drone', 'lullaby', 'dark ambient'],
     mood_keywords:  ['upbeat', 'driving', 'energetic', 'momentum'],
+    playlist_queries: ['energy booster', 'power workout', 'upbeat hits', 'cardio'],
     energy_floor:   0.8,
     valence_hint:   0.75,
   },
@@ -53,6 +59,7 @@ const MOOD_DESCRIPTORS = {
     allow_genres:   ['ambient', 'acoustic', 'classical', 'lo-fi', 'chillout', 'piano'],
     exclude_genres: ['metal', 'hardcore', 'drum and bass', 'edm', 'trap', 'punk', 'dubstep'],
     mood_keywords:  ['calm', 'relaxing', 'mellow', 'soothing'],
+    playlist_queries: ['peaceful piano', 'calm vibes', 'relaxing', 'ambient chill'],
     energy_floor:   0.1,
     valence_hint:   0.6,
   },
@@ -60,6 +67,7 @@ const MOOD_DESCRIPTORS = {
     allow_genres:   ['acoustic', 'lo-fi', 'soul', 'chillout', 'singer-songwriter', 'downtempo'],
     exclude_genres: ['metal', 'hardcore', 'drum and bass', 'edm', 'big room', 'speedcore'],
     mood_keywords:  ['soft', 'wind-down', 'low-key', 'relaxed'],
+    playlist_queries: ['wind down', 'chill evening', 'acoustic chill', 'late night vibes'],
     energy_floor:   0.2,
     valence_hint:   0.5,
   },
@@ -67,6 +75,7 @@ const MOOD_DESCRIPTORS = {
     allow_genres:   ['pop', 'indie pop', 'soul', 'funk', 'disco', 'gospel'],
     exclude_genres: ['doom metal', 'black metal', 'sludge', 'dark ambient', 'industrial', 'death metal'],
     mood_keywords:  ['bright', 'hopeful', 'uplifting', 'feel-good'],
+    playlist_queries: ['feel good', 'happy hits', 'good vibes', 'mood booster'],
     energy_floor:   0.6,
     valence_hint:   0.9,
   },
@@ -74,6 +83,7 @@ const MOOD_DESCRIPTORS = {
     allow_genres:   ['metal', 'hardcore', 'drum and bass', 'punk', 'hard rock', 'dubstep', 'trap metal'],
     exclude_genres: ['ambient', 'acoustic', 'classical', 'lo-fi', 'singer-songwriter', 'soft rock', 'easy listening'],
     mood_keywords:  ['aggressive', 'high-energy', 'full-throttle', 'heavy', 'adrenaline'],
+    playlist_queries: ['beast mode', 'adrenaline workout', 'metal workout', '180 bpm running'],
     energy_floor:   0.9,
     valence_hint:   0.5,
   },
@@ -144,6 +154,10 @@ function applyMoodFallback(params, taps, textPrompt, musicProfile = {}) {
   // The FULL on-vibe allow-list (seed_genres is capped at 3); the mixer uses this to
   // judge which familiar library tracks are strictly eligible for an on-vibe mood.
   out.allow_genres = allow;
+  // Layer-1 sourcing seed: the vibe-playlist search terms for this mood. Present only
+  // when a mood is resolved (the HR branch returns early above), so the discovery
+  // fetcher knows to source from curated playlists instead of plain genre search.
+  out.playlist_queries = _uniqLower(desc.playlist_queries);
 
   if (!hasText) {
     out.seed_genres   = (onTaste.length ? onTaste : allow).slice(0, 3);

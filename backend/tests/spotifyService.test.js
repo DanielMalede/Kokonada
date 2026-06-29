@@ -158,6 +158,102 @@ describe('getRecommendations', () => {
   });
 });
 
+// ── Layer 1: vibe-playlist sourcing ───────────────────────────────────────────
+
+describe('searchVibePlaylists', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('searches each query for playlists and returns deduped playlist ids', async () => {
+    axios.get.mockResolvedValue({ data: { playlists: { items: [{ id: 'p1' }, { id: 'p2' }] } } });
+    const ids = await spotify.searchVibePlaylists('tok', ['beast mode', 'cardio'], { perQuery: 2 });
+    expect(ids).toEqual(['p1', 'p2']);                       // deduped across the two queries
+    expect(axios.get).toHaveBeenCalledTimes(2);
+    expect(axios.get.mock.calls[0][1].params.type).toBe('playlist');
+  });
+
+  it('survives a failing query and still returns the others', async () => {
+    axios.get
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ data: { playlists: { items: [{ id: 'p3' }] } } });
+    const ids = await spotify.searchVibePlaylists('tok', ['q1', 'q2'], { perQuery: 1 });
+    expect(ids).toEqual(['p3']);
+  });
+});
+
+describe('getVibePlaylistTracks', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('collects tracks across playlists, dedups by id, and skips null (local/removed) items', async () => {
+    axios.get.mockImplementation((url) => {
+      if (url.includes('/playlists/p1/')) {
+        return Promise.resolve({ data: { items: [{ track: { id: 't1', uri: 'spotify:track:t1' } }, { track: { id: 't2' } }] } });
+      }
+      return Promise.resolve({ data: { items: [{ track: { id: 't2' } }, { track: null }, { track: { id: 't3' } }] } });
+    });
+    const tracks = await spotify.getVibePlaylistTracks('tok', ['p1', 'p2'], { limit: 10 });
+    expect(tracks.map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('caps the returned tracks at the requested limit', async () => {
+    axios.get.mockResolvedValue({ data: { items: [
+      { track: { id: 'a' } }, { track: { id: 'b' } }, { track: { id: 'c' } },
+    ] } });
+    const tracks = await spotify.getVibePlaylistTracks('tok', ['p1'], { limit: 2 });
+    expect(tracks.length).toBe(2);
+  });
+});
+
+describe('fetchVibeDiscovery', () => {
+  beforeEach(() => jest.clearAllMocks());
+  afterEach(() => { delete process.env.VIBE_PLAYLIST_SOURCING; });
+
+  const reject404 = () => Promise.reject(Object.assign(new Error('gone'), { response: { status: 404 } }));
+
+  it('sources from vibe playlists when the flag is on and playlist_queries are present', async () => {
+    process.env.VIBE_PLAYLIST_SOURCING = 'true';
+    axios.get.mockImplementation((url, cfg) => {
+      if (url.includes('/search') && cfg.params.type === 'playlist') return Promise.resolve({ data: { playlists: { items: [{ id: 'p1' }] } } });
+      if (url.includes('/playlists/')) return Promise.resolve({ data: { items: [{ track: { id: 't1' } }, { track: { id: 't2' } }] } });
+      return Promise.reject(new Error('genre search should not be reached when playlists fill the pool'));
+    });
+    const out = await spotify.fetchVibeDiscovery('tok', { seed_genres: ['metal'], mood_keywords: ['heavy'], playlist_queries: ['beast mode'] }, { limit: 2 });
+    expect(out.map((t) => t.id)).toEqual(['t1', 't2']);
+  });
+
+  it('falls back to genre search when there are no playlist_queries (HR branch)', async () => {
+    axios.get
+      .mockImplementationOnce(reject404)                                              // /recommendations (dead)
+      .mockResolvedValue({ data: { tracks: { items: [{ id: 'g1' }, { id: 'g2' }] } } }); // genre /search
+    const out = await spotify.fetchVibeDiscovery('tok', { seed_genres: ['pop'], mood_keywords: [] }, { limit: 5 });
+    expect(out.map((t) => t.id)).toEqual(['g1', 'g2']);
+    const hitPlaylistSearch = axios.get.mock.calls.some((c) => c[1]?.params?.type === 'playlist');
+    expect(hitPlaylistSearch).toBe(false);
+  });
+
+  it('uses genre search even with queries present when the flag is off', async () => {
+    process.env.VIBE_PLAYLIST_SOURCING = 'false';
+    axios.get
+      .mockImplementationOnce(reject404)
+      .mockResolvedValue({ data: { tracks: { items: [{ id: 'g9' }] } } });
+    const out = await spotify.fetchVibeDiscovery('tok', { seed_genres: ['pop'], playlist_queries: ['beast mode'] }, { limit: 5 });
+    expect(out.map((t) => t.id)).toEqual(['g9']);
+    const hitPlaylistSearch = axios.get.mock.calls.some((c) => c[1]?.params?.type === 'playlist');
+    expect(hitPlaylistSearch).toBe(false);
+  });
+
+  it('tops up with genre search (deduped) when vibe playlists under-fill the limit', async () => {
+    process.env.VIBE_PLAYLIST_SOURCING = 'true';
+    axios.get.mockImplementation((url, cfg) => {
+      if (url.includes('/search') && cfg.params.type === 'playlist') return Promise.resolve({ data: { playlists: { items: [{ id: 'p1' }] } } });
+      if (url.includes('/playlists/')) return Promise.resolve({ data: { items: [{ track: { id: 't1' } }] } }); // only 1
+      if (url.includes('/recommendations')) return reject404();
+      return Promise.resolve({ data: { tracks: { items: [{ id: 't1' }, { id: 'g1' }, { id: 'g2' }] } } });        // genre search (t1 dup)
+    });
+    const out = await spotify.fetchVibeDiscovery('tok', { seed_genres: ['metal'], mood_keywords: ['heavy'], playlist_queries: ['beast mode'] }, { limit: 3 });
+    expect(out.map((t) => t.id)).toEqual(['t1', 'g1', 'g2']);
+  });
+});
+
 describe('OAuth scopes', () => {
   it('requests the scopes needed to build a profile from listening history', () => {
     const url = spotify.getAuthUrl('state123');

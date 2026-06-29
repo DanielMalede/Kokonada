@@ -7,9 +7,9 @@ const BiometricLog   = require('../models/BiometricLog');
 const PlaylistSession = require('../models/PlaylistSession');
 const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
-const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../services/geminiEngine');
-const { mixPlaylist, generateFallbackPlaylist }  = require('../services/playlistMixer');
-const { buildMoodParams }      = require('../services/moodDescriptors');
+const { buildEmotionPlaylist, adjustBiometricPlaylist, critiqueTrackVibe } = require('../services/geminiEngine');
+const { mixPlaylist, generateFallbackPlaylist, personalizeWhitelist }  = require('../services/playlistMixer');
+const { buildMoodParams, resolveMoodKey }      = require('../services/moodDescriptors');
 const { resolveMusicProvider } = require('../utils/providerSelect');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
@@ -212,15 +212,35 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       return;
     }
 
+    // Bug 8 — strict branch routing. Route to the mood/emotion pipeline whenever there
+    // is ANY emotion intent (mood taps OR a custom text prompt); a custom-text-only
+    // request must never fall through to the heart-rate branch and be ignored.
+    const useEmotion = trigger === 'emotion'
+      && (state.lastEmotionTaps.length > 0 || !!state.lastTextPrompt);
+    // The mood the Layer-2 critic and strict personalization key off — null on the
+    // heart-rate branch, which keeps its original soft-bias behaviour.
+    const moodKey   = useEmotion ? resolveMoodKey(state.lastEmotionTaps) : null;
+    // Layer 2 (Groq energy critic) runs only for a real mood and is kill-switchable.
+    const runCritic = useEmotion && process.env.VIBE_CRITIC !== 'false';
+
     let fetchTracks;
     try {
       if (provider === 'spotify') {
         const accessToken = await spotify.getValidToken(user);
-        // Over-fetch a large candidate pool, then tag with artist genres so the
-        // mixer can filter to the user's taste and still fill 50.
+        // Layer 1 → personalization → Layer 2. Source candidates from curated vibe
+        // playlists (energy/tempo encoded by curation), tag with artist genres, then
+        // apply the ABSOLUTE personalization filter (a Rock track from "Beast Mode" is
+        // dropped for an Afrobeat listener), then the optional energy critic. Every
+        // layer fails open, so the worst case is today's genre-search behaviour.
         fetchTracks = async (params) => {
-          const tracks = await spotify.getRecommendations(accessToken, { ...params, limit: DISCOVERY_FETCH_LIMIT });
-          return tagSpotifyDiscovery(accessToken, tracks);
+          const raw     = await spotify.fetchVibeDiscovery(accessToken, params, { limit: DISCOVERY_FETCH_LIMIT });
+          const tagged  = await tagSpotifyDiscovery(accessToken, raw);
+          const onTaste = personalizeWhitelist(tagged, {
+            genreSet:       musicProfile.genreSet,
+            knownArtistIds: musicProfile.knownArtistIds,
+          });
+          if (!runCritic) return onTaste;
+          return critiqueTrackVibe({ tracks: onTaste, moodKey, moodKeywords: params.mood_keywords });
         };
       } else {
         const accessToken = await youtube.getValidToken(user);
@@ -237,12 +257,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // DIFFERENT playlist each press — varies the LLM picks and busts the 24h
     // cache key (which is md5(prompt)).
     const seed = `${reqId ?? 'auto'}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-
-    // Bug 8 — strict branch routing. Route to the mood/emotion pipeline whenever there
-    // is ANY emotion intent (mood taps OR a custom text prompt); a custom-text-only
-    // request must never fall through to the heart-rate branch and be ignored.
-    const useEmotion = trigger === 'emotion'
-      && (state.lastEmotionTaps.length > 0 || !!state.lastTextPrompt);
 
     let aiResult;
     try {
@@ -279,6 +293,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             aiParams:             moodParams,
             fetchDiscoveryTracks: () => Promise.resolve([]),
             provider,
+            strictPersonalize:    true,
           });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
@@ -324,6 +339,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       aiParams:            aiResult.params,
       fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
       provider,
+      // Personalization is the ABSOLUTE filter on a mood's vibe-sourced pool: discard
+      // off-taste candidates rather than backfilling them. Scoped to the Spotify path,
+      // which is where Layer-1 sources + genre-tags candidates — YouTube discovery is
+      // genre-unknown, so strict discard would wrongly wipe it. HR branch keeps soft-bias.
+      strictPersonalize:   useEmotion && provider === 'spotify',
     });
 
     // Normalize to the client contract (and reconstruct/validate uris). Guard on

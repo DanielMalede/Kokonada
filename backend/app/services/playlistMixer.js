@@ -34,6 +34,26 @@ function _varietyWindow(ordered, target) {
   return [...shuffle(ordered.slice(0, windowSize)), ...ordered.slice(windowSize)];
 }
 
+/**
+ * True if any of a track's (lower-cased) genres matches an entry in a mood's
+ * allow/exclude list. Mood lists are hand-authored BASE genres (e.g. "metal",
+ * "punk", "house"); track genres are granular artist genres (e.g. "death metal",
+ * "pop punk", "big room house"). Exact matching leaks — "death metal" slips past a
+ * "metal" exclude — so a granular genre matches when it CONTAINS a base entry. The
+ * base entries are specific enough ("metal", "ambient", "acoustic") that substring
+ * matching catches subgenres without meaningful false positives.
+ */
+function _genreHits(genres, filterSet) {
+  if (!filterSet.size) return false;
+  for (const g of genres) {
+    if (filterSet.has(g)) return true;
+    for (const f of filterSet) {
+      if (g.includes(f)) return true;
+    }
+  }
+  return false;
+}
+
 function _dedupeById(tracks) {
   const seen = new Set();
   const out = [];
@@ -93,8 +113,8 @@ function _orderFamiliar(library, moodGenres, provider, opts = {}) {
     // keep ONLY allow-list matches eligible — an off-vibe favourite is dropped, not
     // ranked lower, and is never used to backfill an on-vibe mood.
     if (strict) {
-      if (g.some(x => excludeGenres.has(x))) continue;
-      if (allowGenres.size && !g.some(x => allowGenres.has(x))) continue;
+      if (_genreHits(g, excludeGenres)) continue;
+      if (allowGenres.size && !_genreHits(g, allowGenres)) continue;
     }
     if (moodGenres.size && g.some(x => moodGenres.has(x))) relevant.push(t);
     else rest.push(t);
@@ -137,7 +157,7 @@ function _mergeNatural(familiar, discovery) {
  *   nonNovel  — already in the library / by a known artist (last-resort only)
  * Each tier is shuffled so repeated generations vary ("fresh every press").
  */
-function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres = EMPTY_SET }) {
+function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres = EMPTY_SET, strictPersonalize = false }) {
   const eligible = _dedupeById(rawDiscovery.filter(t => t?.id && _matchesProvider(t, provider)));
 
   const relevant = [];
@@ -149,7 +169,8 @@ function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, p
     const g = (t.genres || []).map(x => x.toLowerCase());
     // Zero-tolerance strict filter: drop off-vibe discovery candidates outright so a
     // mood never surfaces an excluded genre (e.g. an acoustic track in an intense mix).
-    if (excludeGenres.size && g.some(x => excludeGenres.has(x))) continue;
+    // Substring-aware so a subgenre ("death metal") is caught by its base ("metal").
+    if (_genreHits(g, excludeGenres)) continue;
     if (!_isNovel(t, libraryIds, knownArtistIds)) {
       if (!libraryIds.has(t.id)) nonNovel.push(t); // never resurface a library track as "discovery"
       continue;
@@ -159,7 +180,38 @@ function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, p
     else outliers.push(t);
   }
 
+  // Personalization-first: when sourcing from broad vibe playlists, the user's taste
+  // is the ABSOLUTE filter. Discard the off-taste `outliers` (genres outside the user's
+  // taste — e.g. Rock for an Afrobeat listener) AND the `looser` genre-unknown tier
+  // (unverifiable, can't confirm on-taste) so they can never backfill the playlist.
+  // `relevant` (genre overlap) and `nonNovel` (by a known artist) are both on-taste.
+  if (strictPersonalize) {
+    return [...shuffle(relevant), ...shuffle(nonNovel)];
+  }
+
   return [...shuffle(relevant), ...shuffle(looser), ...shuffle(outliers), ...shuffle(nonNovel)];
+}
+
+/**
+ * Personalization is the ABSOLUTE filter on a vibe-sourced candidate pool: a track
+ * survives only if its genres intersect the user's taste OR it is by a known artist.
+ * Off-taste and unverifiable (genre-unknown, unknown-artist) candidates are discarded
+ * — so a Rock track pulled from a "Beast Mode" playlist never reaches an Afrobeat
+ * listener's playlist. Pure; accepts arrays or Sets; case-insensitive on genres.
+ *
+ * @param {object[]} tracks  discovery candidates, tagged with `genres` + `artistIds`
+ * @param {{ genreSet?: Iterable<string>, knownArtistIds?: Iterable<string> }} profile
+ * @returns {object[]} only the on-taste candidates, original order preserved
+ */
+function personalizeWhitelist(tracks, { genreSet = [], knownArtistIds = [] } = {}) {
+  const genres  = new Set([...(genreSet || [])].map(g => String(g).toLowerCase()));
+  const artists = new Set([...(knownArtistIds || [])]);
+  return (tracks || []).filter((t) => {
+    if (!t) return false;
+    const g = (t.genres || []).map(x => String(x).toLowerCase());
+    if (g.some(x => genres.has(x))) return true;
+    return (t.artistIds || []).some(id => artists.has(id));
+  });
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -179,7 +231,7 @@ function _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, p
  * }} opts
  * @returns {Promise<{ familiar: object[], discovery: object[], merged: object[] }>}
  */
-async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null }) {
+async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null, strictPersonalize = false }) {
   const familiarTarget  = Math.round(playlistSize * FAMILIAR_RATIO);
   const discoveryTarget = playlistSize - familiarTarget;
 
@@ -201,7 +253,7 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
     familiarTarget,
   );
   const rawDiscovery  = (await fetchDiscoveryTracks(aiParams)) || [];
-  const discoveryPool = _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres });
+  const discoveryPool = _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres, strictPersonalize });
 
   // Initial 70/30 split.
   const familiar  = familiarPool.slice(0, familiarTarget);
@@ -247,6 +299,7 @@ function generateFallbackPlaylist(musicProfile, provider = null, n = 10) {
 
 module.exports = {
   mixPlaylist,
+  personalizeWhitelist,
   generateFallbackPlaylist,
   // Exported for unit testing
   _orderFamiliar,

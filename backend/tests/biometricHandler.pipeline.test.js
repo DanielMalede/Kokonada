@@ -23,8 +23,10 @@ jest.mock('../app/models/PlaylistSession', () => ({
 }));
 
 jest.mock('../app/services/spotify', () => ({
-  getValidToken:      jest.fn(),
-  getRecommendations: jest.fn(),
+  getValidToken:       jest.fn(),
+  getRecommendations:  jest.fn(),
+  fetchVibeDiscovery:  jest.fn(),
+  getArtistsGenres:    jest.fn(),
 }));
 
 jest.mock('../app/services/youtube', () => ({
@@ -35,10 +37,12 @@ jest.mock('../app/services/youtube', () => ({
 jest.mock('../app/services/geminiEngine', () => ({
   buildEmotionPlaylist:    jest.fn(),
   adjustBiometricPlaylist: jest.fn(),
+  critiqueTrackVibe:       jest.fn(),
 }));
 
 jest.mock('../app/services/playlistMixer', () => ({
   mixPlaylist: jest.fn(),
+  personalizeWhitelist: jest.fn(),
   generateFallbackPlaylist: jest.fn().mockReturnValue([{ id: 'lib-1' }, { id: 'lib-2' }]),
 }));
 
@@ -80,6 +84,8 @@ function makeMusicProfile(overrides = {}) {
     valence: 0.5,
     topGenres: ['pop', 'electronic'],
     topArtists: ['Artist A'],
+    genreSet: ['pop', 'electronic'],
+    knownArtistIds: ['artist-a'],
     library: [
       { id: 'lib-1', provider: 'spotify', tempo: 120, energy: 0.6, valence: 0.5, acousticness: 0.2, genres: ['pop'], artist: 'Artist A' },
       { id: 'lib-2', provider: 'spotify', tempo: 125, energy: 0.65, valence: 0.55, acousticness: 0.15, genres: ['electronic'], artist: 'Artist B' },
@@ -166,9 +172,13 @@ beforeEach(() => {
   MusicProfile.findOne.mockResolvedValue(makeMusicProfile());
   spotify.getValidToken.mockResolvedValue('spotify-access-token');
   spotify.getRecommendations.mockResolvedValue(DISCOVERY_TRACKS);
+  spotify.fetchVibeDiscovery.mockResolvedValue(DISCOVERY_TRACKS);
+  spotify.getArtistsGenres.mockResolvedValue({});
   geminiEngine.adjustBiometricPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
+  geminiEngine.critiqueTrackVibe.mockImplementation(async ({ tracks }) => tracks);
   playlistMixer.mixPlaylist.mockResolvedValue(makeMixedPlaylist());
+  playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
 });
 
@@ -558,6 +568,82 @@ describe('mood-aware fallback when the LLM fails (zero-tolerance holds without A
     expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({
       trigger: 'emotion', fallback: true,
     }));
+  });
+});
+
+// ── Layer 1+2: vibe sourcing, personalization (absolute filter), critic ───────
+
+describe('vibe pipeline wiring (Spotify)', () => {
+  it('emotion branch: mixPlaylist runs with strictPersonalize:true', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+    expect(playlistMixer.mixPlaylist).toHaveBeenCalledWith(expect.objectContaining({ strictPersonalize: true }));
+  });
+
+  it('HR/biometric branch: mixPlaylist runs with strictPersonalize:false (back-compat)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(playlistMixer.mixPlaylist).toHaveBeenCalledWith(expect.objectContaining({ strictPersonalize: false }));
+  });
+
+  it('Spotify fetchTracks closure sources from vibe playlists, personalizes to taste, then runs the critic', async () => {
+    spotify.fetchVibeDiscovery.mockResolvedValue([{ id: 'r1', artists: [{ id: 'a1' }] }]);
+    spotify.getArtistsGenres.mockResolvedValue({ a1: ['afrobeat'] });
+
+    let captured;
+    geminiEngine.buildEmotionPlaylist.mockImplementation(async ({ fetchTracks }) => {
+      captured = fetchTracks;
+      return { params: AI_PARAMS, tracks: [] };
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    const result = await captured({ ...AI_PARAMS, mood_keywords: ['heavy'], playlist_queries: ['beast mode'] });
+
+    expect(spotify.fetchVibeDiscovery).toHaveBeenCalledWith(
+      'spotify-access-token',
+      expect.objectContaining({ playlist_queries: ['beast mode'] }),
+      { limit: 60 },
+    );
+    expect(playlistMixer.personalizeWhitelist).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 'r1', genres: ['afrobeat'] })]),
+      expect.objectContaining({ genreSet: expect.anything(), knownArtistIds: expect.anything() }),
+    );
+    expect(geminiEngine.critiqueTrackVibe).toHaveBeenCalledWith(
+      expect.objectContaining({ moodKey: 'intense', moodKeywords: ['heavy'] }),
+    );
+    expect(result).toEqual([{ id: 'r1', artists: [{ id: 'a1' }], provider: 'spotify', artistIds: ['a1'], genres: ['afrobeat'] }]);
+  });
+
+  it('does NOT run the critic on the HR branch (no mood)', async () => {
+    let captured;
+    geminiEngine.adjustBiometricPlaylist.mockImplementation(async ({ fetchTracks }) => {
+      captured = fetchTracks;
+      return { params: AI_PARAMS, tracks: [] };
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    await captured(AI_PARAMS);
+
+    expect(geminiEngine.critiqueTrackVibe).not.toHaveBeenCalled();
+  });
+
+  it('honours VIBE_CRITIC=false by skipping the critic even on the emotion branch', async () => {
+    process.env.VIBE_CRITIC = 'false';
+    let captured;
+    geminiEngine.buildEmotionPlaylist.mockImplementation(async ({ fetchTracks }) => {
+      captured = fetchTracks;
+      return { params: AI_PARAMS, tracks: [] };
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+    await captured({ ...AI_PARAMS, playlist_queries: ['beast mode'] });
+
+    expect(geminiEngine.critiqueTrackVibe).not.toHaveBeenCalled();
+    delete process.env.VIBE_CRITIC;
   });
 });
 

@@ -60,6 +60,15 @@ describe('MOOD_DESCRIPTORS', () => {
     expect(MOOD_DESCRIPTORS.intense.exclude_genres).toEqual(expect.arrayContaining(['acoustic']));
     expect(MOOD_DESCRIPTORS.calm.exclude_genres).toEqual(expect.arrayContaining(['metal']));
   });
+
+  it('defines non-empty vibe playlist_queries for all six moods (Layer-1 sourcing)', () => {
+    for (const m of MOODS) {
+      const d = MOOD_DESCRIPTORS[m.key];
+      expect(Array.isArray(d.playlist_queries)).toBe(true);
+      expect(d.playlist_queries.length).toBeGreaterThan(0);
+      d.playlist_queries.forEach((q) => expect(typeof q).toBe('string'));
+    }
+  });
 });
 
 // ── applyMoodFallback ──────────────────────────────────────────────────────────
@@ -111,6 +120,13 @@ describe('applyMoodFallback', () => {
     const out = applyMoodFallback(LLM_PARAMS, INTENSE_TAPS, '', { topGenres: ['pop'] });
     // seed_genres is capped at 3; allow_genres must carry the complete on-vibe set.
     expect(out.allow_genres).toEqual(expect.arrayContaining(MOOD_DESCRIPTORS.intense.allow_genres));
+  });
+
+  it('attaches the mood playlist_queries so Layer-1 can source vibe playlists', () => {
+    const out = applyMoodFallback(LLM_PARAMS, INTENSE_TAPS, '', {});
+    expect(out.playlist_queries).toEqual(
+      expect.arrayContaining(MOOD_DESCRIPTORS.intense.playlist_queries.map((q) => q.toLowerCase())),
+    );
   });
 
   it('never emits empty seed_genres (would empty Spotify discovery)', () => {

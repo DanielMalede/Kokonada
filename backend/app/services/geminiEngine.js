@@ -14,10 +14,13 @@ const REQUIRED_FIELDS = [
 const GEMINI_TIMEOUT_MS = 5_000;
 
 function _withTimeout(ms, promise) {
-  const timer = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms)
-  );
-  return Promise.race([promise, timer]);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms);
+  });
+  // Clear the timer once the race settles so a resolved call never leaves a dangling
+  // handle alive for `ms` (leaks the event loop; trips Jest's open-handle warning).
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function getModel() {
@@ -288,9 +291,76 @@ async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, s
   return { params, tracks: await fetchTracks(params) };
 }
 
+// ── Layer 2: Groq critic re-rank ─────────────────────────────────────────────
+// Genre tags can't tell a 70 BPM ballad from a 180 BPM anthem, and Spotify killed
+// /audio-features. This pass asks the LLM — which "knows" most songs' actual energy
+// from its training — to drop tracks whose tempo/energy don't match the mood. It is
+// a POLISH layer, not a guarantee: reconciliation is index-based (no fuzzy title
+// matching), and any failure FAILS OPEN (returns the pool unchanged) so a flaky or
+// hallucinating model can never blank or corrupt the playlist.
+
+const CRITIC_TIMEOUT_MS = Number(process.env.VIBE_CRITIC_TIMEOUT_MS) || 6_000;
+// Bound the prompt so a deep candidate pool can't blow up tokens/latency. Tracks
+// beyond the cap pass through unjudged (the pool is normally well under this).
+const MAX_CRITIC_TRACKS = Number(process.env.VIBE_CRITIC_MAX_TRACKS) || 120;
+
+function _buildCriticPrompt(tracks, moodKey, moodKeywords) {
+  const list = tracks
+    .map((t, i) => {
+      const artist = (t.artists || []).map((a) => a?.name).filter(Boolean).slice(0, 2).join(', ') || 'Unknown';
+      return `${i}. ${artist} – ${t.name || 'Unknown'}`;
+    })
+    .join('\n');
+  const kw = (moodKeywords || []).filter(Boolean).join(', ');
+
+  return `You are a strict expert music critic curating a "${moodKey}" session${kw ? ` (vibe: ${kw})` : ''}.
+From the numbered tracklist below, keep ONLY the tracks whose ACTUAL energy and tempo truly match this vibe. Drop anything off-energy — e.g. a slow acoustic ballad in a high-energy set, or an aggressive heavy track in a calm set — judging by your knowledge of each song.
+
+Output ONLY a JSON object (no explanation, no markdown) of the form {"keep":[<indices to keep>]}, using the exact indices from the list.
+
+Tracklist:
+${list}`;
+}
+
+// Parse the critic's {"keep":[...]} into a clean list of in-range integer indices.
+// Throws on anything unusable so the caller fails open.
+function _parseKeepIndices(raw, count) {
+  if (typeof raw !== 'string' || raw.trim() === '') throw new Error('empty critic response');
+  const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+  const parsed = JSON.parse(cleaned);
+  if (!Array.isArray(parsed.keep)) throw new Error('critic response missing keep array');
+  return [...new Set(parsed.keep)].filter((n) => Number.isInteger(n) && n >= 0 && n < count);
+}
+
+/**
+ * Re-ranks a candidate pool, keeping only tracks whose energy/tempo match the mood.
+ * Fail-open: returns `tracks` unchanged on empty/no-mood input or any LLM failure.
+ * @param {{ tracks: object[], moodKey: string|null, moodKeywords?: string[] }} opts
+ * @returns {Promise<object[]>}
+ */
+async function critiqueTrackVibe({ tracks = [], moodKey = null, moodKeywords = [] } = {}) {
+  if (!Array.isArray(tracks) || tracks.length === 0) return tracks || [];
+  if (!moodKey) return tracks; // no resolvable mood (e.g. HR branch) → nothing to judge
+
+  const head = tracks.slice(0, MAX_CRITIC_TRACKS);
+  const tail = tracks.slice(MAX_CRITIC_TRACKS);
+
+  try {
+    const raw  = await _withTimeout(CRITIC_TIMEOUT_MS, _generate(_buildCriticPrompt(head, moodKey, moodKeywords)));
+    const keep = _parseKeepIndices(raw, head.length);
+    // A critic that "keeps nothing" is treated as no signal, not as "blank the set".
+    if (keep.length === 0) return tracks;
+    return [...keep.map((i) => head[i]), ...tail];
+  } catch (err) {
+    console.warn(`[vibe-critic] re-rank skipped (${err.message}) — keeping pool unchanged`);
+    return tracks;
+  }
+}
+
 module.exports = {
   buildEmotionPlaylist,
   adjustBiometricPlaylist,
+  critiqueTrackVibe,
   // Exported for unit testing
   _parseAndValidate,
   _buildEmotionPrompt,

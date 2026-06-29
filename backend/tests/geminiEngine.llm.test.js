@@ -15,7 +15,7 @@ jest.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: jest.fn(() => ({ getGenerativeModel: jest.fn() })),
 }));
 
-const { buildEmotionPlaylist } = require('../app/services/geminiEngine');
+const { buildEmotionPlaylist, critiqueTrackVibe } = require('../app/services/geminiEngine');
 
 const MUSIC_PROFILE = {
   topGenres: ['electronic', 'indie'], tempoBaseline: 120,
@@ -84,5 +84,53 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn() }),
     ).rejects.toThrow('does not exist');
+  });
+});
+
+// ── Layer 2: Groq critic re-rank (vibe energy filter) ─────────────────────────
+
+describe('critiqueTrackVibe', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  const TRACKS = [
+    { id: 'a', name: 'Soft Ballad', artists: [{ name: 'Calm Artist' }] },
+    { id: 'b', name: 'Banger',      artists: [{ name: 'Loud Artist' }] },
+    { id: 'c', name: 'Mid Tempo',   artists: [{ name: 'Some Artist' }] },
+  ];
+
+  it('keeps only the indices the critic returns, mapped back to track objects', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: JSON.stringify({ keep: [1, 2] }) } }] } });
+    const out = await critiqueTrackVibe({ tracks: TRACKS, moodKey: 'intense', moodKeywords: ['heavy'] });
+    expect(out.map((t) => t.id)).toEqual(['b', 'c']);
+  });
+
+  it('fails open (returns the pool unchanged) on invalid JSON', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: 'not json at all' } }] } });
+    const out = await critiqueTrackVibe({ tracks: TRACKS, moodKey: 'intense' });
+    expect(out).toEqual(TRACKS);
+  });
+
+  it('treats an empty keep array as "no signal" and passes the pool through (never blanks)', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: JSON.stringify({ keep: [] }) } }] } });
+    const out = await critiqueTrackVibe({ tracks: TRACKS, moodKey: 'intense' });
+    expect(out).toEqual(TRACKS);
+  });
+
+  it('ignores out-of-range and non-integer indices from a hallucinating model', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: JSON.stringify({ keep: [0, 99, 'x', 2.5, 2] }) } }] } });
+    const out = await critiqueTrackVibe({ tracks: TRACKS, moodKey: 'calm' });
+    expect(out.map((t) => t.id)).toEqual(['a', 'c']);
+  });
+
+  it('does not call the LLM for an empty pool', async () => {
+    const out = await critiqueTrackVibe({ tracks: [], moodKey: 'intense' });
+    expect(out).toEqual([]);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  it('passes through without an LLM call when there is no mood (HR branch safety)', async () => {
+    const out = await critiqueTrackVibe({ tracks: TRACKS, moodKey: null });
+    expect(out).toEqual(TRACKS);
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });

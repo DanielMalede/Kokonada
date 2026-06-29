@@ -461,6 +461,121 @@ async function searchTracksByGenres(accessToken, genres, limit = 10, keywords = 
   return out;
 }
 
+// ── Layer 1: vibe-playlist sourcing ──────────────────────────────────────────
+// Spotify killed /audio-features + /recommendations, so genre is the only native
+// sonic signal — and genre is too coarse (a "rock" track can be a 70 BPM ballad or
+// a 180 BPM thrash anthem). Instead of filtering a genre-broad pool after the fact,
+// we change the SOURCE: pull candidates from curated vibe playlists ("beast mode",
+// "peaceful piano") whose human/algorithmic curation already encodes energy+tempo,
+// independent of the genre tag. The pool is later STRICT-personalized to the user's
+// taste (a Rock track in "Beast Mode" is dropped for an Afrobeat listener).
+
+// How many playlists to pull per mood query. A few per query, across 2–4 queries,
+// is plenty to over-fetch a deep candidate pool without hammering the API.
+const VIBE_PLAYLISTS_PER_QUERY = Number(process.env.VIBE_PLAYLISTS_PER_QUERY) || 3;
+
+/**
+ * Searches Spotify for playlists matching each vibe query and returns de-duplicated
+ * playlist ids. Per-query failures are swallowed so one bad query never sinks the
+ * whole sourcing pass.
+ * @returns {Promise<string[]>}
+ */
+async function searchVibePlaylists(accessToken, queries = [], { perQuery = VIBE_PLAYLISTS_PER_QUERY } = {}) {
+  const ids = [];
+  const seen = new Set();
+  for (const q of queries) {
+    if (!q) continue;
+    try {
+      const { data } = await withRetry(() =>
+        axios.get(`${BASE_API}/search`, {
+          headers: authHeader(accessToken),
+          params:  { q, type: 'playlist', limit: perQuery },
+          timeout: 8_000,
+        })
+      );
+      for (const pl of data.playlists?.items ?? []) {
+        if (pl?.id && !seen.has(pl.id)) { seen.add(pl.id); ids.push(pl.id); }
+      }
+    } catch { /* try the next query */ }
+  }
+  return ids;
+}
+
+/**
+ * Fetches tracks from the given playlist ids, de-duplicated by track id and capped
+ * at `limit`. Skips null items (local/removed tracks). Returns the raw Spotify track
+ * shape (id + uri + name + artists) — identical to searchTracksByGenres — so the
+ * downstream pipeline is unchanged.
+ * @returns {Promise<SpotifyTrack[]>}
+ */
+async function getVibePlaylistTracks(accessToken, playlistIds = [], { limit = 50 } = {}) {
+  const per  = Math.min(100, Math.max(1, limit)); // Spotify caps playlist-track page at 100
+  const seen = new Set();
+  const out  = [];
+  for (const id of playlistIds) {
+    if (out.length >= limit) break;
+    try {
+      const { data } = await withRetry(() =>
+        axios.get(`${BASE_API}/playlists/${id}/tracks`, {
+          headers: authHeader(accessToken),
+          params:  { limit: per },
+          timeout: 8_000,
+        })
+      );
+      for (const item of data.items ?? []) {
+        const t = item?.track;
+        if (!t?.id || seen.has(t.id)) continue;
+        seen.add(t.id);
+        out.push(t);
+        if (out.length >= limit) break;
+      }
+    } catch { /* skip this playlist */ }
+  }
+  return out;
+}
+
+/**
+ * Layer-1 discovery orchestrator. When VIBE_PLAYLIST_SOURCING is on (default) and a
+ * mood attached `playlist_queries`, sources candidates from curated vibe playlists,
+ * topping up with the genre search if they under-fill the limit. Otherwise (flag off,
+ * or the HR branch with no mood) it degrades to the existing genre path — so any
+ * failure is never worse than today's behavior.
+ * @returns {Promise<SpotifyTrack[]>}
+ */
+async function fetchVibeDiscovery(accessToken, params = {}, { limit = 10 } = {}) {
+  const queries     = params.playlist_queries || [];
+  const sourcingOn  = process.env.VIBE_PLAYLIST_SOURCING !== 'false';
+  const genreSearch = (n) => getRecommendations(accessToken, { ...params, limit: n });
+
+  if (!sourcingOn || queries.length === 0) return genreSearch(limit);
+
+  let pool = [];
+  try {
+    const ids = await searchVibePlaylists(accessToken, queries);
+    if (ids.length) pool = await getVibePlaylistTracks(accessToken, ids, { limit });
+  } catch (err) {
+    console.warn(`[spotify] vibe-playlist sourcing failed — falling back to genre search: ${err.message}`);
+  }
+
+  if (pool.length >= limit) return pool.slice(0, limit);
+
+  // Top up to `limit` with genre search, de-duped against the playlist pool. Request
+  // the FULL limit (not just the shortfall): the genre search caps its own result
+  // before we de-dup, so overlap with the playlist pool would otherwise starve the fill.
+  const seen = new Set(pool.map((t) => t.id));
+  let topUp = [];
+  try {
+    topUp = await genreSearch(limit);
+  } catch (err) {
+    console.warn(`[spotify] genre top-up failed: ${err.message}`);
+  }
+  for (const t of topUp || []) {
+    if (pool.length >= limit) break;
+    if (t?.id && !seen.has(t.id)) { seen.add(t.id); pool.push(t); }
+  }
+  return pool;
+}
+
 /**
  * Sends a play command to a Spotify device.
  * @param {string} accessToken
@@ -584,6 +699,7 @@ module.exports = {
   getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
+  searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery,
   playTracks, getActiveDevice, createPlaylist, addTracksToPlaylist,
   saveTracks, removeSavedTracks, areTracksSaved,
 };
