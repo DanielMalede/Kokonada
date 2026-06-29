@@ -140,6 +140,22 @@ describe('getRecommendations', () => {
     axios.get.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 500 } }));
     await expect(spotify.getRecommendations('tok', PARAMS)).rejects.toThrow('boom');
   });
+
+  it('never asks the search endpoint for more than Spotify\'s max of 50 (over-fetch must not 400)', async () => {
+    // /recommendations is gone → falls back to search. A large discovery limit
+    // (60) with one genre must NOT request limit=60 — Spotify 400s on >50.
+    axios.get
+      .mockRejectedValueOnce(Object.assign(new Error('gone'), { response: { status: 404 } }))
+      .mockResolvedValue({ data: { tracks: { items: [{ id: 's1' }] } } });
+
+    await spotify.getRecommendations('tok', { seed_genres: ['focus'], limit: 60 });
+
+    const searchLimits = axios.get.mock.calls
+      .slice(1) // skip the failed /recommendations call
+      .map((c) => c[1].params.limit);
+    expect(searchLimits.length).toBeGreaterThan(0);
+    for (const lim of searchLimits) expect(lim).toBeLessThanOrEqual(50);
+  });
 });
 
 describe('OAuth scopes', () => {

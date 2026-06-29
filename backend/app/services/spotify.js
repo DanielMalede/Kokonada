@@ -416,17 +416,22 @@ async function getRecommendations(accessToken, {
  * the pipeline is unchanged.
  */
 async function searchTracksByGenres(accessToken, genres, limit = 10, keywords = []) {
-  const per = Math.max(1, Math.ceil(limit / Math.max(genres.length, 1)));
+  // Spotify's /search caps `limit` at 50 — requesting more 400s the whole call.
+  const SEARCH_MAX = 50;
+  const per = Math.min(SEARCH_MAX, Math.max(1, Math.ceil(limit / Math.max(genres.length, 1))));
   const collected = [];
   const kw = (keywords || []).filter(Boolean).slice(0, 2).join(' ');
 
   for (const genre of genres) {
-    // Bias by mood keywords first (best mood fit), then plain genre as a fallback
-    // so we never come back empty.
+    // Bias by mood keywords first (best mood fit), then plain genre as a fallback.
+    // Accumulate across query forms up to `per` so a narrow mood query that
+    // returns only a few tracks doesn't starve the genre's yield.
     const queries = kw
       ? [`genre:"${genre}" ${kw}`, `genre:"${genre}"`, `${genre} ${kw}`, genre]
       : [`genre:"${genre}"`, genre];
+    let got = 0;
     for (const q of queries) {
+      if (got >= per) break;
       try {
         const { data } = await withRetry(() =>
           axios.get(`${BASE_API}/search`, {
@@ -436,7 +441,7 @@ async function searchTracksByGenres(accessToken, genres, limit = 10, keywords = 
           })
         );
         const items = data.tracks?.items ?? [];
-        if (items.length) { collected.push(...items); break; }
+        if (items.length) { collected.push(...items); got += items.length; }
       } catch { /* try the next query form / genre */ }
     }
   }
