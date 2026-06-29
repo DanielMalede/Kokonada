@@ -231,9 +231,14 @@ function personalizeWhitelist(tracks, { genreSet = [], knownArtistIds = [] } = {
  * }} opts
  * @returns {Promise<{ familiar: object[], discovery: object[], merged: object[] }>}
  */
-async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null, strictPersonalize = false }) {
+async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null, strictPersonalize = false, cooldownIds = null }) {
   const familiarTarget  = Math.round(playlistSize * FAMILIAR_RATIO);
   const discoveryTarget = playlistSize - familiarTarget;
+  // Anti-repetition: ids generated in the user's last few playlists are held on a
+  // cooldown and filtered out of every bucket, so sequential generations don't
+  // overlap. Relaxed only as a last resort (a repeat beats an empty playlist).
+  const cooldown = cooldownIds instanceof Set ? cooldownIds : new Set(cooldownIds || []);
+  const fresh = (pool) => (cooldown.size ? pool.filter((t) => !cooldown.has(t.id)) : pool);
 
   const library        = musicProfile.library || [];
   const libraryIds     = new Set(library.map(t => t.id));
@@ -255,9 +260,14 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   const rawDiscovery  = (await fetchDiscoveryTracks(aiParams)) || [];
   const discoveryPool = _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres, strictPersonalize });
 
-  // Initial 70/30 split.
-  const familiar  = familiarPool.slice(0, familiarTarget);
-  const discovery = discoveryPool.slice(0, discoveryTarget);
+  // Cooldown-filtered views drive the primary selection; the raw pools are kept for
+  // the last-resort backfill below.
+  const familiarFresh  = fresh(familiarPool);
+  const discoveryFresh = fresh(discoveryPool);
+
+  // Initial split (cooldown-filtered).
+  const familiar  = familiarFresh.slice(0, familiarTarget);
+  const discovery = discoveryFresh.slice(0, discoveryTarget);
 
   // Always fill to exactly playlistSize unique tracks. Add more discovery first
   // (novelty), then backfill from the library; relax only at the tail.
@@ -268,8 +278,8 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
       if (!chosen.has(t.id)) { bucket.push(t); chosen.add(t.id); }
     }
   };
-  fillFrom(discoveryPool.slice(discovery.length), discovery);
-  fillFrom(familiarPool.slice(familiar.length), familiar);
+  fillFrom(discoveryFresh.slice(discovery.length), discovery);
+  fillFrom(familiarFresh.slice(familiar.length), familiar);
 
   // Mood relaxation ladder: a narrow zero-tolerance allow-list (e.g. "Calm" only
   // allows ambient/acoustic/lo-fi) can starve BOTH pools when the user's taste
@@ -280,12 +290,20 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   // genres never leak in), so this never returns an empty playlist for a connected
   // user without weakening the hard sonic floor. Only runs in strict mode, so the
   // soft-bias (HR/biometric) path is byte-identical.
+  const relaxedFamiliarPool = () => _varietyWindow(
+    _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres: EMPTY_SET, strict: true }),
+    familiarTarget,
+  );
   if (strict && chosen.size < playlistSize) {
-    const relaxedFamiliar = _varietyWindow(
-      _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres: EMPTY_SET, strict: true }),
-      familiarTarget,
-    );
-    fillFrom(relaxedFamiliar, familiar);
+    fillFrom(fresh(relaxedFamiliarPool()), familiar);
+  }
+
+  // Last resort: if the cooldown starved the pools, allow cooled tracks back in
+  // rather than ship a short playlist (a repeat beats an empty queue).
+  if (cooldown.size && chosen.size < playlistSize) {
+    fillFrom(discoveryPool, discovery);
+    fillFrom(familiarPool, familiar);
+    if (strict) fillFrom(relaxedFamiliarPool(), familiar);
   }
 
   const merged = _dedupeById(_mergeNatural(familiar, discovery)).slice(0, playlistSize);

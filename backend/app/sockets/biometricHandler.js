@@ -30,6 +30,34 @@ const WATCH_HR_DELTA_THRESHOLD = 25;
 // still fill 50 (15 discovery + library backfill, or all 50 from discovery when
 // the library is empty). The mixer trims to the 30% target / fills the rest.
 const DISCOVERY_FETCH_LIMIT = 60;
+// Anti-repetition: hold every track from the user's last N generations on a cooldown
+// so sequential playlists don't overlap. Backed by PlaylistSession (persists across
+// restarts/devices), capped so a huge history can't bloat the exclude set.
+const COOLDOWN_GENERATIONS = 3;
+const COOLDOWN_MAX_IDS = 150;
+
+// Build the recent-track cooldown set from the user's last few generated playlists.
+// Best-effort: a DB hiccup must never block a generation, so it degrades to empty.
+async function recentTrackCooldown(userId) {
+  try {
+    const recent = await PlaylistSession.find({ userId })
+      .sort({ createdAt: -1 })
+      .limit(COOLDOWN_GENERATIONS)
+      .select('trackIds')
+      .lean();
+    const ids = new Set();
+    for (const s of recent) {
+      for (const id of s.trackIds || []) {
+        ids.add(id);
+        if (ids.size >= COOLDOWN_MAX_IDS) return ids;
+      }
+    }
+    return ids;
+  } catch (e) {
+    log(`[cooldown] read failed: ${e.message}`);
+    return new Set();
+  }
+}
 
 // Opt-in boundary tracing for debugging the generation pipeline. Enable with
 // DEBUG_PLAYLIST=1 (always on in `development`; silent in test/production).
@@ -212,6 +240,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       return;
     }
 
+    // Anti-repetition cooldown: exclude tracks from the user's last few playlists so
+    // each press feels fresh. Read once and reused by every mixPlaylist call below.
+    const cooldownIds = await recentTrackCooldown(userId);
+
     // Bug 8 — strict branch routing. Route to the mood/emotion pipeline whenever there
     // is ANY emotion intent (mood taps OR a custom text prompt); a custom-text-only
     // request must never fall through to the heart-rate branch and be ignored.
@@ -294,6 +326,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             fetchDiscoveryTracks: () => Promise.resolve([]),
             provider,
             strictPersonalize:    true,
+            cooldownIds,
           });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
@@ -339,6 +372,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       aiParams:            aiResult.params,
       fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
       provider,
+      cooldownIds,
       // Personalization is the ABSOLUTE filter on a mood's vibe-sourced pool: discard
       // off-taste candidates rather than backfilling them. Scoped to the Spotify path,
       // which is where Layer-1 sources + genre-tags candidates — YouTube discovery is

@@ -365,6 +365,48 @@ describe('mixPlaylist — strict mood filter (zero-tolerance vibe)', () => {
   });
 });
 
+// ── Track cooldown (anti-repetition blacklist) ────────────────────────────────
+describe('mixPlaylist — track cooldown (anti-repetition)', () => {
+  const richLibrary   = (n = 60) => Array.from({ length: n }, (_, i) => libTrack(`f${i}`, { affinity: n - i }));
+  const richDiscovery = (n = 40) => Array.from({ length: n }, (_, i) => discTrack(`d${i}`));
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
+
+  it('excludes cooled-down ids from BOTH the familiar and discovery output', async () => {
+    const cooldownIds = new Set(['f0', 'f1', 'f2', 'f3', 'd0', 'd1', 'd2', 'd3']);
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary()),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(richDiscovery()),
+      cooldownIds,
+    });
+    const ids = res.merged.map((t) => t.id);
+    for (const id of cooldownIds) expect(ids).not.toContain(id);
+    expect(res.merged).toHaveLength(50); // ample fresh supply → still full
+  });
+
+  it('relaxes the cooldown only as a last resort rather than returning short', async () => {
+    // Every track that exists is on cooldown — a repeat still beats an empty playlist.
+    const lib = Array.from({ length: 50 }, (_, i) => libTrack(`f${i}`, { affinity: 50 - i }));
+    const cooldownIds = new Set(lib.map((t) => t.id));
+    const res = await mixPlaylist({
+      musicProfile: profile(lib),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf([]),
+      cooldownIds,
+    });
+    expect(res.merged.length).toBeGreaterThan(0);
+  });
+
+  it('defaults to no cooldown when none is supplied (back-compat)', async () => {
+    const res = await mixPlaylist({
+      musicProfile: profile(richLibrary()),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf(richDiscovery()),
+    });
+    expect(res.merged).toHaveLength(50);
+  });
+});
+
 // ── Mood relaxation ladder: never empty for a connected user ──────────────────
 // The zero-tolerance allow-list can starve BOTH pools (e.g. "Calm" allows only
 // ambient/acoustic/lo-fi but the user listens to pop/soul, and Spotify discovery is
