@@ -3,11 +3,12 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Play, Pause, SkipForward, SkipBack, Disc3, Heart, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AppDispatch, RootState } from '@/store';
-import { setSdkState } from '@/store/slices/playerSlice';
+import { setSdkState, setCurrentIndex } from '@/store/slices/playerSlice';
 import { spotifyPlayerService } from '@/services/spotifyPlayer';
+import { audioPlayer } from '@/services/audioPlayer';
 import { useSocket } from '@/hooks/useSocket';
 import { MOODS, selectedMoodKey } from '@/lib/moods';
-import { setTrackSaved, fetchTracksSaved, exportPlaylist } from '@/lib/api';
+import { setTrackSaved, fetchTracksSaved, exportPlaylist, playTracks } from '@/lib/api';
 import { sanitizeTrackUris } from '@/lib/spotifyUri';
 import PageHeader from '@/components/PageHeader';
 import EmptyState from '@/components/EmptyState';
@@ -33,7 +34,7 @@ export default function NowPlayingPage() {
   const dispatch = useDispatch<AppDispatch>();
   const { skipTrack } = useSocket();
   const {
-    playlist, offlineBuffer, currentIndex, isOnline, pendingPlaylist,
+    playlist, offlineBuffer, currentIndex, isOnline, pendingPlaylist, deviceId,
     sdkIsPaused, sdkPositionMs, sdkDurationMs, sdkCurrentTrackUri, sdkCurrentTrackImage,
   } = useSelector((s: RootState) => s.player);
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
@@ -127,6 +128,29 @@ export default function NowPlayingPage() {
   const handlePrev = () => {
     if (!navAllowed()) return;
     spotifyPlayerService.previousTrack().catch(console.error);
+  };
+
+  // Jump to any track in the queue. Online: play from that track onward so the
+  // queue continues naturally; the SDK's reported uri re-snaps currentIndex (single
+  // source of truth). Offline: play the buffered track directly and set the index.
+  const handlePlayAt = (index: number) => {
+    const target = list[index];
+    if (!target?.uri) return;
+    if (!isOnline) {
+      audioPlayer.play(target.uri).catch(console.error);
+      dispatch(setCurrentIndex(index));
+      return;
+    }
+    const uris = sanitizeTrackUris(list.slice(index).map((t) => t.uri));
+    if (uris.length === 0) { toast.error('This track can’t be played on Spotify.'); return; }
+    playTracks(BACKEND_URL, uris, deviceId).catch((err) => {
+      if (err.reconnect) reconnectToast('Reconnect Spotify to play tracks');
+      else if (err.noActiveDevice) {
+        toast.error('Open Spotify and start playback on a device, then try again.', {
+          action: { label: 'Open Spotify', onClick: () => window.open('https://open.spotify.com', '_blank') },
+        });
+      } else toast.error('Could not start playback — please try again.');
+    });
   };
 
   // Like / unlike the current track (Bug 7). Optimistic with revert-on-error, and
@@ -274,10 +298,17 @@ export default function NowPlayingPage() {
             </h3>
             <ul className="flex max-h-[50vh] flex-col overflow-y-auto">
               {upNext.map((t, i) => (
-                <li key={t.id} className="flex items-center gap-3 border-b border-border/60 py-2.5 last:border-none">
-                  <span className="w-4 shrink-0 text-center font-mono text-xs text-muted-foreground">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-foreground">{t.title}</span>
-                  <span className="shrink-0 truncate text-xs text-muted-foreground">{t.artist}</span>
+                <li key={t.id} className="border-b border-border/60 last:border-none">
+                  <button
+                    type="button"
+                    onClick={() => handlePlayAt(currentIndex + 1 + i)}
+                    aria-label={`Play ${t.title} by ${t.artist}`}
+                    className="flex w-full items-center gap-3 rounded-md py-2.5 text-left transition-colors hover:bg-muted"
+                  >
+                    <span className="w-4 shrink-0 text-center font-mono text-xs text-muted-foreground">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">{t.title}</span>
+                    <span className="shrink-0 truncate text-xs text-muted-foreground">{t.artist}</span>
+                  </button>
                 </li>
               ))}
             </ul>

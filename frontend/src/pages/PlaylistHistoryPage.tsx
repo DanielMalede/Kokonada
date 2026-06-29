@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import { ListMusic, Play } from 'lucide-react';
+import { ListMusic, Play, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { AppDispatch } from '@/store';
 import { setPlaylist, setPlaybackMode } from '@/store/slices/playerSlice';
-import { getSessions, type Session } from '@/lib/history';
+import { getSessions, deleteSession, deleteSessions, type Session } from '@/lib/history';
 import { MOODS } from '@/lib/moods';
 import PageHeader from '@/components/PageHeader';
 import EmptyState from '@/components/EmptyState';
@@ -32,7 +33,36 @@ function moodColors(key: string | null) {
 export default function PlaylistHistoryPage() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const [sessions] = useState<Session[]>(() => getSessions());
+  const [sessions, setSessions] = useState<Session[]>(() => getSessions());
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+
+  const refresh = () => setSessions(getSessions());
+
+  const removeOne = (s: Session) => {
+    deleteSession(s.id);
+    refresh();
+    toast.success('Session deleted');
+  };
+
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const exitSelect = () => { setSelectMode(false); setSelected(new Set()); };
+
+  const bulkDelete = () => {
+    const n = selected.size;
+    if (n === 0) return;
+    deleteSessions([...selected]);
+    exitSelect();
+    refresh();
+    toast.success(`${n} session${n > 1 ? 's' : ''} deleted`);
+  };
 
   const groups = useMemo(() => {
     const map = new Map<string, Session[]>();
@@ -63,7 +93,33 @@ export default function PlaylistHistoryPage() {
           actionTo="/app"
         />
       ) : (
-        <div className="flex flex-col gap-7">
+        <div className="flex flex-col gap-5">
+          {/* Manage controls: enter multi-select, then bulk-delete the picked sessions. */}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">{sessions.length} session{sessions.length > 1 ? 's' : ''}</span>
+            {selectMode ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={bulkDelete}
+                  disabled={selected.size === 0}
+                  className="flex items-center gap-1.5 rounded-full bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground transition-opacity disabled:opacity-40"
+                >
+                  <Trash2 className="size-4" /> Delete selected ({selected.size})
+                </button>
+                <button onClick={exitSelect} className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setSelectMode(true)}
+                className="rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                Select
+              </button>
+            )}
+          </div>
+
           {groups.map(([label, items]) => (
             <section key={label} className="flex flex-col gap-3">
               <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</h2>
@@ -73,8 +129,17 @@ export default function PlaylistHistoryPage() {
                   return (
                     <li key={s.id}>
                       <div className="flex items-center gap-3 rounded-2xl bg-card p-3 ring-1 ring-foreground/10">
+                        {selectMode && (
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${s.moodLabel} session`}
+                            checked={selected.has(s.id)}
+                            onChange={() => toggleSelected(s.id)}
+                            className="size-5 shrink-0 accent-primary"
+                          />
+                        )}
                         <button
-                          onClick={() => navigate(`/history/${s.id}`)}
+                          onClick={() => (selectMode ? toggleSelected(s.id) : navigate(`/history/${s.id}`))}
                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
                           <span
@@ -90,13 +155,24 @@ export default function PlaylistHistoryPage() {
                             </span>
                           </span>
                         </button>
-                        <button
-                          onClick={() => play(s)}
-                          aria-label={`Play ${s.moodLabel} session`}
-                          className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
-                        >
-                          <Play className="size-4 translate-x-px" />
-                        </button>
+                        {!selectMode && (
+                          <>
+                            <button
+                              onClick={() => play(s)}
+                              aria-label={`Play ${s.moodLabel} session`}
+                              className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
+                            >
+                              <Play className="size-4 translate-x-px" />
+                            </button>
+                            <button
+                              onClick={() => removeOne(s)}
+                              aria-label={`Delete ${s.moodLabel} session`}
+                              className="grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </li>
                   );

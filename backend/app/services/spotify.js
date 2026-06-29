@@ -45,7 +45,13 @@ function getAuthUrl(state) {
     scope:         SCOPES,
     redirect_uri:  process.env.SPOTIFY_REDIRECT_URI,
     state,
-    show_dialog:   'false',
+    // Force the consent dialog on every connect/reconnect. When a new scope is
+    // added (e.g. playlist-modify-*, user-library-modify), a stored token minted
+    // before it lacks the scope and Export/Like 409. With show_dialog=false Spotify
+    // silently reuses the old grant on reconnect and never re-grants — leaving the
+    // user stuck "connected but failing". true re-prompts so the fresh token always
+    // carries the full current scope set.
+    show_dialog:   'true',
   });
   return `${BASE_AUTH}/authorize?${params}`;
 }

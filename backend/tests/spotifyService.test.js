@@ -263,6 +263,15 @@ describe('OAuth scopes', () => {
     expect(scope).toContain('user-top-read');
     expect(scope).toContain('user-read-recently-played');
   });
+
+  it('forces the consent dialog (show_dialog=true) so a reconnect re-grants newly-added scopes', () => {
+    // A token minted before playlist-modify-*/user-library-modify was added lacks
+    // those scopes; with show_dialog=false Spotify silently reuses the old consent
+    // and the user is stuck on 409s. show_dialog=true forces re-consent on every
+    // reconnect so the fresh token always carries the full current scope set.
+    const url = spotify.getAuthUrl('state123');
+    expect(new URL(url).searchParams.get('show_dialog')).toBe('true');
+  });
 });
 
 describe('getTopTracks', () => {

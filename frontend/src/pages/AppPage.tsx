@@ -224,12 +224,19 @@ export default function AppPage() {
                 Set a mood and hit generate to start a session.
               </p>
             ) : (
-              <ul className="flex flex-col gap-2.5">
+              <ul className="flex flex-col gap-1">
                 {upNext.map((t) => (
-                  <li key={t.id} className="flex items-center gap-3">
-                    <span className="size-1.5 rounded-full bg-primary/60" />
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">{t.title}</span>
-                    <span className="shrink-0 truncate text-xs text-muted-foreground">{t.artist}</span>
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/now-playing')}
+                      aria-label={`Open player — ${t.title} by ${t.artist}`}
+                      className="flex w-full items-center gap-3 rounded-md py-1.5 text-left transition-colors hover:bg-muted"
+                    >
+                      <span className="size-1.5 shrink-0 rounded-full bg-primary/60" />
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">{t.title}</span>
+                      <span className="shrink-0 truncate text-xs text-muted-foreground">{t.artist}</span>
+                    </button>
                   </li>
                 ))}
                 <li>

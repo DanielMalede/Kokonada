@@ -84,6 +84,16 @@ const playerSlice = createSlice({
       state.currentIndex = (state.currentIndex + 1) % list.length;
       state.sdkPositionMs = 0;
     },
+    // Jump to a specific track (play-from-queue). Online, the SDK's reported track
+    // remains the source of truth and re-snaps currentIndex on the next state tick;
+    // this gives immediate feedback and drives the offline (non-SDK) buffer path.
+    setCurrentIndex(state, action: PayloadAction<number>) {
+      const list = state.isOnline ? state.playlist : state.offlineBuffer;
+      const i = action.payload;
+      if (i < 0 || i >= list.length) return;
+      state.currentIndex = i;
+      state.sdkPositionMs = 0;
+    },
     setPendingPlaylist(state, action: PayloadAction<{ tracks: Track[]; mode?: 'live' | 'export' }>) {
       state.pendingPlaylist = action.payload.tracks;
       state.pendingMode = action.payload.mode ?? 'live';
@@ -136,7 +146,7 @@ const playerSlice = createSlice({
 });
 
 export const {
-  setPlaylist, skipTrack, setPlaying, setIsOnline, setPlaybackMode, setSdkState,
+  setPlaylist, skipTrack, setCurrentIndex, setPlaying, setIsOnline, setPlaybackMode, setSdkState,
   setPendingPlaylist, promotePendingPlaylist, setPlaylistError,
 } = playerSlice.actions;
 
