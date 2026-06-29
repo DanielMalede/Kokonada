@@ -16,8 +16,12 @@ const userSchema = new mongoose.Schema({
   musicProvider:     { type: String, enum: ['spotify', 'youtube', null], default: null },
   spotifyToken:      { type: encryptedTokenSchema, default: null },
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
-  wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'suunto', null], default: null },
+  wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'health_connect', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },
+  // Garmin Health API account id — plaintext + indexed so the server-to-server
+  // webhook can map an inbound Garmin userId to our user. (The same id is also kept
+  // inside the encrypted wearableToken blob.)
+  garminUserId:      { type: String, default: null, index: true },
 
   // Opaque device token for the sideloaded Garmin watch app (HR streaming).
   // We store ONLY the sha256 hash — the plaintext (whr_…) is shown to the user

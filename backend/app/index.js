@@ -17,7 +17,6 @@ const errorHandler = require('./middleware/errorHandler');
 const authRouter         = require('./routes/auth');
 const integrationsRouter = require('./routes/integrations');
 const { createSocketServer } = require('./sockets');
-const { startGarminPoller } = require('./services/wearable/garminPoller');
 
 const app = express();
 
@@ -72,6 +71,14 @@ app.use((req, res, next) => {
     next();
   }
 });
+// The health-store batch endpoint (JWT-authenticated) carries up to 2000 biometric
+// samples per chunk (~hundreds of KB) for the medical-profile backfill, so it needs a
+// larger body than the global 10kb cap. Scoped to this one route and parsed BEFORE the
+// global parser, so the global json() sees req._body already set and skips it.
+app.use('/api/integrations/health/batch', express.json({ limit: '1mb' }));
+// Garmin Health API push/backfill payloads (server-to-server) can be large; larger
+// limit, scoped to the webhook only, parsed before the global 10kb cap.
+app.use('/api/integrations/garmin/webhook', express.json({ limit: '5mb' }));
 app.use(express.json({ limit: '10kb' }));
 
 app.use('/api/', apiLimiter);
@@ -91,12 +98,9 @@ async function start() {
   await connectRedis();
   const httpServer = http.createServer(app);
   const io = createSocketServer(httpServer);
-  // The Garmin Web API is delayed/batched and the OAuth app is restricted; the
-  // sideloaded watch app pushes live HR instead. Keep the legacy poller off
-  // unless explicitly enabled. (Set ENABLE_GARMIN_POLLER=true to re-enable.)
-  if (process.env.ENABLE_GARMIN_POLLER === 'true') {
-    startGarminPoller(io);
-  }
+  // Historical Garmin data arrives via the Health API push webhook
+  // (POST /api/integrations/garmin/webhook → garminIngest); real-time HR comes from
+  // the sideloaded watch app. (The legacy 30s OAuth1 dailies poller was removed.)
   httpServer.listen(PORT, () =>
     console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}] routes:ok`)
   );

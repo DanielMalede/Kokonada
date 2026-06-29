@@ -7,7 +7,7 @@ const {
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   getSpotifyToken, playSpotifyTracks, exportSpotifyPlaylist,
   youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
-  garminConnect, garminCallback, garminDisconnect,
+  garminConnect, garminCallback, garminDisconnect, garminWebhook,
   appleHealthPush,
   healthBatchIngest,
   suuntoWebhook,
@@ -24,6 +24,7 @@ router.get('/spotify/callback',  spotifyCallback);
 router.get('/youtube/callback',  youtubeCallback);
 router.post('/youtube/exchange', youtubeExchange);
 router.get('/garmin/callback',   garminCallback);
+router.post('/garmin/webhook',   garminWebhook); // Garmin Health API server-to-server push
 
 // Watch HR stream (PUBLIC — authenticated by the opaque device token, not the
 // session cookie; same placement rationale as the webhooks above).
