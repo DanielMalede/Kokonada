@@ -214,6 +214,51 @@ describe('_buildEmotionPrompt', () => {
   });
 });
 
+// ── Micro-genre seed shifting (drive Spotify into distinct catalog sectors) ────
+
+describe('micro-genre seed shifting', () => {
+  const emotionTaps = [{ x: 0.4, y: 0.2 }];
+  // A rich granular footprint (hyper-specific sub-genres) the rotation samples from.
+  const RICH_PROFILE = {
+    topGenres: ['pop'],
+    genreSet: [
+      'indie pop', 'post-punk', 'dream pop', 'shoegaze', 'synthwave', 'darkwave',
+      'art punk', 'noise pop', 'jangle pop', 'coldwave', 'minimal synth', 'dark jazz',
+      'neo-psychedelia', 'slowcore', 'chamber pop', 'baroque pop',
+    ],
+    tempoBaseline: 120, energy: 0.6, valence: 0.5, acousticness: 0.3, restingHeartRate: 60,
+  };
+  const subset = (prompt) => RICH_PROFILE.genreSet.filter((g) => prompt.includes(g));
+
+  it('narrows the allowed genres to a SUBSET of the granular footprint (not all of it)', () => {
+    const picked = subset(_buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-A'));
+    expect(picked.length).toBeGreaterThan(0);
+    expect(picked.length).toBeLessThan(RICH_PROFILE.genreSet.length);
+  });
+
+  it('is deterministic for a given seed', () => {
+    const a = _buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-X');
+    const b = _buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-X');
+    expect(a).toEqual(b);
+  });
+
+  it('rotates which sub-genres are surfaced across presses (distinct catalog sectors)', () => {
+    const seen = new Set();
+    const onePress = subset(_buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-0')).length;
+    for (let i = 0; i < 12; i++) {
+      subset(_buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, `seed-${i}`)).forEach((g) => seen.add(g));
+    }
+    // A fixed subset would only ever expose `onePress` sub-genres; rotation exceeds it.
+    expect(seen.size).toBeGreaterThan(onePress);
+  });
+
+  it('the biometric (HR) prompt also rotates the micro-genre subset', () => {
+    const picked = subset(_buildBiometricPrompt(RICH_PROFILE, { heartRate: 150, activity: 'running' }, 'seed-A'));
+    expect(picked.length).toBeGreaterThan(0);
+    expect(picked.length).toBeLessThan(RICH_PROFILE.genreSet.length);
+  });
+});
+
 // ── _buildBiometricPrompt ──────────────────────────────────────────────────────
 
 describe('_buildBiometricPrompt', () => {

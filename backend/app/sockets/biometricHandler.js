@@ -327,6 +327,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             provider,
             strictPersonalize:    true,
             cooldownIds,
+            seed,
           });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
@@ -373,6 +374,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
       provider,
       cooldownIds,
+      seed,
       // Personalization is the ABSOLUTE filter on a mood's vibe-sourced pool: discard
       // off-taste candidates rather than backfilling them. Scoped to the Spotify path,
       // which is where Layer-1 sources + genre-tags candidates — YouTube discovery is

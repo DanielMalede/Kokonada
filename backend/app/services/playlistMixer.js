@@ -9,6 +9,17 @@ const PLAYLIST_SIZE = Number(process.env.PLAYLIST_SIZE) || 50;
 // repeated presses surface a different on-vibe subset instead of the same static block.
 const VARIETY_WINDOW = 1.7;
 
+// 40/40/20 partition (env-overridable):
+//   Rotation-Familiar — the user's current high-affinity rotation (cooldown-filtered).
+//   Deep Cuts         — forgotten gems: library tracks by loved artists that have
+//                       fallen out of the recent top-N rotation.
+//   True Discovery    — genuinely new, vibe-matched tracks.
+const ROTATION_RATIO  = Number(process.env.ROTATION_RATIO)  || 0.40;
+const DISCOVERY_RATIO = Number(process.env.DISCOVERY_RATIO) || 0.20;
+// Library tracks ranked above this by affinity are the "current rotation"; the tail
+// below it is the Deep Cuts pool (loved artists, no longer in heavy rotation).
+const DEEPCUTS_TOP_N  = Number(process.env.DEEPCUTS_TOP_N)  || 100;
+
 const EMPTY_SET = new Set();
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -20,6 +31,31 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+// Deterministic small int in [0, mod) from a string seed (xfnv1a hash). Same seed →
+// same value; different seeds spread across the range.
+function _seededInt(seedStr, mod) {
+  if (!mod) return 0;
+  let h = 2166136261 >>> 0;
+  const s = String(seedStr);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % mod;
+}
+
+// Tiered familiar rotation: split the user's current rotation pool into affinity
+// bands ("tiers" — affinity is already weighted from top-tracks/saved/recently-played
+// during profile sync) and let the per-generation seed pick which band LEADS the
+// familiar quota this press. The dominant familiar flavour rotates each press while
+// the variety window still shuffles within the leading band. No seed → top band leads
+// (back-compat).
+const ROTATION_TIERS = Number(process.env.ROTATION_TIERS) || 3;
+function _tierRotated(pool, seed) {
+  if (seed == null || pool.length < ROTATION_TIERS * 2) return pool;
+  const tierSize = Math.ceil(pool.length / ROTATION_TIERS);
+  const lead = _seededInt(seed, ROTATION_TIERS);
+  const cut = lead * tierSize;
+  return [...pool.slice(cut), ...pool.slice(0, cut)];
 }
 
 /**
@@ -231,9 +267,13 @@ function personalizeWhitelist(tracks, { genreSet = [], knownArtistIds = [] } = {
  * }} opts
  * @returns {Promise<{ familiar: object[], discovery: object[], merged: object[] }>}
  */
-async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null, strictPersonalize = false, cooldownIds = null }) {
-  const familiarTarget  = Math.round(playlistSize * FAMILIAR_RATIO);
-  const discoveryTarget = playlistSize - familiarTarget;
+async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null, strictPersonalize = false, cooldownIds = null, seed = null }) {
+  // 40/40/20 bucket quotas. familiarTarget (rotation+deepcuts) sizes the variety
+  // window and the relaxation pool.
+  const rotationTarget  = Math.round(playlistSize * ROTATION_RATIO);
+  const discoveryTarget = Math.round(playlistSize * DISCOVERY_RATIO);
+  const deepCutsTarget  = playlistSize - rotationTarget - discoveryTarget;
+  const familiarTarget  = rotationTarget + deepCutsTarget;
   // Anti-repetition: ids generated in the user's last few playlists are held on a
   // cooldown and filtered out of every bucket, so sequential generations don't
   // overlap. Relaxed only as a last resort (a repeat beats an empty playlist).
@@ -251,35 +291,48 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   const allowGenres    = new Set((aiParams.allow_genres || aiParams.seed_genres || []).map(g => g.toLowerCase()));
   const strict         = excludeGenres.size > 0;
 
-  // Variety window keeps the familiar block fresh across presses; in strict mode the
-  // pool is already filtered to on-vibe tracks, so it can never introduce off-vibe.
-  const familiarPool  = _varietyWindow(
-    _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres, strict }),
-    familiarTarget,
-  );
+  // On-vibe familiar ordered best-first (relevance + affinity), then split by affinity
+  // into the current ROTATION (top-N, variety-windowed for freshness) and DEEP CUTS
+  // (the tail — loved tracks no longer in heavy rotation, shuffled so a different gem
+  // surfaces each press). In strict mode both are already on-vibe filtered.
+  const orderedFamiliar = _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres, strict });
+  // Seed picks which affinity band of the rotation pool leads this press (tiered
+  // rotation), then the variety window shuffles within it for freshness.
+  const rotationSource  = _varietyWindow(_tierRotated(orderedFamiliar.slice(0, DEEPCUTS_TOP_N), seed), rotationTarget);
+  const deepCutsSource  = shuffle(orderedFamiliar.slice(DEEPCUTS_TOP_N));
+  // familiarPool (rotation then deep cuts) is the combined familiar view used by the
+  // cooldown last-resort backfill.
+  const familiarPool    = [...rotationSource, ...deepCutsSource];
+
   const rawDiscovery  = (await fetchDiscoveryTracks(aiParams)) || [];
   const discoveryPool = _orderDiscovery(rawDiscovery, { libraryIds, knownArtistIds, genreSet, provider, excludeGenres, strictPersonalize });
 
   // Cooldown-filtered views drive the primary selection; the raw pools are kept for
   // the last-resort backfill below.
-  const familiarFresh  = fresh(familiarPool);
+  const rotationFresh  = fresh(rotationSource);
+  const deepCutsFresh   = fresh(deepCutsSource);
   const discoveryFresh = fresh(discoveryPool);
 
-  // Initial split (cooldown-filtered).
-  const familiar  = familiarFresh.slice(0, familiarTarget);
-  const discovery = discoveryFresh.slice(0, discoveryTarget);
-
-  // Always fill to exactly playlistSize unique tracks. Add more discovery first
-  // (novelty), then backfill from the library; relax only at the tail.
-  const chosen = new Set([...familiar, ...discovery].map(t => t.id));
-  const fillFrom = (pool, bucket) => {
+  const familiar  = [];
+  const discovery = [];
+  const chosen = new Set();
+  const fillFrom = (pool, bucket, limit = playlistSize) => {
     for (const t of pool) {
-      if (chosen.size >= playlistSize) break;
+      if (chosen.size >= playlistSize || bucket.length >= limit) break;
       if (!chosen.has(t.id)) { bucket.push(t); chosen.add(t.id); }
     }
   };
-  fillFrom(discoveryFresh.slice(discovery.length), discovery);
-  fillFrom(familiarFresh.slice(familiar.length), familiar);
+  // Primary 40/40/20 fill.
+  fillFrom(rotationFresh, familiar, rotationTarget);
+  fillFrom(deepCutsFresh, familiar, familiarTarget);
+  fillFrom(discoveryFresh, discovery, discoveryTarget);
+
+  // Always fill to exactly playlistSize. The 80/20 split favours the user's own
+  // catalog, so top up familiar (more deep cuts, then more rotation) before reaching
+  // for extra discovery.
+  fillFrom(deepCutsFresh, familiar);
+  fillFrom(rotationFresh, familiar);
+  fillFrom(discoveryFresh, discovery);
 
   // Mood relaxation ladder: a narrow zero-tolerance allow-list (e.g. "Calm" only
   // allows ambient/acoustic/lo-fi) can starve BOTH pools when the user's taste
