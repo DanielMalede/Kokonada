@@ -22,6 +22,11 @@ const playlistSessionSchema = new mongoose.Schema({
     activity:  { type: String, default: null },
   },
 
+  // Resolved mood preset for this generation (focus/calm/intense/…), null on the HR
+  // branch. Drives the per-mood "Affinity Trap Breaker": detecting a repeated mood and
+  // blacklisting tracks already served under that same mood. Indexed below.
+  moodKey: { type: String, default: null },
+
   // AI-derived music parameters
   targetBpm:    { type: Number, default: null },
   targetGenres: { type: [String], default: [] },
@@ -49,6 +54,8 @@ const playlistSessionSchema = new mongoose.Schema({
 });
 
 playlistSessionSchema.index({ userId: 1, createdAt: -1 });
+// Per-mood repeat detection + 24h blacklist query (find by user+mood within a window).
+playlistSessionSchema.index({ userId: 1, moodKey: 1, createdAt: -1 });
 playlistSessionSchema.index({ llmCacheKey: 1 });
 
 module.exports = mongoose.model('PlaylistSession', playlistSessionSchema);

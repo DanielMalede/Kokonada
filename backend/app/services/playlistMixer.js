@@ -135,11 +135,24 @@ function _isNovel(track, libraryIds, knownArtistIds) {
  * @param {Set<string>} moodGenres   lower-cased mood seed genres
  * @param {string|null} provider
  */
+// Multi-dimensional sliding window (anti-repetition): the axis the familiar pool is
+// ordered by. Rotating the axis per generation makes each press grab a DIFFERENT slice
+// of the library (top-affinity vs most-popular vs deepest-cuts vs random) instead of the
+// same affinity-descending block. 'affinity' is the default (back-compat).
+function _comparatorFor(axis) {
+  switch (axis) {
+    case 'popularity':      return (a, b) => (b.popularity ?? 0) - (a.popularity ?? 0);
+    case 'reverseAffinity': return (a, b) => (a.affinity ?? 0) - (b.affinity ?? 0); // deep cuts lead
+    case 'affinity':
+    default:                return (a, b) => (b.affinity ?? 0) - (a.affinity ?? 0);
+  }
+}
+
 function _orderFamiliar(library, moodGenres, provider, opts = {}) {
   const excludeGenres = opts.excludeGenres || EMPTY_SET;
   const allowGenres   = opts.allowGenres   || EMPTY_SET;
   const strict        = !!opts.strict;
-  const byAffinity = (a, b) => (b.affinity ?? 0) - (a.affinity ?? 0);
+  const sortAxis      = opts.sortAxis || 'affinity';
   const relevant = [];
   const rest     = [];
   for (const t of library) {
@@ -155,7 +168,11 @@ function _orderFamiliar(library, moodGenres, provider, opts = {}) {
     if (moodGenres.size && g.some(x => moodGenres.has(x))) relevant.push(t);
     else rest.push(t);
   }
-  return [...relevant.sort(byAffinity), ...rest.sort(byAffinity)];
+  // Genre-relevant tracks still lead; the axis only reorders WITHIN each tier so the
+  // mood relevance ordering is preserved. 'random' shuffles each tier for max variety.
+  if (sortAxis === 'random') return [...shuffle(relevant), ...shuffle(rest)];
+  const cmp = _comparatorFor(sortAxis);
+  return [...relevant.sort(cmp), ...rest.sort(cmp)];
 }
 
 /**
@@ -267,11 +284,15 @@ function personalizeWhitelist(tracks, { genreSet = [], knownArtistIds = [] } = {
  * }} opts
  * @returns {Promise<{ familiar: object[], discovery: object[], merged: object[] }>}
  */
-async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null, strictPersonalize = false, cooldownIds = null, seed = null }) {
-  // 40/40/20 bucket quotas. familiarTarget (rotation+deepcuts) sizes the variety
-  // window and the relaxation pool.
-  const rotationTarget  = Math.round(playlistSize * ROTATION_RATIO);
-  const discoveryTarget = Math.round(playlistSize * DISCOVERY_RATIO);
+async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playlistSize = PLAYLIST_SIZE, provider = null, strictPersonalize = false, cooldownIds = null, seed = null, ratios = null, sortAxis = null }) {
+  // 40/40/20 bucket quotas (env defaults), optionally overridden per generation. In
+  // Strict Anti-Repetition Mode the caller inverts the split (rotation collapses, deep
+  // cuts + discovery spike) so a repeated mood digs the bottom of the affinity list.
+  const rotationRatio   = (ratios && Number.isFinite(ratios.rotation))  ? ratios.rotation  : ROTATION_RATIO;
+  const discoveryRatio  = (ratios && Number.isFinite(ratios.discovery)) ? ratios.discovery : DISCOVERY_RATIO;
+  // familiarTarget (rotation+deepcuts) sizes the variety window and the relaxation pool.
+  const rotationTarget  = Math.round(playlistSize * rotationRatio);
+  const discoveryTarget = Math.round(playlistSize * discoveryRatio);
   const deepCutsTarget  = playlistSize - rotationTarget - discoveryTarget;
   const familiarTarget  = rotationTarget + deepCutsTarget;
   // Anti-repetition: ids generated in the user's last few playlists are held on a
@@ -295,7 +316,7 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   // into the current ROTATION (top-N, variety-windowed for freshness) and DEEP CUTS
   // (the tail — loved tracks no longer in heavy rotation, shuffled so a different gem
   // surfaces each press). In strict mode both are already on-vibe filtered.
-  const orderedFamiliar = _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres, strict });
+  const orderedFamiliar = _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres, strict, sortAxis });
   // Seed picks which affinity band of the rotation pool leads this press (tiered
   // rotation), then the variety window shuffles within it for freshness.
   const rotationSource  = _varietyWindow(_tierRotated(orderedFamiliar.slice(0, DEEPCUTS_TOP_N), seed), rotationTarget);
@@ -344,7 +365,7 @@ async function mixPlaylist({ musicProfile, aiParams, fetchDiscoveryTracks, playl
   // user without weakening the hard sonic floor. Only runs in strict mode, so the
   // soft-bias (HR/biometric) path is byte-identical.
   const relaxedFamiliarPool = () => _varietyWindow(
-    _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres: EMPTY_SET, strict: true }),
+    _orderFamiliar(library, moodGenres, provider, { excludeGenres, allowGenres: EMPTY_SET, strict: true, sortAxis }),
     familiarTarget,
   );
   if (strict && chosen.size < playlistSize) {

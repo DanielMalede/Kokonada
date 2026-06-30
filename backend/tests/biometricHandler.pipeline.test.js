@@ -19,8 +19,9 @@ jest.mock('../app/models/BiometricLog', () => ({
 }));
 
 jest.mock('../app/models/PlaylistSession', () => ({
-  create: jest.fn().mockResolvedValue({}),
-  find:   jest.fn(),
+  create:         jest.fn().mockResolvedValue({}),
+  find:           jest.fn(),
+  countDocuments: jest.fn().mockResolvedValue(0),
 }));
 
 jest.mock('../app/services/spotify', () => ({
@@ -73,6 +74,9 @@ const playlistMixer   = require('../app/services/playlistMixer');
 const {
   registerBiometricHandler,
   generateAndEmitPlaylist,
+  isRepeatMood,
+  recentMoodCooldown,
+  pickSortAxis,
 } = require('../app/sockets/biometricHandler');
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -182,6 +186,7 @@ beforeEach(() => {
   playlistMixer.mixPlaylist.mockResolvedValue(makeMixedPlaylist());
   playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
+  PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
   mockRecentSessions([]);
 });
 
@@ -189,11 +194,17 @@ function mockBiometricLogs(logs) {
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve(logs) }) });
 }
 
-// Mock the recent-playlist cooldown read: find().sort().limit().select().lean().
+// Chainable session-query mock supporting BOTH cooldown reads:
+//   recentTrackCooldown: find().sort().limit().select().lean()
+//   recentMoodCooldown:  find().sort().select().lean()  (no .limit())
 function mockRecentSessions(sessions) {
-  PlaylistSession.find.mockReturnValue({
-    sort: () => ({ limit: () => ({ select: () => ({ lean: () => Promise.resolve(sessions) }) }) }),
-  });
+  const chain = {
+    sort:   () => chain,
+    limit:  () => chain,
+    select: () => chain,
+    lean:   () => Promise.resolve(sessions),
+  };
+  PlaylistSession.find.mockReturnValue(chain);
 }
 
 // ── generateAndEmitPlaylist — biometric trigger ───────────────────────────────
@@ -851,5 +862,116 @@ describe('activity-mode change triggers regeneration', () => {
 
     const events = socket.emit.mock.calls.map(c => c[0]);
     expect(events).toContain('recalibration_pending');
+  });
+});
+
+// ── Extreme anti-repetition (Affinity Trap Breaker) ───────────────────────────
+
+describe('isRepeatMood', () => {
+  it('is true when a session with the same mood exists in the window', async () => {
+    PlaylistSession.countDocuments.mockResolvedValueOnce(1);
+    expect(await isRepeatMood('user-123', 'calm')).toBe(true);
+  });
+
+  it('is false when there is no prior session for the mood', async () => {
+    PlaylistSession.countDocuments.mockResolvedValueOnce(0);
+    expect(await isRepeatMood('user-123', 'calm')).toBe(false);
+  });
+
+  it('is false (never strict) for a null mood — the HR branch', async () => {
+    expect(await isRepeatMood('user-123', null)).toBe(false);
+    expect(PlaylistSession.countDocuments).not.toHaveBeenCalled();
+  });
+
+  it('degrades to false on a DB error (a hiccup never wedges strict mode)', async () => {
+    PlaylistSession.countDocuments.mockRejectedValueOnce(new Error('mongo down'));
+    expect(await isRepeatMood('user-123', 'calm')).toBe(false);
+  });
+});
+
+describe('recentMoodCooldown', () => {
+  it('unions trackIds from every session served under the mood in the window', async () => {
+    mockRecentSessions([{ trackIds: ['a', 'b'] }, { trackIds: ['b', 'c'] }]);
+    const ids = await recentMoodCooldown('user-123', 'calm');
+    expect([...ids].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('caps the blacklist size', async () => {
+    mockRecentSessions([{ trackIds: ['a', 'b', 'c', 'd', 'e'] }]);
+    const ids = await recentMoodCooldown('user-123', 'calm', 24, 3);
+    expect(ids.size).toBe(3);
+  });
+
+  it('returns an empty set for a null mood', async () => {
+    const ids = await recentMoodCooldown('user-123', null);
+    expect(ids.size).toBe(0);
+  });
+});
+
+describe('pickSortAxis', () => {
+  it('strict mode never returns plain affinity (forces a different slice)', () => {
+    for (let i = 0; i < 20; i++) {
+      expect(pickSortAxis(`seed-${i}`, true)).not.toBe('affinity');
+    }
+  });
+
+  it('is deterministic for a given seed', () => {
+    expect(pickSortAxis('fixed', false)).toBe(pickSortAxis('fixed', false));
+  });
+});
+
+describe('strict-mode wiring (repeat mood → inverted ratios + per-mood cooldown)', () => {
+  const INTENSE = [{ x: 0.1, y: 0.95 }];
+
+  it('passes inverted ratios, a strict sort axis, and the per-mood cooldown into mixPlaylist', async () => {
+    PlaylistSession.countDocuments.mockResolvedValue(1);          // repeat detected
+    mockRecentSessions([{ trackIds: ['m1', 'm2'] }]);            // 24h mood blacklist
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE }));
+
+    const arg = playlistMixer.mixPlaylist.mock.calls.at(-1)[0];
+    expect(arg.ratios).toEqual({ rotation: 0.10 });
+    expect(['reverseAffinity', 'random', 'popularity']).toContain(arg.sortAxis);
+    expect([...arg.cooldownIds].sort()).toEqual(['m1', 'm2']);
+  });
+
+  it('a FIRST press of a mood stays in normal mode (no inverted ratios)', async () => {
+    PlaylistSession.countDocuments.mockResolvedValue(0);          // no repeat
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE }));
+
+    const arg = playlistMixer.mixPlaylist.mock.calls.at(-1)[0];
+    expect(arg.ratios).toBeNull();
+  });
+
+  it('STRICT_ANTIREPEAT=false disables strict mode even on a repeat', async () => {
+    process.env.STRICT_ANTIREPEAT = 'false';
+    PlaylistSession.countDocuments.mockResolvedValue(1);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE }));
+
+    const arg = playlistMixer.mixPlaylist.mock.calls.at(-1)[0];
+    expect(arg.ratios).toBeNull();
+    delete process.env.STRICT_ANTIREPEAT;
+  });
+
+  it('the HR/biometric branch never goes strict (no mood to repeat)', async () => {
+    PlaylistSession.countDocuments.mockResolvedValue(1);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    const arg = playlistMixer.mixPlaylist.mock.calls.at(-1)[0];
+    expect(arg.ratios).toBeNull();
+    expect(PlaylistSession.countDocuments).not.toHaveBeenCalled();
+  });
+
+  it('records the resolved moodKey on the session (and null for the HR branch)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE }));
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ moodKey: 'intense' }));
+
+    PlaylistSession.create.mockClear();
+    await generateAndEmitPlaylist(makeSocket(), 'biometric', makeState());
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ moodKey: null }));
   });
 });

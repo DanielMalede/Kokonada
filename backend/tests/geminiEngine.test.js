@@ -20,6 +20,8 @@ const {
   _parseAndValidate,
   _buildEmotionPrompt,
   _buildBiometricPrompt,
+  _buildCriticPrompt,
+  TEMPO_CATEGORIES,
 } = require('../app/services/geminiEngine');
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -150,6 +152,67 @@ describe('_parseAndValidate — mood_keywords', () => {
 
   it('does not inject mood_keywords when absent (params stay exact)', () => {
     expect(_parseAndValidate(JSON.stringify(VALID_AI_PARAMS))).toEqual(VALID_AI_PARAMS);
+  });
+});
+
+// ── _parseAndValidate — tempo_category (manual mood flow, lenient) ─────────────
+
+describe('_parseAndValidate — tempo_category', () => {
+  it('preserves a valid tempo_category', () => {
+    for (const cat of TEMPO_CATEGORIES) {
+      const out = _parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, tempo_category: cat }));
+      expect(out.tempo_category).toBe(cat);
+    }
+  });
+
+  it('DROPS an invalid tempo_category (lenient — never throws, never blanks a generation)', () => {
+    const out = _parseAndValidate(JSON.stringify({ ...VALID_AI_PARAMS, tempo_category: 'turbo' }));
+    expect(out.tempo_category).toBeUndefined();
+    // ...the rest of the params survive untouched.
+    expect(out.target_bpm).toBe(128);
+  });
+
+  it('does not inject tempo_category when absent (params stay exact)', () => {
+    expect(_parseAndValidate(JSON.stringify(VALID_AI_PARAMS))).toEqual(VALID_AI_PARAMS);
+  });
+});
+
+// ── _buildEmotionPrompt — tempo_category (free-text overrides the mode) ────────
+
+describe('_buildEmotionPrompt — tempo_category', () => {
+  const emotionTaps = [{ x: 0.45, y: -0.55 }]; // calm
+
+  it('asks the model for a tempo_category from the resting/active/peak enum', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);
+    expect(prompt).toContain('tempo_category');
+    TEMPO_CATEGORIES.forEach((c) => expect(prompt).toContain(c));
+  });
+
+  it('tells the model the user note OVERRIDES the mood for tempo', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, 'going for a run');
+    expect(prompt.toLowerCase()).toMatch(/override|takes precedence|overrides/);
+  });
+});
+
+// ── _buildCriticPrompt — tempo band ───────────────────────────────────────────
+
+describe('_buildCriticPrompt — tempo band', () => {
+  const tracks = [{ name: 'Song A', artists: [{ name: 'Artist A' }] }];
+
+  it('states the target tempo band when a category is supplied', () => {
+    const prompt = _buildCriticPrompt(tracks, 'calm', ['mellow'], 'resting');
+    expect(prompt).toContain('RESTING');
+    expect(prompt.toLowerCase()).toContain('target tempo band');
+  });
+
+  it('omits the band line when no category is supplied (back-compat)', () => {
+    const prompt = _buildCriticPrompt(tracks, 'calm', ['mellow']);
+    expect(prompt.toLowerCase()).not.toContain('target tempo band');
+  });
+
+  it('ignores an invalid category (no band line)', () => {
+    const prompt = _buildCriticPrompt(tracks, 'calm', ['mellow'], 'turbo');
+    expect(prompt.toLowerCase()).not.toContain('target tempo band');
   });
 });
 
