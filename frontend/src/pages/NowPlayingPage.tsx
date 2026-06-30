@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Play, Pause, SkipForward, SkipBack, Disc3, Heart, Download } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, Disc3, Heart } from 'lucide-react';
+import SpotifyLogo from '@/components/SpotifyLogo';
 import { toast } from 'sonner';
 import type { AppDispatch, RootState } from '@/store';
 import { setSdkState, setCurrentIndex } from '@/store/slices/playerSlice';
@@ -215,13 +216,25 @@ export default function NowPlayingPage() {
             onClick={toggleLike}
             aria-label={liked ? 'Unlike' : 'Like'}
             aria-pressed={liked}
-            className={`grid size-10 shrink-0 place-items-center rounded-full transition-colors hover:bg-muted ${
+            className={`grid size-11 shrink-0 place-items-center rounded-full transition-colors hover:bg-muted ${
               liked ? 'text-coral' : 'text-muted-foreground hover:text-coral'
             }`}
           >
             <Heart className={liked ? 'size-5 fill-current' : 'size-5'} />
           </button>
         </div>
+
+        {/* Spotify attribution (Design Guidelines): link the playing track back to Spotify. */}
+        {track.uri?.startsWith('spotify:track:') && (
+          <a
+            href={`https://open.spotify.com/track/${track.uri.split(':')[2]}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex items-center gap-1.5 self-start text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <SpotifyLogo className="size-4" /> Listen on Spotify
+          </a>
+        )}
 
         <div className="mt-3 flex w-full flex-wrap gap-2">
           {moodLabel && <Badge variant="secondary">{moodLabel}</Badge>}
@@ -279,10 +292,10 @@ export default function NowPlayingPage() {
         {/* Export the whole session to the user's real Spotify account (Bug 6) */}
         <button
           onClick={handleExport}
-          aria-label="Export to Spotify"
+          aria-label="Save to Spotify"
           className="mt-6 flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          <Download className="size-4" /> Export to Spotify
+          <SpotifyLogo className="size-4" /> Save to Spotify
         </button>
 
         {/* Queue */}
