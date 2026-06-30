@@ -1,5 +1,5 @@
 const {
-  getSpotifyToken, playSpotifyTracks, exportSpotifyPlaylist, getIntegrationsStatus,
+  getSpotifyToken, playSpotifyTracks, getIntegrationsStatus,
 } = require('../app/controllers/integrationsController');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -30,8 +30,6 @@ jest.mock('../app/services/spotify', () => ({
   playTracks:    jest.fn(),
   getActiveDevice: jest.fn(),
   getProfile: jest.fn(),
-  createPlaylist: jest.fn(),
-  addTracksToPlaylist: jest.fn(),
   getAuthUrl: jest.fn(),
   exchangeCode: jest.fn(),
   getTopTrackFeatures: jest.fn(),
@@ -210,97 +208,6 @@ describe('playSpotifyTracks', () => {
     const res = makeRes();
 
     await playSpotifyTracks(req, res, next);
-
-    expect(next).toHaveBeenCalledWith(err);
-  });
-});
-
-// ── exportSpotifyPlaylist ─────────────────────────────────────────────────────
-
-describe('exportSpotifyPlaylist', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    User.findById.mockResolvedValue(FULL_USER);
-    spotify.withFreshToken.mockImplementation(async (_user, fn) => fn('tok_abc'));
-    spotify.getProfile.mockResolvedValue({ spotifyId: 'spuser', displayName: 'D', email: 'e' });
-    spotify.createPlaylist.mockResolvedValue({ id: 'pl_1', url: 'https://open.spotify.com/playlist/pl_1' });
-    spotify.addTracksToPlaylist.mockResolvedValue();
-  });
-
-  it('creates a playlist, adds tracks, and returns 201 with id + url', async () => {
-    const req = { user: REQ_USER, body: { uris: [T1, T2], name: 'Focus' } };
-    const res = makeRes();
-
-    await exportSpotifyPlaylist(req, res, next);
-
-    expect(spotify.withFreshToken).toHaveBeenCalledWith(FULL_USER, expect.any(Function));
-    expect(spotify.createPlaylist).toHaveBeenCalledWith('tok_abc', 'spuser', 'Focus', expect.any(String));
-    expect(spotify.addTracksToPlaylist).toHaveBeenCalledWith('tok_abc', 'pl_1', [T1, T2]);
-    expect(res.statusCode).toBe(201);
-    expect(res.body).toMatchObject({ playlistId: 'pl_1', url: 'https://open.spotify.com/playlist/pl_1' });
-  });
-
-  it('sanitizes URIs before adding (drops malformed)', async () => {
-    const req = { user: REQ_USER, body: { uris: [T1, BAD_YT, T3], name: 'Mix' } };
-    const res = makeRes();
-
-    await exportSpotifyPlaylist(req, res, next);
-
-    expect(spotify.addTracksToPlaylist).toHaveBeenCalledWith('tok_abc', 'pl_1', [T1, T3]);
-  });
-
-  it('falls back to a default name when none is supplied', async () => {
-    const req = { user: REQ_USER, body: { uris: [T1] } };
-    const res = makeRes();
-
-    await exportSpotifyPlaylist(req, res, next);
-
-    expect(spotify.createPlaylist).toHaveBeenCalledWith('tok_abc', 'spuser', expect.any(String), expect.any(String));
-    expect(res.statusCode).toBe(201);
-  });
-
-  it('returns 400 when uris is empty', async () => {
-    const req = { user: REQ_USER, body: { uris: [] } };
-    const res = makeRes();
-
-    await exportSpotifyPlaylist(req, res, next);
-
-    expect(res.statusCode).toBe(400);
-    expect(spotify.createPlaylist).not.toHaveBeenCalled();
-  });
-
-  it('returns 422 no_playable_tracks when no URI is valid', async () => {
-    const req = { user: REQ_USER, body: { uris: [BAD_YT, 'nope'] } };
-    const res = makeRes();
-
-    await exportSpotifyPlaylist(req, res, next);
-
-    expect(res.statusCode).toBe(422);
-    expect(res.body).toMatchObject({ code: 'no_playable_tracks' });
-    expect(spotify.createPlaylist).not.toHaveBeenCalled();
-  });
-
-  it('returns 409 reconnect_required on insufficient scope (403)', async () => {
-    spotify.withFreshToken.mockRejectedValue(
-      Object.assign(new Error('reconnect'), { statusCode: 403, code: 'insufficient_scope' }),
-    );
-    const req = { user: REQ_USER, body: { uris: [T1], name: 'X' } };
-    const res = makeRes();
-
-    await exportSpotifyPlaylist(req, res, next);
-
-    expect(res.statusCode).toBe(409);
-    expect(res.body).toMatchObject({ reason: 'reconnect_required' });
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  it('forwards other errors to next', async () => {
-    const err = new Error('network down');
-    spotify.withFreshToken.mockRejectedValue(err);
-    const req = { user: REQ_USER, body: { uris: [T1] } };
-    const res = makeRes();
-
-    await exportSpotifyPlaylist(req, res, next);
 
     expect(next).toHaveBeenCalledWith(err);
   });

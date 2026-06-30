@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { setTrackSaved, fetchTracksSaved, exportPlaylist } from '../lib/api';
+import { setTrackSaved, fetchTracksSaved } from '../lib/api';
 
 const BACKEND = 'http://localhost:5000';
 const SAVED_URL = `${BACKEND}/api/integrations/spotify/saved-tracks`;
@@ -51,20 +51,5 @@ describe('fetchTracksSaved', () => {
     vi.stubGlobal('fetch', fetchMock);
     expect(await fetchTracksSaved(BACKEND, [])).toEqual({});
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
-
-describe('exportPlaylist (Bug 6)', () => {
-  it('POSTs the uris + name to the export route and returns the result', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ url: 'https://open.spotify.com/playlist/x' }) });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const res = await exportPlaylist(BACKEND, ['spotify:track:a'], 'My Mix');
-
-    expect(fetchMock).toHaveBeenCalledWith(`${BACKEND}/api/integrations/spotify/export`, expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ uris: ['spotify:track:a'], name: 'My Mix' }),
-    }));
-    expect(res.url).toContain('open.spotify.com');
   });
 });

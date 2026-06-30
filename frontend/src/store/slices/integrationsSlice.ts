@@ -1,6 +1,9 @@
 import { createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
-import type { RootState } from '../index';
+import type { RootState, AppDispatch } from '../index';
+import { authHeaders } from '@/lib/api';
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
 /** Watch is considered live if seen within the 5-min ping cadence + 1-min jitter grace. */
 export const WATCH_STALE_MS = 6 * 60 * 1000;
@@ -8,13 +11,16 @@ export const WATCH_STALE_MS = 6 * 60 * 1000;
 interface IntegrationsState {
   musicProvider: 'spotify' | 'youtube' | null;
   biometricProvider: 'garmin' | 'applehealth' | null;
-  /** Stored Spotify token carries the write scopes (Like/Export). false → reconnect once. */
+  /** Stored Spotify token carries user-library-modify (Like button). false → reconnect once. */
   spotifyCanSave: boolean;
   /** Live background profile-build progress (post-connect library analysis). null when idle. */
   profileProgress: { pct: number; label: string; error?: boolean } | null;
   /** User opted into the wearable-free "mood only" experience. */
   moodOnly: boolean;
-  status: 'idle' | 'loading' | 'error';
+  // 'ready'/'error' both mean the post-login status fetch has SETTLED — the routing
+  // guards wait for that before deciding, so a refresh never redirects to /integrations
+  // off the initial (all-null) state before we know the real connection status.
+  status: 'idle' | 'loading' | 'ready' | 'error';
   // Watch HR device token (sideloaded Garmin app). watchToken holds the plaintext
   // ONLY in-memory immediately after generation — the backend never returns it again.
   watchToken: string | null;
@@ -55,7 +61,7 @@ const integrationsSlice = createSlice({
     setMoodOnly: (state, action: PayloadAction<boolean>) => {
       state.moodOnly = action.payload;
     },
-    setIntegrationsStatus: (state, action: PayloadAction<'idle' | 'loading' | 'error'>) => {
+    setIntegrationsStatus: (state, action: PayloadAction<'idle' | 'loading' | 'ready' | 'error'>) => {
       state.status = action.payload;
     },
     setWatchToken: (state, action: PayloadAction<string | null>) => {
@@ -99,6 +105,36 @@ export const selectWatchLiveness = (state: RootState, now: number): 'connected' 
   const { watchConnected, watchLastSeenAt } = state.integrations;
   if (!watchConnected || !watchLastSeenAt) return 'offline';
   return now - Date.parse(watchLastSeenAt) <= WATCH_STALE_MS ? 'connected' : 'offline';
+};
+
+/** True once the post-login status fetch has settled (success OR error), so the
+ *  routing guards can stop showing the splash and make a redirect decision. */
+export const selectIntegrationsSettled = (state: RootState) =>
+  state.integrations.status === 'ready' || state.integrations.status === 'error';
+
+/**
+ * Fetch the user's integration status once after login and rehydrate the slice.
+ * Dispatched from AppBootstrap (router root) so it runs ABOVE the IntegrationsGuard:
+ * the guard waits for `status` to settle before deciding whether to redirect to
+ * /integrations, which is what stops the false redirect on refresh (the slice's
+ * initial state is all-null and would otherwise look "incomplete").
+ */
+export const hydrateIntegrations = () => async (dispatch: AppDispatch) => {
+  dispatch(setIntegrationsStatus('loading'));
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/integrations/status`, {
+      credentials: 'include',
+      headers: authHeaders(),
+    });
+    if (!res.ok) { dispatch(setIntegrationsStatus('error')); return; }
+    const data = await res.json();
+    dispatch(setMusicProvider(data.musicProvider ?? null));
+    dispatch(setBiometricProvider(data.biometricProvider ?? null));
+    dispatch(setSpotifyCanSave(Boolean(data.spotifyCanSave)));
+    dispatch(setIntegrationsStatus('ready'));
+  } catch {
+    dispatch(setIntegrationsStatus('error'));
+  }
 };
 
 export default integrationsSlice.reducer;

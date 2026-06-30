@@ -5,10 +5,9 @@ const { withRetry } = require('../utils/retry');
 const BASE_AUTH = 'https://accounts.spotify.com';
 const BASE_API  = 'https://api.spotify.com/v1';
 
-// Least privilege: only scopes the code actually uses. playlist-modify-public/
-// private are required by the "Save to library" export (createPlaylist +
-// addTracksToPlaylist). NOTE: re-granting a new scope requires each user to
-// reconnect Spotify once — exportSpotifyPlaylist detects the 403 and prompts it.
+// Least privilege: only scopes the code actually uses. NOTE: re-granting a new
+// scope requires each user to reconnect Spotify once — the affected endpoint
+// detects the 403 (insufficient_scope) and prompts the reconnect.
 const SCOPES = [
   'user-read-private',
   'user-read-email',
@@ -22,11 +21,9 @@ const SCOPES = [
   'user-library-read',
   // Required to save/remove "Liked Songs" (PUT/DELETE /me/tracks) for the Like
   // button. Another scope add → existing users must reconnect once; the save
-  // endpoint detects the 403 and prompts a reconnect (same as the export flow).
+  // endpoint detects the 403 and prompts a reconnect.
   'user-library-modify',
   'streaming',
-  'playlist-modify-public',
-  'playlist-modify-private',
 ].join(' ');
 
 function getAuthHeader() {
@@ -638,40 +635,6 @@ async function getActiveDevice(accessToken) {
   return chosen ? chosen.id : null;
 }
 
-/**
- * Creates a new (private) playlist in the user's account.
- * @returns {Promise<{ id: string, url: string|null }>}
- */
-async function createPlaylist(accessToken, spotifyUserId, name, description = '') {
-  const { data } = await axios.post(
-    `${BASE_API}/users/${encodeURIComponent(spotifyUserId)}/playlists`,
-    { name, description, public: false },
-    {
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      timeout: 8_000,
-    }
-  );
-  return { id: data.id, url: data.external_urls?.spotify ?? null };
-}
-
-/**
- * Adds track URIs to a playlist, batching in groups of 100 (Spotify's per-request limit).
- */
-async function addTracksToPlaylist(accessToken, playlistId, uris) {
-  const BATCH = 100;
-  for (let i = 0; i < uris.length; i += BATCH) {
-    const batch = uris.slice(i, i + BATCH);
-    await axios.post(
-      `${BASE_API}/playlists/${playlistId}/tracks`,
-      { uris: batch },
-      {
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        timeout: 8_000,
-      }
-    );
-  }
-}
-
 // /me/tracks PUT/DELETE/contains all cap at 50 ids per request.
 const SAVED_TRACKS_BATCH = 50;
 
@@ -729,6 +692,6 @@ module.exports = {
   artistGenresAvailable, _resetArtistGenresCache,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
   searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery,
-  playTracks, getActiveDevice, createPlaylist, addTracksToPlaylist,
+  playTracks, getActiveDevice,
   saveTracks, removeSavedTracks, areTracksSaved,
 };

@@ -27,11 +27,9 @@ describe('playerSlice — pending playlist', () => {
     expect(next.pendingPlaylist).toEqual([track('9')]);
   });
 
-  it('setPendingPlaylist stores the mode, defaulting to live', () => {
+  it('setPendingPlaylist defaults the pending mode to live', () => {
     const def = playerReducer(base as never, setPendingPlaylist({ tracks: [track('9')] }));
     expect(def.pendingMode).toBe('live');
-    const exp = playerReducer(base as never, setPendingPlaylist({ tracks: [track('9')], mode: 'export' }));
-    expect(exp.pendingMode).toBe('export');
   });
 
   it('promotePendingPlaylist moves pending to active, resets index, clears pending', () => {
@@ -44,9 +42,9 @@ describe('playerSlice — pending playlist', () => {
   });
 
   it('promotePendingPlaylist applies the pending mode to playbackMode and clears it', () => {
-    const withPending = { ...base, playbackMode: 'live' as const, pendingPlaylist: [track('9')], pendingMode: 'export' as const };
+    const withPending = { ...base, playbackMode: null, pendingPlaylist: [track('9')], pendingMode: 'live' as const };
     const next = playerReducer(withPending as never, promotePendingPlaylist());
-    expect(next.playbackMode).toBe('export');
+    expect(next.playbackMode).toBe('live');
     expect(next.pendingMode).toBeNull();
   });
 

@@ -149,26 +149,6 @@ export async function fetchTracksSaved(
 }
 
 /**
- * Export the current playlist as a new private Spotify playlist (Bug 6). Returns
- * { playlistId?, url? }. Throws a `reconnect`-flagged error on a 409.
- */
-export async function exportPlaylist(
-  backendUrl: string,
-  uris: string[],
-  name: string,
-): Promise<{ playlistId?: string; url?: string }> {
-  const res = await fetch(`${backendUrl}/api/integrations/spotify/export`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ uris, name }),
-  });
-  if (res.status === 409) throw Object.assign(new Error('reconnect_required'), { reconnect: true });
-  if (!res.ok) throw new Error(`exportPlaylist failed: ${res.status}`);
-  return res.json();
-}
-
-/**
  * Start Spotify playback of the given track URIs (jump-to-track from the queue).
  * Pass the Web Playback SDK `deviceId` on desktop; omit it on mobile so the backend
  * transfers playback to the user's active device. A 409 carries a reason: a missing

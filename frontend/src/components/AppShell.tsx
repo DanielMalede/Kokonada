@@ -29,10 +29,24 @@ export default function AppShell() {
   const isOnline = useSelector((s: RootState) => s.player.isOnline);
   const handledPlaylistRef = useRef<string | null>(null);
 
-  // Redux resets on every page refresh — rehydrate integration state so the
-  // Spotify SDK initializes and the playback effect can fire. Re-run on
-  // reconnect (isOnline false→true) so state resyncs after a brief network drop.
-  const rehydrateIntegrations = useCallback(() => {
+  // On the very first render, a playlist already sitting in the store was restored
+  // from localStorage on refresh (the socket hasn't delivered one yet). Pre-mark it
+  // as handled so the play effect below does NOT auto-restart it from track 1 — the
+  // user resumes at the saved track via the play button. Freshly generated playlists
+  // (delivered after mount) still auto-play as before.
+  const didSeedRestoreRef = useRef(false);
+  if (!didSeedRestoreRef.current) {
+    didSeedRestoreRef.current = true;
+    if (playlist.length > 0) {
+      handledPlaylistRef.current = `live:${playlist.map((t) => t.uri).join(',')}`;
+    }
+  }
+
+  // The INITIAL integration hydration runs in AppBootstrap (above the guards). Here
+  // we only RESYNC providers after a network drop (isOnline false→true). This path
+  // deliberately does NOT touch integrations.status, so a reconnect never flips the
+  // guard back to its "loading" splash over an already-rendered app.
+  const resyncIntegrations = useCallback(() => {
     fetch(`${BACKEND_URL}/api/integrations/status`, {
       credentials: 'include',
       headers: authHeaders(),
@@ -49,79 +63,40 @@ export default function AppShell() {
 
   const wasOnlineRef = useRef(isOnline);
   useEffect(() => {
-    rehydrateIntegrations();
-  }, [rehydrateIntegrations]);
-  useEffect(() => {
-    if (isOnline && !wasOnlineRef.current) rehydrateIntegrations();
+    if (isOnline && !wasOnlineRef.current) resyncIntegrations();
     wasOnlineRef.current = isOnline;
-  }, [isOnline, rehydrateIntegrations]);
+  }, [isOnline, resyncIntegrations]);
 
   useSocket();
   useSpotifyPlayer(musicProvider);
   usePendingPromotion();
 
-  // When a fresh playlist lands, act on the chosen playback mode: 'live' streams
-  // it (desktop SDK device, or transfer to the active device on mobile); 'export'
-  // saves it as a new Spotify playlist. Deduped by playlist+mode so it fires once.
+  // When a fresh playlist lands, stream it: play on the desktop SDK device, or
+  // transfer to the active device on mobile. Deduped by playlist so it fires once.
+  // A playlist restored from localStorage on refresh is pre-marked as handled (see
+  // the rehydrate effect below) so we DON'T auto-restart it from track 1 — the user
+  // resumes it with the play button at the saved track.
   useEffect(() => {
     if (musicProvider !== 'spotify' || playlist.length === 0) return;
-    if (playbackMode !== 'live' && playbackMode !== 'export') return;
+    if (playbackMode !== 'live') return;
 
     const rawUris = playlist.map((t) => t.uri);
     // Drop malformed/cross-provider URIs before they reach Spotify (one bad URI
     // 400s the whole request). Dedupe the effect on the RAW list so we act — or
     // warn — exactly once per generated playlist.
     const uris = sanitizeTrackUris(rawUris);
-    const key = `${playbackMode}:${rawUris.join(',')}`;
+    const key = `live:${rawUris.join(',')}`;
     if (handledPlaylistRef.current === key) return;
     handledPlaylistRef.current = key;
 
     if (uris.length === 0) {
-      console.error(`[play] no valid Spotify URIs (of ${rawUris.length}) — skipping ${playbackMode}`);
+      console.error(`[play] no valid Spotify URIs (of ${rawUris.length}) — skipping`);
       toast.error('These tracks can’t be played on Spotify — try regenerating the playlist.');
       return;
     }
 
-    if (playbackMode === 'export') {
-      const name = `Kokonada — ${new Date().toLocaleDateString()}`;
-      console.info(`[export] POST tracks=${uris.length}`);
-      fetch(`${BACKEND_URL}/api/integrations/spotify/export`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ uris, name }),
-      })
-        .then(async (res) => {
-          if (res.ok) {
-            const data = await res.json().catch(() => ({}));
-            toast.success('Saved to Spotify ✓', {
-              action: data.url
-                ? { label: 'Open', onClick: () => window.open(data.url, '_blank') }
-                : undefined,
-            });
-            return;
-          }
-          if (res.status === 409) {
-            const data = await res.json().catch(() => ({}));
-            if (data.reason === 'reconnect_required') {
-              toast.error('Reconnect Spotify to save playlists', {
-                action: { label: 'Reconnect', onClick: () => { window.location.href = '/integrations'; } },
-              });
-              return;
-            }
-          }
-          console.error(`[export] failed: ${res.status}`);
-          toast.error('Could not save to Spotify — please try again.');
-        })
-        .catch((err) => {
-          console.error('[export] failed:', err);
-          toast.error('Could not save to Spotify — please try again.');
-        });
-      return;
-    }
-
-    // playbackMode === 'live': include the SDK deviceId when present (desktop);
-    // omit it on mobile so the backend transfers playback to the active device.
+    // Include the SDK deviceId when present (desktop); omit it on mobile so the
+    // backend transfers playback to the active device.
     console.info(`[play] POST tracks=${uris.length} deviceId=${deviceId ?? 'active'}`);
     fetch(`${BACKEND_URL}/api/integrations/spotify/play`, {
       method: 'POST',

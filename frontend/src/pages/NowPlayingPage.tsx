@@ -9,7 +9,7 @@ import { spotifyPlayerService } from '@/services/spotifyPlayer';
 import { audioPlayer } from '@/services/audioPlayer';
 import { useSocket } from '@/hooks/useSocket';
 import { MOODS, selectedMoodKey } from '@/lib/moods';
-import { setTrackSaved, fetchTracksSaved, exportPlaylist, playTracks } from '@/lib/api';
+import { setTrackSaved, fetchTracksSaved, playTracks } from '@/lib/api';
 import { sanitizeTrackUris } from '@/lib/spotifyUri';
 import PageHeader from '@/components/PageHeader';
 import EmptyState from '@/components/EmptyState';
@@ -40,8 +40,8 @@ export default function NowPlayingPage() {
   } = useSelector((s: RootState) => s.player);
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
   const taps = useSelector((s: RootState) => s.emotion.taps);
-  // Whether the stored token has the write scopes — known up front so Like/Export
-  // prompt a single reconnect instead of failing with a 409 on every click (audit #5).
+  // Whether the stored token carries user-library-modify — known up front so the
+  // Like button prompts a single reconnect instead of failing with a 409 on every click (audit #5).
   const spotifyCanSave = useSelector((s: RootState) => s.integrations.spotifyCanSave);
 
   // Local scrub state: while the user is dragging, the thumb follows their finger
@@ -177,21 +177,6 @@ export default function NowPlayingPage() {
     }
   };
 
-  // Export the current session as a new Spotify playlist (Bug 6).
-  const handleExport = () => {
-    if (!spotifyCanSave) { reconnectToast('Reconnect Spotify once to enable saving playlists'); return; }
-    const uris = sanitizeTrackUris(list.map((t) => t.uri));
-    if (uris.length === 0) { toast.error('No Spotify tracks to export.'); return; }
-    exportPlaylist(BACKEND_URL, uris, `Kokonada — ${new Date().toLocaleDateString()}`)
-      .then((r) => toast.success('Saved to Spotify ✓', {
-        action: r.url ? { label: 'Open', onClick: () => window.open(r.url, '_blank') } : undefined,
-      }))
-      .catch((err) => {
-        if (err.reconnect) reconnectToast('Reconnect Spotify to save playlists');
-        else toast.error('Could not save to Spotify — please try again.');
-      });
-  };
-
   return (
     <>
       <PageHeader title="Now Playing" back />
@@ -294,15 +279,6 @@ export default function NowPlayingPage() {
             <SkipForward className="size-6" />
           </button>
         </div>
-
-        {/* Export the whole session to the user's real Spotify account (Bug 6) */}
-        <button
-          onClick={handleExport}
-          aria-label="Save to Spotify"
-          className="mt-6 flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <SpotifyLogo className="size-4" /> Save to Spotify
-        </button>
 
         {/* Queue */}
         {pendingPlaylist.length > 0 && (
