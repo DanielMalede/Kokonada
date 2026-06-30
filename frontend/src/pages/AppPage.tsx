@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { Sparkles, Headphones, Save, ListMusic, HeartPulse } from 'lucide-react';
 import type { RootState, AppDispatch } from '../store';
 import { setTextPrompt } from '../store/slices/emotionSlice';
@@ -65,6 +66,21 @@ export default function AppPage() {
   const list = isOnline ? playlist : offlineBuffer;
   const upNext = list.slice(currentIndex + 1, currentIndex + 5);
 
+  // Safety timeout for the generating overlay. Backend generation (Groq + the vibe
+  // critic + Spotify discovery) can take ~7-14s — the old 9s timeout fired BEFORE the
+  // result arrived, clearing the overlay silently AND (because the success effect was
+  // gated on `generating`) dropping the late playlist with no toast/navigation. Now we
+  // wait 25s and, if nothing arrives, toast instead of failing silently.
+  const GENERATION_TIMEOUT_MS = 25_000;
+  const armGenerationTimeout = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      setGenerating(false);
+      pendingRef.current = null;
+      toast.error('Generation timed out — please try again.');
+    }, GENERATION_TIMEOUT_MS);
+  };
+
   const chooseMode = (mode: Mode) => {
     if (generating) return; // race guard: ignore a second mode pick mid-generation
     modeRef.current = mode;
@@ -81,7 +97,7 @@ export default function AppPage() {
     requestPlaylist(taps, textPrompt, mode);
     dispatch(setPlaybackMode(mode));
     setGenerating(true);
-    timeoutRef.current = setTimeout(() => setGenerating(false), 9000);
+    armGenerationTimeout();
   };
 
   // "Listen to your heart" — generate from heart rate alone (no mood required) and
@@ -101,13 +117,16 @@ export default function AppPage() {
     requestHeartPlaylist('live', heartRate);
     dispatch(setPlaybackMode('live'));
     setGenerating(true);
-    timeoutRef.current = setTimeout(() => setGenerating(false), 9000);
+    armGenerationTimeout();
   };
 
   // Dismiss the overlay when a fresh playlist lands; record it to history and
   // jump into the player for live mode.
+  // Gate on the IN-FLIGHT request (pendingRef), not `generating`, so a result that
+  // arrives after the overlay timeout still gives feedback (navigation + toast)
+  // instead of being silently dropped.
   useEffect(() => {
-    if (!generating) return;
+    if (!pendingRef.current) return;
     const key = playlist.map((t) => t.uri).join(',');
     if (playlist.length > 0 && key !== lastKeyRef.current) {
       setGenerating(false);
@@ -122,9 +141,10 @@ export default function AppPage() {
         });
         pendingRef.current = null;
       }
+      toast.success('Playlist ready ✓');
       if (modeRef.current === 'live') navigate('/now-playing');
     }
-  }, [playlist, generating, navigate]);
+  }, [playlist, navigate]);
 
   // Generation failed / returned an empty payload (useSocket already toasted the
   // reason) — stop the overlay instead of spinning until the 9s timeout.
