@@ -8,6 +8,8 @@ export const WATCH_STALE_MS = 6 * 60 * 1000;
 interface IntegrationsState {
   musicProvider: 'spotify' | 'youtube' | null;
   biometricProvider: 'garmin' | 'applehealth' | null;
+  /** Stored Spotify token carries the write scopes (Like/Export). false → reconnect once. */
+  spotifyCanSave: boolean;
   /** User opted into the wearable-free "mood only" experience. */
   moodOnly: boolean;
   status: 'idle' | 'loading' | 'error';
@@ -22,6 +24,7 @@ interface IntegrationsState {
 const initialState: IntegrationsState = {
   musicProvider: null,
   biometricProvider: null,
+  spotifyCanSave: false,
   moodOnly: false,
   status: 'idle',
   watchToken: null,
@@ -39,6 +42,9 @@ const integrationsSlice = createSlice({
     },
     setBiometricProvider: (state, action: PayloadAction<'garmin' | 'applehealth' | null>) => {
       state.biometricProvider = action.payload;
+    },
+    setSpotifyCanSave: (state, action: PayloadAction<boolean>) => {
+      state.spotifyCanSave = action.payload;
     },
     setMoodOnly: (state, action: PayloadAction<boolean>) => {
       state.moodOnly = action.payload;
@@ -71,7 +77,7 @@ const integrationsSlice = createSlice({
 });
 
 export const {
-  setMusicProvider, setBiometricProvider, setMoodOnly, setIntegrationsStatus,
+  setMusicProvider, setBiometricProvider, setSpotifyCanSave, setMoodOnly, setIntegrationsStatus,
   setWatchToken, setWatchConnection, markWatchSeen, setWatchStatus, clearWatchToken,
   clearIntegrations,
 } = integrationsSlice.actions;

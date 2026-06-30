@@ -8,7 +8,7 @@ import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer';
 import { usePendingPromotion } from '@/hooks/usePendingPromotion';
 import { authHeaders } from '@/lib/api';
 import { sanitizeTrackUris } from '@/lib/spotifyUri';
-import { setMusicProvider, setBiometricProvider } from '@/store/slices/integrationsSlice';
+import { setMusicProvider, setBiometricProvider, setSpotifyCanSave } from '@/store/slices/integrationsSlice';
 import EmotionAura from './EmotionAura';
 import BottomNav from './BottomNav';
 import DesktopSidebar from './DesktopSidebar';
@@ -41,6 +41,7 @@ export default function AppShell() {
         if (!data) return;
         dispatch(setMusicProvider(data.musicProvider));
         dispatch(setBiometricProvider(data.biometricProvider));
+        dispatch(setSpotifyCanSave(Boolean(data.spotifyCanSave)));
       })
       .catch(() => {});
   }, [dispatch]);

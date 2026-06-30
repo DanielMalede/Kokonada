@@ -76,6 +76,10 @@ async function exchangeCode(code) {
     accessToken:  data.access_token,
     refreshToken: data.refresh_token,
     expiresAt:    Date.now() + data.expires_in * 1000,
+    // The space-separated scopes Spotify actually GRANTED. Captured so we can tell
+    // (and show the client) whether the token has user-library-modify / playlist-modify-*
+    // instead of only discovering it via a 403 on Like/Export. (audit #5)
+    scope:        data.scope || '',
   };
 }
 

@@ -227,14 +227,33 @@ describe('Spotify OAuth flow', () => {
       const req = { user: buildUser({ spotifyToken: { blob: 'encrypted-blob' } }) };
       const res = buildRes();
       ctrl.spotifyStatus(req, res);
-      expect(res.json).toHaveBeenCalledWith({ connected: true });
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ connected: true }));
     });
 
     it('returns connected=false when spotifyToken is null', () => {
       const req = { user: buildUser({ spotifyToken: null }) };
       const res = buildRes();
       ctrl.spotifyStatus(req, res);
-      expect(res.json).toHaveBeenCalledWith({ connected: false });
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ connected: false }));
+    });
+
+    it('reports canSave when the granted scopes include the write scopes (audit #5)', () => {
+      const req = { user: buildUser({
+        spotifyToken: { blob: 'x' },
+        spotifyScopes: 'user-read-private user-library-modify playlist-modify-private playlist-modify-public',
+      }) };
+      const res = buildRes();
+      ctrl.spotifyStatus(req, res);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        connected: true, hasLibraryWrite: true, hasPlaylistWrite: true, canSave: true,
+      }));
+    });
+
+    it('reports canSave=false when the token predates the write scopes', () => {
+      const req = { user: buildUser({ spotifyToken: { blob: 'x' }, spotifyScopes: 'user-read-private user-top-read' }) };
+      const res = buildRes();
+      ctrl.spotifyStatus(req, res);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ canSave: false, hasLibraryWrite: false }));
     });
   });
 });
