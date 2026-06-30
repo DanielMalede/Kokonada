@@ -230,9 +230,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
 
     const musicProfile = await MusicProfile.findOne({ userId });
     if (!musicProfile) {
+      // Always-on diagnostic (prod's log() is gated): the profile row is missing —
+      // the background build hasn't run/finished, or it saved nothing.
+      console.warn(`[generate] no MusicProfile for user — build not finished yet? trigger=${trigger}`);
       socket.emit('playlist_error', { message: 'Music profile not built yet — reconnect your music provider', reqId });
       return;
     }
+    // Always-on diagnostic: surface the library size so an empty/thin profile (the
+    // common cause of an empty playlist) is visible in prod logs.
+    console.warn(`[generate] profile loaded trigger=${trigger} library=${musicProfile.library?.length ?? 0} topGenres=${(musicProfile.topGenres || []).length} genreSet=${(musicProfile.genreSet || []).length}`);
 
     // Select the provider with a stored token (token-aware), so generation,
     // GET /integrations/status, and the frontend SDK/playback all agree on one
@@ -391,7 +397,13 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // the queue and spin the overlay forever. Surface a recoverable error instead.
     const clientTracks = toClientTracks(playlist?.merged, provider);
     if (clientTracks.length === 0) {
-      log(`[generate] no playable tracks → playlist_error trigger=${trigger} reqId=${reqId}`);
+      // Always-on diagnostic: show WHY the playlist is empty (library size, discovery
+      // candidates, post-mix bucket sizes, and the mood filters) so prod logs pinpoint
+      // the cause without DEBUG_PLAYLIST.
+      console.warn(`[generate] EMPTY playlist trigger=${trigger} provider=${provider} useEmotion=${useEmotion} `
+        + `library=${musicProfile.library?.length ?? 0} discoveryCandidates=${cachedDiscovery?.length ?? 0} `
+        + `mixedFamiliar=${playlist?.familiar?.length ?? 0} mixedDiscovery=${playlist?.discovery?.length ?? 0} `
+        + `seed_genres=${JSON.stringify(aiResult.params?.seed_genres)} exclude_genres=${JSON.stringify(aiResult.params?.exclude_genres)}`);
       socket.emit('playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
       return;
     }
