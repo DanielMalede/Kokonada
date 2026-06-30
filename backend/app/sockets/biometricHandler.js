@@ -40,6 +40,39 @@ const DISCOVERY_FETCH_LIMIT = 60;
 const COOLDOWN_GENERATIONS = 3;
 const COOLDOWN_MAX_IDS = 150;
 
+// ── Extreme Anti-Repetition (the "Affinity Trap Breaker") ─────────────────────────
+// Pressing the same mood twice in a short window used to return the same top-affinity
+// block. When a repeat is detected, Strict Anti-Repetition Mode kicks in: a far deeper
+// per-mood 24h track blacklist, inverted bucket ratios (rotation collapses, deep cuts
+// spike), and a rotated sort axis — so the second press digs a different slice. All
+// knobs are env-overridable; the whole feature is kill-switchable via STRICT_ANTIREPEAT.
+const STRICT_REPEAT_WINDOW_HOURS   = Number(process.env.STRICT_REPEAT_WINDOW_HOURS)   || 12;
+const STRICT_MOOD_BLACKLIST_HOURS  = Number(process.env.STRICT_MOOD_BLACKLIST_HOURS)  || 24;
+const STRICT_MOOD_BLACKLIST_MAX_IDS = Number(process.env.STRICT_MOOD_BLACKLIST_MAX_IDS) || 500;
+const STRICT_ROTATION_RATIO        = Number(process.env.STRICT_ROTATION_RATIO);
+const STRICT_ROTATION_RATIO_DEFAULT = Number.isFinite(STRICT_ROTATION_RATIO) ? STRICT_ROTATION_RATIO : 0.10;
+
+// Sort axes the multi-dimensional sliding window rotates through (see playlistMixer
+// _orderFamiliar). Normal presses include 'affinity' so favourites still lead most of
+// the time; strict mode drops it to force a genuinely different slice each repeat.
+const SORT_AXES        = ['affinity', 'popularity', 'reverseAffinity', 'random'];
+const STRICT_SORT_AXES = ['reverseAffinity', 'random', 'popularity'];
+
+// Deterministic small int from a string seed (xfnv1a) — same seed → same axis, so the
+// chosen axis is reproducible for a given generation and logged alongside it.
+function _seededInt(seedStr, mod) {
+  if (!mod) return 0;
+  let h = 2166136261 >>> 0;
+  const s = String(seedStr ?? '');
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % mod;
+}
+
+function pickSortAxis(seed, strict) {
+  const pool = strict ? STRICT_SORT_AXES : SORT_AXES;
+  return pool[_seededInt(seed, pool.length)];
+}
+
 // Build the recent-track cooldown set from the user's last few generated playlists.
 // Best-effort: a DB hiccup must never block a generation, so it degrades to empty.
 async function recentTrackCooldown(userId) {
@@ -59,6 +92,46 @@ async function recentTrackCooldown(userId) {
     return ids;
   } catch (e) {
     log(`[cooldown] read failed: ${e.message}`);
+    return new Set();
+  }
+}
+
+// True when the user already requested this same mood within the window → trigger
+// Strict Anti-Repetition Mode. Best-effort: any DB failure degrades to false (normal
+// generation), so a hiccup can never wedge the user into strict mode or block a press.
+async function isRepeatMood(userId, moodKey, windowHours = STRICT_REPEAT_WINDOW_HOURS) {
+  if (!moodKey) return false;
+  try {
+    const since = new Date(Date.now() - windowHours * 3_600_000);
+    const count = await PlaylistSession.countDocuments({ userId, moodKey, createdAt: { $gte: since } });
+    return count >= 1;
+  } catch (e) {
+    log(`[strict] repeat check failed: ${e.message}`);
+    return false;
+  }
+}
+
+// The deep per-mood blacklist: every track served under THIS mood in the last 24h, so a
+// repeated mood never replays a track the user just heard for it. Capped so a heavy day
+// can't bloat the exclude set. Best-effort → empty Set on failure.
+async function recentMoodCooldown(userId, moodKey, windowHours = STRICT_MOOD_BLACKLIST_HOURS, cap = STRICT_MOOD_BLACKLIST_MAX_IDS) {
+  if (!moodKey) return new Set();
+  try {
+    const since = new Date(Date.now() - windowHours * 3_600_000);
+    const recent = await PlaylistSession.find({ userId, moodKey, createdAt: { $gte: since } })
+      .sort({ createdAt: -1 })
+      .select('trackIds')
+      .lean();
+    const ids = new Set();
+    for (const s of recent) {
+      for (const id of s.trackIds || []) {
+        ids.add(id);
+        if (ids.size >= cap) return ids;
+      }
+    }
+    return ids;
+  } catch (e) {
+    log(`[strict] mood cooldown read failed: ${e.message}`);
     return new Set();
   }
 }
@@ -250,10 +323,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       return;
     }
 
-    // Anti-repetition cooldown: exclude tracks from the user's last few playlists so
-    // each press feels fresh. Read once and reused by every mixPlaylist call below.
-    const cooldownIds = await recentTrackCooldown(userId);
-
     // Bug 8 — strict branch routing. Route to the mood/emotion pipeline whenever there
     // is ANY emotion intent (mood taps OR a custom text prompt); a custom-text-only
     // request must never fall through to the heart-rate branch and be ignored.
@@ -264,6 +333,22 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     const moodKey   = useEmotion ? resolveMoodKey(state.lastEmotionTaps) : null;
     // Layer 2 (Groq energy critic) runs only for a real mood and is kill-switchable.
     const runCritic = useEmotion && process.env.VIBE_CRITIC !== 'false';
+
+    // Extreme anti-repetition: a repeated mood within the window flips on Strict Mode
+    // (deeper per-mood cooldown + inverted ratios + rotated sort axis). Only the manual
+    // mood branch can trigger it — the HR branch has no "mood request" to repeat — and
+    // STRICT_ANTIREPEAT=false kills it. isRepeatMood degrades to false on any DB error.
+    const strict = process.env.STRICT_ANTIREPEAT !== 'false'
+      && useEmotion && !!moodKey
+      && await isRepeatMood(userId, moodKey);
+
+    // Anti-repetition cooldown: strict → every track served under THIS mood in the last
+    // 24h; otherwise the standard last-3-generation global cooldown. Read once and reused
+    // by every mixPlaylist call below. Inverted ratios apply only in strict mode.
+    const cooldownIds = strict
+      ? await recentMoodCooldown(userId, moodKey)
+      : await recentTrackCooldown(userId);
+    const ratios = strict ? { rotation: STRICT_ROTATION_RATIO_DEFAULT } : null;
 
     let fetchTracks;
     try {
@@ -288,7 +373,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             knownArtistIds: musicProfile.knownArtistIds,
           });
           if (!runCritic) return onTaste;
-          return critiqueTrackVibe({ tracks: onTaste, moodKey, moodKeywords: params.mood_keywords });
+          return critiqueTrackVibe({ tracks: onTaste, moodKey, moodKeywords: params.mood_keywords, tempoCategory: params.tempo_category });
         };
       } else {
         const accessToken = await youtube.getValidToken(user);
@@ -305,6 +390,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // DIFFERENT playlist each press — varies the LLM picks and busts the 24h
     // cache key (which is md5(prompt)).
     const seed = `${reqId ?? 'auto'}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    // Multi-dimensional sliding window: rotate the familiar sort axis per press (seeded so
+    // it's reproducible + loggable). HR branch keeps affinity ordering (null → default).
+    const sortAxis = useEmotion ? pickSortAxis(seed, strict) : null;
+    if (strict) log(`[strict] anti-repetition ON mood=${moodKey} axis=${sortAxis} cooldown=${cooldownIds.size} reqId=${reqId}`);
 
     let aiResult;
     try {
@@ -344,6 +433,8 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             strictPersonalize:    true,
             cooldownIds,
             seed,
+            ratios,
+            sortAxis,
           });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
@@ -391,6 +482,8 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       provider,
       cooldownIds,
       seed,
+      ratios,
+      sortAxis,
       // Personalization is the ABSOLUTE filter on a mood's vibe-sourced pool: discard
       // off-taste candidates rather than backfilling them. Scoped to the Spotify path,
       // which is where Layer-1 sources + genre-tags candidates — YouTube discovery is
@@ -432,6 +525,8 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       userId,
       emotionTaps:       useEmotion && state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
       contextPrompt:     useEmotion ? (state.lastTextPrompt || '') : '',
+      // Persist the resolved mood so a repeat can be detected + its tracks blacklisted.
+      moodKey,
       biometricSnapshot: { heartRate: state.stableHR, activity: state.latestActivity },
       targetBpm:         aiResult.params.target_bpm,
       targetGenres:      aiResult.params.seed_genres || [],
@@ -621,4 +716,7 @@ module.exports = {
   // Exported for unit testing
   toClientTrack,
   toClientTracks,
+  isRepeatMood,
+  recentMoodCooldown,
+  pickSortAxis,
 };

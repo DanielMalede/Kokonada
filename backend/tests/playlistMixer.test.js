@@ -74,6 +74,48 @@ describe('_orderFamiliar', () => {
     const out = _orderFamiliar(lib, new Set(['electronic']), 'spotify');
     expect(out.map(t => t.id)).toEqual(['sp']);
   });
+
+  // ── Multi-dimensional sliding window: the sort axis rotates the slice ──────────
+
+  it('sortAxis=popularity orders by popularity desc within a tier', () => {
+    const lib = [
+      { ...libTrack('lowPop', { affinity: 9 }), popularity: 1 },
+      { ...libTrack('hiPop',  { affinity: 1 }), popularity: 9 },
+    ];
+    const out = _orderFamiliar(lib, new Set(['electronic']), null, { sortAxis: 'popularity' });
+    expect(out.map(t => t.id)).toEqual(['hiPop', 'lowPop']);
+  });
+
+  it('sortAxis=reverseAffinity leads with the LEAST-played tracks (deep cuts)', () => {
+    const lib = [
+      libTrack('high', { affinity: 9 }),
+      libTrack('low',  { affinity: 1 }),
+    ];
+    const out = _orderFamiliar(lib, new Set(['electronic']), null, { sortAxis: 'reverseAffinity' });
+    expect(out.map(t => t.id)).toEqual(['low', 'high']);
+  });
+
+  it('sortAxis=affinity (default) is unchanged — favourites first', () => {
+    const lib = [libTrack('low', { affinity: 1 }), libTrack('high', { affinity: 9 })];
+    expect(_orderFamiliar(lib, new Set(['electronic']), null, { sortAxis: 'affinity' }).map(t => t.id))
+      .toEqual(['high', 'low']);
+  });
+
+  it('any sort axis still keeps genre-relevant tracks ahead of non-matching ones', () => {
+    const lib = [
+      { ...libTrack('miss', { genres: ['polka'], affinity: 1 }), popularity: 99 },
+      { ...libTrack('hit',  { genres: ['electronic'], affinity: 1 }), popularity: 1 },
+    ];
+    // Even though 'miss' is far more popular, the genre-relevant 'hit' must lead.
+    const out = _orderFamiliar(lib, new Set(['electronic']), null, { sortAxis: 'popularity' });
+    expect(out[0].id).toBe('hit');
+  });
+
+  it('sortAxis=random returns the same set (just reordered)', () => {
+    const lib = Array.from({ length: 8 }, (_, i) => libTrack(`f${i}`, { affinity: 8 - i }));
+    const out = _orderFamiliar(lib, new Set(['electronic']), null, { sortAxis: 'random' });
+    expect(out.map(t => t.id).sort()).toEqual(lib.map(t => t.id).sort());
+  });
 });
 
 // ── personalizeWhitelist (personalization is the ABSOLUTE filter) ─────────────
@@ -453,6 +495,35 @@ describe('mixPlaylist — track cooldown (anti-repetition)', () => {
       fetchDiscoveryTracks: fetchOf(richDiscovery()),
     });
     expect(res.merged).toHaveLength(50);
+  });
+});
+
+// ── Strict Anti-Repetition: inverted ratios still guarantee 50 ────────────────
+describe('mixPlaylist — strict ratio inversion (rotation collapses, deep cuts spike)', () => {
+  const fetchOf = (tracks) => () => Promise.resolve(tracks);
+
+  it('honours a rotation-ratio override while still returning exactly 50', async () => {
+    // 130-track library: rotation pool (top 100) vs deep cuts (f100..f129).
+    const lib = Array.from({ length: 130 }, (_, i) => libTrack(`f${i}`, { affinity: 130 - i }));
+    const res = await mixPlaylist({
+      musicProfile: profile(lib),
+      aiParams: AI_PARAMS,
+      fetchDiscoveryTracks: fetchOf([]),
+      ratios: { rotation: 0.10 }, // 5 rotation, ~35 deep cuts, ~10 discovery
+    });
+    expect(res.merged).toHaveLength(50);
+    expect(uniq(res.merged)).toBe(true);
+  });
+
+  it('collapsing rotation surfaces MORE deep cuts than the default 40/40/20 split', async () => {
+    const lib = Array.from({ length: 130 }, (_, i) => libTrack(`f${i}`, { affinity: 130 - i }));
+    const deepCutIds = Array.from({ length: 30 }, (_, i) => `f${100 + i}`);
+    const countDeep = (res) => res.merged.filter((t) => deepCutIds.includes(t.id)).length;
+
+    const normal = await mixPlaylist({ musicProfile: profile(lib), aiParams: AI_PARAMS, fetchDiscoveryTracks: fetchOf([]) });
+    const strict = await mixPlaylist({ musicProfile: profile(lib), aiParams: AI_PARAMS, fetchDiscoveryTracks: fetchOf([]), ratios: { rotation: 0.10 } });
+
+    expect(countDeep(strict)).toBeGreaterThanOrEqual(countDeep(normal));
   });
 });
 

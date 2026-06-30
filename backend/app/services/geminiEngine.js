@@ -11,6 +11,17 @@ const REQUIRED_FIELDS = [
   'target_acousticness', 'seed_artists', 'seed_genres',
 ];
 
+// Coarse tempo/energy bands the MANUAL mood flow targets — derived by the LLM from the
+// user's Mode + optional free-text (the free-text wins). Decoupled from the real-time
+// HR/biometric path, which keeps its own BPM logic. The critic keeps only tracks that
+// sit in this band; an invalid/missing value is filled deterministically downstream.
+const TEMPO_CATEGORIES = ['resting', 'active', 'peak'];
+const TEMPO_BAND_HINT = {
+  resting: 'slow, low-energy, calm — roughly under ~95 BPM',
+  active:  'mid-tempo, steady, moderate energy — roughly ~95–135 BPM',
+  peak:    'fast, driving, high-energy — roughly ~135 BPM and up',
+};
+
 const GEMINI_TIMEOUT_MS = 5_000;
 
 function _withTimeout(ms, promise) {
@@ -35,14 +46,15 @@ function getModel() {
 // e.g. a free Groq key — no credit card needed), call that endpoint; otherwise
 // fall back to the Gemini SDK. This lets the app run on a free provider when a
 // Google account has no Gemini quota (free_tier limit: 0). Returns the raw text.
-async function _generate(prompt) {
+async function _generate(prompt, { model: modelOverride = null, timeoutMs = GEMINI_TIMEOUT_MS } = {}) {
   const llmKey = process.env.LLM_API_KEY || process.env.GROQ_API_KEY;
   if (llmKey) {
     const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
     // 8b-instant is Groq's most stable always-on model and is plenty for this
     // small structured-JSON task. Providers rotate larger models, so default to
-    // the safe one; override with LLM_MODEL for a bigger model.
-    const model   = process.env.LLM_MODEL   || 'llama-3.1-8b-instant';
+    // the safe one; override with LLM_MODEL globally, or per-call (the Tempo Critic
+    // passes a bigger model whose world-knowledge judges niche tracks' real tempo).
+    const model   = modelOverride || process.env.LLM_MODEL || 'llama-3.1-8b-instant';
     try {
       const { data } = await axios.post(
         `${baseUrl}/chat/completions`,
@@ -55,7 +67,7 @@ async function _generate(prompt) {
         },
         {
           headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
-          timeout: GEMINI_TIMEOUT_MS,
+          timeout: timeoutMs,
         },
       );
       return data.choices?.[0]?.message?.content ?? '';
@@ -69,7 +81,7 @@ async function _generate(prompt) {
   }
 
   const model  = getModel();
-  const result = await _withTimeout(GEMINI_TIMEOUT_MS, model.generateContent(prompt));
+  const result = await _withTimeout(timeoutMs, model.generateContent(prompt));
   return result.response.text();
 }
 
@@ -133,6 +145,12 @@ function _parseAndValidate(raw) {
   // injected as a default so callers that expect the bare param set stay unaffected.
   if (parsed.mood_keywords !== undefined && !Array.isArray(parsed.mood_keywords)) {
     throw new Error('mood_keywords must be an array');
+  }
+  // tempo_category — coarse target band (resting/active/peak) the critic matches against.
+  // Optional and LENIENT: an invalid value is dropped (never thrown) so a stray pick can't
+  // blank a whole generation — applyMoodFallback then derives one from the mood's energy.
+  if (parsed.tempo_category !== undefined && !TEMPO_CATEGORIES.includes(parsed.tempo_category)) {
+    delete parsed.tempo_category;
   }
 
   return parsed;
@@ -232,7 +250,8 @@ Analyse the emotional coordinates in the context of the user's taste profile and
   "target_acousticness": <number 0–1>,
   "seed_artists": <array of 0–3 artist names chosen ONLY from the user's known favourites — never invent names>,
   "seed_genres": <array of 1–3 genres chosen ONLY from this allowed list: ${allowedGenres}>,
-  "mood_keywords": <array of 2–4 short search descriptors capturing the mood (e.g. "calm", "uplifting", "lo-fi", "late night") — these drive the actual track search>
+  "mood_keywords": <array of 2–4 short search descriptors capturing the mood (e.g. "calm", "uplifting", "lo-fi", "late night") — these drive the actual track search>,
+  "tempo_category": <exactly one of "resting" | "active" | "peak" — the overall tempo/energy band that best fits this session. IMPORTANT: if the user note is present it OVERRIDES the mood when it implies movement (e.g. "going for a run" → "peak" even for a calm mood); otherwise infer it from the emotional coordinates>
 }${_strictMoodLine(emotionTaps)}${_variationLine(seed)}`;
 }
 
@@ -347,8 +366,11 @@ const CRITIC_TIMEOUT_MS = Number(process.env.VIBE_CRITIC_TIMEOUT_MS) || 6_000;
 // Bound the prompt so a deep candidate pool can't blow up tokens/latency. Tracks
 // beyond the cap pass through unjudged (the pool is normally well under this).
 const MAX_CRITIC_TRACKS = Number(process.env.VIBE_CRITIC_MAX_TRACKS) || 120;
+// Estimating a niche track's real tempo needs world knowledge the 8B default lacks,
+// so the critic runs on a bigger Groq model (existing key/infra — no new billing).
+const TEMPO_CRITIC_MODEL = process.env.TEMPO_CRITIC_MODEL || 'llama-3.3-70b-versatile';
 
-function _buildCriticPrompt(tracks, moodKey, moodKeywords) {
+function _buildCriticPrompt(tracks, moodKey, moodKeywords, tempoCategory = null) {
   const list = tracks
     .map((t, i) => {
       const artist = (t.artists || []).map((a) => a?.name).filter(Boolean).slice(0, 2).join(', ') || 'Unknown';
@@ -356,9 +378,13 @@ function _buildCriticPrompt(tracks, moodKey, moodKeywords) {
     })
     .join('\n');
   const kw = (moodKeywords || []).filter(Boolean).join(', ');
+  const band = TEMPO_CATEGORIES.includes(tempoCategory) ? tempoCategory : null;
+  const bandLine = band
+    ? `\nTarget tempo band: ${band.toUpperCase()} — ${TEMPO_BAND_HINT[band]}. Keep tracks that sit in this band.`
+    : '';
 
-  return `You are a strict expert music critic curating a "${moodKey}" session${kw ? ` (vibe: ${kw})` : ''}.
-From the numbered tracklist below, keep ONLY the tracks whose ACTUAL energy and tempo truly match this vibe. Drop anything off-energy — e.g. a slow acoustic ballad in a high-energy set, or an aggressive heavy track in a calm set — judging by your knowledge of each song.
+  return `You are a strict expert music critic curating a "${moodKey}" session${kw ? ` (vibe: ${kw})` : ''}.${bandLine}
+From the numbered tracklist below, keep ONLY the tracks whose ACTUAL energy and tempo truly match this vibe${band ? ` and the target tempo band` : ''}. Drop anything off-energy — e.g. a slow acoustic ballad in a high-energy set, or an aggressive heavy track in a calm set — judging by your knowledge of each song.
 
 Output ONLY a JSON object (no explanation, no markdown) of the form {"keep":[<indices to keep>]}, using the exact indices from the list.
 
@@ -382,7 +408,7 @@ function _parseKeepIndices(raw, count) {
  * @param {{ tracks: object[], moodKey: string|null, moodKeywords?: string[] }} opts
  * @returns {Promise<object[]>}
  */
-async function critiqueTrackVibe({ tracks = [], moodKey = null, moodKeywords = [] } = {}) {
+async function critiqueTrackVibe({ tracks = [], moodKey = null, moodKeywords = [], tempoCategory = null } = {}) {
   if (!Array.isArray(tracks) || tracks.length === 0) return tracks || [];
   if (!moodKey) return tracks; // no resolvable mood (e.g. HR branch) → nothing to judge
 
@@ -390,7 +416,12 @@ async function critiqueTrackVibe({ tracks = [], moodKey = null, moodKeywords = [
   const tail = tracks.slice(MAX_CRITIC_TRACKS);
 
   try {
-    const raw  = await _withTimeout(CRITIC_TIMEOUT_MS, _generate(_buildCriticPrompt(head, moodKey, moodKeywords)));
+    const raw  = await _withTimeout(
+      CRITIC_TIMEOUT_MS,
+      // Bigger model + the full critic window (the 70B is slower than the 8B default,
+      // so give the axios call the same budget as the outer timeout).
+      _generate(_buildCriticPrompt(head, moodKey, moodKeywords, tempoCategory), { model: TEMPO_CRITIC_MODEL, timeoutMs: CRITIC_TIMEOUT_MS }),
+    );
     const keep = _parseKeepIndices(raw, head.length);
     // A critic that "keeps nothing" is treated as no signal, not as "blank the set".
     if (keep.length === 0) return tracks;
@@ -457,4 +488,6 @@ module.exports = {
   _parseAndValidate,
   _buildEmotionPrompt,
   _buildBiometricPrompt,
+  _buildCriticPrompt,
+  TEMPO_CATEGORIES,
 };

@@ -95,6 +95,16 @@ function _uniqLower(arr) {
   return [...new Set((arr || []).map((s) => String(s).toLowerCase().trim()).filter(Boolean))];
 }
 
+// Coarse tempo/energy bands for the manual mood flow. Kept in sync with the LLM's
+// tempo_category enum (geminiEngine TEMPO_CATEGORIES). Used to derive a deterministic
+// fallback band from a mood's energy_floor when the LLM didn't return a valid one.
+const TEMPO_CATEGORIES = ['resting', 'active', 'peak'];
+function _categoryFromEnergy(energy) {
+  if (!Number.isFinite(energy) || energy <= 0.34) return 'resting';
+  if (energy <= 0.66) return 'active';
+  return 'peak';
+}
+
 /**
  * Re-derive the pressed mood from raw taps using nearest-neighbour on the LAST tap
  * (mirrors frontend `moodForTap` / `selectedMoodKey`). Returns null when there is
@@ -150,6 +160,11 @@ function applyMoodFallback(params, taps, textPrompt, musicProfile = {}) {
   const hasText = typeof textPrompt === 'string' && textPrompt.trim().length > 0;
 
   const out = { ...params };
+  // Tempo band: trust the LLM's pick (it factored the free-text override) when valid,
+  // else derive deterministically from the mood's energy_floor. Drives the Tempo Critic.
+  out.tempo_category = TEMPO_CATEGORIES.includes(params.tempo_category)
+    ? params.tempo_category
+    : _categoryFromEnergy(desc.energy_floor);
   out.exclude_genres = _uniqLower([...(params.exclude_genres || []), ...desc.exclude_genres]);
   // The FULL on-vibe allow-list (seed_genres is capped at 3); the mixer uses this to
   // judge which familiar library tracks are strictly eligible for an on-vibe mood.
@@ -195,6 +210,7 @@ function buildMoodParams(taps, musicProfile = {}) {
 module.exports = {
   MOODS,
   MOOD_DESCRIPTORS,
+  TEMPO_CATEGORIES,
   resolveMoodKey,
   applyMoodFallback,
   buildMoodParams,

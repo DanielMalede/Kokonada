@@ -5,6 +5,7 @@ process.env.NODE_ENV = 'test';
 const {
   MOODS,
   MOOD_DESCRIPTORS,
+  TEMPO_CATEGORIES,
   resolveMoodKey,
   applyMoodFallback,
   buildMoodParams,
@@ -149,6 +150,32 @@ describe('applyMoodFallback', () => {
   });
 });
 
+// ── tempo_category (manual mood flow — LLM pick wins, else energy_floor fallback) ─
+
+const CALM_TAPS = [{ x: 0.45, y: -0.55 }];
+
+describe('applyMoodFallback — tempo_category', () => {
+  it('keeps the LLM tempo_category when it is valid (it factored the free-text override)', () => {
+    const out = applyMoodFallback({ ...LLM_PARAMS, tempo_category: 'peak' }, CALM_TAPS, 'time to run', {});
+    expect(out.tempo_category).toBe('peak'); // overrides the calm default
+  });
+
+  it('derives the band from the mood energy_floor when the LLM gave none', () => {
+    expect(applyMoodFallback(LLM_PARAMS, INTENSE_TAPS, '', {}).tempo_category).toBe('peak');   // energy 0.9
+    expect(applyMoodFallback(LLM_PARAMS, CALM_TAPS, '', {}).tempo_category).toBe('resting');   // energy 0.1
+  });
+
+  it('derives the band when the LLM gave an invalid category', () => {
+    const out = applyMoodFallback({ ...LLM_PARAMS, tempo_category: 'turbo' }, INTENSE_TAPS, '', {});
+    expect(out.tempo_category).toBe('peak');
+  });
+
+  it('always emits a value from the canonical enum', () => {
+    const out = applyMoodFallback(LLM_PARAMS, CALM_TAPS, '', {});
+    expect(TEMPO_CATEGORIES).toContain(out.tempo_category);
+  });
+});
+
 // ── buildMoodParams (no-LLM deterministic fallback) ────────────────────────────
 
 describe('buildMoodParams', () => {
@@ -172,5 +199,10 @@ describe('buildMoodParams', () => {
     const intense = buildMoodParams(INTENSE_TAPS, {});
     const calm = buildMoodParams([{ x: 0.45, y: -0.55 }], {});
     expect(intense.target_energy).toBeGreaterThan(calm.target_energy);
+  });
+
+  it('carries a deterministic tempo_category even with no LLM (peak for intense, resting for calm)', () => {
+    expect(buildMoodParams(INTENSE_TAPS, {}).tempo_category).toBe('peak');
+    expect(buildMoodParams([{ x: 0.45, y: -0.55 }], {}).tempo_category).toBe('resting');
   });
 });
