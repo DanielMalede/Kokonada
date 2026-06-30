@@ -293,6 +293,26 @@ describe('getTopTracks', () => {
   });
 });
 
+describe('getArtistsGenres — 403 caching (latency cut)', () => {
+  beforeEach(() => { jest.clearAllMocks(); spotify._resetArtistGenresCache(); });
+
+  it('caches a 403 and short-circuits later calls (skips the wasted /artists request)', async () => {
+    axios.get.mockRejectedValueOnce(Object.assign(new Error('forbidden'), { response: { status: 403 } }));
+    expect(await spotify.getArtistsGenres('tok', ['a1'])).toEqual({});
+    expect(spotify.artistGenresAvailable()).toBe(false);
+
+    const callsSoFar = axios.get.mock.calls.length;
+    expect(await spotify.getArtistsGenres('tok', ['a2'])).toEqual({});
+    expect(axios.get.mock.calls.length).toBe(callsSoFar); // no new network call
+  });
+
+  it('returns genres and stays available when /artists works', async () => {
+    axios.get.mockResolvedValue({ data: { artists: [{ id: 'a1', genres: ['indie'] }] } });
+    expect(await spotify.getArtistsGenres('tok', ['a1'])).toEqual({ a1: ['indie'] });
+    expect(spotify.artistGenresAvailable()).toBe(true);
+  });
+});
+
 describe('getTopArtists', () => {
   beforeEach(() => jest.clearAllMocks());
 

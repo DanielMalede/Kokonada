@@ -259,24 +259,42 @@ async function getRecentlyPlayed(accessToken, limit = 50) {
  * @param {string[]} ids
  * @returns {Promise<Record<string, string[]>>} map of artistId → genres
  */
+// This app's /artists calls 403 (genre data not served). Once we see that, cache it
+// for an hour and short-circuit: every generation otherwise wastes 1-2 round-trips
+// (latency) AND burns the limited Dev-Mode rate budget, which slows the discovery
+// fetch enough to trip the client timeout. `artistGenresAvailable()` lets the
+// generation pipeline skip the whole (then-useless) discovery-tagging layer.
+let _artistGenres403Until = 0;
+function artistGenresAvailable() { return Date.now() >= _artistGenres403Until; }
+function _resetArtistGenresCache() { _artistGenres403Until = 0; } // test hook
+
 async function getArtistsGenres(accessToken, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   if (!unique.length) return {};
+  if (!artistGenresAvailable()) return {}; // known-403 — skip the wasted call
 
   const BATCH = 50;
   const map = {};
-  for (let i = 0; i < unique.length; i += BATCH) {
-    const batch = unique.slice(i, i + BATCH);
-    const { data } = await withRetry(() =>
-      axios.get(`${BASE_API}/artists`, {
-        headers: authHeader(accessToken),
-        params:  { ids: batch.join(',') },
-        timeout: 10_000,
-      })
-    );
-    for (const a of data.artists ?? []) {
-      if (a?.id) map[a.id] = a.genres ?? [];
+  try {
+    for (let i = 0; i < unique.length; i += BATCH) {
+      const batch = unique.slice(i, i + BATCH);
+      const { data } = await withRetry(() =>
+        axios.get(`${BASE_API}/artists`, {
+          headers: authHeader(accessToken),
+          params:  { ids: batch.join(',') },
+          timeout: 10_000,
+        })
+      );
+      for (const a of data.artists ?? []) {
+        if (a?.id) map[a.id] = a.genres ?? [];
+      }
     }
+  } catch (err) {
+    if (err.response?.status === 403) {
+      _artistGenres403Until = Date.now() + 3_600_000; // cache unavailability for 1h
+      return {};
+    }
+    throw err;
   }
   return map;
 }
@@ -704,6 +722,7 @@ async function areTracksSaved(accessToken, ids) {
 module.exports = {
   getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
+  artistGenresAvailable, _resetArtistGenresCache,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
   searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery,
   playTracks, getActiveDevice, createPlaylist, addTracksToPlaylist,
