@@ -71,6 +71,7 @@ jest.mock('../app/services/wearable/suunto', () => ({
 
 // Mock mongoose models to avoid the Node 21 / mongoose 9 incompatibility
 jest.mock('../app/models/BiometricLog', () => ({}));
+jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}) }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),

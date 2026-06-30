@@ -9,6 +9,7 @@ const healthStore = require('../services/wearable/healthStore');
 const garminIngest = require('../services/wearable/garminIngest');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
+const MusicProfile = require('../models/MusicProfile');
 const { buildProfile } = require('../services/musicProfileService');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
 const { resolveMusicProvider } = require('../utils/providerSelect');
@@ -115,6 +116,9 @@ exports.spotifyDisconnect = async (req, res, next) => {
     req.user.musicProvider = null;
     req.user.spotifyToken = null;
     await req.user.save();
+    // Data-handling (Spotify Developer Policy): don't retain Spotify-derived content
+    // after the user disconnects. Drop the cached taste profile (rebuilt on reconnect).
+    await MusicProfile.deleteOne({ userId: req.user._id });
     res.json({ message: 'Spotify disconnected' });
   } catch (err) {
     next(err);

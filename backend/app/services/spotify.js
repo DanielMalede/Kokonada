@@ -14,7 +14,6 @@ const SCOPES = [
   'user-read-email',
   'user-read-playback-state',
   'user-modify-playback-state',
-  'user-read-currently-playing',
   'user-read-recently-played',
   'user-top-read',
   // Required to read Saved Tracks (/me/tracks) when building the taste profile
@@ -412,7 +411,8 @@ async function getRecommendations(accessToken, {
     // playable tracks (no audio-target precision, but a working playlist). The
     // mood_keywords (from the LLM) bias the query so results actually match mood.
     if (status === 404 || status === 403) {
-      console.warn(`[spotify] /recommendations unavailable (${status}) — falling back to search`);
+      // Expected post-Nov-2024 behaviour (the fallback handles it) — info, not warn.
+      console.info(`[spotify] /recommendations unavailable (${status}) — falling back to search`);
       return searchTracksByGenres(accessToken, validGenres, limit, mood_keywords);
     }
     throw err;
