@@ -92,7 +92,7 @@ describe('NowPlayingPage — Like (Bug 7) + Export (Bug 6)', () => {
 
   it('exports the whole playlist to Spotify when the Export button is clicked', () => {
     renderPage();
-    fireEvent.click(screen.getByLabelText('Export to Spotify'));
+    fireEvent.click(screen.getByLabelText('Save to Spotify'));
     expect(exportPlaylist).toHaveBeenCalledWith(
       BACKEND,
       [URI_A, URI_B, URI_C],

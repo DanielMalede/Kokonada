@@ -87,6 +87,11 @@ describe('NowPlayingPage — play from queue (clickable rows)', () => {
     expect(fetchTracksSaved).toHaveBeenCalled();
   });
 
+  it('shows Spotify attribution for the playing track', () => {
+    renderPage();
+    expect(screen.getByText(/listen on spotify/i)).toBeInTheDocument();
+  });
+
   it('clicking an Up-next row plays from that track onward on the SDK device', () => {
     renderPage();
     // currentIndex 0 → Up next is t1..t11. Click "Song 3" (absolute index 3).

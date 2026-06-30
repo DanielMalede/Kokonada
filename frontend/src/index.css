@@ -84,7 +84,8 @@
   --secondary: oklch(0.23 0.012 285);
   --secondary-foreground: oklch(0.96 0.005 286);
   --muted: oklch(0.23 0.012 285);
-  --muted-foreground: oklch(0.66 0.02 285);
+  /* Raised 0.66 → 0.74 for WCAG AA contrast (≥4.5:1) on card/background in dark mode. */
+  --muted-foreground: oklch(0.74 0.02 285);
   --accent: oklch(0.26 0.03 285);
   --accent-foreground: oklch(0.90 0.03 286);
   --destructive: oklch(0.704 0.191 22.216);

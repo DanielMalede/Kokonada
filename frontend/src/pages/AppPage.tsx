@@ -283,7 +283,7 @@ export default function AppPage() {
           <div className="flex flex-col gap-3 pt-2">
             <button
               onClick={() => chooseMode('live')}
-              className="flex items-center gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 text-left transition-colors hover:bg-primary/10"
+              className="flex items-center gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 text-left transition-colors hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
                 <Headphones className="size-5" />
@@ -295,7 +295,7 @@ export default function AppPage() {
             </button>
             <button
               onClick={() => chooseMode('export')}
-              className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted"
+              className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <span className="grid size-11 shrink-0 place-items-center rounded-full bg-secondary text-secondary-foreground">
                 <Save className="size-5" />

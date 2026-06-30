@@ -160,14 +160,14 @@ export default function PlaylistHistoryPage() {
                             <button
                               onClick={() => play(s)}
                               aria-label={`Play ${s.moodLabel} session`}
-                              className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
+                              className="grid size-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-transform active:scale-95"
                             >
                               <Play className="size-4 translate-x-px" />
                             </button>
                             <button
                               onClick={() => removeOne(s)}
                               aria-label={`Delete ${s.moodLabel} session`}
-                              className="grid size-10 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              className="grid size-11 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                             >
                               <Trash2 className="size-4" />
                             </button>
