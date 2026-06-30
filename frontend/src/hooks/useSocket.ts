@@ -161,19 +161,19 @@ export function useSocket() {
     if (!(isOnline && sdkReady)) dispatch(skipTrackAction());
   };
 
-  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string) => {
-    socketRef.current?.emit('emotion_update', { taps, textPrompt });
+  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string, activity?: string | null) => {
+    socketRef.current?.emit('emotion_update', { taps, textPrompt, activity });
   };
 
   // Trigger a playlist generation. Caches the latest taps/prompt, then asks the
   // server to generate — the bug was that the UI only ever emitted emotion_update
   // (which just caches) and never request_playlist, so nothing generated. Socket.IO
   // preserves per-socket order, so the cache lands first.
-  const requestPlaylist = (taps: EmotionTap[], textPrompt?: string): number => {
+  const requestPlaylist = (taps: EmotionTap[], textPrompt?: string, activity?: string | null): number => {
     playlistReqId += 1;
     latestReqId = playlistReqId;
     console.info(`[gen] emit reqId=${playlistReqId}`);
-    socketRef.current?.emit('emotion_update', { taps, textPrompt });
+    socketRef.current?.emit('emotion_update', { taps, textPrompt, activity });
     socketRef.current?.emit('request_playlist', { reqId: playlistReqId });
     return playlistReqId;
   };

@@ -9,11 +9,15 @@ export interface EmotionTap {
 interface EmotionState {
   taps: EmotionTap[];
   textPrompt: string;
+  // Selected activity preset key (from lib/activities.ts), or null. Distinct from
+  // biometrics.activity, which is the watch-detected motion state (walking/running).
+  activity: string | null;
 }
 
 const initialState: EmotionState = {
   taps: [],
   textPrompt: '',
+  activity: null,
 };
 
 const emotionSlice = createSlice({
@@ -33,8 +37,11 @@ const emotionSlice = createSlice({
     setTextPrompt(state, action: PayloadAction<string>) {
       state.textPrompt = action.payload;
     },
+    setActivity(state, action: PayloadAction<string | null>) {
+      state.activity = action.payload;
+    },
   },
 });
 
-export const { addTap, removeTap, clearTaps, setTextPrompt } = emotionSlice.actions;
+export const { addTap, removeTap, clearTaps, setTextPrompt, setActivity } = emotionSlice.actions;
 export default emotionSlice.reducer;

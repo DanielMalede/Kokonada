@@ -4,7 +4,9 @@ const { normalize }  = require('../services/wearable/adapter');
 const User           = require('../models/User');
 const MusicProfile   = require('../models/MusicProfile');
 const BiometricLog   = require('../models/BiometricLog');
+const MedicalProfile = require('../models/MedicalProfile');
 const PlaylistSession = require('../models/PlaylistSession');
+const { computeStateVector } = require('../services/medicalProfileService');
 const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist, critiqueTrackVibe } = require('../services/geminiEngine');
@@ -210,6 +212,10 @@ function getState(socketId) {
       consecutiveSkips: 0,
       lastEmotionTaps:  [],
       lastTextPrompt:   '',
+      // User-selected activity preset key (lib/activities.ts), e.g. 'running'.
+      // Distinct from latestActivity (watch-detected motion). Drives the emotion
+      // pipeline + is woven into the LLM prompt alongside taps/text/biometrics.
+      lastActivity:     null,
       // Playback mode ('live'|'export') chosen on the client, echoed back in
       // playlist_ready so the frontend doesn't reset export→live.
       lastMode:         'live',
@@ -275,6 +281,68 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
   return null;
 }
 
+// Feature flag — keep the 24h biometric injection togglable while Garmin Health
+// API approval is pending and many users' MedicalProfiles are still sparse.
+const BIO_CONTEXT_ENABLED = process.env.BIO_CONTEXT_PROMPT !== 'false';
+
+// Build a compact, anonymised snapshot of the user's recent health baselines
+// (sleep stages, HRV, body battery, readiness, resting HR — all decrypted via the
+// MedicalProfile getters) plus the current HR, so the emotion LLM can weigh the
+// user's physical state against their chosen mood/activity. Returns null (no block)
+// when disabled, when there's no profile, or when nothing meaningful is present.
+// Best-effort: any DB/decrypt failure degrades to null and never blocks generation.
+async function resolveBiometricContext(userId, currentHR) {
+  if (!BIO_CONTEXT_ENABLED) return null;
+
+  let profile;
+  try {
+    profile = await MedicalProfile.findOne({ userId });
+  } catch (e) {
+    log(`[bio-context] MedicalProfile query failed: ${e.message}`);
+    return null;
+  }
+  if (!profile) return null;
+
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  const restingHeartRate = num(profile.restingHeartRate);
+  const hrv              = num(profile.hrv);
+  const respirationRate  = num(profile.respirationRate);
+  const spO2             = num(profile.spO2);
+  const bodyBattery      = num(profile.bodyBattery);
+  const dailyReadiness   = num(profile.dailyReadiness);
+  const sleepDeep        = num(profile.sleepStages?.deep);
+  const sleepLight       = num(profile.sleepStages?.light);
+  const sleepRem         = num(profile.sleepStages?.rem);
+  const sleep = (sleepDeep != null || sleepLight != null || sleepRem != null)
+    ? { deep: sleepDeep, light: sleepLight, rem: sleepRem }
+    : null;
+  const heartRate = isPhysiologicalHR(currentHR) ? currentHR : null;
+
+  // Deterministic, human-readable physiological state label — a hint for the LLM.
+  const { status: stateLabel } = computeStateVector({
+    heartRate, restingHeartRate, hrv, respirationRate, spO2, bodyBattery, dailyReadiness,
+  });
+
+  const ctx = {
+    stateLabel,
+    heartRate,
+    restingHeartRate,
+    hrRatio: heartRate && restingHeartRate
+      ? Math.round((heartRate / restingHeartRate) * 100) / 100
+      : null,
+    hrv,
+    bodyBattery,
+    dailyReadiness,
+    spO2,
+    sleep,
+  };
+
+  // No scalar signal at all → skip the block (a bare "state=Neutral" adds noise).
+  const hasSignal = [restingHeartRate, hrv, bodyBattery, dailyReadiness, spO2, sleep]
+    .some((v) => v != null);
+  return hasSignal ? ctx : null;
+}
+
 // ── Core pipeline ──────────────────────────────────────────────────────────────
 
 async function generateAndEmitPlaylist(socket, trigger, state) {
@@ -327,7 +395,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // is ANY emotion intent (mood taps OR a custom text prompt); a custom-text-only
     // request must never fall through to the heart-rate branch and be ignored.
     const useEmotion = trigger === 'emotion'
-      && (state.lastEmotionTaps.length > 0 || !!state.lastTextPrompt);
+      && (state.lastEmotionTaps.length > 0 || !!state.lastTextPrompt || !!state.lastActivity);
     // The mood the Layer-2 critic and strict personalization key off — null on the
     // heart-rate branch, which keeps its original soft-bias behaviour.
     const moodKey   = useEmotion ? resolveMoodKey(state.lastEmotionTaps) : null;
@@ -398,10 +466,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     let aiResult;
     try {
       if (useEmotion) {
+        // 24h health snapshot (sleep/HRV/body battery/readiness + current HR) so the
+        // LLM weighs physical state against the chosen mood + activity. Best-effort.
+        const biometricContext = await resolveBiometricContext(userId, state.stableHR);
         aiResult = await buildEmotionPlaylist({
           musicProfile,
           emotionTaps:  state.lastEmotionTaps,
           textPrompt:   state.lastTextPrompt || null,
+          activity:     state.lastActivity || null,
+          biometricContext,
           fetchTracks,
           seed,
         });
@@ -650,12 +723,13 @@ function registerBiometricHandler(socket) {
     handleBiometricReading(socket, source, raw);
   });
 
-  socket.on('emotion_update', ({ taps = [], textPrompt = '', mode } = {}) => {
+  socket.on('emotion_update', ({ taps = [], textPrompt = '', activity = null, mode } = {}) => {
     const state = getState(socketId);
     state.lastEmotionTaps = taps;
     state.lastTextPrompt  = textPrompt;
+    state.lastActivity    = activity || null;
     if (mode) state.lastMode = mode;
-    log(`[emotion_update] taps=${taps.length} mode=${state.lastMode}`);
+    log(`[emotion_update] taps=${taps.length} activity=${state.lastActivity ?? 'none'} mode=${state.lastMode}`);
   });
 
   // Generation trigger for the mood/emotion flow. The client emits emotion_update
@@ -719,4 +793,5 @@ module.exports = {
   isRepeatMood,
   recentMoodCooldown,
   pickSortAxis,
+  resolveBiometricContext,
 };

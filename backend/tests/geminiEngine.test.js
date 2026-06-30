@@ -276,6 +276,51 @@ describe('_buildEmotionPrompt', () => {
     // A specific INTENSE exclude genre that is NOT already present in the base prompt.
     expect(prompt).toContain('singer-songwriter');
   });
+
+  it('includes the selected activity when provided', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, null, { activity: 'Running' });
+    expect(prompt).toContain('Current activity: Running');
+    expect(prompt.toLowerCase()).toMatch(/weigh the user's current activity/);
+  });
+
+  it('omits the activity line when no activity is selected', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);
+    expect(prompt).not.toContain('Current activity:');
+  });
+
+  it('includes a last-24h biometric snapshot when provided', () => {
+    const biometricContext = {
+      stateLabel: 'High-Stress / Pre-Panic',
+      heartRate: 92, restingHeartRate: 60, hrRatio: 1.53,
+      hrv: 18, bodyBattery: 30, dailyReadiness: 40, spO2: 97,
+      sleep: { deep: 40, light: 200, rem: 60 },
+    };
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, null, { biometricContext });
+    expect(prompt).toContain('Last-24h biometric snapshot:');
+    expect(prompt).toContain('High-Stress / Pre-Panic');
+    expect(prompt).toContain('HRV 18 ms');
+    expect(prompt).toContain('body battery 30/100');
+    expect(prompt).toContain('40m deep');
+  });
+
+  it('omits the biometric snapshot when no context is provided', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);
+    expect(prompt).not.toContain('Last-24h biometric snapshot:');
+  });
+
+  it('only lists biometric fields that are present (sparse profile)', () => {
+    const biometricContext = {
+      stateLabel: 'Neutral', heartRate: null, restingHeartRate: 58, hrRatio: null,
+      hrv: null, bodyBattery: 72, dailyReadiness: null, spO2: null, sleep: null,
+    };
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, null, { biometricContext });
+    expect(prompt).toContain('resting HR 58 bpm');
+    expect(prompt).toContain('body battery 72/100');
+    // The snapshot must omit the absent fields — match the formatted "HRV <n> ms"
+    // token, not the directive sentence which mentions "low HRV" as an example.
+    expect(prompt).not.toMatch(/HRV \d/);
+    expect(prompt).not.toContain('last sleep');
+  });
 });
 
 // ── LLM genre backfill (moods work when Spotify serves no genres) ──────────────
