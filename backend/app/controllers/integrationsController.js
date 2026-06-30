@@ -85,6 +85,10 @@ exports.spotifyCallback = async (req, res) => {
     // Encrypt and persist tokens — never store plain text
     user.musicProvider = 'spotify';
     user.setToken('spotifyToken', tokens);
+    // Record the GRANTED scopes so /status can tell the client whether Like/Export
+    // will work. Log them so a missing-scope reconnect is diagnosable (audit #5).
+    user.spotifyScopes = tokens.scope || '';
+    console.info(`[spotify] connected — granted scopes: ${tokens.scope || '(none reported)'}`);
     await user.save();
     await burnState(payload); // single-use
 
@@ -115,6 +119,7 @@ exports.spotifyDisconnect = async (req, res, next) => {
   try {
     req.user.musicProvider = null;
     req.user.spotifyToken = null;
+    req.user.spotifyScopes = '';
     await req.user.save();
     // Data-handling (Spotify Developer Policy): don't retain Spotify-derived content
     // after the user disconnects. Drop the cached taste profile (rebuilt on reconnect).
@@ -126,9 +131,15 @@ exports.spotifyDisconnect = async (req, res, next) => {
 };
 
 // GET /api/integrations/spotify/status
+// `connected` = a token exists. `canSave` = the token also carries the write scopes
+// (user-library-modify + playlist-modify-*) so the client can enable Like/Export and
+// prompt a reconnect ONCE up front instead of failing on every click (audit #5).
 exports.spotifyStatus = (req, res) => {
   const connected = !!req.user.spotifyToken?.blob;
-  res.json({ connected });
+  const scopes    = req.user.spotifyScopes || '';
+  const hasLibraryWrite  = scopes.includes('user-library-modify');
+  const hasPlaylistWrite = scopes.includes('playlist-modify');
+  res.json({ connected, hasLibraryWrite, hasPlaylistWrite, canSave: hasLibraryWrite && hasPlaylistWrite });
 };
 
 // The auth middleware loads req.user with the encrypted token blobs stripped
@@ -678,9 +689,14 @@ exports.getIntegrationsStatus = async (req, res, next) => {
     // a stored token — not a stale `musicProvider` string, so the frontend drives
     // the SDK/playback for a provider that really has a usable token.
     const user = await loadUserWithTokens(req);
+    // Whether the stored Spotify token carries the write scopes, so the client can
+    // enable Like/Export (and prompt a single reconnect when missing) instead of
+    // discovering it via a 409 on every click (audit #5).
+    const scopes = user.spotifyScopes || '';
     res.json({
       musicProvider:     resolveMusicProvider(user),
       biometricProvider: user.wearableProvider ?? null,
+      spotifyCanSave:    scopes.includes('user-library-modify') && scopes.includes('playlist-modify'),
     });
   } catch (err) {
     next(err);

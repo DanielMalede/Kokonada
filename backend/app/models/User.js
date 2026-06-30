@@ -15,6 +15,10 @@ const userSchema = new mongoose.Schema({
   // Encrypted 3rd-party OAuth tokens
   musicProvider:     { type: String, enum: ['spotify', 'youtube', null], default: null },
   spotifyToken:      { type: encryptedTokenSchema, default: null },
+  // Space-separated Spotify scopes the user actually granted (plaintext, non-sensitive).
+  // Lets /status tell the client whether Like/Export will work, instead of failing on a
+  // 403 every click. (audit #5)
+  spotifyScopes:     { type: String, default: '' },
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'health_connect', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },

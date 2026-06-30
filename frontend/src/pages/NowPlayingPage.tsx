@@ -40,6 +40,9 @@ export default function NowPlayingPage() {
   } = useSelector((s: RootState) => s.player);
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
   const taps = useSelector((s: RootState) => s.emotion.taps);
+  // Whether the stored token has the write scopes — known up front so Like/Export
+  // prompt a single reconnect instead of failing with a 409 on every click (audit #5).
+  const spotifyCanSave = useSelector((s: RootState) => s.integrations.spotifyCanSave);
 
   // Local scrub state: while the user is dragging, the thumb follows their finger
   // and SDK position ticks are ignored, so the 1s progress interval and
@@ -158,6 +161,8 @@ export default function NowPlayingPage() {
   // a re-entrancy lock so a rapid double-tap can't fire conflicting save/remove calls.
   const toggleLike = async () => {
     if (!trackId || likeLockRef.current) return;
+    // Known-missing scopes → prompt one reconnect instead of a doomed API call.
+    if (!spotifyCanSave) { reconnectToast('Reconnect Spotify once to enable saving songs'); return; }
     likeLockRef.current = true;
     const next = !liked;
     setLiked(next);
@@ -174,6 +179,7 @@ export default function NowPlayingPage() {
 
   // Export the current session as a new Spotify playlist (Bug 6).
   const handleExport = () => {
+    if (!spotifyCanSave) { reconnectToast('Reconnect Spotify once to enable saving playlists'); return; }
     const uris = sanitizeTrackUris(list.map((t) => t.uri));
     if (uris.length === 0) { toast.error('No Spotify tracks to export.'); return; }
     exportPlaylist(BACKEND_URL, uris, `Kokonada — ${new Date().toLocaleDateString()}`)

@@ -48,7 +48,7 @@ const playlist = [
   { id: 'c', title: 'Song C', artist: 'Artist Z', uri: URI_C },
 ];
 
-function renderPage(overrides = {}) {
+function renderPage(overrides = {}, integrations: { spotifyCanSave: boolean } = { spotifyCanSave: true }) {
   const store = configureStore({
     reducer: {
       auth: authReducer, biometrics: biometricsReducer, emotion: emotionReducer,
@@ -62,6 +62,7 @@ function renderPage(overrides = {}) {
         pendingPlaylist: [], sdkCurrentTrackUri: 'spotify:track:b', sdkCurrentTrackImage: null,
         ...overrides,
       },
+      integrations,
     } as never,
   });
   return render(
@@ -98,5 +99,13 @@ describe('NowPlayingPage — Like (Bug 7) + Export (Bug 6)', () => {
       [URI_A, URI_B, URI_C],
       expect.any(String),
     );
+  });
+
+  it('does NOT call the API when scopes are missing — prompts one reconnect instead (audit #5)', () => {
+    renderPage({}, { spotifyCanSave: false });
+    fireEvent.click(screen.getByLabelText('Like'));
+    expect(setTrackSaved).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText('Save to Spotify'));
+    expect(exportPlaylist).not.toHaveBeenCalled();
   });
 });

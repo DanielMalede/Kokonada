@@ -325,7 +325,7 @@ describe('getIntegrationsStatus', () => {
     await getIntegrationsStatus({ user: REQ_USER }, res, next);
 
     expect(User.findById).toHaveBeenCalledWith('u1');
-    expect(res.body).toEqual({ musicProvider: 'youtube', biometricProvider: 'garmin' });
+    expect(res.body).toEqual(expect.objectContaining({ musicProvider: 'youtube', biometricProvider: 'garmin' }));
   });
 
   it('reports spotify when the Spotify token blob exists on the loaded user', async () => {
@@ -339,7 +339,7 @@ describe('getIntegrationsStatus', () => {
 
     await getIntegrationsStatus({ user: REQ_USER }, res, next);
 
-    expect(res.body).toEqual({ musicProvider: 'spotify', biometricProvider: null });
+    expect(res.body).toEqual(expect.objectContaining({ musicProvider: 'spotify', biometricProvider: null }));
   });
 
   it('reports null music provider when neither token is stored', async () => {
@@ -350,6 +350,6 @@ describe('getIntegrationsStatus', () => {
 
     await getIntegrationsStatus({ user: REQ_USER }, res, next);
 
-    expect(res.body).toEqual({ musicProvider: null, biometricProvider: null });
+    expect(res.body).toEqual(expect.objectContaining({ musicProvider: null, biometricProvider: null }));
   });
 });
