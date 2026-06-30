@@ -3,6 +3,7 @@ import { useDispatch } from 'react-redux';
 import { io, Socket } from 'socket.io-client';
 import { toast } from 'sonner';
 import type { AppDispatch } from '../store';
+import { store } from '../store';
 import { getToken } from '@/lib/api';
 import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, receivePlaylist, setPlaylistError } from '../store/slices/playerSlice';
 import {
@@ -148,7 +149,13 @@ export function useSocket() {
 
   const skipTrack = () => {
     socketRef.current?.emit('track_skipped');
-    dispatch(skipTrackAction());
+    // Single source of truth for currentIndex: when the Spotify SDK is driving
+    // playback, it (via setSdkState) snaps currentIndex to the track actually playing.
+    // Optimistically bumping the index here as WELL made the two fight during a queue
+    // swap → the "jumping between the old and new playlist" bug (#3/#4). Only move the
+    // index ourselves offline, where there is no SDK to report the boundary.
+    const { isOnline, sdkReady } = store.getState().player;
+    if (!(isOnline && sdkReady)) dispatch(skipTrackAction());
   };
 
   const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string, mode?: 'live' | 'export') => {
