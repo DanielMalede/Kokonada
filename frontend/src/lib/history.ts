@@ -10,7 +10,7 @@ export interface Session {
   moodKey: string | null;
   moodLabel: string;
   textPrompt: string;
-  mode: 'live' | 'export';
+  mode: 'live';
   heartRate: number | null;
   activity: string | null;
   createdAt: number;

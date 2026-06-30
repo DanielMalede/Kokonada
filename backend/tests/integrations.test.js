@@ -237,15 +237,15 @@ describe('Spotify OAuth flow', () => {
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ connected: false }));
     });
 
-    it('reports canSave when the granted scopes include the write scopes (audit #5)', () => {
+    it('reports canSave when the granted scopes include user-library-modify (audit #5)', () => {
       const req = { user: buildUser({
         spotifyToken: { blob: 'x' },
-        spotifyScopes: 'user-read-private user-library-modify playlist-modify-private playlist-modify-public',
+        spotifyScopes: 'user-read-private user-library-modify',
       }) };
       const res = buildRes();
       ctrl.spotifyStatus(req, res);
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-        connected: true, hasLibraryWrite: true, hasPlaylistWrite: true, canSave: true,
+        connected: true, hasLibraryWrite: true, canSave: true,
       }));
     });
 

@@ -84,23 +84,6 @@ describe('getActiveDevice', () => {
   });
 });
 
-describe('createPlaylist + addTracksToPlaylist', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('createPlaylist returns id + url', async () => {
-    axios.post.mockResolvedValue({ data: { id: 'pl_9', external_urls: { spotify: 'https://open.spotify.com/playlist/pl_9' } } });
-    const out = await spotify.createPlaylist('tok', 'user1', 'My Mix', 'desc');
-    expect(out).toEqual({ id: 'pl_9', url: 'https://open.spotify.com/playlist/pl_9' });
-  });
-
-  it('addTracksToPlaylist batches in groups of 100', async () => {
-    axios.post.mockResolvedValue({ data: {} });
-    const uris = Array.from({ length: 250 }, (_, i) => `spotify:track:${i}`);
-    await spotify.addTracksToPlaylist('tok', 'pl_9', uris);
-    expect(axios.post).toHaveBeenCalledTimes(3); // 100 + 100 + 50
-  });
-});
-
 describe('getRecommendations', () => {
   beforeEach(() => jest.clearAllMocks());
 

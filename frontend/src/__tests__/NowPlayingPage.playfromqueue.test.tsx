@@ -29,7 +29,6 @@ vi.mock('@/lib/api', () => ({
   authHeaders: () => ({}),
   setTrackSaved: vi.fn().mockResolvedValue(undefined),
   fetchTracksSaved: vi.fn().mockResolvedValue({}),
-  exportPlaylist: vi.fn().mockResolvedValue({ url: 'https://open.spotify.com/playlist/x' }),
   playTracks: vi.fn().mockResolvedValue(undefined),
 }));
 

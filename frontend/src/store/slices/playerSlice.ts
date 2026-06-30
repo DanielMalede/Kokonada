@@ -26,7 +26,7 @@ interface PlayerState {
   isPlaying: boolean;
   isOnline: boolean;
   trigger: 'emotion' | 'biometric' | 'skip_loop' | 'heart' | null;
-  playbackMode: 'live' | 'export' | null;
+  playbackMode: 'live' | null;
   // Spotify Web Playback SDK state
   sdkReady: boolean;
   deviceId: string | null;
@@ -38,7 +38,7 @@ interface PlayerState {
   // carries the incoming playlist's playbackMode so promotion applies the
   // queued playlist's mode rather than silently inheriting the current one.
   pendingPlaylist: Track[];
-  pendingMode: 'live' | 'export' | null;
+  pendingMode: 'live' | null;
   sdkCurrentTrackUri: string | null;
   sdkCurrentTrackImage: string | null;
   // Bumped to Date.now() whenever generation fails or returns an empty/malformed
@@ -94,7 +94,7 @@ const playerSlice = createSlice({
       state.currentIndex = i;
       state.sdkPositionMs = 0;
     },
-    setPendingPlaylist(state, action: PayloadAction<{ tracks: Track[]; mode?: 'live' | 'export' }>) {
+    setPendingPlaylist(state, action: PayloadAction<{ tracks: Track[]; mode?: 'live' }>) {
       state.pendingPlaylist = action.payload.tracks;
       state.pendingMode = action.payload.mode ?? 'live';
     },
@@ -114,7 +114,7 @@ const playerSlice = createSlice({
     setIsOnline(state, action: PayloadAction<boolean>) {
       state.isOnline = action.payload;
     },
-    setPlaybackMode(state, action: PayloadAction<'live' | 'export' | null>) {
+    setPlaybackMode(state, action: PayloadAction<'live' | null>) {
       state.playbackMode = action.payload;
     },
     setSdkState(state, action: PayloadAction<SpotifySDKState>) {
@@ -142,12 +142,28 @@ const playerSlice = createSlice({
     setPlaylistError(state) {
       state.lastErrorAt = Date.now();
     },
+    // Rehydrate the durable queue from localStorage on app boot (see store/persist).
+    // Only the playback-restoring fields are restored; live SDK/network state keeps
+    // its initial defaults and reconnects fresh.
+    restorePlayer(state, action: PayloadAction<{
+      playlist: Track[];
+      offlineBuffer: Track[];
+      currentIndex: number;
+      playbackMode: 'live' | null;
+      trigger: PlayerState['trigger'];
+    }>) {
+      state.playlist = action.payload.playlist;
+      state.offlineBuffer = action.payload.offlineBuffer;
+      state.currentIndex = action.payload.currentIndex;
+      state.playbackMode = action.payload.playbackMode;
+      state.trigger = action.payload.trigger;
+    },
   },
 });
 
 export const {
   setPlaylist, skipTrack, setCurrentIndex, setPlaying, setIsOnline, setPlaybackMode, setSdkState,
-  setPendingPlaylist, promotePendingPlaylist, setPlaylistError,
+  setPendingPlaylist, promotePendingPlaylist, setPlaylistError, restorePlayer,
 } = playerSlice.actions;
 
 /**
@@ -156,7 +172,7 @@ export const {
  * current song; everything else replaces playback immediately.
  */
 export const receivePlaylist =
-  (payload: { tracks: Track[]; trigger: PlayerState['trigger']; mode?: 'live' | 'export' }) =>
+  (payload: { tracks: Track[]; trigger: PlayerState['trigger']; mode?: 'live' }) =>
   (dispatch: AppDispatch, getState: () => RootState) => {
     // Defense-in-depth empty-payload guard: never blank the active queue on a
     // malformed/empty playlist. Flag the error instead so the UI can recover.

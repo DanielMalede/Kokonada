@@ -88,7 +88,7 @@ function initSocket(dispatch: AppDispatch): Socket {
   socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
 
-  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop' | 'heart'; mode?: 'live' | 'export'; reqId?: number }) => {
+  socket.on('playlist_ready', (data: { tracks: Track[]; trigger: 'emotion' | 'biometric' | 'skip_loop' | 'heart'; reqId?: number }) => {
     // Drop stale emotion results — a newer Generate request supersedes this one.
     // Biometric/watch playlists carry no reqId and are never dropped here.
     if (data.trigger === 'emotion' && typeof data.reqId === 'number' && data.reqId < latestReqId) {
@@ -104,9 +104,9 @@ function initSocket(dispatch: AppDispatch): Socket {
       dispatch(setPlaylistError());
       return;
     }
-    console.info(`[socket] playlist_ready reqId=${data.reqId} tracks=${usable.length} trigger=${data.trigger} mode=${data.mode}`);
+    console.info(`[socket] playlist_ready reqId=${data.reqId} tracks=${usable.length} trigger=${data.trigger}`);
     if (data.trigger === 'biometric') dispatch(markWatchSeen());
-    dispatch(receivePlaylist({ tracks: usable, trigger: data.trigger, mode: data.mode }));
+    dispatch(receivePlaylist({ tracks: usable, trigger: data.trigger }));
   });
 
   socket.on('playlist_error', (data: { message?: string; fallbackTracks?: Track[] }) => {
@@ -161,32 +161,31 @@ export function useSocket() {
     if (!(isOnline && sdkReady)) dispatch(skipTrackAction());
   };
 
-  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string, mode?: 'live' | 'export') => {
-    socketRef.current?.emit('emotion_update', { taps, textPrompt, mode });
+  const emitEmotionUpdate = (taps: EmotionTap[], textPrompt?: string) => {
+    socketRef.current?.emit('emotion_update', { taps, textPrompt });
   };
 
-  // Trigger a playlist generation. Caches the latest taps/prompt/mode, then asks
-  // the server to generate — the bug was that the UI only ever emitted
-  // emotion_update (which just caches) and never request_playlist, so nothing
-  // generated. Socket.IO preserves per-socket order, so the cache lands first.
-  const requestPlaylist = (taps: EmotionTap[], textPrompt?: string, mode: 'live' | 'export' = 'live'): number => {
+  // Trigger a playlist generation. Caches the latest taps/prompt, then asks the
+  // server to generate — the bug was that the UI only ever emitted emotion_update
+  // (which just caches) and never request_playlist, so nothing generated. Socket.IO
+  // preserves per-socket order, so the cache lands first.
+  const requestPlaylist = (taps: EmotionTap[], textPrompt?: string): number => {
     playlistReqId += 1;
     latestReqId = playlistReqId;
-    console.info(`[gen] emit reqId=${playlistReqId} mode=${mode}`);
-    socketRef.current?.emit('emotion_update', { taps, textPrompt, mode });
-    socketRef.current?.emit('request_playlist', { mode, reqId: playlistReqId });
+    console.info(`[gen] emit reqId=${playlistReqId}`);
+    socketRef.current?.emit('emotion_update', { taps, textPrompt });
+    socketRef.current?.emit('request_playlist', { reqId: playlistReqId });
     return playlistReqId;
   };
 
   // "Listen to your heart" — a playlist from the user's heart rate alone (no mood
   // needed). The backend derives HR from the last 30 min of health data, falling
   // back to the current/live HR (passed as a hint), then resting HR.
-  const requestHeartPlaylist = (mode: 'live' | 'export' = 'live', heartRate?: number | null): number => {
+  const requestHeartPlaylist = (heartRate?: number | null): number => {
     playlistReqId += 1;
     latestReqId = playlistReqId;
-    console.info(`[gen] heart emit reqId=${playlistReqId} mode=${mode} hr=${heartRate ?? 'n/a'}`);
+    console.info(`[gen] heart emit reqId=${playlistReqId} hr=${heartRate ?? 'n/a'}`);
     socketRef.current?.emit('request_heart_playlist', {
-      mode,
       reqId: playlistReqId,
       heartRate: heartRate ?? undefined,
     });

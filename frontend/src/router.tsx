@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState, AppDispatch } from './store';
 import { setUser, setAuthStatus } from './store/slices/authSlice';
-import { selectIsIntegrationsComplete, setMoodOnly } from './store/slices/integrationsSlice';
+import { selectIsIntegrationsComplete, selectIntegrationsSettled, setMoodOnly, hydrateIntegrations } from './store/slices/integrationsSlice';
 import LoginPage from './pages/LoginPage';
 import WelcomePage from './pages/WelcomePage';
 import IntegrationsPage from './pages/IntegrationsPage';
@@ -24,6 +24,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 function AppBootstrap({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch<AppDispatch>();
   const status = useSelector((s: RootState) => s.auth.status);
+  const integrationsStatus = useSelector((s: RootState) => s.integrations.status);
 
   // Restore the client-only "mood only" preference across reloads.
   useEffect(() => {
@@ -39,6 +40,15 @@ function AppBootstrap({ children }: { children: React.ReactNode }) {
       .catch(() => dispatch(setAuthStatus('error')));
   }, [dispatch, status]);
 
+  // Once authenticated, fetch integration status HERE — above the guards — so the
+  // IntegrationsGuard can wait for it to settle instead of redirecting to
+  // /integrations off the initial all-null state on every refresh.
+  useEffect(() => {
+    if (status === 'authenticated' && integrationsStatus === 'idle') {
+      dispatch(hydrateIntegrations());
+    }
+  }, [dispatch, status, integrationsStatus]);
+
   return <>{children}</>;
 }
 
@@ -50,16 +60,23 @@ function AuthGuard() {
 }
 
 function IntegrationsGuard() {
+  const settled = useSelector(selectIntegrationsSettled);
   const complete = useSelector(selectIsIntegrationsComplete);
+  // Wait for the post-login status fetch to settle before deciding — otherwise a
+  // refresh redirects to /integrations off the initial all-null state (the bug).
+  if (!settled) return <SplashScreen />;
   if (!complete) return <Navigate to="/integrations" replace />;
   return <Outlet />;
 }
 
 function PublicOnlyGuard() {
   const status = useSelector((s: RootState) => s.auth.status);
+  const settled = useSelector(selectIntegrationsSettled);
   const complete = useSelector(selectIsIntegrationsComplete);
   if (status === 'loading') return <SplashScreen />;
   if (status === 'authenticated') {
+    // Don't bounce an authenticated user until we know their real connection status.
+    if (!settled) return <SplashScreen />;
     return complete ? <Navigate to="/app" replace /> : <Navigate to="/integrations" replace />;
   }
   return <Outlet />;

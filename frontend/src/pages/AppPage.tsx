@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Sparkles, Headphones, Save, ListMusic, HeartPulse } from 'lucide-react';
+import { Sparkles, ListMusic, HeartPulse } from 'lucide-react';
 import type { RootState, AppDispatch } from '../store';
 import { setTextPrompt } from '../store/slices/emotionSlice';
 import { setPlaybackMode } from '../store/slices/playerSlice';
@@ -16,15 +16,6 @@ import GeneratingOverlay from '@/components/GeneratingOverlay';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-
-type Mode = 'live' | 'export';
 
 function greeting() {
   const h = new Date().getHours();
@@ -45,16 +36,14 @@ export default function AppPage() {
   const lastErrorAt = useSelector((s: RootState) => s.player.lastErrorAt);
   const { requestPlaylist, requestHeartPlaylist } = useSocket();
 
-  const [modeOpen, setModeOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const modeRef = useRef<Mode>('live');
   const lastKeyRef = useRef<string>('');
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<{
     moodKey: string | null;
     moodLabel: string;
     textPrompt: string;
-    mode: Mode;
+    mode: 'live';
     heartRate: number | null;
     activity: string | null;
   } | null>(null);
@@ -81,21 +70,19 @@ export default function AppPage() {
     }, GENERATION_TIMEOUT_MS);
   };
 
-  const chooseMode = (mode: Mode) => {
-    if (generating) return; // race guard: ignore a second mode pick mid-generation
-    modeRef.current = mode;
-    setModeOpen(false);
+  const generate = () => {
+    if (generating) return; // race guard: ignore a double-tap mid-generation
     lastKeyRef.current = playlist.map((t) => t.uri).join(',');
     pendingRef.current = {
       moodKey,
       moodLabel: moodLabel ?? 'Session',
       textPrompt,
-      mode,
+      mode: 'live',
       heartRate,
       activity,
     };
-    requestPlaylist(taps, textPrompt, mode);
-    dispatch(setPlaybackMode(mode));
+    requestPlaylist(taps, textPrompt);
+    dispatch(setPlaybackMode('live'));
     setGenerating(true);
     armGenerationTimeout();
   };
@@ -104,7 +91,6 @@ export default function AppPage() {
   // stream it live. Backend uses the last 30 min of health data, else current HR.
   const listenToYourHeart = () => {
     if (generating) return;
-    modeRef.current = 'live';
     lastKeyRef.current = playlist.map((t) => t.uri).join(',');
     pendingRef.current = {
       moodKey: null,
@@ -114,7 +100,7 @@ export default function AppPage() {
       heartRate,
       activity,
     };
-    requestHeartPlaylist('live', heartRate);
+    requestHeartPlaylist(heartRate);
     dispatch(setPlaybackMode('live'));
     setGenerating(true);
     armGenerationTimeout();
@@ -142,7 +128,7 @@ export default function AppPage() {
         pendingRef.current = null;
       }
       toast.success('Playlist ready ✓');
-      if (modeRef.current === 'live') navigate('/now-playing');
+      navigate('/now-playing');
     }
   }, [playlist, navigate]);
 
@@ -193,7 +179,7 @@ export default function AppPage() {
               />
             </div>
             <Button
-              onClick={() => setModeOpen(true)}
+              onClick={generate}
               disabled={!hasMood || generating}
               className="h-12 rounded-full text-base"
               title={!hasMood ? 'Pick a mood first' : undefined}
@@ -272,42 +258,6 @@ export default function AppPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Playback mode chooser */}
-      <Dialog open={modeOpen} onOpenChange={setModeOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>How should we play this?</DialogTitle>
-            <DialogDescription>Choose how you want your {moodLabel?.toLowerCase()} session delivered.</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 pt-2">
-            <button
-              onClick={() => chooseMode('live')}
-              className="flex items-center gap-4 rounded-xl border border-primary/30 bg-primary/5 p-4 text-left transition-colors hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            >
-              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
-                <Headphones className="size-5" />
-              </span>
-              <span>
-                <span className="block font-medium text-foreground">Listen live</span>
-                <span className="block text-sm text-muted-foreground">Stream now with real-time biometric tuning</span>
-              </span>
-            </button>
-            <button
-              onClick={() => chooseMode('export')}
-              className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            >
-              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-secondary text-secondary-foreground">
-                <Save className="size-5" />
-              </span>
-              <span>
-                <span className="block font-medium text-foreground">Save to library</span>
-                <span className="block text-sm text-muted-foreground">Export the playlist to your music account</span>
-              </span>
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <GeneratingOverlay open={generating} moodLabel={moodLabel} />
     </>

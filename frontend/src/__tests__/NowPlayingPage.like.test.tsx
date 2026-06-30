@@ -4,7 +4,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
 import NowPlayingPage from '../pages/NowPlayingPage';
-import { setTrackSaved, fetchTracksSaved, exportPlaylist } from '@/lib/api';
+import { setTrackSaved, fetchTracksSaved } from '@/lib/api';
 import playerReducer from '../store/slices/playerSlice';
 import authReducer from '../store/slices/authSlice';
 import biometricsReducer from '../store/slices/biometricsSlice';
@@ -17,7 +17,6 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     setTrackSaved: vi.fn().mockResolvedValue(undefined),
     fetchTracksSaved: vi.fn().mockResolvedValue({}),
-    exportPlaylist: vi.fn().mockResolvedValue({ url: 'https://open.spotify.com/playlist/x' }),
   };
 });
 
@@ -70,7 +69,7 @@ function renderPage(overrides = {}, integrations: { spotifyCanSave: boolean } = 
   );
 }
 
-describe('NowPlayingPage — Like (Bug 7) + Export (Bug 6)', () => {
+describe('NowPlayingPage — Like (Bug 7)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('hydrates the heart state for the current track on mount', async () => {
@@ -91,21 +90,9 @@ describe('NowPlayingPage — Like (Bug 7) + Export (Bug 6)', () => {
     await waitFor(() => expect(screen.getByLabelText('Unlike')).toBeInTheDocument());
   });
 
-  it('exports the whole playlist to Spotify when the Export button is clicked', () => {
-    renderPage();
-    fireEvent.click(screen.getByLabelText('Save to Spotify'));
-    expect(exportPlaylist).toHaveBeenCalledWith(
-      BACKEND,
-      [URI_A, URI_B, URI_C],
-      expect.any(String),
-    );
-  });
-
   it('does NOT call the API when scopes are missing — prompts one reconnect instead (audit #5)', () => {
     renderPage({}, { spotifyCanSave: false });
     fireEvent.click(screen.getByLabelText('Like'));
     expect(setTrackSaved).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByLabelText('Save to Spotify'));
-    expect(exportPlaylist).not.toHaveBeenCalled();
   });
 });

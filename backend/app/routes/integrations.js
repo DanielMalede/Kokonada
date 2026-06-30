@@ -5,7 +5,7 @@ const {
   getIntegrationsStatus,
   connectToken,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
-  getSpotifyToken, playSpotifyTracks, exportSpotifyPlaylist,
+  getSpotifyToken, playSpotifyTracks,
   saveSpotifyTracks, removeSpotifyTracks, getSpotifyTracksSaved,
   youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect, garminWebhook,
@@ -46,7 +46,6 @@ router.delete('/spotify/disconnect', spotifyDisconnect);
 router.get('/spotify/status',        spotifyStatus);
 router.get('/spotify/token',         getSpotifyToken);
 router.post('/spotify/play',         playSpotifyTracks);
-router.post('/spotify/export',       exportSpotifyPlaylist);
 router.get('/spotify/saved-tracks',     getSpotifyTracksSaved);  // ?ids=a,b → heart state
 router.put('/spotify/saved-tracks',     saveSpotifyTracks);      // Like  (Bug 7)
 router.delete('/spotify/saved-tracks',  removeSpotifyTracks);    // Unlike

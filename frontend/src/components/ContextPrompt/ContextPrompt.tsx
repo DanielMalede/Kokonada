@@ -4,7 +4,6 @@ import type { RootState, AppDispatch } from '../../store';
 import { setTextPrompt } from '../../store/slices/emotionSlice';
 import { setPlaybackMode } from '../../store/slices/playerSlice';
 import { useSocket } from '../../hooks/useSocket';
-import PlaybackModeModal from '../PlaybackModeModal';
 
 type Status = 'idle' | 'requested';
 
@@ -15,7 +14,6 @@ export default function ContextPrompt() {
   const lastErrorAt = useSelector((state: RootState) => state.player.lastErrorAt);
   const { requestPlaylist } = useSocket();
   const [status, setStatus] = useState<Status>('idle');
-  const [modalOpen, setModalOpen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -35,7 +33,11 @@ export default function ContextPrompt() {
   }, [lastErrorAt]);
 
   const handleGenerate = () => {
-    setModalOpen(true);
+    if (status === 'requested') return; // race guard
+    requestPlaylist(taps, textPrompt);
+    dispatch(setPlaybackMode('live'));
+    setStatus('requested');
+    timerRef.current = setTimeout(() => setStatus('idle'), 3000);
   };
 
   const noTaps = taps.length === 0;
@@ -62,18 +64,6 @@ export default function ContextPrompt() {
       {status === 'requested' && (
         <p className="text-green-400 text-sm mt-2">Playlist request sent ✓</p>
       )}
-      <PlaybackModeModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSelect={(mode) => {
-          if (status === 'requested') return; // race guard
-          requestPlaylist(taps, textPrompt, mode);
-          dispatch(setPlaybackMode(mode));
-          setStatus('requested');
-          timerRef.current = setTimeout(() => setStatus('idle'), 3000);
-          setModalOpen(false);
-        }}
-      />
     </div>
   );
 }
