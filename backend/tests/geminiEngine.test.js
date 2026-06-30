@@ -16,6 +16,7 @@ jest.mock('@google/generative-ai', () => ({
 const {
   buildEmotionPlaylist,
   adjustBiometricPlaylist,
+  inferArtistGenres,
   _parseAndValidate,
   _buildEmotionPrompt,
   _buildBiometricPrompt,
@@ -211,6 +212,25 @@ describe('_buildEmotionPrompt', () => {
     expect(prompt.toLowerCase()).toMatch(/strict curator|must avoid|never include/);
     // A specific INTENSE exclude genre that is NOT already present in the base prompt.
     expect(prompt).toContain('singer-songwriter');
+  });
+});
+
+// ── LLM genre backfill (moods work when Spotify serves no genres) ──────────────
+
+describe('inferArtistGenres', () => {
+  it('returns a lowercased, deduped artist→genres map from the LLM JSON', async () => {
+    makeGeminiResponse({ Bonobo: ['Downtempo', 'Electronic', 'electronic'], Tycho: ['Ambient'] });
+    const out = await inferArtistGenres(['Bonobo', 'Tycho']);
+    expect(out).toEqual({ Bonobo: ['downtempo', 'electronic'], Tycho: ['ambient'] });
+  });
+
+  it('returns {} for empty input without calling the model', async () => {
+    expect(await inferArtistGenres([])).toEqual({});
+  });
+
+  it('fails open to {} when the LLM errors', async () => {
+    mockGenerateContent.mockRejectedValueOnce(new Error('boom'));
+    expect(await inferArtistGenres(['X'])).toEqual({});
   });
 });
 

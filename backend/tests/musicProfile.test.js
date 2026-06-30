@@ -17,6 +17,10 @@ const axios = require('axios');
 jest.mock('../app/models/MusicProfile', () => ({ findOneAndUpdate: jest.fn() }));
 const MusicProfile = require('../app/models/MusicProfile');
 
+// ── geminiEngine mock (LLM genre backfill) ────────────────────────────────────
+jest.mock('../app/services/geminiEngine', () => ({ inferArtistGenres: jest.fn().mockResolvedValue({}) }));
+const geminiEngine = require('../app/services/geminiEngine');
+
 // ── Real service modules (axios mock intercepts their HTTP calls) ──────────────
 const spotify = require('../app/services/spotify');
 const youtube = require('../app/services/youtube');
@@ -560,6 +564,28 @@ describe('buildProfile', () => {
     // The good Spotify data is still persisted despite YouTube failing.
     expect(MusicProfile.findOneAndUpdate).toHaveBeenCalled();
     expect(savedSet().library.length).toBeGreaterThan(0);
+  });
+
+  it('backfills genres via the LLM when Spotify returns none (moods need genres)', async () => {
+    // Spotify serves NO artist genres (the real prod situation) → genreSet would be empty.
+    spotify.getTopArtists.mockResolvedValue([{ id: 'a1', name: 'Bonobo', genres: [] }]);
+    spotify.getArtistsGenres.mockResolvedValue({});
+    geminiEngine.inferArtistGenres.mockResolvedValue({ Bonobo: ['downtempo', 'electronic'] });
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+
+    expect(geminiEngine.inferArtistGenres).toHaveBeenCalled();
+    const saved = savedSet();
+    // genreSet is populated from the LLM, and library tracks by that artist get tagged.
+    expect(saved.genreSet).toEqual(expect.arrayContaining(['downtempo', 'electronic']));
+    const bonoboTrack = saved.library.find((t) => t.artist === 'Bonobo');
+    expect(bonoboTrack.genres).toEqual(expect.arrayContaining(['downtempo', 'electronic']));
+  });
+
+  it('does NOT call the LLM backfill when Spotify already provided genres', async () => {
+    // Default beforeEach gives Bonobo genres via getTopArtists → no backfill needed.
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+    expect(geminiEngine.inferArtistGenres).not.toHaveBeenCalled();
   });
 
   it('isolates a Spotify failure so a YouTube profile is still saved', async () => {
