@@ -38,6 +38,7 @@ jest.mock('../app/services/wearable/appleHealth', () => ({ ingestBatch: jest.fn(
 jest.mock('../app/services/wearable/healthStore', () => ({ ingestBatch: jest.fn() }));
 jest.mock('../app/services/wearable/suunto',      () => ({ verifyWebhookSignature: jest.fn(), handleWebhook: jest.fn() }));
 jest.mock('../app/models/BiometricLog',  () => ({}));
+jest.mock('../app/models/MusicProfile',  () => ({ deleteOne: jest.fn().mockResolvedValue({}) }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
@@ -53,6 +54,7 @@ const youtube            = require('../app/services/youtube');
 const garmin             = require('../app/services/wearable/garmin');
 const musicProfileService = require('../app/services/musicProfileService');
 const User               = require('../app/models/User');
+const MusicProfile       = require('../app/models/MusicProfile');
 const { signOauthState } = require('../app/utils/jwt');
 const ctrl               = require('../app/controllers/integrationsController');
 
@@ -85,6 +87,21 @@ function buildRes() {
 const nextTick = () => new Promise(r => setImmediate(r));
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
+
+describe('spotifyDisconnect', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('clears the token and deletes the cached MusicProfile (Spotify data-handling)', async () => {
+    const user = buildUser({ spotifyToken: { blob: 'x' }, musicProvider: 'spotify' });
+    const res = buildRes();
+    await ctrl.spotifyDisconnect({ user }, res, jest.fn());
+
+    expect(user.spotifyToken).toBeNull();
+    expect(user.musicProvider).toBeNull();
+    expect(MusicProfile.deleteOne).toHaveBeenCalledWith({ userId: 'user-123' });
+    expect(res.json).toHaveBeenCalledWith({ message: 'Spotify disconnected' });
+  });
+});
 
 describe('integrationsController — buildProfile wiring', () => {
   beforeEach(() => jest.clearAllMocks());
