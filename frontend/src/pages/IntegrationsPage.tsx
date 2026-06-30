@@ -230,6 +230,11 @@ export default function IntegrationsPage() {
               <ServiceRow name="Spotify" connected={music === 'spotify'} onConnect={connectSpotify} disconnectKind="spotify" />
               <ServiceRow name="YouTube Music" connected={music === 'youtube'} onConnect={connectYouTube} disconnectKind="youtube" />
             </CardContent>
+            {/* Data-handling transparency / connect-time consent. */}
+            <p className="px-4 pb-3 text-xs text-muted-foreground">
+              By connecting, your listening taste is analysed by AI to generate playlists. Your data is never sold,
+              and disconnecting deletes the taste profile we cached.
+            </p>
           </Card>
 
           {/* Biometric */}
