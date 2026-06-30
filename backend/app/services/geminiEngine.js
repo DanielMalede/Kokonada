@@ -220,14 +220,50 @@ function _strictMoodLine(emotionTaps) {
 
 // ── Prompt builders ────────────────────────────────────────────────────────────
 
+// Format the anonymised last-24h biometric snapshot (built in biometricHandler's
+// resolveBiometricContext) into a single human-readable prompt line. Only the
+// fields actually present are listed, so a sparse profile yields a short line.
+function _formatBiometric(ctx) {
+  if (!ctx) return '';
+  const parts = [];
+  if (ctx.stateLabel) parts.push(`physiological state "${ctx.stateLabel}"`);
+  if (ctx.heartRate != null && ctx.restingHeartRate != null) {
+    parts.push(`current HR ${ctx.heartRate} bpm vs resting ${ctx.restingHeartRate} bpm`
+      + (ctx.hrRatio != null ? ` (${ctx.hrRatio}× resting)` : ''));
+  } else if (ctx.restingHeartRate != null) {
+    parts.push(`resting HR ${ctx.restingHeartRate} bpm`);
+  }
+  if (ctx.hrv != null)            parts.push(`HRV ${ctx.hrv} ms`);
+  if (ctx.bodyBattery != null)    parts.push(`body battery ${ctx.bodyBattery}/100`);
+  if (ctx.dailyReadiness != null) parts.push(`readiness ${ctx.dailyReadiness}/100`);
+  if (ctx.spO2 != null)           parts.push(`SpO2 ${ctx.spO2}%`);
+  if (ctx.sleep) {
+    const { deep, light, rem } = ctx.sleep;
+    const seg = [
+      deep  != null ? `${deep}m deep`   : null,
+      light != null ? `${light}m light` : null,
+      rem   != null ? `${rem}m REM`     : null,
+    ].filter(Boolean).join(', ');
+    if (seg) parts.push(`last sleep ${seg}`);
+  }
+  return parts.join('; ');
+}
+
 /**
  * Builds the deep contextual prompt for the emotion-driven pipeline.
- * No PII is included — only anonymised taste signals and emotion coordinates.
+ * No PII is included — only anonymised taste signals, emotion coordinates, the
+ * user's selected activity, and an aggregated last-24h biometric snapshot.
  */
-function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null) {
+function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null, biometricContext = null } = {}) {
   const { tempoBaseline, energy, valence, acousticness } = musicProfile;
   // Micro-genre seed shifting: a rotating subset of hyper-specific sub-genres.
   const allowedGenres = _microGenreSubset(musicProfile, seed).join(', ');
+  const bio = _formatBiometric(biometricContext);
+
+  // Only nudge the LLM to weigh activity/biometrics when at least one is present.
+  const contextDirective = (activity || bio)
+    ? ` Also weigh the user's current activity${activity ? ` ("${activity}")` : ''}${bio ? ' and recent biometric state' : ''} against the emotion: low HRV, low body battery, poor sleep or a winding-down activity (preparing for sleep, meditating) call for calmer, lower-BPM, more acoustic music, while high readiness with an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
+    : '';
 
   return `You are an expert musicologist and biometrics analyst.
 
@@ -241,8 +277,10 @@ User's musical taste profile (anonymised):
 Current emotional state — 2D coordinates from an emotion wheel (x = arousal, y = valence, range -1 to 1):
 ${JSON.stringify(emotionTaps)}
 ${textPrompt ? `User note: "${textPrompt}"` : ''}
+${activity ? `Current activity: ${activity}` : ''}
+${bio ? `Last-24h biometric snapshot: ${bio}.` : ''}
 
-Analyse the emotional coordinates in the context of the user's taste profile and determine the ideal musical parameters. Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
+Analyse the emotional coordinates in the context of the user's taste profile and determine the ideal musical parameters.${contextDirective} Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
 {
   "target_bpm": <number, beats per minute>,
   "target_energy": <number 0–1>,
@@ -326,13 +364,15 @@ async function _callGemini(prompt) {
  * @param {{ musicProfile, emotionTaps, textPrompt?, fetchTracks }} opts
  * @returns {Promise<{ params, tracks }>}
  */
-async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, fetchTracks, seed = null }) {
-  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed);
+async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, activity = null, biometricContext = null, fetchTracks, seed = null }) {
+  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed, { activity, biometricContext });
   const rawParams = await _callGemini(prompt);
-  // Zero-tolerance enforcement: deterministically override (empty text) or merge
-  // (custom text) the LLM picks with the strict mood descriptors so a stray off-vibe
-  // genre/keyword can never reach the Spotify search or the mixer.
-  const params = applyMoodFallback(rawParams, emotionTaps, textPrompt, musicProfile);
+  // Zero-tolerance enforcement: deterministically override (no custom intent) or
+  // merge (custom intent) the LLM picks with the strict mood descriptors so a stray
+  // off-vibe genre/keyword can never reach the Spotify search or the mixer. A
+  // selected activity counts as custom intent too, so it refines the strict mood
+  // list rather than being steamrolled by it.
+  const params = applyMoodFallback(rawParams, emotionTaps, textPrompt || activity, musicProfile);
   return { params, tracks: await fetchTracks(params) };
 }
 

@@ -8,8 +8,10 @@ import { setTextPrompt } from '../store/slices/emotionSlice';
 import { setPlaybackMode } from '../store/slices/playerSlice';
 import { useSocket } from '../hooks/useSocket';
 import { MOODS, selectedMoodKey } from '@/lib/moods';
+import { activityLabel } from '@/lib/activities';
 import { saveSession, makeSessionId } from '@/lib/history';
 import MoodChips from '@/components/MoodChips';
+import ActivityChips from '@/components/ActivityChips';
 import HRZoneBar from '@/components/HRZoneBar';
 import OfflineBanner from '@/components/OfflineBanner';
 import GeneratingOverlay from '@/components/GeneratingOverlay';
@@ -30,6 +32,7 @@ export default function AppPage() {
   const user = useSelector((s: RootState) => s.auth.user);
   const taps = useSelector((s: RootState) => s.emotion.taps);
   const textPrompt = useSelector((s: RootState) => s.emotion.textPrompt);
+  const selectedActivity = useSelector((s: RootState) => s.emotion.activity);
   const { playlist, offlineBuffer, currentIndex, isOnline } = useSelector((s: RootState) => s.player);
   const heartRate = useSelector((s: RootState) => s.biometrics.heartRate);
   const activity = useSelector((s: RootState) => s.biometrics.activity);
@@ -50,7 +53,8 @@ export default function AppPage() {
 
   const moodKey = selectedMoodKey(taps);
   const moodLabel = MOODS.find((m) => m.key === moodKey)?.label;
-  const hasMood = taps.length > 0;
+  // Either a mood OR an activity expresses enough intent to generate.
+  const canGenerate = taps.length > 0 || !!selectedActivity;
 
   const list = isOnline ? playlist : offlineBuffer;
   const upNext = list.slice(currentIndex + 1, currentIndex + 5);
@@ -81,7 +85,7 @@ export default function AppPage() {
       heartRate,
       activity,
     };
-    requestPlaylist(taps, textPrompt);
+    requestPlaylist(taps, textPrompt, activityLabel(selectedActivity));
     dispatch(setPlaybackMode('live'));
     setGenerating(true);
     armGenerationTimeout();
@@ -166,13 +170,19 @@ export default function AppPage() {
           <CardContent className="flex flex-col gap-5">
             <MoodChips />
             <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                What are you doing? <span className="normal-case opacity-70">(optional)</span>
+              </span>
+              <ActivityChips />
+            </div>
+            <div className="flex flex-col gap-2">
               <label htmlFor="context" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Context <span className="normal-case opacity-70">(optional)</span>
+                How are you feeling? <span className="normal-case opacity-70">(optional)</span>
               </label>
               <Textarea
                 id="context"
                 rows={3}
-                placeholder="e.g. Deep work for the next hour"
+                placeholder="e.g. wired but trying to wind down"
                 value={textPrompt}
                 onChange={(e) => dispatch(setTextPrompt(e.target.value))}
                 className="resize-none"
@@ -180,16 +190,16 @@ export default function AppPage() {
             </div>
             <Button
               onClick={generate}
-              disabled={!hasMood || generating}
+              disabled={!canGenerate || generating}
               className="h-12 rounded-full text-base"
-              title={!hasMood ? 'Pick a mood first' : undefined}
+              title={!canGenerate ? 'Pick a mood or an activity first' : undefined}
             >
               <Sparkles className="size-4" />
               {generating ? 'Generating…' : 'Generate playlist'}
             </Button>
-            {!hasMood && (
+            {!canGenerate && (
               <p className="-mt-2 text-center text-xs text-muted-foreground">
-                Pick a mood to get started.
+                Pick a mood or an activity to get started.
               </p>
             )}
           </CardContent>

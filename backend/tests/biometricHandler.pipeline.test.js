@@ -24,6 +24,10 @@ jest.mock('../app/models/PlaylistSession', () => ({
   countDocuments: jest.fn().mockResolvedValue(0),
 }));
 
+jest.mock('../app/models/MedicalProfile', () => ({
+  findOne: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('../app/services/spotify', () => ({
   getValidToken:        jest.fn(),
   getRecommendations:   jest.fn(),
@@ -65,6 +69,7 @@ jest.mock('../app/services/wearable/adapter', () => ({
 const User            = require('../app/models/User');
 const MusicProfile    = require('../app/models/MusicProfile');
 const BiometricLog    = require('../app/models/BiometricLog');
+const MedicalProfile  = require('../app/models/MedicalProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const spotify         = require('../app/services/spotify');
 const youtube         = require('../app/services/youtube');
@@ -77,6 +82,8 @@ const {
   isRepeatMood,
   recentMoodCooldown,
   pickSortAxis,
+  resolveBiometricContext,
+  _debounceMap,
 } = require('../app/sockets/biometricHandler');
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -187,6 +194,7 @@ beforeEach(() => {
   playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
   PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
+  MedicalProfile.findOne.mockResolvedValue(null);
   mockRecentSessions([]);
 });
 
@@ -317,6 +325,113 @@ describe('generateAndEmitPlaylist — emotion trigger', () => {
 
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalled();
     expect(geminiEngine.buildEmotionPlaylist).not.toHaveBeenCalled();
+  });
+
+  it('passes the selected activity through to buildEmotionPlaylist', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({
+      lastEmotionTaps: [{ x: 0.5, y: 0.5 }],
+      lastActivity:    'Running',
+    }));
+
+    expect(geminiEngine.buildEmotionPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ activity: 'Running' })
+    );
+  });
+
+  it('routes an activity-only request (no taps, no text) to the emotion pipeline', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({
+      lastEmotionTaps: [],
+      lastTextPrompt:  '',
+      lastActivity:    'Cooking',
+    }));
+
+    expect(geminiEngine.buildEmotionPlaylist).toHaveBeenCalled();
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+  });
+
+  it('passes a 24h biometric snapshot to buildEmotionPlaylist when a MedicalProfile exists', async () => {
+    MedicalProfile.findOne.mockResolvedValue({
+      restingHeartRate: 58, hrv: 22, bodyBattery: 70, dailyReadiness: 65,
+      spO2: 98, respirationRate: 14, sleepStages: { deep: 50, light: 210, rem: 70 },
+    });
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({
+      lastEmotionTaps: [{ x: 0.5, y: 0.5 }],
+      stableHR:        88,
+    }));
+
+    const arg = geminiEngine.buildEmotionPlaylist.mock.calls.at(-1)[0];
+    expect(arg.biometricContext).toMatchObject({
+      restingHeartRate: 58, heartRate: 88, bodyBattery: 70,
+    });
+  });
+
+  it('passes biometricContext=null when the user has no MedicalProfile', async () => {
+    MedicalProfile.findOne.mockResolvedValue(null);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({
+      lastEmotionTaps: [{ x: 0.5, y: 0.5 }],
+    }));
+
+    const arg = geminiEngine.buildEmotionPlaylist.mock.calls.at(-1)[0];
+    expect(arg.biometricContext).toBeNull();
+  });
+});
+
+// ── emotion_update handler — activity capture ─────────────────────────────────
+
+describe('emotion_update handler', () => {
+  it('caches the selected activity on socket state', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('emotion_update', { taps: [{ x: 0.5, y: 0.5 }], textPrompt: 'x', activity: 'Cooking' });
+
+    expect(_debounceMap.get(socket.id).lastActivity).toBe('Cooking');
+  });
+
+  it('normalizes a missing activity to null', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('emotion_update', { taps: [], textPrompt: '' });
+
+    expect(_debounceMap.get(socket.id).lastActivity).toBeNull();
+  });
+});
+
+// ── resolveBiometricContext ───────────────────────────────────────────────────
+
+describe('resolveBiometricContext', () => {
+  it('returns a structured snapshot with a computed state label and HR ratio', async () => {
+    MedicalProfile.findOne.mockResolvedValue({
+      restingHeartRate: 60, hrv: 15, bodyBattery: 30, dailyReadiness: 40,
+      spO2: 97, respirationRate: 22, sleepStages: { deep: 30, light: 180, rem: 50 },
+    });
+
+    const ctx = await resolveBiometricContext('user-123', 95);
+    expect(ctx).toMatchObject({ heartRate: 95, restingHeartRate: 60, hrv: 15, bodyBattery: 30 });
+    expect(ctx.hrRatio).toBeCloseTo(1.58, 2);
+    expect(typeof ctx.stateLabel).toBe('string');
+    expect(ctx.sleep).toEqual({ deep: 30, light: 180, rem: 50 });
+  });
+
+  it('returns null when the user has no MedicalProfile', async () => {
+    MedicalProfile.findOne.mockResolvedValue(null);
+    expect(await resolveBiometricContext('user-123', 80)).toBeNull();
+  });
+
+  it('returns null when the profile carries no usable scalar signal', async () => {
+    MedicalProfile.findOne.mockResolvedValue({
+      restingHeartRate: null, hrv: null, bodyBattery: null, dailyReadiness: null,
+      spO2: null, respirationRate: null, sleepStages: { deep: null, light: null, rem: null },
+    });
+    expect(await resolveBiometricContext('user-123', 80)).toBeNull();
+  });
+
+  it('degrades to null when the MedicalProfile query throws', async () => {
+    MedicalProfile.findOne.mockRejectedValue(new Error('db down'));
+    expect(await resolveBiometricContext('user-123', 80)).toBeNull();
   });
 });
 

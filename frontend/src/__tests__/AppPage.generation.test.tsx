@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
 import AppPage from '../pages/AppPage';
 import playerReducer, { setPlaylist } from '../store/slices/playerSlice';
-import emotionReducer from '../store/slices/emotionSlice';
+import emotionReducer, { setActivity } from '../store/slices/emotionSlice';
 import authReducer from '../store/slices/authSlice';
 import biometricsReducer from '../store/slices/biometricsSlice';
 import integrationsReducer from '../store/slices/integrationsSlice';
@@ -72,5 +72,18 @@ describe('AppPage — generation feedback (no silent failure)', () => {
     act(() => { vi.advanceTimersByTime(26_000); });
 
     expect(toastError).toHaveBeenCalled();
+  });
+
+  it('enables Generate with only an activity selected (no mood) and sends its label', () => {
+    const store = makeStore();
+    act(() => { store.dispatch(setActivity('running')); });
+    render(<Provider store={store}><MemoryRouter><AppPage /></MemoryRouter></Provider>);
+
+    const btn = screen.getByRole('button', { name: /generate playlist/i });
+    expect(btn).not.toBeDisabled();
+
+    fireEvent.click(btn);
+    // No mood tap, empty context, activity sent as its natural-language label.
+    expect(requestPlaylist).toHaveBeenCalledWith([], '', 'Running');
   });
 });

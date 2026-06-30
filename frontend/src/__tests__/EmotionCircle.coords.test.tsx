@@ -10,7 +10,7 @@ function makeStore() {
   return configureStore({
     reducer: { emotion: emotionReducer },
     preloadedState: {
-      emotion: { taps: [{ x: 0.5, y: 0.3 }], textPrompt: '' },
+      emotion: { taps: [{ x: 0.5, y: 0.3 }], textPrompt: '', activity: null },
     },
   });
 }

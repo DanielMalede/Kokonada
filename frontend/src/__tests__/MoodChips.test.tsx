@@ -9,7 +9,7 @@ import { MOODS } from '../lib/moods';
 function makeStore() {
   return configureStore({
     reducer: { emotion: emotionReducer },
-    preloadedState: { emotion: { taps: [], textPrompt: '' } },
+    preloadedState: { emotion: { taps: [], textPrompt: '', activity: null } },
   });
 }
 
@@ -63,14 +63,14 @@ describe('MoodChips (mood-preset emotion input)', () => {
 
 describe('emotionSlice reducer', () => {
   it('addTap adds a tap to the taps array', () => {
-    const initial = { taps: [], textPrompt: '' };
+    const initial = { taps: [], textPrompt: '', activity: null };
     const state = emotionReducer(initial, addTap({ x: 0, y: 0 }));
     expect(state.taps).toHaveLength(1);
     expect(state.taps[0]).toEqual({ x: 0, y: 0 });
   });
 
   it('addTap does not exceed 3 taps', () => {
-    let state = { taps: [], textPrompt: '' };
+    let state = { taps: [], textPrompt: '', activity: null };
     state = emotionReducer(state, addTap({ x: 0, y: 0 }));
     state = emotionReducer(state, addTap({ x: 1, y: 1 }));
     state = emotionReducer(state, addTap({ x: 2, y: 2 }));
@@ -79,7 +79,7 @@ describe('emotionSlice reducer', () => {
   });
 
   it('clearTaps removes all taps', () => {
-    const initial = { taps: [{ x: 0, y: 0 }, { x: 1, y: 1 }], textPrompt: '' };
+    const initial = { taps: [{ x: 0, y: 0 }, { x: 1, y: 1 }], textPrompt: '', activity: null };
     const state = emotionReducer(initial, clearTaps());
     expect(state.taps).toHaveLength(0);
   });
