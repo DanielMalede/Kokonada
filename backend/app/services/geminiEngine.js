@@ -401,10 +401,46 @@ async function critiqueTrackVibe({ tracks = [], moodKey = null, moodKeywords = [
   }
 }
 
+// ── LLM genre backfill ─────────────────────────────────────────────────────────
+// Spotify increasingly returns EMPTY `genres` arrays for artists, leaving a user's
+// genreSet empty so the mood filters can't differentiate. This asks the LLM (Groq)
+// for each artist's genres ONCE at profile-build time (background, off the latency-
+// sensitive generation path), so generation stays fast AND moods work. Fails open to
+// an empty map so a missing/slow LLM never blocks the profile build.
+const MAX_BACKFILL_ARTISTS = Number(process.env.GENRE_BACKFILL_MAX_ARTISTS) || 60;
+
+async function inferArtistGenres(artistNames = []) {
+  const names = [...new Set((artistNames || []).filter(Boolean))].slice(0, MAX_BACKFILL_ARTISTS);
+  if (names.length === 0) return {};
+
+  const prompt = `You are a music genre expert. For each artist below, list their primary music genres as 2-4 short lowercase tags (e.g. "indie pop", "hip hop", "deep house", "metal"). Output ONLY a JSON object whose keys are the EXACT artist names given and whose values are arrays of genre strings — no commentary, no markdown.
+
+Artists:
+${names.map((n) => `- ${n}`).join('\n')}`;
+
+  try {
+    const raw = await _generate(prompt);
+    const cleaned = String(raw).replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    const parsed = JSON.parse(cleaned);
+    const out = {};
+    for (const [name, genres] of Object.entries(parsed || {})) {
+      if (Array.isArray(genres)) {
+        const clean = genres.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.toLowerCase().trim());
+        if (clean.length) out[name] = [...new Set(clean)];
+      }
+    }
+    return out;
+  } catch (err) {
+    console.warn(`[musicProfile] LLM genre backfill failed: ${err.message}`);
+    return {};
+  }
+}
+
 module.exports = {
   buildEmotionPlaylist,
   adjustBiometricPlaylist,
   critiqueTrackVibe,
+  inferArtistGenres,
   // Exported for unit testing
   _parseAndValidate,
   _buildEmotionPrompt,

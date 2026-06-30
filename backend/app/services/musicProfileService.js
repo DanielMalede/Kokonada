@@ -3,6 +3,7 @@
 const MusicProfile = require('../models/MusicProfile');
 const spotify      = require('./spotify');
 const youtube      = require('./youtube');
+const { inferArtistGenres } = require('./geminiEngine');
 
 const LIBRARY_CAP = 10_000; // max tracks stored per user to stay within 16 MB doc limit
 
@@ -370,6 +371,25 @@ async function buildProfile(userId, user) {
       genreSet   = [...new Set([...genreSet, ...ytAnalysis.topGenres])];
     } catch (err) {
       console.warn(`[musicProfile] YouTube analysis skipped: ${err.message}`);
+    }
+  }
+
+  // LLM genre backfill: Spotify increasingly serves EMPTY artist `genres`, leaving
+  // genreSet empty so the mood filters can't differentiate ("calm" == "intense").
+  // When no genres came through, ask the LLM (Groq) for the library artists' genres
+  // ONCE here — this is the background build, not the latency-sensitive generation
+  // path — then tag the library and re-derive the genre signals. Fails open.
+  if (genreSet.length === 0 && library.length > 0) {
+    const names     = [...new Set(library.map(t => t.artist).filter(Boolean))];
+    const llmGenres = await inferArtistGenres(names);
+    if (Object.keys(llmGenres).length > 0) {
+      for (const t of library) {
+        if ((!t.genres || t.genres.length === 0) && t.artist && llmGenres[t.artist]) {
+          t.genres = llmGenres[t.artist];
+        }
+      }
+      genreSet  = [...new Set(library.flatMap(t => t.genres || []))];
+      topGenres = _rankByFrequency(library.flatMap(t => t.genres || [])).slice(0, 10);
     }
   }
 
