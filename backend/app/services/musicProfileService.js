@@ -323,7 +323,9 @@ function _analyzeYouTubeTracks(videos) {
  * @param {object} user     - User mongoose doc (must implement getToken())
  * @returns {Promise<MusicProfile>}
  */
-async function buildProfile(userId, user) {
+async function buildProfile(userId, user, onProgress = () => {}) {
+  const report = (pct, label) => { try { onProgress(pct, label); } catch { /* never let UI feedback break the build */ } };
+  report(8, 'Starting analysis');
   const spotifyToken = user.getToken?.('spotifyToken')?.accessToken      ?? null;
   const youtubeToken = user.getToken?.('youtubeMusicToken')?.accessToken ?? null;
 
@@ -353,6 +355,7 @@ async function buildProfile(userId, user) {
       console.warn(`[musicProfile] Spotify analysis skipped: ${err.message}`);
     }
   }
+  report(55, 'Analysed your Spotify library');
 
   if (youtubeToken) {
     try {
@@ -380,6 +383,7 @@ async function buildProfile(userId, user) {
   // ONCE here — this is the background build, not the latency-sensitive generation
   // path — then tag the library and re-derive the genre signals. Fails open.
   if (genreSet.length === 0 && library.length > 0) {
+    report(72, 'Tagging genres with AI');
     const names     = [...new Set(library.map(t => t.artist).filter(Boolean))];
     const llmGenres = await inferArtistGenres(names);
     if (Object.keys(llmGenres).length > 0) {
@@ -393,7 +397,8 @@ async function buildProfile(userId, user) {
     }
   }
 
-  return MusicProfile.findOneAndUpdate(
+  report(95, 'Saving your profile');
+  const profile = await MusicProfile.findOneAndUpdate(
     { userId },
     {
       $set: {
@@ -408,6 +413,8 @@ async function buildProfile(userId, user) {
     },
     { upsert: true, new: true }
   );
+  report(100, 'Profile ready');
+  return profile;
 }
 
 module.exports = {

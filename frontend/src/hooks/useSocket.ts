@@ -12,7 +12,7 @@ import {
   setRecalibrationCancelled,
   setRecalibrating,
 } from '../store/slices/biometricsSlice';
-import { markWatchSeen } from '../store/slices/integrationsSlice';
+import { markWatchSeen, setProfileProgress } from '../store/slices/integrationsSlice';
 
 interface Track { id: string; title: string; artist: string; uri: string; }
 
@@ -81,6 +81,9 @@ function initSocket(dispatch: AppDispatch): Socket {
       dispatch(markWatchSeen());
     }
   });
+  // Background profile-build progress (post-connect library analysis) → live banner.
+  socket.on('profile_progress', (data: { pct: number; label: string; error?: boolean }) =>
+    dispatch(setProfileProgress(data)));
   socket.on('recalibration_pending', (data: unknown) => dispatch(setRecalibrationPending(data as never)));
   socket.on('recalibration_cancelled', () => dispatch(setRecalibrationCancelled()));
   socket.on('playlist_recalibration', () => dispatch(setRecalibrating()));
