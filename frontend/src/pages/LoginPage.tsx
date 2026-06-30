@@ -60,7 +60,17 @@ export default function LoginPage() {
       if (data.token) setToken(data.token);
       dispatch(setUser(data.user ?? data));
       dispatch(setAuthStatus('authenticated'));
-      navigate('/integrations');
+      // Skip onboarding for returning users: if a music source is already connected,
+      // drop straight into the dashboard instead of forcing the integrations page (#6).
+      let dest = '/integrations';
+      try {
+        const statusRes = await fetch(`${BACKEND_URL}/api/integrations/status`, {
+          credentials: 'include',
+          headers: data.token ? { Authorization: `Bearer ${data.token}` } : {},
+        });
+        if (statusRes.ok && (await statusRes.json())?.musicProvider) dest = '/app';
+      } catch { /* status unavailable — fall back to onboarding */ }
+      navigate(dest);
     } catch (err) {
       console.error(`[auth] ${label} login failed:`, err);
       setError(
