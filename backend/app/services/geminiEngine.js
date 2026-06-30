@@ -407,33 +407,45 @@ async function critiqueTrackVibe({ tracks = [], moodKey = null, moodKeywords = [
 // for each artist's genres ONCE at profile-build time (background, off the latency-
 // sensitive generation path), so generation stays fast AND moods work. Fails open to
 // an empty map so a missing/slow LLM never blocks the profile build.
-const MAX_BACKFILL_ARTISTS = Number(process.env.GENRE_BACKFILL_MAX_ARTISTS) || 60;
+// Cover a WIDE slice of the library so genreSet is rich enough for moods to truly
+// diverge (the thin genreSet=4 made every mood feel identical). Batched so a large
+// set still resolves within the LLM timeout; batches run in parallel and fail open
+// independently.
+const MAX_BACKFILL_ARTISTS = Number(process.env.GENRE_BACKFILL_MAX_ARTISTS) || 200;
+const BACKFILL_BATCH       = Number(process.env.GENRE_BACKFILL_BATCH) || 40;
+
+async function _inferArtistGenresBatch(names) {
+  const prompt = `You are a music genre expert. For each artist below, list 3-6 SPECIFIC sub-genres as short lowercase tags — prefer precise tags ("indie pop", "deep house", "trap metal", "neo-soul", "post-punk") over broad ones ("pop", "rock"). Output ONLY a JSON object whose keys are the EXACT artist names given and whose values are arrays of genre strings — no commentary, no markdown.
+
+Artists:
+${names.map((n) => `- ${n}`).join('\n')}`;
+  const raw = await _generate(prompt);
+  const cleaned = String(raw).replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+  return JSON.parse(cleaned);
+}
 
 async function inferArtistGenres(artistNames = []) {
   const names = [...new Set((artistNames || []).filter(Boolean))].slice(0, MAX_BACKFILL_ARTISTS);
   if (names.length === 0) return {};
 
-  const prompt = `You are a music genre expert. For each artist below, list their primary music genres as 2-4 short lowercase tags (e.g. "indie pop", "hip hop", "deep house", "metal"). Output ONLY a JSON object whose keys are the EXACT artist names given and whose values are arrays of genre strings — no commentary, no markdown.
+  const batches = [];
+  for (let i = 0; i < names.length; i += BACKFILL_BATCH) batches.push(names.slice(i, i + BACKFILL_BATCH));
 
-Artists:
-${names.map((n) => `- ${n}`).join('\n')}`;
-
-  try {
-    const raw = await _generate(prompt);
-    const cleaned = String(raw).replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-    const parsed = JSON.parse(cleaned);
-    const out = {};
-    for (const [name, genres] of Object.entries(parsed || {})) {
+  const out = {};
+  const results = await Promise.allSettled(batches.map(_inferArtistGenresBatch));
+  for (const r of results) {
+    if (r.status !== 'fulfilled' || !r.value) {
+      if (r.status === 'rejected') console.warn(`[musicProfile] genre backfill batch failed: ${r.reason?.message}`);
+      continue;
+    }
+    for (const [name, genres] of Object.entries(r.value)) {
       if (Array.isArray(genres)) {
         const clean = genres.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.toLowerCase().trim());
         if (clean.length) out[name] = [...new Set(clean)];
       }
     }
-    return out;
-  } catch (err) {
-    console.warn(`[musicProfile] LLM genre backfill failed: ${err.message}`);
-    return {};
   }
+  return out;
 }
 
 module.exports = {
