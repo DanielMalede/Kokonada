@@ -12,6 +12,7 @@ import { setMusicProvider, setBiometricProvider, setSpotifyCanSave } from '@/sto
 import EmotionAura from './EmotionAura';
 import BottomNav from './BottomNav';
 import DesktopSidebar from './DesktopSidebar';
+import ProfileBuildBanner from './ProfileBuildBanner';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -160,6 +161,7 @@ export default function AppShell() {
         </main>
       </div>
       <BottomNav />
+      <ProfileBuildBanner />
     </>
   );
 }

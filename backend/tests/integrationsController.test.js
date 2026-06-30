@@ -127,7 +127,8 @@ describe('integrationsController — buildProfile wiring', () => {
       await ctrl.spotifyCallback(spotifyReq(), buildRes());
       await nextTick();
 
-      expect(musicProfileService.buildProfile).toHaveBeenCalledWith('user-123', expect.objectContaining({ _id: 'user-123' }));
+      // Third arg is the onProgress callback that streams build progress to the socket (#2).
+      expect(musicProfileService.buildProfile).toHaveBeenCalledWith('user-123', expect.objectContaining({ _id: 'user-123' }), expect.any(Function));
     });
 
     it('redirects immediately without waiting for buildProfile', async () => {

@@ -94,10 +94,16 @@ exports.spotifyCallback = async (req, res) => {
 
     // Non-blocking: analyze full library and upsert MusicProfile in the background
     setImmediate(async () => {
+      const uid = user._id.toString();
       try {
-        await buildProfile(user._id.toString(), user);
+        // Stream build progress to the user's socket room so the dashboard can show a
+        // live "Analyzing your library… %" banner (#2). Best-effort — never blocks.
+        await buildProfile(uid, user, (pct, label) => {
+          getIo()?.to(`user:${uid}`).emit('profile_progress', { pct, label });
+        });
       } catch (e) {
         console.error('[musicProfile] Spotify build failed:', e.message);
+        getIo()?.to(`user:${uid}`).emit('profile_progress', { pct: 100, label: 'Setup failed', error: true });
       }
     });
 
