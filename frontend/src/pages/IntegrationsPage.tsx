@@ -21,6 +21,7 @@ import {
   setBiometricProvider,
   setMoodOnly,
   selectIsIntegrationsComplete,
+  selectIntegrationsSettled,
 } from '../store/slices/integrationsSlice';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -70,9 +71,13 @@ interface RowProps {
   onConnect?: () => void;
   /** When set, a connected row shows a Disconnect action for this provider. */
   disconnectKind?: DisconnectKind;
+  /** Connected but the stored token is missing a required scope — offer a one-click
+   *  re-auth instead of only "Connected" (otherwise the user is stuck: Like 403s
+   *  forever and the only action is Disconnect). */
+  needsReconnect?: boolean;
 }
 
-function ServiceRow({ name, hint, connected, disabled, onConnect, disconnectKind }: RowProps) {
+function ServiceRow({ name, hint, connected, disabled, onConnect, disconnectKind, needsReconnect }: RowProps) {
   return (
     <div className="flex items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
@@ -81,9 +86,18 @@ function ServiceRow({ name, hint, connected, disabled, onConnect, disconnectKind
       </div>
       {connected ? (
         <div className="flex items-center gap-3">
-          <Badge className="gap-1 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-            <Check className="size-3" /> Connected
-          </Badge>
+          {needsReconnect ? (
+            // show_dialog=true on /spotify/connect re-prompts consent and overwrites
+            // the stored token with the full current scope set — no manual disconnect
+            // needed. This is what actually fixes a token minted before a scope was added.
+            <Button size="sm" variant="outline" className="h-8" onClick={onConnect}>
+              Reconnect
+            </Button>
+          ) : (
+            <Badge className="gap-1 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+              <Check className="size-3" /> Connected
+            </Badge>
+          )}
           {disconnectKind && <DisconnectButton kind={disconnectKind} />}
         </div>
       ) : (
@@ -102,9 +116,15 @@ export default function IntegrationsPage() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
   const music = useSelector((s: RootState) => s.integrations.musicProvider);
+  const spotifyCanSave = useSelector((s: RootState) => s.integrations.spotifyCanSave);
+  const integrationsSettled = useSelector(selectIntegrationsSettled);
   const biometric = useSelector((s: RootState) => s.integrations.biometricProvider);
   const moodOnly = useSelector((s: RootState) => s.integrations.moodOnly);
   const complete = useSelector(selectIsIntegrationsComplete);
+  // Connected to Spotify but the token lacks user-library-modify (e.g. it predates
+  // the scope) → Like/save 403s. Gate on `settled` so good tokens don't flash a
+  // Reconnect prompt while status is still loading.
+  const spotifyNeedsReconnect = music === 'spotify' && integrationsSettled && !spotifyCanSave;
   const gsiRef = useRef<HTMLScriptElement | null>(null);
 
   // Ensure the GIS library is loaded so google.accounts.oauth2 is available.
@@ -227,7 +247,14 @@ export default function IntegrationsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="divide-y divide-border">
-              <ServiceRow name="Spotify" connected={music === 'spotify'} onConnect={connectSpotify} disconnectKind="spotify" />
+              <ServiceRow
+                name="Spotify"
+                connected={music === 'spotify'}
+                onConnect={connectSpotify}
+                disconnectKind="spotify"
+                needsReconnect={spotifyNeedsReconnect}
+                hint={spotifyNeedsReconnect ? 'Reconnect to allow saving songs to your library' : undefined}
+              />
               <ServiceRow name="YouTube Music" connected={music === 'youtube'} onConnect={connectYouTube} disconnectKind="youtube" />
             </CardContent>
             {/* Data-handling transparency / connect-time consent. */}
