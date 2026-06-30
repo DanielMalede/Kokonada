@@ -233,7 +233,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // Always-on diagnostic (prod's log() is gated): the profile row is missing —
       // the background build hasn't run/finished, or it saved nothing.
       console.warn(`[generate] no MusicProfile for user — build not finished yet? trigger=${trigger}`);
-      socket.emit('playlist_error', { message: 'Music profile not built yet — reconnect your music provider', reqId });
+      socket.emit('playlist_error', { message: 'Still setting up your library — try again in a few seconds.', reqId });
       return;
     }
     // Always-on diagnostic: surface the library size so an empty/thin profile (the
@@ -275,6 +275,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         // dropped for an Afrobeat listener), then the optional energy critic. Every
         // layer fails open, so the worst case is today's genre-search behaviour.
         fetchTracks = async (params) => {
+          // Latency cut: when Spotify won't serve artist genres (/artists 403), discovery
+          // candidates can't be tagged → personalization discards them anyway → the whole
+          // discovery sourcing + tagging + critic is pure wasted time (and burns the
+          // Dev-Mode rate budget, slowing everything to a client timeout). Skip it and let
+          // the genre-backfilled familiar library fill the playlist (~20s → ~5s).
+          if (!spotify.artistGenresAvailable()) return [];
           const raw     = await spotify.fetchVibeDiscovery(accessToken, params, { limit: DISCOVERY_FETCH_LIMIT });
           const tagged  = await tagSpotifyDiscovery(accessToken, raw);
           const onTaste = personalizeWhitelist(tagged, {

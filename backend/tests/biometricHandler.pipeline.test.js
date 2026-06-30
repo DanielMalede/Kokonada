@@ -24,10 +24,11 @@ jest.mock('../app/models/PlaylistSession', () => ({
 }));
 
 jest.mock('../app/services/spotify', () => ({
-  getValidToken:       jest.fn(),
-  getRecommendations:  jest.fn(),
-  fetchVibeDiscovery:  jest.fn(),
-  getArtistsGenres:    jest.fn(),
+  getValidToken:        jest.fn(),
+  getRecommendations:   jest.fn(),
+  fetchVibeDiscovery:   jest.fn(),
+  getArtistsGenres:     jest.fn(),
+  artistGenresAvailable: jest.fn(() => true),
 }));
 
 jest.mock('../app/services/youtube', () => ({
