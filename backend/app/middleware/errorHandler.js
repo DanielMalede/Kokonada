@@ -10,7 +10,11 @@ module.exports = function errorHandler(err, req, res, next) {
   // that reach Express's default handler; capturing here guarantees coverage even though
   // this middleware terminates the response itself.
   if (status >= 500) {
-    captureException(err, { scope: 'http', method: req.method, path: req.originalUrl });
+    // Capture the PATH ONLY — never the query string. Some endpoints carry secrets in the
+    // query (the webhook `?secret=`, OAuth `?code=`/`?state=`); shipping req.originalUrl to
+    // Sentry would leak those standing/one-time credentials to a third-party service.
+    const path = (req.originalUrl || req.url || '').split('?')[0];
+    captureException(err, { scope: 'http', method: req.method, path });
   }
 
   // Never leak internal details in production
