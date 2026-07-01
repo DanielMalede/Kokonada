@@ -10,7 +10,7 @@ export const WATCH_STALE_MS = 6 * 60 * 1000;
 
 interface IntegrationsState {
   musicProvider: 'spotify' | 'youtube' | null;
-  biometricProvider: 'garmin' | 'applehealth' | null;
+  biometricProvider: 'garmin' | 'applehealth' | 'health_connect' | null;
   /** Stored Spotify token carries user-library-modify (Like button). false → reconnect once. */
   spotifyCanSave: boolean;
   /** Live background profile-build progress (post-connect library analysis). null when idle. */
@@ -49,7 +49,7 @@ const integrationsSlice = createSlice({
     setMusicProvider: (state, action: PayloadAction<'spotify' | 'youtube' | null>) => {
       state.musicProvider = action.payload;
     },
-    setBiometricProvider: (state, action: PayloadAction<'garmin' | 'applehealth' | null>) => {
+    setBiometricProvider: (state, action: PayloadAction<'garmin' | 'applehealth' | 'health_connect' | null>) => {
       state.biometricProvider = action.payload;
     },
     setSpotifyCanSave: (state, action: PayloadAction<boolean>) => {

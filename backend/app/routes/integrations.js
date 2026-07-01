@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
-const { watchLimiter, authLimiter } = require('../middleware/rateLimiter');
+const { watchLimiter } = require('../middleware/rateLimiter');
 const {
   getIntegrationsStatus,
   connectToken,
@@ -8,7 +8,7 @@ const {
   getSpotifyToken, playSpotifyTracks,
   saveSpotifyTracks, removeSpotifyTracks, getSpotifyTracksSaved,
   youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
-  garminConnect, garminCallback, garminDisconnect, garminWebhook, garminCredentialsConnect,
+  garminConnect, garminCallback, garminDisconnect, garminWebhook,
   appleHealthPush,
   healthBatchIngest,
   suuntoWebhook,
@@ -59,9 +59,6 @@ router.get('/youtube/status',         youtubeStatus);
 // Garmin (OAuth 1.0a — two-legged flow; callback registered publicly above)
 router.get('/garmin/connect',        garminConnect);
 router.delete('/garmin/disconnect',  garminDisconnect);
-// EXPERIMENT: unofficial-wrapper credential pull (flag GARMIN_CONNECT_PULL).
-// authLimiter throttles credential attempts to prevent stuffing.
-router.post('/garmin/credentials',   authLimiter, garminCredentialsConnect);
 
 // Apple HealthKit (mobile push — no server-side OAuth needed)
 router.post('/apple/push',           appleHealthPush);
