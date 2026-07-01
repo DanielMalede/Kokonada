@@ -17,6 +17,7 @@ import { hasGrantedRecord } from '../health/permissions';
 import { fetchSixMonthHistory } from '../health/fetchHistory';
 import { summarizeSleep, toBackendSamples } from '../health/mapToBackend';
 import { uploadSamples } from '../health/uploadClient';
+import { startLiveHr, type LiveHrSession } from '../health/liveHr';
 import { isLoggedIn, signInWithGoogle, signOut, type KokonadaUser } from '../auth/auth';
 
 type Phase =
@@ -36,6 +37,42 @@ export default function ConnectHealthScreen() {
   const [result, setResult] = useState<{ accepted: number; inserted: number; metrics: Record<string, number> } | null>(null);
   const [sleep, setSleep] = useState<ReturnType<typeof summarizeSleep> | null>(null);
   const [error, setError] = useState('');
+
+  // Live heart-rate streaming (BLE → 3-min REST fallback). Independent of the
+  // history-backfill phase machine above: you can stream live HR whether or not the
+  // 6-month backfill has run.
+  const [live, setLive] = useState<LiveHrSession | null>(null);
+  const [liveHr, setLiveHr] = useState<number | null>(null);
+  const [liveStatus, setLiveStatus] = useState('');
+
+  // Tear the stream down if the screen unmounts while it's active.
+  useEffect(() => () => { live?.stop(); }, [live]);
+
+  async function onStartLive() {
+    try {
+      setLiveStatus('Starting…');
+      const session = await startLiveHr({
+        onHr: setLiveHr,
+        onStatus: setLiveStatus,
+        onError: (e) => setLiveStatus(`Error: ${e.message}`),
+      });
+      setLive(session);
+      setLiveStatus(
+        session.mode === 'ble'
+          ? 'Live via Bluetooth'
+          : 'Live via Health Connect (updates every 3 min)',
+      );
+    } catch (e: any) {
+      setLiveStatus(String(e?.message ?? e));
+    }
+  }
+
+  function onStopLive() {
+    live?.stop();
+    setLive(null);
+    setLiveHr(null);
+    setLiveStatus('');
+  }
 
   useEffect(() => {
     (async () => {
@@ -165,6 +202,23 @@ export default function ConnectHealthScreen() {
       )}
 
       {phase === 'error' && !!error && <Text style={styles.error}>{error}</Text>}
+
+      {(phase === 'idle' || phase === 'done' || phase === 'needs-garmin' || phase === 'error') && (
+        <Card>
+          <Text style={styles.cardTitle}>Live heart rate</Text>
+          <Text style={styles.body}>
+            Stream real-time HR over Bluetooth from your Garmin (enable Broadcast Heart Rate on the
+            watch). If you skip the Bluetooth permission, we fall back to Health Connect every 3 minutes.
+          </Text>
+          {liveHr != null && <Text style={styles.metric}>♥ {liveHr} bpm</Text>}
+          {!!liveStatus && <Text style={styles.note}>{liveStatus}</Text>}
+          {live ? (
+            <Button label="Stop live heart rate" onPress={onStopLive} />
+          ) : (
+            <Button label="Start live heart rate" onPress={onStartLive} />
+          )}
+        </Card>
+      )}
 
       {(user || phase === 'idle' || phase === 'done') && (
         <Pressable onPress={onSignOut}>

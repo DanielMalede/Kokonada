@@ -9,7 +9,7 @@ import {
   clearIntegrations,
 } from '@/store/slices/integrationsSlice';
 import { clearUser } from '@/store/slices/authSlice';
-import { disconnectProvider, logout as apiLogout } from '@/lib/api';
+import { disconnectProvider, logout as apiLogout, deleteAccount as apiDeleteAccount } from '@/lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 
@@ -57,5 +57,21 @@ export function useConnections() {
     toast.success('Signed out.');
   }, [dispatch, navigate]);
 
-  return { music, biometric, disconnect, signOut };
+  const deleteAccount = useCallback(async () => {
+    // Unlike signOut, this must NOT swallow server errors — if the delete fails the
+    // account still exists, so we surface an error and keep the user signed in. Only
+    // on a confirmed server-side erasure do we clear local state and leave.
+    try {
+      await apiDeleteAccount(BACKEND_URL);
+    } catch {
+      toast.error("Couldn't delete your account — please try again.");
+      return;
+    }
+    dispatch(clearUser());
+    dispatch(clearIntegrations());
+    navigate('/', { replace: true });
+    toast.success('Your account and all associated data were permanently deleted.');
+  }, [dispatch, navigate]);
+
+  return { music, biometric, disconnect, signOut, deleteAccount };
 }

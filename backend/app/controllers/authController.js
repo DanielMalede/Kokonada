@@ -1,6 +1,10 @@
 const { OAuth2Client } = require('google-auth-library');
 const appleSignin = require('apple-signin-auth');
 const User = require('../models/User');
+const BiometricLog = require('../models/BiometricLog');
+const MedicalProfile = require('../models/MedicalProfile');
+const MusicProfile = require('../models/MusicProfile');
+const PlaylistSession = require('../models/PlaylistSession');
 const { signToken, setAuthCookie, clearAuthCookie } = require('../utils/jwt');
 const { revoke } = require('../utils/tokenDenylist');
 
@@ -109,4 +113,38 @@ exports.logout = async (req, res) => {
   }
   clearAuthCookie(res);
   res.json({ message: 'Logged out successfully' });
+};
+
+// DELETE /api/auth/account  (auth required)
+// GDPR right-to-erasure: PERMANENTLY hard-deletes the user and every piece of data
+// keyed to them. This is a true delete (not the soft-delete `deletedAt` flag) — once
+// it completes, nothing about the user remains in the database. All encrypted OAuth
+// token blobs (Spotify/YouTube/wearable) live on the User doc, so removing it also
+// destroys those. The presented JWT is revoked so it can't be replayed post-deletion.
+exports.deleteAccount = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+
+    // Purge every user-owned collection first, then the User doc LAST. If a child
+    // delete throws, the account still exists and the request can be safely retried
+    // rather than leaving an orphaned, un-loginable User with dangling data.
+    await Promise.all([
+      BiometricLog.deleteMany({ userId }),
+      MedicalProfile.deleteMany({ userId }),
+      MusicProfile.deleteMany({ userId }),
+      PlaylistSession.deleteMany({ userId }),
+    ]);
+    await User.deleteOne({ _id: userId });
+
+    // Revoke the caller's JWT (self-expiring denylist entry) and clear the cookie so
+    // the now-deleted account can't keep making authenticated requests. Redis caches
+    // (gemini md5 keys, jti denylist) are global/self-expiring — nothing user-scoped
+    // to purge there.
+    if (req.auth?.jti) {
+      const ttl = req.auth.exp ? req.auth.exp - Math.floor(Date.now() / 1000) : 7 * 24 * 3600;
+      await revoke(req.auth.jti, Math.max(ttl, 1));
+    }
+    clearAuthCookie(res);
+    res.json({ message: 'Account and all associated data permanently deleted' });
+  } catch (err) { next(err); }
 };

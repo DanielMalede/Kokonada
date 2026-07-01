@@ -39,7 +39,14 @@ cd KokonadaHealth
 npm install react-native-health-connect          # Health Connect
 npm install @react-native-google-signin/google-signin   # auth (Google Sign-In)
 npm install react-native-keychain                # secure JWT storage
+npm install react-native-ble-plx                 # live heart rate over BLE
 ```
+
+> **BLE (react-native-ble-plx):** after `npm install`, the library is autolinked. It needs
+> the Bluetooth permissions in `native-snippets/AndroidManifest.additions.xml` (already
+> included) and a minSdk of 23+ (this kit targets 26). On the device, the user enables
+> **Garmin watch → Settings → Sensors & Accessories → Broadcast Heart Rate** so the watch
+> advertises the standard BLE Heart Rate Service (0x180D) the app subscribes to.
 
 ## 3. Copy the kit source in
 
@@ -136,6 +143,18 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 4. App reads the available history (up to 6 months — **forward-accrue**: Garmin may only have
    ~2 weeks–90 days in the store for a new connection; the rest accrues over time), maps it to
    HR + HRV + per-night sleep stages, and uploads it in chunks to `/api/integrations/health/batch`.
+5. Tap **Start live heart rate** → grants the Bluetooth permission → streams real-time HR from
+   the Garmin "Broadcast Heart Rate" advertisement (BLE Heart Rate Service `0x180D`) to
+   `/api/integrations/watch/hr`. **Deny** Bluetooth and it falls back to a strict 3-minute push
+   sourced from Health Connect — same endpoint, same live socket → real-time playlist adaptation.
+
+## 8. Release build & Play Store
+
+For a production, Play-Store-signed build (upload keystore, `signingConfigs.release`, ProGuard,
+versioning, adaptive icon, Data-safety declaration for health data, and the `bundleRelease`
+steps) follow **`native-snippets/RELEASE_SIGNING.md`**. Copy `native-snippets/keystore.properties.example`
+→ `android/keystore.properties` and append `native-snippets/proguard-rules.additions.pro` to
+`android/app/proguard-rules.pro`.
 
 ## Troubleshooting
 - **Permission sheet closes with no result** → `HealthConnectPermissionDelegate.setPermissionDelegate(this)` missing in `MainActivity.onCreate` (step 4b).

@@ -19,4 +19,20 @@ function getSentry() {
   return Sentry;
 }
 
-module.exports = { initSentry, getSentry };
+/**
+ * Report a caught error to Sentry with optional structured context. A NO-OP when
+ * Sentry isn't configured (no DSN), so call sites can wrap any silent `catch` without
+ * guarding. Never throws — telemetry must never break the request/socket it observes.
+ * @param {Error} err
+ * @param {Record<string, unknown>} [context] extra fields (scope, userId, model, …)
+ */
+function captureException(err, context) {
+  if (!Sentry) return;
+  try {
+    Sentry.captureException(err, context ? { extra: context } : undefined);
+  } catch {
+    /* swallow — a failing monitor must not cascade */
+  }
+}
+
+module.exports = { initSentry, getSentry, captureException };

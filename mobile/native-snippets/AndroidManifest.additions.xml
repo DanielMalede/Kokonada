@@ -18,6 +18,17 @@
 <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />        <!-- read >30 days -->
 <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />  <!-- background delta sync -->
 
+<!-- ★ Live heart-rate over BLE (Garmin "Broadcast Heart Rate" → standard HR Service 0x180D).
+     Android 12+ (API 31) uses the new runtime BLE permissions; neverForLocation tells the OS
+     the scan is not used to derive location, so ACCESS_FINE_LOCATION is not required there. -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<!-- Android ≤11 (API ≤30) scanned BLE under these legacy permissions instead. -->
+<uses-permission android:name="android.permission.BLUETOOTH"     android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
 
 <!-- ② Inside the EXISTING <activity android:name=".MainActivity"> add this intent-filter
         (alongside the MAIN/LAUNCHER one): -->

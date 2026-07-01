@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { googleAuth, appleAuth, logout } = require('../controllers/authController');
+const { googleAuth, appleAuth, logout, deleteAccount } = require('../controllers/authController');
 const { authLimiter } = require('../middleware/rateLimiter');
 const auth = require('../middleware/auth');
 
@@ -9,6 +9,8 @@ router.post('/apple',    authLimiter, appleAuth);
 
 // Protected routes
 router.post('/logout', auth, logout);
+// GDPR hard-delete of the account + all associated data (irreversible)
+router.delete('/account', auth, deleteAccount);
 router.get('/me', auth, (req, res) => {
   res.json({
     id: req.user._id,

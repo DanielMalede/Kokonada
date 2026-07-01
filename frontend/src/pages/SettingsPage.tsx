@@ -56,7 +56,7 @@ export default function SettingsPage() {
   const dispatch = useDispatch<AppDispatch>();
   const music = useSelector((s: RootState) => s.integrations.musicProvider);
   const biometric = useSelector((s: RootState) => s.integrations.biometricProvider);
-  const { signOut } = useConnections();
+  const { signOut, deleteAccount } = useConnections();
 
   // Hydrate connection state on mount so Settings reflects reality even when
   // opened directly (not via the Integrations page).
@@ -164,7 +164,7 @@ export default function SettingsPage() {
             {music && (
               <Row
                 label={music === 'spotify' ? 'Spotify' : 'YouTube Music'}
-                hint="Music source"
+                hint={music === 'spotify' ? 'Music source' : 'Taste profile source (read-only — no in-app playback)'}
                 control={<DisconnectButton kind={music === 'spotify' ? 'spotify' : 'youtube'} />}
               />
             )}
@@ -202,7 +202,7 @@ export default function SettingsPage() {
       <Section title="Account">
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <button className="w-full py-3.5 text-left text-sm font-medium text-destructive">
+            <button className="w-full border-b border-border/60 py-3.5 text-left text-sm font-medium text-destructive">
               Log out
             </button>
           </AlertDialogTrigger>
@@ -216,6 +216,33 @@ export default function SettingsPage() {
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={() => { void signOut(); }}>Log out</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button className="w-full py-3.5 text-left text-sm font-medium text-destructive">
+              Delete my account
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Permanently delete your account?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This erases your account and <strong>all</strong> associated data — biometric logs,
+                medical &amp; music profiles, playlist history, and connected-service tokens — from our
+                servers. This is immediate and can’t be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => { void deleteAccount(); }}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete everything
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

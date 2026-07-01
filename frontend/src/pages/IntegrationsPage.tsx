@@ -36,7 +36,6 @@ import {
 import { toast } from 'sonner';
 import { authHeaders, buildConnectUrl } from '@/lib/api';
 import WatchTokenCard from '@/components/WatchTokenCard';
-import GarminConnectForm from '@/components/GarminConnectForm/GarminConnectForm';
 import DisconnectButton from '@/components/DisconnectButton';
 import type { DisconnectKind } from '@/hooks/useConnections';
 
@@ -256,7 +255,17 @@ export default function IntegrationsPage() {
                 needsReconnect={spotifyNeedsReconnect}
                 hint={spotifyNeedsReconnect ? 'Reconnect to allow saving songs to your library' : undefined}
               />
-              <ServiceRow name="YouTube Music" connected={music === 'youtube'} onConnect={connectYouTube} disconnectKind="youtube" />
+              <ServiceRow
+                name="YouTube Music"
+                connected={music === 'youtube'}
+                onConnect={connectYouTube}
+                disconnectKind="youtube"
+                hint={
+                  music === 'youtube'
+                    ? 'Read-only — builds your taste profile. Playback & Like happen in Spotify or the YouTube app.'
+                    : 'Builds your taste profile from your likes & playlists (read-only — no in-app playback)'
+                }
+              />
             </CardContent>
             {/* Data-handling transparency / connect-time consent. */}
             <p className="px-4 pb-3 text-xs text-muted-foreground">
@@ -277,7 +286,6 @@ export default function IntegrationsPage() {
             </CardHeader>
             <CardContent className="divide-y divide-border">
               <WatchTokenCard />
-              <GarminConnectForm />
               {biometric === 'garmin' && (
                 <ServiceRow name="Garmin" hint="Connected via Garmin Connect" connected disconnectKind="garmin" />
               )}
