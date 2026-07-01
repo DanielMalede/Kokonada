@@ -13,6 +13,7 @@ const { buildEmotionPlaylist, adjustBiometricPlaylist, critiqueTrackVibe } = req
 const { mixPlaylist, generateFallbackPlaylist, personalizeWhitelist }  = require('../services/playlistMixer');
 const { buildMoodParams, resolveMoodKey }      = require('../services/moodDescriptors');
 const { resolveMusicProvider } = require('../utils/providerSelect');
+const { captureException } = require('../config/sentry');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -491,6 +492,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         });
       }
     } catch (err) {
+      // The generation pipeline threw (LLM/Spotify/mixer). We recover below, but this
+      // path was previously only console-logged — report it so a systemic failure that
+      // silently degrades every user to the fallback playlist is visible in Sentry.
+      captureException(err, { scope: 'generate', trigger, reqId, provider });
       // Zero-tolerance fallback: if the LLM is down mid-mood, build a deterministic,
       // strictly on-vibe playlist from the mood descriptors (no AI, library-only so it
       // never depends on a possibly-failing Spotify) rather than dumping off-vibe
@@ -607,7 +612,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       targetEnergy:      aiResult.params.target_energy,
       musicProvider:     provider,
       trackIds:          playlist.merged.map(t => t.id).filter(Boolean),
-    }).catch(e => console.error('[PlaylistSession] save failed:', e.message));
+    }).catch(e => {
+      console.error('[PlaylistSession] save failed:', e.message);
+      // A dropped session write silently breaks anti-repetition (the next generation
+      // won't know these tracks were just served) — report it rather than swallow.
+      captureException(e, { scope: 'playlistSession.save', userId: String(userId) });
+    });
   } finally {
     state.generating = false;
   }
@@ -640,6 +650,9 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   try {
     normalized = normalize(source, raw);
   } catch (err) {
+    // A wearable adapter throwing means malformed/unsupported device data reached us —
+    // worth seeing (a provider changed its payload shape) beyond the client-facing error.
+    captureException(err, { scope: 'biometric.normalize', source });
     socket.emit('connection_error', { message: err.message });
     return;
   }

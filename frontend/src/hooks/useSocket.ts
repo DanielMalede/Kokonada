@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { AppDispatch } from '../store';
 import { store } from '../store';
 import { getToken } from '@/lib/api';
-import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, receivePlaylist, setPlaylistError } from '../store/slices/playerSlice';
+import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, setReconnectState, receivePlaylist, setPlaylistError } from '../store/slices/playerSlice';
 import {
   setBiometricAck,
   setRecalibrationPending,
@@ -43,12 +43,32 @@ function clearRetryTimer() {
 }
 
 function scheduleReconnect() {
-  if (!socket || retryCount >= MAX_RETRIES) return;
+  if (!socket) return;
+  // Automatic-retry budget spent: stop the exponential backoff and flag the UI so it can
+  // offer a manual "Try now" instead of silently giving up (previously the app just sat
+  // offline forever until a full page reload).
+  if (retryCount >= MAX_RETRIES) {
+    store.dispatch(setReconnectState({ attempt: retryCount, exhausted: true }));
+    return;
+  }
   const delay = Math.min(1_000 * Math.pow(2, retryCount), 30_000);
   retryCount += 1;
+  store.dispatch(setReconnectState({ attempt: retryCount, exhausted: false }));
   retryTimer = setTimeout(() => {
     if (socket && !socket.connected) socket.connect();
   }, delay);
+}
+
+/**
+ * Manual reconnect for the offline UI's "Try now" button: resets the backoff budget and
+ * forces an immediate connect. Safe to call anytime — no-ops the timer and reconnects the
+ * live socket if it exists.
+ */
+export function reconnectSocketNow() {
+  retryCount = 0;
+  clearRetryTimer();
+  store.dispatch(setReconnectState({ attempt: 0, exhausted: false }));
+  if (socket && !socket.connected) socket.connect();
 }
 
 function initSocket(dispatch: AppDispatch): Socket {

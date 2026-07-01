@@ -9,6 +9,11 @@ interface Track {
   uri: string;
 }
 
+// How many leading tracks are mirrored into the offline buffer — the queue the user
+// can still see/navigate when the realtime link drops. Kept generous so a disconnect
+// mid-session leaves plenty of runway before a reconnect is required.
+export const OFFLINE_BUFFER_SIZE = 20;
+
 export interface SpotifySDKState {
   deviceId?: string | null;
   isReady?: boolean;
@@ -25,6 +30,11 @@ interface PlayerState {
   currentIndex: number;
   isPlaying: boolean;
   isOnline: boolean;
+  // Live reconnect telemetry surfaced from the socket layer so the UI can show real
+  // status ("Reconnecting… 2/5") and, once retries are exhausted, offer a manual retry
+  // instead of stranding the user offline until a full page reload.
+  reconnectAttempt: number;
+  reconnectExhausted: boolean;
   trigger: 'emotion' | 'biometric' | 'skip_loop' | 'heart' | null;
   playbackMode: 'live' | null;
   // Spotify Web Playback SDK state
@@ -53,6 +63,8 @@ const initialState: PlayerState = {
   currentIndex: 0,
   isPlaying: false,
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  reconnectAttempt: 0,
+  reconnectExhausted: false,
   trigger: null,
   playbackMode: null,
   sdkReady: false,
@@ -75,7 +87,7 @@ const playerSlice = createSlice({
       state.playlist = action.payload.tracks;
       state.trigger = action.payload.trigger;
       state.currentIndex = 0;
-      state.offlineBuffer = action.payload.tracks.slice(0, 10);
+      state.offlineBuffer = action.payload.tracks.slice(0, OFFLINE_BUFFER_SIZE);
       state.sdkPositionMs = 0;
     },
     skipTrack(state) {
@@ -102,7 +114,7 @@ const playerSlice = createSlice({
       if (state.pendingPlaylist.length === 0) return;
       state.playlist = state.pendingPlaylist;
       state.currentIndex = 0;
-      state.offlineBuffer = state.pendingPlaylist.slice(0, 10);
+      state.offlineBuffer = state.pendingPlaylist.slice(0, OFFLINE_BUFFER_SIZE);
       state.sdkPositionMs = 0;
       state.playbackMode = state.pendingMode ?? 'live';
       state.pendingPlaylist = [];
@@ -113,6 +125,17 @@ const playerSlice = createSlice({
     },
     setIsOnline(state, action: PayloadAction<boolean>) {
       state.isOnline = action.payload;
+      // Coming back online clears any stale reconnect telemetry.
+      if (action.payload) {
+        state.reconnectAttempt = 0;
+        state.reconnectExhausted = false;
+      }
+    },
+    // Pushed by the socket layer as it backs off: `attempt` is the current retry number
+    // (1-based), `exhausted` true once the automatic-retry budget is spent.
+    setReconnectState(state, action: PayloadAction<{ attempt: number; exhausted: boolean }>) {
+      state.reconnectAttempt = action.payload.attempt;
+      state.reconnectExhausted = action.payload.exhausted;
     },
     setPlaybackMode(state, action: PayloadAction<'live' | null>) {
       state.playbackMode = action.payload;
@@ -162,8 +185,9 @@ const playerSlice = createSlice({
 });
 
 export const {
-  setPlaylist, skipTrack, setCurrentIndex, setPlaying, setIsOnline, setPlaybackMode, setSdkState,
-  setPendingPlaylist, promotePendingPlaylist, setPlaylistError, restorePlayer,
+  setPlaylist, skipTrack, setCurrentIndex, setPlaying, setIsOnline, setReconnectState,
+  setPlaybackMode, setSdkState, setPendingPlaylist, promotePendingPlaylist, setPlaylistError,
+  restorePlayer,
 } = playerSlice.actions;
 
 /**

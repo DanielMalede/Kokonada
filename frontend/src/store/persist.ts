@@ -1,4 +1,5 @@
 import type { RootState } from './index';
+import { OFFLINE_BUFFER_SIZE } from './slices/playerSlice';
 
 const KEY = 'koko-player';
 
@@ -23,7 +24,7 @@ export function loadPersistedPlayer(): PersistedPlayer | null {
     if (!data || !Array.isArray(data.playlist) || data.playlist.length === 0) return null;
     return {
       playlist: data.playlist,
-      offlineBuffer: Array.isArray(data.offlineBuffer) ? data.offlineBuffer : data.playlist.slice(0, 10),
+      offlineBuffer: Array.isArray(data.offlineBuffer) ? data.offlineBuffer : data.playlist.slice(0, OFFLINE_BUFFER_SIZE),
       currentIndex: typeof data.currentIndex === 'number' ? data.currentIndex : 0,
       playbackMode: data.playbackMode === 'live' ? 'live' : null,
       trigger: data.trigger ?? null,

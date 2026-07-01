@@ -5,6 +5,7 @@ const cookie = require('cookie');
 const { verifyToken, COOKIE_NAME } = require('../utils/jwt');
 const User = require('../models/User');
 const { registerBiometricHandler } = require('./biometricHandler');
+const { captureException } = require('../config/sentry');
 
 // Live Socket.IO server instance, captured on creation so non-socket code
 // (e.g. the watch HR ingest controller) can look up a user's browser socket.
@@ -41,13 +42,29 @@ function createSocketServer(httpServer) {
 
       socket.data.user = user;
       next();
-    } catch {
+    } catch (err) {
+      // Bad/expired tokens are routine and expected — don't report those. Anything
+      // else caught here (e.g. a DB error while loading the user) is a real fault that
+      // was previously swallowed silently; surface it.
+      const expected = err && (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError');
+      if (!expected) captureException(err, { scope: 'socket.auth' });
       next(new Error('unauthorized'));
     }
   });
 
+  // Low-level engine failures (failed WebSocket upgrades, transport/handshake errors,
+  // reconnect failures) never reach the middleware above — capture them here so a client
+  // that can't stay connected is visible instead of silently dark.
+  io.engine.on('connection_error', (err) => {
+    captureException(err, { scope: 'socket.engine', code: err?.code, message: err?.message });
+  });
+
   io.on('connection', (socket) => {
     socket.join(`user:${socket.data.user._id}`);
+    // Per-socket runtime errors (handler throws, transport drops mid-stream).
+    socket.on('error', (err) => {
+      captureException(err, { scope: 'socket', userId: String(socket.data.user?._id) });
+    });
     registerBiometricHandler(socket);
   });
 

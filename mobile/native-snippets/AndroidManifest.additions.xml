@@ -1,0 +1,61 @@
+<!--
+  Merge these into android/app/src/main/AndroidManifest.xml of the generated RN app.
+  Package in examples below is com.kokonadahealth — change to your applicationId.
+-->
+
+<!-- ① <uses-permission> entries: put these directly under <manifest>, above <application>. -->
+<uses-permission android:name="android.permission.INTERNET" />
+
+<!-- Data we read for the medical profile -->
+<uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+<uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
+<uses-permission android:name="android.permission.health.READ_SLEEP" />
+<uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+<uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+<uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
+
+<!-- ★ The two permissions that make the 6-month backfill possible -->
+<uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />        <!-- read >30 days -->
+<uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />  <!-- background delta sync -->
+
+<!-- ★ Live heart-rate over BLE (Garmin "Broadcast Heart Rate" → standard HR Service 0x180D).
+     Android 12+ (API 31) uses the new runtime BLE permissions; neverForLocation tells the OS
+     the scan is not used to derive location, so ACCESS_FINE_LOCATION is not required there. -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<!-- Android ≤11 (API ≤30) scanned BLE under these legacy permissions instead. -->
+<uses-permission android:name="android.permission.BLUETOOTH"     android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+
+<!-- ② Inside the EXISTING <activity android:name=".MainActivity"> add this intent-filter
+        (alongside the MAIN/LAUNCHER one): -->
+<intent-filter>
+  <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+</intent-filter>
+
+
+<!-- ③ Add these as siblings of <activity .MainActivity>, still inside <application>: -->
+
+<!-- Android ≤13: rationale shown when the user taps the privacy-policy link -->
+<activity
+    android:name=".PermissionsRationaleActivity"
+    android:exported="true">
+  <intent-filter>
+    <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+  </intent-filter>
+</activity>
+
+<!-- Android 14+: activity-alias variant of the same rationale entry point -->
+<activity-alias
+    android:name="ViewPermissionUsageActivity"
+    android:exported="true"
+    android:targetActivity=".MainActivity"
+    android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+  <intent-filter>
+    <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+    <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+  </intent-filter>
+</activity-alias>

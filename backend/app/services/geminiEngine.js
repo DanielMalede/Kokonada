@@ -4,6 +4,7 @@ const crypto           = require('crypto');
 const axios            = require('axios');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
+const { captureException } = require('../config/sentry');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
@@ -76,6 +77,9 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = GEMI
       // of axios's opaque "Request failed with status code 404".
       const apiMsg = err.response?.data?.error?.message || err.message;
       console.error('[llm] request failed', { status: err.response?.status, model, error: apiMsg });
+      // Report LLM outages/timeouts (previously only console-logged) so a provider going
+      // down — which silently degrades every playlist to the static fallback — is visible.
+      captureException(err, { scope: 'llm', model, status: err.response?.status, apiMsg });
       throw new Error(`LLM request failed (${model}): ${apiMsg}`);
     }
   }
