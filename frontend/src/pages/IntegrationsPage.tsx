@@ -155,11 +155,12 @@ export default function IntegrationsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const musicParam = params.get('music') as 'spotify' | 'youtube' | null;
-    const biometricParam = params.get('biometric') as 'garmin' | 'applehealth' | null;
+    const biometricParam = params.get('biometric') as 'garmin' | 'applehealth' | 'health_connect' | null;
     const errorParam = params.get('error');
     const detailParam = params.get('detail');
     if (musicParam === 'spotify' || musicParam === 'youtube') dispatch(setMusicProvider(musicParam));
-    if (biometricParam === 'garmin' || biometricParam === 'applehealth') dispatch(setBiometricProvider(biometricParam));
+    if (biometricParam === 'garmin' || biometricParam === 'applehealth' || biometricParam === 'health_connect')
+      dispatch(setBiometricProvider(biometricParam));
     if (errorParam) {
       toast.error(friendlyConnectError(errorParam), {
         description: detailParam ? `Reason: ${detailParam}` : undefined,
@@ -290,6 +291,16 @@ export default function IntegrationsPage() {
                 <ServiceRow name="Garmin" hint="Connected via Garmin Connect" connected disconnectKind="garmin" />
               )}
               <ServiceRow name="Apple Health" hint="Available in the iOS app" connected={biometric === 'applehealth'} disabled />
+              <ServiceRow
+                name="Health Connect"
+                hint={
+                  biometric === 'health_connect'
+                    ? 'Synced via the Kokonada Health companion app'
+                    : 'Android only — install the Kokonada Health companion app, enable Garmin Connect → Health Connect sharing, then sync from there'
+                }
+                connected={biometric === 'health_connect'}
+                disabled
+              />
               {!biometric && !moodOnly && (
                 <button
                   onClick={enableMoodOnly}

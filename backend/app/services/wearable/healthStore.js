@@ -4,12 +4,15 @@
  * OS health-store ingest bridge (Apple HealthKit / Google Health Connect).
  *
  * These stores live on the user's phone and cannot be read server-side. A React
- * Native companion app reads Garmin-synced data locally and pushes batches here;
- * the user's JWT authenticates the push.
+ * Native companion app (KokonadaHealth) reads Garmin-synced data locally and pushes
+ * batches here; the user's JWT authenticates the push.
  *
- * NOTE (architecture): the primary path is now the Garmin Health API server-to-
- * server (see garminIngest.js). This bridge is retained as a fallback. Persistence
- * is shared via metricStore.persistMetrics.
+ * NOTE (architecture): this is now the primary Garmin-adjacent biometric path — the
+ * unofficial garmin-connect credential wrapper was retired after Garmin enforced
+ * mandatory MFA, and the official Garmin Health API server-to-server webhook (see
+ * garminIngest.js) is still pending Garmin's approval. Once that's approved it
+ * becomes the preferred path; this bridge stays as the no-login fallback either way.
+ * Persistence is shared via metricStore.persistMetrics.
  */
 
 const { normalizeHealthStoreSamples } = require('./adapter');
