@@ -36,6 +36,7 @@ import {
 import { toast } from 'sonner';
 import { authHeaders, buildConnectUrl } from '@/lib/api';
 import WatchTokenCard from '@/components/WatchTokenCard';
+import GarminConnectForm from '@/components/GarminConnectForm/GarminConnectForm';
 import DisconnectButton from '@/components/DisconnectButton';
 import type { DisconnectKind } from '@/hooks/useConnections';
 
@@ -276,6 +277,7 @@ export default function IntegrationsPage() {
             </CardHeader>
             <CardContent className="divide-y divide-border">
               <WatchTokenCard />
+              <GarminConnectForm />
               {biometric === 'garmin' && (
                 <ServiceRow name="Garmin" hint="Connected via Garmin Connect" connected disconnectKind="garmin" />
               )}

@@ -37,6 +37,8 @@ jest.mock('../app/services/wearable/garmin',      () => ({ isConfigured: jest.fn
 jest.mock('../app/services/wearable/appleHealth', () => ({ ingestBatch: jest.fn() }));
 jest.mock('../app/services/wearable/healthStore', () => ({ ingestBatch: jest.fn() }));
 jest.mock('../app/services/wearable/suunto',      () => ({ verifyWebhookSignature: jest.fn(), handleWebhook: jest.fn() }));
+jest.mock('../app/services/wearable/garminConnect', () => ({ isEnabled: jest.fn(), login: jest.fn(), fetchAllBiometrics: jest.fn(), toCanonicalMetrics: jest.fn(), restoreSession: jest.fn() }));
+jest.mock('../app/services/wearable/metricStore',   () => ({ persistMetrics: jest.fn() }));
 jest.mock('../app/models/BiometricLog',  () => ({}));
 jest.mock('../app/models/MusicProfile',  () => ({ deleteOne: jest.fn().mockResolvedValue({}) }));
 jest.mock('../app/models/User', () => ({
@@ -52,6 +54,8 @@ jest.mock('../app/services/musicProfileService', () => ({
 const spotify            = require('../app/services/spotify');
 const youtube            = require('../app/services/youtube');
 const garmin             = require('../app/services/wearable/garmin');
+const garminConnect      = require('../app/services/wearable/garminConnect');
+const { persistMetrics } = require('../app/services/wearable/metricStore');
 const musicProfileService = require('../app/services/musicProfileService');
 const User               = require('../app/models/User');
 const MusicProfile       = require('../app/models/MusicProfile');
@@ -296,5 +300,74 @@ describe('integrationsController — buildProfile wiring', () => {
 
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_failed'));
     });
+  });
+});
+
+describe('garminCredentialsConnect (unofficial wrapper pull)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    garminConnect.isEnabled.mockReturnValue(true);
+  });
+
+  function buildReq(body, user) {
+    return { user: user || { _id: 'user-123' }, body };
+  }
+
+  it('returns 503 when the experiment flag is off', async () => {
+    garminConnect.isEnabled.mockReturnValue(false);
+    const res = buildRes();
+    await ctrl.garminCredentialsConnect(buildReq({ email: 'e@x.com', password: 'pw' }), res, jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(garminConnect.login).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when email or password is missing', async () => {
+    const res = buildRes();
+    await ctrl.garminCredentialsConnect(buildReq({ email: 'e@x.com' }), res, jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(garminConnect.login).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 on a failed Garmin login', async () => {
+    garminConnect.login.mockRejectedValue(new Error('Invalid credentials'));
+    const res = buildRes();
+    await ctrl.garminCredentialsConnect(buildReq({ email: 'e@x.com', password: 'bad' }), res, jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(persistMetrics).not.toHaveBeenCalled();
+  });
+
+  it('returns 422 when the account requires MFA', async () => {
+    garminConnect.login.mockRejectedValue(new Error('MFA verification code required'));
+    const res = buildRes();
+    await ctrl.garminCredentialsConnect(buildReq({ email: 'e@x.com', password: 'pw' }), res, jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(422);
+    expect(res.json).toHaveBeenCalledWith({ error: 'garmin_mfa_unsupported' });
+  });
+
+  it('persists metrics, sets provider, stores session tokens (never the password)', async () => {
+    const sessionTokens = { oauth1: { oauth_token: 't' }, oauth2: { access_token: 'a' } };
+    garminConnect.login.mockResolvedValue({ client: {}, sessionTokens });
+    garminConnect.fetchAllBiometrics.mockResolvedValue({ garminUserId: '999', warnings: [], heartRate: { resting: 52 } });
+    garminConnect.toCanonicalMetrics.mockReturnValue([{ metric: 'restingHeartRate', value: 52, unit: 'bpm', recordedAt: new Date(), source: 'garmin' }]);
+    persistMetrics.mockResolvedValue({ inserted: 1, profileMetrics: { restingHeartRate: 52 } });
+
+    const user = buildUser();
+    User.findById.mockResolvedValue(user);
+    const res = buildRes();
+    await ctrl.garminCredentialsConnect(buildReq({ email: 'e@x.com', password: 'sup3r-secret' }), res, jest.fn());
+
+    expect(persistMetrics).toHaveBeenCalledWith('user-123', expect.any(Array));
+    expect(user.wearableProvider).toBe('garmin');
+    expect(user.garminUserId).toBe('999');
+    // Session tokens are stored — and the raw password is nowhere in the stored blob.
+    expect(user.setToken).toHaveBeenCalledWith('wearableToken', expect.objectContaining({ provider: 'garmin-connect', sessionTokens }));
+    const stored = JSON.stringify(user.setToken.mock.calls[0][1]);
+    expect(stored).not.toContain('sup3r-secret');
+    expect(user.save).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ connected: true, provider: 'garmin' }));
   });
 });

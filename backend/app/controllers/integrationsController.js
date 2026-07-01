@@ -7,6 +7,8 @@ const garmin      = require('../services/wearable/garmin');
 const appleHealth = require('../services/wearable/appleHealth');
 const healthStore = require('../services/wearable/healthStore');
 const garminIngest = require('../services/wearable/garminIngest');
+const garminConnect = require('../services/wearable/garminConnect');
+const { persistMetrics } = require('../services/wearable/metricStore');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
@@ -463,6 +465,65 @@ exports.garminDisconnect = async (req, res, next) => {
     await req.user.save();
     res.json({ message: 'Garmin disconnected' });
   } catch (err) { next(err); }
+};
+
+// POST /api/integrations/garmin/credentials  (auth required)
+// EXPERIMENT (flag GARMIN_CONNECT_PULL): pull a full biometric snapshot via the
+// unofficial Garmin Connect wrapper using the user's Garmin email/password. The
+// password is used ONCE to log in, then discarded — it is never logged and never
+// written to the DB. Only the resulting Garmin session tokens are persisted
+// (encrypted) so later pulls can resume without re-prompting. The snapshot is
+// normalized to canonical metrics and stored via the shared persistMetrics()
+// pipeline, identical to the official Health API path.
+exports.garminCredentialsConnect = async (req, res, next) => {
+  if (!garminConnect.isEnabled()) {
+    return res.status(503).json({ error: 'garmin_connect_pull_disabled' });
+  }
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password are required' });
+  }
+
+  // Authenticate. Map an MFA-challenged account to a distinct 422 (the wrapper
+  // can't complete that flow); any other login failure is treated as bad creds.
+  let client, sessionTokens;
+  try {
+    ({ client, sessionTokens } = await garminConnect.login({ email, password }));
+  } catch (err) {
+    const msg = (err && err.message ? err.message : '').toLowerCase();
+    if (msg.includes('mfa') || msg.includes('multi-factor') || msg.includes('verification code')) {
+      return res.status(422).json({ error: 'garmin_mfa_unsupported' });
+    }
+    return res.status(401).json({ error: 'invalid Garmin credentials' });
+  }
+
+  try {
+    const snapshot = await garminConnect.fetchAllBiometrics(client);
+    const metrics  = garminConnect.toCanonicalMetrics(snapshot);
+    const { profileMetrics } = await persistMetrics(req.user._id, metrics);
+
+    // Reload with token blobs (auth strips them) so setToken/save persist correctly.
+    const user = await loadUserWithTokens(req);
+    user.wearableProvider = 'garmin';
+    if (snapshot.garminUserId) user.garminUserId = snapshot.garminUserId;
+    user.setToken('wearableToken', {
+      provider: 'garmin-connect',
+      sessionTokens, // OAuth1/OAuth2 session — NOT the password
+      garminUserId: snapshot.garminUserId,
+    });
+    await user.save();
+
+    // snapshot returned so we can eyeball data completeness for the algorithm test.
+    return res.json({
+      connected: true,
+      provider: 'garmin',
+      profileMetrics,
+      warnings: snapshot.warnings,
+      snapshot,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 // POST /api/integrations/garmin/webhook  (PUBLIC — Garmin Health API server-to-server push)

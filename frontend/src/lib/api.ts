@@ -174,6 +174,39 @@ export async function playTracks(
   throw new Error(`playTracks failed: ${res.status}`);
 }
 
+export interface GarminConnectResult {
+  connected: boolean;
+  provider: string;
+  profileMetrics?: Record<string, number>;
+  warnings?: string[];
+  snapshot?: unknown;
+}
+
+/**
+ * EXPERIMENT: link Garmin by pulling biometrics via the unofficial Garmin Connect
+ * wrapper. Credentials travel in the POST body over HTTPS, bound to the user's
+ * session (cookie + Bearer); the backend uses the password once to log in and never
+ * stores it. Distinct statuses are surfaced as error `code`s so the form can message
+ * precisely: invalid creds (401), MFA-unsupported (422), experiment disabled (503).
+ */
+export async function connectGarminCredentials(
+  backendUrl: string,
+  email: string,
+  password: string,
+): Promise<GarminConnectResult> {
+  const res = await fetch(`${backendUrl}/api/integrations/garmin/credentials`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ email, password }),
+  });
+  if (res.ok) return res.json();
+  if (res.status === 401) throw Object.assign(new Error('invalid_credentials'), { code: 'invalid_credentials' });
+  if (res.status === 422) throw Object.assign(new Error('mfa_unsupported'), { code: 'mfa_unsupported' });
+  if (res.status === 503) throw Object.assign(new Error('disabled'), { code: 'disabled' });
+  throw new Error(`connectGarminCredentials failed: ${res.status}`);
+}
+
 /** Fetch watch connection status for the badge (hydrate on page load). */
 export async function fetchWatchStatus(
   backendUrl: string,

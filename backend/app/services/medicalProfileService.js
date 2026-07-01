@@ -215,7 +215,8 @@ async function upsertStateVector(userId, telemetry) {
 const PROFILE_SCALAR_METRICS = [
   'restingHeartRate', 'hrv', 'respirationRate', 'spO2',
   'sleepDeep', 'sleepLight', 'sleepRem',
-  'bodyBattery', // Garmin proprietary — available via Health API (not Health Connect)
+  'bodyBattery',    // Garmin proprietary — available via Health API (not Health Connect)
+  'dailyReadiness', // Garmin Training Readiness score (0–100)
 ];
 
 function median(values) {
