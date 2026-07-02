@@ -9,7 +9,9 @@
 const BiometricLog   = require('../../models/BiometricLog');
 const MedicalProfile = require('../../models/MedicalProfile');
 const { encrypt }    = require('../../utils/encryption');
-const { aggregateProfileMetrics } = require('../medicalProfileService');
+const { aggregateProfileMetrics, computeLastNightSleep } = require('../medicalProfileService');
+const { enqueue } = require('../../queues/queue');
+const { QUEUES } = require('../../queues/definitions');
 
 // Aggregated metric keys that live on a NESTED MedicalProfile path; others map 1:1.
 const METRIC_FIELD_PATHS = {
@@ -56,12 +58,51 @@ async function persistMetrics(userId, metrics) {
   // Profile scalars → aggregate (median) → upsert. Encrypt explicitly: encryptedNumber
   // setters do NOT run on findOneAndUpdate($set). (audit F3)
   const profileMetrics = aggregateProfileMetrics(metrics);
-  if (Object.keys(profileMetrics).length) {
-    const $set = {};
-    for (const [field, value] of Object.entries(profileMetrics)) {
-      $set[METRIC_FIELD_PATHS[field] || field] = encrypt(String(value));
+  const $set = {};
+  for (const [field, value] of Object.entries(profileMetrics)) {
+    $set[METRIC_FIELD_PATHS[field] || field] = encrypt(String(value));
+  }
+
+  // Latest-night sums (the sleep-DEBT input) alongside the median baseline.
+  // Night-date guard: a 6-month backfill's "latest" night must never overwrite
+  // a fresher night already stored. Guard read is best-effort — an unreadable
+  // profile counts as no-existing-night (ingestion never blocks on it).
+  const lastNight = computeLastNightSleep(metrics);
+  if (lastNight) {
+    const nightDate = new Date(lastNight.date);
+    let existingDate = null;
+    try {
+      const existing = await MedicalProfile.findOne({ userId }).select('lastNightSleep.date').lean();
+      existingDate = existing?.lastNightSleep?.date ? new Date(existing.lastNightSleep.date) : null;
+    } catch { /* treat as no existing night */ }
+    if (!existingDate || existingDate <= nightDate) {
+      $set['lastNightSleep.deep']  = encrypt(String(lastNight.deep));
+      $set['lastNightSleep.light'] = encrypt(String(lastNight.light));
+      $set['lastNightSleep.rem']   = encrypt(String(lastNight.rem));
+      $set['lastNightSleep.date']  = nightDate;
+      $set.sleepUpdatedAt = new Date();
     }
+  }
+
+  if (Object.keys($set).length) {
     await MedicalProfile.findOneAndUpdate({ userId }, { $set }, { upsert: true, new: true });
+  }
+
+  // New data → recompute baselines + state vector (backfill finally drives state).
+  // Debounced: a deterministic jobId + delay coalesces a backfill burst (hundreds
+  // of chunked batches) into ONE heavy decrypt run; removeOnComplete frees the id
+  // so the next batch can queue again. (shadow-audit flood finding)
+  if (hrDocs.length || Object.keys($set).length) {
+    try {
+      await enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
+        jobId: `state-vector:${userId}`,
+        delay: 60_000,
+        removeOnComplete: true,
+        removeOnFail: true,
+      });
+    } catch (e) {
+      console.error('[metricStore] recompute enqueue failed:', e.message);
+    }
   }
 
   return { inserted: hrDocs.length, profileMetrics };

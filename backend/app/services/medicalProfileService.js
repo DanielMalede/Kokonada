@@ -250,4 +250,29 @@ function aggregateProfileMetrics(metrics) {
   return out;
 }
 
-module.exports = { computeStateVector, upsertStateVector, aggregateProfileMetrics };
+/**
+ * Latest-night sleep totals from a batch of canonical metrics — the sleep-DEBT
+ * input, distinct from the median BASELINE that aggregateProfileMetrics keeps.
+ * Sleep records carry recordedAt = session END, so grouping by its calendar
+ * date buckets sessions into nights. Returns null when the batch has no sleep.
+ * @returns {{deep:number, light:number, rem:number, date:string}|null}
+ */
+function computeLastNightSleep(metrics) {
+  const STAGE_BY_METRIC = { sleepDeep: 'deep', sleepLight: 'light', sleepRem: 'rem' };
+  const nights = new Map();
+  for (const { metric, value, recordedAt } of metrics || []) {
+    const stage = STAGE_BY_METRIC[metric];
+    if (!stage || !Number.isFinite(value) || value < 0) continue;
+    const at = new Date(recordedAt);
+    if (Number.isNaN(at.getTime())) continue;
+    const night = at.toISOString().slice(0, 10);
+    const bucket = nights.get(night) ?? { deep: 0, light: 0, rem: 0 };
+    bucket[stage] += value;
+    nights.set(night, bucket);
+  }
+  if (!nights.size) return null;
+  const latest = [...nights.keys()].sort().at(-1);
+  return { ...nights.get(latest), date: latest };
+}
+
+module.exports = { computeStateVector, upsertStateVector, aggregateProfileMetrics, computeLastNightSleep };
