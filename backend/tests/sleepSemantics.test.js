@@ -96,7 +96,11 @@ describe('persistMetrics — lastNightSleep persistence', () => {
   it('enqueues a state-vector recompute so backfill finally influences generation', async () => {
     await persistMetrics('u1', batch);
 
-    expect(enqueue).toHaveBeenCalledWith('state-vector-recompute', { userId: 'u1' });
+    expect(enqueue).toHaveBeenCalledWith(
+      'state-vector-recompute',
+      { userId: 'u1' },
+      expect.objectContaining({ jobId: 'state-vector:u1' })
+    );
   });
 
   it('a queue failure never breaks ingestion', async () => {

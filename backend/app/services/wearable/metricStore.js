@@ -89,9 +89,17 @@ async function persistMetrics(userId, metrics) {
   }
 
   // New data → recompute baselines + state vector (backfill finally drives state).
+  // Debounced: a deterministic jobId + delay coalesces a backfill burst (hundreds
+  // of chunked batches) into ONE heavy decrypt run; removeOnComplete frees the id
+  // so the next batch can queue again. (shadow-audit flood finding)
   if (hrDocs.length || Object.keys($set).length) {
     try {
-      await enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId });
+      await enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
+        jobId: `state-vector:${userId}`,
+        delay: 60_000,
+        removeOnComplete: true,
+        removeOnFail: true,
+      });
     } catch (e) {
       console.error('[metricStore] recompute enqueue failed:', e.message);
     }
