@@ -1,9 +1,39 @@
 'use strict';
 
-const { resolveMusicProvider } = require('../app/utils/providerSelect');
+const {
+  resolveMusicProvider,
+  resolvePlaybackProvider,
+  resolveDataProviders,
+} = require('../app/utils/providerSelect');
 
 const spToken = { blob: 'enc-sp' };
 const ytToken = { blob: 'enc-yt' };
+
+describe('resolvePlaybackProvider (Spotify is the only playback engine)', () => {
+  it('is spotify whenever a Spotify token exists — even if musicProvider says youtube', () => {
+    expect(resolvePlaybackProvider({ spotifyToken: spToken, youtubeMusicToken: ytToken, musicProvider: 'youtube' })).toBe('spotify');
+  });
+  it('is null for a YouTube-only user (no in-app playback)', () => {
+    expect(resolvePlaybackProvider({ spotifyToken: null, youtubeMusicToken: ytToken })).toBeNull();
+  });
+  it('is null for no user', () => {
+    expect(resolvePlaybackProvider(null)).toBeNull();
+  });
+});
+
+describe('resolveDataProviders (both can be active simultaneously)', () => {
+  it('lists both when both tokens are present', () => {
+    expect(resolveDataProviders({ spotifyToken: spToken, youtubeMusicToken: ytToken })).toEqual(['spotify', 'youtube']);
+  });
+  it('lists only the connected one', () => {
+    expect(resolveDataProviders({ spotifyToken: null, youtubeMusicToken: ytToken })).toEqual(['youtube']);
+    expect(resolveDataProviders({ spotifyToken: spToken, youtubeMusicToken: null })).toEqual(['spotify']);
+  });
+  it('is empty for no connections', () => {
+    expect(resolveDataProviders({})).toEqual([]);
+    expect(resolveDataProviders(null)).toEqual([]);
+  });
+});
 
 describe('resolveMusicProvider', () => {
   it('returns null when neither provider has a token', () => {

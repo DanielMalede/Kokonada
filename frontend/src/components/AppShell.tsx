@@ -8,7 +8,7 @@ import { useSpotifyPlayer } from '@/hooks/useSpotifyPlayer';
 import { usePendingPromotion } from '@/hooks/usePendingPromotion';
 import { authHeaders } from '@/lib/api';
 import { sanitizeTrackUris } from '@/lib/spotifyUri';
-import { setMusicProvider, setBiometricProvider, setSpotifyCanSave } from '@/store/slices/integrationsSlice';
+import { setMusicProvider, setBiometricProvider, setConnections, setSpotifyCanSave } from '@/store/slices/integrationsSlice';
 import EmotionAura from './EmotionAura';
 import BottomNav from './BottomNav';
 import DesktopSidebar from './DesktopSidebar';
@@ -24,7 +24,9 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
  */
 export default function AppShell() {
   const dispatch = useDispatch<AppDispatch>();
-  const musicProvider = useSelector((s: RootState) => s.integrations.musicProvider);
+  // Playback always runs on Spotify (the playback engine) when connected — independent of
+  // which provider built the taste profile. Gate the SDK + play calls on this, not musicProvider.
+  const playbackProvider = useSelector((s: RootState) => s.integrations.playbackProvider);
   const { playlist, playbackMode, deviceId } = useSelector((s: RootState) => s.player);
   const isOnline = useSelector((s: RootState) => s.player.isOnline);
   const handledPlaylistRef = useRef<string | null>(null);
@@ -55,6 +57,11 @@ export default function AppShell() {
       .then((data) => {
         if (!data) return;
         dispatch(setMusicProvider(data.musicProvider));
+        dispatch(setConnections({
+          spotifyConnected: Boolean(data.spotifyConnected),
+          youtubeConnected: Boolean(data.youtubeConnected),
+          playbackProvider: data.playbackProvider === 'spotify' ? 'spotify' : null,
+        }));
         dispatch(setBiometricProvider(data.biometricProvider));
         dispatch(setSpotifyCanSave(Boolean(data.spotifyCanSave)));
       })
@@ -68,7 +75,7 @@ export default function AppShell() {
   }, [isOnline, resyncIntegrations]);
 
   useSocket();
-  useSpotifyPlayer(musicProvider);
+  useSpotifyPlayer(playbackProvider);
   usePendingPromotion();
 
   // When a fresh playlist lands, stream it: play on the desktop SDK device, or
@@ -77,7 +84,7 @@ export default function AppShell() {
   // the rehydrate effect below) so we DON'T auto-restart it from track 1 — the user
   // resumes it with the play button at the saved track.
   useEffect(() => {
-    if (musicProvider !== 'spotify' || playlist.length === 0) return;
+    if (playbackProvider !== 'spotify' || playlist.length === 0) return;
     if (playbackMode !== 'live') return;
 
     const rawUris = playlist.map((t) => t.uri);
@@ -122,7 +129,7 @@ export default function AppShell() {
         console.error('[play] failed:', err);
         toast.error('Could not start playback — please try again.');
       });
-  }, [playlist, deviceId, musicProvider, playbackMode]);
+  }, [playlist, deviceId, playbackProvider, playbackMode]);
 
   return (
     <>

@@ -13,7 +13,7 @@ const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
 const { buildProfile } = require('../services/musicProfileService');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
-const { resolveMusicProvider } = require('../utils/providerSelect');
+const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = require('../utils/providerSelect');
 const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
 const { revoke, isRevoked } = require('../utils/tokenDenylist');
 const { getRedis } = require('../config/redis');
@@ -659,8 +659,16 @@ exports.getIntegrationsStatus = async (req, res, next) => {
     // can enable the Like button (and prompt a single reconnect when missing)
     // instead of discovering it via a 409 on every click (audit #5).
     const scopes = user.spotifyScopes || '';
+    const dataProviders = resolveDataProviders(user);
     res.json({
+      // Back-compat: the single "effective" provider (Spotify preferred).
       musicProvider:     resolveMusicProvider(user),
+      // New role model — Spotify is the PLAYBACK engine, both can be DATA engines
+      // simultaneously. The UI shows both as connected and labels their roles.
+      playbackProvider:  resolvePlaybackProvider(user),   // 'spotify' | null
+      dataProviders,                                       // ['spotify','youtube'] (either/both)
+      spotifyConnected:  dataProviders.includes('spotify'),
+      youtubeConnected:  dataProviders.includes('youtube'),
       biometricProvider: user.wearableProvider ?? null,
       spotifyCanSave:    scopes.includes('user-library-modify'),
     });

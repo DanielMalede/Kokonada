@@ -12,8 +12,9 @@ const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist, critiqueTrackVibe } = require('../services/geminiEngine');
 const { mixPlaylist, generateFallbackPlaylist, personalizeWhitelist }  = require('../services/playlistMixer');
 const { buildMoodParams, resolveMoodKey }      = require('../services/moodDescriptors');
-const { resolveMusicProvider } = require('../utils/providerSelect');
+const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
+const { translateToSpotify } = require('../services/crossPlatform');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -382,11 +383,13 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // common cause of an empty playlist) is visible in prod logs.
     console.warn(`[generate] profile loaded trigger=${trigger} library=${musicProfile.library?.length ?? 0} topGenres=${(musicProfile.topGenres || []).length} genreSet=${(musicProfile.genreSet || []).length}`);
 
-    // Select the provider with a stored token (token-aware), so generation,
-    // GET /integrations/status, and the frontend SDK/playback all agree on one
-    // usable provider — no more "musicProvider says spotify but only YouTube is
-    // connected" desync that 400s the token + play calls.
-    const provider = resolveMusicProvider(user);
+    // PLAYBACK-first sourcing (YouTube-as-data / Spotify-as-playback architecture):
+    // when Spotify is connected it is the playback engine, so we SOURCE from Spotify
+    // regardless of which provider built the taste profile — the (now YouTube-weighted)
+    // profile's genres/artists still steer that Spotify discovery, and every track is
+    // natively playable on the Web Playback SDK. A YouTube-only user (no Spotify) falls
+    // back to YouTube sourcing. This supersedes the old resolveMusicProvider desync.
+    const provider = resolvePlaybackProvider(user) || resolveMusicProvider(user);
     if (!provider) {
       socket.emit('playlist_error', { message: 'No music provider connected', reqId });
       return;
@@ -420,9 +423,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     const ratios = strict ? { rotation: STRICT_ROTATION_RATIO_DEFAULT } : null;
 
     let fetchTracks;
+    let spotifyToken = null; // hoisted so the post-mix Spotify translation step can reuse it
     try {
       if (provider === 'spotify') {
-        const accessToken = await spotify.getValidToken(user);
+        spotifyToken = await spotify.getValidToken(user);
+        const accessToken = spotifyToken;
         // Layer 1 → personalization → Layer 2. Source candidates from curated vibe
         // playlists (energy/tempo encoded by curation), tag with artist genres, then
         // apply the ABSOLUTE personalization filter (a Rock track from "Beast Mode" is
@@ -568,6 +573,19 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // genre-unknown, so strict discard would wrongly wipe it. HR branch keeps soft-bias.
       strictPersonalize:   useEmotion && provider === 'spotify',
     });
+
+    // Cross-platform translation: playback happens on Spotify's SDK, so every track must
+    // carry a spotify: URI. This is a cheap O(n) passthrough for native Spotify tracks (no
+    // network) and resolves any YouTube-sourced track to a playable Spotify URI via search.
+    // Guarded to the Spotify playback path; a dropped (unmatched) track never blocks the rest.
+    if (provider === 'spotify' && spotifyToken && playlist?.merged?.length) {
+      try {
+        const { tracks: playable } = await translateToSpotify(playlist.merged, spotifyToken);
+        if (playable.length) playlist.merged = playable;
+      } catch (e) {
+        log(`[generate] cross-platform translation skipped: ${e.message}`);
+      }
+    }
 
     // Normalize to the client contract (and reconstruct/validate uris). Guard on
     // the PLAYABLE result: never push an empty/unplayable playlist — it would blank
