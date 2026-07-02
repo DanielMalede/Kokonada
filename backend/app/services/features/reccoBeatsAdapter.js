@@ -8,7 +8,12 @@ const { clampFeatures, recordingKeyOf, spotifyIdOf } = require('./featureProvide
 // Batch results are matched back by the Spotify id embedded in each item's
 // href (falling back to spotifyId/id fields) — never by array position.
 
-const BATCH_SIZE = () => parseInt(process.env.RECCOBEATS_BATCH || '40', 10);
+// Clamped ≥1: a zero/garbage env value would zero the loop increment and
+// spin the process into heap exhaustion (shadow-audit OOM finding).
+const BATCH_SIZE = () => {
+  const n = parseInt(process.env.RECCOBEATS_BATCH ?? '', 10);
+  return Number.isFinite(n) && n >= 1 ? n : 40;
+};
 const BASE_URL   = () => process.env.RECCOBEATS_URL || 'https://api.reccobeats.com';
 const TIMEOUT_MS = () => parseInt(process.env.RECCOBEATS_TIMEOUT_MS || '8000', 10);
 

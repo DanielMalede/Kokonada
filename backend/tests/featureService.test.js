@@ -110,6 +110,25 @@ describe('featureService.hydrate', () => {
   });
 });
 
+describe('shadow audit — outage degradation', () => {
+  it('a ReccoBeats outage never lets LLM guesses replace measurable Spotify features', async () => {
+    const sp = spTrack('a');
+    // API supports the track but the batch failed → features:null
+    reccoBeats.getFeatures.mockResolvedValue([
+      { track: sp, recordingKey: 'spotify:a', features: null, source: 'api', confidence: null },
+    ]);
+    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => llmHit(t)));
+
+    const summary = await hydrate([sp]);
+
+    // The Spotify track stays MISSING (retried next hydration) instead of being
+    // permanently degraded to an LLM estimate the repo would then protect.
+    expect(llmEstimator.getFeatures).not.toHaveBeenCalled();
+    expect(repo.upsertMany).not.toHaveBeenCalled();
+    expect(summary.failed).toBe(1);
+  });
+});
+
 describe('featureService.enqueueHydration', () => {
   it('short-circuits when nothing is missing', async () => {
     repo.missingKeys.mockResolvedValue([]);

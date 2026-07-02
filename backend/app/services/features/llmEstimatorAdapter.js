@@ -9,7 +9,11 @@ const { clampFeatures, recordingKeyOf } = require('./featureProvider');
 // boundary, and confidence is hard-capped below any measured value.
 
 const CONFIDENCE_CAP = 0.7;
-const BATCH_SIZE = () => parseInt(process.env.FEATURE_LLM_BATCH || '20', 10);
+// Clamped ≥1 — see reccoBeatsAdapter: a zero batch size is an OOM spin-loop.
+const BATCH_SIZE = () => {
+  const n = parseInt(process.env.FEATURE_LLM_BATCH ?? '', 10);
+  return Number.isFinite(n) && n >= 1 ? n : 20;
+};
 const MODEL      = () => process.env.FEATURE_LLM_MODEL || null; // llmClient default
 const TIMEOUT_MS = () => parseInt(process.env.FEATURE_LLM_TIMEOUT_MS || '10000', 10);
 
@@ -58,7 +62,7 @@ function _parseEstimates(raw, batchSize) {
   }
   const byIndex = new Map();
   for (const est of parsed?.estimates ?? []) {
-    const i = est?.i;
+    const i = Number(est?.i); // models emit "0" as often as 0 — coerce, then validate
     if (!Number.isInteger(i) || i < 0 || i >= batchSize || byIndex.has(i)) continue;
     const features = clampFeatures(est);
     if (!features) continue;

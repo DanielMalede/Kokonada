@@ -52,7 +52,7 @@ describe('audioFeatureRepo.getMany', () => {
     expect(out.get('spotify:a').bpm).toBe(120);
   });
 
-  it('backfills Redis (with a TTL) for Mongo hits', async () => {
+  it('backfills Redis with a TTL and NX so a stale read can never clobber a racing fresh write', async () => {
     const redis = fakeRedis();
     redis.mget.mockResolvedValue([null]);
     getRedis.mockReturnValue(redis);
@@ -60,7 +60,7 @@ describe('audioFeatureRepo.getMany', () => {
 
     await repo.getMany(['spotify:a']);
 
-    expect(redis.set).toHaveBeenCalledWith('af:spotify:a', expect.any(String), 'EX', expect.any(Number));
+    expect(redis.set).toHaveBeenCalledWith('af:spotify:a', expect.any(String), 'EX', expect.any(Number), 'NX');
   });
 
   it('works Redis-less (getRedis() null): straight to Mongo', async () => {

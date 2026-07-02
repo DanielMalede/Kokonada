@@ -94,3 +94,24 @@ describe('reccoBeatsAdapter.getFeatures', () => {
     expect(results).toEqual([]);
   });
 });
+
+describe('shadow audit — API chaos', () => {
+  it('a timeout (no response object) degrades to nulls without retry storms', async () => {
+    axios.get.mockRejectedValue(Object.assign(new Error('timeout of 8000ms exceeded'), { code: 'ECONNABORTED' }));
+
+    const results = await adapter.getFeatures([sp('a')]);
+
+    expect(results[0].features).toBeNull();
+    expect(axios.get).toHaveBeenCalledTimes(1); // non-429 errors are not retried
+  });
+
+  it('a zero/garbage RECCOBEATS_BATCH cannot infinite-loop the adapter', async () => {
+    process.env.RECCOBEATS_BATCH = '0';
+    axios.get.mockResolvedValue({ data: { content: [] } });
+
+    const results = await adapter.getFeatures([sp('a'), sp('b')]);
+
+    expect(results).toHaveLength(2);
+    delete process.env.RECCOBEATS_BATCH;
+  }, 2000);
+});

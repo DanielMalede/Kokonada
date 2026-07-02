@@ -106,3 +106,44 @@ describe('llmEstimatorAdapter.getFeatures — engineered fallback', () => {
     expect(llmClient.generateJson).not.toHaveBeenCalled();
   });
 });
+
+describe('shadow audit — LLM output poisoning', () => {
+  it('accepts sloppy string indices ("0") instead of silently dropping usable estimates', async () => {
+    llmClient.generateJson.mockResolvedValue(estimatesResponse([
+      { i: '0', bpm: 118, energy: 0.5, confidence: 0.5 },
+    ]));
+
+    const [r] = await adapter.getFeatures([yt('v1')]);
+
+    expect(r.features.bpm).toBe(118);
+  });
+
+  it('a top-level array (schema violation) degrades to nulls, never crashes', async () => {
+    llmClient.generateJson.mockResolvedValue(JSON.stringify([{ i: 0, bpm: 120 }]));
+
+    const [r] = await adapter.getFeatures([yt('v1')]);
+
+    expect(r.features).toBeNull();
+  });
+
+  it('non-numeric confidence ("high") falls to the conservative default, still capped', async () => {
+    llmClient.generateJson.mockResolvedValue(estimatesResponse([
+      { i: 0, bpm: 120, energy: 0.5, confidence: 'high' },
+    ]));
+
+    const [r] = await adapter.getFeatures([yt('v1')]);
+
+    expect(r.confidence).toBeGreaterThan(0);
+    expect(r.confidence).toBeLessThanOrEqual(0.7);
+  });
+
+  it('a zero/garbage FEATURE_LLM_BATCH cannot infinite-loop the adapter', async () => {
+    process.env.FEATURE_LLM_BATCH = '0';
+    llmClient.generateJson.mockResolvedValue(estimatesResponse([]));
+
+    const results = await adapter.getFeatures([yt('a'), yt('b')]);
+
+    expect(results).toHaveLength(2);
+    delete process.env.FEATURE_LLM_BATCH;
+  }, 2000);
+});

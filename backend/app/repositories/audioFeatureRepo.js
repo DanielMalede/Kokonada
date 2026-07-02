@@ -46,7 +46,9 @@ async function getMany(recordingKeys = []) {
     for (const row of rows) {
       out.set(row.recordingKey, row);
       if (redis) {
-        redis.set(_cacheKey(row.recordingKey), JSON.stringify(row), 'EX', TTL_SECONDS())
+        // NX: a read-path backfill may race a fresh upsert write — never let the
+        // (possibly stale) read overwrite the writer's value.
+        redis.set(_cacheKey(row.recordingKey), JSON.stringify(row), 'EX', TTL_SECONDS(), 'NX')
           .catch(() => {}); // cache backfill is best-effort
       }
     }

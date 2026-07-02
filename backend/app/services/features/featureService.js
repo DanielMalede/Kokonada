@@ -59,7 +59,11 @@ async function hydrate(tracks = []) {
     summary.api++;
   }
 
-  const leftovers = targets.filter(p => !fed.has(p.recordingKey));
+  // LLM estimation is a fallback for tracks the measured API can never serve
+  // (YouTube-only) — NOT for API outages. A Spotify track whose batch failed
+  // stays missing and is retried next hydration; storing an LLM guess for it
+  // would let the never-clobber rule pin the guess over a measurable truth.
+  const leftovers = targets.filter(p => !fed.has(p.recordingKey) && !reccoBeats.supports(p.track));
   if (leftovers.length) {
     const llmResults = await llmEstimator.getFeatures(leftovers.map(p => p.track));
     for (const r of llmResults) {
