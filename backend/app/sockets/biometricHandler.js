@@ -39,14 +39,9 @@ const WATCH_HR_DELTA_THRESHOLD = 25;
 // still fill 50 (15 discovery + library backfill, or all 50 from discovery when
 // the library is empty). The mixer trims to the 30% target / fills the rest.
 const DISCOVERY_FETCH_LIMIT = 60;
-// Generation tuning knobs (all env-overridable): COOLDOWN_GENERATIONS / COOLDOWN_MAX_IDS
-// (anti-repetition window) here; ROTATION_RATIO / DISCOVERY_RATIO / DEEPCUTS_TOP_N /
-// ROTATION_TIERS (40/40/20 + tiered rotation) in playlistMixer.js; MICRO_GENRE_COUNT
-// (micro-genre seed shifting) in geminiEngine.js.
-// Anti-repetition: hold every track from the user's last N generations on a cooldown
-// so sequential playlists don't overlap. Backed by PlaylistSession (persists across
-// restarts/devices), capped so a huge history can't bloat the exclude set.
-// (Legacy cooldown constants removed — the ServeLedger owns anti-repetition.)
+// Generation tuning knobs live with their owners: the selection pipeline reads
+// SELECTION_POOL_MAX / SCORE_W_* / LEDGER_* env vars; the frozen rollback mixer
+// keeps its own internals in playlistMixer.js.
 
 // ── Anti-repetition (Phase 6) ──────────────────────────────────────────────────
 // The nine legacy layers (per-mood blacklist, session cooldowns, strict mode,

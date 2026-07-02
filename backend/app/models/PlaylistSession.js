@@ -57,8 +57,10 @@ const playlistSessionSchema = new mongoose.Schema({
 });
 
 playlistSessionSchema.index({ userId: 1, createdAt: -1 });
-// Per-mood repeat detection + 24h blacklist query (find by user+mood within a window).
-playlistSessionSchema.index({ userId: 1, moodKey: 1, createdAt: -1 });
+// Phase 6 purge: the (userId, moodKey, createdAt) index served the deleted legacy
+// per-mood blacklist queries — the ServeLedger owns those reads now. Removing it
+// here stops index creation; drop the existing prod index manually:
+//   db.playlistsessions.dropIndex('userId_1_moodKey_1_createdAt_-1')
 playlistSessionSchema.index({ llmCacheKey: 1 });
 
 module.exports = mongoose.model('PlaylistSession', playlistSessionSchema);
