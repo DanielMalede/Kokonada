@@ -7,6 +7,7 @@ const { applyHardFilters } = require('./hardFilters');
 const { scoreTrack } = require('./score');
 const { select } = require('./mmr');
 const { recordingKeyOf } = require('../features/featureProvider');
+const vectorIndex = require('../vector/vectorIndex');
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR.
 // Zero LLM in the path. When filters would starve the playlist, a relaxation
@@ -61,21 +62,27 @@ async function selectPlaylist({
   }
 
   const canonicalKeys = pool.map(p => p.canonicalKey).filter(Boolean);
+  const recordingKeys = pool.map(recordingKeyOf).filter(Boolean);
   let featureMap = new Map();
   let exposure = new Map();
+  let embeddings = new Map();
   try {
-    [featureMap, exposure] = await Promise.all([
-      featureRepo.getMany(pool.map(recordingKeyOf).filter(Boolean)),
+    [featureMap, exposure, embeddings] = await Promise.all([
+      featureRepo.getMany(recordingKeys),
       ledger.getExposure(userId, canonicalKeys, now),
+      // Embeddings are an MMR enhancement — a vector-index failure never blocks.
+      vectorIndex.getMany(recordingKeys).catch(() => new Map()),
     ]);
   } catch (e) {
     console.error('[selection] feature/exposure load degraded:', e.message);
   }
   for (const track of pool) {
-    const doc = featureMap.get(recordingKeyOf(track));
+    const rk = recordingKeyOf(track);
+    const doc = featureMap.get(rk);
     track.features = doc
       ? { bpm: doc.bpm, energy: doc.energy, valence: doc.valence, acousticness: doc.acousticness, danceability: doc.danceability }
       : null;
+    track.embedding = embeddings.get(rk) ?? null;
   }
   mark('context', t);
 

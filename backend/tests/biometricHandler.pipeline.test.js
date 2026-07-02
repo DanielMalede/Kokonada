@@ -48,7 +48,6 @@ jest.mock('../app/services/geminiEngine', () => ({
 }));
 
 jest.mock('../app/services/playlistMixer', () => ({
-  mixPlaylist: jest.fn(),
   personalizeWhitelist: jest.fn(),
   generateFallbackPlaylist: jest.fn().mockReturnValue([{ id: 'lib-1' }, { id: 'lib-2' }]),
 }));
@@ -58,12 +57,7 @@ jest.mock('../app/services/features/featureService', () => ({
   enqueueHydration: jest.fn().mockResolvedValue({ queued: true }),
 }));
 
-jest.mock('../app/services/selection/selectionShadow', () => ({
-  run: jest.fn().mockReturnValue({ scheduled: true }),
-}));
-
 jest.mock('../app/services/generation/orchestrator', () => ({
-  isV2: jest.fn(() => process.env.SELECTION_V2 !== 'false'),
   generateV2: jest.fn(async () => ({
     familiar:  [{ id: 'lib-1', name: 'Familiar 1' }],
     discovery: [{ id: 'd1', name: 'Discovery 1' }, { id: 'd2', name: 'Discovery 2' }],
@@ -214,7 +208,6 @@ beforeEach(() => {
   geminiEngine.adjustBiometricPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.critiqueTrackVibe.mockImplementation(async ({ tracks }) => tracks);
-  playlistMixer.mixPlaylist.mockResolvedValue(makeMixedPlaylist());
   playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
   PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
@@ -286,7 +279,7 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
     expect(orchestrator.generateV2).toHaveBeenCalledWith(
       expect.objectContaining({ aiParams: AI_PARAMS })
     );
-    expect(playlistMixer.mixPlaylist).not.toHaveBeenCalled();
+
   });
 
   it('uses Spotify provider when user has Spotify token', async () => {
@@ -782,34 +775,6 @@ describe('serve ledger wiring (variance engine, Phase 3)', () => {
     expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
 
-  it('the shadow dual-run only fires on the ROLLBACK path (v2 serving would compare itself)', async () => {
-    const selectionShadow = require('../app/services/selection/selectionShadow');
-
-    await generateAndEmitPlaylist(makeSocket(), 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-    expect(selectionShadow.run).not.toHaveBeenCalled(); // v2 default
-
-    process.env.SELECTION_V2 = 'false';
-    await generateAndEmitPlaylist(makeSocket(), 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-    expect(selectionShadow.run).toHaveBeenCalledWith(expect.objectContaining({
-      userId: 'user-123',
-      moodKey: 'intense',
-      now: expect.any(Number),
-    }));
-    delete process.env.SELECTION_V2;
-  });
-
-  it('a shadow scheduling failure never breaks the playlist emit (rollback path)', async () => {
-    process.env.SELECTION_V2 = 'false';
-    const selectionShadow = require('../app/services/selection/selectionShadow');
-    selectionShadow.run.mockImplementationOnce(() => { throw new Error('shadow exploded'); });
-    const socket = makeSocket();
-
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-
-    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
-    delete process.env.SELECTION_V2;
-  });
-
   it('HR-branch generations flow through v2 under the synthetic bio moodKey (bypass structurally closed)', async () => {
     const orchestrator = require('../app/services/generation/orchestrator');
     const socket = makeSocket();
@@ -852,18 +817,10 @@ describe('mood-aware fallback when the LLM fails (zero-tolerance holds without A
   });
 });
 
-// ── Layer 1+2: vibe sourcing, personalization (absolute filter), critic ───────
+// ── Layer 1: vibe sourcing + personalization (the critic left the hot path) ───
 
 describe('vibe pipeline wiring (Spotify)', () => {
-  it('ROLLBACK path only: the frozen mixer keeps strictPersonalize on the emotion branch', async () => {
-    process.env.SELECTION_V2 = 'false';
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-    expect(playlistMixer.mixPlaylist).toHaveBeenCalledWith(expect.objectContaining({ strictPersonalize: true }));
-    delete process.env.SELECTION_V2;
-  });
-
-  it('Spotify fetchTracks closure sources from vibe playlists, personalizes to taste, then runs the critic', async () => {
+  it('Spotify fetchTracks closure sources from vibe playlists and personalizes — the critic NEVER runs in the hot path', async () => {
     spotify.fetchVibeDiscovery.mockResolvedValue([{ id: 'r1', artists: [{ id: 'a1' }] }]);
     spotify.getArtistsGenres.mockResolvedValue({ a1: ['afrobeat'] });
 
@@ -887,40 +844,9 @@ describe('vibe pipeline wiring (Spotify)', () => {
       expect.arrayContaining([expect.objectContaining({ id: 'r1', genres: ['afrobeat'] })]),
       expect.objectContaining({ genreSet: expect.anything(), knownArtistIds: expect.anything() }),
     );
-    expect(geminiEngine.critiqueTrackVibe).toHaveBeenCalledWith(
-      expect.objectContaining({ moodKey: 'intense', moodKeywords: ['heavy'] }),
-    );
+    // Phase 7: vibe judgment is worker-side enrichment now — zero LLM in the closure.
+    expect(geminiEngine.critiqueTrackVibe).not.toHaveBeenCalled();
     expect(result).toEqual([{ id: 'r1', artists: [{ id: 'a1' }], provider: 'spotify', artistIds: ['a1'], genres: ['afrobeat'] }]);
-  });
-
-  it('does NOT run the critic on the HR branch (no mood)', async () => {
-    let captured;
-    geminiEngine.adjustBiometricPlaylist.mockImplementation(async ({ fetchTracks }) => {
-      captured = fetchTracks;
-      return { params: AI_PARAMS, tracks: [] };
-    });
-
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'biometric', makeState());
-    await captured(AI_PARAMS);
-
-    expect(geminiEngine.critiqueTrackVibe).not.toHaveBeenCalled();
-  });
-
-  it('honours VIBE_CRITIC=false by skipping the critic even on the emotion branch', async () => {
-    process.env.VIBE_CRITIC = 'false';
-    let captured;
-    geminiEngine.buildEmotionPlaylist.mockImplementation(async ({ fetchTracks }) => {
-      captured = fetchTracks;
-      return { params: AI_PARAMS, tracks: [] };
-    });
-
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-    await captured({ ...AI_PARAMS, playlist_queries: ['beast mode'] });
-
-    expect(geminiEngine.critiqueTrackVibe).not.toHaveBeenCalled();
-    delete process.env.VIBE_CRITIC;
   });
 });
 
@@ -1109,14 +1035,11 @@ describe('activity-mode change triggers regeneration', () => {
 
 // ── THE FLIP (variance engine, Phase 6): v2 serves; legacy is the frozen rollback ──
 
-describe('the flip — SELECTION_V2 routing', () => {
+describe('the sealed engine — v2 is the only serving path', () => {
   const orchestrator = require('../app/services/generation/orchestrator');
-  const serveLedger = require('../app/services/ledger/serveLedger');
   const INTENSE = [{ x: 0.1, y: 0.95 }];
 
-  afterEach(() => { delete process.env.SELECTION_V2; });
-
-  it('v2 serves by default: generateV2 gets the mood, LLM params, discovery and live biometrics', async () => {
+  it('generateV2 gets the mood, LLM params, discovery and live biometrics — unconditionally', async () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE }));
 
@@ -1127,35 +1050,18 @@ describe('the flip — SELECTION_V2 routing', () => {
       discoveryTracks: DISCOVERY_TRACKS,
       live: expect.objectContaining({ heartRate: 80 }),
     }));
-    expect(playlistMixer.mixPlaylist).not.toHaveBeenCalled();
+
     expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
 
-  it('SELECTION_V2=false rolls back to the frozen mixer, fed by the ledger global window', async () => {
+  it('a stale SELECTION_V2 env var changes nothing (the flag is dead)', async () => {
     process.env.SELECTION_V2 = 'false';
-    serveLedger.hardExcluded.mockResolvedValue(new Set(['at:x|y']));
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE }));
 
-    expect(orchestrator.generateV2).not.toHaveBeenCalled();
-    const arg = playlistMixer.mixPlaylist.mock.calls.at(-1)[0];
-    expect(arg.cooldownIds).toEqual(new Set(['at:x|y']));
-    serveLedger.hardExcluded.mockResolvedValue(new Set());
-  });
-
-  it('CUTOVER: flipping mid-session is seamless — generations across the flip all serve', async () => {
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE })); // v2
-
-    process.env.SELECTION_V2 = 'false';
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE })); // legacy
-
+    expect(orchestrator.generateV2).toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
     delete process.env.SELECTION_V2;
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE })); // v2 again
-
-    const readyCalls = socket.emit.mock.calls.filter(c => c[0] === 'playlist_ready');
-    expect(readyCalls).toHaveLength(3);
-    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
   });
 
   it('records the resolved moodKey on the session (synthetic bio:* for the HR branch)', async () => {

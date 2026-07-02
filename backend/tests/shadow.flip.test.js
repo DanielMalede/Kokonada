@@ -25,6 +25,12 @@ jest.mock('../app/models/ServeEvent', () => {
     })),
   };
 });
+jest.mock('../app/services/vector/vectorIndex', () => ({
+  getMany: jest.fn().mockResolvedValue(new Map()),
+  upsertMany: jest.fn().mockResolvedValue({ upserted: 0 }),
+  queryNear: jest.fn().mockResolvedValue([]),
+  use: jest.fn(),
+}));
 jest.mock('../app/repositories/audioFeatureRepo', () => ({
   getMany: jest.fn().mockResolvedValue(new Map()),
   upsertMany: jest.fn(),
@@ -55,21 +61,23 @@ beforeEach(() => {
   delete process.env.SELECTION_V2;
 });
 
-describe('ATTACK 1 — cutover chaos (flag flips mid-flight under load)', () => {
-  it('10 interleaved generations across live SELECTION_V2 flips: zero drops, zero nulls', async () => {
+describe('ATTACK 1 — cutover sealed (the flag is gone, v2 is unconditional)', () => {
+  it('the rollback flag and legacy engine no longer exist', () => {
+    expect(orchestrator.isV2).toBeUndefined();
+    const mixer = require('../app/services/playlistMixer');
+    expect(mixer.mixPlaylist).toBeUndefined();
+    expect(Object.keys(mixer).sort()).toEqual(['generateFallbackPlaylist', 'personalizeWhitelist']);
+  });
+
+  it('10 interleaved generations (env noise included): zero drops, zero nulls', async () => {
     const results = [];
     for (let i = 0; i < 10; i++) {
-      if (i === 3) process.env.SELECTION_V2 = 'false';
+      if (i === 3) process.env.SELECTION_V2 = 'false'; // a stale env var must change NOTHING
       if (i === 6) delete process.env.SELECTION_V2;
-      // Each call reads the flag at ITS moment — in-flight work is never re-routed.
-      const engineAtStart = orchestrator.isV2();
-      const out = engineAtStart
-        ? await orchestrator.generateV2({
-            userId: `u${i % 3}`, musicProfile: profileFor(`u${i % 3}`, 60),
-            moodKey: 'uplift', live: { heartRate: 90 + i, activity: 'walking' }, now: NOW + i * 1000,
-          })
-        : { merged: [{ id: 'legacy' }], legacy: true };
-      results.push(out);
+      results.push(await orchestrator.generateV2({
+        userId: `u${i % 3}`, musicProfile: profileFor(`u${i % 3}`, 60),
+        moodKey: 'uplift', live: { heartRate: 90 + i, activity: 'walking' }, now: NOW + i * 1000,
+      }));
     }
 
     expect(results).toHaveLength(10);
@@ -77,7 +85,6 @@ describe('ATTACK 1 — cutover chaos (flag flips mid-flight under load)', () => 
       expect(Array.isArray(r.merged)).toBe(true);
       expect(r.merged.length).toBeGreaterThan(0);
     }
-    expect(results.filter(r => r.legacy)).toHaveLength(3); // gens 3,4,5 rode the rollback
   });
 
   it('concurrent v2 generations for different users do not cross-contaminate exclusions', async () => {
@@ -109,9 +116,29 @@ describe('ATTACK 2 — the purge audit (no dangling legacy remains)', () => {
       'recentTrackCooldown', 'recentMoodCooldown', 'isRepeatMood', 'pickSortAxis',
       '_seededInt', 'STRICT_ANTIREPEAT', 'STRICT_REPEAT_WINDOW', 'STRICT_MOOD_BLACKLIST',
       'SORT_AXES', 'STRICT_ROTATION_RATIO', 'COOLDOWN_GENERATIONS', 'COOLDOWN_MAX_IDS',
+      // Phase 7 shim deletion:
+      'mixPlaylist', 'SELECTION_V2', 'selectionShadow', 'critiqueTrackVibe', 'VIBE_CRITIC', 'runCritic',
     ]) {
       expect(src.includes(dead)).toBe(false);
     }
+  });
+
+  it('SHIM DELETION: the legacy engine identifiers are banned from the entire app tree', () => {
+    const banned = ['mixPlaylist', 'selectionShadow', 'critiqueTrackVibe', 'SELECTION_V2', '_tierRotated', '_varietyWindow'];
+    const scan = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { scan(full); continue; }
+        if (!entry.name.endsWith('.js')) continue;
+        const src = fs.readFileSync(full, 'utf8');
+        for (const dead of banned) {
+          if (src.includes(dead)) {
+            throw new Error(`dangling legacy identifier "${dead}" in ${full}`);
+          }
+        }
+      }
+    };
+    scan(path.join(__dirname, '..', 'app'));
   });
 
   it('no module anywhere imports the deleted handler exports', () => {

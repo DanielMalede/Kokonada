@@ -17,11 +17,6 @@ const REQUIRED_FIELDS = [
 // HR/biometric path, which keeps its own BPM logic. The critic keeps only tracks that
 // sit in this band; an invalid/missing value is filled deterministically downstream.
 const TEMPO_CATEGORIES = ['resting', 'active', 'peak'];
-const TEMPO_BAND_HINT = {
-  resting: 'slow, low-energy, calm — roughly under ~95 BPM',
-  active:  'mid-tempo, steady, moderate energy — roughly ~95–135 BPM',
-  peak:    'fast, driving, high-energy — roughly ~135 BPM and up',
-};
 
 const GEMINI_TIMEOUT_MS = 5_000;
 
@@ -398,84 +393,6 @@ async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, s
   return { params, tracks: await fetchTracks(params) };
 }
 
-// ── Layer 2: Groq critic re-rank ─────────────────────────────────────────────
-// Genre tags can't tell a 70 BPM ballad from a 180 BPM anthem, and Spotify killed
-// /audio-features. This pass asks the LLM — which "knows" most songs' actual energy
-// from its training — to drop tracks whose tempo/energy don't match the mood. It is
-// a POLISH layer, not a guarantee: reconciliation is index-based (no fuzzy title
-// matching), and any failure FAILS OPEN (returns the pool unchanged) so a flaky or
-// hallucinating model can never blank or corrupt the playlist.
-
-const CRITIC_TIMEOUT_MS = Number(process.env.VIBE_CRITIC_TIMEOUT_MS) || 6_000;
-// Bound the prompt so a deep candidate pool can't blow up tokens/latency. Tracks
-// beyond the cap pass through unjudged (the pool is normally well under this).
-const MAX_CRITIC_TRACKS = Number(process.env.VIBE_CRITIC_MAX_TRACKS) || 120;
-// Estimating a niche track's real tempo needs world knowledge the 8B default lacks,
-// so the critic runs on a bigger Groq model (existing key/infra — no new billing).
-const TEMPO_CRITIC_MODEL = process.env.TEMPO_CRITIC_MODEL || 'llama-3.3-70b-versatile';
-
-function _buildCriticPrompt(tracks, moodKey, moodKeywords, tempoCategory = null) {
-  const list = tracks
-    .map((t, i) => {
-      const artist = (t.artists || []).map((a) => a?.name).filter(Boolean).slice(0, 2).join(', ') || 'Unknown';
-      return `${i}. ${artist} – ${t.name || 'Unknown'}`;
-    })
-    .join('\n');
-  const kw = (moodKeywords || []).filter(Boolean).join(', ');
-  const band = TEMPO_CATEGORIES.includes(tempoCategory) ? tempoCategory : null;
-  const bandLine = band
-    ? `\nTarget tempo band: ${band.toUpperCase()} — ${TEMPO_BAND_HINT[band]}. Keep tracks that sit in this band.`
-    : '';
-
-  return `You are a strict expert music critic curating a "${moodKey}" session${kw ? ` (vibe: ${kw})` : ''}.${bandLine}
-From the numbered tracklist below, keep ONLY the tracks whose ACTUAL energy and tempo truly match this vibe${band ? ` and the target tempo band` : ''}. Drop anything off-energy — e.g. a slow acoustic ballad in a high-energy set, or an aggressive heavy track in a calm set — judging by your knowledge of each song.
-
-Output ONLY a JSON object (no explanation, no markdown) of the form {"keep":[<indices to keep>]}, using the exact indices from the list.
-
-Tracklist:
-${list}`;
-}
-
-// Parse the critic's {"keep":[...]} into a clean list of in-range integer indices.
-// Throws on anything unusable so the caller fails open.
-function _parseKeepIndices(raw, count) {
-  if (typeof raw !== 'string' || raw.trim() === '') throw new Error('empty critic response');
-  const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-  const parsed = JSON.parse(cleaned);
-  if (!Array.isArray(parsed.keep)) throw new Error('critic response missing keep array');
-  return [...new Set(parsed.keep)].filter((n) => Number.isInteger(n) && n >= 0 && n < count);
-}
-
-/**
- * Re-ranks a candidate pool, keeping only tracks whose energy/tempo match the mood.
- * Fail-open: returns `tracks` unchanged on empty/no-mood input or any LLM failure.
- * @param {{ tracks: object[], moodKey: string|null, moodKeywords?: string[] }} opts
- * @returns {Promise<object[]>}
- */
-async function critiqueTrackVibe({ tracks = [], moodKey = null, moodKeywords = [], tempoCategory = null } = {}) {
-  if (!Array.isArray(tracks) || tracks.length === 0) return tracks || [];
-  if (!moodKey) return tracks; // no resolvable mood (e.g. HR branch) → nothing to judge
-
-  const head = tracks.slice(0, MAX_CRITIC_TRACKS);
-  const tail = tracks.slice(MAX_CRITIC_TRACKS);
-
-  try {
-    const raw  = await _withTimeout(
-      CRITIC_TIMEOUT_MS,
-      // Bigger model + the full critic window (the 70B is slower than the 8B default,
-      // so give the axios call the same budget as the outer timeout).
-      _generate(_buildCriticPrompt(head, moodKey, moodKeywords, tempoCategory), { model: TEMPO_CRITIC_MODEL, timeoutMs: CRITIC_TIMEOUT_MS }),
-    );
-    const keep = _parseKeepIndices(raw, head.length);
-    // A critic that "keeps nothing" is treated as no signal, not as "blank the set".
-    if (keep.length === 0) return tracks;
-    return [...keep.map((i) => head[i]), ...tail];
-  } catch (err) {
-    console.warn(`[vibe-critic] re-rank skipped (${err.message}) — keeping pool unchanged`);
-    return tracks;
-  }
-}
-
 // ── LLM genre backfill ─────────────────────────────────────────────────────────
 // Spotify increasingly returns EMPTY `genres` arrays for artists, leaving a user's
 // genreSet empty so the mood filters can't differentiate. This asks the LLM (Groq)
@@ -526,12 +443,10 @@ async function inferArtistGenres(artistNames = []) {
 module.exports = {
   buildEmotionPlaylist,
   adjustBiometricPlaylist,
-  critiqueTrackVibe,
   inferArtistGenres,
   // Exported for unit testing
   _parseAndValidate,
   _buildEmotionPrompt,
   _buildBiometricPrompt,
-  _buildCriticPrompt,
   TEMPO_CATEGORIES,
 };

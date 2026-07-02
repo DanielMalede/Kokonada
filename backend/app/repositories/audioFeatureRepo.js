@@ -98,4 +98,18 @@ async function missingKeys(recordingKeys = []) {
   return recordingKeys.filter(k => !found.has(k));
 }
 
-module.exports = { getMany, upsertMany, missingKeys };
+// Vibe tags from the enrichment worker. Invalidate (not write-through) so a
+// racing reader always refills from Mongo truth — same rule as llm upserts.
+async function setVibeTags(recordingKey, vibeTags = []) {
+  await AudioFeature.updateOne({ recordingKey }, { $set: { vibeTags } });
+  const redis = getRedis();
+  if (redis) redis.del(_cacheKey(recordingKey)).catch(() => {});
+}
+
+// LLM-estimated records that later gained a Spotify id — upgrade candidates
+// for the measured API (source 'api' overwrites 'llm', never the reverse).
+async function llmUpgradeCandidates(limit = 200) {
+  return AudioFeature.find({ source: 'llm', spotifyId: { $ne: null } }).limit(limit).lean();
+}
+
+module.exports = { getMany, upsertMany, missingKeys, setVibeTags, llmUpgradeCandidates };

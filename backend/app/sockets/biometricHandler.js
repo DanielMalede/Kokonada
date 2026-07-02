@@ -9,11 +9,10 @@ const PlaylistSession = require('../models/PlaylistSession');
 const { computeStateVector } = require('../services/medicalProfileService');
 const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
-const { buildEmotionPlaylist, adjustBiometricPlaylist, critiqueTrackVibe } = require('../services/geminiEngine');
-const { mixPlaylist, generateFallbackPlaylist, personalizeWhitelist }  = require('../services/playlistMixer');
+const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../services/geminiEngine');
+const { generateFallbackPlaylist, personalizeWhitelist } = require('../services/playlistMixer');
 const { buildMoodParams, resolveMoodKey, syntheticBioMoodKey, bandFromHeartRate } = require('../services/moodDescriptors');
 const serveLedger = require('../services/ledger/serveLedger');
-const selectionShadow = require('../services/selection/selectionShadow');
 const orchestrator = require('../services/generation/orchestrator');
 const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
@@ -40,15 +39,13 @@ const WATCH_HR_DELTA_THRESHOLD = 25;
 // the library is empty). The mixer trims to the 30% target / fills the rest.
 const DISCOVERY_FETCH_LIMIT = 60;
 // Generation tuning knobs live with their owners: the selection pipeline reads
-// SELECTION_POOL_MAX / SCORE_W_* / LEDGER_* env vars; the frozen rollback mixer
-// keeps its own internals in playlistMixer.js.
+// SELECTION_POOL_MAX / SCORE_W_* / LEDGER_* env vars.
 
-// ── Anti-repetition (Phase 6) ──────────────────────────────────────────────────
+// ── Anti-repetition ────────────────────────────────────────────────────────────
 // The nine legacy layers (per-mood blacklist, session cooldowns, strict mode,
-// sort-axis rotation, ratio inversion, variation seeds) are GONE. The ServeLedger
-// (24h global / 72h per-mood windows + exposure-decay scoring) and the selection
-// pipeline's MMR own variance now. The frozen mixer shim behind SELECTION_V2=false
-// gets its exclusions from the ledger's global window.
+// sort-axis rotation, ratio inversion, variation seeds) are GONE, and Phase 7
+// deleted the legacy mixer entirely. The ServeLedger (24h global / 72h per-mood
+// windows + exposure-decay scoring) and the selection pipeline's MMR own variance.
 
 // Opt-in boundary tracing for debugging the generation pipeline. Enable with
 // DEBUG_PLAYLIST=1 (always on in `development`; silent in test/production).
@@ -317,29 +314,17 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     const moodKey   = useEmotion
       ? resolveMoodKey(state.lastEmotionTaps)
       : syntheticBioMoodKey(state.stableHR, state.latestActivity);
-    // Layer 2 (Groq energy critic) runs only for a real mood and is kill-switchable.
-    const runCritic = useEmotion && process.env.VIBE_CRITIC !== 'false';
-
-    // Rollback path only: the frozen legacy mixer still needs an exclusion set,
-    // and it now comes from the ledger's 24h global window (best-effort). The v2
-    // pipeline reads the ledger itself.
-    let cooldownIds = null;
-    if (!orchestrator.isV2()) {
-      try { cooldownIds = await serveLedger.hardExcluded(userId); }
-      catch { cooldownIds = new Set(); }
-    }
-
     let fetchTracks;
     let spotifyToken = null; // hoisted so the post-mix Spotify translation step can reuse it
     try {
       if (provider === 'spotify') {
         spotifyToken = await spotify.getValidToken(user);
         const accessToken = spotifyToken;
-        // Layer 1 → personalization → Layer 2. Source candidates from curated vibe
-        // playlists (energy/tempo encoded by curation), tag with artist genres, then
-        // apply the ABSOLUTE personalization filter (a Rock track from "Beast Mode" is
-        // dropped for an Afrobeat listener), then the optional energy critic. Every
-        // layer fails open, so the worst case is today's genre-search behaviour.
+        // Layer 1 → personalization. Source candidates from curated vibe playlists
+        // (energy/tempo encoded by curation), tag with artist genres, then apply the
+        // ABSOLUTE personalization filter (a Rock track from "Beast Mode" is dropped
+        // for an Afrobeat listener). The LLM critic left the hot path in Phase 7 —
+        // vibe enrichment happens asynchronously in the embedding worker.
         fetchTracks = async (params) => {
           // Latency cut: when Spotify won't serve artist genres (/artists 403), discovery
           // candidates can't be tagged → personalization discards them anyway → the whole
@@ -353,8 +338,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             genreSet:       musicProfile.genreSet,
             knownArtistIds: musicProfile.knownArtistIds,
           });
-          if (!runCritic) return onTaste;
-          return critiqueTrackVibe({ tracks: onTaste, moodKey, moodKeywords: params.mood_keywords, tempoCategory: params.tempo_category });
+          return onTaste;
         };
       } else {
         const accessToken = await youtube.getValidToken(user);
@@ -407,21 +391,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       const moodParams = useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : null;
       if (moodParams) {
         try {
-          const moodPlaylist = orchestrator.isV2()
-            ? await orchestrator.generateV2({
-                userId, musicProfile, moodKey, provider,
-                aiParams: moodParams,
-                discoveryTracks: [],
-                live: { heartRate: state.stableHR, activity: state.latestActivity },
-              })
-            : await mixPlaylist({
-                musicProfile,
-                aiParams:             moodParams,
-                fetchDiscoveryTracks: () => Promise.resolve([]),
-                provider,
-                strictPersonalize:    true,
-                cooldownIds,
-              });
+          const moodPlaylist = await orchestrator.generateV2({
+            userId, musicProfile, moodKey, provider,
+            aiParams: moodParams,
+            discoveryTracks: [],
+            live: { heartRate: state.stableHR, activity: state.latestActivity },
+          });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
             log(`[generate] LLM failed → on-vibe mood fallback tracks=${moodTracks.length} reqId=${reqId}`);
@@ -461,24 +436,14 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     }
 
     const cachedDiscovery = aiResult.tracks;
-    // THE FLIP: v2 is the serving path — full biosonic targets + ledger windows +
-    // scoring + MMR. The frozen legacy mixer serves only under SELECTION_V2=false.
-    const playlist = orchestrator.isV2()
-      ? await orchestrator.generateV2({
-          userId, musicProfile, moodKey, provider,
-          aiParams: aiResult.params,
-          discoveryTracks: cachedDiscovery,
-          live: { heartRate: state.stableHR, activity: state.latestActivity },
-        })
-      : await mixPlaylist({
-          musicProfile,
-          aiParams:            aiResult.params,
-          fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
-          provider,
-          cooldownIds,
-          // Personalization stays the ABSOLUTE filter on the legacy Spotify path.
-          strictPersonalize:   useEmotion && provider === 'spotify',
-        });
+    // The v2 engine is the ONLY serving path (Phase 7 sealed the flip): full
+    // biosonic targets + ledger windows + scoring + MMR.
+    const playlist = await orchestrator.generateV2({
+      userId, musicProfile, moodKey, provider,
+      aiParams: aiResult.params,
+      discoveryTracks: cachedDiscovery,
+      live: { heartRate: state.stableHR, activity: state.latestActivity },
+    });
     if (playlist.telemetry) {
       log(`[selection.v2] pool=${playlist.telemetry.poolSize} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);
     }
@@ -552,26 +517,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // Dark launch: queue audio-feature hydration for anything just served that the
     // store hasn't seen. Nothing reads AudioFeature until the Phase-5 scorer.
     featureService.enqueueHydration(playlist.merged).catch(() => {});
-
-    // Shadow-mode dual run: only meaningful on the ROLLBACK path (comparing the
-    // legacy mixer against v2). When v2 serves, the dual-run would compare the
-    // engine with itself. `now` is captured BEFORE recordServes.
-    try {
-      if (!orchestrator.isV2()) selectionShadow.run({
-        userId,
-        musicProfile,
-        moodKey,
-        provider,
-        aiParams: aiResult.params,
-        servedTracks: playlist.merged,
-        discoveryTracks: playlist.discovery,
-        heartRate: state.stableHR,
-        activity: state.latestActivity,
-        now: Date.now(),
-      });
-    } catch (e) {
-      console.error('[selection.shadow] scheduling failed:', e.message);
-    }
 
     // Serve ledger (write path — reads land with the Phase-5 selector): record every
     // served track under this generation's mood context. Coarse bands only, no vitals.

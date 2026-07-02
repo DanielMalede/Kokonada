@@ -5,15 +5,11 @@ const { peekBaselines } = require('../biosonic/baselines');
 const { translate } = require('../biosonic/translate');
 const { selectPlaylist } = require('../selection/pipeline');
 
-// The v2 serving path (Phase 6 flip): full biosonic inputs → translate() targets
-// → the selection pipeline. SELECTION_V2 defaults ON; setting it to 'false' is
-// the instant rollback to the frozen legacy mixer shim.
+// THE serving path (Phase 7 sealed the flip — the legacy mixer and its rollback
+// flag are gone): full biosonic inputs → translate() targets → the selection
+// pipeline.
 
 const PLAYLIST_SIZE = () => parseInt(process.env.PLAYLIST_SIZE || '50', 10);
-
-function isV2() {
-  return process.env.SELECTION_V2 !== 'false';
-}
 
 // Assemble the biosonic targets from everything the system knows: cached
 // personal baselines (never the heavy compute — request path), the profile's
@@ -80,4 +76,4 @@ async function generateV2({
   };
 }
 
-module.exports = { isV2, generateV2 };
+module.exports = { generateV2 };

@@ -39,11 +39,20 @@ function _doc(result, prepByKey) {
 
 async function hydrate(tracks = []) {
   const prepped = _prep(tracks);
-  const summary = { requested: prepped.length, targeted: 0, hydrated: 0, api: 0, llm: 0, failed: 0 };
+  const summary = { requested: prepped.length, targeted: 0, hydrated: 0, api: 0, llm: 0, upgraded: 0, failed: 0 };
   if (!prepped.length) return summary;
 
-  const missing = new Set(await repo.missingKeys(prepped.map(p => p.recordingKey)));
-  const targets = prepped.filter(p => missing.has(p.recordingKey));
+  // One store read decides both cohorts: MISSING recordings hydrate normally;
+  // stored LLM estimates whose track now has a Spotify id are UPGRADE targets —
+  // the measured API refetches them ('api' overwrites 'llm', never the reverse).
+  const stored = await repo.getMany(prepped.map(p => p.recordingKey));
+  const targets = prepped.filter((p) => {
+    const doc = stored.get(p.recordingKey);
+    if (!doc) return true;
+    const upgradable = doc.source === 'llm' && reccoBeats.supports(p.track);
+    if (upgradable) summary.upgraded++;
+    return upgradable;
+  });
   summary.targeted = targets.length;
   if (!targets.length) return summary;
 
@@ -63,7 +72,8 @@ async function hydrate(tracks = []) {
   // (YouTube-only) — NOT for API outages. A Spotify track whose batch failed
   // stays missing and is retried next hydration; storing an LLM guess for it
   // would let the never-clobber rule pin the guess over a measurable truth.
-  const leftovers = targets.filter(p => !fed.has(p.recordingKey) && !reccoBeats.supports(p.track));
+  // Upgrade targets already HAVE an llm doc, so they never re-enter this path.
+  const leftovers = targets.filter(p => !fed.has(p.recordingKey) && !reccoBeats.supports(p.track) && !stored.has(p.recordingKey));
   if (leftovers.length) {
     const llmResults = await llmEstimator.getFeatures(leftovers.map(p => p.track));
     for (const r of llmResults) {
@@ -74,7 +84,18 @@ async function hydrate(tracks = []) {
     }
   }
 
-  if (docs.length) await repo.upsertMany(docs);
+  if (docs.length) {
+    await repo.upsertMany(docs);
+    // Enrichment (vectors + vibe tags) rides the embedding-build queue —
+    // fire-and-forget, hydration never waits on it.
+    const genresByKey = {};
+    for (const doc of docs) {
+      const prep = prepByKey.get(doc.recordingKey);
+      if (prep?.track?.genres?.length) genresByKey[doc.recordingKey] = prep.track.genres;
+    }
+    enqueue(QUEUES.EMBEDDING_BUILD, { recordingKeys: docs.map(d => d.recordingKey), genresByKey })
+      .catch(() => {});
+  }
   summary.hydrated = docs.length;
   summary.failed = targets.length - docs.length;
   return summary;
