@@ -211,6 +211,71 @@ async function paginatePlaylistItems(accessToken) {
 }
 
 /**
+ * Fetches every channel the user subscribes to (all pages). Subscribed channels are a
+ * strong artist-affinity signal — especially auto-generated music channels ("… - Topic",
+ * "…VEVO", "… - Official Artist Channel"). Ordered by relevance so the most-engaged
+ * channels come first. youtube.readonly is sufficient. Best-effort at the caller.
+ * @returns {Promise<Array<{ snippet: { title: string, resourceId?: { channelId?: string } } }>>}
+ */
+async function paginateSubscriptions(accessToken) {
+  const subs = [];
+  let pageToken = null;
+
+  do {
+    const params = { part: 'snippet', mine: true, maxResults: 50, order: 'relevance' };
+    if (pageToken) params.pageToken = pageToken;
+
+    const { data } = await withRetry(() =>
+      axios.get(`${BASE_API}/subscriptions`, {
+        headers: authHeader(accessToken),
+        params,
+        timeout: 10_000,
+      })
+    );
+
+    subs.push(...(data.items || []));
+    pageToken = data.nextPageToken ?? null;
+  } while (pageToken);
+
+  return subs;
+}
+
+/**
+ * Batch-fetch topicDetails + tags for a bounded set of video IDs (50 per request).
+ * `topicDetails.topicCategories` are Wikipedia music-genre URLs (e.g. /wiki/Rock_music) —
+ * a much richer genre signal than the sparse per-video `tags`. Best-effort per batch.
+ * @param {string} accessToken
+ * @param {string[]} videoIds
+ * @param {{ cap?: number }} [opts]
+ * @returns {Promise<Array<{ id: string, topicCategories: string[], tags: string[] }>>}
+ */
+async function fetchVideoTopics(accessToken, videoIds, { cap = 250 } = {}) {
+  const ids = [...new Set((videoIds || []).filter(Boolean))].slice(0, cap);
+  const out = [];
+
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i + 50);
+    try {
+      const { data } = await withRetry(() =>
+        axios.get(`${BASE_API}/videos`, {
+          headers: authHeader(accessToken),
+          params:  { part: 'topicDetails,snippet', id: batch.join(','), maxResults: 50 },
+          timeout: 10_000,
+        })
+      );
+      for (const v of data.items || []) {
+        out.push({
+          id: v.id,
+          topicCategories: v.topicDetails?.topicCategories || [],
+          tags: v.snippet?.tags || [],
+        });
+      }
+    } catch { /* best-effort — a failed batch just contributes no topics */ }
+  }
+  return out;
+}
+
+/**
  * Searches YouTube Music for tracks matching AI-computed targets.
  * YouTube has no audio-features API so we build a keyword query from
  * genre + energy mood descriptor.
@@ -277,5 +342,6 @@ module.exports = {
   getAuthUrl, generatePKCE, isConfigured,
   exchangeCode, exchangeCodeFromGIS,
   getValidToken, getChannel, getLikedVideos,
-  paginateLikedVideos, paginatePlaylistItems, searchRecommendations,
+  paginateLikedVideos, paginatePlaylistItems, paginateSubscriptions, fetchVideoTopics,
+  searchRecommendations,
 };

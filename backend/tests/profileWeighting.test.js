@@ -27,4 +27,22 @@ describe('_weightedMergeRanked (YouTube-weighted taste profile)', () => {
     const many = Array.from({ length: 30 }, (_, i) => `g${i}`);
     expect(_weightedMergeRanked(many, 100, [], 0, 10)).toHaveLength(10);
   });
+
+  it('has NO list-length bias — a short list #1 outranks a long list #2 at equal weight', () => {
+    // 'x' is the only item of a 1-item list; 'y2' is #2 of a 3-item list. Per-list position
+    // normalization must keep 'x' (a list #1) above 'y2' (a list #2). The old length-biased
+    // math scored 'x' = 1*w below 'y2' = 2*w — this guards that regression.
+    const merged = _weightedMergeRanked(['x'], 100, ['y1', 'y2', 'y3'], 100, 10);
+    expect(merged.indexOf('x')).toBeLessThan(merged.indexOf('y2'));
+  });
+
+  it('treats each list #1 as an equal contribution at equal weights', () => {
+    const merged = _weightedMergeRanked(['x'], 100, ['y1', 'y2', 'y3'], 100, 10);
+    expect(merged.slice(0, 2).sort()).toEqual(['x', 'y1']); // both list-#1s sit on top
+  });
+
+  it('does not break on empty lists or non-positive weights (no NaN/throw)', () => {
+    expect(_weightedMergeRanked([], 0, [], 0, 10)).toEqual([]);
+    expect(_weightedMergeRanked(['a'], -5, ['b'], 3, 10)).toEqual(['b']); // negative weight ignored
+  });
 });

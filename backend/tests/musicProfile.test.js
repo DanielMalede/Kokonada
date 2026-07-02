@@ -475,6 +475,8 @@ describe('buildProfile', () => {
     jest.spyOn(spotify, 'batchAudioFeatures');
     jest.spyOn(youtube, 'paginateLikedVideos').mockResolvedValue([]);
     jest.spyOn(youtube, 'paginatePlaylistItems').mockResolvedValue([]);
+    jest.spyOn(youtube, 'paginateSubscriptions').mockResolvedValue([]);
+    jest.spyOn(youtube, 'fetchVideoTopics').mockResolvedValue([]);
     MusicProfile.findOneAndUpdate.mockResolvedValue({ userId: 'user123' });
   });
 
@@ -530,6 +532,35 @@ describe('buildProfile', () => {
     await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
     expect(youtube.paginateLikedVideos).toHaveBeenCalledWith('yt-token');
     expect(spotify.getTopTracks).not.toHaveBeenCalled();
+  });
+
+  it('ingests subscriptions (artists) + topic genres for BOTH liked videos AND playlist items', async () => {
+    // Liked video (id IS the video id) + a PLAYLIST ITEM (video id nested in resourceId).
+    youtube.paginateLikedVideos.mockResolvedValue([
+      { id: 'v1', snippet: { title: 'Some Song', channelTitle: 'Aphex Twin - Topic' } },
+    ]);
+    youtube.paginatePlaylistItems.mockResolvedValue([
+      { id: 'plItem1', snippet: { title: 'Playlist Song', channelTitle: 'Bonobo - Topic', resourceId: { videoId: 'v2' } } },
+    ]);
+    youtube.paginateSubscriptions.mockResolvedValue([
+      { snippet: { title: 'Boards of Canada - Topic' } },
+      { snippet: { title: 'Random News Channel' } }, // non-music → excluded
+    ]);
+    youtube.fetchVideoTopics.mockResolvedValue([
+      { id: 'v1', topicCategories: ['https://en.wikipedia.org/wiki/Electronic_music'], tags: [] },
+      { id: 'v2', topicCategories: ['https://en.wikipedia.org/wiki/Jazz'], tags: [] }, // from the playlist item
+    ]);
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
+    const saved = savedSet();
+
+    expect(youtube.paginateSubscriptions).toHaveBeenCalledWith('yt-token');
+    // Topics fetched for the liked video AND the playlist item's REAL video id (v2, not plItem1).
+    expect(youtube.fetchVideoTopics).toHaveBeenCalledWith('yt-token', ['v1', 'v2']);
+    expect(saved.topArtists).toContain('Boards of Canada'); // subscribed artist channel
+    expect(saved.topArtists).not.toContain('Random News Channel');
+    expect(saved.topGenres).toEqual(expect.arrayContaining(['electronic', 'jazz'])); // liked + playlist topics
+    expect(saved.genreSet).toEqual(expect.arrayContaining(['electronic', 'jazz']));
   });
 
   it('saves empty arrays gracefully when no provider is connected', async () => {
