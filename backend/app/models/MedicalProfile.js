@@ -65,6 +65,17 @@ const medicalProfileSchema = new mongoose.Schema({
   dailyReadiness: encryptedNumber({ default: null }), // 0–100 (Garmin/Whoop readiness score)
   bodyBattery:    encryptedNumber({ default: null }), // 0–100 (Garmin Body Battery)
 
+  // Latest-night totals — the sleep-DEBT input for the biosonic translator.
+  // Distinct from sleepStages, which is the long-run MEDIAN baseline. `date` is
+  // the night bucket (used to guard backfills from overwriting fresher nights).
+  lastNightSleep: {
+    deep:  encryptedNumber({ default: null }),
+    light: encryptedNumber({ default: null }),
+    rem:   encryptedNumber({ default: null }),
+    date:  { type: Date, default: null },
+  },
+  sleepUpdatedAt: { type: Date, default: null },
+
   // ── Pillar 5: Temporal & Device Context ──────────────────────────────────────
   bluetoothAudioConnected: { type: Boolean, default: null },
   screenOn:                { type: Boolean, default: null },

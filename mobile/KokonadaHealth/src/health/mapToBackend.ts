@@ -68,10 +68,10 @@ export function toBackendSamples(history: { heartRate?: any[]; hrv?: any[]; slee
   ].filter((s) => Number.isFinite(s.value));
 }
 
-// ── Sleep: LOCAL summary only (display) ──────────────────────────────────────────
-// The backend does not yet ingest sleep (it's structured stage data, not a scalar)
-// — sending type:'sleep' would be silently dropped by the normalizer. So we
-// summarise it on-device for the UI; backend sleep ingestion is a follow-up.
+// ── Sleep: LOCAL summary (display) ────────────────────────────────────────────────
+// NOTE: the backend DOES ingest the per-stage sleep samples sent above (mapSleep →
+// sleepStages median baseline + lastNightSleep totals). This summary is a separate,
+// on-device aggregate purely for the UI.
 // Health Connect SleepSession stage codes: 1 AWAKE, 4 LIGHT, 5 DEEP, 6 REM, 7 AWAKE_IN_BED.
 const STAGE = { 1: 'awake', 4: 'light', 5: 'deep', 6: 'rem', 7: 'awake' } as const;
 
