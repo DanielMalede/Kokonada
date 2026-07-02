@@ -4,6 +4,7 @@ const MusicProfile = require('../models/MusicProfile');
 const spotify      = require('./spotify');
 const youtube      = require('./youtube');
 const { inferArtistGenres } = require('./geminiEngine');
+const { cleanYouTubeArtist } = require('./crossPlatform');
 
 const LIBRARY_CAP = 10_000; // max tracks stored per user to stay within 16 MB doc limit
 
@@ -20,19 +21,41 @@ const SOURCE_WEIGHTS = {
   playlist:  1,
 };
 
+// How much one subscribed music channel counts toward YouTube's provider weight, relative
+// to one liked/playlisted track. A subscription is a coarser ARTIST-level follow (not an
+// explicit per-song choice), so it's worth a fraction of a track — enough that many artist
+// subscriptions still push a YouTube-heavy user to dominate, without a subs-only account
+// out-weighting real listening. Only high-confidence music channels are counted (the
+// "- Topic"/VEVO/Official-Artist filter in _subscriptionArtists), which is the guard
+// against "unexpected" (non-music) subscriptions ever entering the math.
+const SUBSCRIPTION_WEIGHT = 0.5;
+
 // ── Pure utilities ─────────────────────────────────────────────────────────────
 
 /**
  * Removes duplicate items by their `id` field, keeping the first occurrence.
  * @param {{ id: string }[]} items
  */
-function _deduplicateById(items) {
+function _deduplicateById(items, keyFn = (item) => item.id) {
   const seen = new Set();
   return items.filter(item => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
+    const key = keyFn(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
+}
+
+/**
+ * The canonical YouTube VIDEO id for either shape:
+ *   • videos.list item (liked video)  → `item.id` IS the video id
+ *   • playlistItems.list item         → `item.id` is the PLAYLIST-ITEM id; the video id
+ *                                        lives at `snippet.resourceId.videoId`
+ * Preferring resourceId makes the same song dedupe across likes+playlists AND lets topic
+ * enrichment resolve the real video for playlist items (previously it used the wrong id).
+ */
+function _videoIdOf(v) {
+  return v?.snippet?.resourceId?.videoId ?? v?.id ?? null;
 }
 
 /**
@@ -285,8 +308,12 @@ function _analyzeYouTubeTracks(videos) {
       .map(t => TAG_TO_GENRE[t.toLowerCase()])
       .filter(Boolean);
 
+    // Clean the channel decorations ("- Topic"/VEVO/…) so a video's artist matches the SAME
+    // artist coming from a subscription — otherwise the weighting fragments one artist into two.
+    const artist = cleanYouTubeArtist(snippet.channelTitle) || snippet.channelTitle || null;
+
     library.push({
-      id:           video.id ?? snippet.resourceId?.videoId,
+      id:           _videoIdOf(video),
       provider:     'youtube_music',
       name:         snippet.title ?? null,
       uri:          null,
@@ -296,14 +323,14 @@ function _analyzeYouTubeTracks(videos) {
       acousticness: null,
       danceability: null,
       genres,
-      artist:       snippet.channelTitle ?? null,
+      artist,
       artistIds:    [],
       popularity:   null,
       affinity:     n - i, // earlier in the liked/playlist list → higher affinity
     });
 
     genrePool.push(...genres);
-    if (snippet.channelTitle) artistPool.push(snippet.channelTitle);
+    if (artist) artistPool.push(artist);
   });
 
   return {
@@ -352,11 +379,8 @@ function _subscriptionArtists(subscriptions) {
   for (const s of subscriptions || []) {
     const title = s?.snippet?.title || '';
     if (!MUSIC_MARKER.test(title)) continue;
-    const name = title
-      .replace(/\s*-\s*Topic\s*$/i, '')
-      .replace(/\s*-\s*Official Artist Channel\s*$/i, '')
-      .replace(/VEVO\s*$/i, '')
-      .trim();
+    // Shared cleaner → the artist name matches the SAME artist from a liked/playlist video.
+    const name = cleanYouTubeArtist(title);
     if (name) out.push(name);
   }
   return out;
@@ -378,15 +402,25 @@ function _subscriptionArtists(subscriptions) {
 function _weightedMergeRanked(rankedA, weightA, rankedB, weightB, cap) {
   const score = new Map();
   const add = (ranked, weight) => {
-    if (!weight) return; // a provider with no library contributes nothing
+    // A provider with no data (weight ≤ 0) or an empty list contributes nothing. The
+    // empty guard also prevents a divide-by-zero in the positional term below.
+    if (!(weight > 0) || ranked.length === 0) return;
+    const n = ranked.length;
     ranked.forEach((item, i) => {
-      const base = (ranked.length - i) * weight; // earlier in the list → higher score
-      score.set(item, (score.get(item) || 0) + base);
+      // Position is normalized PER LIST (1.0 for #1 → 1/n for the last) so a longer list
+      // can't out-score a shorter one just by having more entries — ONLY the provider
+      // `weight` decides cross-provider dominance, and each list's #1 contributes exactly
+      // `weight`. This keeps the Spotify-vs-YouTube balance purely about data richness.
+      const positional = (n - i) / n;
+      score.set(item, (score.get(item) || 0) + positional * weight);
     });
   };
   add(rankedA, weightA);
   add(rankedB, weightB);
-  return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([item]) => item).slice(0, cap);
+  return [...score.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([item]) => item)
+    .slice(0, cap);
 }
 
 // ── Profile builder ────────────────────────────────────────────────────────────
@@ -443,7 +477,9 @@ async function buildProfile(userId, user, onProgress = () => {}) {
         youtube.paginatePlaylistItems(youtubeToken),
       ]);
 
-      const allVideos  = _deduplicateById([...likedVideos, ...playlistItems]);
+      // Dedupe by the real VIDEO id (not the playlist-item id) so the same song appearing
+      // in likes AND one or more playlists collapses to a single library entry.
+      const allVideos  = _deduplicateById([...likedVideos, ...playlistItems], _videoIdOf);
       const ytAnalysis = _analyzeYouTubeTracks(allVideos);
 
       // ── Extra legal Data-API sources that enrich the taste signals ──────────────────
@@ -455,10 +491,11 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       } catch (e) { console.warn(`[musicProfile] YouTube subscriptions skipped: ${e.message}`); }
 
       // (b) Video topicDetails → Wikipedia music-genre topics (richer than the sparse
-      //     per-video tags). Bounded + batched inside fetchVideoTopics. Best-effort.
+      //     per-video tags), fetched for likes AND every playlist item (via the real video
+      //     id). Bounded + batched inside fetchVideoTopics. Best-effort.
       let topicGenres = [];
       try {
-        const videoIds = allVideos.map(v => v.id ?? v.snippet?.resourceId?.videoId).filter(Boolean);
+        const videoIds = allVideos.map(_videoIdOf).filter(Boolean);
         const topics   = await youtube.fetchVideoTopics(youtubeToken, videoIds);
         topicGenres    = topics.flatMap(t => _genresFromTopicCategories(t.topicCategories));
       } catch (e) { console.warn(`[musicProfile] YouTube topics skipped: ${e.message}`); }
@@ -468,11 +505,13 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       const ytArtistsRanked = _rankByFrequency([...ytAnalysis.topArtists, ...subArtists]).slice(0, 25);
 
       // Weighting ("the brain"): each provider's taste signals count in proportion to how
-      // much it contributed. YouTube's contribution now counts library tracks PLUS subscribed
-      // artists, so a user rich on YouTube (big library and/or many artist subs) dominates.
-      // Capture Spotify's size BEFORE pushing YouTube tracks so the weights stay accurate.
+      // much it contributed. YouTube's contribution = its library tracks + a fractional
+      // (SUBSCRIPTION_WEIGHT) credit per subscribed artist, so a user rich on YouTube (big
+      // library and/or many artist subs) strongly dominates the core taste — while a
+      // subs-only account can't out-weight real listening. Capture Spotify's size BEFORE
+      // pushing YouTube tracks so the weights stay accurate.
       const spotifyLibSize = library.length;
-      const youtubeLibSize = ytAnalysis.library.length + subArtists.length;
+      const youtubeLibSize = ytAnalysis.library.length + subArtists.length * SUBSCRIPTION_WEIGHT;
       const spotifyTopGenres  = topGenres;
       const spotifyTopArtists = topArtists;
 
@@ -537,6 +576,7 @@ module.exports = {
   _accumulateTracks,
   _rankArtistsFromTops,
   _deduplicateById,
+  _videoIdOf,
   _rankByFrequency,
   _weightedMergeRanked,
   _genresFromTopicCategories,
