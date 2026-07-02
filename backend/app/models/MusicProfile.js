@@ -37,6 +37,10 @@ const musicProfileSchema = new mongoose.Schema({
     type: [{
       id:           { type: String, required: true },
       provider:     { type: String, enum: ['spotify', 'youtube_music'], required: true },
+      // Cross-provider identity: ISRC when Spotify supplies it, plus the derived
+      // canonical key (isrc:… or at:artist|title) the variance engine dedupes on.
+      isrc:         { type: String, default: null },
+      canonicalKey: { type: String, default: null },
       name:         { type: String, default: null },
       uri:          { type: String, default: null },
       tempo:        { type: Number, default: null },
