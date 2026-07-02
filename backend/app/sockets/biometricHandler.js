@@ -16,6 +16,7 @@ const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/prov
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
+const featureService = require('../services/features/featureService');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -640,6 +641,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // won't know these tracks were just served) — report it rather than swallow.
       captureException(e, { scope: 'playlistSession.save', userId: String(userId) });
     });
+
+    // Dark launch: queue audio-feature hydration for anything just served that the
+    // store hasn't seen. Nothing reads AudioFeature until the Phase-5 scorer.
+    featureService.enqueueHydration(playlist.merged).catch(() => {});
   } finally {
     state.generating = false;
   }

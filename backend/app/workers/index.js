@@ -1,13 +1,15 @@
 'use strict';
 
 const { Worker } = require('bullmq');
-const { QUEUE_NAMES } = require('../queues/definitions');
+const { QUEUES, QUEUE_NAMES } = require('../queues/definitions');
 const { createConnection } = require('../config/redis');
 
-// Processor registry — filled by later phases (feature hydration, embeddings,
-// state-vector recompute). Injectable so tests and the worker entrypoint can
+// Processor registry — grown phase by phase (embeddings and state-vector
+// recompute land later). Injectable so tests and the worker entrypoint can
 // pass their own map.
-const DEFAULT_PROCESSORS = {};
+const DEFAULT_PROCESSORS = {
+  [QUEUES.FEATURE_HYDRATION]: require('./featureHydration.worker').process,
+};
 
 function startWorkers(processors = DEFAULT_PROCESSORS) {
   for (const queueName of Object.keys(processors)) {
