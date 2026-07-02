@@ -10,6 +10,7 @@ const { createConnection } = require('../config/redis');
 const DEFAULT_PROCESSORS = {
   [QUEUES.FEATURE_HYDRATION]: require('./featureHydration.worker').process,
   [QUEUES.STATE_VECTOR_RECOMPUTE]: require('./stateVector.worker').process,
+  [QUEUES.EMBEDDING_BUILD]: require('./embedding.worker').process,
 };
 
 function startWorkers(processors = DEFAULT_PROCESSORS) {

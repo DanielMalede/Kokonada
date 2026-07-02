@@ -39,7 +39,8 @@ const llmHit = (track, features = { bpm: 100 }) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  repo.missingKeys.mockImplementation(async (keys) => keys); // default: nothing stored yet
+  repo.getMany.mockResolvedValue(new Map());                 // default: nothing stored yet
+  repo.missingKeys.mockImplementation(async (keys) => keys); // enqueueHydration's diff
   repo.upsertMany.mockResolvedValue({ upserted: 0 });
   reccoBeats.getFeatures.mockResolvedValue([]);
   llmEstimator.getFeatures.mockResolvedValue([]);
@@ -47,8 +48,8 @@ beforeEach(() => {
 });
 
 describe('featureService.hydrate', () => {
-  it('skips recordings already in the store', async () => {
-    repo.missingKeys.mockResolvedValue(['spotify:b']); // only b is missing
+  it('skips recordings already measured in the store', async () => {
+    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'api', bpm: 120 }]]));
     reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
 
     await hydrate([spTrack('a'), spTrack('b')]);
@@ -56,6 +57,38 @@ describe('featureService.hydrate', () => {
     const sent = reccoBeats.getFeatures.mock.calls[0][0];
     expect(sent).toHaveLength(1);
     expect(sent[0].id).toBe('b');
+  });
+
+  it('UPGRADES a stored LLM estimate once the track has a Spotify id (api overwrites llm)', async () => {
+    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'llm', confidence: 0.5 }]]));
+    reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
+
+    const summary = await hydrate([spTrack('a')]);
+
+    expect(summary.upgraded).toBe(1);
+    expect(reccoBeats.getFeatures.mock.calls[0][0][0].id).toBe('a');
+    expect(llmEstimator.getFeatures).not.toHaveBeenCalled(); // upgrades never re-enter the LLM path
+    expect(repo.upsertMany.mock.calls[0][0][0]).toEqual(expect.objectContaining({ source: 'api', confidence: 1 }));
+  });
+
+  it('stored API measurements are never re-fetched or downgraded', async () => {
+    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'api' }]]));
+
+    const summary = await hydrate([spTrack('a')]);
+
+    expect(reccoBeats.getFeatures).not.toHaveBeenCalled();
+    expect(summary.upgraded).toBe(0);
+  });
+
+  it('enqueues embedding enrichment for freshly hydrated recordings (fire-and-forget)', async () => {
+    reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
+
+    await hydrate([spTrack('a')]);
+
+    expect(enqueue).toHaveBeenCalledWith('embedding-build', expect.objectContaining({
+      recordingKeys: ['spotify:a'],
+      genresByKey: expect.objectContaining({ 'spotify:a': ['pop'] }),
+    }));
   });
 
   it('api-fed recordings never reach the LLM; api misses do', async () => {
@@ -99,7 +132,7 @@ describe('featureService.hydrate', () => {
   });
 
   it('does nothing (no adapters, no writes) when everything is already stored', async () => {
-    repo.missingKeys.mockResolvedValue([]);
+    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'api' }]]));
 
     const summary = await hydrate([spTrack('a')]);
 
