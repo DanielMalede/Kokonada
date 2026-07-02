@@ -58,6 +58,13 @@ jest.mock('../app/services/features/featureService', () => ({
   enqueueHydration: jest.fn().mockResolvedValue({ queued: true }),
 }));
 
+jest.mock('../app/services/ledger/serveLedger', () => ({
+  recordServes: jest.fn().mockResolvedValue({ recorded: 0 }),
+  hardExcluded: jest.fn().mockResolvedValue(new Set()),
+  moodExcluded: jest.fn().mockResolvedValue(new Set()),
+  getExposure:  jest.fn().mockResolvedValue(new Map()),
+}));
+
 jest.mock('../app/services/wearable/adapter', () => ({
   normalize: jest.fn((source, raw) => {
     const KNOWN = ['garmin', 'apple_watch', 'fitbit'];
@@ -728,6 +735,64 @@ describe('session-history honesty (records what actually drove the generation)',
   });
 });
 
+describe('serve ledger wiring (variance engine, Phase 3)', () => {
+  const serveLedger = require('../app/services/ledger/serveLedger');
+
+  it('the HR branch closes the blacklist bypass: sessions get a synthetic bio:* moodKey', async () => {
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 150, latestActivity: 'running' }));
+
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      moodKey: 'bio:peak:running',
+    }));
+  });
+
+  it('records every served track in the ledger with the mood context (emotion branch)', async () => {
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    const arg = serveLedger.recordServes.mock.calls.at(-1)[0];
+    expect(arg.userId).toBe('user-123');
+    expect(arg.entries).toHaveLength(MERGED_TRACKS.length);
+    expect(arg.entries[0]).toEqual(expect.objectContaining({
+      canonicalKey: expect.stringMatching(/^at:/),
+      moodKey: 'intense',
+    }));
+  });
+
+  it('records HR-branch serves under the synthetic bio moodKey', async () => {
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 150, latestActivity: 'running' }));
+
+    const arg = serveLedger.recordServes.mock.calls.at(-1)[0];
+    expect(arg.entries[0].moodKey).toBe('bio:peak:running');
+    expect(arg.entries[0].bioState).toEqual(expect.objectContaining({ tempoBand: 'peak', activity: 'running' }));
+  });
+
+  it('a ledger write failure never breaks the playlist emit', async () => {
+    serveLedger.recordServes.mockRejectedValueOnce(new Error('mongo down'));
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('a repeated bio-state now triggers the per-mood blacklist (bypass permanently closed)', async () => {
+    PlaylistSession.countDocuments.mockResolvedValueOnce(3); // repeated bio mood in window
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 150, latestActivity: 'running' }));
+
+    expect(PlaylistSession.find).toHaveBeenCalledWith(expect.objectContaining({
+      moodKey: 'bio:peak:running',
+    }));
+  });
+});
+
 describe('HR physiological validation (Bug: HR=0 / garbage / stale)', () => {
   it('rejects a non-physiological logged HR and falls back to resting', async () => {
     mockBiometricLogs([{ heartRate: 0, activity: 'x' }]);
@@ -1105,23 +1170,29 @@ describe('strict-mode wiring (repeat mood → inverted ratios + per-mood cooldow
     delete process.env.STRICT_ANTIREPEAT;
   });
 
-  it('the HR/biometric branch never goes strict (no mood to repeat)', async () => {
+  // Phase 3 (variance engine): the HR branch's old moodKey=null bypass is CLOSED —
+  // a repeated bio-state now goes strict exactly like a repeated mood tap.
+  it('the HR/biometric branch goes strict when the same bio-state repeats (bypass closed)', async () => {
     PlaylistSession.countDocuments.mockResolvedValue(1);
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
 
     const arg = playlistMixer.mixPlaylist.mock.calls.at(-1)[0];
-    expect(arg.ratios).toBeNull();
-    expect(PlaylistSession.countDocuments).not.toHaveBeenCalled();
+    expect(arg.ratios).toEqual({ rotation: 0.1 });
+    expect(PlaylistSession.countDocuments).toHaveBeenCalledWith(
+      expect.objectContaining({ moodKey: expect.stringMatching(/^bio:/) })
+    );
   });
 
-  it('records the resolved moodKey on the session (and null for the HR branch)', async () => {
+  it('records the resolved moodKey on the session (synthetic bio:* for the HR branch)', async () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: INTENSE }));
     expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ moodKey: 'intense' }));
 
     PlaylistSession.create.mockClear();
     await generateAndEmitPlaylist(makeSocket(), 'biometric', makeState());
-    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ moodKey: null }));
+    expect(PlaylistSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({ moodKey: expect.stringMatching(/^bio:/) })
+    );
   });
 });

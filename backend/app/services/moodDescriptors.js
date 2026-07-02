@@ -207,6 +207,49 @@ function buildMoodParams(taps, musicProfile = {}) {
   return applyMoodFallback(base, taps, '', musicProfile);
 }
 
+// ── Mood coordinates + synthetic bio moods (variance engine, Phase 3) ─────────
+
+// Coarse HR banding for the synthetic bio moodKey. Personal HR zones refine
+// this in the biosonic phase; these fixed cuts keep the key deterministic.
+function bandFromHeartRate(hr) {
+  const n = Number(hr);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (n < 90) return 'resting';
+  if (n < 120) return 'active';
+  return 'peak';
+}
+
+const _BIO_BAND_ENERGY = { resting: 0.2, active: 0.6, peak: 0.9 };
+
+/**
+ * Deterministic mood identity for the heart-rate branch: `bio:<band>:<activity>`
+ * (e.g. bio:peak:running). Built ONLY from biometric inputs — never LLM output —
+ * so the same physiological state always maps to the same per-mood blacklist.
+ * Returns null without a usable HR (callers degrade to legacy behavior).
+ */
+function syntheticBioMoodKey(heartRate, activity) {
+  const band = bandFromHeartRate(heartRate);
+  if (!band) return null;
+  const act = String(activity ?? '').trim().toLowerCase() || 'unknown';
+  return `bio:${band}:${act}`;
+}
+
+/**
+ * Every moodKey (preset or bio:*) maps into (energy, valence) ∈ [0,1]² — the
+ * space the exposure-decay scorer measures mood distance in. Presets derive
+ * from the MOODS tap table (x = valence, y = arousal); bio keys take energy
+ * from the tempo band with neutral valence; unknown keys sit at the center.
+ */
+function moodCoords(moodKey) {
+  const preset = MOODS.find((m) => m.key === moodKey);
+  if (preset) return { energy: (preset.y + 1) / 2, valence: (preset.x + 1) / 2 };
+  if (typeof moodKey === 'string' && moodKey.startsWith('bio:')) {
+    const band = moodKey.split(':')[1];
+    return { energy: _BIO_BAND_ENERGY[band] ?? 0.5, valence: 0.5 };
+  }
+  return { energy: 0.5, valence: 0.5 };
+}
+
 module.exports = {
   MOODS,
   MOOD_DESCRIPTORS,
@@ -214,4 +257,7 @@ module.exports = {
   resolveMoodKey,
   applyMoodFallback,
   buildMoodParams,
+  bandFromHeartRate,
+  syntheticBioMoodKey,
+  moodCoords,
 };
