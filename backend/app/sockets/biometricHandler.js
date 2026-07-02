@@ -13,6 +13,7 @@ const { buildEmotionPlaylist, adjustBiometricPlaylist, critiqueTrackVibe } = req
 const { mixPlaylist, generateFallbackPlaylist, personalizeWhitelist }  = require('../services/playlistMixer');
 const { buildMoodParams, resolveMoodKey, syntheticBioMoodKey, bandFromHeartRate } = require('../services/moodDescriptors');
 const serveLedger = require('../services/ledger/serveLedger');
+const selectionShadow = require('../services/selection/selectionShadow');
 const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
@@ -651,6 +652,26 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // Dark launch: queue audio-feature hydration for anything just served that the
     // store hasn't seen. Nothing reads AudioFeature until the Phase-5 scorer.
     featureService.enqueueHydration(playlist.merged).catch(() => {});
+
+    // Shadow-mode dual run (Phase 5): the new selector runs on the same context,
+    // fire-and-forget, and logs overlap/leak telemetry. `now` is captured BEFORE
+    // recordServes so the comparison sees only prior serves. Never blocks the emit.
+    try {
+      selectionShadow.run({
+        userId,
+        musicProfile,
+        moodKey,
+        provider,
+        aiParams: aiResult.params,
+        servedTracks: playlist.merged,
+        discoveryTracks: playlist.discovery,
+        heartRate: state.stableHR,
+        activity: state.latestActivity,
+        now: Date.now(),
+      });
+    } catch (e) {
+      console.error('[selection.shadow] scheduling failed:', e.message);
+    }
 
     // Serve ledger (write path — reads land with the Phase-5 selector): record every
     // served track under this generation's mood context. Coarse bands only, no vitals.

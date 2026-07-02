@@ -1,0 +1,141 @@
+'use strict';
+
+const ledger = require('../ledger/serveLedger');
+const featureRepo = require('../../repositories/audioFeatureRepo');
+const { buildPool } = require('./candidatePool');
+const { applyHardFilters } = require('./hardFilters');
+const { scoreTrack } = require('./score');
+const { select } = require('./mmr');
+const { recordingKeyOf } = require('../features/featureProvider');
+
+// The Phase-5 selection pipeline: pool → exclusions → features → score → MMR.
+// Zero LLM in the path. When filters would starve the playlist, a relaxation
+// ladder loosens the SOFT gates one level at a time — the 24h global serve
+// window is never relaxed: a served track cannot reappear inside it, period.
+//
+//   L0 full · L1 drop energy ceiling · L2 drop genre excludes · L3 drop mood window
+
+const MIN_FILL = (k) => Math.min(k, 10);
+
+async function selectPlaylist({
+  userId,
+  musicProfile = {},
+  moodKey = null,
+  provider = null,
+  aiParams = {},
+  targets = {},
+  discoveryTracks = [],
+  k = 50,
+  now = Date.now(),
+  ignoreExclusions = null,
+} = {}) {
+  const stageMs = {};
+  const t0 = Date.now();
+  const mark = (stage, since) => { stageMs[stage] = Date.now() - since; };
+
+  // Stage 1: mood-partitioned pool (canonical dedup happens inside).
+  let t = Date.now();
+  const pool = await buildPool({
+    userId, musicProfile, moodKey,
+    excludeGenres: aiParams.exclude_genres || [],
+    discoveryTracks,
+  });
+  mark('pool', t);
+
+  // Stage 2: parallel context loads — exclusion windows, features, exposure.
+  t = Date.now();
+  let hardExcluded = new Set();
+  let moodExcluded = new Set();
+  let degraded = false;
+  try {
+    [hardExcluded, moodExcluded] = await Promise.all([
+      ledger.hardExcluded(userId, now),
+      moodKey ? ledger.moodExcluded(userId, moodKey, now) : Promise.resolve(new Set()),
+    ]);
+  } catch (e) {
+    degraded = true; // total ledger outage: generation must not die with it
+    console.error('[selection] ledger outage, exclusions degraded:', e.message);
+  }
+  if (ignoreExclusions?.size) {
+    for (const key of ignoreExclusions) { hardExcluded.delete(key); moodExcluded.delete(key); }
+  }
+
+  const canonicalKeys = pool.map(p => p.canonicalKey).filter(Boolean);
+  let featureMap = new Map();
+  let exposure = new Map();
+  try {
+    [featureMap, exposure] = await Promise.all([
+      featureRepo.getMany(pool.map(recordingKeyOf).filter(Boolean)),
+      ledger.getExposure(userId, canonicalKeys, now),
+    ]);
+  } catch (e) {
+    console.error('[selection] feature/exposure load degraded:', e.message);
+  }
+  for (const track of pool) {
+    const doc = featureMap.get(recordingKeyOf(track));
+    track.features = doc
+      ? { bpm: doc.bpm, energy: doc.energy, valence: doc.valence, acousticness: doc.acousticness, danceability: doc.danceability }
+      : null;
+  }
+  mark('context', t);
+
+  // Stage 3: hard filters with the relaxation ladder.
+  t = Date.now();
+  const excludeGenres = aiParams.exclude_genres || [];
+  const LADDER = [
+    { excludeGenres, moodExcluded, energyCeiling: targets.energyCeiling ?? null },
+    { excludeGenres, moodExcluded, energyCeiling: null },
+    { excludeGenres: [], moodExcluded, energyCeiling: null },
+    { excludeGenres: [], moodExcluded: new Set(), energyCeiling: null },
+  ];
+  let filtered = [];
+  let relaxLevel = 0;
+  for (let level = 0; level < LADDER.length; level++) {
+    filtered = applyHardFilters(pool, {
+      hardExcluded, // never relaxed
+      moodExcluded: LADDER[level].moodExcluded,
+      provider,
+      excludeGenres: LADDER[level].excludeGenres,
+      energyCeiling: LADDER[level].energyCeiling,
+      targetConfidence: targets.confidence ?? 0,
+    });
+    relaxLevel = level;
+    if (filtered.length >= MIN_FILL(k)) break;
+  }
+  mark('filters', t);
+
+  // Stage 4: score.
+  t = Date.now();
+  const maxAffinity = filtered.reduce((m, tr) => Math.max(m, tr.affinity ?? 0), 0);
+  const scored = filtered.map(track => ({
+    track,
+    ...scoreTrack(track, {
+      targets,
+      maxAffinity,
+      allowGenres: aiParams.allow_genres || [],
+      exposure,
+      targetMoodKey: moodKey,
+      now,
+    }),
+  }));
+  mark('score', t);
+
+  // Stage 5: MMR diversity selection.
+  t = Date.now();
+  const picks = select(scored, { k });
+  mark('mmr', t);
+
+  stageMs.total = Date.now() - t0;
+  return {
+    tracks: picks.map(p => p.track),
+    telemetry: {
+      poolSize: pool.length,
+      afterFilters: filtered.length,
+      relaxLevel,
+      degraded,
+      stageMs,
+    },
+  };
+}
+
+module.exports = { selectPlaylist };

@@ -79,11 +79,17 @@ async function _hotWindow({ userId, key, sinceMs, now, moodKey = null }) {
   if (redis) {
     try {
       if (!(await redis.exists(key))) {
+        // Rebuild: answer from the Mongo rows DIRECTLY — never round-trip through
+        // Redis writes that might silently fail (OOM eviction, write-dropped
+        // replicas) and lie an empty window back. Population is best-effort.
         const rows = await rebuild();
         for (const row of rows) {
           await redis.zadd(key, new Date(row.servedAt).getTime(), row.canonicalKey);
         }
         await redis.expire(key, HOT_DAYS() * 24 * 3600);
+        return new Set(
+          rows.filter(r => new Date(r.servedAt).getTime() >= sinceMs).map(r => r.canonicalKey)
+        );
       }
       return new Set(await redis.zrangebyscore(key, sinceMs, '+inf'));
     } catch (e) {
