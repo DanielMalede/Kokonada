@@ -27,5 +27,5 @@ Thumbs.db
 mongo-data/
 redis-data/
 
-# Generated RN companion app (regenerable; has its own git repo)
-KokonadaHealth/
+# Root-level sibling RN companion app (regenerable). The in-repo mobile/KokonadaHealth/ IS tracked.
+/KokonadaHealth/
