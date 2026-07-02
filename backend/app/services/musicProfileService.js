@@ -313,6 +313,33 @@ function _analyzeYouTubeTracks(videos) {
   };
 }
 
+/**
+ * Merge two providers' RANKED signal lists (genres or artists), weighting each provider
+ * by how much of the combined library it contributed. This is the "brain" that lets a
+ * richer YouTube history dominate the taste profile: an item's score is (rank position ×
+ * provider weight), summed across providers, then re-ranked. With YouTube 500 tracks vs
+ * Spotify 50, YouTube signals carry ~10× the weight.
+ *
+ * @param {string[]} rankedA  provider A's ranked list (highest-affinity first)
+ * @param {number}   weightA  provider A's weight (its library size)
+ * @param {string[]} rankedB  provider B's ranked list
+ * @param {number}   weightB  provider B's weight (its library size)
+ * @param {number}   cap      max items to return
+ */
+function _weightedMergeRanked(rankedA, weightA, rankedB, weightB, cap) {
+  const score = new Map();
+  const add = (ranked, weight) => {
+    if (!weight) return; // a provider with no library contributes nothing
+    ranked.forEach((item, i) => {
+      const base = (ranked.length - i) * weight; // earlier in the list → higher score
+      score.set(item, (score.get(item) || 0) + base);
+    });
+  };
+  add(rankedA, weightA);
+  add(rankedB, weightB);
+  return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([item]) => item).slice(0, cap);
+}
+
 // ── Profile builder ────────────────────────────────────────────────────────────
 
 /**
@@ -359,6 +386,9 @@ async function buildProfile(userId, user, onProgress = () => {}) {
 
   if (youtubeToken) {
     try {
+      // Deep ingestion: liked videos + EVERY user playlist's items (paginatePlaylistItems
+      // walks all playlists). Watch history is intentionally absent — the YouTube Data API
+      // has not exposed it since 2016, so "all available" is likes + playlists.
       const [likedVideos, playlistItems] = await Promise.all([
         youtube.paginateLikedVideos(youtubeToken),
         youtube.paginatePlaylistItems(youtubeToken),
@@ -367,11 +397,23 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       const allVideos  = _deduplicateById([...likedVideos, ...playlistItems]);
       const ytAnalysis = _analyzeYouTubeTracks(allVideos);
 
+      // Weighting ("the brain"): each provider's taste signals count in proportion to how
+      // much of the combined library it contributed. Capture Spotify's contribution BEFORE
+      // pushing YouTube tracks so the weights reflect true per-provider library sizes — a
+      // richer YouTube history then dominates the core genres/artists.
+      const spotifyLibSize = library.length;
+      const youtubeLibSize = ytAnalysis.library.length;
+      const spotifyTopGenres  = topGenres;
+      const spotifyTopArtists = topArtists;
+
       library.push(...ytAnalysis.library);
-      // Merge rankings — YouTube fills the genre gap where Spotify is sparse.
-      topGenres  = _rankByFrequency([...topGenres,  ...ytAnalysis.topGenres]).slice(0, 10);
-      topArtists = _rankByFrequency([...topArtists, ...ytAnalysis.topArtists]).slice(0, 20);
+      topGenres  = _weightedMergeRanked(spotifyTopGenres,  spotifyLibSize, ytAnalysis.topGenres,  youtubeLibSize, 10);
+      topArtists = _weightedMergeRanked(spotifyTopArtists, spotifyLibSize, ytAnalysis.topArtists, youtubeLibSize, 20);
       genreSet   = [...new Set([...genreSet, ...ytAnalysis.topGenres])];
+
+      report(70, youtubeLibSize > spotifyLibSize
+        ? 'Weighted your richer YouTube library'
+        : 'Merged your YouTube library');
     } catch (err) {
       console.warn(`[musicProfile] YouTube analysis skipped: ${err.message}`);
     }
@@ -426,4 +468,5 @@ module.exports = {
   _rankArtistsFromTops,
   _deduplicateById,
   _rankByFrequency,
+  _weightedMergeRanked,
 };

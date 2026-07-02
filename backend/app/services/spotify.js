@@ -486,6 +486,39 @@ async function searchTracksByGenres(accessToken, genres, limit = 10, keywords = 
   return out;
 }
 
+/**
+ * Cross-platform translation primitive: find the best Spotify track for a
+ * (title, artist) pair — used to map a YouTube-sourced track to a PLAYABLE Spotify
+ * URI (playback always happens on Spotify). Returns the top match shaped like the
+ * rest of the pipeline (`{ id, uri, name, artist }`) or null when nothing matches.
+ */
+async function searchTrackUri(accessToken, { title, artist } = {}) {
+  const t = (title || '').trim();
+  if (!t) return null;
+  const a = (artist || '').trim();
+  // Most precise query first (field-scoped), then progressively looser free-text so a
+  // slightly-off YouTube title/channel still resolves.
+  const queries = a
+    ? [`track:"${t}" artist:"${a}"`, `${t} ${a}`, t]
+    : [`track:"${t}"`, t];
+  for (const q of queries) {
+    try {
+      const { data } = await withRetry(() =>
+        axios.get(`${BASE_API}/search`, {
+          headers: authHeader(accessToken),
+          params:  { q, type: 'track', limit: 1 },
+          timeout: 8_000,
+        })
+      );
+      const hit = data.tracks?.items?.[0];
+      if (hit?.uri) {
+        return { id: hit.id, uri: hit.uri, name: hit.name, artist: hit.artists?.[0]?.name ?? null };
+      }
+    } catch { /* try the next query form */ }
+  }
+  return null;
+}
+
 // ── Layer 1: vibe-playlist sourcing ──────────────────────────────────────────
 // Spotify killed /audio-features + /recommendations, so genre is the only native
 // sonic signal — and genre is too coarse (a "rock" track can be a 70 BPM ballad or
@@ -691,7 +724,7 @@ module.exports = {
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
   artistGenresAvailable, _resetArtistGenresCache,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
-  searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery,
+  searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery, searchTrackUri,
   playTracks, getActiveDevice,
   saveTracks, removeSavedTracks, areTracksSaved,
 };

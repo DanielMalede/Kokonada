@@ -39,4 +39,33 @@ function resolveMusicProvider(user) {
   return null;
 }
 
-module.exports = { resolveMusicProvider };
+/**
+ * The PLAYBACK engine. Playback always happens on the Spotify Web Playback SDK, so this
+ * is 'spotify' whenever a Spotify token is connected — independent of `musicProvider` or
+ * which provider built the taste profile. Returns null when Spotify isn't connected (a
+ * YouTube-only user still gets a profile + generated tracks, but no in-app playback until
+ * they connect Spotify).
+ *
+ * @param {{ spotifyToken?: { blob?: string }|null }} user
+ * @returns {'spotify'|null}
+ */
+function resolvePlaybackProvider(user) {
+  return user && user.spotifyToken?.blob ? 'spotify' : null;
+}
+
+/**
+ * The DATA-engine providers currently connected. Spotify and YouTube can BOTH be active
+ * at once (their tokens are stored in separate fields and never overwrite each other), so
+ * the taste profile can be built from either or both.
+ *
+ * @returns {Array<'spotify'|'youtube'>}
+ */
+function resolveDataProviders(user) {
+  if (!user) return [];
+  const providers = [];
+  if (user.spotifyToken?.blob) providers.push('spotify');
+  if (user.youtubeMusicToken?.blob) providers.push('youtube');
+  return providers;
+}
+
+module.exports = { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders };

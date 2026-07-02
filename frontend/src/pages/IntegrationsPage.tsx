@@ -19,6 +19,7 @@ import type { AppDispatch, RootState } from '../store';
 import {
   setMusicProvider,
   setBiometricProvider,
+  setConnections,
   setMoodOnly,
   selectIsIntegrationsComplete,
   selectIntegrationsSettled,
@@ -115,7 +116,8 @@ function ServiceRow({ name, hint, connected, disabled, onConnect, disconnectKind
 export default function IntegrationsPage() {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
-  const music = useSelector((s: RootState) => s.integrations.musicProvider);
+  const spotifyConnected = useSelector((s: RootState) => s.integrations.spotifyConnected);
+  const youtubeConnected = useSelector((s: RootState) => s.integrations.youtubeConnected);
   const spotifyCanSave = useSelector((s: RootState) => s.integrations.spotifyCanSave);
   const integrationsSettled = useSelector(selectIntegrationsSettled);
   const biometric = useSelector((s: RootState) => s.integrations.biometricProvider);
@@ -124,7 +126,7 @@ export default function IntegrationsPage() {
   // Connected to Spotify but the token lacks user-library-modify (e.g. it predates
   // the scope) → Like/save 403s. Gate on `settled` so good tokens don't flash a
   // Reconnect prompt while status is still loading.
-  const spotifyNeedsReconnect = music === 'spotify' && integrationsSettled && !spotifyCanSave;
+  const spotifyNeedsReconnect = spotifyConnected && integrationsSettled && !spotifyCanSave;
   const gsiRef = useRef<HTMLScriptElement | null>(null);
 
   // Ensure the GIS library is loaded so google.accounts.oauth2 is available.
@@ -146,6 +148,11 @@ export default function IntegrationsPage() {
       .then(data => {
         if (!data) return;
         dispatch(setMusicProvider(data.musicProvider));
+        dispatch(setConnections({
+          spotifyConnected: Boolean(data.spotifyConnected),
+          youtubeConnected: Boolean(data.youtubeConnected),
+          playbackProvider: data.playbackProvider === 'spotify' ? 'spotify' : null,
+        }));
         dispatch(setBiometricProvider(data.biometricProvider));
       })
       .catch(() => {});
@@ -203,6 +210,13 @@ export default function IntegrationsPage() {
           try { data = await res.json(); } catch { /* non-JSON body (e.g. 404 HTML) */ }
           if (data.success) {
             dispatch(setMusicProvider('youtube'));
+            // Optimistic: mark YouTube connected without clobbering Spotify's playback role
+            // (the GIS popup doesn't reload the page, so no status re-fetch happens here).
+            dispatch(setConnections({
+              spotifyConnected,
+              youtubeConnected: true,
+              playbackProvider: spotifyConnected ? 'spotify' : null,
+            }));
           } else {
             const detail = data.error ? ` (${data.error})` : res.ok ? '' : ` (${res.status})`;
             console.error('[youtube/connect-gis] failed', res.status, data);
@@ -250,23 +264,28 @@ export default function IntegrationsPage() {
             <CardContent className="divide-y divide-border">
               <ServiceRow
                 name="Spotify"
-                connected={music === 'spotify'}
+                connected={spotifyConnected}
                 onConnect={connectSpotify}
                 disconnectKind="spotify"
                 needsReconnect={spotifyNeedsReconnect}
-                hint={spotifyNeedsReconnect ? 'Reconnect to allow saving songs to your library' : undefined}
+                hint={
+                  spotifyNeedsReconnect
+                    ? 'Reconnect to allow saving songs to your library'
+                    : 'Playback engine — songs stream here'
+                }
               />
               <ServiceRow
                 name="YouTube Music"
-                connected={music === 'youtube'}
+                connected={youtubeConnected}
                 onConnect={connectYouTube}
                 disconnectKind="youtube"
-                hint={
-                  music === 'youtube'
-                    ? 'Read-only — builds your taste profile. Playback & Like happen in Spotify or the YouTube app.'
-                    : 'Builds your taste profile from your likes & playlists (read-only — no in-app playback)'
-                }
+                hint="Taste engine — builds your profile from likes & playlists (read-only; no in-app playback)"
               />
+              {spotifyConnected && youtubeConnected && (
+                <p className="pt-3 text-xs text-muted-foreground">
+                  Both connected: your YouTube listening shapes your taste profile, and the picks play through Spotify.
+                </p>
+              )}
             </CardContent>
             {/* Data-handling transparency / connect-time consent. */}
             <p className="px-4 pb-3 text-xs text-muted-foreground">
