@@ -53,6 +53,11 @@ jest.mock('../app/services/playlistMixer', () => ({
   generateFallbackPlaylist: jest.fn().mockReturnValue([{ id: 'lib-1' }, { id: 'lib-2' }]),
 }));
 
+jest.mock('../app/services/features/featureService', () => ({
+  hydrate: jest.fn(),
+  enqueueHydration: jest.fn().mockResolvedValue({ queued: true }),
+}));
+
 jest.mock('../app/services/wearable/adapter', () => ({
   normalize: jest.fn((source, raw) => {
     const KNOWN = ['garmin', 'apple_watch', 'fitbit'];
@@ -700,6 +705,26 @@ describe('session-history honesty (records what actually drove the generation)',
       trackIds:  ['lib-1', 'd1', 'd2'],
       trackKeys: ['at:|familiar 1', 'at:|discovery 1', 'at:|discovery 2'],
     }));
+  });
+
+  it('enqueues feature hydration for the served tracks after emitting (dark launch)', async () => {
+    const featureService = require('../app/services/features/featureService');
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(featureService.enqueueHydration).toHaveBeenCalledWith(MERGED_TRACKS);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('a hydration enqueue failure never breaks the playlist emit', async () => {
+    const featureService = require('../app/services/features/featureService');
+    featureService.enqueueHydration.mockRejectedValueOnce(new Error('redis exploded'));
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
 });
 

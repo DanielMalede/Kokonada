@@ -21,6 +21,13 @@ const MusicProfile = require('../app/models/MusicProfile');
 jest.mock('../app/services/geminiEngine', () => ({ inferArtistGenres: jest.fn().mockResolvedValue({}) }));
 const geminiEngine = require('../app/services/geminiEngine');
 
+// ── featureService mock (dark-launch hydration enqueue) ──────────────────────
+jest.mock('../app/services/features/featureService', () => ({
+  hydrate: jest.fn(),
+  enqueueHydration: jest.fn().mockResolvedValue({ queued: true }),
+}));
+const featureService = require('../app/services/features/featureService');
+
 // ── Real service modules (axios mock intercepts their HTTP calls) ──────────────
 const spotify = require('../app/services/spotify');
 const youtube = require('../app/services/youtube');
@@ -483,6 +490,21 @@ describe('buildProfile', () => {
   afterEach(() => jest.restoreAllMocks());
 
   const savedSet = () => MusicProfile.findOneAndUpdate.mock.calls[0][1].$set;
+
+  it('enqueues feature hydration for the built library (dark launch, fire-and-forget)', async () => {
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+
+    expect(featureService.enqueueHydration).toHaveBeenCalledTimes(1);
+    const [libraryArg] = featureService.enqueueHydration.mock.calls[0];
+    expect(Array.isArray(libraryArg)).toBe(true);
+    expect(libraryArg.length).toBeGreaterThan(0);
+  });
+
+  it('a hydration enqueue failure never breaks profile building', async () => {
+    featureService.enqueueHydration.mockRejectedValueOnce(new Error('queue down'));
+
+    await expect(buildProfile('user123', makeMockUser({ hasSpotify: true }))).resolves.toBeDefined();
+  });
 
   it('builds from listening history (top/saved/recent) without calling audio-features', async () => {
     await buildProfile('user123', makeMockUser({ hasSpotify: true }));

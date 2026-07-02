@@ -6,6 +6,7 @@ const youtube      = require('./youtube');
 const { inferArtistGenres } = require('./geminiEngine');
 const { cleanYouTubeArtist } = require('./crossPlatform');
 const { canonicalKey } = require('./identity/trackIdentity');
+const featureService = require('./features/featureService');
 
 const LIBRARY_CAP = 10_000; // max tracks stored per user to stay within 16 MB doc limit
 
@@ -572,6 +573,11 @@ async function buildProfile(userId, user, onProgress = () => {}) {
     { upsert: true, new: true }
   );
   report(100, 'Profile ready');
+
+  // Dark launch: queue audio-feature hydration for the freshly built library.
+  // Fire-and-forget — profile building never waits on (or fails with) the store.
+  featureService.enqueueHydration(library).catch(() => {});
+
   return profile;
 }
 
