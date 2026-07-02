@@ -475,6 +475,8 @@ describe('buildProfile', () => {
     jest.spyOn(spotify, 'batchAudioFeatures');
     jest.spyOn(youtube, 'paginateLikedVideos').mockResolvedValue([]);
     jest.spyOn(youtube, 'paginatePlaylistItems').mockResolvedValue([]);
+    jest.spyOn(youtube, 'paginateSubscriptions').mockResolvedValue([]);
+    jest.spyOn(youtube, 'fetchVideoTopics').mockResolvedValue([]);
     MusicProfile.findOneAndUpdate.mockResolvedValue({ userId: 'user123' });
   });
 
@@ -530,6 +532,29 @@ describe('buildProfile', () => {
     await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
     expect(youtube.paginateLikedVideos).toHaveBeenCalledWith('yt-token');
     expect(spotify.getTopTracks).not.toHaveBeenCalled();
+  });
+
+  it('ingests subscriptions (artists) + video topics (genres) into the profile', async () => {
+    youtube.paginateLikedVideos.mockResolvedValue([
+      { id: 'v1', snippet: { title: 'Some Song', channelTitle: 'Aphex Twin - Topic' } },
+    ]);
+    youtube.paginateSubscriptions.mockResolvedValue([
+      { snippet: { title: 'Boards of Canada - Topic' } },
+      { snippet: { title: 'Random News Channel' } }, // non-music → excluded
+    ]);
+    youtube.fetchVideoTopics.mockResolvedValue([
+      { id: 'v1', topicCategories: ['https://en.wikipedia.org/wiki/Electronic_music'], tags: [] },
+    ]);
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
+    const saved = savedSet();
+
+    expect(youtube.paginateSubscriptions).toHaveBeenCalledWith('yt-token');
+    expect(youtube.fetchVideoTopics).toHaveBeenCalledWith('yt-token', ['v1']);
+    expect(saved.topArtists).toContain('Boards of Canada'); // subscribed artist channel
+    expect(saved.topArtists).not.toContain('Random News Channel');
+    expect(saved.topGenres).toContain('electronic');         // from video topicDetails
+    expect(saved.genreSet).toContain('electronic');
   });
 
   it('saves empty arrays gracefully when no provider is connected', async () => {

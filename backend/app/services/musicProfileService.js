@@ -313,6 +313,55 @@ function _analyzeYouTubeTracks(videos) {
   };
 }
 
+// Wikipedia music-genre topic slugs (from videos.topicDetails.topicCategories) → our
+// canonical genres. The generic "/wiki/Music" topic is intentionally excluded (too coarse).
+const WIKI_TOPIC_TO_GENRE = {
+  'pop': 'pop', 'rock': 'rock', 'hip hop': 'hip-hop', 'hip-hop': 'hip-hop',
+  'electronic': 'electronic', 'electronic dance': 'electronic',
+  'independent': 'indie', 'country': 'country', 'jazz': 'jazz',
+  'classical': 'classical', 'soul': 'soul', 'rhythm and blues': 'r&b',
+  'reggae': 'reggae', 'folk': 'folk', 'heavy metal': 'metal', 'metal': 'metal',
+  'blues': 'blues', 'funk': 'funk', 'latin': 'latin',
+};
+
+/**
+ * Extract canonical genres from a video's Wikipedia topicCategories URLs
+ * (e.g. "https://en.wikipedia.org/wiki/Rock_music" → "rock"). Unmapped / too-coarse
+ * topics are dropped. Pure — unit-testable.
+ */
+function _genresFromTopicCategories(topicCategories) {
+  const out = [];
+  for (const url of topicCategories || []) {
+    const slug = String(url).split('/wiki/')[1];
+    if (!slug) continue;
+    const name = decodeURIComponent(slug).replace(/_/g, ' ').toLowerCase().replace(/\s*music$/, '').trim();
+    if (WIKI_TOPIC_TO_GENRE[name]) out.push(WIKI_TOPIC_TO_GENRE[name]);
+  }
+  return out;
+}
+
+/**
+ * Extract artist names from the user's channel subscriptions, keeping only high-confidence
+ * MUSIC channels (auto-generated "… - Topic" / "…VEVO" / "… - Official Artist Channel").
+ * Non-music subscriptions (news, gaming, …) are excluded so they can't pollute taste.
+ * Pure — unit-testable.
+ */
+function _subscriptionArtists(subscriptions) {
+  const out = [];
+  const MUSIC_MARKER = /-\s*Topic\s*$|VEVO\s*$|-\s*Official Artist Channel\s*$/i;
+  for (const s of subscriptions || []) {
+    const title = s?.snippet?.title || '';
+    if (!MUSIC_MARKER.test(title)) continue;
+    const name = title
+      .replace(/\s*-\s*Topic\s*$/i, '')
+      .replace(/\s*-\s*Official Artist Channel\s*$/i, '')
+      .replace(/VEVO\s*$/i, '')
+      .trim();
+    if (name) out.push(name);
+  }
+  return out;
+}
+
 /**
  * Merge two providers' RANKED signal lists (genres or artists), weighting each provider
  * by how much of the combined library it contributed. This is the "brain" that lets a
@@ -397,23 +446,44 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       const allVideos  = _deduplicateById([...likedVideos, ...playlistItems]);
       const ytAnalysis = _analyzeYouTubeTracks(allVideos);
 
+      // ── Extra legal Data-API sources that enrich the taste signals ──────────────────
+      // (a) Subscribed MUSIC channels → strong artist-affinity signal. Best-effort: a
+      //     failure here must not lose the liked/playlist analysis above.
+      let subArtists = [];
+      try {
+        subArtists = _subscriptionArtists(await youtube.paginateSubscriptions(youtubeToken));
+      } catch (e) { console.warn(`[musicProfile] YouTube subscriptions skipped: ${e.message}`); }
+
+      // (b) Video topicDetails → Wikipedia music-genre topics (richer than the sparse
+      //     per-video tags). Bounded + batched inside fetchVideoTopics. Best-effort.
+      let topicGenres = [];
+      try {
+        const videoIds = allVideos.map(v => v.id ?? v.snippet?.resourceId?.videoId).filter(Boolean);
+        const topics   = await youtube.fetchVideoTopics(youtubeToken, videoIds);
+        topicGenres    = topics.flatMap(t => _genresFromTopicCategories(t.topicCategories));
+      } catch (e) { console.warn(`[musicProfile] YouTube topics skipped: ${e.message}`); }
+
+      // Fold the new signals into YouTube's ranked lists before the cross-provider merge.
+      const ytGenresRanked  = _rankByFrequency([...ytAnalysis.topGenres,  ...topicGenres]).slice(0, 12);
+      const ytArtistsRanked = _rankByFrequency([...ytAnalysis.topArtists, ...subArtists]).slice(0, 25);
+
       // Weighting ("the brain"): each provider's taste signals count in proportion to how
-      // much of the combined library it contributed. Capture Spotify's contribution BEFORE
-      // pushing YouTube tracks so the weights reflect true per-provider library sizes — a
-      // richer YouTube history then dominates the core genres/artists.
+      // much it contributed. YouTube's contribution now counts library tracks PLUS subscribed
+      // artists, so a user rich on YouTube (big library and/or many artist subs) dominates.
+      // Capture Spotify's size BEFORE pushing YouTube tracks so the weights stay accurate.
       const spotifyLibSize = library.length;
-      const youtubeLibSize = ytAnalysis.library.length;
+      const youtubeLibSize = ytAnalysis.library.length + subArtists.length;
       const spotifyTopGenres  = topGenres;
       const spotifyTopArtists = topArtists;
 
       library.push(...ytAnalysis.library);
-      topGenres  = _weightedMergeRanked(spotifyTopGenres,  spotifyLibSize, ytAnalysis.topGenres,  youtubeLibSize, 10);
-      topArtists = _weightedMergeRanked(spotifyTopArtists, spotifyLibSize, ytAnalysis.topArtists, youtubeLibSize, 20);
-      genreSet   = [...new Set([...genreSet, ...ytAnalysis.topGenres])];
+      topGenres  = _weightedMergeRanked(spotifyTopGenres,  spotifyLibSize, ytGenresRanked,  youtubeLibSize, 10);
+      topArtists = _weightedMergeRanked(spotifyTopArtists, spotifyLibSize, ytArtistsRanked, youtubeLibSize, 20);
+      genreSet   = [...new Set([...genreSet, ...ytGenresRanked])];
 
       report(70, youtubeLibSize > spotifyLibSize
-        ? 'Weighted your richer YouTube library'
-        : 'Merged your YouTube library');
+        ? 'Weighted your richer YouTube library (likes, playlists, subscriptions, topics)'
+        : 'Merged your YouTube library (likes, playlists, subscriptions, topics)');
     } catch (err) {
       console.warn(`[musicProfile] YouTube analysis skipped: ${err.message}`);
     }
@@ -469,4 +539,6 @@ module.exports = {
   _deduplicateById,
   _rankByFrequency,
   _weightedMergeRanked,
+  _genresFromTopicCategories,
+  _subscriptionArtists,
 };
