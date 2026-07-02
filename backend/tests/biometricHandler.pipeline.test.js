@@ -58,6 +58,10 @@ jest.mock('../app/services/features/featureService', () => ({
   enqueueHydration: jest.fn().mockResolvedValue({ queued: true }),
 }));
 
+jest.mock('../app/services/selection/selectionShadow', () => ({
+  run: jest.fn().mockReturnValue({ scheduled: true }),
+}));
+
 jest.mock('../app/services/ledger/serveLedger', () => ({
   recordServes: jest.fn().mockResolvedValue({ recorded: 0 }),
   hardExcluded: jest.fn().mockResolvedValue(new Set()),
@@ -777,6 +781,31 @@ describe('serve ledger wiring (variance engine, Phase 3)', () => {
     const socket = makeSocket();
 
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('schedules the shadow dual-run after serving, with the v1 tracks for comparison', async () => {
+    const selectionShadow = require('../app/services/selection/selectionShadow');
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(selectionShadow.run).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-123',
+      moodKey: 'intense',
+      servedTracks: MERGED_TRACKS,
+      now: expect.any(Number),
+    }));
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('a shadow scheduling failure never breaks the playlist emit', async () => {
+    const selectionShadow = require('../app/services/selection/selectionShadow');
+    selectionShadow.run.mockImplementationOnce(() => { throw new Error('shadow exploded'); });
+    const socket = makeSocket();
+
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
 
     expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
