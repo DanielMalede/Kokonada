@@ -11,7 +11,8 @@ const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist, critiqueTrackVibe } = require('../services/geminiEngine');
 const { mixPlaylist, generateFallbackPlaylist, personalizeWhitelist }  = require('../services/playlistMixer');
-const { buildMoodParams, resolveMoodKey }      = require('../services/moodDescriptors');
+const { buildMoodParams, resolveMoodKey, syntheticBioMoodKey, bandFromHeartRate } = require('../services/moodDescriptors');
+const serveLedger = require('../services/ledger/serveLedger');
 const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
@@ -402,18 +403,23 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // request must never fall through to the heart-rate branch and be ignored.
     const useEmotion = trigger === 'emotion'
       && (state.lastEmotionTaps.length > 0 || !!state.lastTextPrompt || !!state.lastActivity);
-    // The mood the Layer-2 critic and strict personalization key off — null on the
-    // heart-rate branch, which keeps its original soft-bias behaviour.
-    const moodKey   = useEmotion ? resolveMoodKey(state.lastEmotionTaps) : null;
+    // The mood the critic, strict personalization and the serve ledger key off.
+    // The heart-rate branch now gets a SYNTHETIC, deterministic bio:* moodKey
+    // (bio:<band>:<activity>) — closing the old moodKey=null blacklist bypass.
+    // Null only when no usable HR exists (degrades to legacy global cooldown).
+    const moodKey   = useEmotion
+      ? resolveMoodKey(state.lastEmotionTaps)
+      : syntheticBioMoodKey(state.stableHR, state.latestActivity);
     // Layer 2 (Groq energy critic) runs only for a real mood and is kill-switchable.
     const runCritic = useEmotion && process.env.VIBE_CRITIC !== 'false';
 
     // Extreme anti-repetition: a repeated mood within the window flips on Strict Mode
-    // (deeper per-mood cooldown + inverted ratios + rotated sort axis). Only the manual
-    // mood branch can trigger it — the HR branch has no "mood request" to repeat — and
+    // (deeper per-mood cooldown + inverted ratios). Synthetic bio:* moodKeys make the
+    // HR branch eligible too — a user regenerating in the same physiological state gets
+    // the same per-mood blacklist a repeated mood tap does (bypass permanently closed).
     // STRICT_ANTIREPEAT=false kills it. isRepeatMood degrades to false on any DB error.
     const strict = process.env.STRICT_ANTIREPEAT !== 'false'
-      && useEmotion && !!moodKey
+      && !!moodKey
       && await isRepeatMood(userId, moodKey);
 
     // Anti-repetition cooldown: strict → every track served under THIS mood in the last
@@ -645,6 +651,18 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // Dark launch: queue audio-feature hydration for anything just served that the
     // store hasn't seen. Nothing reads AudioFeature until the Phase-5 scorer.
     featureService.enqueueHydration(playlist.merged).catch(() => {});
+
+    // Serve ledger (write path — reads land with the Phase-5 selector): record every
+    // served track under this generation's mood context. Coarse bands only, no vitals.
+    serveLedger.recordServes({
+      userId,
+      sessionId: String(reqId ?? ''),
+      entries: playlist.merged.map(t => ({
+        canonicalKey: t.canonicalKey ?? canonicalKey(t),
+        moodKey,
+        bioState: { tempoBand: bandFromHeartRate(state.stableHR), activity: state.latestActivity ?? null },
+      })),
+    }).catch(e => console.error('[serveLedger] record failed:', e.message));
   } finally {
     state.generating = false;
   }
