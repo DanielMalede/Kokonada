@@ -25,4 +25,14 @@ function getRedis() {
   return client; // callers must handle null (cache miss) gracefully
 }
 
-module.exports = { connectRedis, getRedis };
+// BullMQ needs dedicated connections with maxRetriesPerRequest: null (blocking
+// commands) — the shared getRedis() client must never be reused for queues.
+// Producers pass { enableOfflineQueue: false } to fail fast instead of buffering.
+function createConnection(overrides = {}) {
+  return new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+    maxRetriesPerRequest: null,
+    ...overrides,
+  });
+}
+
+module.exports = { connectRedis, getRedis, createConnection };

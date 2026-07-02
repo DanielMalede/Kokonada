@@ -636,3 +636,46 @@ describe('buildProfile', () => {
     expect(MusicProfile.findOneAndUpdate).toHaveBeenCalled();
   });
 });
+
+// ── canonical identity attachment (variance engine, Phase 1) ─────────────────
+
+describe('canonical identity attachment', () => {
+  const artist = (id, name, genres = []) => ({ id, name, genres });
+  const spTrack = (id, artists = [artist('a1', 'A1')], extra = {}) => ({
+    id, name: `Song ${id}`, uri: `spotify:track:${id}`, popularity: 50, artists, ...extra,
+  });
+
+  it('spotify library entries carry the ISRC and an isrc-based canonicalKey', () => {
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [
+        { tracks: [spTrack('t1', undefined, { external_ids: { isrc: 'US-UM7-12-34567' } })], weight: 6 },
+      ],
+      artistLists: [], artistGenres: {},
+    });
+    expect(library[0].isrc).toBe('US-UM7-12-34567');
+    expect(library[0].canonicalKey).toBe('isrc:USUM71234567');
+  });
+
+  it('spotify entries without an ISRC get the artist|title fingerprint', () => {
+    const { library } = _analyzeSpotifyProfile({
+      trackSources: [{ tracks: [spTrack('t1', [artist('a1', 'Beyoncé')])], weight: 6 }],
+      artistLists: [], artistGenres: {},
+    });
+    expect(library[0].isrc).toBeNull();
+    expect(library[0].canonicalKey).toBe('at:beyonce|song t1');
+  });
+
+  it('youtube entries parse the video title/channel into the same key as the Spotify copy', () => {
+    const videos = [
+      { id: 'v1', snippet: { title: 'Beyoncé - Halo (Official Video)', channelTitle: 'BeyoncéVEVO', tags: [] } },
+    ];
+    const { library: ytLibrary } = _analyzeYouTubeTracks(videos);
+    const { library: spLibrary } = _analyzeSpotifyProfile({
+      trackSources: [{ tracks: [{ ...spTrack('t9', [artist('a1', 'Beyoncé')]), name: 'Halo' }], weight: 6 }],
+      artistLists: [], artistGenres: {},
+    });
+
+    expect(ytLibrary[0].canonicalKey).toBe('at:beyonce|halo');
+    expect(ytLibrary[0].canonicalKey).toBe(spLibrary[0].canonicalKey);
+  });
+});

@@ -5,6 +5,7 @@ const spotify      = require('./spotify');
 const youtube      = require('./youtube');
 const { inferArtistGenres } = require('./geminiEngine');
 const { cleanYouTubeArtist } = require('./crossPlatform');
+const { canonicalKey } = require('./identity/trackIdentity');
 
 const LIBRARY_CAP = 10_000; // max tracks stored per user to stay within 16 MB doc limit
 
@@ -160,7 +161,7 @@ function _analyzeSpotifyProfile({ trackSources = [], artistLists = [], artistGen
     .map(({ track, affinity }) => {
       const artistIds = (track.artists || []).map(a => a.id).filter(Boolean);
       const genres    = [...new Set(artistIds.flatMap(id => genreByArtist[id] || []))];
-      return {
+      const entry = {
         id:           track.id,
         provider:     'spotify',
         name:         track.name ?? null,
@@ -170,9 +171,12 @@ function _analyzeSpotifyProfile({ trackSources = [], artistLists = [], artistGen
         genres,
         popularity:   track.popularity ?? null,
         affinity:     Number(affinity.toFixed(3)),
+        isrc:         track.external_ids?.isrc ?? null,
         // Audio features are dead for new apps — retained as null for back-compat.
         tempo: null, energy: null, valence: null, acousticness: null, danceability: null,
       };
+      entry.canonicalKey = canonicalKey(entry);
+      return entry;
     });
 
   const topArtists = rankedArtists.map(a => a.name).filter(Boolean).slice(0, 20);
@@ -312,7 +316,7 @@ function _analyzeYouTubeTracks(videos) {
     // artist coming from a subscription — otherwise the weighting fragments one artist into two.
     const artist = cleanYouTubeArtist(snippet.channelTitle) || snippet.channelTitle || null;
 
-    library.push({
+    const entry = {
       id:           _videoIdOf(video),
       provider:     'youtube_music',
       name:         snippet.title ?? null,
@@ -326,8 +330,11 @@ function _analyzeYouTubeTracks(videos) {
       artist,
       artistIds:    [],
       popularity:   null,
+      isrc:         null,
       affinity:     n - i, // earlier in the liked/playlist list → higher affinity
-    });
+    };
+    entry.canonicalKey = canonicalKey(entry);
+    library.push(entry);
 
     genrePool.push(...genres);
     if (artist) artistPool.push(artist);

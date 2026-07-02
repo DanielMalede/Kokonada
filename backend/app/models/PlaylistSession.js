@@ -37,6 +37,9 @@ const playlistSessionSchema = new mongoose.Schema({
   musicProvider: { type: String, enum: ['spotify', 'youtube'], required: true },
   externalPlaylistId: { type: String, default: null },
   trackIds: { type: [String], default: [] },
+  // Canonical track keys (isrc:… / at:artist|title) mirroring trackIds — the
+  // cross-provider identity the variance-engine serve ledger reads.
+  trackKeys: { type: [String], default: [] },
 
   // Feedback signals
   skipCount:    { type: Number, default: 0 },

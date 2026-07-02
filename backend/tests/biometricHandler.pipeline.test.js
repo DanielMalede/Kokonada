@@ -691,6 +691,16 @@ describe('session-history honesty (records what actually drove the generation)',
       emotionTaps: [{ x: 0, y: 0 }], contextPrompt: '',
     }));
   });
+
+  it('records canonical trackKeys alongside trackIds (variance engine, Phase 1)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({
+      trackIds:  ['lib-1', 'd1', 'd2'],
+      trackKeys: ['at:|familiar 1', 'at:|discovery 1', 'at:|discovery 2'],
+    }));
+  });
 });
 
 describe('HR physiological validation (Bug: HR=0 / garbage / stale)', () => {

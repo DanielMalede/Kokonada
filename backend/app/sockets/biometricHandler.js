@@ -15,6 +15,7 @@ const { buildMoodParams, resolveMoodKey }      = require('../services/moodDescri
 const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
+const { canonicalKey } = require('../services/identity/trackIdentity');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -630,6 +631,9 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       targetEnergy:      aiResult.params.target_energy,
       musicProvider:     provider,
       trackIds:          playlist.merged.map(t => t.id).filter(Boolean),
+      // Canonical keys (isrc:… / at:artist|title) mirroring trackIds — the cross-provider
+      // identity the serve ledger dedupes on. Library tracks carry one; discovery gets it here.
+      trackKeys:         playlist.merged.map(t => t.canonicalKey ?? canonicalKey(t)).filter(Boolean),
     }).catch(e => {
       console.error('[PlaylistSession] save failed:', e.message);
       // A dropped session write silently breaks anti-repetition (the next generation
