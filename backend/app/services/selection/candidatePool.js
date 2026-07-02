@@ -39,7 +39,9 @@ async function buildPool({ userId, musicProfile = {}, moodKey = null, excludeGen
       const cached = await redis.get(key);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed.builtFrom === builtFrom) partition = parsed.tracks;
+        // Identity is NEVER trusted from cache: recompute canonicalKeys so a
+        // tampered/poisoned entry cannot smuggle forged keys past the ledger.
+        if (parsed.builtFrom === builtFrom) partition = attachCanonicalKeys(parsed.tracks || []);
       }
     } catch { /* cache miss on any error */ }
   }

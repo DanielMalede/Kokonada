@@ -8,9 +8,20 @@
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
-function _jaccard(a = [], b = []) {
-  const setA = new Set(a.map(g => String(g).toLowerCase()));
-  const setB = new Set(b.map(g => String(g).toLowerCase()));
+// Genre sets are memoized per track object: the greedy loop runs O(k²·window)
+// similarity calls and rebuilding Sets each time was the shadow-audit latency
+// kill (975ms on a 500-track pool).
+const _genreSets = new WeakMap();
+function _genreSet(track) {
+  let set = _genreSets.get(track);
+  if (!set) {
+    set = new Set((track.genres || []).map(g => String(g).toLowerCase()));
+    _genreSets.set(track, set);
+  }
+  return set;
+}
+
+function _jaccardSets(setA, setB) {
   if (!setA.size || !setB.size) return 0;
   let inter = 0;
   for (const g of setA) if (setB.has(g)) inter++;
@@ -33,7 +44,7 @@ function defaultSimilarity(a, b) {
   if (artistA && artistA === artistB) return 1;
 
   const feat = _featureSim(a.features, b.features);
-  const genre = _jaccard(a.genres, b.genres);
+  const genre = _jaccardSets(_genreSet(a), _genreSet(b));
   if (feat != null) return clamp01(0.6 * feat + 0.3 * genre);
   return clamp01(0.3 * genre);
 }
@@ -45,11 +56,15 @@ function defaultSimilarity(a, b) {
 function select(scored = [], { k = 50, lambda = 0.7, similarity = defaultSimilarity } = {}) {
   const remaining = [...scored].sort((a, b) => b.total - a.total);
   const picked = [];
+  // Candidate window: only the top slice of the (score-sorted) remainder can
+  // realistically win a pick — evaluating all 500 every round is wasted work.
+  const windowSize = Math.max(k * 2, 100);
 
   while (picked.length < k && remaining.length) {
     let bestIdx = 0;
     let bestValue = -Infinity;
-    for (let i = 0; i < remaining.length; i++) {
+    const limit = Math.min(remaining.length, windowSize);
+    for (let i = 0; i < limit; i++) {
       const cand = remaining[i];
       let maxSim = 0;
       for (const p of picked) {
