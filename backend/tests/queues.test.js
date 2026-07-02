@@ -100,6 +100,61 @@ describe('queues/queue seam', () => {
   });
 });
 
+describe('shadow audit — queue seam under failure', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    delete process.env.REDIS_URL;
+  });
+
+  it('a flood of enqueues without REDIS_URL retains nothing (no queue buildup)', async () => {
+    const { Queue } = require('bullmq');
+    const { enqueue } = require('../app/queues/queue');
+
+    for (let i = 0; i < 1000; i++) {
+      await enqueue('feature-hydration', { i });
+    }
+
+    expect(Queue.instances).toHaveLength(0);
+  });
+
+  it('enqueue resolves {queued:false, reason:redis-error} when the broker rejects — never throws', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const { Queue } = require('bullmq');
+    const { enqueue } = require('../app/queues/queue');
+
+    await enqueue('feature-hydration', { warm: true });
+    Queue.instances[0].add.mockRejectedValueOnce(new Error('Stream isn\'t writeable'));
+
+    await expect(enqueue('feature-hydration', { doomed: true }))
+      .resolves.toEqual({ queued: false, reason: 'redis-error' });
+  });
+
+  it('scheduleRepeatable also degrades to {scheduled:false, reason:redis-error} on broker failure', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const { Queue } = require('bullmq');
+    const { enqueue, scheduleRepeatable } = require('../app/queues/queue');
+
+    await enqueue('state-vector-recompute', {});
+    Queue.instances[0].add.mockRejectedValueOnce(new Error('connection lost'));
+
+    await expect(scheduleRepeatable('state-vector-recompute', '0 4 * * *', {}))
+      .resolves.toEqual({ scheduled: false, reason: 'redis-error' });
+  });
+
+  it('producer connections disable the ioredis offline queue (no unbounded command buffering while Redis is down)', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const IORedis = require('ioredis');
+    const { enqueue } = require('../app/queues/queue');
+
+    await enqueue('feature-hydration', {});
+
+    expect(IORedis).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ maxRetriesPerRequest: null, enableOfflineQueue: false })
+    );
+  });
+});
+
 describe('config/redis createConnection', () => {
   beforeEach(() => jest.resetModules());
 

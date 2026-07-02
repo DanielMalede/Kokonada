@@ -27,9 +27,11 @@ function getRedis() {
 
 // BullMQ needs dedicated connections with maxRetriesPerRequest: null (blocking
 // commands) — the shared getRedis() client must never be reused for queues.
-function createConnection() {
+// Producers pass { enableOfflineQueue: false } to fail fast instead of buffering.
+function createConnection(overrides = {}) {
   return new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
     maxRetriesPerRequest: null,
+    ...overrides,
   });
 }
 

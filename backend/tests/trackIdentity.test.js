@@ -108,6 +108,41 @@ describe('normalizeArtist / normalizeTitle', () => {
   });
 });
 
+// ── Shadow audit: adversarial edge cases ──────────────────────────────────────
+
+describe('shadow audit — canonicalKey attacks', () => {
+  it('non-Latin scripts survive normalization (Cyrillic cross-provider dedup)', () => {
+    const spotify = canonicalKey({ title: 'Судно', artist: 'Молчат Дома', provider: 'spotify' });
+    const noisy   = canonicalKey({ title: 'Судно (Official Audio)', artist: 'Молчат Дома', provider: 'spotify' });
+
+    expect(spotify).toBe('at:молчат дома|судно');
+    expect(noisy).toBe(spotify);
+  });
+
+  it('CJK titles produce a real fingerprint, not the provider:id fallback', () => {
+    expect(canonicalKey({ title: '残酷な天使のテーゼ', artist: '高橋洋子', provider: 'spotify', id: 'x1' }))
+      .toBe('at:高橋洋子|残酷な天使のテーゼ');
+  });
+
+  it('junk ISRC values are ignored, never keyed on (collision guard)', () => {
+    // 'n/a' would normalize to isrc:NA and collide every junk-tagged track.
+    expect(canonicalKey({ title: 'Song', artist: 'Artist', isrc: 'n/a' })).toBe('at:artist|song');
+    expect(canonicalKey({ title: 'Song', artist: 'Artist', isrc: 'TBD' })).toBe('at:artist|song');
+    expect(canonicalKey({ title: 'Song', artist: 'Artist', isrc: {} })).toBe('at:artist|song');
+  });
+
+  it('live vs studio recordings with distinct ISRCs keep distinct keys (feature-store safety)', () => {
+    const studio = canonicalKey({ title: 'Song', artist: 'Artist', isrc: 'USUM71234567' });
+    const live   = canonicalKey({ title: 'Song - Live at Wembley', artist: 'Artist', isrc: 'USUM79876543' });
+    expect(studio).not.toBe(live);
+  });
+
+  it('an artist literally named "Live" is not treated as version noise', () => {
+    expect(canonicalKey({ title: 'Lightning Crashes', artist: 'Live' }))
+      .toBe('at:live|lightning crashes');
+  });
+});
+
 describe('attachCanonicalKeys', () => {
   it('adds canonicalKey to each track in place, using name when title is absent', () => {
     const tracks = [

@@ -17,7 +17,10 @@ function assertKnown(queueName) {
 function getQueue(queueName) {
   let queue = queues.get(queueName);
   if (!queue) {
-    queue = new Queue(queueName, { connection: createConnection() });
+    // Producers fail fast: without an offline queue, add() rejects immediately when
+    // Redis is down instead of buffering commands (and their pending promises)
+    // unboundedly until reconnect. Workers keep the resilient default.
+    queue = new Queue(queueName, { connection: createConnection({ enableOfflineQueue: false }) });
     queues.set(queueName, queue);
   }
   return queue;
@@ -26,15 +29,25 @@ function getQueue(queueName) {
 async function enqueue(queueName, payload, opts = {}) {
   assertKnown(queueName);
   if (!process.env.REDIS_URL) return { queued: false, reason: 'redis-unavailable' };
-  await getQueue(queueName).add(queueName, payload, opts);
-  return { queued: true };
+  try {
+    await getQueue(queueName).add(queueName, payload, opts);
+    return { queued: true };
+  } catch (e) {
+    console.error(`[queue] enqueue ${queueName} failed:`, e.message);
+    return { queued: false, reason: 'redis-error' };
+  }
 }
 
 async function scheduleRepeatable(queueName, cronExpr, payload) {
   assertKnown(queueName);
   if (!process.env.REDIS_URL) return { scheduled: false, reason: 'redis-unavailable' };
-  await getQueue(queueName).add(queueName, payload, { repeat: { pattern: cronExpr } });
-  return { scheduled: true };
+  try {
+    await getQueue(queueName).add(queueName, payload, { repeat: { pattern: cronExpr } });
+    return { scheduled: true };
+  } catch (e) {
+    console.error(`[queue] scheduleRepeatable ${queueName} failed:`, e.message);
+    return { scheduled: false, reason: 'redis-error' };
+  }
 }
 
 module.exports = { enqueue, scheduleRepeatable };
