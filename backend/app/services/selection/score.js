@@ -6,14 +6,33 @@ const { exposurePenalty } = require('../ledger/exposureScore');
 // weighting); weights are env-tunable now and become bandit-sampled posteriors
 // with the T7 feedback loop.
 
-const W = {
-  taste:     () => parseFloat(process.env.SCORE_W_TASTE ?? '0.35'),
-  feature:   () => parseFloat(process.env.SCORE_W_FEATURE ?? '0.30'),
-  genre:     () => parseFloat(process.env.SCORE_W_GENRE ?? '0.20'),
-  exposure:  () => parseFloat(process.env.SCORE_W_EXPOSURE ?? '0.40'),
-  discovery: () => parseFloat(process.env.SCORE_W_DISCOVERY ?? '0.10'),
-  unknown:   () => parseFloat(process.env.SCORE_W_UNKNOWN ?? '0.05'),
-};
+// Weights resolve from env ONCE and memoize: process.env access is a syscall-ish
+// C++ hop, and the scorer runs hundreds of times per generation under load
+// (shadow-audit latency finding). _resetWeights() exists for tests.
+let _weights = null;
+function _resolveWeights() {
+  return (_weights ??= {
+    taste:     parseFloat(process.env.SCORE_W_TASTE ?? '0.35'),
+    feature:   parseFloat(process.env.SCORE_W_FEATURE ?? '0.30'),
+    genre:     parseFloat(process.env.SCORE_W_GENRE ?? '0.20'),
+    exposure:  parseFloat(process.env.SCORE_W_EXPOSURE ?? '0.40'),
+    discovery: parseFloat(process.env.SCORE_W_DISCOVERY ?? '0.10'),
+    unknown:   parseFloat(process.env.SCORE_W_UNKNOWN ?? '0.05'),
+  });
+}
+function _resetWeights() { _weights = null; }
+
+// The allow-genre Set is identical for every track in a generation — memoize per
+// array reference instead of rebuilding it hundreds of times.
+const _allowSets = new WeakMap();
+function _allowSet(allowGenres) {
+  let set = _allowSets.get(allowGenres);
+  if (!set) {
+    set = new Set(allowGenres.map(g => String(g).toLowerCase().trim()));
+    _allowSets.set(allowGenres, set);
+  }
+  return set;
+}
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const fin = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
@@ -60,13 +79,14 @@ function scoreTrack(track, {
   targetMoodKey = null,
   now = Date.now(),
 } = {}) {
+  const W = _resolveWeights();
   const taste = maxAffinity > 0 ? clamp01((fin(track.affinity) ?? 0) / maxAffinity) : 0;
 
   const fit = _featureFit(track.features, targets);
   const featureDistance = fit ?? 0.5;
-  const unknownFeaturePenalty = fit == null ? W.unknown() : 0;
+  const unknownFeaturePenalty = fit == null ? W.unknown : 0;
 
-  const allow = new Set(allowGenres.map(g => String(g).toLowerCase().trim()));
+  const allow = _allowSet(allowGenres);
   const genres = (track.genres || []).map(g => String(g).toLowerCase().trim());
   const moodGenreFit = !allow.size || !genres.length
     ? 0.5
@@ -77,13 +97,13 @@ function scoreTrack(track, {
     ? Math.min(2, exposurePenalty({ serves, targetMoodKey, now }))
     : 0;
 
-  const discoveryBonus = track.isDiscovery ? W.discovery() : 0;
+  const discoveryBonus = track.isDiscovery ? W.discovery : 0;
 
   const total =
-    W.taste() * taste +
-    W.feature() * featureDistance +
-    W.genre() * moodGenreFit -
-    W.exposure() * rawExposure +
+    W.taste * taste +
+    W.feature * featureDistance +
+    W.genre * moodGenreFit -
+    W.exposure * rawExposure +
     discoveryBonus -
     unknownFeaturePenalty;
 
@@ -100,4 +120,4 @@ function scoreTrack(track, {
   };
 }
 
-module.exports = { scoreTrack };
+module.exports = { scoreTrack, _resetWeights };

@@ -85,6 +85,30 @@ async function cacheBaselines(userId, stats) {
   }
 }
 
+// Request-path read: cached stats or null — NEVER the heavy decrypt compute
+// (that stays worker-only). A miss schedules a debounced recompute so the next
+// generation has baselines; translate() degrades confidence meanwhile.
+async function peekBaselines(userId) {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const blob = await redis.get(_cacheKey(userId));
+      if (blob) return decrypt(blob, true, String(userId));
+    } catch { /* corrupt/tampered → treat as miss */ }
+  }
+  try {
+    const { enqueue } = require('../../queues/queue');
+    const { QUEUES } = require('../../queues/definitions');
+    enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
+      jobId: `state-vector:${userId}`,
+      delay: 5000,
+      removeOnComplete: true,
+      removeOnFail: true,
+    }).catch(() => {});
+  } catch { /* queue seam unavailable — fine */ }
+  return null;
+}
+
 async function getBaselines(userId) {
   const redis = getRedis();
   if (redis) {
@@ -100,4 +124,4 @@ async function getBaselines(userId) {
   return stats;
 }
 
-module.exports = { median, mad, robustZ, computeBaselines, cacheBaselines, getBaselines };
+module.exports = { median, mad, robustZ, computeBaselines, cacheBaselines, getBaselines, peekBaselines };

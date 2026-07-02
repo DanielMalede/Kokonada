@@ -14,6 +14,7 @@ const { mixPlaylist, generateFallbackPlaylist, personalizeWhitelist }  = require
 const { buildMoodParams, resolveMoodKey, syntheticBioMoodKey, bandFromHeartRate } = require('../services/moodDescriptors');
 const serveLedger = require('../services/ledger/serveLedger');
 const selectionShadow = require('../services/selection/selectionShadow');
+const orchestrator = require('../services/generation/orchestrator');
 const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
@@ -38,111 +39,16 @@ const WATCH_HR_DELTA_THRESHOLD = 25;
 // still fill 50 (15 discovery + library backfill, or all 50 from discovery when
 // the library is empty). The mixer trims to the 30% target / fills the rest.
 const DISCOVERY_FETCH_LIMIT = 60;
-// Generation tuning knobs (all env-overridable): COOLDOWN_GENERATIONS / COOLDOWN_MAX_IDS
-// (anti-repetition window) here; ROTATION_RATIO / DISCOVERY_RATIO / DEEPCUTS_TOP_N /
-// ROTATION_TIERS (40/40/20 + tiered rotation) in playlistMixer.js; MICRO_GENRE_COUNT
-// (micro-genre seed shifting) in geminiEngine.js.
-// Anti-repetition: hold every track from the user's last N generations on a cooldown
-// so sequential playlists don't overlap. Backed by PlaylistSession (persists across
-// restarts/devices), capped so a huge history can't bloat the exclude set.
-const COOLDOWN_GENERATIONS = 3;
-const COOLDOWN_MAX_IDS = 150;
+// Generation tuning knobs live with their owners: the selection pipeline reads
+// SELECTION_POOL_MAX / SCORE_W_* / LEDGER_* env vars; the frozen rollback mixer
+// keeps its own internals in playlistMixer.js.
 
-// ── Extreme Anti-Repetition (the "Affinity Trap Breaker") ─────────────────────────
-// Pressing the same mood twice in a short window used to return the same top-affinity
-// block. When a repeat is detected, Strict Anti-Repetition Mode kicks in: a far deeper
-// per-mood 24h track blacklist, inverted bucket ratios (rotation collapses, deep cuts
-// spike), and a rotated sort axis — so the second press digs a different slice. All
-// knobs are env-overridable; the whole feature is kill-switchable via STRICT_ANTIREPEAT.
-const STRICT_REPEAT_WINDOW_HOURS   = Number(process.env.STRICT_REPEAT_WINDOW_HOURS)   || 12;
-const STRICT_MOOD_BLACKLIST_HOURS  = Number(process.env.STRICT_MOOD_BLACKLIST_HOURS)  || 24;
-const STRICT_MOOD_BLACKLIST_MAX_IDS = Number(process.env.STRICT_MOOD_BLACKLIST_MAX_IDS) || 500;
-const STRICT_ROTATION_RATIO        = Number(process.env.STRICT_ROTATION_RATIO);
-const STRICT_ROTATION_RATIO_DEFAULT = Number.isFinite(STRICT_ROTATION_RATIO) ? STRICT_ROTATION_RATIO : 0.10;
-
-// Sort axes the multi-dimensional sliding window rotates through (see playlistMixer
-// _orderFamiliar). Normal presses include 'affinity' so favourites still lead most of
-// the time; strict mode drops it to force a genuinely different slice each repeat.
-const SORT_AXES        = ['affinity', 'popularity', 'reverseAffinity', 'random'];
-const STRICT_SORT_AXES = ['reverseAffinity', 'random', 'popularity'];
-
-// Deterministic small int from a string seed (xfnv1a) — same seed → same axis, so the
-// chosen axis is reproducible for a given generation and logged alongside it.
-function _seededInt(seedStr, mod) {
-  if (!mod) return 0;
-  let h = 2166136261 >>> 0;
-  const s = String(seedStr ?? '');
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0) % mod;
-}
-
-function pickSortAxis(seed, strict) {
-  const pool = strict ? STRICT_SORT_AXES : SORT_AXES;
-  return pool[_seededInt(seed, pool.length)];
-}
-
-// Build the recent-track cooldown set from the user's last few generated playlists.
-// Best-effort: a DB hiccup must never block a generation, so it degrades to empty.
-async function recentTrackCooldown(userId) {
-  try {
-    const recent = await PlaylistSession.find({ userId })
-      .sort({ createdAt: -1 })
-      .limit(COOLDOWN_GENERATIONS)
-      .select('trackIds')
-      .lean();
-    const ids = new Set();
-    for (const s of recent) {
-      for (const id of s.trackIds || []) {
-        ids.add(id);
-        if (ids.size >= COOLDOWN_MAX_IDS) return ids;
-      }
-    }
-    return ids;
-  } catch (e) {
-    log(`[cooldown] read failed: ${e.message}`);
-    return new Set();
-  }
-}
-
-// True when the user already requested this same mood within the window → trigger
-// Strict Anti-Repetition Mode. Best-effort: any DB failure degrades to false (normal
-// generation), so a hiccup can never wedge the user into strict mode or block a press.
-async function isRepeatMood(userId, moodKey, windowHours = STRICT_REPEAT_WINDOW_HOURS) {
-  if (!moodKey) return false;
-  try {
-    const since = new Date(Date.now() - windowHours * 3_600_000);
-    const count = await PlaylistSession.countDocuments({ userId, moodKey, createdAt: { $gte: since } });
-    return count >= 1;
-  } catch (e) {
-    log(`[strict] repeat check failed: ${e.message}`);
-    return false;
-  }
-}
-
-// The deep per-mood blacklist: every track served under THIS mood in the last 24h, so a
-// repeated mood never replays a track the user just heard for it. Capped so a heavy day
-// can't bloat the exclude set. Best-effort → empty Set on failure.
-async function recentMoodCooldown(userId, moodKey, windowHours = STRICT_MOOD_BLACKLIST_HOURS, cap = STRICT_MOOD_BLACKLIST_MAX_IDS) {
-  if (!moodKey) return new Set();
-  try {
-    const since = new Date(Date.now() - windowHours * 3_600_000);
-    const recent = await PlaylistSession.find({ userId, moodKey, createdAt: { $gte: since } })
-      .sort({ createdAt: -1 })
-      .select('trackIds')
-      .lean();
-    const ids = new Set();
-    for (const s of recent) {
-      for (const id of s.trackIds || []) {
-        ids.add(id);
-        if (ids.size >= cap) return ids;
-      }
-    }
-    return ids;
-  } catch (e) {
-    log(`[strict] mood cooldown read failed: ${e.message}`);
-    return new Set();
-  }
-}
+// ── Anti-repetition (Phase 6) ──────────────────────────────────────────────────
+// The nine legacy layers (per-mood blacklist, session cooldowns, strict mode,
+// sort-axis rotation, ratio inversion, variation seeds) are GONE. The ServeLedger
+// (24h global / 72h per-mood windows + exposure-decay scoring) and the selection
+// pipeline's MMR own variance now. The frozen mixer shim behind SELECTION_V2=false
+// gets its exclusions from the ledger's global window.
 
 // Opt-in boundary tracing for debugging the generation pipeline. Enable with
 // DEBUG_PLAYLIST=1 (always on in `development`; silent in test/production).
@@ -414,22 +320,14 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // Layer 2 (Groq energy critic) runs only for a real mood and is kill-switchable.
     const runCritic = useEmotion && process.env.VIBE_CRITIC !== 'false';
 
-    // Extreme anti-repetition: a repeated mood within the window flips on Strict Mode
-    // (deeper per-mood cooldown + inverted ratios). Synthetic bio:* moodKeys make the
-    // HR branch eligible too — a user regenerating in the same physiological state gets
-    // the same per-mood blacklist a repeated mood tap does (bypass permanently closed).
-    // STRICT_ANTIREPEAT=false kills it. isRepeatMood degrades to false on any DB error.
-    const strict = process.env.STRICT_ANTIREPEAT !== 'false'
-      && !!moodKey
-      && await isRepeatMood(userId, moodKey);
-
-    // Anti-repetition cooldown: strict → every track served under THIS mood in the last
-    // 24h; otherwise the standard last-3-generation global cooldown. Read once and reused
-    // by every mixPlaylist call below. Inverted ratios apply only in strict mode.
-    const cooldownIds = strict
-      ? await recentMoodCooldown(userId, moodKey)
-      : await recentTrackCooldown(userId);
-    const ratios = strict ? { rotation: STRICT_ROTATION_RATIO_DEFAULT } : null;
+    // Rollback path only: the frozen legacy mixer still needs an exclusion set,
+    // and it now comes from the ledger's 24h global window (best-effort). The v2
+    // pipeline reads the ledger itself.
+    let cooldownIds = null;
+    if (!orchestrator.isV2()) {
+      try { cooldownIds = await serveLedger.hardExcluded(userId); }
+      catch { cooldownIds = new Set(); }
+    }
 
     let fetchTracks;
     let spotifyToken = null; // hoisted so the post-mix Spotify translation step can reuse it
@@ -469,14 +367,8 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
 
     log(`[generate] start trigger=${trigger} hr=${state.stableHR} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
 
-    // Fresh seed per generation so identical emotion/biometric state yields a
-    // DIFFERENT playlist each press — varies the LLM picks and busts the 24h
-    // cache key (which is md5(prompt)).
-    const seed = `${reqId ?? 'auto'}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    // Multi-dimensional sliding window: rotate the familiar sort axis per press (seeded so
-    // it's reproducible + loggable). HR branch keeps affinity ordering (null → default).
-    const sortAxis = useEmotion ? pickSortAxis(seed, strict) : null;
-    if (strict) log(`[strict] anti-repetition ON mood=${moodKey} axis=${sortAxis} cooldown=${cooldownIds.size} reqId=${reqId}`);
+    // (Variation seeds + sort-axis rotation are gone: the LLM prompt cache is now
+    // deterministic per context, and variance comes from the ledger + MMR.)
 
     let aiResult;
     try {
@@ -491,7 +383,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           activity:     state.lastActivity || null,
           biometricContext,
           fetchTracks,
-          seed,
         });
       } else {
         aiResult = await adjustBiometricPlaylist({
@@ -502,7 +393,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             restingHR:  musicProfile.restingHeartRate,
           },
           fetchTracks,
-          seed,
         });
       }
     } catch (err) {
@@ -517,17 +407,21 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       const moodParams = useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : null;
       if (moodParams) {
         try {
-          const moodPlaylist = await mixPlaylist({
-            musicProfile,
-            aiParams:             moodParams,
-            fetchDiscoveryTracks: () => Promise.resolve([]),
-            provider,
-            strictPersonalize:    true,
-            cooldownIds,
-            seed,
-            ratios,
-            sortAxis,
-          });
+          const moodPlaylist = orchestrator.isV2()
+            ? await orchestrator.generateV2({
+                userId, musicProfile, moodKey, provider,
+                aiParams: moodParams,
+                discoveryTracks: [],
+                live: { heartRate: state.stableHR, activity: state.latestActivity },
+              })
+            : await mixPlaylist({
+                musicProfile,
+                aiParams:             moodParams,
+                fetchDiscoveryTracks: () => Promise.resolve([]),
+                provider,
+                strictPersonalize:    true,
+                cooldownIds,
+              });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
             log(`[generate] LLM failed → on-vibe mood fallback tracks=${moodTracks.length} reqId=${reqId}`);
@@ -567,21 +461,27 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     }
 
     const cachedDiscovery = aiResult.tracks;
-    const playlist = await mixPlaylist({
-      musicProfile,
-      aiParams:            aiResult.params,
-      fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
-      provider,
-      cooldownIds,
-      seed,
-      ratios,
-      sortAxis,
-      // Personalization is the ABSOLUTE filter on a mood's vibe-sourced pool: discard
-      // off-taste candidates rather than backfilling them. Scoped to the Spotify path,
-      // which is where Layer-1 sources + genre-tags candidates — YouTube discovery is
-      // genre-unknown, so strict discard would wrongly wipe it. HR branch keeps soft-bias.
-      strictPersonalize:   useEmotion && provider === 'spotify',
-    });
+    // THE FLIP: v2 is the serving path — full biosonic targets + ledger windows +
+    // scoring + MMR. The frozen legacy mixer serves only under SELECTION_V2=false.
+    const playlist = orchestrator.isV2()
+      ? await orchestrator.generateV2({
+          userId, musicProfile, moodKey, provider,
+          aiParams: aiResult.params,
+          discoveryTracks: cachedDiscovery,
+          live: { heartRate: state.stableHR, activity: state.latestActivity },
+        })
+      : await mixPlaylist({
+          musicProfile,
+          aiParams:            aiResult.params,
+          fetchDiscoveryTracks: () => Promise.resolve(cachedDiscovery),
+          provider,
+          cooldownIds,
+          // Personalization stays the ABSOLUTE filter on the legacy Spotify path.
+          strictPersonalize:   useEmotion && provider === 'spotify',
+        });
+    if (playlist.telemetry) {
+      log(`[selection.v2] pool=${playlist.telemetry.poolSize} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);
+    }
 
     // Cross-platform translation: playback happens on Spotify's SDK, so every track must
     // carry a spotify: URI. This is a cheap O(n) passthrough for native Spotify tracks (no
@@ -653,11 +553,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // store hasn't seen. Nothing reads AudioFeature until the Phase-5 scorer.
     featureService.enqueueHydration(playlist.merged).catch(() => {});
 
-    // Shadow-mode dual run (Phase 5): the new selector runs on the same context,
-    // fire-and-forget, and logs overlap/leak telemetry. `now` is captured BEFORE
-    // recordServes so the comparison sees only prior serves. Never blocks the emit.
+    // Shadow-mode dual run: only meaningful on the ROLLBACK path (comparing the
+    // legacy mixer against v2). When v2 serves, the dual-run would compare the
+    // engine with itself. `now` is captured BEFORE recordServes.
     try {
-      selectionShadow.run({
+      if (!orchestrator.isV2()) selectionShadow.run({
         userId,
         musicProfile,
         moodKey,
@@ -869,8 +769,5 @@ module.exports = {
   // Exported for unit testing
   toClientTrack,
   toClientTracks,
-  isRepeatMood,
-  recentMoodCooldown,
-  pickSortAxis,
   resolveBiometricContext,
 };

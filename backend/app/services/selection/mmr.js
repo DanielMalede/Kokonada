@@ -66,6 +66,10 @@ function select(scored = [], { k = 50, lambda = 0.7, similarity = defaultSimilar
     const limit = Math.min(remaining.length, windowSize);
     for (let i = 0; i < limit; i++) {
       const cand = remaining[i];
+      // Branch-and-bound: candidates are score-sorted, so λ·total is a falling
+      // upper bound on value — once it can't beat the incumbent, nothing later
+      // can either. Cuts the similarity work by an order of magnitude under load.
+      if (lambda * cand.total <= bestValue) break;
       let maxSim = 0;
       for (const p of picked) {
         const sim = similarity(cand.track, p.track);

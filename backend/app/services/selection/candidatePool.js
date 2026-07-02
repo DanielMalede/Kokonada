@@ -1,7 +1,18 @@
 'use strict';
 
 const { getRedis } = require('../../config/redis');
-const { attachCanonicalKeys } = require('../identity/trackIdentity');
+const { attachCanonicalKeys, canonicalKey } = require('../identity/trackIdentity');
+
+// Identity trust boundary (shadow-audit): tracks from OUR library carry keys
+// attached at profile build — fill only the missing ones (regex canonicalization
+// is the pool's hottest cost under load). Anything external (discovery candidates,
+// Redis-cached partitions) gets a FORCED recompute — forged keys never survive.
+function _fillMissingKeys(tracks) {
+  for (const track of tracks) {
+    if (track && !track.canonicalKey) track.canonicalKey = canonicalKey(track);
+  }
+  return tracks;
+}
 
 // Mood-partitioned candidate pools. The library partition (exclude-genre filtered,
 // affinity-capped) is cached per (user, mood) in Redis and invalidated by the
@@ -19,7 +30,7 @@ function _genreExcluded(track, excludeSet) {
 
 function _partitionLibrary(library, excludeGenres) {
   const excludeSet = new Set((excludeGenres || []).map(g => String(g).toLowerCase().trim()));
-  return attachCanonicalKeys(
+  return _fillMissingKeys(
     (library || [])
       .filter(t => t && !_genreExcluded(t, excludeSet))
       .sort((a, b) => (b.affinity ?? 0) - (a.affinity ?? 0))
@@ -53,6 +64,7 @@ async function buildPool({ userId, musicProfile = {}, moodKey = null, excludeGen
     }
   }
 
+  // Discovery is external input — forged canonicalKeys are ALWAYS recomputed.
   const discovery = attachCanonicalKeys((discoveryTracks || []).filter(Boolean).map(t => ({ ...t, isDiscovery: true })));
 
   // Library first: a familiar copy owns the identity; provider duplicates collapse.
