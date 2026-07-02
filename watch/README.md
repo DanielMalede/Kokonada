@@ -46,6 +46,24 @@ reading or a **≥25 bpm** change, so flat HR is sent sparsely on purpose.
 | `resources/strings/strings.xml` | UI strings |
 | `resources/drawables/` | Launcher icon |
 
+## ⚠️ Device-token safety (do not commit your token)
+
+`watchToken` is a user setting entered **on the phone** (Garmin Connect → this app →
+Settings) — it overrides the compiled default at runtime. `properties.xml` must keep the
+`YOUR_TOKEN_HERE` placeholder; a real `whr_…` token in that tracked file is a committed
+secret leak.
+
+To make a local paste impossible to commit by accident, this repo marks the file
+skip-worktree on your clone:
+
+```bash
+git update-index --skip-worktree watch/resources/settings/properties.xml   # ignore local edits
+git update-index --no-skip-worktree watch/resources/settings/properties.xml # undo (e.g. to edit the default)
+```
+
+If you ever leaked a token, revoke it in the web app's "Set up watch" card (which mints a
+fresh `whr_…`) — the old one is invalidated server-side.
+
 ## Build & run (after the SDK is installed)
 
 1. Open the `watch/` folder in VS Code (Monkey C extension active).
