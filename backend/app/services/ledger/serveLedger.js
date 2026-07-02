@@ -22,6 +22,9 @@ const _moodHotKey = (userId, moodKey) => `ledger:${userId}:mood:${moodKey}`;
 
 async function recordServes({ userId, sessionId = null, entries = [] }, now = Date.now()) {
   const servedAt = new Date(now);
+  // A keyless entry would reject the whole durable batch (required field) and
+  // pollute the ZSETs with a shared "null" member — skip them at the boundary.
+  entries = entries.filter((e) => e?.canonicalKey);
   const docs = entries.map((e) => ({
     userId,
     canonicalKey: e.canonicalKey,

@@ -34,7 +34,10 @@ function exposurePenalty({
   let penalty = 0;
   for (const serve of serves) {
     const servedMs = new Date(serve.servedAt).getTime();
-    const ageHours = (now - servedMs) / HOUR;
+    if (!Number.isFinite(servedMs)) continue; // corrupt timestamp: skip, never NaN-poison the sum
+    // Clock-drift guard: a future-dated serve (offline sync, skewed client) counts as
+    // "served right now" — full penalty, never exponentially amplified.
+    const ageHours = Math.max(0, (now - servedMs) / HOUR);
     penalty += weight * Math.exp(-ageHours / tauHours) * moodProximity(moodCoords(serve.moodKey), target, sigma);
   }
   return penalty;
