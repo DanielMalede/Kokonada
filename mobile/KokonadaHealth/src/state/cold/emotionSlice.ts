@@ -1,0 +1,94 @@
+import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+
+// COLD LANE — committed user intent. The only lane that survives an app restart.
+// Shape is the sealed backend contract: taps ({x,y} circumplex), activity key,
+// free-text prompt. Backend `emotion_update` reads exactly this.
+
+export interface Tap {
+  x: number;
+  y: number;
+}
+
+export interface EmotionState {
+  taps: Tap[];
+  activity: string | null;
+  textPrompt: string;
+}
+
+const MAX_TAPS = 3;
+
+const initialState: EmotionState = { taps: [], activity: null, textPrompt: '' };
+
+const emotionSlice = createSlice({
+  name: 'emotion',
+  initialState,
+  reducers: {
+    addTap(state, action: PayloadAction<Tap>) {
+      state.taps.push(action.payload);
+      if (state.taps.length > MAX_TAPS) state.taps = state.taps.slice(-MAX_TAPS);
+    },
+    setActivity(state, action: PayloadAction<string | null>) {
+      state.activity = action.payload;
+    },
+    setTextPrompt(state, action: PayloadAction<string>) {
+      state.textPrompt = action.payload;
+    },
+    hydrate(state, action: PayloadAction<Partial<EmotionState>>) {
+      return { ...state, ...action.payload };
+    },
+    resetEmotion() {
+      return { taps: [], activity: null, textPrompt: '' };
+    },
+  },
+});
+
+export const { addTap, setActivity, setTextPrompt, hydrate, resetEmotion } = emotionSlice.actions;
+export default emotionSlice.reducer;
+
+// ── Persist transform: a HARD allowlist ──────────────────────────────────────
+// Serialization and (critically) deserialization both project onto exactly these
+// keys, coercing types. A tampered or stale persisted blob cannot inject a
+// biometric field, a privilege flag, or a prototype-pollution payload, and cannot
+// grow the tap buffer past the contract cap.
+
+const PERSIST_KEYS = ['taps', 'activity', 'textPrompt'] as const;
+
+function sanitizeTaps(value: unknown): Tap[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((t): t is Tap => !!t && typeof t === 'object'
+      && typeof (t as any).x === 'number' && Number.isFinite((t as any).x)
+      && typeof (t as any).y === 'number' && Number.isFinite((t as any).y))
+    .slice(-MAX_TAPS)
+    .map((t) => ({ x: t.x, y: t.y }));
+}
+
+export function serializeForPersist(state: EmotionState): string {
+  return JSON.stringify({
+    taps: state.taps,
+    activity: state.activity,
+    textPrompt: state.textPrompt,
+  });
+}
+
+export function deserializeForPersist(raw: string): Partial<EmotionState> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  // Reject non-plain-object roots (arrays, null, primitives) — nothing to trust.
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+  const src = parsed as Record<string, unknown>;
+  const out: Partial<EmotionState> = {};
+  for (const key of PERSIST_KEYS) {
+    // Only own enumerable allowlisted keys — never __proto__ or inherited props.
+    if (!Object.prototype.hasOwnProperty.call(src, key)) continue;
+    if (key === 'taps') out.taps = sanitizeTaps(src.taps);
+    else if (key === 'activity') out.activity = typeof src.activity === 'string' ? src.activity : null;
+    else if (key === 'textPrompt') out.textPrompt = typeof src.textPrompt === 'string' ? src.textPrompt : '';
+  }
+  return out;
+}
