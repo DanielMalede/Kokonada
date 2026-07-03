@@ -40,6 +40,17 @@ const playlistSessionSchema = new mongoose.Schema({
   // Canonical track keys (isrc:… / at:artist|title) mirroring trackIds — the
   // cross-provider identity the variance-engine serve ledger reads.
   trackKeys: { type: [String], default: [] },
+  // Denormalized display summary for the GET /api/sessions history feed, so the
+  // client can render "what played" without re-resolving track IDs. Capped at 50
+  // (playlists are always 50). Non-sensitive display strings only. (A11)
+  trackSummary: {
+    type: [new mongoose.Schema({
+      id:     { type: String, default: '' },
+      title:  { type: String, default: '' },
+      artist: { type: String, default: '' },
+    }, { _id: false })],
+    default: [],
+  },
 
   // Feedback signals
   skipCount:    { type: Number, default: 0 },

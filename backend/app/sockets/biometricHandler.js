@@ -507,6 +507,9 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // Canonical keys (isrc:… / at:artist|title) mirroring trackIds — the cross-provider
       // identity the serve ledger dedupes on. Library tracks carry one; discovery gets it here.
       trackKeys:         playlist.merged.map(t => t.canonicalKey ?? canonicalKey(t)).filter(Boolean),
+      // Denormalized display summary for the history feed (A11). clientTracks already
+      // resolved title/artist + a playable URI; cap at 50 (a playlist is always 50).
+      trackSummary:      clientTracks.slice(0, 50).map(t => ({ id: t.id, title: t.title, artist: t.artist })),
     }).catch(e => {
       console.error('[PlaylistSession] save failed:', e.message);
       // A dropped session write silently breaks anti-repetition (the next generation

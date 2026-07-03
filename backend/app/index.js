@@ -16,6 +16,7 @@ const csrfOriginGuard = require('./middleware/csrf');
 const errorHandler = require('./middleware/errorHandler');
 const authRouter         = require('./routes/auth');
 const integrationsRouter = require('./routes/integrations');
+const sessionsRouter     = require('./routes/sessions');
 const { createSocketServer } = require('./sockets');
 
 const app = express();
@@ -86,6 +87,7 @@ app.use('/api/', csrfOriginGuard); // Origin-based CSRF defense (audit F6)
 
 app.use('/api/auth',         authRouter);
 app.use('/api/integrations', integrationsRouter);
+app.use('/api/sessions',     sessionsRouter);
 app.use('/api/webhooks',     require('./routes/webhooks'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
