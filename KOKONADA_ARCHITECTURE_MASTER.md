@@ -2,7 +2,111 @@
 
 > **Purpose:** A new AI session reads this file and instantly resumes the exact persona,
 > context, protocols, and architectural state of the Kokonada "Monster Machine" build.
-> Written 2026-07-03, at the completion of the backend (Phases 0–7).
+> Written 2026-07-03 at the completion of the backend (Phases 0–7).
+> **Last updated 2026-07-04** — Sprint A11 shipped; now in the Road-to-Launch squads.
+> **START WITH SECTION 0 below** — it is the authoritative current state and supersedes
+> the older "Current State & Next Step" blocks in Sections 4 and D.
+
+---
+
+## 0. CURRENT STATE — ROAD TO LAUNCH (updated 2026-07-04, READ THIS FIRST)
+
+> Supersedes the "Current State & Next Step" blocks in Section 4 and Section D below
+> (both predate Sprint A11 and the Road-to-Launch squads). Everything through **Sprint
+> A11 is SHIPPED**; we are now in the launch-hardening phase, run as an **Agent Squad**.
+
+**Shipped & merged to `main` (currently PR #51 merged):**
+- **Backend Phases 0–7** — the variance engine (queues, canonical identity, feature store,
+  serve ledger, biosonic `translate`, selection pipeline, vector layer). PRs #35–#41.
+- **Mobile Sprints A6–A10** — auth, RN foundation, Skia experience, playback, wearable/
+  background. PRs #42–#46.
+- **QA4 Red Team hardening** (PR #47) — a 4-agent full-system stress audit. Fixed 4
+  confirmed architectural suspects (**the socket never connected in prod**; cold persistence
+  never bootstrapped; warm `liveHr` never fed; player status unobservable) + 5 more bugs
+  (`translate` 0/0 NaN-poison; foreground HR-wipe; aura NaN-phase Skia crash; unbounded
+  persisted `activity`; stuck generation guard) + a permanent GDPR erasure-completeness guard.
+- **Sprint A11 — Intelligence** (PR #48) — `GET /api/sessions` history feed +
+  `GET /api/pulse/state` (both explicit whitelist DTOs), a shared mobile `apiClient`
+  (single-flight 401-refresh-retry) on a unified `AuthSession` token plane, the auth-gated
+  `startApp` ignition, HistoryScreen server feed, ProfileScreen (logout + server-first GDPR
+  delete), and the richer state-vector Pulse screen.
+
+**Test baselines (both green):** backend **81 suites / 1006 tests**; mobile **42 suites /
+361 tests**. Backend: `cd backend && npm test`. Mobile: `./node_modules/.bin/jest` from
+`mobile/KokonadaHealth` (mobile is NOT in CI — run locally).
+
+### Operating model — the Agent Squad
+Every task spawns a **Developer Agent** (executes end-to-end, strict TDD) paired with a
+dedicated **Shadow QA/Security Agent** (attacks the Dev's work, pins regression tests).
+Reconcile both branches, apply QA fixes, then PR → `gh pr merge --squash --delete-branch`.
+- **Pause & Guide:** any manual cloud-portal action (Atlas, Railway, Apple Developer) STOPS
+  the sprint — hand the human a step-by-step tutorial and wait for an explicit "DONE".
+  (The AI cannot log into cloud portals.)
+- **100% FREE app (product decision):** no paywalls, no paid tiers yet. A12's Entitlements/
+  RevenueCat must scaffold a fully free tier with **NO subscription UI**.
+
+### Squad 1 — Production Runbooks (✅ CLOSED — PRs #49, #50)
+Executed the backend prod infra so the queue + vector layers actually run:
+- **Atlas Vector Search index** — created in MongoDB Atlas on collection `trackembeddings`,
+  name `track_embedding_index`, def `{ "fields":[{ "type":"vector","path":"vector",
+  "numDimensions":70,"similarity":"cosine" }] }`. Status **Active**. (70 dims = 6 feature +
+  64 hashed-genre-bag, from `embedding.js buildVector`.)
+- **Legacy index dropped** — the orphaned `userId_1_moodKey_1_createdAt_-1` index on
+  `playlistsessions` was **manually deleted** (schema removed it in Phase 6; the physical
+  index lingered).
+- **Railway Redis auth (NOAUTH resolved)** — provisioned Railway Redis; the first `REDIS_URL`
+  was host-only → `NOAUTH Authentication required`. Fixed by pointing `REDIS_URL` at the
+  **authenticated** Redis URL (`redis://default:<pw>@…`, via a `${{Redis.…}}` reference).
+- **DELIBERATE ARCHITECTURE — in-process workers.** Railway's free plan blocks creating a
+  2nd (worker) service; a separate project would force public-Redis egress + manual key
+  parity. So workers run **inside the web service** via **`RUN_WORKERS_IN_PROCESS=true`** —
+  `startInProcessWorkers()` launches the 3 BullMQ consumers in `app/index.js` with graceful
+  SIGTERM shutdown. The standalone `app/worker.js` (`npm run worker`) is kept for a future
+  dedicated worker (zero rework once on a paid tier). `scripts/verifyProdRunbooks.js`
+  read-only-verifies all three runbooks.
+- **SIGTERM crash-loop fixed** — the backend booted cleanly then was killed every ~4s. Root
+  cause: the Railway health check hit a non-200 path. Fix: **Health Check Path = `/health`**
+  (returns 200 JSON) + **Restart Policy = On Failure**. Loop stopped.
+- **Env facts (load-bearing):** the app reads **`MONGO_URI`** (NOT `DATABASE_URL`). Prod
+  Mongo is **Atlas** (literal `MONGO_URI`, not a Railway ref — hence no graph arrow); a
+  separate Railway MongoDB service exists but is **unused**. In-process workers inherit the
+  web service's `ENCRYPTION_KEY`/`MONGO_URI` — automatic parity (a key benefit of in-process).
+
+### Squad 2 — Tech Debt Janitor (✅ CLOSED — PR #51)
+Cleared the dual token-plane debt:
+- **Deleted `src/auth/tokenStore.ts`** entirely — the app now has a **single JWT plane on
+  `AuthSession`**.
+- `liveHrClient.ts` + `uploadClient.ts` JWT calls routed through the shared `apiClient`
+  (inheriting single-flight 401→refresh→retry). Login dropped the `saveToken` dual-write;
+  `isLoggedIn`/`signOut` route through `AuthSession`. The separate **watch device token**
+  (`com.kokonadahealth.watchToken`) is untouched.
+- Logout keeps a **direct legacy purge** — `Keychain.resetGenericPassword(
+  'com.kokonadahealth.jwt')` — so an upgrading user's pre-migration JWT is still wiped
+  ("zero bytes after logout" holds).
+- **QA fallback fix (found during reconciliation):** login now installs an **access-only**
+  `AuthSession` when the backend returns no refresh token — previously that path left BOTH
+  planes empty (a silent no-auth state once the `tokenStore` fallback was removed).
+- Pinned `src/__tests__/shadow.authMigration.test.ts` — 9 guards that fail the build if
+  anyone reintroduces `tokenStore`, drops the logout purge, or leaks a token to logs/URL/disk.
+
+### Pending Roadmap
+- **Squad 3 — A12 Compliance:** Apple Sign-In (App-Store-mandatory once social login
+  exists); **FREE-tier RevenueCat/Entitlements scaffold — NO paywalls, no subscription UI**
+  (product decision); privacy declarations (App Store nutrition / Play Data Safety); a11y +
+  i18n/RTL completion.
+- **Squad 4 — A13 DevOps:** get mobile into CI (currently local-only); release/build
+  pipeline (fastlane or EAS); crash + telemetry reporting; store submission.
+- **Squad 5 — Web Sunset:** remove the retired web surfaces (DiscoverPage stub, ActivityPanel,
+  PlaylistDetailPage, Garmin credentials form, offline-buffer player); keep the Vercel domain
+  for AASA/assetlinks deep links + OG cards.
+- **Squad 6 — On-Device Verification:** a strict manual QA checklist run on the physical
+  Galaxy device (login → history → profile → logout → GDPR delete → pulse gauges), exercising
+  the A11 features that are unit-green but not yet device-verified.
+
+### ⏭️ IMMEDIATE NEXT ACTION (the very first thing next session)
+**Execute Squad 6 — On-Device Verification.** Generate the strict manual QA checklist for the
+physical Galaxy device and walk the owner through it via Pause & Guide. Squad 3 (A12
+Compliance) follows.
 
 ---
 
@@ -292,6 +396,8 @@ shadow-attack suite as permanent regression guards).
      all queue paths no-op gracefully.
 
 **EXACT NEXT STEP — React Native Sprints (S5+)** per blueprint Part 8:
+> ⚠️ **HISTORICAL / SUPERSEDED by Section 0.** Sprints A6–A11 are all DONE and merged;
+> the "next step" below is the original plan, kept for context. Current state is Section 0.
 1. **A6 — Auth & Accounts:** provider-agnostic `Identity` collection (google/apple/
    facebook/password), argon2id email flow, JWT + rotating refresh, entitlements/
    RevenueCat scaffolding, GDPR cascade extension. (Apple Sign-In is App Store-mandatory
@@ -508,6 +614,8 @@ restores session → connects socket + Spotify → captures emotion (wheel + act
 prompt) → generates → **plays music** → reconciles on foreground.
 
 **EXACT NEXT STEP — Sprint A11 (do NOT start until the new session is briefed):**
+> ⚠️ **HISTORICAL / SUPERSEDED by Section 0.** Sprint A11 is DONE and merged (PR #48);
+> the three items below all shipped. Current state + next action are in Section 0.
 1. **Persistent server-side history feed** — a `GET /api/sessions` backend endpoint
    returning the user's `PlaylistSession` history, and wire `HistoryScreen` to fetch it
    (today History only reflects the live in-memory session via `nowPlayingStore`).
