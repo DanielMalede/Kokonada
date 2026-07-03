@@ -12,6 +12,8 @@ const connectDB = require('./config/db');
 const { startWorkers } = require('./workers');
 const { QUEUES } = require('./queues/definitions');
 
+const HEX64 = /^[0-9a-fA-F]{64}$/;
+
 // Build a single-shot, idempotent shutdown handler bound to the live workers.
 // Injectable exit/logger keep it unit-testable without killing the test runner.
 function makeShutdown(workers, { logger = console, exit = (code) => process.exit(code) } = {}) {
@@ -50,9 +52,32 @@ async function runWorker({
     return onFatal(1);
   }
 
+  // The worker DECRYPTS biometrics in-scope (baseline compute). A missing/malformed
+  // ENCRYPTION_KEY silently degrades decryption to NaN → the job caches an EMPTY
+  // baseline yet reports success (a green-looking worker producing garbage). Fail
+  // loudly. It must also be byte-identical to the web service's key, else the
+  // AAD-bound baseline cache the worker writes is undecryptable on the web side —
+  // that mismatch can only be caught operationally (see the worker env checklist). (QA4)
+  if (!HEX64.test(process.env.ENCRYPTION_KEY || '')) {
+    logger.error(
+      '[worker] FATAL: ENCRYPTION_KEY must be 64 hex chars (32 bytes) and byte-identical ' +
+        'to the web service. Without it, biometric baselines decrypt to NaN silently. Exiting non-zero.'
+    );
+    return onFatal(1);
+  }
+
   await connect();
 
   const workers = start();
+  // BullMQ Workers are EventEmitters: an unhandled 'error' (a transient Redis blip)
+  // would CRASH this process. Attach handlers so a connection hiccup or a failed job
+  // is logged, never fatal. Guarded so injected test fakes need no emitter surface.
+  for (const w of workers) {
+    if (typeof w.on === 'function') {
+      w.on('error', (err) => logger.error(`[worker] worker error: ${err?.message ?? err}`));
+      w.on('failed', (job, err) => logger.error(`[worker] job ${job?.id ?? '?'} failed: ${err?.message ?? err}`));
+    }
+  }
   logger.log(
     `[worker] consuming ${workers.length} queue(s): ${Object.values(QUEUES).join(', ')}`
   );

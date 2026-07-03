@@ -9,6 +9,12 @@ const TrackEmbedding = require('../../models/TrackEmbedding');
 
 const VECTOR_SEARCH_INDEX = () => process.env.ATLAS_VECTOR_INDEX || 'track_embedding_index';
 
+// One-shot observability: queryNear's catch degrades to [] for BOTH "no matches" and
+// "index misconfigured/missing" — so a wrong numDimensions/name/path would silently
+// turn vector search off with zero signal. Warn ONCE (not per-call, to avoid log spam
+// on a deliberately non-Atlas deployment) so the operator can tell them apart. (QA4)
+let _warnedVectorSearch = false;
+
 async function upsertMany(docs = []) {
   if (!docs.length) return { upserted: 0 };
   await TrackEmbedding.bulkWrite(
@@ -59,6 +65,14 @@ async function queryNear(vector, { k = 50, filter = {} } = {}) {
     return rows.map(r => ({ recordingKey: r.recordingKey, canonicalKey: r.canonicalKey, score: r.score }));
   } catch (e) {
     // $vectorSearch unavailable (local Mongo, jest) or index missing → enhancement off.
+    if (!_warnedVectorSearch) {
+      _warnedVectorSearch = true;
+      console.warn(
+        `[vectorIndex] $vectorSearch failed once — vector search is OFF, MMR is on ` +
+          `feature-distance only. Check the Atlas index "${VECTOR_SEARCH_INDEX()}" ` +
+          `(vector/70-dim/cosine) exists and is READY. Cause: ${e?.message ?? e}`
+      );
+    }
     return [];
   }
 }

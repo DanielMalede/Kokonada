@@ -12,10 +12,16 @@ function silentLogger() {
 
 describe('runWorker (worker entrypoint)', () => {
   const ORIGINAL_REDIS_URL = process.env.REDIS_URL;
+  const ORIGINAL_ENC_KEY = process.env.ENCRYPTION_KEY;
+  const VALID_KEY = 'a'.repeat(64);
+
+  beforeEach(() => { process.env.ENCRYPTION_KEY = VALID_KEY; });
 
   afterEach(() => {
     if (ORIGINAL_REDIS_URL === undefined) delete process.env.REDIS_URL;
     else process.env.REDIS_URL = ORIGINAL_REDIS_URL;
+    if (ORIGINAL_ENC_KEY === undefined) delete process.env.ENCRYPTION_KEY;
+    else process.env.ENCRYPTION_KEY = ORIGINAL_ENC_KEY;
     // runWorker registers real SIGTERM/SIGINT handlers on the success path —
     // strip them so they don't leak across tests / into the runner.
     process.removeAllListeners('SIGTERM');
@@ -36,6 +42,38 @@ describe('runWorker (worker entrypoint)', () => {
     expect(startWorkers).toHaveBeenCalledTimes(1);
     expect(workers).toEqual([w1, w2]);
     expect(onFatal).not.toHaveBeenCalled();
+  });
+
+  it('without a valid ENCRYPTION_KEY: fires the fatal hook and never connects Mongo (no silent NaN baselines)', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    delete process.env.ENCRYPTION_KEY;
+    const connectDB = jest.fn().mockResolvedValue();
+    const startWorkers = jest.fn().mockReturnValue([]);
+    const onFatal = jest.fn();
+    const logger = silentLogger();
+
+    await runWorker({ connectDB, startWorkers, onFatal, logger });
+
+    expect(onFatal).toHaveBeenCalledWith(1);
+    expect(connectDB).not.toHaveBeenCalled();
+    expect(startWorkers).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/ENCRYPTION_KEY/));
+  });
+
+  it('attaches error + failed handlers to each worker so a transient failure is logged, not fatal', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const mk = () => ({ close: jest.fn().mockResolvedValue(), on: jest.fn() });
+    const w1 = mk();
+    const w2 = mk();
+    await runWorker({
+      connectDB: jest.fn().mockResolvedValue(),
+      startWorkers: jest.fn().mockReturnValue([w1, w2]),
+      onFatal: jest.fn(), exit: jest.fn(), logger: silentLogger(),
+    });
+    for (const w of [w1, w2]) {
+      const events = w.on.mock.calls.map((c) => c[0]);
+      expect(events).toEqual(expect.arrayContaining(['error', 'failed']));
+    }
   });
 
   it('without REDIS_URL: fires the fatal hook and does NOT connect Mongo or start workers', async () => {
