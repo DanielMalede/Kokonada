@@ -56,8 +56,13 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
 
   // ── Derived dimensions ────────────────────────────────────────────────────
   const sleepActual = _weightedSleep(sleep?.lastNight);
-  const sleepNeed = _weightedSleep(sleep?.baseline) ?? _weightedSleep(DEFAULT_NIGHT);
-  const sleepScore = sleepActual != null ? clamp01(sleepActual / sleepNeed) : null;
+  // A weighted baseline of 0 (all-zero/falsy stages, e.g. {deep:false,light:0,rem:0})
+  // is not a real sleep "need": using it makes sleepActual/sleepNeed a 0/0 → NaN that
+  // silently poisons R and therefore energyCeiling/bpmCenter/energyFloor. Fall back to
+  // the default night, and guard the division. (QA4 Q1 — NaN-poisoning kill.)
+  const baselineNeed = _weightedSleep(sleep?.baseline);
+  const sleepNeed = baselineNeed > 0 ? baselineNeed : _weightedSleep(DEFAULT_NIGHT);
+  const sleepScore = (sleepActual != null && sleepNeed > 0) ? clamp01(sleepActual / sleepNeed) : null;
 
   const hrvZ = _robustZ(state?.hrv, baselines?.hrvMedian, baselines?.hrvMAD, HRV_FALLBACK);
   const hrvScore = hrvZ != null ? clamp01(0.5 + 0.2 * hrvZ) : null;
