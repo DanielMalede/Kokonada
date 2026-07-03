@@ -12,6 +12,10 @@ export const spotifyRemoteAdapter: SpotifyRemoteLike = {
   playUri: async (uri: string) => { await remote.playUri(uri); },
   pause: async () => { await remote.pause(); },
   resume: async () => { await remote.resume(); },
+  getPlayerState: async () => {
+    const s: any = await remote.getPlayerState();
+    return { isPaused: !!s?.isPaused, track: s?.track ? { uri: s.track.uri } : undefined };
+  },
   addListener: (event: string, cb: (...args: any[]) => void) => { remote.addListener(event as any, cb); },
   removeAllListeners: () => { remote.removeAllListeners('remoteDisconnected'); },
 };

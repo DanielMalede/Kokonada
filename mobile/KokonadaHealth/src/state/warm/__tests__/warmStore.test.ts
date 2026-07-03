@@ -42,6 +42,7 @@ describe('warmStore — connection status', () => {
 describe('warmStore — Background Permission Revocation (attack #7)', () => {
   it('severs the biometric pipeline cleanly when a permission is revoked', () => {
     const s = createWarmStore();
+    s.getState().setConnection('connected'); // the Kokonada server socket is up
     s.getState().setPermissions({ bluetooth: 'granted', health: 'granted' });
     s.getState().setBiometricSource('ble');
     s.getState().setLiveHr(88);
@@ -51,7 +52,9 @@ describe('warmStore — Background Permission Revocation (attack #7)', () => {
 
     expect(s.getState().biometricSource).toBe('none'); // pipeline severed
     expect(s.getState().liveHr).toBeNull();            // stale HR dropped, not served
-    expect(s.getState().connection).toBe('disconnected'); // biometric transport down
+    // the SERVER socket is an independent lane — killing Bluetooth must not fake a
+    // socket disconnect (S12-1)
+    expect(s.getState().connection).toBe('connected');
   });
 
   it('does not crash and stays usable when BOTH permissions are revoked', () => {

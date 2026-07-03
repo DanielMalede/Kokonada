@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { sanitizePrompt } from '../../experience/generate/promptSanitizer';
 
 // COLD LANE — committed user intent. The only lane that survives an app restart.
 // Shape is the sealed backend contract: taps ({x,y} circumplex), activity key,
@@ -31,7 +32,9 @@ const emotionSlice = createSlice({
       state.activity = action.payload;
     },
     setTextPrompt(state, action: PayloadAction<string>) {
-      state.textPrompt = action.payload;
+      // Sanitize in the reducer: state AND the persisted MMKV blob are the store's
+      // responsibility, so a 50k paste or a null byte can never bloat/poison either.
+      state.textPrompt = sanitizePrompt(action.payload);
     },
     hydrate(state, action: PayloadAction<Partial<EmotionState>>) {
       return { ...state, ...action.payload };
@@ -88,7 +91,7 @@ export function deserializeForPersist(raw: string): Partial<EmotionState> {
     if (!Object.prototype.hasOwnProperty.call(src, key)) continue;
     if (key === 'taps') out.taps = sanitizeTaps(src.taps);
     else if (key === 'activity') out.activity = typeof src.activity === 'string' ? src.activity : null;
-    else if (key === 'textPrompt') out.textPrompt = typeof src.textPrompt === 'string' ? src.textPrompt : '';
+    else if (key === 'textPrompt') out.textPrompt = sanitizePrompt(src.textPrompt);
   }
   return out;
 }
