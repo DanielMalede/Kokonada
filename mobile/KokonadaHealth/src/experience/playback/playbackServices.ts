@@ -1,11 +1,10 @@
-import * as Keychain from 'react-native-keychain';
 import { KokonadaSocket } from '../../net/socketClient';
 import { createBackendSocket } from '../../net/socketFactory';
 import { SpotifyPlayerController } from '../player/spotifyController';
 import { spotifyRemoteAdapter, getSpotifyAccessToken } from '../player/spotifyRemoteAdapter';
-import { AuthSession, type TokenPair } from '../../auth/authSession';
+import { authSession } from '../../auth/session';
+import { playerStatusStore } from '../player/playerStatusStore';
 import { store } from '../../state/store';
-import { BACKEND_URL } from '../../health/config';
 import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrator';
 import { nowPlayingStore } from './nowPlayingStore';
 import { playbackErrorStore } from './playbackErrorStore';
@@ -13,41 +12,18 @@ import { playbackErrorStore } from './playbackErrorStore';
 // App-level bootstrap: constructs the session → socket → player → orchestrator
 // graph and wires them together. This is the on-device glue; every component it
 // composes is unit-tested. Native imports (socket.io, spotify-remote, keychain)
-// are stubbed in jest so headless renders don't touch real hardware.
+// are stubbed in jest so headless renders don't touch real hardware. The single
+// AuthSession token plane lives in ../../auth/session so the login flow can
+// populate it without importing this native-heavy graph. (QA4 Suspect #1)
 
-const SESSION_SERVICE = 'com.kokonadahealth.session';
-
-const keychainSession = {
-  loadTokens: async (): Promise<TokenPair | null> => {
-    const creds = await Keychain.getGenericPassword({ service: SESSION_SERVICE });
-    if (!creds || !creds.password) return null;
-    try { return JSON.parse(creds.password) as TokenPair; } catch { return null; }
-  },
-  saveTokens: async (t: TokenPair) => {
-    await Keychain.setGenericPassword('session', JSON.stringify(t), { service: SESSION_SERVICE });
-  },
-  clearTokens: async () => { await Keychain.resetGenericPassword({ service: SESSION_SERVICE }); },
-  refreshEndpoint: async (refreshToken: string): Promise<TokenPair | null> => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!res.ok) return null;
-      const { token, refreshToken: nextRefresh } = await res.json();
-      return { access: token, refresh: nextRefresh };
-    } catch {
-      return null;
-    }
-  },
-};
-
-export const authSession = new AuthSession(keychainSession);
+export { authSession };
 
 export const player = new SpotifyPlayerController({
   remote: spotifyRemoteAdapter,
   getToken: getSpotifyAccessToken,
+  // Surface every player lifecycle transition into an observable store so the
+  // Profile screen can show a live Spotify connection badge. (QA4 Suspect #4)
+  onStateChange: (status) => playerStatusStore.getState().set(status),
 });
 
 export const kokoSocket = new KokonadaSocket({
