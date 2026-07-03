@@ -11,6 +11,12 @@ const { getRedis } = require('../app/config/redis');
 const { decrypt } = require('../app/utils/encryption');
 const baselines = require('../app/services/biosonic/baselines');
 
+// Re-establish the key before EACH test. The crypto assertions read
+// process.env.ENCRYPTION_KEY at CALL time, so a sibling suite (e.g. worker.test) that
+// mutates it could, under --runInBand reordering, leave a stale value here. Setting it
+// per-test makes this suite order-independent. (QA4 Finding 7)
+beforeEach(() => { process.env.ENCRYPTION_KEY = 'a'.repeat(64); });
+
 // Pagination mock: each call to find() serves the next batch (already-decrypted
 // plain values — in prod the mongoose getters decrypt inside the worker).
 function mockBatches(...batches) {

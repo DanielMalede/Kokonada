@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node app/index.js",
+    "worker": "node app/worker.js",
     "dev": "nodemon app/index.js",
     "test": "jest --runInBand --forceExit"
   },
