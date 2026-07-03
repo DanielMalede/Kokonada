@@ -35,3 +35,28 @@ jest.mock('@react-native-google-signin/google-signin', () => ({
     signOut: jest.fn().mockResolvedValue(undefined),
   },
 }));
+
+// ── Native visual libraries (Skia / Reanimated / gesture-handler) ────────────
+// The A8 wheel/aura are verified on-device; headless renders (App smoke test) use
+// lightweight stubs. The math they call (wheelGeometry/auraUniforms/laneCommit) is
+// unit-tested directly, so these stubs never hide behavior.
+jest.mock('react-native-reanimated', () => ({
+  runOnJS: (fn) => fn,
+  useSharedValue: (v) => ({ value: v }),
+  useAnimatedStyle: (fn) => fn(),
+  withTiming: (v) => v,
+}));
+
+const StubView = ({ children }) => children ?? null;
+jest.mock('@shopify/react-native-skia', () => ({
+  Canvas: StubView, Group: StubView, Circle: StubView, Blur: StubView,
+  RadialGradient: StubView, vec: (x, y) => ({ x, y }),
+}));
+
+jest.mock('react-native-gesture-handler', () => {
+  const chain = () => new Proxy(() => chain(), { get: () => chain() });
+  return {
+    Gesture: { Tap: chain, Pan: chain },
+    GestureDetector: ({ children }) => children,
+  };
+});

@@ -2,11 +2,12 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { GenerateScreen } from '../experience/generate/GenerateScreen';
 
-// The 5-tab shell from the approved blueprint. Screens are placeholders this
-// sprint — the Skia radial wheel, Now Playing (App Remote), Pulse, History and
-// Profile land in Sprint A8. This is the navigation skeleton the state lanes and
-// socket client plug into. Verified on-device (not headless-snapshotted).
+// The 5-tab shell from the approved blueprint. Generate is now the live Context &
+// Emotion Input Suite (Skia wheel + bio-aura, wired to the cold store via
+// GenerateController); Now Playing / Pulse / History / Profile remain placeholders
+// pending A9+. Verified on-device.
 
 const Tab = createBottomTabNavigator();
 
@@ -24,7 +25,7 @@ export default function RootNavigator() {
   return (
     <NavigationContainer>
       <Tab.Navigator screenOptions={{ headerShown: false }}>
-        <Tab.Screen name="Generate">{() => <Placeholder title="Generate" />}</Tab.Screen>
+        <Tab.Screen name="Generate">{() => <GenerateScreen />}</Tab.Screen>
         <Tab.Screen name="NowPlaying">{() => <Placeholder title="Now Playing" />}</Tab.Screen>
         <Tab.Screen name="Pulse">{() => <Placeholder title="Pulse" />}</Tab.Screen>
         <Tab.Screen name="History">{() => <Placeholder title="History" />}</Tab.Screen>
