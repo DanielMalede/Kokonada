@@ -23,7 +23,7 @@ jest.mock('../app/queues/queue', () => ({
 const { enqueue } = require('../app/queues/queue');
 const { getRedis } = require('../app/config/redis');
 const BiometricLog = require('../app/models/BiometricLog');
-const { encrypt } = require('../app/utils/encryption');
+const { encrypt, decrypt } = require('../app/utils/encryption');
 const { translate } = require('../app/services/biosonic/translate');
 const baselines = require('../app/services/biosonic/baselines');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
@@ -158,8 +158,14 @@ describe('ATTACK 3 — zero-knowledge leak hunting', () => {
       const isCiphertext = typeof value === 'string' && Buffer.from(value, 'base64').length >= 28; // iv+tag minimum
       expect(isDate || isCiphertext).toBe(true);
       if (isCiphertext) {
-        expect(value).not.toContain('60');
-        expect(value).not.toMatch(/^\d+$/);
+        // Deterministic zero-knowledge proof: the stored value is REAL ciphertext that
+        // round-trips through decrypt() — never a plaintext echo. (The old substring
+        // scan for the raw digits was flaky: base64 of a random IV can contain those
+        // digits purely by chance. QA4 Q3 — flaky-assertion kill.)
+        expect(value).not.toMatch(/^\d+$/);            // never bare digits
+        const plain = decrypt(value);
+        expect(String(plain)).not.toBe(value);          // stored form ≠ plaintext
+        expect(Number.isFinite(Number(plain))).toBe(true); // decrypts to a real number
       }
       expect(String(field)).not.toMatch(/heartRate.*plain|raw/i);
     }

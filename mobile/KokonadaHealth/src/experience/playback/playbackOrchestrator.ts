@@ -34,6 +34,10 @@ export interface PlaybackOrchestratorDeps {
   scheduler?: Scheduler;
   onNowPlaying?: (state: NowPlaying) => void;
   coalesceMs?: number;
+  // Safety net: if a generation request is lost (socket died mid-flight, server
+  // never emits playlist OR playlist_error), the single-flight guard must not wedge
+  // forever. After this long with no answer, the guard self-heals. (QA4 Q4)
+  generationTimeoutMs?: number;
 }
 
 const realScheduler: Scheduler = {
@@ -48,11 +52,13 @@ export class PlaybackOrchestrator {
   private readonly scheduler: Scheduler;
   private readonly onNowPlaying?: (state: NowPlaying) => void;
   private readonly coalesceMs: number;
+  private readonly generationTimeoutMs: number;
 
   private isPlaying = false;
   private currentTrackId: string | null = null;
   private pendingPlayHandle: number | null = null;
   private generationPending = false; // a "generate more" request is in flight
+  private generationTimeoutHandle: number | null = null;
 
   constructor(deps: PlaybackOrchestratorDeps) {
     this.player = deps.player;
@@ -61,6 +67,7 @@ export class PlaybackOrchestrator {
     this.scheduler = deps.scheduler ?? realScheduler;
     this.onNowPlaying = deps.onNowPlaying;
     this.coalesceMs = deps.coalesceMs ?? 250;
+    this.generationTimeoutMs = deps.generationTimeoutMs ?? 20000;
   }
 
   getNowPlaying(): NowPlaying {
@@ -83,7 +90,7 @@ export class PlaybackOrchestrator {
 
   async handlePlaylist(payload: { tracks: QueueTrack[] }): Promise<void> {
     this.cancelPendingPlay();
-    this.generationPending = false; // the requested generation arrived
+    this.clearGenerationGuard(); // the requested generation arrived
     this.queue.load(payload?.tracks ?? []);
     await this.playCurrent();
   }
@@ -91,7 +98,15 @@ export class PlaybackOrchestrator {
   // Wire to the socket's playlist_error event so a failed generation unblocks the
   // guard instead of wedging it permanently.
   onGenerationError(): void {
+    this.clearGenerationGuard();
+  }
+
+  private clearGenerationGuard(): void {
     this.generationPending = false;
+    if (this.generationTimeoutHandle !== null) {
+      this.scheduler.cancel(this.generationTimeoutHandle);
+      this.generationTimeoutHandle = null;
+    }
   }
 
   private cancelPendingPlay(): void {
@@ -168,5 +183,12 @@ export class PlaybackOrchestrator {
     this.generationPending = true;
     this.socket.ensureConnected(); // revive a background-killed socket first
     this.socket.requestPlaylist();
+    // Arm the self-heal watchdog: if neither playlist nor playlist_error comes back
+    // (a lost request over a dead socket), release the guard so the user isn't stuck
+    // with a permanently-disabled "generate" and a spinner that never resolves.
+    this.generationTimeoutHandle = this.scheduler.schedule(() => {
+      this.generationTimeoutHandle = null;
+      this.generationPending = false;
+    }, this.generationTimeoutMs);
   }
 }
