@@ -1,21 +1,21 @@
 // Suspect #1 (QA4 — Crypto & State): the socket auth plane was DORMANT in prod.
-// Google login wrote only tokenStore (the legacy single JWT), never populated
-// AuthSession, and never asked the backend for the rotating {access,refresh} pair
-// (the backend only returns it when the request body carries client:'mobile').
-// Result: authSession.getAccessToken() was always null → startPlayback() gated the
-// socket on authSession.bootstrap() → the socket NEVER connected in production.
-// These tests pin the fix: login requests the mobile session and installs it.
+// Google login wrote only the legacy single JWT, never populated AuthSession, and
+// never asked the backend for the rotating {access,refresh} pair (the backend only
+// returns it when the request body carries client:'mobile'). Result:
+// authSession.getAccessToken() was always null → startPlayback() gated the socket on
+// authSession.bootstrap() → the socket NEVER connected in production. These tests pin
+// the fix: login requests the mobile session and installs it — and the token plane is
+// now unified on AuthSession alone (the legacy JWT store has been removed).
 
-import { signInWithGoogle } from '../auth';
+import { signInWithGoogle, signOut, isLoggedIn } from '../auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 jest.mock('../session', () => ({
-  authSession: { setSession: jest.fn().mockResolvedValue(undefined) },
-}));
-jest.mock('../tokenStore', () => ({
-  saveToken: jest.fn().mockResolvedValue(undefined),
-  getToken: jest.fn().mockResolvedValue(null),
-  clearToken: jest.fn().mockResolvedValue(undefined),
+  authSession: {
+    setSession: jest.fn().mockResolvedValue(undefined),
+    clear: jest.fn().mockResolvedValue(undefined),
+    bootstrap: jest.fn().mockResolvedValue(false),
+  },
 }));
 
 import { authSession } from '../session';
@@ -54,6 +54,15 @@ describe('signInWithGoogle — token-plane unification (Suspect #1)', () => {
     expect(user).toEqual(USER);
   });
 
+  it('installs ONLY the AuthSession pair — one fetch, no legacy write', async () => {
+    mockFetchOnce({ token: 'acc-1', refreshToken: 'ref-1', user: USER });
+    await signInWithGoogle();
+    // The unified plane means login hits the backend exactly once (the SSO exchange);
+    // there is no second Keychain plane to dual-write anymore.
+    expect(((globalThis as any).fetch as jest.Mock).mock.calls.length).toBe(1);
+    expect(authSession.setSession).toHaveBeenCalledTimes(1);
+  });
+
   it('degrades gracefully if the backend omits a refresh token (never crashes login)', async () => {
     mockFetchOnce({ token: 'acc-only', user: USER });
     const user = await signInWithGoogle();
@@ -66,5 +75,26 @@ describe('signInWithGoogle — token-plane unification (Suspect #1)', () => {
     mockFetchOnce({ error: 'bad token' }, false, 401);
     await expect(signInWithGoogle()).rejects.toThrow('bad token');
     expect(authSession.setSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('signOut / isLoggedIn — routed through AuthSession', () => {
+  it('signOut signs out of Google AND clears the AuthSession pair', async () => {
+    await signOut();
+    expect(GoogleSignin.signOut).toHaveBeenCalledTimes(1);
+    expect(authSession.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('signOut still clears the session even if Google sign-out throws', async () => {
+    (GoogleSignin.signOut as jest.Mock).mockRejectedValueOnce(new Error('play services'));
+    await signOut();
+    expect(authSession.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('isLoggedIn reflects a hydrated AuthSession', async () => {
+    (authSession.bootstrap as jest.Mock).mockResolvedValueOnce(true);
+    expect(await isLoggedIn()).toBe(true);
+    (authSession.bootstrap as jest.Mock).mockResolvedValueOnce(false);
+    expect(await isLoggedIn()).toBe(false);
   });
 });

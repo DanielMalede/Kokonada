@@ -1,6 +1,5 @@
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { BACKEND_URL, GOOGLE_WEB_CLIENT_ID } from '../health/config';
-import { saveToken, getToken, clearToken } from './tokenStore';
 import { authSession } from './session';
 
 export interface KokonadaUser {
@@ -47,9 +46,9 @@ export async function signInWithGoogle(): Promise<KokonadaUser> {
   }
 
   const { token, refreshToken, user } = await res.json();
-  await saveToken(token); // legacy REST readers (liveHrClient/uploadClient) until migrated
-  // Install the rotating pair so the socket + REST apiClient can authenticate. Only
-  // when the backend actually returned a refresh token — never install a half-session.
+  // Install the rotating pair into the single AuthSession token plane — the socket
+  // (sync getAccessToken) and the REST apiClient both read from it. Only when the
+  // backend actually returned a refresh token — never install a half-session.
   if (refreshToken) {
     await authSession.setSession({ access: token, refresh: refreshToken });
   }
@@ -57,10 +56,12 @@ export async function signInWithGoogle(): Promise<KokonadaUser> {
 }
 
 export async function isLoggedIn(): Promise<boolean> {
-  return (await getToken()) !== null;
+  // Hydrate the in-memory token plane from the Keychain and report whether a session
+  // exists. bootstrap() is the same session check the prod ignition uses.
+  return authSession.bootstrap();
 }
 
 export async function signOut(): Promise<void> {
   try { await GoogleSignin.signOut(); } catch { /* ignore */ }
-  await clearToken();
+  await authSession.clear();
 }
