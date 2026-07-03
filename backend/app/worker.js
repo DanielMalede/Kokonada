@@ -9,7 +9,7 @@
 require('dotenv').config({ override: true });
 
 const connectDB = require('./config/db');
-const { startWorkers } = require('./workers');
+const { startWorkers, attachWorkerHandlers } = require('./workers');
 const { QUEUES } = require('./queues/definitions');
 
 const HEX64 = /^[0-9a-fA-F]{64}$/;
@@ -69,15 +69,7 @@ async function runWorker({
   await connect();
 
   const workers = start();
-  // BullMQ Workers are EventEmitters: an unhandled 'error' (a transient Redis blip)
-  // would CRASH this process. Attach handlers so a connection hiccup or a failed job
-  // is logged, never fatal. Guarded so injected test fakes need no emitter surface.
-  for (const w of workers) {
-    if (typeof w.on === 'function') {
-      w.on('error', (err) => logger.error(`[worker] worker error: ${err?.message ?? err}`));
-      w.on('failed', (job, err) => logger.error(`[worker] job ${job?.id ?? '?'} failed: ${err?.message ?? err}`));
-    }
-  }
+  attachWorkerHandlers(workers, logger); // log worker/job errors instead of crashing
   logger.log(
     `[worker] consuming ${workers.length} queue(s): ${Object.values(QUEUES).join(', ')}`
   );

@@ -18,6 +18,7 @@ const authRouter         = require('./routes/auth');
 const integrationsRouter = require('./routes/integrations');
 const sessionsRouter     = require('./routes/sessions');
 const pulseRouter        = require('./routes/pulse');
+const { startInProcessWorkers } = require('./workers');
 const { createSocketServer } = require('./sockets');
 
 const app = express();
@@ -109,6 +110,26 @@ async function start() {
   httpServer.listen(PORT, () =>
     console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}] routes:ok`)
   );
+
+  // FREE-TIER: with RUN_WORKERS_IN_PROCESS=true, drain the BullMQ queues in THIS
+  // process instead of a separate (paid) worker service. No-op when the flag is off.
+  const inProcessWorkers = startInProcessWorkers({ logger: console });
+
+  // Graceful shutdown (Railway sends SIGTERM on redeploy): close the workers and the
+  // HTTP server so in-flight jobs finish and the socket drains, with a hard cap so a
+  // stuck close can't wedge the deploy.
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[shutdown] ${signal} — closing ${inProcessWorkers.length} worker(s) + server`);
+    const hardExit = setTimeout(() => process.exit(0), 10000);
+    hardExit.unref();
+    try { await Promise.all(inProcessWorkers.map((w) => w.close())); } catch { /* best-effort */ }
+    httpServer.close(() => process.exit(0));
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 start().catch(err => {
