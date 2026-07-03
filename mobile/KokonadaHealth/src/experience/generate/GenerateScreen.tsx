@@ -5,18 +5,14 @@ import { RadialWheel } from '../wheel/RadialWheel';
 import { BioAura } from '../aura/BioAura';
 import { GenerateController, type SocketApi } from './generateController';
 import { warmStore } from '../../state/store';
+import { playbackSocket } from '../playback/playbackServices';
 import type { Tap } from '../../state/cold/emotionSlice';
-
-// A no-op socket so the screen mounts (and the wheel→cold wiring works) before the
-// app bootstrap injects a live, connected KokonadaSocket. submit() is inert, never
-// throws — matching the "degrade gracefully offline" posture.
-const INERT_SOCKET: SocketApi = { requestPlaylist: () => 0, requestHeartPlaylist: () => 0 };
 
 // The Context & Emotion Input Suite. Composes the bio-aura + radial wheel (hero)
 // over the CTA. The hot→cold→socket wiring is the unit-tested GenerateController;
-// this component is the surface. Activity chips and the prompt box mount here in a
-// follow-up; the wheel + heart CTA are the core of A8. Verified on-device.
-export function GenerateScreen({ socket = INERT_SOCKET }: { socket?: SocketApi }) {
+// this component is the surface. submit() now drives the LIVE playbackSocket, so a
+// generated playlist flows to the orchestrator and starts playing.
+export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi }) {
   const store = useStore() as any;
   const { width } = useWindowDimensions();
   const size = Math.min(width - 48, 340);
