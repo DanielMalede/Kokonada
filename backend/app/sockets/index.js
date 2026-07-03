@@ -3,6 +3,7 @@
 const { Server } = require('socket.io');
 const cookie = require('cookie');
 const { verifyToken, COOKIE_NAME } = require('../utils/jwt');
+const { isRevoked } = require('../utils/tokenDenylist');
 const User = require('../models/User');
 const { registerBiometricHandler } = require('./biometricHandler');
 const { captureException } = require('../config/sentry');
@@ -34,6 +35,13 @@ function createSocketServer(httpServer) {
       if (!token) return next(new Error('unauthorized'));
 
       const payload = verifyToken(token);
+
+      // A logged-out (revoked-jti) token must not open a socket either — the
+      // HTTP middleware already refuses it; this door has to match. (audit S8-1)
+      if (payload.jti && (await isRevoked(payload.jti))) {
+        return next(new Error('unauthorized'));
+      }
+
       const user = await User.findById(payload.userId).select(
         '-spotifyToken -youtubeMusicToken -wearableToken'
       );
@@ -41,6 +49,11 @@ function createSocketServer(httpServer) {
       if (!user || user.deletedAt) return next(new Error('unauthorized'));
 
       socket.data.user = user;
+      // Sockets outlive JWTs. Remember the expiry so in-session packets can be
+      // refused once the token dies instead of trusting the handshake forever,
+      // and the jti so logout can kill exactly this token's socket. (audit S8-4)
+      socket.data.tokenExp = payload.exp || null;
+      socket.data.jti = payload.jti || null;
       next();
     } catch (err) {
       // Bad/expired tokens are routine and expected — don't report those. Anything
@@ -61,6 +74,17 @@ function createSocketServer(httpServer) {
 
   io.on('connection', (socket) => {
     socket.join(`user:${socket.data.user._id}`);
+    // Refuse every packet that arrives after the handshake JWT expired: tell the
+    // client why (so it can refresh + reconnect), then drop the connection. (audit S8-2)
+    socket.use((packet, next) => {
+      const exp = socket.data.tokenExp;
+      if (exp && Date.now() / 1000 >= exp) {
+        socket.emit('auth_expired');
+        socket.disconnect(true);
+        return; // swallow the packet — never reaches handlers
+      }
+      next();
+    });
     // Per-socket runtime errors (handler throws, transport drops mid-stream).
     socket.on('error', (err) => {
       captureException(err, { scope: 'socket', userId: String(socket.data.user?._id) });

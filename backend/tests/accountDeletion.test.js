@@ -11,6 +11,14 @@ jest.mock('../app/models/BiometricLog',    () => ({ deleteMany: jest.fn().mockRe
 jest.mock('../app/models/MedicalProfile',  () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/MusicProfile',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/PlaylistSession', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 7 }) }));
+jest.mock('../app/models/ServeEvent',      () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 9 }) }));
+jest.mock('../app/models/Identity',        () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
+jest.mock('../app/models/RefreshToken',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 2 }) }));
+jest.mock('../app/utils/userRedisPurge',   () => ({ purgeUserKeys: jest.fn().mockResolvedValue(3) }));
+const mockDisconnectSockets = jest.fn();
+jest.mock('../app/sockets/index', () => ({
+  getIo: jest.fn(() => ({ in: jest.fn(() => ({ disconnectSockets: mockDisconnectSockets })) })),
+}));
 jest.mock('../app/utils/tokenDenylist',    () => ({ revoke: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../app/utils/jwt', () => ({
   signToken:       jest.fn(),
@@ -26,6 +34,10 @@ const BiometricLog    = require('../app/models/BiometricLog');
 const MedicalProfile  = require('../app/models/MedicalProfile');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
+const ServeEvent      = require('../app/models/ServeEvent');
+const Identity        = require('../app/models/Identity');
+const RefreshToken    = require('../app/models/RefreshToken');
+const { purgeUserKeys } = require('../app/utils/userRedisPurge');
 const { revoke }      = require('../app/utils/tokenDenylist');
 const { clearAuthCookie } = require('../app/utils/jwt');
 const { deleteAccount }   = require('../app/controllers/authController');
@@ -48,10 +60,23 @@ describe('deleteAccount (GDPR hard-delete)', () => {
     expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId });
     expect(MusicProfile.deleteMany).toHaveBeenCalledWith({ userId });
     expect(PlaylistSession.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(ServeEvent.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(Identity.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(RefreshToken.deleteMany).toHaveBeenCalledWith({ userId });
     expect(User.deleteOne).toHaveBeenCalledWith({ _id: userId });
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringMatching(/permanently deleted/i),
     }));
+  });
+
+  it('purges user-scoped Redis keys (ledger windows, pool partitions, baseline blob)', async () => {
+    await deleteAccount({ user: { _id: userId }, auth: {} }, buildRes(), jest.fn());
+    expect(purgeUserKeys).toHaveBeenCalledWith(userId);
+  });
+
+  it('force-disconnects the user\'s live sockets so no zombie session outlives the account', async () => {
+    await deleteAccount({ user: { _id: userId }, auth: {} }, buildRes(), jest.fn());
+    expect(mockDisconnectSockets).toHaveBeenCalledWith(true);
   });
 
   it('deletes child collections before the User doc (retry-safe ordering)', async () => {
@@ -60,12 +85,15 @@ describe('deleteAccount (GDPR hard-delete)', () => {
     MedicalProfile.deleteMany.mockImplementation(async () => { order.push('child'); return {}; });
     MusicProfile.deleteMany.mockImplementation(async () => { order.push('child'); return {}; });
     PlaylistSession.deleteMany.mockImplementation(async () => { order.push('child'); return {}; });
+    ServeEvent.deleteMany.mockImplementation(async () => { order.push('child'); return {}; });
+    Identity.deleteMany.mockImplementation(async () => { order.push('child'); return {}; });
+    RefreshToken.deleteMany.mockImplementation(async () => { order.push('child'); return {}; });
     User.deleteOne.mockImplementation(async () => { order.push('user'); return {}; });
 
     await deleteAccount({ user: { _id: userId }, auth: {} }, buildRes(), jest.fn());
 
     expect(order[order.length - 1]).toBe('user');
-    expect(order.filter((s) => s === 'child')).toHaveLength(4);
+    expect(order.filter((s) => s === 'child')).toHaveLength(7);
   });
 
   it('revokes the presented JWT and clears the auth cookie', async () => {
