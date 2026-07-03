@@ -15,6 +15,9 @@ export interface ForegroundReconcileDeps {
   warmStore: WarmStore;
   readPlayback: () => Promise<RemotePlayback | 'disconnected'>;
   readPermissions: () => Promise<{ bluetooth: Grant; health: Grant }>;
+  // Optional: refresh the state-vector Pulse snapshot on foreground (A11). Guarded
+  // and fire-and-forget — a fetch failure must not break the reconcile.
+  refreshPulse?: () => void;
 }
 
 export async function reconcileOnForeground(deps: ForegroundReconcileDeps): Promise<void> {
@@ -35,5 +38,13 @@ export async function reconcileOnForeground(deps: ForegroundReconcileDeps): Prom
     deps.warmStore.getState().setPermissions(perms);
   } catch {
     deps.warmStore.getState().setPermissions({ bluetooth: 'denied', health: 'denied' });
+  }
+
+  // Pulse snapshot: refresh the state-vector vitals on foreground (best-effort). The
+  // pulse store is single-flight, so a rapid AppState flap coalesces to one fetch.
+  try {
+    deps.refreshPulse?.();
+  } catch {
+    /* a broken refresh must never break the reconcile */
   }
 }

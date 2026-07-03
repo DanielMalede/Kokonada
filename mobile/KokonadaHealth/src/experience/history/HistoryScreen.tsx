@@ -1,44 +1,78 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList } from 'react-native';
-import { nowPlayingStore } from '../playback/nowPlayingStore';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, FlatList, RefreshControl, ActivityIndicator, Pressable } from 'react-native';
+import { fetchSessions, type SessionItem } from './sessionsApi';
+import { SessionsFeed, type SessionsFeedState } from './sessionsFeed';
 
-// History: the recently-played tracks this session. A persistent server-side
-// history feed (GET /api/sessions) lands with the account-history sprint; for now
-// this reflects the live session so the tab is real, not empty.
-interface Entry { id: string; title: string; artist: string; }
+// History: the persistent server-side feed (GET /api/sessions, A11). Replaces the old
+// live-only in-memory list. Infinite scroll + pull-to-refresh, both single-flight via
+// SessionsFeed; the feed callback is guarded against a post-unmount setState (the S10-1
+// parity lesson — React 18 removed the unmounted-setState warning).
+
+const INITIAL: SessionsFeedState = {
+  items: [], cursor: null, loading: false, refreshing: false, reachedEnd: false, error: null,
+};
+
+function timeLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+}
+
+function Row({ item }: { item: SessionItem }) {
+  const mood = item.moodKey ?? (item.activity ? item.activity : 'heart');
+  const sub = item.tracks.length
+    ? `${item.tracks[0].title} — ${item.tracks[0].artist}${item.trackCount > 1 ? ` +${item.trackCount - 1}` : ''}`
+    : `${item.trackCount} track${item.trackCount === 1 ? '' : 's'}`;
+  return (
+    <View style={{ gap: 2 }}>
+      <Text style={{ fontSize: 15, fontWeight: '600' }}>{mood}{item.isFallback ? ' · fallback' : ''}</Text>
+      <Text style={{ fontSize: 13, opacity: 0.7 }}>{sub}</Text>
+      {item.contextPrompt ? <Text style={{ fontSize: 12, opacity: 0.5, fontStyle: 'italic' }}>“{item.contextPrompt}”</Text> : null}
+      <Text style={{ fontSize: 11, opacity: 0.4 }}>{timeLabel(item.createdAt)}</Text>
+    </View>
+  );
+}
 
 export function HistoryScreen() {
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [state, setState] = useState<SessionsFeedState>(INITIAL);
+  const feedRef = useRef<SessionsFeed | null>(null);
 
   useEffect(() => {
-    const push = (s: any) => {
-      const t = s.track;
-      if (!t) return;
-      setEntries((prev) => (prev[0]?.id === t.id ? prev : [{ id: t.id, title: t.title, artist: t.artist }, ...prev].slice(0, 50)));
-    };
-    push(nowPlayingStore.getState());
-    return nowPlayingStore.subscribe(push);
+    let mounted = true;
+    const feed = new SessionsFeed((c) => fetchSessions(c), (s) => { if (mounted) setState(s); });
+    feedRef.current = feed;
+    void feed.loadMore();
+    return () => { mounted = false; };
   }, []);
 
-  if (entries.length === 0) {
+  if (state.error && state.items.length === 0) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <Text style={{ opacity: 0.6 }}>{state.error}</Text>
+        <Pressable onPress={() => feedRef.current?.loadMore()} accessibilityRole="button">
+          <Text style={{ color: '#4f8cff' }}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!state.loading && state.items.length === 0) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ opacity: 0.6 }}>Nothing played yet</Text>
+        <Text style={{ opacity: 0.6 }}>Nothing yet</Text>
       </View>
     );
   }
 
   return (
     <FlatList
-      data={entries}
-      keyExtractor={(e, i) => `${e.id}-${i}`}
-      contentContainerStyle={{ padding: 20, gap: 12 }}
-      renderItem={({ item }) => (
-        <View>
-          <Text style={{ fontSize: 16, fontWeight: '600' }}>{item.title}</Text>
-          <Text style={{ fontSize: 13, opacity: 0.6 }}>{item.artist}</Text>
-        </View>
-      )}
+      data={state.items}
+      keyExtractor={(e) => e.id}
+      contentContainerStyle={{ padding: 20, gap: 16 }}
+      renderItem={({ item }) => <Row item={item} />}
+      onEndReachedThreshold={0.4}
+      onEndReached={() => feedRef.current?.loadMore()}
+      refreshControl={<RefreshControl refreshing={state.refreshing} onRefresh={() => feedRef.current?.refresh()} />}
+      ListFooterComponent={state.loading ? <ActivityIndicator style={{ marginVertical: 16 }} /> : null}
     />
   );
 }
