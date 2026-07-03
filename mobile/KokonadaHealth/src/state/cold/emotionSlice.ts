@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import { sanitizePrompt } from '../../experience/generate/promptSanitizer';
+import { sanitizePrompt, sanitizeActivity } from '../../experience/generate/promptSanitizer';
 
 // COLD LANE — committed user intent. The only lane that survives an app restart.
 // Shape is the sealed backend contract: taps ({x,y} circumplex), activity key,
@@ -90,7 +90,7 @@ export function deserializeForPersist(raw: string): Partial<EmotionState> {
     // Only own enumerable allowlisted keys — never __proto__ or inherited props.
     if (!Object.prototype.hasOwnProperty.call(src, key)) continue;
     if (key === 'taps') out.taps = sanitizeTaps(src.taps);
-    else if (key === 'activity') out.activity = typeof src.activity === 'string' ? src.activity : null;
+    else if (key === 'activity') out.activity = sanitizeActivity(src.activity);
     else if (key === 'textPrompt') out.textPrompt = sanitizePrompt(src.textPrompt);
   }
   return out;

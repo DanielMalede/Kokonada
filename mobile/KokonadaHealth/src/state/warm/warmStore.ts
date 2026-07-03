@@ -41,8 +41,15 @@ const baseline = {
 
 export type WarmStore = StoreApi<WarmState>;
 
+// A permission set severs the biometric pipeline if either grant is explicitly
+// denied, or if neither grant is present at all.
+function isSevered(perms: Permissions): boolean {
+  if (perms.bluetooth === 'denied' || perms.health === 'denied') return true;
+  return perms.bluetooth !== 'granted' && perms.health !== 'granted';
+}
+
 export function createWarmStore(): WarmStore {
-  return createStore<WarmState>((set) => ({
+  return createStore<WarmState>((set, get) => ({
     ...baseline,
 
     setLiveHr(hr: number) {
@@ -64,14 +71,24 @@ export function createWarmStore(): WarmStore {
     // that is the independent Kokonada SERVER-socket status, and killing the
     // biometric transport (Bluetooth off) must not fake a socket disconnect. (S12-1)
     // Re-granting does NOT resurrect the old HR — a fresh reading must arrive.
+    //
+    // Crucially, this runs on EVERY foreground (reconcileOnForeground), usually with
+    // unchanged, already-granted permissions. A no-op re-confirmation must be inert —
+    // wiping the live HR each foreground was a state-corruption bug (QA4 Q1) that
+    // blanked the Pulse reading on every app resume. Only sever/recovery TRANSITIONS
+    // touch the HR. (This bug only became observable once Suspect #3 wired the BLE
+    // stream into the warm lane.)
     setPermissions(perms: Permissions) {
-      const severed = perms.bluetooth !== 'granted' && perms.health !== 'granted'
-        ? true
-        : perms.bluetooth === 'denied' || perms.health === 'denied';
-      if (severed) {
+      const wasSevered = isSevered(get().permissions);
+      const nowSevered = isSevered(perms);
+      if (nowSevered) {
         set({ permissions: perms, biometricSource: 'none', liveHr: null });
-      } else {
+      } else if (wasSevered) {
+        // Recovering from a severed state — require a fresh reading, drop any stale HR.
         set({ permissions: perms, liveHr: null });
+      } else {
+        // No-op re-confirmation of already-healthy permissions — leave the HR intact.
+        set({ permissions: perms });
       }
     },
 
