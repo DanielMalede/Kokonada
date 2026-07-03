@@ -154,6 +154,16 @@ export class KokonadaSocket {
     return this.latestReqId;
   }
 
+  // "Listen to your heart" — generation from the live HR alone (no emotion input).
+  // Shares the reqId counter with requestPlaylist, so the playlist response is
+  // gated identically. heartRate is only a hint; the server prefers its own window.
+  requestHeartPlaylist(heartRate: number | null): number {
+    this.reqCounter += 1;
+    this.latestReqId = this.reqCounter;
+    this.socket?.emit('request_heart_playlist', { reqId: this.latestReqId, heartRate });
+    return this.latestReqId;
+  }
+
   disconnect(): void {
     this.closedByUser = true;
     this.teardown();          // late events after a manual close are inert

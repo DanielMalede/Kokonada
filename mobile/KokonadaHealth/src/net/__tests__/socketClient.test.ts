@@ -126,6 +126,32 @@ describe('KokonadaSocket — reconnect re-hydration', () => {
   });
 });
 
+describe('KokonadaSocket — requestHeartPlaylist', () => {
+  it('emits request_heart_playlist with the HR and a reqId that gates responses', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    const sock = created[0];
+    sock.emitted.length = 0;
+
+    const reqId = client.requestHeartPlaylist(82);
+    const heart = sock.emitted.find((e) => e.event === 'request_heart_playlist');
+    expect(heart?.payload).toEqual({ reqId, heartRate: 82 });
+
+    // the shared reqId counter still gates the playlist response
+    sock.fire('playlist', { reqId, tracks: ['h'] });
+    expect(deps.onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ tracks: ['h'] }));
+  });
+
+  it('a stale heart response (older reqId) is dropped', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    const first = client.requestHeartPlaylist(70);
+    client.requestPlaylist(); // newer request supersedes it
+    created[0].fire('playlist', { reqId: first, tracks: ['stale-heart'] });
+    expect(deps.onPlaylist).not.toHaveBeenCalled();
+  });
+});
+
 describe('KokonadaSocket — auth_expired self-DoS defense (attack #8)', () => {
   it('refreshes the token and reconnects ONCE with the FRESH token', async () => {
     const { client, created, deps } = build();
