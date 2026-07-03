@@ -8,7 +8,7 @@ export interface SessionTeardownDeps {
   disposePlayer: () => Promise<void> | void;
   clearAuthSession: () => Promise<void> | void; // rotating pair
   clearWatchToken: () => Promise<void> | void;  // BLE watch device token
-  clearLegacyToken: () => Promise<void> | void; // tokenStore JWT (legacy REST readers)
+  clearLegacyToken: () => Promise<void> | void; // purge any leftover pre-migration session JWT
   wipeColdPersistence: () => void;    // detach writer, clear MMKV, reset intent
   resetWarm: () => void;
   resetNowPlaying: () => void;

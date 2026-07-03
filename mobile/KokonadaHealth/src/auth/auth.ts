@@ -1,6 +1,5 @@
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { BACKEND_URL, GOOGLE_WEB_CLIENT_ID } from '../health/config';
-import { saveToken, getToken, clearToken } from './tokenStore';
 import { authSession } from './session';
 
 export interface KokonadaUser {
@@ -47,20 +46,26 @@ export async function signInWithGoogle(): Promise<KokonadaUser> {
   }
 
   const { token, refreshToken, user } = await res.json();
-  await saveToken(token); // legacy REST readers (liveHrClient/uploadClient) until migrated
-  // Install the rotating pair so the socket + REST apiClient can authenticate. Only
-  // when the backend actually returned a refresh token — never install a half-session.
-  if (refreshToken) {
-    await authSession.setSession({ access: token, refresh: refreshToken });
+  // Install into the single AuthSession token plane — the socket (sync getAccessToken)
+  // and the REST apiClient both read from it. client:'mobile' normally returns a
+  // rotating pair; defensively, if the backend ever returns an access token WITHOUT a
+  // refresh (rollback/misconfig), still install it so the session isn't left silently
+  // empty — it authenticates until expiry, then a 401 triggers a clean re-login rather
+  // than a broken no-auth state. Since the legacy tokenStore fallback was removed, this
+  // guard is the only thing between "no refresh" and "no session". (QA4 Squad 2)
+  if (token) {
+    await authSession.setSession({ access: token, refresh: refreshToken ?? '' });
   }
   return user as KokonadaUser;
 }
 
 export async function isLoggedIn(): Promise<boolean> {
-  return (await getToken()) !== null;
+  // Hydrate the in-memory token plane from the Keychain and report whether a session
+  // exists. bootstrap() is the same session check the prod ignition uses.
+  return authSession.bootstrap();
 }
 
 export async function signOut(): Promise<void> {
   try { await GoogleSignin.signOut(); } catch { /* ignore */ }
-  await clearToken();
+  await authSession.clear();
 }

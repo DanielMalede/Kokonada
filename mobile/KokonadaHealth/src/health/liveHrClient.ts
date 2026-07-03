@@ -1,6 +1,6 @@
 import * as Keychain from 'react-native-keychain';
 import { BACKEND_URL } from './config';
-import { getToken as getJwt } from '../auth/tokenStore';
+import { apiPost } from '../net/apiClient';
 
 // The live-HR path authenticates with an opaque WATCH DEVICE TOKEN (whr_…), the same
 // contract the sideloaded Garmin watch app uses — decoupled from the session JWT so a
@@ -17,15 +17,12 @@ export async function getWatchToken(): Promise<string> {
   const cached = await Keychain.getGenericPassword({ service: WATCH_TOKEN_SERVICE });
   if (cached && cached.password) return cached.password;
 
-  const jwt = await getJwt();
-  if (!jwt) throw new Error('Not signed in');
-
-  const res = await fetch(`${BACKEND_URL}/api/integrations/watch/token`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${jwt}` },
-  });
-  if (!res.ok) throw new Error(`Watch token mint failed (${res.status})`);
-  const { token } = await res.json();
+  // Mint via the shared apiClient so the session-JWT read comes from the unified
+  // AuthSession plane and inherits its 401-refresh-retry. The minted value is the
+  // opaque WATCH token — a distinct credential cached under WATCH_TOKEN_SERVICE.
+  const res = await apiPost<{ token: string }>('/api/integrations/watch/token');
+  if (!res.ok) throw new Error(`Watch token mint failed (${res.status ?? 401})`);
+  const { token } = res.data;
   await Keychain.setGenericPassword('watch', token, { service: WATCH_TOKEN_SERVICE });
   return token;
 }
