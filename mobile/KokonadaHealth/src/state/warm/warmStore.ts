@@ -60,15 +60,16 @@ export function createWarmStore(): WarmStore {
 
     // The Background Permission Revocation reconciler. If either required grant is
     // no longer 'granted', the biometric pipeline is severed: source → none, any
-    // in-memory HR is dropped (never serve stale), and the biometric transport is
-    // marked down. Re-granting does NOT resurrect the old HR — a fresh reading must
-    // arrive through setLiveHr.
+    // in-memory HR is dropped (never serve stale). It does NOT touch `connection`:
+    // that is the independent Kokonada SERVER-socket status, and killing the
+    // biometric transport (Bluetooth off) must not fake a socket disconnect. (S12-1)
+    // Re-granting does NOT resurrect the old HR — a fresh reading must arrive.
     setPermissions(perms: Permissions) {
       const severed = perms.bluetooth !== 'granted' && perms.health !== 'granted'
         ? true
         : perms.bluetooth === 'denied' || perms.health === 'denied';
       if (severed) {
-        set({ permissions: perms, biometricSource: 'none', liveHr: null, connection: 'disconnected' });
+        set({ permissions: perms, biometricSource: 'none', liveHr: null });
       } else {
         set({ permissions: perms, liveHr: null });
       }

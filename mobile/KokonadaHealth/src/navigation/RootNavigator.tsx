@@ -4,6 +4,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { GenerateScreen } from '../experience/generate/GenerateScreen';
 import { NowPlayingScreen } from '../experience/playback/NowPlayingScreen';
+import { PulseScreen } from '../experience/pulse/PulseScreen';
+import { HistoryScreen } from '../experience/history/HistoryScreen';
 
 // The 5-tab shell from the approved blueprint. Generate is now the live Context &
 // Emotion Input Suite (Skia wheel + bio-aura, wired to the cold store via
@@ -28,8 +30,8 @@ export default function RootNavigator() {
       <Tab.Navigator screenOptions={{ headerShown: false }}>
         <Tab.Screen name="Generate">{() => <GenerateScreen />}</Tab.Screen>
         <Tab.Screen name="NowPlaying">{() => <NowPlayingScreen />}</Tab.Screen>
-        <Tab.Screen name="Pulse">{() => <Placeholder title="Pulse" />}</Tab.Screen>
-        <Tab.Screen name="History">{() => <Placeholder title="History" />}</Tab.Screen>
+        <Tab.Screen name="Pulse">{() => <PulseScreen />}</Tab.Screen>
+        <Tab.Screen name="History">{() => <HistoryScreen />}</Tab.Screen>
         <Tab.Screen name="Profile">{() => <Placeholder title="Profile" />}</Tab.Screen>
       </Tab.Navigator>
     </NavigationContainer>

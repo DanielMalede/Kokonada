@@ -12,11 +12,13 @@ export interface SpotifyRemoteLike {
   playUri(uri: string): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
+  getPlayerState?(): Promise<{ isPaused: boolean; track?: { uri: string } }>;
   addListener(event: string, cb: (...args: any[]) => void): void;
   removeAllListeners?(): void;
 }
 
 export type PlayerState = 'connected' | 'connecting' | 'disconnected';
+export interface PlaybackSnapshot { isPlaying: boolean; uri?: string; }
 export interface CommandResult { ok: boolean; }
 
 export interface SpotifyControllerDeps {
@@ -107,6 +109,18 @@ export class SpotifyPlayerController {
 
   async resume(): Promise<CommandResult> {
     return this.run((r) => r.resume());
+  }
+
+  // Read the native player truth for the foreground reconcile. Any failure (not
+  // connected, remote gone) maps to 'disconnected' rather than throwing.
+  async getPlaybackState(): Promise<PlaybackSnapshot | 'disconnected'> {
+    if (this.state !== 'connected' || !this.deps.remote.getPlayerState) return 'disconnected';
+    try {
+      const s = await this.deps.remote.getPlayerState();
+      return { isPlaying: !s.isPaused, uri: s.track?.uri };
+    } catch {
+      return 'disconnected';
+    }
   }
 
   async dispose(): Promise<void> {

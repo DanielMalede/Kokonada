@@ -8,6 +8,7 @@ import { store } from '../../state/store';
 import { BACKEND_URL } from '../../health/config';
 import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrator';
 import { nowPlayingStore } from './nowPlayingStore';
+import { playbackErrorStore } from './playbackErrorStore';
 
 // App-level bootstrap: constructs the session → socket → player → orchestrator
 // graph and wires them together. This is the on-device glue; every component it
@@ -57,8 +58,12 @@ export const kokoSocket = new KokonadaSocket({
     const e = store.getState().emotion;
     return { taps: e.taps, textPrompt: e.textPrompt, activity: e.activity };
   },
-  onPlaylist: (payload) => { void orchestrator.handlePlaylist(payload); },
+  onPlaylist: (payload) => { playbackErrorStore.getState().clear(); void orchestrator.handlePlaylist(payload); },
   onLoggedOut: () => { void authSession.clear(); },
+  onGenerationError: (message) => {
+    orchestrator.onGenerationError();                                  // unblock the generation guard
+    playbackErrorStore.getState().set(message ?? 'Could not generate a playlist — try again');
+  },
 });
 
 // Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. Transient

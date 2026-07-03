@@ -24,6 +24,9 @@ export interface KokonadaSocketDeps {
   getEmotionIntent: () => EmotionIntent;
   onPlaylist: (payload: any) => void;
   onLoggedOut: () => void;
+  // Backend emitted a generation failure for our current request (no tracks, LLM
+  // outage, no HR yet). Gated to the latest reqId so a superseded request is silent.
+  onGenerationError?: (message?: string) => void;
   // Cap on auth_expired→refresh cycles within the window before we give up and log
   // out — the guard against a fresh-but-immediately-dead token looping forever.
   maxAuthRefreshes?: number;
@@ -62,6 +65,7 @@ export class KokonadaSocket {
     this.socket = socket;
     socket.on('connect', this.handleConnect);
     socket.on('playlist', this.handlePlaylist);
+    socket.on('playlist_error', this.handlePlaylistError);
     socket.on('auth_expired', this.handleAuthExpired);
     socket.on('disconnect', this.handleDisconnect);
     socket.connect();
@@ -75,6 +79,7 @@ export class KokonadaSocket {
     if (!s) return;
     s.off('connect', this.handleConnect);
     s.off('playlist', this.handlePlaylist);
+    s.off('playlist_error', this.handlePlaylistError);
     s.off('auth_expired', this.handleAuthExpired);
     s.off('disconnect', this.handleDisconnect);
   }
@@ -90,6 +95,12 @@ export class KokonadaSocket {
     // Drop anything that isn't the answer to our most recent request (zombie nav).
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
     this.deps.onPlaylist(payload);
+  };
+
+  private handlePlaylistError = (payload: any) => {
+    // Same reqId gate as playlist responses — a superseded request stays silent.
+    if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
+    this.deps.onGenerationError?.(payload.message);
   };
 
   private handleAuthExpired = () => {

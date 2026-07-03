@@ -1,8 +1,10 @@
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import { View, Text, Pressable, useWindowDimensions } from 'react-native';
-import { useStore } from 'react-redux';
+import { useStore, useSelector } from 'react-redux';
 import { RadialWheel } from '../wheel/RadialWheel';
 import { BioAura } from '../aura/BioAura';
+import { ActivityChips } from './ActivityChips';
+import { PromptBox } from './PromptBox';
 import { GenerateController, type SocketApi } from './generateController';
 import { warmStore } from '../../state/store';
 import { playbackSocket } from '../playback/playbackServices';
@@ -37,6 +39,9 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
     setTaps([...store.getState().emotion.taps]);
   }, [controller, store]);
 
+  // Re-render the CTA whenever committed intent changes (activity chip / prompt),
+  // so its Generate ↔ Listen-to-heart ↔ disabled state stays truthful.
+  useSelector((s: any) => s.emotion);
   const mode = controller.ctaMode();
   const label = mode === 'listen-to-heart' ? 'Listen to your heart' : 'Generate';
 
@@ -46,6 +51,8 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
         <View style={{ position: 'absolute' }}><BioAura hr={hr} size={size} /></View>
         <RadialWheel size={size} committedTaps={taps} onCommit={onCommit} />
       </View>
+      <ActivityChips />
+      <PromptBox />
       <Pressable
         disabled={mode === 'disabled'}
         onPress={() => controller.submit()}

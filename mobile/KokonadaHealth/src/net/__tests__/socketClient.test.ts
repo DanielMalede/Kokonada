@@ -126,6 +126,27 @@ describe('KokonadaSocket — reconnect re-hydration', () => {
   });
 });
 
+describe('KokonadaSocket — playlist_error', () => {
+  it('invokes onGenerationError for the current request (unblocks the generation guard)', () => {
+    const onGenerationError = jest.fn();
+    const { client, created } = build({ onGenerationError });
+    client.connect();
+    const reqId = client.requestPlaylist();
+    created[0].fire('playlist_error', { reqId, message: 'No tracks matched' });
+    expect(onGenerationError).toHaveBeenCalledWith('No tracks matched');
+  });
+
+  it('drops a STALE playlist_error (older reqId) — a superseded request cannot show an error', () => {
+    const onGenerationError = jest.fn();
+    const { client, created } = build({ onGenerationError });
+    client.connect();
+    const first = client.requestPlaylist();
+    client.requestPlaylist(); // newer request supersedes
+    created[0].fire('playlist_error', { reqId: first, message: 'stale' });
+    expect(onGenerationError).not.toHaveBeenCalled();
+  });
+});
+
 describe('KokonadaSocket — requestHeartPlaylist', () => {
   it('emits request_heart_playlist with the HR and a reqId that gates responses', () => {
     const { client, created, deps } = build();

@@ -29,6 +29,12 @@ class FakeRemote implements SpotifyRemoteLike {
   }
   async pause() { if (this.throwOnCommand) throw this.throwOnCommand; if (!this.connected) throw new Error('not connected'); }
   async resume() { if (this.throwOnCommand) throw this.throwOnCommand; if (!this.connected) throw new Error('not connected'); }
+  playerState: { isPaused: boolean; track?: { uri: string } } = { isPaused: false, track: { uri: 'spotify:track:cur' } };
+  throwOnState = false;
+  async getPlayerState() {
+    if (this.throwOnState || !this.connected) throw new Error('no state');
+    return this.playerState;
+  }
   addListener(event: string, cb: (...a: any[]) => void) {
     const l = this.listeners.get(event) ?? []; l.push(cb); this.listeners.set(event, l);
   }
@@ -123,6 +129,25 @@ describe('SpotifyPlayerController — severance (attack #2)', () => {
     await expect(controller.pause()).resolves.toEqual({ ok: false });
     await expect(controller.resume()).resolves.toEqual({ ok: false });
     expect(controller.getState()).toBe('disconnected');
+  });
+});
+
+describe('SpotifyPlayerController — getPlaybackState (foreground reconcile)', () => {
+  it('maps the native player state to { isPlaying, uri }', async () => {
+    const { remote, controller } = build();
+    await controller.connect();
+    remote.playerState = { isPaused: false, track: { uri: 'spotify:track:xyz' } };
+    expect(await controller.getPlaybackState()).toEqual({ isPlaying: true, uri: 'spotify:track:xyz' });
+    remote.playerState = { isPaused: true, track: { uri: 'spotify:track:xyz' } };
+    expect(await controller.getPlaybackState()).toEqual({ isPlaying: false, uri: 'spotify:track:xyz' });
+  });
+
+  it('returns disconnected when not connected or the remote throws', async () => {
+    const { remote, controller } = build();
+    expect(await controller.getPlaybackState()).toBe('disconnected'); // never connected
+    await controller.connect();
+    remote.throwOnState = true;
+    expect(await controller.getPlaybackState()).toBe('disconnected'); // remote gone
   });
 });
 

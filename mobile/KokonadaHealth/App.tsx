@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { store } from './src/state/store';
 import RootNavigator from './src/navigation/RootNavigator';
 import { startPlayback } from './src/experience/playback/playbackServices';
+import { AppLifecycle } from './src/experience/playback/AppLifecycle';
 
 export default function App() {
   useEffect(() => { void startPlayback(); }, []);
@@ -19,6 +20,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Provider store={store}>
         <SafeAreaProvider>
+          <AppLifecycle />
           <RootNavigator />
         </SafeAreaProvider>
       </Provider>
