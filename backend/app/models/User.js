@@ -6,7 +6,9 @@ const encryptedTokenSchema = new mongoose.Schema({
 }, { _id: false });
 
 const userSchema = new mongoose.Schema({
-  ssoProvider: { type: String, enum: ['google', 'apple'], required: true },
+  // 'password' rows mirror the email flow (ssoId = normalized email) so the
+  // (ssoProvider, ssoId) unique index keeps holding; Identity is the auth truth.
+  ssoProvider: { type: String, enum: ['google', 'apple', 'password'], required: true },
   ssoId:       { type: String, required: true },
   email:       { type: String, required: true },
   displayName: { type: String, default: '' },
@@ -43,6 +45,15 @@ const userSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
     _id: false,
   }],
+
+  // Billing tier — written by the RevenueCat webhook (or manual grants), read
+  // through entitlements.resolveEntitlements which enforces expiry at read time.
+  entitlements: {
+    tier:             { type: String, enum: ['free', 'premium'], default: 'free' },
+    source:           { type: String, enum: ['revenuecat', 'manual', null], default: null },
+    currentPeriodEnd: { type: Date, default: null },
+    updatedAt:        { type: Date, default: null },
+  },
 
   deletedAt: { type: Date, default: null }, // GDPR soft-delete
 }, {

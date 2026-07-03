@@ -1,5 +1,7 @@
 const router = require('express').Router();
-const { googleAuth, appleAuth, logout, deleteAccount } = require('../controllers/authController');
+const {
+  googleAuth, appleAuth, signup, login, refresh, logout, deleteAccount, me,
+} = require('../controllers/authController');
 const { authLimiter } = require('../middleware/rateLimiter');
 const auth = require('../middleware/auth');
 
@@ -7,18 +9,15 @@ const auth = require('../middleware/auth');
 router.post('/google',   authLimiter, googleAuth);
 router.post('/apple',    authLimiter, appleAuth);
 
+// Email/password flow (Identity collection, argon2id) + refresh-token rotation
+router.post('/signup',   authLimiter, signup);
+router.post('/login',    authLimiter, login);
+router.post('/refresh',  authLimiter, refresh);
+
 // Protected routes
 router.post('/logout', auth, logout);
 // GDPR hard-delete of the account + all associated data (irreversible)
 router.delete('/account', auth, deleteAccount);
-router.get('/me', auth, (req, res) => {
-  res.json({
-    id: req.user._id,
-    displayName: req.user.displayName,
-    avatarUrl: req.user.avatarUrl,
-    email: req.user.email,
-    wearableProvider: req.user.wearableProvider,
-  });
-});
+router.get('/me', auth, me);
 
 module.exports = router;
