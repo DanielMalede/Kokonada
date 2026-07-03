@@ -6,6 +6,8 @@
 // artist monoculture is the worst perceived repetition), then measured
 // feature distance, then genre Jaccard as the weakest signal.
 
+const { cosine } = require('../vector/embedding');
+
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
 // Genre sets are memoized per track object: the greedy loop runs O(k²·window)
@@ -42,6 +44,11 @@ function defaultSimilarity(a, b) {
   const artistA = String(a.artist ?? '').toLowerCase().trim();
   const artistB = String(b.artist ?? '').toLowerCase().trim();
   if (artistA && artistA === artistB) return 1;
+
+  // Embedding cosine (Phase 7) is the strongest signal when both sides have one.
+  if (a.embedding?.length && b.embedding?.length && a.embedding.length === b.embedding.length) {
+    return clamp01(cosine(a.embedding, b.embedding));
+  }
 
   const feat = _featureSim(a.features, b.features);
   const genre = _jaccardSets(_genreSet(a), _genreSet(b));

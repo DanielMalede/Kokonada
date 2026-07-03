@@ -20,7 +20,6 @@ const {
   _parseAndValidate,
   _buildEmotionPrompt,
   _buildBiometricPrompt,
-  _buildCriticPrompt,
   TEMPO_CATEGORIES,
 } = require('../app/services/geminiEngine');
 
@@ -191,28 +190,6 @@ describe('_buildEmotionPrompt — tempo_category', () => {
   it('tells the model the user note OVERRIDES the mood for tempo', () => {
     const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, 'going for a run');
     expect(prompt.toLowerCase()).toMatch(/override|takes precedence|overrides/);
-  });
-});
-
-// ── _buildCriticPrompt — tempo band ───────────────────────────────────────────
-
-describe('_buildCriticPrompt — tempo band', () => {
-  const tracks = [{ name: 'Song A', artists: [{ name: 'Artist A' }] }];
-
-  it('states the target tempo band when a category is supplied', () => {
-    const prompt = _buildCriticPrompt(tracks, 'calm', ['mellow'], 'resting');
-    expect(prompt).toContain('RESTING');
-    expect(prompt.toLowerCase()).toContain('target tempo band');
-  });
-
-  it('omits the band line when no category is supplied (back-compat)', () => {
-    const prompt = _buildCriticPrompt(tracks, 'calm', ['mellow']);
-    expect(prompt.toLowerCase()).not.toContain('target tempo band');
-  });
-
-  it('ignores an invalid category (no band line)', () => {
-    const prompt = _buildCriticPrompt(tracks, 'calm', ['mellow'], 'turbo');
-    expect(prompt.toLowerCase()).not.toContain('target tempo band');
   });
 });
 

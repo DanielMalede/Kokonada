@@ -22,6 +22,12 @@ jest.mock('../app/models/ServeEvent', () => {
     })),
   };
 });
+jest.mock('../app/services/vector/vectorIndex', () => ({
+  getMany: jest.fn().mockResolvedValue(new Map()),
+  upsertMany: jest.fn().mockResolvedValue({ upserted: 0 }),
+  queryNear: jest.fn().mockResolvedValue([]),
+  use: jest.fn(),
+}));
 jest.mock('../app/repositories/audioFeatureRepo', () => ({
   getMany: jest.fn().mockResolvedValue(new Map()),
   upsertMany: jest.fn(),

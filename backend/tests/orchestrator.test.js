@@ -32,11 +32,10 @@ beforeEach(() => {
   delete process.env.SELECTION_V2;
 });
 
-describe('orchestrator.isV2 — the flip', () => {
-  it('v2 serves by DEFAULT; SELECTION_V2=false is the instant rollback', () => {
-    expect(orchestrator.isV2()).toBe(true);
-    process.env.SELECTION_V2 = 'false';
-    expect(orchestrator.isV2()).toBe(false);
+describe('orchestrator — sealed (Phase 7)', () => {
+  it('the rollback flag is GONE: the v2 engine is unconditional', () => {
+    expect(orchestrator.isV2).toBeUndefined();
+    expect(typeof orchestrator.generateV2).toBe('function');
   });
 });
 
