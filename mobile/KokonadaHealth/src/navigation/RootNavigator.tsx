@@ -3,6 +3,7 @@ import { View, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { GenerateScreen } from '../experience/generate/GenerateScreen';
+import { NowPlayingScreen } from '../experience/playback/NowPlayingScreen';
 
 // The 5-tab shell from the approved blueprint. Generate is now the live Context &
 // Emotion Input Suite (Skia wheel + bio-aura, wired to the cold store via
@@ -26,7 +27,7 @@ export default function RootNavigator() {
     <NavigationContainer>
       <Tab.Navigator screenOptions={{ headerShown: false }}>
         <Tab.Screen name="Generate">{() => <GenerateScreen />}</Tab.Screen>
-        <Tab.Screen name="NowPlaying">{() => <Placeholder title="Now Playing" />}</Tab.Screen>
+        <Tab.Screen name="NowPlaying">{() => <NowPlayingScreen />}</Tab.Screen>
         <Tab.Screen name="Pulse">{() => <Placeholder title="Pulse" />}</Tab.Screen>
         <Tab.Screen name="History">{() => <Placeholder title="History" />}</Tab.Screen>
         <Tab.Screen name="Profile">{() => <Placeholder title="Profile" />}</Tab.Screen>

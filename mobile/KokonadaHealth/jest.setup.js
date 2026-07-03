@@ -58,5 +58,33 @@ jest.mock('react-native-gesture-handler', () => {
   return {
     Gesture: { Tap: chain, Pan: chain },
     GestureDetector: ({ children }) => children,
+    GestureHandlerRootView: ({ children }) => children,
   };
 });
+
+// MMKV (encrypted store) + Spotify App Remote are native; the playback bootstrap
+// imports their adapters, so stub them for headless renders. The logic that drives
+// them (secureStore, SpotifyPlayerController, orchestrator) is unit-tested directly.
+jest.mock('react-native-mmkv', () => ({
+  MMKV: class {
+    _m = new Map();
+    getString(k) { return this._m.get(k); }
+    set(k, v) { this._m.set(k, v); }
+    delete(k) { this._m.delete(k); }
+    getAllKeys() { return [...this._m.keys()]; }
+    clearAll() { this._m.clear(); }
+  },
+}));
+jest.mock('react-native-spotify-remote', () => ({
+  remote: {
+    connect: jest.fn().mockResolvedValue(undefined),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+    isConnectedAsync: jest.fn().mockResolvedValue(false),
+    playUri: jest.fn().mockResolvedValue(undefined),
+    pause: jest.fn().mockResolvedValue(undefined),
+    resume: jest.fn().mockResolvedValue(undefined),
+    addListener: jest.fn(),
+    removeAllListeners: jest.fn(),
+  },
+  auth: { getSession: jest.fn().mockResolvedValue(null) },
+}));
