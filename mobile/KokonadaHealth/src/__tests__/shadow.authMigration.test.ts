@@ -1,3 +1,4 @@
+/// <reference types="node" />
 // SHADOW QA / SECURITY — permanent regression guards for the tokenStore -> AuthSession
 // migration. These encode CONTRACTS the migration must satisfy; they are green against
 // the current tree and stay green for a CORRECT migration, but break loudly on the
@@ -116,7 +117,7 @@ describe('single JWT token plane', () => {
     const found = new Set<string>();
     for (const f of ALL_FILES) {
       const m = read(f).match(/com\.kokonadahealth\.[A-Za-z]+/g) ?? [];
-      m.forEach((s) => found.add(s));
+      m.forEach((s: string) => found.add(s));
     }
     const rogue = [...found].filter((s) => !ALLOW.has(s));
     expect(rogue).toEqual([]);
@@ -139,7 +140,7 @@ describe('no token leakage', () => {
   it('no console.* statement logs a token', () => {
     const offenders: string[] = [];
     for (const f of PROD_FILES) {
-      read(f).split('\n').forEach((line, i) => {
+      read(f).split('\n').forEach((line: string, i: number) => {
         if (/console\.(log|warn|error|info|debug)\(/.test(line) && TOKENISH.test(line)) {
           offenders.push(`${rel(f)}:${i + 1}`);
         }
@@ -151,7 +152,7 @@ describe('no token leakage', () => {
   it('no token is placed in a URL query string', () => {
     const offenders: string[] = [];
     for (const f of PROD_FILES) {
-      read(f).split('\n').forEach((line, i) => {
+      read(f).split('\n').forEach((line: string, i: number) => {
         if (/[?&](token|jwt|access_token)=/.test(line)) offenders.push(`${rel(f)}:${i + 1}`);
       });
     }
@@ -163,7 +164,7 @@ describe('no token leakage', () => {
   it('no token-keyed write to SecureStore / AsyncStorage / MMKV', () => {
     const offenders: string[] = [];
     for (const f of PROD_FILES) {
-      read(f).split('\n').forEach((line, i) => {
+      read(f).split('\n').forEach((line: string, i: number) => {
         if (/\.(setItem|set)\(\s*['"`](token|jwt|session|access|bearer)/i.test(line)) {
           offenders.push(`${rel(f)}:${i + 1}`);
         }

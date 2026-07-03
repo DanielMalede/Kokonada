@@ -63,11 +63,13 @@ describe('signInWithGoogle — token-plane unification (Suspect #1)', () => {
     expect(authSession.setSession).toHaveBeenCalledTimes(1);
   });
 
-  it('degrades gracefully if the backend omits a refresh token (never crashes login)', async () => {
+  it('installs an access-only session if the backend omits a refresh (never a silent no-auth state)', async () => {
     mockFetchOnce({ token: 'acc-only', user: USER });
     const user = await signInWithGoogle();
-    // No refresh token → do not install a half-session, but login still succeeds.
-    expect(authSession.setSession).not.toHaveBeenCalled();
+    // Defensive: without a refresh we still install the access token (refresh '') so the
+    // session is never left empty now that the legacy tokenStore fallback is gone. It
+    // authenticates until expiry, then a 401 triggers a clean re-login.
+    expect(authSession.setSession).toHaveBeenCalledWith({ access: 'acc-only', refresh: '' });
     expect(user).toEqual(USER);
   });
 

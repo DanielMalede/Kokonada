@@ -46,11 +46,15 @@ export async function signInWithGoogle(): Promise<KokonadaUser> {
   }
 
   const { token, refreshToken, user } = await res.json();
-  // Install the rotating pair into the single AuthSession token plane — the socket
-  // (sync getAccessToken) and the REST apiClient both read from it. Only when the
-  // backend actually returned a refresh token — never install a half-session.
-  if (refreshToken) {
-    await authSession.setSession({ access: token, refresh: refreshToken });
+  // Install into the single AuthSession token plane — the socket (sync getAccessToken)
+  // and the REST apiClient both read from it. client:'mobile' normally returns a
+  // rotating pair; defensively, if the backend ever returns an access token WITHOUT a
+  // refresh (rollback/misconfig), still install it so the session isn't left silently
+  // empty — it authenticates until expiry, then a 401 triggers a clean re-login rather
+  // than a broken no-auth state. Since the legacy tokenStore fallback was removed, this
+  // guard is the only thing between "no refresh" and "no session". (QA4 Squad 2)
+  if (token) {
+    await authSession.setSession({ access: token, refresh: refreshToken ?? '' });
   }
   return user as KokonadaUser;
 }
