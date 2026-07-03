@@ -35,11 +35,14 @@ export function deriveAuraUniforms(hr: number | null): AuraUniforms {
 }
 
 // Advance the breathing phase by wall-clock time. Non-positive dt is a no-op
-// (paused clock); any dt stays finite and wrapped into [0, 2π).
+// (paused clock); any dt stays finite and wrapped into [0, 2π). The INCOMING phase
+// is sanitized too: a single NaN phase (e.g. an uninitialized SharedValue) would
+// otherwise propagate NaN every frame and crash the whole Skia surface. (QA4 Q2)
 export function advancePulsePhase(phase: number, pulseHz: number, dtMs: number): number {
-  if (!(dtMs > 0) || !Number.isFinite(dtMs)) return phase;
+  const base = Number.isFinite(phase) ? phase : 0;
+  if (!(dtMs > 0) || !Number.isFinite(dtMs)) return base;
   const hz = Number.isFinite(pulseHz) ? pulseHz : 0;
-  const next = phase + TWO_PI * hz * (dtMs / 1000);
+  const next = base + TWO_PI * hz * (dtMs / 1000);
   const wrapped = next % TWO_PI;
   return wrapped < 0 ? wrapped + TWO_PI : wrapped;
 }
