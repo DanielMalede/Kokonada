@@ -93,6 +93,54 @@ describe('KokonadaSocket — connection status wiring (Pulse indicator was dead)
   });
 });
 
+describe('KokonadaSocket — delivery guarantee (re-send pending request on reconnect)', () => {
+  it('re-issues a pending request on reconnect so a swallowed/churned request is not lost', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist();
+    sock.emitted.length = 0; // clear the send-time emits
+    // A token-expiry gate or churn: disconnect + reconnect with NO response having arrived.
+    sock.fire('disconnect', 'io server disconnect');
+    sock.fire('connect');
+    const resent = sock.clientEmits('request_playlist');
+    expect(resent).toHaveLength(1);
+    expect(resent[0].payload).toEqual({ reqId });
+  });
+
+  it('does NOT re-issue once the response has arrived', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist();
+    sock.fire('playlist_ready', { reqId, tracks: ['a'] }); // response clears the pending request
+    sock.emitted.length = 0;
+    sock.fire('connect');
+    expect(sock.clientEmits('request_playlist')).toHaveLength(0);
+  });
+
+  it('re-issues a pending heart-playlist request with its HR', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestHeartPlaylist(72);
+    sock.emitted.length = 0;
+    sock.fire('connect');
+    expect(sock.clientEmits('request_heart_playlist')[0].payload).toEqual({ reqId, heartRate: 72 });
+  });
+
+  it('clears the pending request on a matching playlist_error too', () => {
+    const { client, created } = build({ onGenerationError: jest.fn() });
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist();
+    sock.fire('playlist_error', { reqId, message: 'empty' });
+    sock.emitted.length = 0;
+    sock.fire('connect');
+    expect(sock.clientEmits('request_playlist')).toHaveLength(0);
+  });
+});
+
 describe('KokonadaSocket — server contract (the event the backend actually emits)', () => {
   it('delivers a playlist_ready response to onPlaylist (backend emits playlist_ready, not playlist)', () => {
     const { client, created, deps } = build();

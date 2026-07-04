@@ -48,6 +48,10 @@ export class KokonadaSocket {
   private refreshing = false;
   private authFailures = 0;
   private lastAuthExpiredAt = -Infinity;
+  // The in-flight generation request. Set on send, cleared when its response (playlist or
+  // error) arrives. Re-issued on every (re)connect so a request swallowed by a token-expiry
+  // gate, a socket churn, or a reply to an orphaned socket is never silently lost.
+  private pending: { kind: 'playlist' | 'heart'; reqId: number; heartRate?: number | null } | null = null;
 
   constructor(private readonly deps: KokonadaSocketDeps) {}
 
@@ -98,6 +102,15 @@ export class KokonadaSocket {
     // Re-hydrate the server's per-socketId emotion cache on EVERY connect —
     // including the transient reconnects the injected socket performs itself.
     this.emitEmotion();
+    // Delivery guarantee: if a generation request is still in flight (no response yet),
+    // re-issue it on the fresh socket. Covers a request swallowed by the server's
+    // token-expiry gate, a socket churn, or a reply sent to an orphaned socket.
+    if (this.pending) {
+      const p = this.pending;
+      console.log('[koko] RE-SENDING pending request after (re)connect:', p.kind, 'reqId=', p.reqId);
+      if (p.kind === 'playlist') this.socket?.emit('request_playlist', { reqId: p.reqId });
+      else this.socket?.emit('request_heart_playlist', { reqId: p.reqId, heartRate: p.heartRate ?? null });
+    }
   };
 
   // A failed connection attempt (bad URL, TLS, unauthorized handshake, network). The
@@ -112,6 +125,7 @@ export class KokonadaSocket {
       'reqId=', payload?.reqId, 'latest=', this.latestReqId);
     // Drop anything that isn't the answer to our most recent request (zombie nav).
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
+    if (this.pending?.reqId === payload.reqId) this.pending = null; // delivered — stop re-issuing
     this.deps.onPlaylist(payload);
   };
 
@@ -119,10 +133,12 @@ export class KokonadaSocket {
     console.log('[koko] playlist_error received:', payload?.message, 'reqId=', payload?.reqId, 'latest=', this.latestReqId);
     // Same reqId gate as playlist responses — a superseded request stays silent.
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
+    if (this.pending?.reqId === payload.reqId) this.pending = null; // delivered — stop re-issuing
     this.deps.onGenerationError?.(payload.message);
   };
 
   private handleAuthExpired = () => {
+    console.warn('[koko] AUTH_EXPIRED — server rejected the session; refreshing + reconnecting (pending request will be re-sent)');
     // The token is dead: the socket's OWN auto-reconnect would storm with it. Kill
     // this socket and refresh instead. closedByUser suppresses the transient path
     // for the disconnect the server fires right after auth_expired.
@@ -182,6 +198,7 @@ export class KokonadaSocket {
   requestPlaylist(): number {
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
+    this.pending = { kind: 'playlist', reqId: this.latestReqId };
     console.log('[koko] → request_playlist reqId=', this.latestReqId, 'hasSocket=', !!this.socket);
     this.emitEmotion();
     this.socket?.emit('request_playlist', { reqId: this.latestReqId });
@@ -194,6 +211,7 @@ export class KokonadaSocket {
   requestHeartPlaylist(heartRate: number | null): number {
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
+    this.pending = { kind: 'heart', reqId: this.latestReqId, heartRate };
     console.log('[koko] → request_heart_playlist reqId=', this.latestReqId, 'hr=', heartRate, 'hasSocket=', !!this.socket);
     this.socket?.emit('request_heart_playlist', { reqId: this.latestReqId, heartRate });
     return this.latestReqId;

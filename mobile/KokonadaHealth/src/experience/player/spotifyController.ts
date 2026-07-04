@@ -62,16 +62,25 @@ export class SpotifyPlayerController {
     try {
       token = await this.deps.getToken();
     } catch (err) {
+      console.warn('[koko] AppRemote.connect readiness-check threw:', (err as any)?.message ?? String(err));
       this.markDisconnected(err);
       return false;
     }
-    if (!token) { this.markDisconnected(); return false; } // Spotify not linked
+    const ready = token != null;
+    console.log('[koko] AppRemote.connect ready=', ready);
+    if (!token) {
+      console.warn('[koko] AppRemote.connect: Spotify not ready/installed — cannot play');
+      this.markDisconnected();
+      return false;
+    }
     try {
       await this.deps.remote.connect(token);
+      console.log('[koko] AppRemote.connect SUCCEEDED');
       this.reconnectBudget = this.deps.maxReconnects ?? DEFAULT_MAX_RECONNECTS; // reset on success
       this.setState('connected');
       return true;
     } catch (err) {
+      console.warn('[koko] AppRemote.connect FAILED:', (err as any)?.message ?? String(err));
       this.markDisconnected(err);
       return false;
     }
@@ -87,12 +96,16 @@ export class SpotifyPlayerController {
   }
 
   private async run(action: (r: SpotifyRemoteLike) => Promise<void>): Promise<CommandResult> {
-    if (!(await this.ensureConnected())) return { ok: false };
+    const connected = await this.ensureConnected();
+    console.log('[koko] AppRemote.run ensureConnected=', connected, 'state=', this.state, 'budget=', this.reconnectBudget);
+    if (!connected) return { ok: false };
     try {
       await action(this.deps.remote);
+      console.log('[koko] AppRemote command OK');
       return { ok: true };
     } catch (err) {
       // Command threw → the link is gone (severance / revoked auth). Degrade.
+      console.warn('[koko] AppRemote command THREW:', (err as any)?.message ?? String(err));
       this.markDisconnected(err);
       return { ok: false };
     }
