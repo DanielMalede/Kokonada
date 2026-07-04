@@ -1,5 +1,7 @@
 package com.kokonada.spotifyremote
 
+import android.os.Handler
+import android.os.Looper
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -18,12 +20,20 @@ import com.spotify.android.appremote.api.error.NotLoggedInException
 class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
   NativeSpotifyRemoteSpec(reactContext) {
 
-  companion object { const val NAME = "SpotifyRemote" }
+  companion object {
+    const val NAME = "SpotifyRemote"
+    // The App Remote binds to a possibly-cold Spotify service; the first handshake often
+    // misses the SDK's internal deadline ("Result was not delivered on time"). Retry a few
+    // times with linear backoff to let the service wake, before surfacing the failure.
+    private const val MAX_CONNECT_RETRIES = 3
+    private const val CONNECT_BACKOFF_BASE_MS = 700L
+  }
 
   private var clientId: String = ""
   private var redirectUri: String = ""
   private var appRemote: SpotifyAppRemote? = null
   private var listenerCount = 0
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   override fun getName(): String = NAME
 
@@ -38,6 +48,10 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
 
   override fun connect(promise: Promise) {
     if (clientId.isBlank()) return promise.reject("CONNECTION_FAILED", "configure() not called")
+    attemptConnect(promise, 0)
+  }
+
+  private fun attemptConnect(promise: Promise, attempt: Int) {
     val params = ConnectionParams.Builder(clientId)
       .setRedirectUri(redirectUri)
       .showAuthView(true)
@@ -57,7 +71,17 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
           is NotLoggedInException -> "NOT_LOGGED_IN"
           else -> "CONNECTION_FAILED"
         }
-        promise.reject(code, error.message ?: error.javaClass.simpleName, error)
+        // A generic CONNECTION_FAILED ("Result was not delivered on time") is a transient
+        // IPC/bindService timeout against a cold Spotify service — retry with backoff. Never
+        // retry a deterministic failure (Spotify not installed / user not logged in).
+        if (code == "CONNECTION_FAILED" && attempt < MAX_CONNECT_RETRIES) {
+          mainHandler.postDelayed(
+            { attemptConnect(promise, attempt + 1) },
+            CONNECT_BACKOFF_BASE_MS * (attempt + 1)
+          )
+        } else {
+          promise.reject(code, error.message ?: error.javaClass.simpleName, error)
+        }
       }
     })
   }
