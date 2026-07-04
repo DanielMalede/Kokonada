@@ -17,7 +17,9 @@ jest.mock('../app/models/User', () => ({ findById: (...a) => mockFindById(...a) 
 
 // biometricHandler now imports these — mock them to prevent mongoose load errors
 // and to make generateAndEmitPlaylist a no-op in these state-machine tests
-jest.mock('../app/models/MusicProfile',    () => ({ findOne: jest.fn().mockResolvedValue(null) }));
+// findOne returns a Mongoose Query: awaitable directly AND chainable .lean() (the
+// generation path calls .lean() to keep hydrated subdocs out of candidatePool).
+jest.mock('../app/models/MusicProfile',    () => ({ findOne: jest.fn(() => { const q = Promise.resolve(null); q.lean = () => Promise.resolve(null); return q; }) }));
 jest.mock('../app/models/PlaylistSession', () => ({ create: jest.fn().mockResolvedValue({}) }));
 jest.mock('../app/services/spotify',       () => ({ getValidToken: jest.fn(), getRecommendations: jest.fn() }));
 jest.mock('../app/services/youtube',       () => ({ getValidToken: jest.fn(), searchRecommendations: jest.fn() }));
