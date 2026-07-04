@@ -19,6 +19,7 @@
     "@tamagui/babel-plugin": "^2.4.1",
     "@tamagui/config": "^2.4.1",
     "@tamagui/core": "^2.4.1",
+    "lottie-react-native": "^7.3.8",
     "moti": "^0.30.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
