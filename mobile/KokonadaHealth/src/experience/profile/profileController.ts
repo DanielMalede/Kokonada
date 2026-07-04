@@ -65,6 +65,14 @@ export class ProfileController {
     return res.ok ? res.data.connectToken : null;
   }
 
+  // Disconnect YouTube as a data source. The server clears the YouTube token, purges the
+  // cached (YouTube-tainted) candidate pool, and deterministically rebuilds the profile
+  // from the remaining Spotify account — so the library becomes provider-consistent and
+  // natively playable. Returns the rebuild summary ({ rebuilt, provider, library }).
+  async disconnectYouTube(): Promise<ApiResult<{ rebuilt: boolean; provider: string | null; library: number }>> {
+    return this.deps.apiDelete('/api/integrations/youtube/disconnect');
+  }
+
   // GDPR delete — SERVER-FIRST: only wipe locally once the server confirms erasure.
   // A network failure surfaces the error and leaves the session intact (the user is
   // NOT signed out on a failed delete). No separate /logout call — the account is gone.

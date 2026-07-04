@@ -17,6 +17,16 @@ describe('ProfileController.loadProfile', () => {
   });
 });
 
+describe('ProfileController.disconnectYouTube', () => {
+  it('calls DELETE /youtube/disconnect and returns the rebuild summary', async () => {
+    const apiDelete = jest.fn().mockResolvedValue(okRes({ rebuilt: true, provider: 'spotify', library: 240 }));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn() } as any);
+    const res = await c.disconnectYouTube();
+    expect(apiDelete).toHaveBeenCalledWith('/api/integrations/youtube/disconnect');
+    expect(res).toEqual(okRes({ rebuilt: true, provider: 'spotify', library: 240 }));
+  });
+});
+
 describe('ProfileController.logout', () => {
   it('revokes server-side FIRST (best-effort), THEN wipes local state', async () => {
     const order: string[] = [];

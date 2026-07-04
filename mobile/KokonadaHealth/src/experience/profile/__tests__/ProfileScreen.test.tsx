@@ -6,6 +6,7 @@ jest.mock('../profileServices', () => ({
     loadProfile: jest.fn(),
     logout: jest.fn().mockResolvedValue(undefined),
     deleteAccount: jest.fn().mockResolvedValue({ ok: true, data: {} }),
+    disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } }),
   },
 }));
 
@@ -17,6 +18,7 @@ import { warmStore } from '../../../state/store';
 const loadProfile = profileController.loadProfile as jest.Mock;
 const logout = profileController.logout as jest.Mock;
 const deleteAccount = profileController.deleteAccount as jest.Mock;
+const disconnectYouTube = profileController.disconnectYouTube as jest.Mock;
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -84,6 +86,24 @@ describe('ProfileScreen', () => {
     // The explicit confirmation is what actually calls the server.
     await ReactTestRenderer.act(async () => { await byLabel(tree, 'delete-confirm').props.onPress(); });
     expect(deleteAccount).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('shows a YouTube Disconnect button when connected and routes it through the controller', async () => {
+    loadProfile.mockResolvedValue({
+      me: { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null },
+      integrations: { spotifyConnected: true, youtubeConnected: true },
+    });
+    const tree = await render();
+    expect(texts(tree.toJSON()).join(' ')).toContain('YouTube Music');
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'disconnect-youtube').props.onPress(); });
+    expect(disconnectYouTube).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('hides the YouTube row when YouTube is not connected', async () => {
+    const tree = await render(); // beforeEach integrations has no youtubeConnected
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'disconnect-youtube')).toHaveLength(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

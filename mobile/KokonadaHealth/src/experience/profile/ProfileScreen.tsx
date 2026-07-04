@@ -37,12 +37,28 @@ function SpotifyRow({ connected, onConnect }: { connected: boolean; onConnect: (
   );
 }
 
+// YouTube Music integration row: shown only when YouTube is connected as a data source.
+// Disconnecting clears it, purges the cached YouTube library, and rebuilds a Spotify-only
+// profile server-side (so the library becomes natively playable on Spotify).
+function YouTubeRow({ onDisconnect, busy }: { onDisconnect: () => void; busy: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
+      <Text style={{ fontSize: 15 }}>YouTube Music</Text>
+      <Pressable onPress={onDisconnect} disabled={busy} accessibilityRole="button" accessibilityLabel="disconnect-youtube"
+        style={{ paddingVertical: 6, paddingHorizontal: 18, borderRadius: 999, borderWidth: 1, borderColor: '#ccc', opacity: busy ? 0.6 : 1 }}>
+        <Text style={{ fontSize: 13 }}>{busy ? 'Rebuilding…' : 'Disconnect'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export function ProfileScreen() {
   const [snap, setSnap] = useState<ProfileSnapshot>({ me: null, integrations: null });
   const [spotify, setSpotify] = useState(playerStatusStore.getState().status);
   const [wearable, setWearable] = useState(warmStore.getState().biometricSource);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [ytBusy, setYtBusy] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -61,6 +77,24 @@ export function ProfileScreen() {
     if (!ct) { Alert.alert('Could not start Spotify sign-in', 'Please try again in a moment.'); return; }
     const url = `${BACKEND_URL}/api/integrations/spotify/connect?ct=${encodeURIComponent(ct)}`;
     Linking.openURL(url).catch(() => Alert.alert('Could not open Spotify', 'No browser is available to complete sign-in.'));
+  };
+
+  // Disconnect YouTube → server clears the token, purges the cached YouTube pool, and
+  // rebuilds a Spotify-native profile. Reload status so the row disappears + the badge updates.
+  const onDisconnectYouTube = async () => {
+    setYtBusy(true);
+    try {
+      const res = await profileController.disconnectYouTube();
+      if (res.ok) {
+        Alert.alert('YouTube disconnected', `Rebuilt your Spotify library (${res.data.library} tracks).`);
+        const s = await profileController.loadProfile();
+        setSnap(s);
+      } else {
+        Alert.alert('Could not disconnect YouTube', 'Please try again in a moment.');
+      }
+    } finally {
+      setYtBusy(false);
+    }
   };
 
   const onLogout = async () => {
@@ -94,6 +128,7 @@ export function ProfileScreen() {
       <View>
         <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>INTEGRATIONS</Text>
         <SpotifyRow connected={spotify === 'connected' || !!integ?.spotifyConnected} onConnect={onConnectSpotify} />
+        {integ?.youtubeConnected ? <YouTubeRow onDisconnect={onDisconnectYouTube} busy={ytBusy} /> : null}
         <Badge label="Wearable" on={wearable !== 'none' || !!me?.wearableProvider} />
       </View>
 
