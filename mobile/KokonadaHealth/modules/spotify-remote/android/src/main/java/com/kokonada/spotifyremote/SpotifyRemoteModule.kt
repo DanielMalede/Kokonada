@@ -8,6 +8,8 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
+import com.spotify.android.appremote.api.error.CouldNotFindSpotifyApp
+import com.spotify.android.appremote.api.error.NotLoggedInException
 
 // Extends the codegen-generated abstract spec NativeSpotifyRemoteSpec (produced from
 // src/NativeSpotifyRemote.ts). If the generated method signatures differ (they are
@@ -35,6 +37,7 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun connect(promise: Promise) {
+    if (clientId.isBlank()) return promise.reject("CONNECTION_FAILED", "configure() not called")
     val params = ConnectionParams.Builder(clientId)
       .setRedirectUri(redirectUri)
       .showAuthView(true)
@@ -43,16 +46,15 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
       override fun onConnected(remote: SpotifyAppRemote) {
         appRemote = remote
         remote.playerApi.subscribeToPlayerState().setErrorCallback {
+          appRemote = null
           emit("remoteDisconnected")
         }
         promise.resolve(null)
       }
       override fun onFailure(error: Throwable) {
-        // Verify exact SDK exception class names against the vendored AAR; map by
-        // simpleName so a version rename does not silently fall through.
-        val code = when (error.javaClass.simpleName) {
-          "CouldNotFindSpotifyApp" -> "SPOTIFY_NOT_INSTALLED"
-          "NotLoggedInException" -> "NOT_LOGGED_IN"
+        val code = when (error) {
+          is CouldNotFindSpotifyApp -> "SPOTIFY_NOT_INSTALLED"
+          is NotLoggedInException -> "NOT_LOGGED_IN"
           else -> "CONNECTION_FAILED"
         }
         promise.reject(code, error.message ?: error.javaClass.simpleName, error)
@@ -65,28 +67,32 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
   }
 
   override fun playUri(uri: String, promise: Promise) {
-    val remote = appRemote ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
     remote.playerApi.play(uri)
       .setResultCallback { promise.resolve(null) }
       .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
   }
 
   override fun pause(promise: Promise) {
-    val remote = appRemote ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
     remote.playerApi.pause()
       .setResultCallback { promise.resolve(null) }
       .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
   }
 
   override fun resume(promise: Promise) {
-    val remote = appRemote ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
     remote.playerApi.resume()
       .setResultCallback { promise.resolve(null) }
       .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
   }
 
   override fun getPlayerState(promise: Promise) {
-    val remote = appRemote ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
     remote.playerApi.playerState
       .setResultCallback { state ->
         val map = Arguments.createMap()
