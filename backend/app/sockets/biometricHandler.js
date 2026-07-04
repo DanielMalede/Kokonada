@@ -19,6 +19,7 @@ const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const featureService = require('../services/features/featureService');
+const { heapMark } = require('../utils/memMonitor'); // TEMP: OOM stage instrumentation
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -296,6 +297,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // profile's genres/artists still steer that Spotify discovery, and every track is
     // natively playable on the Web Playback SDK. A YouTube-only user (no Spotify) falls
     // back to YouTube sourcing. This supersedes the old resolveMusicProvider desync.
+    heapMark('gen:profile-loaded');
     const provider = resolvePlaybackProvider(user) || resolveMusicProvider(user);
     if (!provider) {
       socket.emit('playlist_error', { message: 'No music provider connected', reqId });
@@ -332,12 +334,16 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           // Dev-Mode rate budget, slowing everything to a client timeout). Skip it and let
           // the genre-backfilled familiar library fill the playlist (~20s → ~5s).
           if (!spotify.artistGenresAvailable()) return [];
+          heapMark('fetch:start');
           const raw     = await spotify.fetchVibeDiscovery(accessToken, params, { limit: DISCOVERY_FETCH_LIMIT });
+          heapMark(`fetch:after-vibeDiscovery raw=${raw?.length ?? 0}`);
           const tagged  = await tagSpotifyDiscovery(accessToken, raw);
+          heapMark(`fetch:after-tag tagged=${tagged?.length ?? 0}`);
           const onTaste = personalizeWhitelist(tagged, {
             genreSet:       musicProfile.genreSet,
             knownArtistIds: musicProfile.knownArtistIds,
           });
+          heapMark(`fetch:after-personalize onTaste=${onTaste?.length ?? 0}`);
           return onTaste;
         };
       } else {
@@ -435,6 +441,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       return;
     }
 
+    heapMark('gen:after-buildEmotionPlaylist');
     const cachedDiscovery = aiResult.tracks;
     // The v2 engine is the ONLY serving path (Phase 7 sealed the flip): full
     // biosonic targets + ledger windows + scoring + MMR.
@@ -444,6 +451,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       discoveryTracks: cachedDiscovery,
       live: { heartRate: state.stableHR, activity: state.latestActivity },
     });
+    heapMark('gen:after-generateV2');
     if (playlist.telemetry) {
       log(`[selection.v2] pool=${playlist.telemetry.poolSize} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);
     }
@@ -464,6 +472,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // Normalize to the client contract (and reconstruct/validate uris). Guard on
     // the PLAYABLE result: never push an empty/unplayable playlist — it would blank
     // the queue and spin the overlay forever. Surface a recoverable error instead.
+    heapMark('gen:after-translate');
     const clientTracks = toClientTracks(playlist?.merged, provider);
     if (clientTracks.length === 0) {
       // Always-on diagnostic: show WHY the playlist is empty (library size, discovery

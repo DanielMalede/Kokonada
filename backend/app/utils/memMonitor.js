@@ -27,4 +27,11 @@ function startMemMonitor(intervalMs = 2500) {
   if (timer.unref) timer.unref(); // never keep the process alive for the monitor alone
 }
 
-module.exports = { startMemMonitor };
+// Synchronous heap marker — prints heapUsed at a labelled point so the LAST marker
+// before the OOM pinpoints the exact stage/await where the ~442MB allocation happens.
+// (console.warn is sync + flushes, so it survives right up to the crash.) TEMP.
+function heapMark(label) {
+  console.warn(`[mem-mark] ${label} heapUsed=${Math.round(process.memoryUsage().heapUsed / 1048576)}MB`);
+}
+
+module.exports = { startMemMonitor, heapMark };
