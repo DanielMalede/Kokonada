@@ -58,6 +58,23 @@ describe('translateToSpotify', () => {
     expect(missed).toBe(1);
     expect(translated).toBe(2);         // second + third both resolve
     expect(tracks).toHaveLength(2);
-    expect(searchFn).toHaveBeenCalledTimes(2); // third is served from cache
+    expect(searchFn).toHaveBeenCalledTimes(2); // third is served from cache (dedup holds under parallelism)
+  });
+
+  it('preserves input order in the translated output', async () => {
+    const searchFn = jest.fn().mockImplementation((_tok, { title }) =>
+      Promise.resolve({ id: title, uri: `spotify:track:${title}`, name: title, artist: 'a' }));
+    const input = [yt('one', 'x'), yt('two', 'y'), yt('three', 'z')];
+    const { tracks } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 8 });
+    expect(tracks.map(t => t.name)).toEqual(['one', 'two', 'three']);
+  });
+
+  it('respects an overall deadline: stops starting new searches once time is up (bounded latency)', async () => {
+    const searchFn = jest.fn().mockImplementation(() =>
+      new Promise((r) => setTimeout(() => r({ id: 'x', uri: 'spotify:track:x', name: 'n', artist: 'a' }), 40)));
+    const input = Array.from({ length: 20 }, (_, i) => yt(`Song ${i}`, `Artist ${i}`));
+    const { translated, missed } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 15 });
+    expect(searchFn.mock.calls.length).toBeLessThan(20); // did NOT grind through all 20 sequentially
+    expect(translated + missed).toBe(20);                // every input track is still accounted for
   });
 });
