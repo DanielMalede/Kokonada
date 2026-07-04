@@ -21,6 +21,9 @@ const pulseRouter        = require('./routes/pulse');
 const { startInProcessWorkers } = require('./workers');
 const { createSocketServer } = require('./sockets');
 
+// TEMP DIAGNOSTIC: memory timeline to root-cause the generation OOM. Remove after.
+require('./utils/memMonitor').startMemMonitor();
+
 const app = express();
 
 // Behind Railway's reverse proxy: trust exactly ONE hop so req.ip resolves to the

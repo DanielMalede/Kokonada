@@ -95,7 +95,7 @@ async function persistMetrics(userId, metrics) {
   if (hrDocs.length || Object.keys($set).length) {
     try {
       await enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
-        jobId: `state-vector:${userId}`,
+        jobId: `state-vector-${userId}`, // BullMQ forbids ':' in custom job ids
         delay: 60_000,
         removeOnComplete: true,
         removeOnFail: true,
