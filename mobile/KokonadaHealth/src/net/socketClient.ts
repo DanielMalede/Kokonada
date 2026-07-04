@@ -116,6 +116,7 @@ export class KokonadaSocket {
   };
 
   private handlePlaylistError = (payload: any) => {
+    console.log('[koko] playlist_error received:', payload?.message, 'reqId=', payload?.reqId, 'latest=', this.latestReqId);
     // Same reqId gate as playlist responses — a superseded request stays silent.
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
     this.deps.onGenerationError?.(payload.message);
