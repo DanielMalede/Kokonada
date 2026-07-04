@@ -71,7 +71,7 @@ jest.mock('../app/services/wearable/suunto', () => ({
 
 // Mock mongoose models to avoid the Node 21 / mongoose 9 incompatibility
 jest.mock('../app/models/BiometricLog', () => ({}));
-jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
@@ -309,11 +309,15 @@ describe('YouTube OAuth flow', () => {
     expect(user.save).toHaveBeenCalled();
   });
 
-  it('youtubeDisconnect nulls token and saves', async () => {
+  it('youtubeDisconnect re-loads the full user, nulls token, and saves', async () => {
+    // auth() strips token blobs, so the handler re-loads via User.findById.
     const user = buildUser({ youtubeMusicToken: { blob: 'enc' } });
-    await ctrl.youtubeDisconnect({ user }, buildRes(), jest.fn());
+    User.findById.mockResolvedValue(user);
+    const res = buildRes();
+    await ctrl.youtubeDisconnect({ user: { _id: user._id } }, res, jest.fn());
     expect(user.youtubeMusicToken).toBeNull();
     expect(user.save).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'YouTube Music disconnected' }));
   });
 });
 

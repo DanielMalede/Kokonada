@@ -12,6 +12,7 @@ const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
 const { buildProfile } = require('../services/musicProfileService');
+const { invalidateUserPools } = require('../services/selection/candidatePool');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
 const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = require('../utils/providerSelect');
 const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
@@ -382,12 +383,45 @@ exports.youtubeExchange = async (req, res) => {
   }
 };
 
+// DELETE /api/integrations/youtube/disconnect
+// Cleanly removes YouTube as a data source and leaves the user with a provider-consistent
+// profile: (1) clear the YT token, (2) purge the YouTube-tainted candidate-pool cache,
+// (3) deterministically rebuild the profile from the REMAINING source. Because the YT
+// token is gone, buildProfile now yields a Spotify-only, natively-playable library — no
+// more YouTube tracks dropped by the Spotify provider filter (the empty-playlist bug).
 exports.youtubeDisconnect = async (req, res, next) => {
   try {
-    req.user.musicProvider = null;
-    req.user.youtubeMusicToken = null;
-    await req.user.save();
-    res.json({ message: 'YouTube Music disconnected' });
+    const userId = req.user._id.toString();
+    // auth() strips token blobs from req.user — re-load the FULL doc so getToken() can
+    // see the Spotify token the rebuild needs (otherwise it builds an empty profile).
+    const user = await loadUserWithTokens(req);
+
+    // 1. Clear the YouTube link. Fall back the effective provider to Spotify if it is
+    //    still connected, else null.
+    user.youtubeMusicToken = null;
+    const hasSpotify = !!user.getToken?.('spotifyToken')?.accessToken;
+    user.musicProvider = hasSpotify ? 'spotify' : null;
+    await user.save();
+
+    // 2. Purge every cached candidate pool for this user so generation can't serve
+    //    stale YouTube tracks before the rebuild's lastAnalyzed stamp invalidates them.
+    await invalidateUserPools(userId);
+
+    // 3. Deterministic rebuild from the remaining source. With no source left, wipe the
+    //    library so stale YouTube tracks don't linger in the profile.
+    let library = 0;
+    if (hasSpotify) {
+      const profile = await buildProfile(userId, user);
+      library = profile?.library?.length ?? 0;
+    } else {
+      await MusicProfile.findOneAndUpdate(
+        { userId },
+        { $set: { library: [], topGenres: [], topArtists: [], genreSet: [], knownArtistIds: [], lastAnalyzed: new Date() } },
+        { upsert: true },
+      );
+    }
+
+    res.json({ message: 'YouTube Music disconnected', rebuilt: hasSpotify, provider: user.musicProvider, library });
   } catch (err) {
     next(err);
   }
