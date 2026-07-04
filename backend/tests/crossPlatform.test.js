@@ -69,12 +69,22 @@ describe('translateToSpotify', () => {
     expect(tracks.map(t => t.name)).toEqual(['one', 'two', 'three']);
   });
 
-  it('respects an overall deadline: stops starting new searches once time is up (bounded latency)', async () => {
-    const searchFn = jest.fn().mockImplementation(() =>
-      new Promise((r) => setTimeout(() => r({ id: 'x', uri: 'spotify:track:x', name: 'n', artist: 'a' }), 40)));
-    const input = Array.from({ length: 20 }, (_, i) => yt(`Song ${i}`, `Artist ${i}`));
-    const { translated, missed } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 15 });
-    expect(searchFn.mock.calls.length).toBeLessThan(20); // did NOT grind through all 20 sequentially
-    expect(translated + missed).toBe(20);                // every input track is still accounted for
+  it('HARD-bounds total time: returns by the deadline even when searches never resolve (429 Retry-After hang)', async () => {
+    // A rate-limited Spotify search waits out a large Retry-After and can effectively never
+    // return; the whole translation must still resolve at the deadline, not block generation.
+    const searchFn = jest.fn().mockImplementation(() => new Promise(() => {})); // never resolves
+    const input = Array.from({ length: 10 }, (_, i) => yt(`Song ${i}`, `A${i}`));
+    const start = Date.now();
+    const { tracks } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 60 });
+    expect(Date.now() - start).toBeLessThan(600); // did NOT wait on the stuck in-flight searches
+    expect(tracks).toEqual([]);                    // best-effort: nothing resolved in time
+  });
+
+  it('still translates everything quickly when searches are fast (deadline not hit)', async () => {
+    const searchFn = jest.fn().mockImplementation((_t, { title }) =>
+      Promise.resolve({ id: title, uri: `spotify:track:${title}`, name: title, artist: 'a' }));
+    const input = Array.from({ length: 12 }, (_, i) => yt(`Song ${i}`, `A${i}`));
+    const { translated } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 9000 });
+    expect(translated).toBe(12);
   });
 });
