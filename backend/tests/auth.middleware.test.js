@@ -218,6 +218,26 @@ describe('auth middleware', () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
+    it('prefers a valid ?ct= over an ambient cookie (a mobile connect must NOT adopt the phone browser session)', async () => {
+      // Repro of the on-device bug: the system browser carried a stale kokonada_token
+      // cookie for a since-deleted account. The connect token is authoritative — the
+      // request must authenticate as the ct owner, never the ambient cookie's user.
+      const ct          = signConnectToken('ct-user');
+      const staleCookie = signToken({ userId: 'stale-browser-user' });
+      mockSelect.mockResolvedValue(fakeUser);
+
+      const req  = { cookies: { [COOKIE_NAME]: staleCookie }, headers: {}, query: { ct } };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(mockFindById).toHaveBeenCalledWith('ct-user');     // NOT 'stale-browser-user'
+      expect(req.user).toBe(fakeUser);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
     it('rejects a normal session token presented as ?ct= (wrong purpose)', async () => {
       const sessionTok = signToken({ userId: 'ct-user' });
 

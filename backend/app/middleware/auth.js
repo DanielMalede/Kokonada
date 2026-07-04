@@ -7,24 +7,28 @@ const User = require('../models/User');
 // short-lived single-use ?ct= connect token instead of the long-lived session JWT. (audit F1)
 module.exports = async function authMiddleware(req, res, next) {
   try {
-    let token = req.cookies[COOKIE_NAME];
-
-    if (!token) {
-      const header = req.headers.authorization;
-      if (header?.startsWith('Bearer ')) token = header.slice(7);
-    }
-
     let payload;
     let singleUse = false;
 
-    if (token) {
-      payload = verifyToken(token);
-    } else if (typeof req.query?.ct === 'string') {
+    // An explicit ?ct= connect token is AUTHORITATIVE and checked BEFORE the session
+    // cookie/Bearer. A top-level OAuth "connect" navigation must authenticate as the
+    // token's owner — never as whatever account a stale ambient browser cookie holds.
+    // (On mobile the system browser often carries a leftover kokonada_token cookie from
+    // prior web use; honoring it would fail on a deleted account, or worse, silently
+    // link the WRONG user's Spotify.) (audit F1)
+    if (typeof req.query?.ct === 'string') {
       payload = verifyToken(req.query.ct);
       if (payload.purpose !== 'oauth-connect') {
         return res.status(401).json({ error: 'Invalid token purpose' });
       }
       singleUse = true;
+    } else {
+      let token = req.cookies[COOKIE_NAME];
+      if (!token) {
+        const header = req.headers.authorization;
+        if (header?.startsWith('Bearer ')) token = header.slice(7);
+      }
+      if (token) payload = verifyToken(token);
     }
 
     if (!payload) {
