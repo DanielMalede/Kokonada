@@ -48,7 +48,7 @@ describe('ATTACK 1 — full-system regression boundaries', () => {
       // Deterministic jobId + delay = BullMQ coalesces the burst into ONE run;
       // removeOnComplete frees the id so the NEXT batch can re-queue.
       expect(opts).toEqual(expect.objectContaining({
-        jobId: 'state-vector:u1',
+        jobId: 'state-vector-u1', // BullMQ forbids ':' in custom job ids
         delay: expect.any(Number),
         removeOnComplete: true,
         removeOnFail: true,

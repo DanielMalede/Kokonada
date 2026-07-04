@@ -99,7 +99,7 @@ describe('persistMetrics — lastNightSleep persistence', () => {
     expect(enqueue).toHaveBeenCalledWith(
       'state-vector-recompute',
       { userId: 'u1' },
-      expect.objectContaining({ jobId: 'state-vector:u1' })
+      expect.objectContaining({ jobId: 'state-vector-u1' })
     );
   });
 
