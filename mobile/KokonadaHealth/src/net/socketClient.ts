@@ -66,6 +66,17 @@ export class KokonadaSocket {
     this.open(token);
   }
 
+  // Guarantee a socket to send on. Idempotent: a live socket is left ALONE (never churned),
+  // but a session that never opened — a tokenless boot, or a first connect that failed — is
+  // (re)opened now. This replaces the one-shot `socketStarted` latch in playbackServices,
+  // which permanently blocked reconnection once any initial open failed. Called by every
+  // request path so a generation can never be emitted into a null socket. (hasSocket=false bug)
+  ensureOpen(): void {
+    if (this.socket) return;
+    console.log('[koko] ensureOpen: no live socket — connecting before send');
+    this.connect();
+  }
+
   private open(token: string): void {
     this.teardown(); // detach the previous socket's listeners BEFORE swapping
     const socket = this.deps.createSocket(token);
@@ -196,6 +207,7 @@ export class KokonadaSocket {
 
   // Emit the current intent (re-hydrate) THEN trigger generation, correlated by reqId.
   requestPlaylist(): number {
+    this.ensureOpen(); // never emit into a null socket
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
     this.pending = { kind: 'playlist', reqId: this.latestReqId };
@@ -209,6 +221,7 @@ export class KokonadaSocket {
   // Shares the reqId counter with requestPlaylist, so the playlist response is
   // gated identically. heartRate is only a hint; the server prefers its own window.
   requestHeartPlaylist(heartRate: number | null): number {
+    this.ensureOpen(); // never emit into a null socket
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
     this.pending = { kind: 'heart', reqId: this.latestReqId, heartRate };

@@ -93,6 +93,23 @@ describe('KokonadaSocket — connection status wiring (Pulse indicator was dead)
   });
 });
 
+describe('KokonadaSocket — ensureOpen (never emit into a null socket)', () => {
+  it('requestPlaylist opens a socket if none exists — Generate pressed before any connect', () => {
+    const { client, created } = build();
+    const reqId = client.requestPlaylist(); // NO prior client.connect()
+    expect(created).toHaveLength(1); // ensureOpen opened one
+    expect(created[0].clientEmits('request_playlist')[0].payload).toEqual({ reqId });
+  });
+
+  it('ensureOpen is idempotent — a live socket is never churned', () => {
+    const { client, created } = build();
+    client.connect();
+    client.requestPlaylist();
+    client.requestPlaylist();
+    expect(created).toHaveLength(1); // no extra sockets spun up
+  });
+});
+
 describe('KokonadaSocket — delivery guarantee (re-send pending request on reconnect)', () => {
   it('re-issues a pending request on reconnect so a swallowed/churned request is not lost', () => {
     const { client, created } = build();

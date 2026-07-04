@@ -44,14 +44,15 @@ export const kokoSocket = new KokonadaSocket({
   onConnectionChange: (status) => { warmStore.getState().setConnection(status); },
 });
 
-// Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. Transient
-// reconnection is socket.io's job; ensureConnected only performs the initial open
-// (idempotent) so a background-killed socket is revived on the next generation.
-let socketStarted = false;
+// Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. ensureOpen()
+// is idempotent — it opens a socket only when there isn't a live one (reviving a
+// background-killed/never-opened session) and leaves a live socket untouched. This
+// replaces a one-shot `socketStarted` latch that permanently blocked reconnection once
+// the first open failed (e.g. a tokenless boot), which stranded the socket at hasSocket=false.
 export const playbackSocket: PlaybackSocket = {
   requestPlaylist: () => kokoSocket.requestPlaylist(),
   requestHeartPlaylist: (hr) => kokoSocket.requestHeartPlaylist(hr),
-  ensureConnected: () => { if (!socketStarted) { socketStarted = true; kokoSocket.connect(); } },
+  ensureConnected: () => kokoSocket.ensureOpen(),
 };
 
 export const orchestrator = new PlaybackOrchestrator({
