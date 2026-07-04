@@ -59,7 +59,9 @@ async function translateToSpotify(tracks, accessToken, opts = {}) {
   // Cache stores the in-flight PROMISE (set synchronously before awaiting) so concurrent
   // lookups of the same title|artist share ONE search - dedup survives parallelism.
   const cache = opts.cache || new Map();
-  const concurrency = opts.concurrency ?? 8;
+  // Low concurrency so a burst of searches doesn't trip Spotify's search rate limit (which
+  // returns a large Retry-After that withRetry then waits out — the source of the hang).
+  const concurrency = opts.concurrency ?? 4;
   const deadlineMs = opts.deadlineMs ?? 9000;
   const list = Array.isArray(tracks) ? tracks : [];
 
@@ -97,7 +99,14 @@ async function translateToSpotify(tracks, accessToken, opts = {}) {
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(concurrency, list.length) || 0 }, worker));
+  // HARD overall bound: race the workers against a wall-clock timer. A rate-limited search
+  // can wait out a large Retry-After (via withRetry) and effectively never return; awaiting
+  // Promise.all on those stalled generation for MINUTES. Once the deadline fires we return
+  // whatever resolved and ABANDON the stuck searches (they settle later, discarded).
+  const workers = Promise.all(Array.from({ length: Math.min(concurrency, list.length) || 0 }, worker));
+  let timer;
+  await Promise.race([workers, new Promise((resolve) => { timer = setTimeout(resolve, deadlineMs); })]);
+  clearTimeout(timer);
   return { tracks: result.filter(Boolean), translated, missed };
 }
 
