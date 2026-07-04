@@ -125,6 +125,16 @@ function makeMusicProfile(overrides = {}) {
   };
 }
 
+// MusicProfile.findOne returns a Mongoose Query: it is awaited directly in the
+// HR-resolver path and chained .lean() in the generation path (the .lean() keeps
+// hydrated subdocuments out of candidatePool's JSON.stringify → prevents the heap
+// OOM). This stub honours both usages, mirroring a real Query.
+function musicProfileQuery(value) {
+  const query = Promise.resolve(value);
+  query.lean = () => Promise.resolve(value);
+  return query;
+}
+
 const SPOTIFY_USER = {
   _id: 'user-123',
   spotifyToken:      { blob: 'encrypted-spotify' },
@@ -200,7 +210,7 @@ beforeEach(() => {
   jest.clearAllMocks();
 
   User.findById.mockResolvedValue(SPOTIFY_USER);
-  MusicProfile.findOne.mockResolvedValue(makeMusicProfile());
+  MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile()));
   spotify.getValidToken.mockResolvedValue('spotify-access-token');
   spotify.getRecommendations.mockResolvedValue(DISCOVERY_TRACKS);
   spotify.fetchVibeDiscovery.mockResolvedValue(DISCOVERY_TRACKS);
@@ -511,7 +521,7 @@ describe('error handling', () => {
   });
 
   it('emits playlist_error when MusicProfile does not exist', async () => {
-    MusicProfile.findOne.mockResolvedValue(null);
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(null));
 
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
@@ -624,7 +634,7 @@ describe('request_heart_playlist', () => {
 
   it('emits playlist_error when there is no heart data of any kind', async () => {
     mockBiometricLogs([]);
-    MusicProfile.findOne.mockResolvedValue({ ...makeMusicProfile(), restingHeartRate: null });
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery({ ...makeMusicProfile(), restingHeartRate: null }));
     const socket = makeSocket();
     await fireHeart(socket, { mode: 'live', reqId: 5 });
 

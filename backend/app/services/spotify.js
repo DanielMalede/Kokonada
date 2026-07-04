@@ -1,7 +1,6 @@
 const axios = require('axios');
 const { URLSearchParams } = require('url');
 const { withRetry } = require('../utils/retry');
-const { heapMark } = require('../utils/memMonitor'); // TEMP: OOM instrumentation
 
 const BASE_AUTH = 'https://accounts.spotify.com';
 const BASE_API  = 'https://api.spotify.com/v1';
@@ -476,7 +475,6 @@ async function searchTracksByGenres(accessToken, genres, limit = 10, keywords = 
     }
   }
 
-  heapMark(`search:collected=${collected.length}`);
   const seen = new Set();
   const out = [];
   for (const t of collected) {
@@ -607,7 +605,6 @@ async function fetchVibeDiscovery(accessToken, params = {}, { limit = 10 } = {})
   const sourcingOn  = process.env.VIBE_PLAYLIST_SOURCING !== 'false';
   const genreSearch = (n) => getRecommendations(accessToken, { ...params, limit: n });
 
-  heapMark(`vibe:start queries=${queries.length} sourcingOn=${sourcingOn}`);
   if (!sourcingOn || queries.length === 0) return genreSearch(limit);
 
   let pool = [];

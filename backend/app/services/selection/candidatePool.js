@@ -28,6 +28,14 @@ function _genreExcluded(track, excludeSet) {
   return (track.genres || []).some(g => excludeSet.has(String(g).toLowerCase().trim()));
 }
 
+// Materialize a PLAIN track. A Mongoose subdocument (library loaded without .lean())
+// spreads to its parent-proxy internals ($__/_doc/$__parent/__parentArray), not its
+// real fields — and JSON.stringify over those recurses into the whole owner doc per
+// track → 442MB heap OOM. toObject() strips the proxies; plain input just gets copied.
+function _plainTrack(t) {
+  return typeof t?.toObject === 'function' ? t.toObject() : { ...t };
+}
+
 function _partitionLibrary(library, excludeGenres) {
   const excludeSet = new Set((excludeGenres || []).map(g => String(g).toLowerCase().trim()));
   return _fillMissingKeys(
@@ -35,7 +43,7 @@ function _partitionLibrary(library, excludeGenres) {
       .filter(t => t && !_genreExcluded(t, excludeSet))
       .sort((a, b) => (b.affinity ?? 0) - (a.affinity ?? 0))
       .slice(0, POOL_MAX())
-      .map(t => ({ ...t }))
+      .map(_plainTrack)
   );
 }
 

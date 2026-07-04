@@ -4,6 +4,7 @@ process.env.NODE_ENV = 'test';
 
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(() => null), createConnection: jest.fn() }));
 
+const mongoose = require('mongoose');
 const { getRedis } = require('../app/config/redis');
 const { buildPool } = require('../app/services/selection/candidatePool');
 const { applyHardFilters } = require('../app/services/selection/hardFilters');
@@ -87,6 +88,54 @@ describe('candidatePool.buildPool', () => {
     // Newer lastAnalyzed → rebuilt from the fresh library
     const rebuilt = await buildPool({ userId: 'u1', musicProfile: profile([lib('b')], new Date('2026-07-02')), moodKey: 'uplift', excludeGenres: [] });
     expect(rebuilt.map(t => t.id)).toEqual(['b']);
+  });
+
+  it('never leaks Mongoose subdocument internals into the pool or its Redis cache (OOM guard)', async () => {
+    // Reproduces the generation OOM: MusicProfile.library loaded WITHOUT .lean() are
+    // hydrated Mongoose subdocuments. Spreading one copies parent-proxy refs
+    // ($__parent / __parentArray / _doc) instead of the real fields (id/name live in
+    // _doc, exposed only via prototype getters). JSON.stringify then recurses into the
+    // whole parent doc PER track → quadratic blowup → 442MB heap OOM. The pool must
+    // yield PLAIN tracks with their real fields intact.
+    const sub = new mongoose.Schema(
+      { id: String, provider: String, name: String, artist: String, genres: [String], affinity: Number, uri: String },
+      { _id: false }
+    );
+    const schema = new mongoose.Schema({ userId: String, library: [sub], lastAnalyzed: Date });
+    const Model = mongoose.models.__OomProbe || mongoose.model('__OomProbe', schema);
+    const doc = new Model({
+      userId: 'u1',
+      lastAnalyzed: new Date('2026-07-01'),
+      library: [lib('a', { genres: ['pop'] }), lib('b', { genres: ['jazz'], affinity: 3 })],
+    });
+
+    const store = new Map();
+    getRedis.mockReturnValue({
+      get: jest.fn(async k => store.get(k) ?? null),
+      set: jest.fn(async (k, v) => { store.set(k, v); return 'OK'; }),
+    });
+
+    const pool = await buildPool({
+      userId: 'u1',
+      musicProfile: { library: doc.library, lastAnalyzed: doc.lastAnalyzed },
+      moodKey: 'uplift',
+      excludeGenres: [],
+    });
+
+    // Real fields survive (affinity-sorted a=5 before b=3) — not lost inside _doc.
+    expect(pool.map(t => t.id)).toEqual(['a', 'b']);
+    const INTERNAL = ['$__', '_doc', '$__parent', '__parentArray', '__index'];
+    for (const t of pool) {
+      for (const key of INTERNAL) expect(t).not.toHaveProperty(key);
+    }
+
+    // The cached partition must serialize to a compact plain-track blob, not a
+    // parent-proxy explosion (two tiny subdocs stringified to ~1.8KB pre-fix).
+    const cached = store.get('pool:u1:uplift');
+    expect(cached).toBeTruthy();
+    expect(cached).not.toContain('$__parent');
+    expect(cached).not.toContain('__parentArray');
+    expect(JSON.parse(cached).tracks).toHaveLength(2);
   });
 });
 
