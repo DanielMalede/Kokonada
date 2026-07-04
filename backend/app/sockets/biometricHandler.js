@@ -84,6 +84,26 @@ function toClientTracks(list, provider) {
   return (Array.isArray(list) ? list : []).map((t) => toClientTrack(t, provider)).filter(Boolean);
 }
 
+// Deliver a playlist result to the USER, not a single socket. Generation can be triggered
+// on one socket (a biometric push from the watch's socket, or a socket that later churned)
+// while the app is listening on ANOTHER of the same user's sockets — a plain socket.emit
+// would strand the reply. Emitting to the per-user room (joined on connect in sockets/index)
+// reaches every one of that user's live sockets (app + watch). Falls back to socket.emit when
+// the namespace isn't available (unit tests). Always-on log so delivery is visible in prod.
+function emitToUser(socket, event, payload) {
+  const uid = String(socket?.data?.user?._id ?? '');
+  if (event === 'playlist_ready') {
+    console.warn(`[gen] emit playlist_ready reqId=${payload?.reqId} tracks=${payload?.tracks?.length ?? 0} user=${uid}`);
+  } else if (event === 'playlist_error') {
+    console.warn(`[gen] emit playlist_error reqId=${payload?.reqId} msg="${payload?.message ?? ''}" user=${uid}`);
+  }
+  if (uid && socket.nsp && typeof socket.nsp.to === 'function') {
+    socket.nsp.to(`user:${uid}`).emit(event, payload);
+  } else {
+    socket.emit(event, payload);
+  }
+}
+
 // Tags Spotify discovery candidates with their artists' genres + ids so the mixer
 // can filter them against the user's real taste (genreSet / knownArtistIds).
 // /audio-features is dead, but artist genres are still available, so relevance is
@@ -274,7 +294,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
 
     const user = await User.findById(userId);
     if (!user) {
-      socket.emit('playlist_error', { message: 'User not found', reqId });
+      emitToUser(socket, 'playlist_error', { message: 'User not found', reqId });
       return;
     }
 
@@ -287,7 +307,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // Always-on diagnostic (prod's log() is gated): the profile row is missing —
       // the background build hasn't run/finished, or it saved nothing.
       console.warn(`[generate] no MusicProfile for user — build not finished yet? trigger=${trigger}`);
-      socket.emit('playlist_error', { message: 'Still setting up your library — try again in a few seconds.', reqId });
+      emitToUser(socket, 'playlist_error', { message: 'Still setting up your library — try again in a few seconds.', reqId });
       return;
     }
     // Always-on diagnostic: surface the library size so an empty/thin profile (the
@@ -302,7 +322,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // back to YouTube sourcing. This supersedes the old resolveMusicProvider desync.
     const provider = resolvePlaybackProvider(user) || resolveMusicProvider(user);
     if (!provider) {
-      socket.emit('playlist_error', { message: 'No music provider connected', reqId });
+      emitToUser(socket, 'playlist_error', { message: 'No music provider connected', reqId });
       return;
     }
 
@@ -349,7 +369,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         fetchTracks = (params) => youtube.searchRecommendations(accessToken, { ...params, limit: DISCOVERY_FETCH_LIMIT });
       }
     } catch (err) {
-      socket.emit('playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
+      emitToUser(socket, 'playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
       return;
     }
 
@@ -405,7 +425,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
             log(`[generate] LLM failed → on-vibe mood fallback tracks=${moodTracks.length} reqId=${reqId}`);
-            socket.emit('playlist_ready', {
+            emitToUser(socket, 'playlist_ready', {
               trigger,
               mode,
               reqId,
@@ -425,7 +445,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}, provider), provider);
       if (fallbackTracks.length > 0) {
         log(`[generate] AI failed → fallback tracks=${fallbackTracks.length} reqId=${reqId}`);
-        socket.emit('playlist_ready', {
+        emitToUser(socket, 'playlist_ready', {
           trigger,
           mode,
           reqId,
@@ -435,7 +455,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           fallback:  true,
         });
       } else {
-        socket.emit('playlist_error', { message: err.message, reqId });
+        emitToUser(socket, 'playlist_error', { message: err.message, reqId });
       }
       return;
     }
@@ -481,11 +501,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         + `library=${musicProfile.library?.length ?? 0} discoveryCandidates=${cachedDiscovery?.length ?? 0} `
         + `mixedFamiliar=${playlist?.familiar?.length ?? 0} mixedDiscovery=${playlist?.discovery?.length ?? 0} `
         + `seed_genres=${JSON.stringify(aiResult.params?.seed_genres)} exclude_genres=${JSON.stringify(aiResult.params?.exclude_genres)}`);
-      socket.emit('playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
+      emitToUser(socket, 'playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
       return;
     }
 
-    socket.emit('playlist_ready', {
+    emitToUser(socket, 'playlist_ready', {
       trigger,
       mode,
       reqId,
@@ -674,7 +694,9 @@ function registerBiometricHandler(socket) {
     const state = getState(socketId);
     if (mode) state.lastMode = mode;
     if (reqId !== undefined) state.lastReqId = reqId;
-    log(`[request_playlist] reqId=${reqId} mode=${state.lastMode}`);
+    // Always-on: confirms the app's Generate request actually reached the server (vs an
+    // automatic biometric trigger) so request delivery is visible in prod.
+    console.warn(`[gen] recv request_playlist reqId=${reqId} sid=${socketId} user=${socket?.data?.user?._id ?? ''}`);
     generateAndEmitPlaylist(socket, 'emotion', state);
   });
 
@@ -688,7 +710,7 @@ function registerBiometricHandler(socket) {
 
     const ctx = await resolveHeartContext(socket, state, heartRate);
     if (!ctx) {
-      socket.emit('playlist_error', { message: 'No heart-rate data yet — connect your watch or wait for a reading', reqId });
+      emitToUser(socket, 'playlist_error', { message: 'No heart-rate data yet — connect your watch or wait for a reading', reqId });
       return;
     }
     state.stableHR       = ctx.heartRate;
