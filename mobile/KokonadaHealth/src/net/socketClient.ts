@@ -181,6 +181,7 @@ export class KokonadaSocket {
   requestPlaylist(): number {
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
+    console.log('[koko] → request_playlist reqId=', this.latestReqId, 'hasSocket=', !!this.socket);
     this.emitEmotion();
     this.socket?.emit('request_playlist', { reqId: this.latestReqId });
     return this.latestReqId;
@@ -192,6 +193,7 @@ export class KokonadaSocket {
   requestHeartPlaylist(heartRate: number | null): number {
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
+    console.log('[koko] → request_heart_playlist reqId=', this.latestReqId, 'hr=', heartRate, 'hasSocket=', !!this.socket);
     this.socket?.emit('request_heart_playlist', { reqId: this.latestReqId, heartRate });
     return this.latestReqId;
   }
