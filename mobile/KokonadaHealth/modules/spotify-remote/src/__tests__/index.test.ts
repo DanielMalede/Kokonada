@@ -1,3 +1,9 @@
+// jest.setup.js globally mocks '@kokonada/spotify-remote' (the package specifier)
+// for app-level consumers; since that specifier resolves to this very file, the
+// global mock would otherwise clobber the real implementation under test here.
+// Unmock it so this suite exercises the actual wrapper, not the app-wide stub.
+jest.unmock('@kokonada/spotify-remote');
+
 // The native spec calls TurboModuleRegistry.getEnforcing which throws under jest,
 // so mock the spec module and the emitter. We verify the wrapper's thin mapping.
 jest.mock('../NativeSpotifyRemote', () => ({

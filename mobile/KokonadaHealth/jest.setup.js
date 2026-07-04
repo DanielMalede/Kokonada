@@ -75,16 +75,17 @@ jest.mock('react-native-mmkv', () => ({
     clearAll() { this._m.clear(); }
   },
 }));
-jest.mock('react-native-spotify-remote', () => ({
-  remote: {
+jest.mock('@kokonada/spotify-remote', () => ({
+  SpotifyRemote: {
+    configure: jest.fn(),
+    isSpotifyInstalled: jest.fn().mockResolvedValue(false),
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
-    isConnectedAsync: jest.fn().mockResolvedValue(false),
+    isConnected: jest.fn().mockResolvedValue(false),
     playUri: jest.fn().mockResolvedValue(undefined),
     pause: jest.fn().mockResolvedValue(undefined),
     resume: jest.fn().mockResolvedValue(undefined),
-    addListener: jest.fn(),
-    removeAllListeners: jest.fn(),
+    getPlayerState: jest.fn().mockResolvedValue({ isPaused: true, trackUri: null }),
+    onRemoteDisconnected: jest.fn(() => () => {}),
   },
-  auth: { getSession: jest.fn().mockResolvedValue(null) },
 }));

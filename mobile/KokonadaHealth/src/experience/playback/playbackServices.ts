@@ -1,7 +1,7 @@
 import { KokonadaSocket } from '../../net/socketClient';
 import { createBackendSocket } from '../../net/socketFactory';
 import { SpotifyPlayerController } from '../player/spotifyController';
-import { spotifyRemoteAdapter, getSpotifyAccessToken } from '../player/spotifyRemoteAdapter';
+import { spotifyRemoteAdapter, getSpotifyReadiness } from '../player/spotifyRemoteAdapter';
 import { authSession } from '../../auth/session';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { store } from '../../state/store';
@@ -20,7 +20,7 @@ export { authSession };
 
 export const player = new SpotifyPlayerController({
   remote: spotifyRemoteAdapter,
-  getToken: getSpotifyAccessToken,
+  getToken: getSpotifyReadiness,
   // Surface every player lifecycle transition into an observable store so the
   // Profile screen can show a live Spotify connection badge. (QA4 Suspect #4)
   onStateChange: (status) => playerStatusStore.getState().set(status),
