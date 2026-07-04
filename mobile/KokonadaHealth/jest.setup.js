@@ -88,3 +88,8 @@ jest.mock('react-native-spotify-remote', () => ({
   },
   auth: { getSession: jest.fn().mockResolvedValue(null) },
 }));
+
+jest.mock('react-native-bootsplash', () => ({
+  hide: jest.fn().mockResolvedValue(undefined),
+  isVisible: jest.fn().mockResolvedValue(false),
+}));
