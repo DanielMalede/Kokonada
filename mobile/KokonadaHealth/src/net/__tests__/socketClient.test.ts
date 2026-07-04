@@ -72,6 +72,20 @@ function makeDeps(overrides: any = {}) {
   };
 }
 
+describe('KokonadaSocket — server contract (the event the backend actually emits)', () => {
+  it('delivers a playlist_ready response to onPlaylist (backend emits playlist_ready, not playlist)', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    const reqId = client.requestPlaylist();
+    // biometricHandler emits socket.emit('playlist_ready', …) on success — the mobile
+    // client MUST subscribe to that exact event or a generated playlist never plays.
+    created[0].fire('playlist_ready', { reqId, tracks: [{ id: 't1', uri: 'spotify:track:t1' }] });
+    expect(deps.onPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ tracks: [{ id: 't1', uri: 'spotify:track:t1' }] }),
+    );
+  });
+});
+
 describe('KokonadaSocket — reqId gating (Zombie Navigation, attack #3)', () => {
   it('delivers the freshest response and DROPS a stale one', () => {
     const { client, created, deps } = build();
@@ -82,11 +96,11 @@ describe('KokonadaSocket — reqId gating (Zombie Navigation, attack #3)', () =>
     const second = client.requestPlaylist(); // user re-requested / switched context
 
     // stale response for the FIRST request arrives after the second was issued
-    sock.fire('playlist', { reqId: first, tracks: ['stale'] });
+    sock.fire('playlist_ready', { reqId: first, tracks: ['stale'] });
     expect(deps.onPlaylist).not.toHaveBeenCalled(); // zombie dropped
 
     // the fresh response renders
-    sock.fire('playlist', { reqId: second, tracks: ['fresh'] });
+    sock.fire('playlist_ready', { reqId: second, tracks: ['fresh'] });
     expect(deps.onPlaylist).toHaveBeenCalledTimes(1);
     expect(deps.onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ tracks: ['fresh'] }));
   });
@@ -95,8 +109,8 @@ describe('KokonadaSocket — reqId gating (Zombie Navigation, attack #3)', () =>
     const { client, created, deps } = build();
     client.connect();
     client.requestPlaylist();
-    created[0].fire('playlist', { tracks: ['no-reqid'] });
-    created[0].fire('playlist', { reqId: 9999, tracks: ['unknown'] });
+    created[0].fire('playlist_ready', { tracks: ['no-reqid'] });
+    created[0].fire('playlist_ready', { reqId: 9999, tracks: ['unknown'] });
     expect(deps.onPlaylist).not.toHaveBeenCalled();
   });
 });
@@ -159,7 +173,7 @@ describe('KokonadaSocket — requestHeartPlaylist', () => {
     expect(heart?.payload).toEqual({ reqId, heartRate: 82 });
 
     // the shared reqId counter still gates the playlist response
-    sock.fire('playlist', { reqId, tracks: ['h'] });
+    sock.fire('playlist_ready', { reqId, tracks: ['h'] });
     expect(deps.onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ tracks: ['h'] }));
   });
 
@@ -168,7 +182,7 @@ describe('KokonadaSocket — requestHeartPlaylist', () => {
     client.connect();
     const first = client.requestHeartPlaylist(70);
     client.requestPlaylist(); // newer request supersedes it
-    created[0].fire('playlist', { reqId: first, tracks: ['stale-heart'] });
+    created[0].fire('playlist_ready', { reqId: first, tracks: ['stale-heart'] });
     expect(deps.onPlaylist).not.toHaveBeenCalled();
   });
 });

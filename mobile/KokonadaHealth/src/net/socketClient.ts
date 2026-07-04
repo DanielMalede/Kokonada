@@ -64,7 +64,7 @@ export class KokonadaSocket {
     const socket = this.deps.createSocket(token);
     this.socket = socket;
     socket.on('connect', this.handleConnect);
-    socket.on('playlist', this.handlePlaylist);
+    socket.on('playlist_ready', this.handlePlaylist);
     socket.on('playlist_error', this.handlePlaylistError);
     socket.on('auth_expired', this.handleAuthExpired);
     socket.on('disconnect', this.handleDisconnect);
@@ -78,7 +78,7 @@ export class KokonadaSocket {
     const s = this.socket;
     if (!s) return;
     s.off('connect', this.handleConnect);
-    s.off('playlist', this.handlePlaylist);
+    s.off('playlist_ready', this.handlePlaylist);
     s.off('playlist_error', this.handlePlaylistError);
     s.off('auth_expired', this.handleAuthExpired);
     s.off('disconnect', this.handleDisconnect);
