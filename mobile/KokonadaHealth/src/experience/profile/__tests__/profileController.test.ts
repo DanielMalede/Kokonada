@@ -57,6 +57,22 @@ describe('ProfileController.deleteAccount (SERVER-FIRST)', () => {
   });
 });
 
+describe('ProfileController.getSpotifyConnectToken', () => {
+  it('mints a single-use connect token via POST /connect-token', async () => {
+    const apiPost = jest.fn().mockResolvedValue(okRes({ connectToken: 'ct-abc' }));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost, apiDelete: jest.fn(), serverLogout: jest.fn(), clearLocal: jest.fn() } as any);
+    const ct = await c.getSpotifyConnectToken();
+    expect(apiPost).toHaveBeenCalledWith('/api/integrations/connect-token');
+    expect(ct).toBe('ct-abc');
+  });
+
+  it('returns null when the mint fails (so the screen opens no browser)', async () => {
+    const apiPost = jest.fn().mockResolvedValue(errRes(401));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost, apiDelete: jest.fn(), serverLogout: jest.fn(), clearLocal: jest.fn() } as any);
+    expect(await c.getSpotifyConnectToken()).toBeNull();
+  });
+});
+
 describe('wipeLocalSession — safe ordering', () => {
   function spyDeps() {
     const calls: string[] = [];

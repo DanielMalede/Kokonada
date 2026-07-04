@@ -7,6 +7,17 @@ buildscript {
 apply plugin: "com.android.library"
 apply plugin: "org.jetbrains.kotlin.android"
 
+def isNewArchitectureEnabled() {
+  return project.hasProperty("newArchEnabled") && project.getProperty("newArchEnabled") == "true"
+}
+
+if (isNewArchitectureEnabled()) {
+  // Applies the RN gradle plugin so codegen generates the TurboModule spec
+  // (NativeSpotifyRemoteSpec) from ../src/NativeSpotifyRemote.ts onto the compile
+  // classpath — the same wiring react-native-keychain/safe-area-context use.
+  apply plugin: "com.facebook.react"
+}
+
 android {
   namespace "com.kokonada.spotifyremote"
   compileSdk getExtOrDefault("compileSdkVersion", 35)
@@ -31,4 +42,15 @@ dependencies {
   implementation fileTree(dir: "libs", include: ["*.aar"])
   implementation "com.spotify.android:auth:2.1.0"
   implementation "com.google.code.gson:gson:2.10.1"
+}
+
+if (isNewArchitectureEnabled()) {
+  // Codegen config: generates NativeSpotifyRemoteSpec into com.kokonada.spotifyremote
+  // from the JS spec. libraryName = codegenConfig.name ("SpotifyRemoteSpec") minus the
+  // "Spec" suffix, matching the keychain/safe-area-context convention.
+  react {
+    jsRootDir = file("../src/")
+    libraryName = "SpotifyRemote"
+    codegenJavaPackageName = "com.kokonada.spotifyremote"
+  }
 }

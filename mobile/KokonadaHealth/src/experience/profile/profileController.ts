@@ -56,6 +56,15 @@ export class ProfileController {
     await this.deps.clearLocal();
   }
 
+  // Mint a single-use connect token for the Spotify OAuth "connect" browser
+  // navigation. A top-level browser open can't carry the session JWT, so the backend
+  // authenticates the /spotify/connect route via ?ct=<token>. The screen builds the
+  // URL and opens it; this stays a pure, testable server call. Returns null on failure.
+  async getSpotifyConnectToken(): Promise<string | null> {
+    const res = await this.deps.apiPost<{ connectToken: string }>('/api/integrations/connect-token');
+    return res.ok ? res.data.connectToken : null;
+  }
+
   // GDPR delete — SERVER-FIRST: only wipe locally once the server confirms erasure.
   // A network failure surfaces the error and leaves the session intact (the user is
   // NOT signed out on a failed delete). No separate /logout call — the account is gone.
