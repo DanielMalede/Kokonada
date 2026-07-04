@@ -4,7 +4,7 @@ import { SpotifyPlayerController } from '../player/spotifyController';
 import { spotifyRemoteAdapter, getSpotifyReadiness } from '../player/spotifyRemoteAdapter';
 import { authSession } from '../../auth/session';
 import { playerStatusStore } from '../player/playerStatusStore';
-import { store } from '../../state/store';
+import { store, warmStore } from '../../state/store';
 import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrator';
 import { nowPlayingStore } from './nowPlayingStore';
 import { playbackErrorStore } from './playbackErrorStore';
@@ -40,6 +40,8 @@ export const kokoSocket = new KokonadaSocket({
     orchestrator.onGenerationError();                                  // unblock the generation guard
     playbackErrorStore.getState().set(message ?? 'Could not generate a playlist — try again');
   },
+  // Drive the (previously dead) Pulse connection badge from the real socket lifecycle.
+  onConnectionChange: (status) => { warmStore.getState().setConnection(status); },
 });
 
 // Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. Transient

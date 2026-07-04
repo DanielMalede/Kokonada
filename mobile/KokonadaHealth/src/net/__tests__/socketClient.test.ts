@@ -72,6 +72,27 @@ function makeDeps(overrides: any = {}) {
   };
 }
 
+describe('KokonadaSocket — connection status wiring (Pulse indicator was dead)', () => {
+  it('reports connecting → connected → disconnected across the socket lifecycle', () => {
+    const statuses: string[] = [];
+    const { client, created } = build({ onConnectionChange: (s: string) => statuses.push(s) });
+    client.connect();
+    expect(statuses).toContain('connecting'); // set the moment we open
+    created[0].fire('connect');
+    expect(statuses).toContain('connected');
+    created[0].fire('disconnect', 'transport close');
+    expect(statuses[statuses.length - 1]).toBe('disconnected');
+  });
+
+  it('reports disconnected when the socket errors on connect', () => {
+    const statuses: string[] = [];
+    const { client, created } = build({ onConnectionChange: (s: string) => statuses.push(s) });
+    client.connect();
+    created[0].fire('connect_error', new Error('websocket error'));
+    expect(statuses[statuses.length - 1]).toBe('disconnected');
+  });
+});
+
 describe('KokonadaSocket — server contract (the event the backend actually emits)', () => {
   it('delivers a playlist_ready response to onPlaylist (backend emits playlist_ready, not playlist)', () => {
     const { client, created, deps } = build();

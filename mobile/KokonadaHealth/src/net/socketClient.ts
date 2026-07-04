@@ -27,6 +27,9 @@ export interface KokonadaSocketDeps {
   // Backend emitted a generation failure for our current request (no tracks, LLM
   // outage, no HR yet). Gated to the latest reqId so a superseded request is silent.
   onGenerationError?: (message?: string) => void;
+  // Surface the live socket lifecycle so the UI can show a truthful connection badge
+  // (the Pulse indicator was previously hardcoded to 'disconnected' — nothing wired it).
+  onConnectionChange?: (status: 'connected' | 'connecting' | 'disconnected') => void;
   // Cap on auth_expired→refresh cycles within the window before we give up and log
   // out — the guard against a fresh-but-immediately-dead token looping forever.
   maxAuthRefreshes?: number;
@@ -64,10 +67,13 @@ export class KokonadaSocket {
     const socket = this.deps.createSocket(token);
     this.socket = socket;
     socket.on('connect', this.handleConnect);
+    socket.on('connect_error', this.handleConnectError);
     socket.on('playlist_ready', this.handlePlaylist);
     socket.on('playlist_error', this.handlePlaylistError);
     socket.on('auth_expired', this.handleAuthExpired);
     socket.on('disconnect', this.handleDisconnect);
+    this.deps.onConnectionChange?.('connecting');
+    console.log('[koko] socket opening (connecting)…');
     socket.connect();
   }
 
@@ -78,6 +84,7 @@ export class KokonadaSocket {
     const s = this.socket;
     if (!s) return;
     s.off('connect', this.handleConnect);
+    s.off('connect_error', this.handleConnectError);
     s.off('playlist_ready', this.handlePlaylist);
     s.off('playlist_error', this.handlePlaylistError);
     s.off('auth_expired', this.handleAuthExpired);
@@ -86,12 +93,23 @@ export class KokonadaSocket {
 
   // Bound handlers so on/off pair up and `this` is stable.
   private handleConnect = () => {
+    console.log('[koko] socket CONNECTED');
+    this.deps.onConnectionChange?.('connected');
     // Re-hydrate the server's per-socketId emotion cache on EVERY connect —
     // including the transient reconnects the injected socket performs itself.
     this.emitEmotion();
   };
 
+  // A failed connection attempt (bad URL, TLS, unauthorized handshake, network). The
+  // library keeps retrying per its backoff; reflect the down state so the UI is honest.
+  private handleConnectError = (err?: any) => {
+    console.warn('[koko] socket connect_error:', err?.message ?? String(err));
+    this.deps.onConnectionChange?.('disconnected');
+  };
+
   private handlePlaylist = (payload: any) => {
+    console.log('[koko] playlist_ready received tracks=', payload?.tracks?.length,
+      'reqId=', payload?.reqId, 'latest=', this.latestReqId);
     // Drop anything that isn't the answer to our most recent request (zombie nav).
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
     this.deps.onPlaylist(payload);
@@ -124,11 +142,14 @@ export class KokonadaSocket {
     void this.refreshAndReconnect();
   };
 
-  // Transient disconnects (transport close/error) are handled by the injected
-  // socket's own reconnection — we deliberately do NOTHING here so we never fight
-  // the library's backoff or spawn a parallel socket. auth_expired and manual
-  // closes are the only paths that replace the socket.
-  private handleDisconnect = (_reason?: any) => {};
+  // Transient disconnects (transport close/error) are handled by the injected socket's
+  // own reconnection — we do NOT replace the socket here, so we never fight the library's
+  // backoff or spawn a parallel one (auth_expired and manual closes are the only paths
+  // that swap it). We only reflect the down state to the UI badge.
+  private handleDisconnect = (reason?: any) => {
+    console.log('[koko] socket DISCONNECTED:', reason);
+    this.deps.onConnectionChange?.('disconnected');
+  };
 
   private async refreshAndReconnect(): Promise<void> {
     if (this.refreshing) return;
