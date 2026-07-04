@@ -400,6 +400,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             aiParams: moodParams,
             discoveryTracks: [],
             live: { heartRate: state.stableHR, activity: state.latestActivity },
+            crossPlatform: provider === 'spotify' && !!spotifyToken,
           });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
@@ -447,6 +448,9 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       aiParams: aiResult.params,
       discoveryTracks: cachedDiscovery,
       live: { heartRate: state.stableHR, activity: state.latestActivity },
+      // Spotify sink + a live token ⇒ the post-mix translation step runs, so familiar
+      // cross-provider (YouTube) tracks must survive selection to be resolved to Spotify.
+      crossPlatform: provider === 'spotify' && !!spotifyToken,
     });
     if (playlist.telemetry) {
       log(`[selection.v2] pool=${playlist.telemetry.poolSize} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);

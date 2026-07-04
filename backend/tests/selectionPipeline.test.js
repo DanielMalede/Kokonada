@@ -115,3 +115,25 @@ describe('pipeline.selectPlaylist', () => {
   });
 });
 
+describe('pipeline.selectPlaylist — cross-platform sink (Spotify translates familiar tracks)', () => {
+  // A YouTube-built profile: familiar tracks are provider=youtube_music with no spotify: URI.
+  const ytProfile = {
+    library: Array.from({ length: 20 }, (_, i) => ({
+      id: `y${i}`, provider: 'youtube_music', name: `YT ${i}`, artist: `A${i}`,
+      genres: ['pop'], affinity: 20 - i, uri: null,
+    })),
+    lastAnalyzed: new Date('2026-07-01'),
+  };
+
+  it('WITHOUT crossPlatform: drops every familiar YouTube track for a Spotify sink (the empty-playlist bug)', async () => {
+    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: ytProfile });
+    expect(tracks).toHaveLength(0); // the provider gate removes all non-Spotify tracks, even fully relaxed
+  });
+
+  it('WITH crossPlatform: keeps familiar YouTube tracks (they get translated to Spotify after selection)', async () => {
+    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: ytProfile, crossPlatform: true });
+    expect(tracks.length).toBeGreaterThan(0);
+    expect(tracks.every(t => t.provider === 'youtube_music')).toBe(true); // survive selection; translated downstream
+  });
+});
+

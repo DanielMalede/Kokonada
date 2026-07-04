@@ -61,10 +61,11 @@ async function generateV2({
   live = {},
   k = PLAYLIST_SIZE(),
   now = Date.now(),
+  crossPlatform = false,
 }) {
   const targets = await _targets({ userId, live, moodKey, now });
   const { tracks, telemetry } = await selectPlaylist({
-    userId, musicProfile, moodKey, provider, aiParams, targets, discoveryTracks, k, now,
+    userId, musicProfile, moodKey, provider, aiParams, targets, discoveryTracks, k, now, crossPlatform,
   });
 
   return {
