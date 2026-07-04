@@ -6,7 +6,7 @@ jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(() => null), createC
 
 const mongoose = require('mongoose');
 const { getRedis } = require('../app/config/redis');
-const { buildPool } = require('../app/services/selection/candidatePool');
+const { buildPool, invalidateUserPools } = require('../app/services/selection/candidatePool');
 const { applyHardFilters } = require('../app/services/selection/hardFilters');
 const { scoreTrack } = require('../app/services/selection/score');
 const { select } = require('../app/services/selection/mmr');
@@ -136,6 +136,36 @@ describe('candidatePool.buildPool', () => {
     expect(cached).not.toContain('$__parent');
     expect(cached).not.toContain('__parentArray');
     expect(JSON.parse(cached).tracks).toHaveLength(2);
+  });
+});
+
+describe('candidatePool.invalidateUserPools', () => {
+  it('deletes ONLY the target user\'s pool keys (SCAN + DEL), leaving other users/keys', async () => {
+    const store = new Map([
+      ['pool:u1:calm', 'x'], ['pool:u1:uplift', 'y'], ['pool:u1:none', 'z'],
+      ['pool:u2:calm', 'a'], ['other:u1', 'b'],
+    ]);
+    getRedis.mockReturnValue({
+      scan: jest.fn(async (cursor, _match, pattern) => {
+        const re = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+        return ['0', [...store.keys()].filter(k => re.test(k))];
+      }),
+      del: jest.fn(async (...keys) => { keys.forEach(k => store.delete(k)); return keys.length; }),
+    });
+
+    const removed = await invalidateUserPools('u1');
+
+    expect(removed).toBe(3);
+    expect(store.has('pool:u1:calm')).toBe(false);
+    expect(store.has('pool:u1:uplift')).toBe(false);
+    expect(store.has('pool:u1:none')).toBe(false);
+    expect(store.has('pool:u2:calm')).toBe(true); // a different user is untouched
+    expect(store.has('other:u1')).toBe(true);      // a non-pool key is untouched
+  });
+
+  it('is a no-op (returns 0) when Redis is unavailable', async () => {
+    getRedis.mockReturnValue(null);
+    expect(await invalidateUserPools('u1')).toBe(0);
   });
 });
 
