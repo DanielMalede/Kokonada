@@ -292,6 +292,16 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
 
   });
 
+  it('passes crossPlatform=true to generateV2 when playing on Spotify with a token (familiar YouTube tracks get translated, not dropped)', async () => {
+    const orchestrator = require('../app/services/generation/orchestrator');
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    expect(orchestrator.generateV2).toHaveBeenCalledWith(
+      expect.objectContaining({ crossPlatform: true })
+    );
+  });
+
   it('uses Spotify provider when user has Spotify token', async () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());

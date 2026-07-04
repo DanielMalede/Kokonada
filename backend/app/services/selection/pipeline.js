@@ -28,6 +28,7 @@ async function selectPlaylist({
   discoveryTracks = [],
   k = 50,
   now = Date.now(),
+  crossPlatform = false,
   ignoreExclusions = null,
 } = {}) {
   const stageMs = {};
@@ -88,6 +89,13 @@ async function selectPlaylist({
 
   // Stage 3: hard filters with the relaxation ladder.
   t = Date.now();
+  // Cross-platform sink: when the playback sink is Spotify with translation available
+  // downstream (a YouTube-built profile playing on Spotify), familiar tracks from a
+  // DIFFERENT source must NOT be provider-filtered out here — they are resolved to
+  // playable Spotify URIs after selection. Discovery is already sink-native, so dropping
+  // the provider gate is safe. Without this, a whole cross-provider library is discarded
+  // (mixedFamiliar=0 → empty playlist), even at full relaxation (the provider gate never relaxes).
+  const filterProvider = crossPlatform ? null : provider;
   const excludeGenres = aiParams.exclude_genres || [];
   const LADDER = [
     { excludeGenres, moodExcluded, energyCeiling: targets.energyCeiling ?? null },
@@ -101,7 +109,7 @@ async function selectPlaylist({
     filtered = applyHardFilters(pool, {
       hardExcluded, // never relaxed
       moodExcluded: LADDER[level].moodExcluded,
-      provider,
+      provider: filterProvider,
       excludeGenres: LADDER[level].excludeGenres,
       energyCeiling: LADDER[level].energyCeiling,
       targetConfidence: targets.confidence ?? 0,
