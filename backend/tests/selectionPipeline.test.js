@@ -79,18 +79,32 @@ describe('pipeline.selectPlaylist', () => {
     expect(tracks[0].id).toBe('t0'); // near-perfect feature match + top affinity leads
   });
 
-  it('relaxes the mood window when it would starve the playlist — but NEVER the global window', async () => {
+  it('relaxes the mood window before the global window; the global window drops ONLY as a last resort', async () => {
     const allKeys = PROFILE.library.map(t => `at:artist${t.id}|song ${t.id}`);
     ledger.moodExcluded.mockResolvedValue(new Set(allKeys));
 
     const relaxed = await selectPlaylist(BASE);
     expect(relaxed.tracks.length).toBeGreaterThan(0);
     expect(relaxed.telemetry.relaxLevel).toBeGreaterThanOrEqual(1);
+    expect(relaxed.telemetry.relaxLevel).toBeLessThan(4); // mood relaxes before the last resort
 
+    // Whole pool inside the global serve window: rather than serve EMPTY, the L4 last-resort
+    // level drops the global window and serves repeats — a repeat beats a "try again" error.
     ledger.moodExcluded.mockResolvedValue(new Set());
     ledger.hardExcluded.mockResolvedValue(new Set(allKeys));
-    const blocked = await selectPlaylist(BASE);
-    expect(blocked.tracks).toHaveLength(0); // the 24h global blacklist is impenetrable
+    const lastResort = await selectPlaylist(BASE);
+    expect(lastResort.tracks.length).toBeGreaterThan(0);   // never empty when the pool isn't
+    expect(lastResort.telemetry.relaxLevel).toBe(4);       // only the last resort could recover it
+  });
+
+  it('never returns an empty playlist when the library is non-empty (never-empty invariant)', async () => {
+    // Every candidate served within the global window — the exact heavily-tested-account case.
+    const allKeys = PROFILE.library.map(t => `at:artist${t.id}|song ${t.id}`);
+    ledger.hardExcluded.mockResolvedValue(new Set(allKeys));
+
+    const { tracks, telemetry } = await selectPlaylist(BASE);
+    expect(tracks.length).toBeGreaterThan(0);
+    expect(telemetry.relaxLevel).toBe(4);
   });
 
   it('a total ledger outage degrades to empty exclusion sets and flags the telemetry', async () => {

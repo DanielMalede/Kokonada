@@ -500,7 +500,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       crossPlatform: provider === 'spotify' && !!spotifyToken,
     });
     if (playlist.telemetry) {
-      log(`[selection.v2] pool=${playlist.telemetry.poolSize} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);
+      // Always-on: pool/filtered/relax pinpoint an empty or thin playlist in prod without
+      // DEBUG_PLAYLIST. relax=4 means the last-resort level fired (whole pool was inside the
+      // serve window); pool=0 means the library partition itself came back empty.
+      console.warn(`[selection.v2] pool=${playlist.telemetry.poolSize} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);
     }
 
     // Cross-platform translation: playback happens on Spotify's SDK, so every track must
