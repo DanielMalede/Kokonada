@@ -76,7 +76,7 @@ describe('ATTACK 1 — the Impossible Target Test', () => {
     });
 
     expect(tracks.length).toBe(20);                       // never "no tracks found"
-    expect(telemetry.relaxLevel).toBeGreaterThanOrEqual(1); // the ceiling was dropped, recorded honestly
+    expect(telemetry.bandWidened).toBe(1);                // impossible mood band → widened as the absolute last resort, recorded honestly
   });
 
   it('an empty pool returns an empty result — an exception never escapes', async () => {
