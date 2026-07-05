@@ -73,12 +73,19 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
   }
 
   private fun attemptConnect(promise: Promise, attempt: Int, settled: AtomicBoolean, watchdog: Runnable) {
-    Log.d(NAME, "attemptConnect #$attempt installed=${SpotifyAppRemote.isSpotifyInstalled(reactContext)}")
+    // App Remote's consent view (showAuthView) is launched as an Activity and returns its
+    // result via onActivityResult — so connect() MUST be given the CURRENT ACTIVITY, not the
+    // application context. With the app context the consent popup still appears, but its result
+    // has no Activity to deliver back to, so neither onConnected nor onFailure ever fires and
+    // the handshake hangs (observed: popup shown → user agrees → 20s watchdog, no callback).
+    val activity = reactContext.currentActivity
+    val ctx = activity ?: reactContext
+    Log.d(NAME, "attemptConnect #$attempt ctx=${if (activity != null) "activity" else "APP(no activity!)"} installed=${SpotifyAppRemote.isSpotifyInstalled(reactContext)}")
     val params = ConnectionParams.Builder(clientId)
       .setRedirectUri(redirectUri)
       .showAuthView(true)
       .build()
-    SpotifyAppRemote.connect(reactContext, params, object : Connector.ConnectionListener {
+    SpotifyAppRemote.connect(ctx, params, object : Connector.ConnectionListener {
       override fun onConnected(remote: SpotifyAppRemote) {
         Log.d(NAME, "onConnected")
         appRemote = remote
