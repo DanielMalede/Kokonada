@@ -507,6 +507,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // library partition itself came back empty.
       console.warn(`[selection.v2] pool=${playlist.telemetry.poolSize} featured=${playlist.telemetry.featured} banded=${playlist.telemetry.banded} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} widened=${playlist.telemetry.bandWidened} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);
     }
+    // Diagnostic (always-on): the parsed biosonic target vector + the moodKey + the last tap
+    // it derived from. A CONSTANT band across different mood requests ⇒ a constant moodKey ⇒
+    // the tap intent isn't varying upstream — this line pinpoints exactly where mood is lost.
+    const _lastTap = state.lastEmotionTaps?.[state.lastEmotionTaps.length - 1] ?? null;
+    console.warn(`[gen.targets] reqId=${reqId} taps=${state.lastEmotionTaps?.length ?? 0} last=${JSON.stringify(_lastTap)} moodKey=${moodKey} bpmCenter=${playlist.targets?.bpmCenter} bpmWidth=${playlist.targets?.bpmWidth} energy=[${playlist.targets?.energyFloor}..${playlist.targets?.energyCeiling}] valence=${playlist.targets?.valenceTarget} conf=${playlist.targets?.confidence} tempoBand=${playlist.targets?.tempoBand}`);
 
     // Cross-platform translation: playback happens on Spotify's SDK, so every track must
     // carry a spotify: URI. This is a cheap O(n) passthrough for native Spotify tracks (no
