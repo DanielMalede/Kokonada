@@ -68,10 +68,14 @@ jest.mock('../app/services/wearable/suunto', () => ({
   handleWebhook:          jest.fn(),
   getWorkouts:            jest.fn(),
 }));
+jest.mock('../app/services/features/featureService', () => ({
+  hydrate:          jest.fn(),
+  enqueueHydration: jest.fn(),
+}));
 
 // Mock mongoose models to avoid the Node 21 / mongoose 9 incompatibility
 jest.mock('../app/models/BiometricLog', () => ({}));
-jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}), findOne: jest.fn() }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
@@ -84,6 +88,8 @@ const garmin      = require('../app/services/wearable/garmin');
 const healthStore = require('../app/services/wearable/healthStore');
 const garminIngest = require('../app/services/wearable/garminIngest');
 const User        = require('../app/models/User');
+const MusicProfile = require('../app/models/MusicProfile');
+const featureService = require('../app/services/features/featureService');
 const { signOauthState } = require('../app/utils/jwt');
 
 const ctrl = require('../app/controllers/integrationsController');
@@ -636,5 +642,34 @@ describe('healthBatchIngest', () => {
     await ctrl.healthBatchIngest({ user: buildUser(), body: { platform: 'healthkit', samples: [] } }, buildRes(), next);
 
     expect(next).toHaveBeenCalledWith(err);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUDIO-FEATURE HYDRATION
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('hydrateLibrary', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('hydrates the user library and returns the provider summary', async () => {
+    const library = [{ id: 'y1', provider: 'youtube_music' }, { id: 'y2', provider: 'youtube_music' }];
+    MusicProfile.findOne.mockReturnValue({ lean: () => Promise.resolve({ library }) });
+    featureService.hydrate.mockResolvedValue({ requested: 2, api: 0, llm: 2, failed: 0 });
+
+    const res = buildRes();
+    await ctrl.hydrateLibrary({ user: { _id: 'u1' } }, res, jest.fn());
+
+    expect(featureService.hydrate).toHaveBeenCalledWith(library);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ summary: expect.objectContaining({ llm: 2 }) }));
+  });
+
+  it('returns an empty-library note without calling hydrate when the profile has no tracks', async () => {
+    MusicProfile.findOne.mockReturnValue({ lean: () => Promise.resolve({ library: [] }) });
+
+    const res = buildRes();
+    await ctrl.hydrateLibrary({ user: { _id: 'u1' } }, res, jest.fn());
+
+    expect(featureService.hydrate).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ note: 'empty library' }));
   });
 });

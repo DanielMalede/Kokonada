@@ -13,6 +13,7 @@ const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
 const { buildProfile } = require('../services/musicProfileService');
 const { invalidateUserPools } = require('../services/selection/candidatePool');
+const featureService = require('../services/features/featureService');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
 const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = require('../utils/providerSelect');
 const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
@@ -706,6 +707,24 @@ exports.getIntegrationsStatus = async (req, res, next) => {
       biometricProvider: user.wearableProvider ?? null,
       spotifyCanSave:    scopes.includes('user-library-modify'),
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Force-hydrate the caller's library synchronously (bypasses the async feature-hydration
+// queue) and return the provider breakdown — a diagnose-and-fix for an empty AudioFeature
+// store (the "same playlist" root cause: no features → the scorer can't differentiate
+// mood/HR). ReccoBeats measures spotify:<id>; the Groq LLM estimator covers youtube:<id>.
+exports.hydrateLibrary = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const profile = await MusicProfile.findOne({ userId }).lean();
+    const library = profile?.library ?? [];
+    if (!library.length) return res.status(200).json({ summary: { requested: 0 }, note: 'empty library' });
+    const summary = await featureService.hydrate(library);
+    console.warn(`[hydrateLibrary] user=${userId} ${JSON.stringify(summary)}`);
+    return res.status(200).json({ summary });
   } catch (err) {
     next(err);
   }
