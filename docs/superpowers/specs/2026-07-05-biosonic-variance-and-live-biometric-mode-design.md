@@ -60,7 +60,7 @@ The **manual** path is clean: `GenerateController.ctaMode()` picks `generate` (e
 **Goal:** exactly one generator is active at a time; the automatic biometric trigger never races a manual user.
 
 **Frontend (`mobile/KokonadaHealth`):**
-- A single **mode switch** — "Live Biometric" ↔ "Manual" — with one source of truth in the warm store (`liveMode: boolean`), surfaced on the Generate/Pulse surface (shadcn `Switch`/`ToggleGroup` idiom per the UI plan).
+- A single **mode switch** — "Live Biometric" ↔ "Manual" — with one source of truth in the warm store (`liveMode: boolean`), placed **prominently on the Generate screen, near/above the manual mood buttons** (the primary friction point): the user gets immediate visual feedback that Live Mode is active, which contextualizes why the manual buttons are visually suppressed.
 - **Manual (default):** only user input generates — mood chips + activity + text → **Generate**, plus the existing one-shot **Listen to your heart**. HR is still streamed/shown but does **not** fire generations.
 - **Live Biometric (opt-in):** HR shifts drive auto-recalibration; the manual Generate CTA yields to a "live-tuned" state so both can't drive the queue.
 - **Queue re-tune behavior (chosen):** on an auto-recalibration, **finish the current track, then swap the upcoming queue** to the new HR-tuned playlist (no hard interrupt) — matches the master's "queue re-tunes." `playbackOrchestrator.handlePlaylist` gains a "replace upcoming, keep current" path distinct from the immediate `heart`/manual replace.
@@ -79,6 +79,6 @@ The **manual** path is clean: `GenerateController.ctaMode()` picks `generate` (e
 - WS1: backend unit test — a pool with hydrated features reorders under two different `translate()` targets; diagnostic counters asserted. Full backend suite is the regression gate.
 - WS2: mobile tests — `GenerateController`/orchestrator gate the auto-trigger by mode and honor the "replace upcoming" path; existing 382-test suite stays green.
 
-## Rollout
+## Rollout (authoritative)
 
-- Two independent workstreams; may ship as two PRs (WS1 backend to `main` via worktree; WS2 mobile on `feat/spotify-playback-turbomodule`). WS1 is diagnose-then-fix and can land first (unblocks the "same playlist" complaint); WS2 is the UX/logic separation.
+- **Two separate PRs, WS1 first.** WS1 (backend feature hydration) ships and is verified independently — restoring biosonic variance is the critical path. WS1 → `main` via a throwaway worktree off `origin/main`. Only once the backend is confirmed generating dynamic playlists from real features do we start WS2 (mobile, on `feat/spotify-playback-turbomodule`).
