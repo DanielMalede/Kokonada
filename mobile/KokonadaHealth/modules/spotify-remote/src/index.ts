@@ -15,6 +15,7 @@ export const SpotifyRemote = {
   configure: (clientId: string, redirectUri: string): void =>
     Native.configure(clientId, redirectUri),
   isSpotifyInstalled: (): Promise<boolean> => Native.isSpotifyInstalled(),
+  authorize: (): Promise<string> => Native.authorize(),
   connect: (): Promise<void> => Native.connect(),
   disconnect: (): Promise<void> => Native.disconnect(),
   isConnected: (): Promise<boolean> => Native.isConnected(),

@@ -4,6 +4,7 @@ import { TurboModuleRegistry } from 'react-native';
 export interface Spec extends TurboModule {
   configure(clientId: string, redirectUri: string): void;
   isSpotifyInstalled(): Promise<boolean>;
+  authorize(): Promise<string>;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   isConnected(): Promise<boolean>;

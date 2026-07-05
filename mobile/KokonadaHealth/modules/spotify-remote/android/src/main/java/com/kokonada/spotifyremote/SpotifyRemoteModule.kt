@@ -1,8 +1,11 @@
 package com.kokonada.spotifyremote
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -13,6 +16,9 @@ import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.android.appremote.api.error.CouldNotFindSpotifyApp
 import com.spotify.android.appremote.api.error.NotLoggedInException
+import com.spotify.sdk.android.auth.AuthorizationClient
+import com.spotify.sdk.android.auth.AuthorizationRequest
+import com.spotify.sdk.android.auth.AuthorizationResponse
 import java.util.concurrent.atomic.AtomicBoolean
 
 // Extends the codegen-generated abstract spec NativeSpotifyRemoteSpec (produced from
@@ -20,10 +26,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 // deterministic from the JS spec), align the overrides to the generated class.
 @ReactModule(name = SpotifyRemoteModule.NAME)
 class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
-  NativeSpotifyRemoteSpec(reactContext) {
+  NativeSpotifyRemoteSpec(reactContext), ActivityEventListener {
 
   companion object {
     const val NAME = "SpotifyRemote"
+    // Unique request code for the Auth-SDK login Activity (openLoginActivity → onActivityResult).
+    private const val AUTH_REQUEST_CODE = 0x63A7
     // The App Remote binds to a possibly-cold Spotify service; the first handshake often
     // misses the SDK's internal deadline ("Result was not delivered on time"). Retry a few
     // times with linear backoff to let the service wake, before surfacing the failure.
@@ -40,6 +48,12 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
   private var appRemote: SpotifyAppRemote? = null
   private var listenerCount = 0
   private val mainHandler = Handler(Looper.getMainLooper())
+  private var authPromise: Promise? = null
+
+  init {
+    // Receive the Auth-SDK login Activity result (openLoginActivity → onActivityResult).
+    reactContext.addActivityEventListener(this)
+  }
 
   override fun getName(): String = NAME
 
@@ -47,6 +61,49 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
     this.clientId = clientId
     this.redirectUri = redirectUri
   }
+
+  // Establish an explicit app-remote-control grant via the Auth SDK's login Activity, which
+  // returns a REAL result (token / error / cancel) through onActivityResult — unlike App
+  // Remote's showAuthView inline consent, whose result was never delivered on-device (the
+  // connect handshake stalled: "Result was not delivered on time"). Once the grant exists,
+  // connect() completes against it. Resolves the granted access token.
+  override fun authorize(promise: Promise) {
+    if (clientId.isBlank() || redirectUri.isBlank()) {
+      return promise.reject("AUTH_ERROR", "configure() not called")
+    }
+    val activity = reactContext.currentActivity
+      ?: return promise.reject("AUTH_ERROR", "no current activity to launch the Spotify login")
+    authPromise?.reject("AUTH_ERROR", "superseded by a new authorize() call")
+    authPromise = promise
+    val request = AuthorizationRequest.Builder(clientId, AuthorizationResponse.Type.TOKEN, redirectUri)
+      .setScopes(arrayOf("app-remote-control", "streaming"))
+      .build()
+    Log.d(NAME, "authorize → openLoginActivity clientId=${clientId.take(6)}… redirect=$redirectUri")
+    AuthorizationClient.openLoginActivity(activity, AUTH_REQUEST_CODE, request)
+  }
+
+  override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+    if (requestCode != AUTH_REQUEST_CODE) return
+    val response = AuthorizationClient.getResponse(resultCode, data)
+    val promise = authPromise
+    authPromise = null
+    when (response.type) {
+      AuthorizationResponse.Type.TOKEN -> {
+        Log.d(NAME, "authorize TOKEN received (len=${response.accessToken?.length ?: 0})")
+        promise?.resolve(response.accessToken)
+      }
+      AuthorizationResponse.Type.ERROR -> {
+        Log.w(NAME, "authorize ERROR: ${response.error}")
+        promise?.reject("AUTH_ERROR", response.error ?: "authorization failed")
+      }
+      else -> {
+        Log.w(NAME, "authorize CANCELLED/EMPTY type=${response.type}")
+        promise?.reject("AUTH_CANCELLED", "authorization cancelled")
+      }
+    }
+  }
+
+  override fun onNewIntent(intent: Intent?) { /* auth returns via onActivityResult, not a redirect */ }
 
   override fun isSpotifyInstalled(promise: Promise) {
     promise.resolve(SpotifyAppRemote.isSpotifyInstalled(reactContext))
@@ -81,9 +138,13 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
     val activity = reactContext.currentActivity
     val ctx = activity ?: reactContext
     Log.d(NAME, "attemptConnect #$attempt ctx=${if (activity != null) "activity" else "APP(no activity!)"} installed=${SpotifyAppRemote.isSpotifyInstalled(reactContext)}")
+    // showAuthView(false): the grant is established explicitly by authorize() beforehand, so the
+    // handshake authenticates against a real grant instead of relying on the inline consent view
+    // (whose result never returned on-device). If no grant exists, onFailure fires NOT_LOGGED_IN
+    // — an explicit error — rather than the silent stall we saw with showAuthView(true).
     val params = ConnectionParams.Builder(clientId)
       .setRedirectUri(redirectUri)
-      .showAuthView(true)
+      .showAuthView(false)
       .build()
     SpotifyAppRemote.connect(ctx, params, object : Connector.ConnectionListener {
       override fun onConnected(remote: SpotifyAppRemote) {

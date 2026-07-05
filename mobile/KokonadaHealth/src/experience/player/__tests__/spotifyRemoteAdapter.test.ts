@@ -12,6 +12,7 @@ jest.mock('@kokonada/spotify-remote', () => ({
   SpotifyRemote: {
     configure: jest.fn(),
     isSpotifyInstalled: jest.fn().mockResolvedValue(true),
+    authorize: jest.fn().mockResolvedValue('token'),
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
     isConnected: jest.fn().mockResolvedValue(true),
@@ -30,8 +31,9 @@ import { spotifyRemoteAdapter, getSpotifyReadiness } from '../spotifyRemoteAdapt
 // widened to include the jest.Mock matchers (e.g. mockResolvedValueOnce) used below.
 const mockMod = jest.mocked(SpotifyRemote);
 
-test('connect ignores the token arg and calls native connect', async () => {
+test('connect authorizes first, then calls native connect (token arg ignored)', async () => {
   await spotifyRemoteAdapter.connect('IGNORED_TOKEN');
+  expect(mockMod.authorize).toHaveBeenCalledTimes(1); // explicit grant established first
   expect(mockMod.connect).toHaveBeenCalledTimes(1);
   expect(mockMod.connect).toHaveBeenCalledWith(); // no args passed through
 });

@@ -11,7 +11,13 @@ SpotifyRemote.configure(SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI);
 let offDisconnect: (() => void) | null = null;
 
 export const spotifyRemoteAdapter: SpotifyRemoteLike = {
-  connect: async (_token: string) => { await SpotifyRemote.connect(); },
+  connect: async (_token: string) => {
+    // Establish the app-remote-control grant explicitly first — this returns a real
+    // onActivityResult (token / error / cancel) instead of App Remote's inline consent
+    // whose result never came back on-device. THEN open the connection against that grant.
+    await SpotifyRemote.authorize();
+    await SpotifyRemote.connect();
+  },
   disconnect: async () => { await SpotifyRemote.disconnect(); },
   isConnectedAsync: () => SpotifyRemote.isConnected(),
   playUri: async (uri: string) => { await SpotifyRemote.playUri(uri); },

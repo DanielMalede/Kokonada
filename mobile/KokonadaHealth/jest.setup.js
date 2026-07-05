@@ -79,6 +79,7 @@ jest.mock('@kokonada/spotify-remote', () => ({
   SpotifyRemote: {
     configure: jest.fn(),
     isSpotifyInstalled: jest.fn().mockResolvedValue(false),
+    authorize: jest.fn().mockResolvedValue('token'),
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
     isConnected: jest.fn().mockResolvedValue(false),
