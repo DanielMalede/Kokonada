@@ -55,7 +55,7 @@ describe('candidatePool.buildPool', () => {
     expect(pool[0].canonicalKey).toBe('at:artist|song a');
   });
 
-  it('caps the pool by affinity and marks discovery tracks', async () => {
+  it('includes the full uncapped library and marks discovery tracks', async () => {
     const many = Array.from({ length: 700 }, (_, i) => lib(`t${i}`, { artist: `A${i}`, affinity: i }));
     const pool = await buildPool({
       userId: 'u1',
@@ -65,9 +65,9 @@ describe('candidatePool.buildPool', () => {
       discoveryTracks: [{ id: 'd1', provider: 'spotify', name: 'Fresh', artist: 'New Artist' }],
     });
 
-    expect(pool.length).toBeLessThanOrEqual(501);
+    expect(pool.length).toBe(701); // uncapped: all 700 library tracks + 1 discovery
     expect(pool.find(t => t.id === 'd1').isDiscovery).toBe(true);
-    expect(pool.find(t => t.id === 't699')).toBeDefined(); // highest affinity survives the cap
+    expect(pool.find(t => t.id === 't699')).toBeDefined(); // full library present (no affinity cap)
   });
 
   it('caches the library partition in Redis and invalidates on profile rebuild (lastAnalyzed)', async () => {

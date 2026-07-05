@@ -6,6 +6,7 @@ const { buildPool } = require('./candidatePool');
 const { applyHardFilters } = require('./hardFilters');
 const { scoreTrack } = require('./score');
 const { select } = require('./mmr');
+const { filterBand } = require('./biosonicBand');
 const { recordingKeyOf } = require('../features/featureProvider');
 const vectorIndex = require('../vector/vectorIndex');
 
@@ -91,6 +92,14 @@ async function selectPlaylist({
   // reveals whether AudioFeature is populated. If this stays ~0, _featureFit collapses to
   // a constant and mood/HR can't differentiate the playlist (the "same playlist" symptom).
   const featured = pool.reduce((n, tr) => n + (tr.features ? 1 : 0), 0);
+
+  // Un-relaxable biosonic band — mood identity. The ladder below relaxes ONLY
+  // anti-repetition/genre; the band is never relaxed. Featureless tracks pass.
+  // Only a LITERAL-zero band widens (never trade mood for novelty).
+  const banded = filterBand(pool, targets);
+  let bandWidened = 0;
+  let workingPool = banded;
+  if (banded.length === 0) { workingPool = pool; bandWidened = 1; }
   mark('context', t);
 
   // Stage 3: hard filters with the relaxation ladder.
@@ -104,20 +113,19 @@ async function selectPlaylist({
   const filterProvider = crossPlatform ? null : provider;
   const excludeGenres = aiParams.exclude_genres || [];
   const LADDER = [
-    { excludeGenres, moodExcluded, energyCeiling: targets.energyCeiling ?? null },
-    { excludeGenres, moodExcluded, energyCeiling: null },
-    { excludeGenres: [], moodExcluded, energyCeiling: null },
-    { excludeGenres: [], moodExcluded: new Set(), energyCeiling: null },
+    { excludeGenres, moodExcluded },                // L0 full
+    { excludeGenres: [], moodExcluded },            // L1 drop genre excludes
+    { excludeGenres: [], moodExcluded: new Set() }, // L2 drop mood window
   ];
   let filtered = [];
   let relaxLevel = 0;
   for (let level = 0; level < LADDER.length; level++) {
-    filtered = applyHardFilters(pool, {
-      hardExcluded, // held through L0–L3 (never yields to input manipulation)
+    filtered = applyHardFilters(workingPool, {
+      hardExcluded, // held through the ladder (never yields to input manipulation)
       moodExcluded: LADDER[level].moodExcluded,
       provider: filterProvider,
       excludeGenres: LADDER[level].excludeGenres,
-      energyCeiling: LADDER[level].energyCeiling,
+      energyCeiling: null, // energy/tempo owned by the un-relaxable biosonic band
       targetConfidence: targets.confidence ?? 0,
     });
     relaxLevel = level;
@@ -131,7 +139,7 @@ async function selectPlaylist({
   // a just-served or forged DISCOVERY candidate is never resurrected (the blacklist stays
   // impenetrable to smuggling), and a user with no library still (correctly) gets empty.
   if (filtered.length === 0 && (musicProfile.library || []).length > 0) {
-    const familiar = pool.filter(tr => !tr.isDiscovery);
+    const familiar = workingPool.filter(tr => !tr.isDiscovery);
     if (familiar.length) {
       filtered = applyHardFilters(familiar, {
         hardExcluded: new Set(),
@@ -176,6 +184,8 @@ async function selectPlaylist({
       relaxLevel,
       degraded,
       featured,
+      banded: banded.length,
+      bandWidened,
       stageMs,
     },
   };
