@@ -283,18 +283,45 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     return;
   }
   state.generating = true;
+  // Generation epoch: every generation claims a monotonically-increasing token. A run that
+  // is superseded (it timed out, or a newer generation started) no longer "owns" the socket,
+  // so its late emits and its lock-release become no-ops — this stops a stale playlist from
+  // reaching the client and stops an abandoned run from clobbering a newer generation's lock.
+  const myGen = (state.genSeq = (state.genSeq || 0) + 1);
 
   // Echoed back to the client so it can (a) keep the user's chosen playback mode
   // and (b) drop stale emotion results. Captured up-front so every emit is consistent.
   const mode  = state.lastMode ?? 'live';
   const reqId = state.lastReqId;
 
+  // Epoch-guarded emit: only the generation that still owns the socket may reach the client.
+  const emit = (event, payload) => {
+    if (state.genSeq === myGen) emitToUser(socket, event, payload);
+  };
+
+  // HARD wall-clock bound on the WHOLE generation. Any external stall — an LLM outage, or a
+  // Spotify 429 Retry-After storm across dozens of discovery/translation searches (withRetry
+  // waits out each Retry-After) — could otherwise hold state.generating for MINUTES, wedging
+  // the socket so every later request_playlist hits the in-flight guard and the user never
+  // gets a reply. On expiry we free the lock and, for a user-initiated request, surface a
+  // recoverable error; the abandoned pipeline settles harmlessly (the epoch guard voids it).
+  const GENERATION_TIMEOUT_MS = Number(process.env.GENERATION_TIMEOUT_MS) || 30_000;
+  const userInitiated = trigger === 'emotion' || trigger === 'heart';
+  const timer = setTimeout(() => {
+    if (state.genSeq !== myGen) return;   // already settled — nothing to abandon
+    state.genSeq += 1;                     // supersede: void the in-flight run's emits + its release
+    state.generating = false;              // free the lock now so the next request can generate
+    console.warn(`[generate] TIMEOUT after ${GENERATION_TIMEOUT_MS}ms trigger=${trigger} reqId=${reqId} — released lock`);
+    if (userInitiated) emitToUser(socket, 'playlist_error', { message: 'Generation timed out — please try again', reqId });
+  }, GENERATION_TIMEOUT_MS);
+  timer.unref?.();
+
   try {
     const userId = socket.data.user._id.toString();
 
     const user = await User.findById(userId);
     if (!user) {
-      emitToUser(socket, 'playlist_error', { message: 'User not found', reqId });
+      emit('playlist_error', { message: 'User not found', reqId });
       return;
     }
 
@@ -307,7 +334,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // Always-on diagnostic (prod's log() is gated): the profile row is missing —
       // the background build hasn't run/finished, or it saved nothing.
       console.warn(`[generate] no MusicProfile for user — build not finished yet? trigger=${trigger}`);
-      emitToUser(socket, 'playlist_error', { message: 'Still setting up your library — try again in a few seconds.', reqId });
+      emit('playlist_error', { message: 'Still setting up your library — try again in a few seconds.', reqId });
       return;
     }
     // Always-on diagnostic: surface the library size so an empty/thin profile (the
@@ -322,7 +349,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // back to YouTube sourcing. This supersedes the old resolveMusicProvider desync.
     const provider = resolvePlaybackProvider(user) || resolveMusicProvider(user);
     if (!provider) {
-      emitToUser(socket, 'playlist_error', { message: 'No music provider connected', reqId });
+      emit('playlist_error', { message: 'No music provider connected', reqId });
       return;
     }
 
@@ -369,7 +396,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         fetchTracks = (params) => youtube.searchRecommendations(accessToken, { ...params, limit: DISCOVERY_FETCH_LIMIT });
       }
     } catch (err) {
-      emitToUser(socket, 'playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
+      emit('playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
       return;
     }
 
@@ -425,7 +452,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
           if (moodTracks.length > 0) {
             log(`[generate] LLM failed → on-vibe mood fallback tracks=${moodTracks.length} reqId=${reqId}`);
-            emitToUser(socket, 'playlist_ready', {
+            emit('playlist_ready', {
               trigger,
               mode,
               reqId,
@@ -445,7 +472,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}, provider), provider);
       if (fallbackTracks.length > 0) {
         log(`[generate] AI failed → fallback tracks=${fallbackTracks.length} reqId=${reqId}`);
-        emitToUser(socket, 'playlist_ready', {
+        emit('playlist_ready', {
           trigger,
           mode,
           reqId,
@@ -455,7 +482,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           fallback:  true,
         });
       } else {
-        emitToUser(socket, 'playlist_error', { message: err.message, reqId });
+        emit('playlist_error', { message: err.message, reqId });
       }
       return;
     }
@@ -501,11 +528,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         + `library=${musicProfile.library?.length ?? 0} discoveryCandidates=${cachedDiscovery?.length ?? 0} `
         + `mixedFamiliar=${playlist?.familiar?.length ?? 0} mixedDiscovery=${playlist?.discovery?.length ?? 0} `
         + `seed_genres=${JSON.stringify(aiResult.params?.seed_genres)} exclude_genres=${JSON.stringify(aiResult.params?.exclude_genres)}`);
-      emitToUser(socket, 'playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
+      emit('playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
       return;
     }
 
-    emitToUser(socket, 'playlist_ready', {
+    emit('playlist_ready', {
       trigger,
       mode,
       reqId,
@@ -561,7 +588,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       })),
     }).catch(e => console.error('[serveLedger] record failed:', e.message));
   } finally {
-    state.generating = false;
+    clearTimeout(timer);
+    // Release only if we still own the lock: a timed-out run (epoch bumped) must not clear a
+    // newer generation's in-flight flag when its abandoned body finally settles.
+    if (state.genSeq === myGen) state.generating = false;
   }
 }
 

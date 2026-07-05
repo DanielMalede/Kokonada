@@ -1096,3 +1096,63 @@ describe('the sealed engine — v2 is the only serving path', () => {
     );
   });
 });
+
+// ── Generation timeout (hard wall-clock bound) ────────────────────────────────
+// A generation must never hold the in-flight lock indefinitely: a Spotify 429 storm
+// (withRetry waits out each Retry-After) or an LLM outage could otherwise wedge the
+// socket for minutes, so every later request_playlist hits the guard and the user
+// gets no reply. We hang the pipeline at its first await and drive the fake clock.
+
+describe('generation timeout (hard wall-clock bound)', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('times out a hung generation: releases the lock and emits playlist_error for a user trigger', () => {
+    User.findById.mockReturnValue(new Promise(() => {})); // never resolves → pipeline hangs
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 42 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // do NOT await — it never resolves
+    expect(state.generating).toBe(true);               // lock claimed synchronously
+
+    jest.advanceTimersByTime(31_000);                  // fire the wall-clock timeout
+
+    expect(state.generating).toBe(false);              // lock released by the timeout
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({
+      reqId:   42,
+      message: expect.stringMatching(/tim(e|ed)\s?out/i),
+    }));
+  });
+
+  it('a background (biometric) timeout releases the lock WITHOUT a spurious playlist_error', () => {
+    User.findById.mockReturnValue(new Promise(() => {}));
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState();
+
+    generateAndEmitPlaylist(socket, 'biometric', state);
+    jest.advanceTimersByTime(31_000);
+
+    expect(state.generating).toBe(false);              // lock still released
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+
+  it('a hung generation that later resolves does NOT emit a stale playlist after it timed out', async () => {
+    let resolveUser;
+    User.findById.mockReturnValue(new Promise(r => { resolveUser = r; }));
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }] });
+
+    generateAndEmitPlaylist(socket, 'emotion', state);
+    jest.advanceTimersByTime(31_000);                  // timeout: error emitted, lock freed, epoch bumped
+    socket.emit.mockClear();                           // ignore the timeout error; watch for a stale emit
+
+    jest.useRealTimers();
+    resolveUser(SPOTIFY_USER);                         // the abandoned pipeline resumes...
+    await new Promise(r => setTimeout(r, 50));         // ...and runs to completion
+
+    // ...but every emit in the superseded run is epoch-guarded → no stale playlist reaches the client.
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+});
