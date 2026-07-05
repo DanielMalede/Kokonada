@@ -82,7 +82,7 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
     AuthorizationClient.openLoginActivity(activity, AUTH_REQUEST_CODE, request)
   }
 
-  override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+  override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
     if (requestCode != AUTH_REQUEST_CODE) return
     val response = AuthorizationClient.getResponse(resultCode, data)
     val promise = authPromise
@@ -103,7 +103,7 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  override fun onNewIntent(intent: Intent?) { /* auth returns via onActivityResult, not a redirect */ }
+  override fun onNewIntent(intent: Intent) { /* auth returns via onActivityResult, not a redirect */ }
 
   override fun isSpotifyInstalled(promise: Promise) {
     promise.resolve(SpotifyAppRemote.isSpotifyInstalled(reactContext))
