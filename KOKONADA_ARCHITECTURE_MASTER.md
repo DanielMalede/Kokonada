@@ -341,7 +341,7 @@ All paths relative to `backend/app/`. Merged PRs: **#35** (Phases 0–1), **#36*
   pool → parallel [hardExcluded, moodExcluded] + [features, exposure, embeddings
   (`.catch(()=>new Map())`)] → **un-relaxable biosonic band pre-filter** (biosonicBand.js — mood
   identity, NEVER relaxed) → **relaxation ladder** over anti-repetition/genre only: L0 full →
-  L1 → L2 drop genre excludes → L3 drop mood window (**hardExcluded NEVER relaxed**) →
+  L1 drop genre excludes → L2 drop mood window (**hardExcluded NEVER relaxed**) →
   **L4 last-resort** (approved 2026-07-06, generalizing PR #64): replay FAMILIAR tracks ignoring
   the serve windows but STILL within the biosonic band — never serve empty, never serve off-mood;
   only a literal-zero band widens (`bandWidened=1`) as absolute last resort → score → MMR →

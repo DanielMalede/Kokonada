@@ -103,6 +103,28 @@ describe('pipeline.selectPlaylist', () => {
     expect(peak.tracks[0].id).toBe('fast');
   });
 
+  it('the biosonic band excludes off-mood tracks even when the ladder relaxes to L4', async () => {
+    const all = PROFILE.library.map(t => `at:artist${t.id}|song ${t.id}`);
+    ledger.hardExcluded.mockResolvedValue(new Set(all)); // saturate → force L4
+    featureRepo.getMany.mockResolvedValue(new Map(
+      PROFILE.library.map((t, i) => [`spotify:${t.id}`, { bpm: i < 15 ? 70 : 200, energy: i < 15 ? 0.2 : 0.95 }])
+    ));
+    const calm = await selectPlaylist({ ...BASE, k: 5, targets: { bpmCenter: 70, bpmWidth: 15, energyFloor: 0.1, energyCeiling: 0.3, valenceTarget: 0.5, confidence: 1 } });
+    expect(calm.tracks.length).toBeGreaterThan(0);
+    expect(calm.tracks.every(t => Number(t.id.slice(1)) < 15)).toBe(true); // only on-band (bpm~70) tracks
+    expect(calm.telemetry.relaxLevel).toBe(4);
+    expect(calm.telemetry.banded).toBeLessThan(calm.telemetry.poolSize);
+  });
+
+  it('widens the band (bandWidened=1) ONLY when no on-mood track exists — never serves empty', async () => {
+    featureRepo.getMany.mockResolvedValue(new Map(
+      PROFILE.library.map(t => [`spotify:${t.id}`, { bpm: 200, energy: 0.98 }])
+    ));
+    const calm = await selectPlaylist({ ...BASE, k: 5, targets: { bpmCenter: 60, bpmWidth: 8, energyFloor: 0.05, energyCeiling: 0.15, valenceTarget: 0.5, confidence: 1 } });
+    expect(calm.telemetry.bandWidened).toBe(1);
+    expect(calm.tracks.length).toBeGreaterThan(0);
+  });
+
   it('relaxes the mood window before the global window; the global window drops ONLY as a last resort', async () => {
     const allKeys = PROFILE.library.map(t => `at:artist${t.id}|song ${t.id}`);
     ledger.moodExcluded.mockResolvedValue(new Set(allKeys));
