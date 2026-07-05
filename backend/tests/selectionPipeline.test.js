@@ -79,6 +79,14 @@ describe('pipeline.selectPlaylist', () => {
     expect(tracks[0].id).toBe('t0'); // near-perfect feature match + top affinity leads
   });
 
+  it('reports how many pool tracks resolved features in telemetry', async () => {
+    featureRepo.getMany.mockResolvedValue(new Map([
+      ['spotify:t0', { bpm: 120, energy: 0.6, valence: 0.5 }],
+    ]));
+    const { telemetry } = await selectPlaylist(BASE);
+    expect(telemetry.featured).toBe(1); // exactly one library track (t0) got features
+  });
+
   it('relaxes the mood window before the global window; the global window drops ONLY as a last resort', async () => {
     const allKeys = PROFILE.library.map(t => `at:artist${t.id}|song ${t.id}`);
     ledger.moodExcluded.mockResolvedValue(new Set(allKeys));
