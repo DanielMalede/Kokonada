@@ -103,10 +103,8 @@ Cleared the dual token-plane debt:
   Galaxy device (login → history → profile → logout → GDPR delete → pulse gauges), exercising
   the A11 features that are unit-green but not yet device-verified.
 
-### ⏭️ IMMEDIATE NEXT ACTION (the very first thing next session)
-**Execute Squad 6 — On-Device Verification.** Generate the strict manual QA checklist for the
-physical Galaxy device and walk the owner through it via Pause & Guide. Squad 3 (A12
-Compliance) follows.
+### ⏭️ IMMEDIATE NEXT ACTION (updated 2026-07-06)
+**Execute the Unified Variance Architecture** (spec: `docs/superpowers/specs/2026-07-06-unified-pool-dualpath-shadowbuffer-design.md`), which SUPERSEDES the Squad-6-first ordering. Root cause of "same playlist" was proven (prod Mongo read) to be the `SELECTION_POOL_MAX=500` cap + the L4 mood-strip — NOT empty features (the library is 64% measured-hydrated; the 2026-07-05 "empty features" diagnosis is retired). Order: **Part 1** (pool uncap to 10 000 + un-relaxable hard biosonic band, backend) → **Part 2** (manual/live dual-path + reanimated UI-thread analysis loader, mobile) → **Part 3** (shadow-worker biometric buffer, background). Squad 6 (On-Device Verification) + Squad 3 (A12) follow.
 
 ---
 
@@ -192,7 +190,9 @@ All paths relative to `backend/app/`. Merged PRs: **#35** (Phases 0–1), **#36*
 - `queues/queue.js` — BullMQ seam: `enqueue(name, payload, opts)` /
   `scheduleRepeatable(name, cron, payload)`; validates names against
   `queues/definitions.js` (`feature-hydration`, `embedding-build`,
-  `state-vector-recompute`); **graceful no-op without `REDIS_URL`**; producers use
+  `state-vector-recompute`; **+`biometric-buffer`** — approved 2026-07-06, Part 3 shadow
+  worker, band-transition-debounced, precompiles a zero-latency Live-mode buffer from the
+  cached feature store and records NO serves until played); **graceful no-op without `REDIS_URL`**; producers use
   `createConnection({ enableOfflineQueue: false })` (fail-fast — the offline-queue
   leak fix) and catch broker errors → `{queued:false, reason:'redis-error'}`.
 - `workers/index.js` — `startWorkers(processors = DEFAULT_PROCESSORS)`; registry maps
@@ -311,13 +311,20 @@ All paths relative to `backend/app/`. Merged PRs: **#35** (Phases 0–1), **#36*
 
 ### 3.5 Selection Pipeline (Phase 5) + 3.6 The Flip (Phase 6) + 3.7 The Seal (Phase 7)
 - `services/selection/candidatePool.js`: per-(user,mood) library partitions —
-  exclude-genre filtered (exact token), affinity-capped `SELECTION_POOL_MAX=500`,
+  exclude-genre filtered (exact token), **`SELECTION_POOL_MAX=10000`** (full-library;
+  approved 2026-07-06 — the old 500 affinity-slice caused L4 collapse → "same playlist";
+  variety is now the uncapped pool + exposure decay, still deterministic, NO seeds per §3.7),
   Redis-cached `pool:{userId}:{moodKey}` TTL 12h invalidated by `lastAnalyzed`;
   **cached partitions re-run attachCanonicalKeys on load**; discovery appended fresh
   with forced key recompute; canonical dedup at the pool (library first).
 - `services/selection/hardFilters.js` (pure): ledger windows (absolute) → provider
-  routing → EXACT-TOKEN genre exclusion ("pop punk" no longer kills "pop") →
-  energy ceiling only when `targets.confidence ≥ 0.7` and the track has features.
+  routing → EXACT-TOKEN genre exclusion ("pop punk" no longer kills "pop"). The energy/tempo
+  constraint moved OUT of the relaxable filters into `services/selection/biosonicBand.js`
+  (approved 2026-07-06) — an **un-relaxable pre-filter** applied before the ladder: keep a
+  featured track iff `bpm ∈ [center ± τ(c)·bpmWidth]` AND `energy ∈ [floor ∓ (τ(c)−1)·0.1, ceil]`,
+  where `τ(c)=1.0+2.0·σ(10·(0.6−c))` (logistic, replaces the binary `confidence ≥ 0.7` gate:
+  tight band at high confidence, widens smoothly + bounded when unsure). Featureless tracks pass
+  (unknown penalty in score).
 - `services/selection/score.js` (pure): terms tasteAffinity (affinity/max),
   featureDistance (gaussian bpm fit `exp(−((bpm−center)/(2·width))²)` + energy-mid +
   valence + acoustic-bias dims), moodGenreFit (1 / 0.3 / 0.5 neutral), exposurePenalty
@@ -332,10 +339,14 @@ All paths relative to `backend/app/`. Merged PRs: **#35** (Phases 0–1), **#36*
 - `services/selection/pipeline.js` — `selectPlaylist({userId, musicProfile, moodKey,
   provider, aiParams, targets, discoveryTracks, k=50, now, ignoreExclusions})`:
   pool → parallel [hardExcluded, moodExcluded] + [features, exposure, embeddings
-  (`.catch(()=>new Map())`)] → **relaxation ladder** L0 full → L1 drop energy ceiling →
-  L2 drop genre excludes → L3 drop mood window (**hardExcluded NEVER relaxed** — returns
-  empty rather than repeat) → score → MMR → `{tracks, telemetry:{poolSize, afterFilters,
-  relaxLevel, degraded, stageMs}}`. Ledger total-outage → degraded=true, empty sets.
+  (`.catch(()=>new Map())`)] → **un-relaxable biosonic band pre-filter** (biosonicBand.js — mood
+  identity, NEVER relaxed) → **relaxation ladder** over anti-repetition/genre only: L0 full →
+  L1 → L2 drop genre excludes → L3 drop mood window (**hardExcluded NEVER relaxed**) →
+  **L4 last-resort** (approved 2026-07-06, generalizing PR #64): replay FAMILIAR tracks ignoring
+  the serve windows but STILL within the biosonic band — never serve empty, never serve off-mood;
+  only a literal-zero band widens (`bandWidened=1`) as absolute last resort → score → MMR →
+  `{tracks, telemetry:{poolSize, featured, banded, afterFilters, relaxLevel, bandWidened, degraded, stageMs}}`.
+  Ledger total-outage → degraded=true, empty sets.
   Per-call latency pinned <300ms sequential; bursts are throughput-bounded (queueing).
 - `services/generation/orchestrator.js` — **THE ONLY SERVING PATH** (`generateV2`,
   unconditional; `SELECTION_V2`/`isV2`/rollback deleted in Phase 7): assembles
