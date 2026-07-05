@@ -19,7 +19,7 @@ function _fillMissingKeys(tracks) {
 // profile's lastAnalyzed stamp; request-time discovery tracks are appended fresh.
 // Canonical dedup happens HERE, at the pool boundary — root causes 2–4 die here.
 
-const POOL_MAX = () => parseInt(process.env.SELECTION_POOL_MAX || '500', 10);
+const POOL_MAX = () => parseInt(process.env.SELECTION_POOL_MAX || '10000', 10);
 const POOL_TTL_S = () => parseInt(process.env.SELECTION_POOL_TTL_S || String(12 * 3600), 10);
 
 const _poolKey = (userId, moodKey) => `pool:${userId}:${moodKey ?? 'none'}`;
