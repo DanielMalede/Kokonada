@@ -87,6 +87,10 @@ async function selectPlaylist({
       : null;
     track.embedding = embeddings.get(rk) ?? null;
   }
+  // How many pool tracks actually resolved features — the single serve-path number that
+  // reveals whether AudioFeature is populated. If this stays ~0, _featureFit collapses to
+  // a constant and mood/HR can't differentiate the playlist (the "same playlist" symptom).
+  const featured = pool.reduce((n, tr) => n + (tr.features ? 1 : 0), 0);
   mark('context', t);
 
   // Stage 3: hard filters with the relaxation ladder.
@@ -171,6 +175,7 @@ async function selectPlaylist({
       afterFilters: filtered.length,
       relaxLevel,
       degraded,
+      featured,
       stageMs,
     },
   };

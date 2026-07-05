@@ -4,6 +4,7 @@ const { watchLimiter } = require('../middleware/rateLimiter');
 const {
   getIntegrationsStatus,
   connectToken,
+  hydrateLibrary,
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   getSpotifyToken, playSpotifyTracks,
   saveSpotifyTracks, removeSpotifyTracks, getSpotifyTracksSaved,
@@ -39,6 +40,10 @@ router.get('/status', getIntegrationsStatus);
 
 // Mint a single-use connect token for top-level OAuth navigations (audit F1)
 router.post('/connect-token', connectToken);
+
+// Force-hydrate the caller's library into the AudioFeature store synchronously and return
+// the provider breakdown — diagnose + fix an empty feature store (the "same playlist" cause).
+router.post('/hydrate-library', hydrateLibrary);
 
 // Spotify (callback registered publicly above)
 router.get('/spotify/connect',       spotifyConnect);

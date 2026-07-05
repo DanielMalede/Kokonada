@@ -79,6 +79,30 @@ describe('pipeline.selectPlaylist', () => {
     expect(tracks[0].id).toBe('t0'); // near-perfect feature match + top affinity leads
   });
 
+  it('reports how many pool tracks resolved features in telemetry', async () => {
+    featureRepo.getMany.mockResolvedValue(new Map([
+      ['spotify:t0', { bpm: 120, energy: 0.6, valence: 0.5 }],
+    ]));
+    const { telemetry } = await selectPlaylist(BASE);
+    expect(telemetry.featured).toBe(1); // exactly one library track (t0) got features
+  });
+
+  it('a feature-fed pool reorders for different biosonic targets (mood/HR differentiation)', async () => {
+    // Two library tracks with clearly different tempo/energy; equal affinity so ONLY the
+    // biosonic feature-fit can decide the order — this is the "same playlist" regression pin.
+    const profile = { library: [
+      lib('slow', { affinity: 5 }), lib('fast', { affinity: 5 }),
+    ], lastAnalyzed: new Date('2026-07-01') };
+    featureRepo.getMany.mockResolvedValue(new Map([
+      ['spotify:slow', { bpm: 70,  energy: 0.2, valence: 0.5 }],
+      ['spotify:fast', { bpm: 170, energy: 0.9, valence: 0.5 }],
+    ]));
+    const calm = await selectPlaylist({ ...BASE, musicProfile: profile, k: 1, targets: { bpmCenter: 70,  bpmWidth: 15, energyFloor: 0.1, energyCeiling: 0.3,  valenceTarget: 0.5, confidence: 1 } });
+    const peak = await selectPlaylist({ ...BASE, musicProfile: profile, k: 1, targets: { bpmCenter: 170, bpmWidth: 15, energyFloor: 0.7, energyCeiling: 0.95, valenceTarget: 0.5, confidence: 1 } });
+    expect(calm.tracks[0].id).toBe('slow');
+    expect(peak.tracks[0].id).toBe('fast');
+  });
+
   it('relaxes the mood window before the global window; the global window drops ONLY as a last resort', async () => {
     const allKeys = PROFILE.library.map(t => `at:artist${t.id}|song ${t.id}`);
     ledger.moodExcluded.mockResolvedValue(new Set(allKeys));
