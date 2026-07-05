@@ -2,6 +2,7 @@ package com.kokonada.spotifyremote
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -12,6 +13,7 @@ import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.android.appremote.api.error.CouldNotFindSpotifyApp
 import com.spotify.android.appremote.api.error.NotLoggedInException
+import java.util.concurrent.atomic.AtomicBoolean
 
 // Extends the codegen-generated abstract spec NativeSpotifyRemoteSpec (produced from
 // src/NativeSpotifyRemote.ts). If the generated method signatures differ (they are
@@ -27,6 +29,10 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
     // times with linear backoff to let the service wake, before surfacing the failure.
     private const val MAX_CONNECT_RETRIES = 3
     private const val CONNECT_BACKOFF_BASE_MS = 700L
+    // Absolute safety net: SpotifyAppRemote.connect() can hang WITHOUT ever invoking the
+    // listener (asleep service / lost bindService) — the JS promise would then never settle
+    // and the player controller wedges in 'connecting' forever. Force-reject past this bound.
+    private const val CONNECT_WATCHDOG_MS = 20_000L
   }
 
   private var clientId: String = ""
@@ -48,24 +54,45 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
 
   override fun connect(promise: Promise) {
     if (clientId.isBlank()) return promise.reject("CONNECTION_FAILED", "configure() not called")
-    attemptConnect(promise, 0)
+    // settled guarantees the JS promise resolves/rejects EXACTLY once across the callback,
+    // the retries, and the watchdog (which race on separate main-thread posts).
+    val settled = AtomicBoolean(false)
+    val watchdog = Runnable {
+      if (settled.compareAndSet(false, true)) {
+        Log.w(NAME, "connect watchdog fired — no App Remote callback within ${CONNECT_WATCHDOG_MS}ms")
+        promise.reject("CONNECTION_FAILED", "connect timed out (no App Remote callback)")
+      }
+    }
+    mainHandler.postDelayed(watchdog, CONNECT_WATCHDOG_MS)
+    // SpotifyAppRemote.connect() MUST run on the main/UI thread — it binds the Spotify service
+    // and registers receivers against the activity. A TurboModule async method runs on a
+    // background thread, where connect() can hang and NEVER invoke the listener (no
+    // onConnected/onFailure) → the promise never settles and the player wedges in 'connecting'.
+    // Dispatch every attempt (including the first) to main.
+    mainHandler.post { attemptConnect(promise, 0, settled, watchdog) }
   }
 
-  private fun attemptConnect(promise: Promise, attempt: Int) {
+  private fun attemptConnect(promise: Promise, attempt: Int, settled: AtomicBoolean, watchdog: Runnable) {
+    Log.d(NAME, "attemptConnect #$attempt installed=${SpotifyAppRemote.isSpotifyInstalled(reactContext)}")
     val params = ConnectionParams.Builder(clientId)
       .setRedirectUri(redirectUri)
       .showAuthView(true)
       .build()
     SpotifyAppRemote.connect(reactContext, params, object : Connector.ConnectionListener {
       override fun onConnected(remote: SpotifyAppRemote) {
+        Log.d(NAME, "onConnected")
         appRemote = remote
         remote.playerApi.subscribeToPlayerState().setErrorCallback {
           appRemote = null
           emit("remoteDisconnected")
         }
-        promise.resolve(null)
+        if (settled.compareAndSet(false, true)) {
+          mainHandler.removeCallbacks(watchdog)
+          promise.resolve(null)
+        }
       }
       override fun onFailure(error: Throwable) {
+        Log.w(NAME, "onFailure attempt=$attempt ${error.javaClass.simpleName}: ${error.message}")
         val code = when (error) {
           is CouldNotFindSpotifyApp -> "SPOTIFY_NOT_INSTALLED"
           is NotLoggedInException -> "NOT_LOGGED_IN"
@@ -76,10 +103,11 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
         // retry a deterministic failure (Spotify not installed / user not logged in).
         if (code == "CONNECTION_FAILED" && attempt < MAX_CONNECT_RETRIES) {
           mainHandler.postDelayed(
-            { attemptConnect(promise, attempt + 1) },
+            { attemptConnect(promise, attempt + 1, settled, watchdog) },
             CONNECT_BACKOFF_BASE_MS * (attempt + 1)
           )
-        } else {
+        } else if (settled.compareAndSet(false, true)) {
+          mainHandler.removeCallbacks(watchdog)
           promise.reject(code, error.message ?: error.javaClass.simpleName, error)
         }
       }

@@ -34,6 +34,8 @@ const DEFAULT_MAX_RECONNECTS = 3;
 export class SpotifyPlayerController {
   private state: PlayerState = 'disconnected';
   private reconnectBudget: number;
+  // The single in-flight connect promise (null when idle). Overlapping callers reuse it.
+  private connectInFlight: Promise<boolean> | null = null;
 
   constructor(private readonly deps: SpotifyControllerDeps) {
     this.reconnectBudget = deps.maxReconnects ?? DEFAULT_MAX_RECONNECTS;
@@ -57,6 +59,19 @@ export class SpotifyPlayerController {
   }
 
   async connect(): Promise<boolean> {
+    // Coalesce overlapping connects: a burst of plays/skips during the (slow, native)
+    // handshake must await the SAME connect — never spawn concurrent native connects or
+    // drain the reconnect budget. Mirrors the native module's single in-flight connect.
+    if (this.connectInFlight) return this.connectInFlight;
+    this.connectInFlight = this.connectOnce();
+    try {
+      return await this.connectInFlight;
+    } finally {
+      this.connectInFlight = null;
+    }
+  }
+
+  private async connectOnce(): Promise<boolean> {
     this.setState('connecting');
     let token: string | null;
     try {
@@ -90,6 +105,9 @@ export class SpotifyPlayerController {
   // permanently-dead remote can't spin forever.
   private async ensureConnected(): Promise<boolean> {
     if (this.state === 'connected') return true;
+    // A connect is already in flight (e.g. the first playlist's play) — await it instead of
+    // starting a second native connect and burning another unit of the reconnect budget.
+    if (this.connectInFlight) return this.connectInFlight;
     if (this.reconnectBudget <= 0) return false;
     this.reconnectBudget -= 1;
     return this.connect();
