@@ -11,10 +11,12 @@ const vectorIndex = require('../vector/vectorIndex');
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR.
 // Zero LLM in the path. When filters would starve the playlist, a relaxation
-// ladder loosens the SOFT gates one level at a time — the 24h global serve
-// window is never relaxed: a served track cannot reappear inside it, period.
+// ladder loosens the gates one level at a time. The global serve window holds
+// through L3; only the L4 LAST RESORT drops it, so a user with a non-empty
+// library can never get an empty playlist (a repeat beats a "try again" error).
 //
 //   L0 full · L1 drop energy ceiling · L2 drop genre excludes · L3 drop mood window
+//   L4 LAST RESORT: replay FAMILIAR library, dropping the serve window — never serve empty
 
 const MIN_FILL = (k) => Math.min(k, 10);
 
@@ -107,7 +109,7 @@ async function selectPlaylist({
   let relaxLevel = 0;
   for (let level = 0; level < LADDER.length; level++) {
     filtered = applyHardFilters(pool, {
-      hardExcluded, // never relaxed
+      hardExcluded, // held through L0–L3 (never yields to input manipulation)
       moodExcluded: LADDER[level].moodExcluded,
       provider: filterProvider,
       excludeGenres: LADDER[level].excludeGenres,
@@ -116,6 +118,27 @@ async function selectPlaylist({
     });
     relaxLevel = level;
     if (filtered.length >= MIN_FILL(k)) break;
+  }
+
+  // L4 LAST RESORT — never serve an EMPTY playlist to a listener who HAS a library. When
+  // every legal relaxation still yields nothing (their whole pool sits inside the serve
+  // window — a heavily-served account), replay their OWN familiar tracks, ignoring the
+  // window: a repeat beats a "couldn't build a playlist" error. Scoped to FAMILIAR only —
+  // a just-served or forged DISCOVERY candidate is never resurrected (the blacklist stays
+  // impenetrable to smuggling), and a user with no library still (correctly) gets empty.
+  if (filtered.length === 0 && (musicProfile.library || []).length > 0) {
+    const familiar = pool.filter(tr => !tr.isDiscovery);
+    if (familiar.length) {
+      filtered = applyHardFilters(familiar, {
+        hardExcluded: new Set(),
+        moodExcluded: new Set(),
+        provider: filterProvider,
+        excludeGenres: [],
+        energyCeiling: null,
+        targetConfidence: targets.confidence ?? 0,
+      });
+      relaxLevel = 4;
+    }
   }
   mark('filters', t);
 

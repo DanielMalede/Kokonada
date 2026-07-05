@@ -167,7 +167,7 @@ describe('ATTACK 2 — filter bypass chaos (the blacklist must be impenetrable)'
     expect(tracks.find(t => t.id === 't0')).toBeUndefined();
   });
 
-  it('even at maximum relaxation the 24h global window holds', async () => {
+  it('holds the global window through every legal relaxation, replaying the library ONLY as a last resort', async () => {
     const profile = PROFILE(10);
     await ledger.recordServes({
       userId: 'u1',
@@ -178,8 +178,10 @@ describe('ATTACK 2 — filter bypass chaos (the blacklist must be impenetrable)'
       userId: 'u1', musicProfile: profile, moodKey: 'calm', targets: {}, k: 10, now: NOW,
     });
 
-    expect(tracks).toEqual([]);
-    expect(telemetry.relaxLevel).toBe(3); // it tried everything legal — and still refused repeats
+    // L0–L3 refuse repeats (the window never yields to input manipulation); the L4 last
+    // resort replays the listener's OWN library rather than serve an empty playlist.
+    expect(tracks.length).toBeGreaterThan(0);
+    expect(telemetry.relaxLevel).toBe(4);
   });
 });
 
