@@ -11,6 +11,7 @@ const DEFAULT_PROCESSORS = {
   [QUEUES.FEATURE_HYDRATION]: require('./featureHydration.worker').process,
   [QUEUES.STATE_VECTOR_RECOMPUTE]: require('./stateVector.worker').process,
   [QUEUES.EMBEDDING_BUILD]: require('./embedding.worker').process,
+  [QUEUES.BIOMETRIC_BUFFER]: require('./biometricBuffer.worker').process,
 };
 
 function startWorkers(processors = DEFAULT_PROCESSORS) {

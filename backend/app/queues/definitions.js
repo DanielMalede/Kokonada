@@ -4,6 +4,9 @@ const QUEUES = Object.freeze({
   FEATURE_HYDRATION: 'feature-hydration',
   EMBEDDING_BUILD: 'embedding-build',
   STATE_VECTOR_RECOMPUTE: 'state-vector-recompute',
+  // Precompiles a live-biometric playlist buffer on a confirmed HR band transition,
+  // so flipping to Live mode plays instantly (Part 3 shadow-worker buffer).
+  BIOMETRIC_BUFFER: 'biometric-buffer',
 });
 
 const QUEUE_NAMES = new Set(Object.values(QUEUES));
