@@ -38,6 +38,24 @@ describe('biosonicBand.withinBand', () => {
   });
 });
 
+describe('biosonicBand.withinBand — activity-driven (energy-primary, wide tempo)', () => {
+  const intent = { bpmCenter: 162, bpmWidth: 8, energyFloor: 0.425, energyCeiling: 0.85, confidence: 0.85, activityDriven: true };
+
+  it('keeps an energetic track well below the cadence — the wide window captures the library mass', () => {
+    // 130bpm/0.8 is OUTSIDE the narrow mood band [153,171] but IN the wide activity band.
+    expect(withinBand({ features: { bpm: 130, energy: 0.8 } }, { ...intent, activityDriven: false })).toBe(false);
+    expect(withinBand({ features: { bpm: 130, energy: 0.8 } }, intent)).toBe(true);
+  });
+
+  it('energy is the primary gate — a low-energy track is dropped even at an on-cadence tempo', () => {
+    expect(withinBand({ features: { bpm: 160, energy: 0.2 } }, intent)).toBe(false);
+  });
+
+  it('the wide tempo window is still bounded — a far-off tempo is excluded', () => {
+    expect(withinBand({ features: { bpm: 70, energy: 0.8 } }, intent)).toBe(false);
+  });
+});
+
 describe('biosonicBand.filterBand', () => {
   it('filters a list to on-band tracks, keeping featureless ones', () => {
     const targets = { bpmCenter: 70, bpmWidth: 15, energyFloor: 0.1, energyCeiling: 0.3, confidence: 1 };

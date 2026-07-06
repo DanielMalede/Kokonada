@@ -11,6 +11,10 @@ const W_MAX = () => parseFloat(process.env.BAND_W_MAX ?? '3.0');
 const C0    = () => parseFloat(process.env.BAND_C0 ?? '0.6');
 const K     = () => parseFloat(process.env.BAND_K ?? '10');
 const E_TOL = () => parseFloat(process.env.BAND_E_TOL ?? '0.1');
+// Activity-driven requests are ENERGY-primary with a WIDE, fixed tempo window (an explicit
+// exertion wants a range of energetic music, not the step-cadence point — and the stress
+// narrowing must not apply). featureFit still sorts exact tempo within it.
+const INTENT_BPM_SPAN = () => parseFloat(process.env.BAND_INTENT_BPM_SPAN ?? '40');
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
@@ -25,14 +29,21 @@ function withinBand(track, targets = {}) {
   if (!f) return true; // featureless: cannot judge — kept, pays unknownFeaturePenalty in score
   const tau = tolerance(targets.confidence ?? 0);
 
+  // Tempo tolerance: a WIDE fixed window for an explicit activity (energy-primary — the
+  // stress-narrowed, confidence-scaled window would exclude the library's energetic mass
+  // that sits below the step cadence); the narrow window still governs mood requests.
   const bpm = Number(f.bpm);
   const center = Number(targets.bpmCenter);
   const width = Number(targets.bpmWidth);
-  if (Number.isFinite(bpm) && Number.isFinite(center) && Number.isFinite(width)) {
-    const half = tau * Math.max(4, width);
+  const half = targets.activityDriven
+    ? INTENT_BPM_SPAN()
+    : (Number.isFinite(width) ? tau * Math.max(4, width) : null);
+  if (Number.isFinite(bpm) && Number.isFinite(center) && half != null) {
     if (bpm < center - half || bpm > center + half) return false;
   }
 
+  // Energy — the PRIMARY gate for activity-driven requests (a workout means high energy);
+  // one and the same window for mood requests.
   const energy = Number(f.energy);
   const floor = Number(targets.energyFloor);
   const ceil = Number(targets.energyCeiling);

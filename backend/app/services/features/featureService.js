@@ -61,19 +61,26 @@ async function hydrate(tracks = []) {
   const fed = new Set();
 
   const apiResults = await reccoBeats.getFeatures(targets.map(p => p.track));
+  const apiMissed = new Set(); // Spotify tracks ReccoBeats CONFIRMED it lacks (200, absent)
   for (const r of apiResults) {
-    if (!r.features) continue;
-    docs.push(_doc(r, prepByKey));
-    fed.add(r.recordingKey);
-    summary.api++;
+    if (r.features) {
+      docs.push(_doc(r, prepByKey));
+      fed.add(r.recordingKey);
+      summary.api++;
+    } else if (r.apiStatus === 'miss') {
+      apiMissed.add(r.recordingKey);
+    }
   }
 
-  // LLM estimation is a fallback for tracks the measured API can never serve
-  // (YouTube-only) — NOT for API outages. A Spotify track whose batch failed
-  // stays missing and is retried next hydration; storing an LLM guess for it
-  // would let the never-clobber rule pin the guess over a measurable truth.
-  // Upgrade targets already HAVE an llm doc, so they never re-enter this path.
-  const leftovers = targets.filter(p => !fed.has(p.recordingKey) && !reccoBeats.supports(p.track) && !stored.has(p.recordingKey));
+  // LLM estimation covers tracks the measured API cannot serve: YouTube-only recordings AND
+  // Spotify tracks ReccoBeats CONFIRMED it lacks (apiStatus 'miss' — a permanent catalog gap,
+  // so a bounded guess CLOSES the data gap rather than poisoning). A batch that merely ERRORED
+  // stays missing and is retried next hydration — never estimated (the never-clobber rule).
+  // Upgrade targets already HAVE an llm doc, so !stored.has keeps them out of this path.
+  const leftovers = targets.filter(p =>
+    !fed.has(p.recordingKey) &&
+    !stored.has(p.recordingKey) &&
+    (!reccoBeats.supports(p.track) || apiMissed.has(p.recordingKey)));
   if (leftovers.length) {
     const llmResults = await llmEstimator.getFeatures(leftovers.map(p => p.track));
     for (const r of llmResults) {
