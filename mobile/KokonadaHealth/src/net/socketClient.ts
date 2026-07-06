@@ -27,6 +27,12 @@ export interface KokonadaSocketDeps {
   // Backend emitted a generation failure for our current request (no tracks, LLM
   // outage, no HR yet). Gated to the latest reqId so a superseded request is silent.
   onGenerationError?: (message?: string) => void;
+  // The current dual-path mode (Part 2b). Pushed to the server on every (re)connect and
+  // whenever it flips, so the server knows whether to auto-drive on HR band transitions.
+  getLiveMode?: () => boolean;
+  // Live-mode cold-buffer recalibration is warming a buffer — the server asks us to show
+  // the loader ("assembling your live biometric soundscape") so the wait is never silent.
+  onAssembling?: (message?: string) => void;
   // Surface the live socket lifecycle so the UI can show a truthful connection badge
   // (the Pulse indicator was previously hardcoded to 'disconnected' — nothing wired it).
   onConnectionChange?: (status: 'connected' | 'connecting' | 'disconnected') => void;
@@ -85,6 +91,7 @@ export class KokonadaSocket {
     socket.on('connect_error', this.handleConnectError);
     socket.on('playlist_ready', this.handlePlaylist);
     socket.on('playlist_error', this.handlePlaylistError);
+    socket.on('live_assembling', this.handleAssembling);
     socket.on('auth_expired', this.handleAuthExpired);
     socket.on('disconnect', this.handleDisconnect);
     this.deps.onConnectionChange?.('connecting');
@@ -102,6 +109,7 @@ export class KokonadaSocket {
     s.off('connect_error', this.handleConnectError);
     s.off('playlist_ready', this.handlePlaylist);
     s.off('playlist_error', this.handlePlaylistError);
+    s.off('live_assembling', this.handleAssembling);
     s.off('auth_expired', this.handleAuthExpired);
     s.off('disconnect', this.handleDisconnect);
   }
@@ -113,6 +121,10 @@ export class KokonadaSocket {
     // Re-hydrate the server's per-socketId emotion cache on EVERY connect —
     // including the transient reconnects the injected socket performs itself.
     this.emitEmotion();
+    // Re-assert the dual-path mode too (the server's flag is per-socketId, so a fresh
+    // socketId starts Manual): without this a Live-mode user would silently stop being
+    // auto-driven after any reconnect.
+    this.syncLiveMode();
     // Delivery guarantee: if a generation request is still in flight (no response yet),
     // re-issue it on the fresh socket. Covers a request swallowed by the server's
     // token-expiry gate, a socket churn, or a reply sent to an orphaned socket.
@@ -133,11 +145,22 @@ export class KokonadaSocket {
 
   private handlePlaylist = (payload: any) => {
     console.log('[koko] playlist_ready received tracks=', payload?.tracks?.length,
-      'reqId=', payload?.reqId, 'latest=', this.latestReqId);
+      'reqId=', payload?.reqId, 'trigger=', payload?.trigger, 'latest=', this.latestReqId);
+    if (!payload) return;
+    // Live-mode band recalibration: the server auto-pushes a `biometric` playlist with no
+    // client reqId to correlate. The server already gated it on our live_mode, so accept it
+    // unconditionally and route it to the queue — the reqId gate would otherwise drop it.
+    // It does NOT clear a pending manual request (that request is still owed a reply).
+    if (payload.trigger === 'biometric') { this.deps.onPlaylist(payload); return; }
     // Drop anything that isn't the answer to our most recent request (zombie nav).
-    if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
+    if (payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
     if (this.pending?.reqId === payload.reqId) this.pending = null; // delivered — stop re-issuing
     this.deps.onPlaylist(payload);
+  };
+
+  // The server is warming a cold buffer for the new HR band — surface the loader copy.
+  private handleAssembling = (payload?: any) => {
+    this.deps.onAssembling?.(payload?.message);
   };
 
   private handlePlaylistError = (payload: any) => {
@@ -228,6 +251,13 @@ export class KokonadaSocket {
     console.log('[koko] → request_heart_playlist reqId=', this.latestReqId, 'hr=', heartRate, 'hasSocket=', !!this.socket);
     this.socket?.emit('request_heart_playlist', { reqId: this.latestReqId, heartRate });
     return this.latestReqId;
+  }
+
+  // Push the current Live/Manual mode to the server (per-socketId, so it must be re-asserted
+  // on reconnect). Called on every connect and whenever the user flips the toggle. Safe to
+  // call before a socket exists — it no-ops until the next connect re-emits it.
+  syncLiveMode(): void {
+    this.socket?.emit('live_mode', { enabled: this.deps.getLiveMode?.() ?? false });
   }
 
   disconnect(): void {

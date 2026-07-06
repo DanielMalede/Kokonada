@@ -9,6 +9,7 @@ import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrato
 import { nowPlayingStore } from './nowPlayingStore';
 import { playbackErrorStore } from './playbackErrorStore';
 import { generationStatusStore } from '../generate/generationStatusStore';
+import { liveModeStore } from '../generate/liveModeStore';
 
 // App-level bootstrap: constructs the session → socket → player → orchestrator
 // graph and wires them together. This is the on-device glue; every component it
@@ -44,6 +45,10 @@ export const kokoSocket = new KokonadaSocket({
   },
   // Drive the (previously dead) Pulse connection badge from the real socket lifecycle.
   onConnectionChange: (status) => { warmStore.getState().setConnection(status); },
+  // Part 2b: tell the server our Live/Manual mode so it only auto-drives Live-mode users.
+  getLiveMode: () => liveModeStore.getState().liveMode,
+  // A Live-mode cold-buffer recalibration is warming — show the loader ("assembling …").
+  onAssembling: (message) => { generationStatusStore.getState().begin(message); },
 });
 
 // Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. ensureOpen()
@@ -51,10 +56,12 @@ export const kokoSocket = new KokonadaSocket({
 // background-killed/never-opened session) and leaves a live socket untouched. This
 // replaces a one-shot `socketStarted` latch that permanently blocked reconnection once
 // the first open failed (e.g. a tokenless boot), which stranded the socket at hasSocket=false.
-export const playbackSocket: PlaybackSocket = {
+export const playbackSocket: PlaybackSocket & { syncLiveMode(): void } = {
   requestPlaylist: () => { generationStatusStore.getState().begin(); return kokoSocket.requestPlaylist(); },
   requestHeartPlaylist: (hr) => { generationStatusStore.getState().begin(); return kokoSocket.requestHeartPlaylist(hr); },
   ensureConnected: () => kokoSocket.ensureOpen(),
+  // Push the freshly-toggled Live/Manual choice to the server (Part 2b).
+  syncLiveMode: () => kokoSocket.syncLiveMode(),
 };
 
 export const orchestrator = new PlaybackOrchestrator({

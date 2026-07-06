@@ -20,6 +20,22 @@ describe('generationStatusStore', () => {
     jest.useRealTimers();
   });
 
+  it('begin(message) surfaces the cold-buffer "assembling" copy; settle clears it', () => {
+    const s = createGenerationStatusStore();
+    expect(s.getState().message).toBeNull();
+    s.getState().begin('assembling your live biometric soundscape');
+    expect(s.getState().generating).toBe(true);
+    expect(s.getState().message).toBe('assembling your live biometric soundscape');
+    s.getState().settle();
+    expect(s.getState().message).toBeNull();
+  });
+
+  it('begin() with no message leaves the message null (manual generation)', () => {
+    const s = createGenerationStatusStore();
+    s.getState().begin();
+    expect(s.getState().message).toBeNull();
+  });
+
   it('settle cancels the pending auto-settle so it cannot flip a fresh generation off late', () => {
     jest.useFakeTimers();
     const s = createGenerationStatusStore(1000);

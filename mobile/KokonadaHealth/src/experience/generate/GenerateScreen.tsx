@@ -24,7 +24,11 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
   const size = Math.min(width - 48, 340);
 
   const controller = useMemo(
-    () => new GenerateController({ store, warmStore, socket }),
+    () => new GenerateController({
+      store, warmStore, socket,
+      // Live mode owns the queue (band shifts serve the buffer), so the manual CTA yields.
+      isLiveMode: () => liveModeStore.getState().liveMode,
+    }),
     [store, socket],
   );
 
@@ -52,9 +56,16 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
   // `engagement` (0..1 prompt richness) lives in a SharedValue so the animation reads
   // it on the UI thread without a React re-render each keystroke.
   const [generating, setGenerating] = useState(generationStatusStore.getState().generating);
+  // Loader copy — set for a Live-mode cold-buffer recalibration ("assembling your live
+  // biometric soundscape") so the wait is never silent; null for a normal manual generation.
+  const [statusMessage, setStatusMessage] = useState(generationStatusStore.getState().message);
   useEffect(() => {
-    setGenerating(generationStatusStore.getState().generating);
-    return generationStatusStore.subscribe((s) => setGenerating(s.generating));
+    const sync = (s: { generating: boolean; message: string | null }) => {
+      setGenerating(s.generating);
+      setStatusMessage(s.message);
+    };
+    sync(generationStatusStore.getState());
+    return generationStatusStore.subscribe(sync);
   }, []);
   const engagement = useSharedValue(0);
   useEffect(() => {
@@ -71,7 +82,14 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
     setLiveMode(liveModeStore.getState().liveMode);
     return liveModeStore.subscribe((s) => setLiveMode(s.liveMode));
   }, []);
-  const label = mode === 'listen-to-heart' ? 'Listen to your heart' : 'Generate';
+  const label = mode === 'live-tuned'
+    ? 'Live-tuned'
+    : mode === 'listen-to-heart'
+      ? 'Listen to your heart'
+      : 'Generate';
+  // In Live mode the CTA is a passive indicator — HR band shifts drive the queue, so the
+  // manual button must not (both driving at once would fight over the queue).
+  const ctaDisabled = mode === 'disabled' || mode === 'live-tuned';
 
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 24 }}>
@@ -85,7 +103,11 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
         ) : null}
       </View>
       <Pressable
-        onPress={() => liveModeStore.getState().setLiveMode(!liveMode)}
+        onPress={() => {
+          const next = !liveModeStore.getState().liveMode;
+          liveModeStore.getState().setLiveMode(next);
+          socket.syncLiveMode?.(); // tell the server so it (only) auto-drives Live-mode users
+        }}
         accessibilityRole="switch"
         accessibilityState={{ checked: liveMode }}
         accessibilityLabel="live-mode-toggle"
@@ -95,12 +117,15 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
           {liveMode ? '● Live Biometric' : 'Manual'}
         </Text>
       </Pressable>
+      {generating && statusMessage ? (
+        <Text style={{ color: '#31e1c4', fontSize: 13, letterSpacing: 0.3 }}>{statusMessage}</Text>
+      ) : null}
       <ActivityChips />
       <PromptBox />
       <Pressable
-        disabled={mode === 'disabled'}
+        disabled={ctaDisabled}
         onPress={() => controller.submit()}
-        style={{ opacity: mode === 'disabled' ? 0.4 : 1, paddingVertical: 14, paddingHorizontal: 40, borderRadius: 28, backgroundColor: '#6c5ce7' }}
+        style={{ opacity: ctaDisabled ? 0.4 : 1, paddingVertical: 14, paddingHorizontal: 40, borderRadius: 28, backgroundColor: mode === 'live-tuned' ? '#31e1c4' : '#6c5ce7' }}
       >
         <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>{label}</Text>
       </Pressable>

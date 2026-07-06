@@ -201,6 +201,53 @@ describe('KokonadaSocket — reqId gating (Zombie Navigation, attack #3)', () =>
   });
 });
 
+describe('KokonadaSocket — Live-mode auto-drive (band recalibration serves the buffer)', () => {
+  it('accepts a server-pushed biometric playlist with no client reqId and routes it to onPlaylist', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    // A confirmed band transition on the server pushes a buffered playlist — there is no
+    // client reqId to correlate. The reqId gate must NOT drop it, or a band shift never plays.
+    created[0].fire('playlist_ready', { trigger: 'biometric', buffered: true, tracks: [{ id: 'b1', uri: 'spotify:track:b1' }] });
+    expect(deps.onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ trigger: 'biometric' }));
+  });
+
+  it('a biometric auto-push does NOT consume a pending manual request', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist(); // a manual request is in flight
+    sock.emitted.length = 0;
+    sock.fire('playlist_ready', { trigger: 'biometric', tracks: ['auto'] }); // an auto-drive lands
+    sock.fire('connect'); // reconnect: the still-pending manual request must re-issue
+    expect(sock.clientEmits('request_playlist')[0]?.payload).toEqual({ reqId });
+  });
+
+  it('emits live_mode on connect reflecting the current mode (server gates auto-drive on it)', () => {
+    const { client, created } = build({ getLiveMode: () => true });
+    client.connect();
+    expect(created[0].clientEmits('live_mode')[0]?.payload).toEqual({ enabled: true });
+  });
+
+  it('syncLiveMode emits the current live mode immediately when the toggle flips', () => {
+    let live = false;
+    const { client, created } = build({ getLiveMode: () => live });
+    client.connect();
+    const sock = created[0];
+    sock.emitted.length = 0;
+    live = true;
+    client.syncLiveMode();
+    expect(sock.clientEmits('live_mode')[0]?.payload).toEqual({ enabled: true });
+  });
+
+  it('forwards live_assembling to onAssembling (the cold-buffer loader copy)', () => {
+    const onAssembling = jest.fn();
+    const { client, created } = build({ onAssembling });
+    client.connect();
+    created[0].fire('live_assembling', { message: 'assembling your live biometric soundscape' });
+    expect(onAssembling).toHaveBeenCalledWith('assembling your live biometric soundscape');
+  });
+});
+
 describe('KokonadaSocket — reconnect re-hydration', () => {
   it('re-emits emotion_update on every (re)connect before a request', () => {
     const { client, created } = build();

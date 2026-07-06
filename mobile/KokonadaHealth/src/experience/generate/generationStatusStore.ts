@@ -9,7 +9,10 @@ const AUTO_SETTLE_MS = 30_000;
 
 export interface GenerationStatus {
   generating: boolean;
-  begin(): void;
+  // Optional loader copy. Manual generation leaves it null; a Live-mode cold-buffer
+  // recalibration sets "assembling your live biometric soundscape" so the wait is never silent.
+  message: string | null;
+  begin(message?: string): void;
   settle(): void;
 }
 
@@ -17,16 +20,17 @@ export function createGenerationStatusStore(autoSettleMs: number = AUTO_SETTLE_M
   let timer: ReturnType<typeof setTimeout> | null = null;
   const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
 
-  return createStore<GenerationStatus>((set, get) => ({
+  return createStore<GenerationStatus>((set) => ({
     generating: false,
-    begin() {
+    message: null,
+    begin(message?: string) {
       clearTimer();
-      timer = setTimeout(() => { timer = null; set({ generating: false }); }, autoSettleMs);
-      if (!get().generating) set({ generating: true });
+      timer = setTimeout(() => { timer = null; set({ generating: false, message: null }); }, autoSettleMs);
+      set({ generating: true, message: message ?? null });
     },
     settle() {
       clearTimer();
-      if (get().generating) set({ generating: false });
+      set({ generating: false, message: null });
     },
   }));
 }
