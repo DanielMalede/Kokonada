@@ -27,6 +27,21 @@ const frontendRedirect = (res, query) =>
   res.redirect(`${process.env.FRONTEND_URL}/integrations?${query}`);
 const fail = (res, code) => frontendRedirect(res, `error=${encodeURIComponent(code)}`);
 
+// Mobile clients open the OAuth connect in the SYSTEM browser and can't be returned to via a
+// web URL — the grant would strand the user on the website. When the connect carried
+// returnTo=app, the signed state remembers it and the callback deep-links back into the native
+// app (kokonada://…) so the OS foregrounds it. Web connects are unaffected (default → website).
+const APP_SCHEME = () => process.env.APP_DEEPLINK_SCHEME || 'kokonada';
+const _returnTarget = (state) => {
+  try { return verifyOauthState(state)?.returnTo === 'app' ? 'app' : 'web'; }
+  catch { return 'web'; } // unreadable/tampered state → default to the website
+};
+const oauthRedirect = (res, target, query) =>
+  target === 'app'
+    ? res.redirect(`${APP_SCHEME()}://integrations?${query}`)
+    : frontendRedirect(res, query);
+const failTo = (res, target, code) => oauthRedirect(res, target, `error=${encodeURIComponent(code)}`);
+
 // Recover the authenticated user that a public OAuth callback belongs to, from
 // the signed `state` minted at connect. Verifies signature, purpose, provider,
 // and single-use (jti) status, then loads the live user. Returns null on any
@@ -65,7 +80,10 @@ exports.connectToken = (req, res) => {
 // state, so the public callback needs no cookie. Mobile clients open this in a
 // WebView / in-app browser.
 exports.spotifyConnect = (req, res) => {
-  const state = signOauthState(req.user._id.toString(), 'spotify');
+  // returnTo=app (mobile) is remembered in the signed state so the callback deep-links back
+  // into the native app instead of the website. Whitelisted to 'app' — nothing else is honored.
+  const extra = req.query?.returnTo === 'app' ? { returnTo: 'app' } : {};
+  const state = signOauthState(req.user._id.toString(), 'spotify', extra);
   res.redirect(spotify.getAuthUrl(state));
 };
 
@@ -73,13 +91,15 @@ exports.spotifyConnect = (req, res) => {
 // Spotify redirects the browser here as a top-level navigation with no usable
 // credential; the user is recovered from the signed `state`.
 exports.spotifyCallback = async (req, res) => {
+  const { code, state, error } = req.query;
+  // Learn the return target (native app vs website) from the signed state so BOTH success and
+  // every failure land back where the user started. Best-effort — falls back to the website.
+  const target = _returnTarget(state);
   try {
-    const { code, state, error } = req.query;
-
-    if (error) return fail(res, `spotify_${error}`);
+    if (error) return failTo(res, target, `spotify_${error}`);
 
     const recovered = await userFromOauthState(state, 'spotify');
-    if (!recovered) return fail(res, 'spotify_state');
+    if (!recovered) return failTo(res, target, 'spotify_state');
     const { user, payload } = recovered;
 
     const tokens = await spotify.exchangeCode(code);
@@ -110,8 +130,8 @@ exports.spotifyCallback = async (req, res) => {
       }
     });
 
-    // Redirect to frontend integrations page so the web app can hydrate state
-    frontendRedirect(res, 'music=spotify');
+    // Land the user back where they started: the native app (mobile) or the website.
+    oauthRedirect(res, target, 'music=spotify');
   } catch (err) {
     console.error('[Spotify Callback Catch]', {
       status:  err?.response?.status,
@@ -119,7 +139,7 @@ exports.spotifyCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'spotify_failed');
+    return failTo(res, target, 'spotify_failed');
   }
 };
 
