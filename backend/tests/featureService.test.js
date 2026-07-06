@@ -123,6 +123,34 @@ describe('featureService.hydrate', () => {
     expect(summary).toEqual(expect.objectContaining({ requested: 3, hydrated: 2, api: 1, llm: 1, failed: 1 }));
   });
 
+  it('estimates a Spotify track ReccoBeats CONFIRMS it lacks (apiStatus miss) — closes the data gap', async () => {
+    const missTrack = spTrack('miss');
+    reccoBeats.getFeatures.mockResolvedValue([
+      { track: missTrack, recordingKey: 'spotify:miss', features: null, source: 'api', confidence: null, apiStatus: 'miss' },
+    ]);
+    llmEstimator.getFeatures.mockImplementation(async (tracks) =>
+      tracks.map(t => ({ track: t, recordingKey: `spotify:${t.id}`, features: { bpm: 128 }, source: 'llm', confidence: 0.6 })));
+
+    const summary = await hydrate([missTrack]);
+
+    expect(llmEstimator.getFeatures.mock.calls[0][0].map(t => t.id)).toEqual(['miss']);
+    expect(summary.llm).toBe(1);
+    expect(summary.failed).toBe(0);
+  });
+
+  it('never estimates a Spotify track whose ReccoBeats batch ERRORED (apiStatus error) — anti-poisoning holds', async () => {
+    const errTrack = spTrack('err');
+    reccoBeats.getFeatures.mockResolvedValue([
+      { track: errTrack, recordingKey: 'spotify:err', features: null, source: 'api', confidence: null, apiStatus: 'error' },
+    ]);
+    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => llmHit(t)));
+
+    const summary = await hydrate([errTrack]);
+
+    expect(llmEstimator.getFeatures).not.toHaveBeenCalled();
+    expect(summary.failed).toBe(1);
+  });
+
   it('dedupes by recordingKey and drops keyless tracks', async () => {
     reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
 
