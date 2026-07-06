@@ -20,7 +20,24 @@ function _resolveWeights() {
     unknown:   parseFloat(process.env.SCORE_W_UNKNOWN ?? '0.05'),
   });
 }
-function _resetWeights() { _weights = null; }
+
+// Activity-driven profile: the user tapped an explicit exertion (Run/Workout), so the
+// BIOSONIC TARGET must dominate the ranking — otherwise raw affinity + a stale-mood genre
+// allow-list bury the very tracks that match the requested energy/tempo (the "lullaby at a
+// workout" bug). featureFit becomes the largest weight; taste drops; the stale-mood genre
+// term is neutralized (its allow-list came from a wheel tap the user didn't make).
+let _intentWeights = null;
+function _resolveIntentWeights() {
+  return (_intentWeights ??= {
+    taste:     parseFloat(process.env.SCORE_INTENT_W_TASTE ?? '0.10'),
+    feature:   parseFloat(process.env.SCORE_INTENT_W_FEATURE ?? '0.60'),
+    genre:     parseFloat(process.env.SCORE_INTENT_W_GENRE ?? '0'),
+    exposure:  parseFloat(process.env.SCORE_INTENT_W_EXPOSURE ?? '0.40'),
+    discovery: parseFloat(process.env.SCORE_INTENT_W_DISCOVERY ?? '0.10'),
+    unknown:   parseFloat(process.env.SCORE_INTENT_W_UNKNOWN ?? '0.05'),
+  });
+}
+function _resetWeights() { _weights = null; _intentWeights = null; }
 
 // The allow-genre Set is identical for every track in a generation — memoize per
 // array reference instead of rebuilding it hundreds of times.
@@ -79,7 +96,7 @@ function scoreTrack(track, {
   targetMoodKey = null,
   now = Date.now(),
 } = {}) {
-  const W = _resolveWeights();
+  const W = targets.activityDriven ? _resolveIntentWeights() : _resolveWeights();
   const taste = maxAffinity > 0 ? clamp01((fin(track.affinity) ?? 0) / maxAffinity) : 0;
 
   const fit = _featureFit(track.features, targets);

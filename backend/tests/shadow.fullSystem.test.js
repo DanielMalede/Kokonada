@@ -139,7 +139,7 @@ describe('ATTACK 3 — zero-knowledge leak hunting', () => {
     const out = translate({ live: { heartRate: 105, activity: 'walking' }, state: { hrv: 25 } });
 
     expect(Object.keys(out).sort()).toEqual([
-      'acousticnessBias', 'bpmCenter', 'bpmWidth', 'confidence', 'energyCeiling',
+      'acousticnessBias', 'activityDriven', 'bpmCenter', 'bpmWidth', 'confidence', 'energyCeiling',
       'energyFloor', 'instrumentalBias', 'state', 'tempoBand', 'valenceTarget', 'version',
     ]);
     expect(Object.keys(out.state).sort()).toEqual(['exertion', 'recovery', 'stress']);

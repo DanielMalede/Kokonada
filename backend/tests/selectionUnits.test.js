@@ -255,6 +255,22 @@ describe('score.scoreTrack', () => {
     const out = scoreTrack({ id: 'x', canonicalKey: 'k', genres: null, affinity: null }, { targets: {}, maxAffinity: 0, exposure: new Map() });
     expect(Number.isFinite(out.total)).toBe(true);
   });
+
+  it('an activity-driven request lets the biosonic target dominate: an on-tempo track beats a high-affinity off-tempo one', () => {
+    const base = { maxAffinity: 30, allowGenres: ['ambient'], exposure: new Map(), now: Date.now() }; // stale calm allow-list
+    const targets = { bpmCenter: 162, bpmWidth: 20, energyFloor: 0.4, energyCeiling: 0.9, valenceTarget: 0.5, confidence: 0.4 };
+    const onTempo  = { id: 'e', canonicalKey: 'ke', affinity: 3,  genres: ['techno'],  features: { bpm: 160, energy: 0.8, valence: 0.5 } };
+    const offTempo = { id: 'c', canonicalKey: 'kc', affinity: 30, genres: ['ambient'], features: { bpm: 88, energy: 0.2, valence: 0.5 } };
+
+    // Default (mood) scoring: affinity + the stale calm allow-list BURY the on-tempo track (the bug).
+    expect(scoreTrack(onTempo, { ...base, targets }).total)
+      .toBeLessThan(scoreTrack(offTempo, { ...base, targets }).total);
+
+    // Activity-driven: the biosonic target dominates → the on-tempo track WINS.
+    const intent = { ...targets, activityDriven: true };
+    expect(scoreTrack(onTempo, { ...base, targets: intent }).total)
+      .toBeGreaterThan(scoreTrack(offTempo, { ...base, targets: intent }).total);
+  });
 });
 
 // ── mmr ───────────────────────────────────────────────────────────────────────

@@ -123,6 +123,12 @@ describe('translate() — activity chips drive the target (the app\'s primary in
     expect(out.tempoBand).toBe('resting');
     expect(out.bpmCenter).toBeLessThan(100);
   });
+
+  it('flags an activity-driven request so the scorer can let the biosonic target dominate', () => {
+    expect(translate({ live: { activity: 'running' } }).activityDriven).toBe(true);
+    expect(translate({ moodKey: 'calm' }).activityDriven).toBe(false);
+    expect(translate({}).activityDriven).toBe(false);
+  });
 });
 
 describe('translate() — degradation & purity', () => {
