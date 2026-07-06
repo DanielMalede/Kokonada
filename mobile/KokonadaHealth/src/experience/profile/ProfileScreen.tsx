@@ -75,7 +75,9 @@ export function ProfileScreen() {
   const onConnectSpotify = async () => {
     const ct = await profileController.getSpotifyConnectToken();
     if (!ct) { Alert.alert('Could not start Spotify sign-in', 'Please try again in a moment.'); return; }
-    const url = `${BACKEND_URL}/api/integrations/spotify/connect?ct=${encodeURIComponent(ct)}`;
+    // returnTo=app tells the backend callback to deep-link back into this app (kokonada://…)
+    // instead of stranding the user on the website after they grant access.
+    const url = `${BACKEND_URL}/api/integrations/spotify/connect?ct=${encodeURIComponent(ct)}&returnTo=app`;
     Linking.openURL(url).catch(() => Alert.alert('Could not open Spotify', 'No browser is available to complete sign-in.'));
   };
 

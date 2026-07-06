@@ -7,9 +7,11 @@ jest.mock('../profileServices', () => ({
     logout: jest.fn().mockResolvedValue(undefined),
     deleteAccount: jest.fn().mockResolvedValue({ ok: true, data: {} }),
     disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } }),
+    getSpotifyConnectToken: jest.fn(),
   },
 }));
 
+import { Linking } from 'react-native';
 import { ProfileScreen } from '../ProfileScreen';
 import { profileController } from '../profileServices';
 import { playerStatusStore } from '../../player/playerStatusStore';
@@ -111,6 +113,23 @@ describe('ProfileScreen', () => {
     const tree = await render();
     await ReactTestRenderer.act(async () => { await byLabel(tree, 'log-out').props.onPress(); });
     expect(logout).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('connect-spotify opens the OAuth URL with returnTo=app so the callback deep-links back into the app', async () => {
+    await ReactTestRenderer.act(async () => { playerStatusStore.getState().set('disconnected'); });
+    (profileController.getSpotifyConnectToken as jest.Mock).mockResolvedValue('ct-token');
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'connect-spotify').props.onPress(); });
+
+    expect(openURL).toHaveBeenCalledTimes(1);
+    const url = openURL.mock.calls[0][0];
+    expect(url).toContain('/api/integrations/spotify/connect?ct=');
+    expect(url).toContain('returnTo=app');
+
+    openURL.mockRestore();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

@@ -56,6 +56,16 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- OAuth deep-link return. The Spotify connect callback redirects the system browser to
+             kokonada://integrations?…; the OS routes it here (singleTask → foregrounds the running
+             task via onNewIntent), and AppState 'active' re-pulls integration status. Without this
+             the grant strands the user on the website. -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="kokonada" android:host="integrations" />
+        </intent-filter>
         <!-- Android <=13: Health Connect rationale shown when the privacy-policy link is tapped -->
         <intent-filter>
             <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
