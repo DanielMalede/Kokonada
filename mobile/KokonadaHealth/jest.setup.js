@@ -44,13 +44,17 @@ jest.mock('react-native-reanimated', () => ({
   runOnJS: (fn) => fn,
   useSharedValue: (v) => ({ value: v }),
   useAnimatedStyle: (fn) => fn(),
+  useDerivedValue: (fn) => ({ value: fn() }),
   withTiming: (v) => v,
+  withSpring: (v) => v,
 }));
 
 const StubView = ({ children }) => children ?? null;
 jest.mock('@shopify/react-native-skia', () => ({
-  Canvas: StubView, Group: StubView, Circle: StubView, Blur: StubView,
+  Canvas: StubView, Group: StubView, Circle: StubView, Blur: StubView, Path: StubView,
   RadialGradient: StubView, vec: (x, y) => ({ x, y }),
+  useClock: () => ({ value: 0 }),
+  Skia: { Path: { Make: () => ({ moveTo() {}, lineTo() {}, addCircle() {}, close() {} }) } },
 }));
 
 jest.mock('react-native-gesture-handler', () => {
