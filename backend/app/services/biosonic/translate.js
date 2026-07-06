@@ -133,6 +133,16 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
 
   const tempoBand = bpmCenter < 100 ? 'resting' : bpmCenter <= 135 ? 'active' : 'peak';
 
+  // Intensity class for the un-relaxable texture gates (enforced, with env-tunable ceilings,
+  // in biosonicBand). Derived from the explicit-activity energy intent only: a high-exertion
+  // tap forbids acoustic timbre (kills the double-time acoustic-BPM artifact); a low-exertion
+  // tap forbids club-danceable tracks (an orthogonal cross-check on a mis-read energy). Mid
+  // activities and mood-only requests get no texture gate.
+  const activityIntensity = activityEnergy == null ? null
+    : activityEnergy >= 0.7 ? 'high'
+    : activityEnergy <= 0.2 ? 'low'
+    : null;
+
   // Confidence: one step down per missing input group; never below 0.3.
   const groups = [
     finite(baselines?.rhrMedian) != null || finite(baselines?.hrvMedian) != null,
@@ -156,6 +166,9 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
     // An explicit activity chip is a direct intent — the scorer lets the biosonic target
     // dominate the ranking so a high-affinity off-target track can't bury on-target ones.
     activityDriven: activityEnergy != null,
+    // Intensity class for the texture gates: 'high' → acousticness ceiling, 'low' → danceability
+    // ceiling, null → no texture gate (mid-exertion or mood-only).
+    activityIntensity,
     state: { recovery: round3(R), stress: round3(S), exertion: round3(E) },
   };
 }
