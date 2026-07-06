@@ -153,6 +153,9 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
     instrumentalBias,
     tempoBand,
     confidence,
+    // An explicit activity chip is a direct intent — the scorer lets the biosonic target
+    // dominate the ranking so a high-affinity off-target track can't bury on-target ones.
+    activityDriven: activityEnergy != null,
     state: { recovery: round3(R), stress: round3(S), exertion: round3(E) },
   };
 }
