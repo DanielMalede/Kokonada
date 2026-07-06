@@ -19,6 +19,7 @@ const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const featureService = require('../services/features/featureService');
+const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -558,6 +559,16 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       discovery: playlist.discovery.length,
     });
     log(`[generate] done trigger=${trigger} tracks=${clientTracks.length} familiar=${playlist.familiar.length} discovery=${playlist.discovery.length} reqId=${reqId}`);
+
+    // Warm the live-biometric buffer (Part 3): an HR-driven generation for the current band is
+    // cached under its bio-mood key so a Live-mode toggle plays instantly. Reuses THIS playlist
+    // (zero extra Groq cost on the free tier) instead of a duplicate worker generation;
+    // fire-and-forget. Storing records NO serves — serves happen only when a buffer is played (§3.5).
+    if (!useEmotion && isPhysiologicalHR(state.stableHR)) {
+      shadowBufferRepo.setBuffer(userId, moodKey, {
+        tracks: clientTracks, targets: playlist.targets, builtAt: Date.now(),
+      }).catch(() => {});
+    }
 
     // Session-history honesty: only record the emotion taps / prompt when the emotion
     // pipeline actually drove this generation. A heart/biometric mix must not be
