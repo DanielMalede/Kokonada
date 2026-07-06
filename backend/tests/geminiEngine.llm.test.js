@@ -85,6 +85,30 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn() }),
     ).rejects.toThrow('does not exist');
   });
+
+  it('retries a 429 rate-limit (honoring retry-after) instead of collapsing to the static fallback', async () => {
+    const rateLimited = Object.assign(new Error('429'), {
+      response: { status: 429, headers: { 'retry-after': '0' }, data: { error: { message: 'Rate limit reached (TPM)' } } },
+    });
+    axios.post
+      .mockRejectedValueOnce(rateLimited)
+      .mockResolvedValueOnce({ data: { choices: [{ message: { content: JSON.stringify(VALID) } }] } });
+    const fetchTracks = jest.fn().mockResolvedValue([]);
+
+    const result = await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks, seed: 'rate-limit-retry' });
+
+    expect(axios.post).toHaveBeenCalledTimes(2);   // the 429 was ridden out, not thrown to the fallback
+    expect(result.params.target_bpm).toBe(120);
+  });
+
+  it('a non-429 error still fails fast (surfaces to the caller\'s fallback, no retry storm)', async () => {
+    axios.post.mockRejectedValue({ response: { status: 400, data: { error: { message: 'bad request' } } } });
+
+    await expect(
+      buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: 'no-retry' }),
+    ).rejects.toThrow('bad request');
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── Layer 2: Groq critic re-rank (vibe energy filter) ─────────────────────────
