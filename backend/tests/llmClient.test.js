@@ -61,4 +61,46 @@ describe('llmClient.generateJson', () => {
 
     await expect(generateJson('p')).rejects.toThrow(/model decommissioned/);
   });
+
+  it('does NOT retry a non-429 error (fails fast on 404)', async () => {
+    axios.post.mockRejectedValue(Object.assign(new Error('404'), {
+      response: { status: 404, data: { error: { message: 'model decommissioned' } } },
+    }));
+
+    await expect(generateJson('p')).rejects.toThrow(/decommissioned/);
+    expect(axios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a 429 rate-limit honoring retry-after, then succeeds', async () => {
+    const rateLimited = Object.assign(new Error('429'), {
+      response: {
+        status: 429,
+        headers: { 'retry-after': '0' },
+        data: { error: { message: 'Rate limit reached (TPM)' } },
+      },
+    });
+    axios.post
+      .mockRejectedValueOnce(rateLimited)
+      .mockRejectedValueOnce(rateLimited)
+      .mockResolvedValueOnce({ data: { choices: [{ message: { content: '{"ok":1}' } }] } });
+
+    const out = await generateJson('p');
+
+    expect(out).toBe('{"ok":1}');
+    expect(axios.post).toHaveBeenCalledTimes(3); // two 429s ridden out, third lands
+  });
+
+  it('a persistent 429 past the retry budget surfaces the provider message', async () => {
+    const rateLimited = Object.assign(new Error('429'), {
+      response: {
+        status: 429,
+        headers: { 'retry-after': '0' },
+        data: { error: { message: 'Rate limit reached (TPM)' } },
+      },
+    });
+    axios.post.mockRejectedValue(rateLimited);
+
+    await expect(generateJson('p', { retries: 2 })).rejects.toThrow(/Rate limit reached/);
+    expect(axios.post).toHaveBeenCalledTimes(3); // initial + 2 retries, then gives up
+  });
 });
