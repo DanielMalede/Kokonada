@@ -81,14 +81,21 @@ export class PlaybackOrchestrator {
   // Play the queue's current track NOW (used for a new playlist / natural advance).
   private async playCurrent(): Promise<void> {
     const track = this.queue.current();
-    if (!track || !track.uri) { this.isPlaying = false; this.currentTrackId = null; this.emit(); return; }
+    if (!track || !track.uri) {
+      console.log('[koko] playCurrent: NO playable track (uri missing) — nothing to play');
+      this.isPlaying = false; this.currentTrackId = null; this.emit(); return;
+    }
     this.currentTrackId = track.id;
+    console.log('[koko] playCurrent → player.play uri=', track.uri);
     const res = await this.player.play(track.uri);
+    console.log('[koko] player.play RESULT ok=', res.ok, 'uri=', track.uri);
     this.isPlaying = res.ok; // a severed remote → truthfully not playing
     this.emit();
   }
 
   async handlePlaylist(payload: { tracks: QueueTrack[] }): Promise<void> {
+    console.log('[koko] orchestrator.handlePlaylist tracks=', payload?.tracks?.length ?? 0,
+      'first=', payload?.tracks?.[0]?.uri);
     this.cancelPendingPlay();
     this.clearGenerationGuard(); // the requested generation arrived
     this.queue.load(payload?.tracks ?? []);

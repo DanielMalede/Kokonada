@@ -150,9 +150,9 @@ describe('ATTACK 4 (autonomous): mixing Generate and Listen-to-heart requests', 
     const heartId = client.requestHeartPlaylist(80); // then switched to the heart
     expect(heartId).not.toBe(genId);
 
-    created[0].fire('playlist', { reqId: genId, tracks: ['stale-generate'] });
+    created[0].fire('playlist_ready', { reqId: genId, tracks: ['stale-generate'] });
     expect(onPlaylist).not.toHaveBeenCalled();    // the superseded generate is dropped
-    created[0].fire('playlist', { reqId: heartId, tracks: ['heart'] });
+    created[0].fire('playlist_ready', { reqId: heartId, tracks: ['heart'] });
     expect(onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ tracks: ['heart'] }));
   });
 });

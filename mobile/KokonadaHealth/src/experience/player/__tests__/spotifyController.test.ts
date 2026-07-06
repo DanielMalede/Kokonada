@@ -80,6 +80,30 @@ describe('SpotifyPlayerController — connect', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(controller.getState()).toBe('disconnected');
   });
+
+  it('coalesces overlapping connects into ONE native connect (no budget drain during the handshake)', async () => {
+    const remote = new FakeRemote();
+    let resolveConnect!: () => void;
+    remote.connect = jest.fn(async () => {
+      remote.connectAttempts += 1;
+      await new Promise<void>((res) => { resolveConnect = res; });
+      remote.connected = true;
+    });
+    const controller = new SpotifyPlayerController({
+      remote, getToken: async () => 'spotify-token', maxReconnects: 2,
+    });
+
+    // Two plays land during the SAME still-pending native handshake.
+    const p1 = controller.play('spotify:track:a');
+    const p2 = controller.play('spotify:track:b');
+    await new Promise((r) => setTimeout(r, 0)); // let the shared connect reach its pending point
+    resolveConnect();
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(remote.connect).toHaveBeenCalledTimes(1);        // ONE native connect, shared
+    expect(r1.ok && r2.ok).toBe(true);                      // both plays succeed once connected
+    expect([...remote.played].sort()).toEqual(['spotify:track:a', 'spotify:track:b']); // both played (order incidental)
+  });
 });
 
 describe('SpotifyPlayerController — playback', () => {

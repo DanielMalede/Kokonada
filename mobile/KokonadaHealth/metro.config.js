@@ -13,10 +13,16 @@ const config = {
     // crashes Metro's fallback watcher (ENOENT on .cxx/CMakeFiles/CMakeTmp/...). Exclude
     // them so Metro can run safely alongside a native rebuild.
     blockList: [
-      /[/\\]android[/\\]app[/\\]\.cxx[/\\].*/,
+      // Any CMake native build temp dir, in the app OR a node_modules library (e.g.
+      // react-native-reanimated/android/.cxx/...). CMake creates+deletes ephemeral
+      // cmTC_*.dir folders during a Gradle build; on Windows (no Watchman) watching
+      // them crashes Metro's fallback watcher with ENOENT. This catch-all is the fix.
+      /[/\\]\.cxx[/\\].*/,
       /[/\\]android[/\\]app[/\\]build[/\\].*/,
       /[/\\]android[/\\]\.gradle[/\\].*/,
       /[/\\]android[/\\]build[/\\].*/,
+      // Native build outputs inside node_modules libraries are never in the JS graph.
+      /[/\\]node_modules[/\\][^/\\]+[/\\]android[/\\]build[/\\].*/,
     ],
   },
 };

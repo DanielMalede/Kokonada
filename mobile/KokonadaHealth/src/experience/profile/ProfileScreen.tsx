@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, Alert } from 'react-native';
+import { View, Text, Pressable, ScrollView, Alert, Linking, AppState } from 'react-native';
 import { profileController } from './profileServices';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { warmStore } from '../../state/store';
+import { BACKEND_URL } from '../../health/config';
 import type { ProfileSnapshot } from './profileController';
 
 // The 5th tab: identity, integration status (Spotify via the live player state +
@@ -18,20 +19,85 @@ function Badge({ label, on }: { label: string; on: boolean }) {
   );
 }
 
+// Spotify integration row: shows a real "Connect" action when the account is not yet
+// linked (backend OR live App Remote), so the user can start the OAuth sign-in.
+function SpotifyRow({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
+      <Text style={{ fontSize: 15 }}>Spotify</Text>
+      {connected ? (
+        <Text style={{ fontSize: 14, color: '#3ecf8e' }}>Connected</Text>
+      ) : (
+        <Pressable onPress={onConnect} accessibilityRole="button" accessibilityLabel="connect-spotify"
+          style={{ paddingVertical: 6, paddingHorizontal: 18, borderRadius: 999, backgroundColor: '#1DB954' }}>
+          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Connect</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+// YouTube Music integration row: shown only when YouTube is connected as a data source.
+// Disconnecting clears it, purges the cached YouTube library, and rebuilds a Spotify-only
+// profile server-side (so the library becomes natively playable on Spotify).
+function YouTubeRow({ onDisconnect, busy }: { onDisconnect: () => void; busy: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
+      <Text style={{ fontSize: 15 }}>YouTube Music</Text>
+      <Pressable onPress={onDisconnect} disabled={busy} accessibilityRole="button" accessibilityLabel="disconnect-youtube"
+        style={{ paddingVertical: 6, paddingHorizontal: 18, borderRadius: 999, borderWidth: 1, borderColor: '#ccc', opacity: busy ? 0.6 : 1 }}>
+        <Text style={{ fontSize: 13 }}>{busy ? 'Rebuilding…' : 'Disconnect'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export function ProfileScreen() {
   const [snap, setSnap] = useState<ProfileSnapshot>({ me: null, integrations: null });
   const [spotify, setSpotify] = useState(playerStatusStore.getState().status);
   const [wearable, setWearable] = useState(warmStore.getState().biometricSource);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [ytBusy, setYtBusy] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    void profileController.loadProfile().then((s) => { if (mounted) setSnap(s); });
+    const reload = () => { void profileController.loadProfile().then((s) => { if (mounted) setSnap(s); }); };
+    reload();
     const offPlayer = playerStatusStore.subscribe((s) => { if (mounted) setSpotify(s.status); });
     const offWarm = warmStore.subscribe((s) => { if (mounted) setWearable(s.biometricSource); });
-    return () => { mounted = false; offPlayer(); offWarm(); };
+    // Returning from the Spotify OAuth browser (or any resume): re-pull integration
+    // status so the Spotify badge flips to Connected without a manual refresh.
+    const appSub = AppState.addEventListener('change', (st) => { if (st === 'active') reload(); });
+    return () => { mounted = false; offPlayer(); offWarm(); appSub?.remove?.(); };
   }, []);
+
+  const onConnectSpotify = async () => {
+    const ct = await profileController.getSpotifyConnectToken();
+    if (!ct) { Alert.alert('Could not start Spotify sign-in', 'Please try again in a moment.'); return; }
+    // returnTo=app tells the backend callback to deep-link back into this app (kokonada://…)
+    // instead of stranding the user on the website after they grant access.
+    const url = `${BACKEND_URL}/api/integrations/spotify/connect?ct=${encodeURIComponent(ct)}&returnTo=app`;
+    Linking.openURL(url).catch(() => Alert.alert('Could not open Spotify', 'No browser is available to complete sign-in.'));
+  };
+
+  // Disconnect YouTube → server clears the token, purges the cached YouTube pool, and
+  // rebuilds a Spotify-native profile. Reload status so the row disappears + the badge updates.
+  const onDisconnectYouTube = async () => {
+    setYtBusy(true);
+    try {
+      const res = await profileController.disconnectYouTube();
+      if (res.ok) {
+        Alert.alert('YouTube disconnected', `Rebuilt your Spotify library (${res.data.library} tracks).`);
+        const s = await profileController.loadProfile();
+        setSnap(s);
+      } else {
+        Alert.alert('Could not disconnect YouTube', 'Please try again in a moment.');
+      }
+    } finally {
+      setYtBusy(false);
+    }
+  };
 
   const onLogout = async () => {
     setBusy(true);
@@ -63,7 +129,8 @@ export function ProfileScreen() {
 
       <View>
         <Text style={{ fontSize: 13, opacity: 0.5, marginBottom: 4 }}>INTEGRATIONS</Text>
-        <Badge label="Spotify" on={spotify === 'connected' || !!integ?.spotifyConnected} />
+        <SpotifyRow connected={spotify === 'connected' || !!integ?.spotifyConnected} onConnect={onConnectSpotify} />
+        {integ?.youtubeConnected ? <YouTubeRow onDisconnect={onDisconnectYouTube} busy={ytBusy} /> : null}
         <Badge label="Wearable" on={wearable !== 'none' || !!me?.wearableProvider} />
       </View>
 

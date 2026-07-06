@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- App Remote checks whether the Spotify app is installed; on Android 11+ this
+       requires a <queries> entry for the Spotify package. -->
+  <queries>
+    <package android:name="com.spotify.music" />
+  </queries>
+</manifest>

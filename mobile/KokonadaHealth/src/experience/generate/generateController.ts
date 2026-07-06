@@ -3,16 +3,19 @@ import { addTap, type EmotionState, type Tap } from '../../state/cold/emotionSli
 import { TapCommitter } from '../../state/hot/laneCommit';
 import type { WarmStore } from '../../state/warm/warmStore';
 
-// The socket surface the Generate screen needs. KokonadaSocket implements both.
+// The socket surface the Generate screen needs. KokonadaSocket implements all.
 export interface SocketApi {
   requestPlaylist(): number;
   requestHeartPlaylist(hr: number | null): number;
+  // Push the current Live/Manual mode to the server (Part 2b). Optional so the unit
+  // tests can inject a minimal socket without it.
+  syncLiveMode?(): void;
 }
 
 interface RootState { emotion: EmotionState; }
 
-export type CtaMode = 'generate' | 'listen-to-heart' | 'disabled';
-export interface SubmitResult { mode: Exclude<CtaMode, 'disabled'>; reqId: number; }
+export type CtaMode = 'generate' | 'listen-to-heart' | 'live-tuned' | 'disabled';
+export interface SubmitResult { mode: Exclude<CtaMode, 'disabled' | 'live-tuned'>; reqId: number; }
 
 export interface GenerateControllerDeps {
   store: Store<RootState>;
@@ -20,6 +23,9 @@ export interface GenerateControllerDeps {
   socket: SocketApi;
   now?: () => number;
   minGapMs?: number;
+  // Dual-path preference (Part 2b). When Live mode is on, HR band shifts drive the queue
+  // from the precompiled buffer, so the manual CTA YIELDS — both must never drive at once.
+  isLiveMode?: () => boolean;
 }
 
 // Orchestrates the Generate screen. The hot lane (wheel worklet) calls commitTap
@@ -54,6 +60,9 @@ export class GenerateController {
   }
 
   ctaMode(): CtaMode {
+    // Live mode owns the queue (band shifts serve the buffer); the manual CTA yields so the
+    // two can't both drive it. This wins over any pending manual input.
+    if (this.deps.isLiveMode?.()) return 'live-tuned';
     if (this.hasEmotionInput()) return 'generate';
     if (this.liveHr() !== null) return 'listen-to-heart';
     return 'disabled';

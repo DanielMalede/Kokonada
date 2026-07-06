@@ -1,0 +1,17 @@
+{
+  "name": "@kokonada/spotify-remote",
+  "version": "0.0.1",
+  "description": "Kokonada Spotify App Remote TurboModule",
+  "private": true,
+  "source": "src/index.ts",
+  "main": "src/index.ts",
+  "react-native": "src/index.ts",
+  "codegenConfig": {
+    "name": "SpotifyRemoteSpec",
+    "type": "modules",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.kokonada.spotifyremote"
+    }
+  }
+}

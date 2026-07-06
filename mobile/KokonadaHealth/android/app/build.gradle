@@ -84,6 +84,11 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // Spotify App Remote / auth SDK: its LoginActivity manifest declares an
+        // intent-filter using these placeholders to catch the auth redirect. Values
+        // decompose SPOTIFY_REDIRECT_URI (kokonadahealth://spotify-callback) and must
+        // match the redirect URI registered in the Spotify dashboard.
+        manifestPlaceholders = [redirectSchemeName: "kokonadahealth", redirectHostName: "spotify-callback"]
     }
     signingConfigs {
         debug {

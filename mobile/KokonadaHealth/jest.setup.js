@@ -44,13 +44,17 @@ jest.mock('react-native-reanimated', () => ({
   runOnJS: (fn) => fn,
   useSharedValue: (v) => ({ value: v }),
   useAnimatedStyle: (fn) => fn(),
+  useDerivedValue: (fn) => ({ value: fn() }),
   withTiming: (v) => v,
+  withSpring: (v) => v,
 }));
 
 const StubView = ({ children }) => children ?? null;
 jest.mock('@shopify/react-native-skia', () => ({
-  Canvas: StubView, Group: StubView, Circle: StubView, Blur: StubView,
+  Canvas: StubView, Group: StubView, Circle: StubView, Blur: StubView, Path: StubView,
   RadialGradient: StubView, vec: (x, y) => ({ x, y }),
+  useClock: () => ({ value: 0 }),
+  Skia: { Path: { Make: () => ({ moveTo() {}, lineTo() {}, addCircle() {}, close() {} }) } },
 }));
 
 jest.mock('react-native-gesture-handler', () => {
@@ -75,16 +79,18 @@ jest.mock('react-native-mmkv', () => ({
     clearAll() { this._m.clear(); }
   },
 }));
-jest.mock('react-native-spotify-remote', () => ({
-  remote: {
+jest.mock('@kokonada/spotify-remote', () => ({
+  SpotifyRemote: {
+    configure: jest.fn(),
+    isSpotifyInstalled: jest.fn().mockResolvedValue(false),
+    authorize: jest.fn().mockResolvedValue('token'),
     connect: jest.fn().mockResolvedValue(undefined),
     disconnect: jest.fn().mockResolvedValue(undefined),
-    isConnectedAsync: jest.fn().mockResolvedValue(false),
+    isConnected: jest.fn().mockResolvedValue(false),
     playUri: jest.fn().mockResolvedValue(undefined),
     pause: jest.fn().mockResolvedValue(undefined),
     resume: jest.fn().mockResolvedValue(undefined),
-    addListener: jest.fn(),
-    removeAllListeners: jest.fn(),
+    getPlayerState: jest.fn().mockResolvedValue({ isPaused: true, trackUri: null }),
+    onRemoteDisconnected: jest.fn(() => () => {}),
   },
-  auth: { getSession: jest.fn().mockResolvedValue(null) },
 }));

@@ -6,9 +6,12 @@ jest.mock('../profileServices', () => ({
     loadProfile: jest.fn(),
     logout: jest.fn().mockResolvedValue(undefined),
     deleteAccount: jest.fn().mockResolvedValue({ ok: true, data: {} }),
+    disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } }),
+    getSpotifyConnectToken: jest.fn(),
   },
 }));
 
+import { Linking } from 'react-native';
 import { ProfileScreen } from '../ProfileScreen';
 import { profileController } from '../profileServices';
 import { playerStatusStore } from '../../player/playerStatusStore';
@@ -17,6 +20,7 @@ import { warmStore } from '../../../state/store';
 const loadProfile = profileController.loadProfile as jest.Mock;
 const logout = profileController.logout as jest.Mock;
 const deleteAccount = profileController.deleteAccount as jest.Mock;
+const disconnectYouTube = profileController.disconnectYouTube as jest.Mock;
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -87,10 +91,45 @@ describe('ProfileScreen', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  it('shows a YouTube Disconnect button when connected and routes it through the controller', async () => {
+    loadProfile.mockResolvedValue({
+      me: { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null },
+      integrations: { spotifyConnected: true, youtubeConnected: true },
+    });
+    const tree = await render();
+    expect(texts(tree.toJSON()).join(' ')).toContain('YouTube Music');
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'disconnect-youtube').props.onPress(); });
+    expect(disconnectYouTube).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('hides the YouTube row when YouTube is not connected', async () => {
+    const tree = await render(); // beforeEach integrations has no youtubeConnected
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'disconnect-youtube')).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('logout routes through the controller', async () => {
     const tree = await render();
     await ReactTestRenderer.act(async () => { await byLabel(tree, 'log-out').props.onPress(); });
     expect(logout).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('connect-spotify opens the OAuth URL with returnTo=app so the callback deep-links back into the app', async () => {
+    await ReactTestRenderer.act(async () => { playerStatusStore.getState().set('disconnected'); });
+    (profileController.getSpotifyConnectToken as jest.Mock).mockResolvedValue('ct-token');
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'connect-spotify').props.onPress(); });
+
+    expect(openURL).toHaveBeenCalledTimes(1);
+    const url = openURL.mock.calls[0][0];
+    expect(url).toContain('/api/integrations/spotify/connect?ct=');
+    expect(url).toContain('returnTo=app');
+
+    openURL.mockRestore();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

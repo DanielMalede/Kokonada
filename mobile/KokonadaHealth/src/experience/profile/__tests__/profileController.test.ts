@@ -17,6 +17,16 @@ describe('ProfileController.loadProfile', () => {
   });
 });
 
+describe('ProfileController.disconnectYouTube', () => {
+  it('calls DELETE /youtube/disconnect and returns the rebuild summary', async () => {
+    const apiDelete = jest.fn().mockResolvedValue(okRes({ rebuilt: true, provider: 'spotify', library: 240 }));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn() } as any);
+    const res = await c.disconnectYouTube();
+    expect(apiDelete).toHaveBeenCalledWith('/api/integrations/youtube/disconnect');
+    expect(res).toEqual(okRes({ rebuilt: true, provider: 'spotify', library: 240 }));
+  });
+});
+
 describe('ProfileController.logout', () => {
   it('revokes server-side FIRST (best-effort), THEN wipes local state', async () => {
     const order: string[] = [];
@@ -54,6 +64,22 @@ describe('ProfileController.deleteAccount (SERVER-FIRST)', () => {
     const res = await c.deleteAccount();
     expect(res.ok).toBe(false);
     expect(clearLocal).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProfileController.getSpotifyConnectToken', () => {
+  it('mints a single-use connect token via POST /connect-token', async () => {
+    const apiPost = jest.fn().mockResolvedValue(okRes({ connectToken: 'ct-abc' }));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost, apiDelete: jest.fn(), serverLogout: jest.fn(), clearLocal: jest.fn() } as any);
+    const ct = await c.getSpotifyConnectToken();
+    expect(apiPost).toHaveBeenCalledWith('/api/integrations/connect-token');
+    expect(ct).toBe('ct-abc');
+  });
+
+  it('returns null when the mint fails (so the screen opens no browser)', async () => {
+    const apiPost = jest.fn().mockResolvedValue(errRes(401));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost, apiDelete: jest.fn(), serverLogout: jest.fn(), clearLocal: jest.fn() } as any);
+    expect(await c.getSpotifyConnectToken()).toBeNull();
   });
 });
 

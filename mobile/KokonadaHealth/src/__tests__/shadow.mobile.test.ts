@@ -167,9 +167,9 @@ describe('ATTACK 3: Zombie navigation', () => {
     const sock = created[0];
     const ids = [client.requestPlaylist(), client.requestPlaylist(), client.requestPlaylist()];
     // responses arrive out of order (network + navigation churn)
-    sock.fire('playlist', { reqId: ids[0], tracks: ['a'] });
-    sock.fire('playlist', { reqId: ids[1], tracks: ['b'] });
-    sock.fire('playlist', { reqId: ids[2], tracks: ['c'] });
+    sock.fire('playlist_ready', { reqId: ids[0], tracks: ['a'] });
+    sock.fire('playlist_ready', { reqId: ids[1], tracks: ['b'] });
+    sock.fire('playlist_ready', { reqId: ids[2], tracks: ['c'] });
     expect(onPlaylist).toHaveBeenCalledTimes(1);
     expect(onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ tracks: ['c'] }));
   });
@@ -182,7 +182,7 @@ describe('ATTACK 3: Zombie navigation', () => {
     client.disconnect(); // user navigated away / tore the screen down
     // handlers are detached on disconnect, so the late response is dropped, not
     // delivered into a torn-down screen (the classic RN unmounted-callback crash).
-    expect(() => sock.fire('playlist', { reqId: id, tracks: ['late'] })).not.toThrow();
+    expect(() => sock.fire('playlist_ready', { reqId: id, tracks: ['late'] })).not.toThrow();
     expect(onPlaylist).not.toHaveBeenCalled();
   });
 });
@@ -293,9 +293,9 @@ describe('ATTACK 8: autonomously-discovered mobile vulnerabilities', () => {
     client.connect();
     const id = client.requestPlaylist(); // numeric 1
     // attacker replays with string "1", object, array — strict !== must reject all
-    created[0].fire('playlist', { reqId: String(id), tracks: ['x'] });
-    created[0].fire('playlist', { reqId: { valueOf: () => id }, tracks: ['x'] });
-    created[0].fire('playlist', { reqId: [id], tracks: ['x'] });
+    created[0].fire('playlist_ready', { reqId: String(id), tracks: ['x'] });
+    created[0].fire('playlist_ready', { reqId: { valueOf: () => id }, tracks: ['x'] });
+    created[0].fire('playlist_ready', { reqId: [id], tracks: ['x'] });
     expect(onPlaylist).not.toHaveBeenCalled();
   });
 
@@ -325,7 +325,7 @@ describe('ATTACK 8: autonomously-discovered mobile vulnerabilities', () => {
     // would spuriously log the user out) and a stale playlist must not render.
     dead.fire('auth_expired');
     dead.fire('auth_expired');
-    dead.fire('playlist', { reqId: 1, tracks: ['ghost'] });
+    dead.fire('playlist_ready', { reqId: 1, tracks: ['ghost'] });
     await flush();
 
     expect(onLoggedOut).not.toHaveBeenCalled();
