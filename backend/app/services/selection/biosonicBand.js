@@ -15,6 +15,12 @@ const E_TOL = () => parseFloat(process.env.BAND_E_TOL ?? '0.1');
 // exertion wants a range of energetic music, not the step-cadence point — and the stress
 // narrowing must not apply). featureFit still sorts exact tempo within it.
 const INTENT_BPM_SPAN = () => parseFloat(process.env.BAND_INTENT_BPM_SPAN ?? '40');
+// Texture outlier ceilings, applied ONLY under an explicit exertion intent (activityIntensity).
+// High exertion: a fast ACOUSTIC track is almost always a double-time BPM artifact — its acoustic
+// timbre is invariant to the octave error, so the ceiling drops it structurally. Low exertion: a
+// club-danceable track betrays a mis-read-low energy — an orthogonal cross-check on the energy gate.
+const ACOUSTIC_CEIL = () => parseFloat(process.env.BAND_ACOUSTIC_CEIL ?? '0.4');
+const DANCE_CEIL    = () => parseFloat(process.env.BAND_DANCE_CEIL ?? '0.6');
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
@@ -50,6 +56,15 @@ function withinBand(track, targets = {}) {
   if (Number.isFinite(energy) && Number.isFinite(floor) && Number.isFinite(ceil)) {
     const margin = (tau - W_MIN()) * E_TOL();
     if (energy < floor - margin || energy > ceil + margin) return false;
+  }
+
+  // Texture outlier rejection — un-relaxable, orthogonal to energy/tempo, gated by exertion intent.
+  if (targets.activityIntensity === 'high') {
+    const acoustic = Number(f.acousticness);
+    if (Number.isFinite(acoustic) && acoustic > ACOUSTIC_CEIL()) return false; // acoustic double-time
+  } else if (targets.activityIntensity === 'low') {
+    const dance = Number(f.danceability);
+    if (Number.isFinite(dance) && dance > DANCE_CEIL()) return false; // intensity bleed into calm
   }
   return true;
 }

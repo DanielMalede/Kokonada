@@ -271,6 +271,35 @@ describe('score.scoreTrack', () => {
     expect(scoreTrack(onTempo, { ...base, targets: intent }).total)
       .toBeGreaterThan(scoreTrack(offTempo, { ...base, targets: intent }).total);
   });
+
+  it('an activity-driven request boosts a PROVEN, RHYTHMIC, on-target track over its tail-affinity twin', () => {
+    const targets = { bpmCenter: 162, bpmWidth: 20, energyFloor: 0.4, energyCeiling: 0.9, valenceTarget: 0.5, confidence: 0.9, activityDriven: true };
+    const base = { targets, maxAffinity: 10, allowGenres: [], exposure: new Map(), now: Date.now() };
+    const feats = { bpm: 162, energy: 0.8, valence: 0.5, danceability: 0.9 };
+    const proven = scoreTrack({ id: 'p', canonicalKey: 'kp', affinity: 10, features: feats }, base); // top affinity
+    const tail   = scoreTrack({ id: 't', canonicalKey: 'kt', affinity: 0,  features: feats }, base); // long tail
+
+    expect(proven.terms.provenRotation).toBeGreaterThan(0);
+    expect(tail.terms.provenRotation).toBe(0);              // below the proven floor → no boost
+    expect(proven.total).toBeGreaterThan(tail.total);
+  });
+
+  it('the rotation boost is disabled in mood (non-activity) mode', () => {
+    const targets = { bpmCenter: 120, bpmWidth: 20, energyFloor: 0.3, energyCeiling: 0.8, valenceTarget: 0.6, confidence: 0.9 };
+    const base = { targets, maxAffinity: 10, allowGenres: [], exposure: new Map(), now: Date.now() };
+    const out = scoreTrack({ id: 'p', canonicalKey: 'kp', affinity: 10, features: { bpm: 120, energy: 0.5, valence: 0.6, danceability: 0.9 } }, base);
+
+    expect(out.terms.provenRotation).toBe(0);
+  });
+
+  it('a proven RHYTHMIC track earns more rotation than an equally-proven NON-rhythmic one', () => {
+    const targets = { bpmCenter: 162, bpmWidth: 20, energyFloor: 0.4, energyCeiling: 0.9, valenceTarget: 0.5, confidence: 0.9, activityDriven: true };
+    const base = { targets, maxAffinity: 10, allowGenres: [], exposure: new Map(), now: Date.now() };
+    const rhythmic    = scoreTrack({ id: 'r', canonicalKey: 'kr', affinity: 10, features: { bpm: 162, energy: 0.8, valence: 0.5, danceability: 0.9 } }, base);
+    const nonRhythmic = scoreTrack({ id: 'n', canonicalKey: 'kn', affinity: 10, features: { bpm: 162, energy: 0.8, valence: 0.5, danceability: 0.2 } }, base);
+
+    expect(rhythmic.terms.provenRotation).toBeGreaterThan(nonRhythmic.terms.provenRotation);
+  });
 });
 
 // ── mmr ───────────────────────────────────────────────────────────────────────

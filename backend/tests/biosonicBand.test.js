@@ -56,6 +56,31 @@ describe('biosonicBand.withinBand — activity-driven (energy-primary, wide temp
   });
 });
 
+describe('biosonicBand.withinBand — texture outlier gates', () => {
+  const high = { bpmCenter: 162, bpmWidth: 8, energyFloor: 0.4, energyCeiling: 0.9, confidence: 0.85, activityDriven: true, activityIntensity: 'high' };
+  const low  = { bpmCenter: 70, bpmWidth: 15, energyFloor: 0.05, energyCeiling: 0.25, confidence: 0.85, activityDriven: true, activityIntensity: 'low' };
+
+  it('high-exertion HARD-DROPS an acoustic double-time track (acousticness > 0.4) despite on-tempo/on-energy', () => {
+    expect(withinBand({ features: { bpm: 160, energy: 0.7, acousticness: 0.85 } }, high)).toBe(false);
+  });
+  it('high-exertion keeps a produced track at/under the acousticness ceiling', () => {
+    expect(withinBand({ features: { bpm: 160, energy: 0.7, acousticness: 0.1 } }, high)).toBe(true);
+  });
+  it('low-exertion HARD-DROPS a club-danceable track (danceability > 0.6) — the intensity cross-check', () => {
+    expect(withinBand({ features: { bpm: 72, energy: 0.2, danceability: 0.9 } }, low)).toBe(false);
+  });
+  it('low-exertion keeps a calm, non-danceable track', () => {
+    expect(withinBand({ features: { bpm: 72, energy: 0.2, danceability: 0.3 } }, low)).toBe(true);
+  });
+  it('mid-exertion (no intensity class) applies NEITHER texture gate', () => {
+    const mid = { bpmCenter: 118, bpmWidth: 20, energyFloor: 0.2, energyCeiling: 0.7, confidence: 0.85, activityDriven: true };
+    expect(withinBand({ features: { bpm: 118, energy: 0.5, acousticness: 0.9, danceability: 0.95 } }, mid)).toBe(true);
+  });
+  it('a featureless track still passes regardless of the texture gate', () => {
+    expect(withinBand({ features: null }, high)).toBe(true);
+  });
+});
+
 describe('biosonicBand.filterBand', () => {
   it('filters a list to on-band tracks, keeping featureless ones', () => {
     const targets = { bpmCenter: 70, bpmWidth: 15, energyFloor: 0.1, energyCeiling: 0.3, confidence: 1 };

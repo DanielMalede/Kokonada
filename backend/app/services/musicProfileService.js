@@ -20,7 +20,7 @@ const SOURCE_WEIGHTS = {
   topLong:   4, // long-term core taste
   saved:     3,
   recent:    2,
-  playlist:  1,
+  playlist:  4, // a curated playlist is a DELIBERATE choice — weight it with the long-term core, not the floor (was 1)
 };
 
 // How much one subscribed music channel counts toward YouTube's provider weight, relative
@@ -583,6 +583,7 @@ async function buildProfile(userId, user, onProgress = () => {}) {
 
 module.exports = {
   buildProfile,
+  SOURCE_WEIGHTS,
   // Exported for unit testing
   _analyzeSpotifyProfile,
   _analyzeYouTubeTracks,

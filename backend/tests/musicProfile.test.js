@@ -39,6 +39,7 @@ const {
   _analyzeYouTubeTracks,
   _deduplicateById,
   _rankByFrequency,
+  SOURCE_WEIGHTS,
 } = require('../app/services/musicProfileService');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -114,6 +115,16 @@ describe('_deduplicateById', () => {
 
   it('handles empty array', () => {
     expect(_deduplicateById([])).toEqual([]);
+  });
+});
+
+// ── SOURCE_WEIGHTS (listening-source affinity) ────────────────────────────────
+
+describe('SOURCE_WEIGHTS — curated playlists are a deliberate signal', () => {
+  it('weights a curated playlist above passive recent/saved listening, but not above top tracks', () => {
+    expect(SOURCE_WEIGHTS.playlist).toBeGreaterThan(SOURCE_WEIGHTS.recent);
+    expect(SOURCE_WEIGHTS.playlist).toBeGreaterThan(SOURCE_WEIGHTS.saved);
+    expect(SOURCE_WEIGHTS.playlist).toBeLessThanOrEqual(SOURCE_WEIGHTS.topLong);
   });
 });
 

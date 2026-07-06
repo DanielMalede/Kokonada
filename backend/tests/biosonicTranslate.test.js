@@ -129,6 +129,19 @@ describe('translate() — activity chips drive the target (the app\'s primary in
     expect(translate({ moodKey: 'calm' }).activityDriven).toBe(false);
     expect(translate({}).activityDriven).toBe(false);
   });
+
+  it('classifies exertion intensity for the texture gates (high / low / mid / none)', () => {
+    // high-exertion → the acousticness ceiling gate; low-exertion → the danceability ceiling gate.
+    expect(translate({ live: { activity: 'running' } }).activityIntensity).toBe('high');
+    expect(translate({ live: { activity: 'workout' } }).activityIntensity).toBe('high');
+    expect(translate({ live: { activity: 'swimming' } }).activityIntensity).toBe('high');
+    expect(translate({ live: { activity: 'resting' } }).activityIntensity).toBe('low');
+    expect(translate({ live: { activity: 'winding down' } }).activityIntensity).toBe('low');
+    // mid-exertion activities and mood-only requests get no texture gate.
+    expect(translate({ live: { activity: 'walking' } }).activityIntensity).toBeNull();
+    expect(translate({ moodKey: 'calm' }).activityIntensity).toBeNull();
+    expect(translate({}).activityIntensity).toBeNull();
+  });
 });
 
 describe('translate() — degradation & purity', () => {
