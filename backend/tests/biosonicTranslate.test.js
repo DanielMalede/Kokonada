@@ -97,6 +97,34 @@ describe('translate() — entrainment & context rules', () => {
   });
 });
 
+describe('translate() — activity chips drive the target (the app\'s primary input)', () => {
+  it('an explicit workout drives energetic targets even on a wrecked body at 2am (activity wins over the recovery/night gate)', () => {
+    const out = translate({
+      ...WRECKED,
+      hourOfDay: 2,
+      live: { activity: 'workout' }, // no HR — an explicit manual chip
+      moodKey: 'calm',               // a stale calm tap must NOT keep it calm
+    });
+    expect(out.energyCeiling).toBeGreaterThanOrEqual(0.85);
+    expect(out.energyFloor).toBeGreaterThan(0.4);
+    expect(out.tempoBand).toBe('peak');
+    expect(out.bpmCenter).toBeGreaterThanOrEqual(136);
+  });
+
+  it('running cadence-locks to an energetic tempo despite a stale calm mood tap', () => {
+    const out = translate({ live: { activity: 'running' }, moodKey: 'calm', hourOfDay: 2 });
+    expect(out.bpmCenter).toBe(162);
+    expect(out.tempoBand).toBe('peak');
+    expect(out.energyCeiling).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it('a low-exertion activity keeps a calm tempo even if a high-energy mood was tapped', () => {
+    const out = translate({ live: { activity: 'resting' }, moodKey: 'energize', hourOfDay: 14 });
+    expect(out.tempoBand).toBe('resting');
+    expect(out.bpmCenter).toBeLessThan(100);
+  });
+});
+
 describe('translate() — degradation & purity', () => {
   it('produces a complete, in-range result from ZERO inputs (cold start)', () => {
     const out = translate({});
