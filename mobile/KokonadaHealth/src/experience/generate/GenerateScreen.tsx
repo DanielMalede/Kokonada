@@ -9,6 +9,7 @@ import { GenerateController, type SocketApi } from './generateController';
 import { NeuralAnalysisLoader } from './NeuralAnalysisLoader';
 import { generationStatusStore } from './generationStatusStore';
 import { useSharedValue } from 'react-native-reanimated';
+import { liveModeStore } from './liveModeStore';
 import { warmStore } from '../../state/store';
 import { playbackSocket } from '../playback/playbackServices';
 import type { Tap } from '../../state/cold/emotionSlice';
@@ -62,6 +63,14 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
     const extra = (emotion.activity ? 0.2 : 0) + Math.min(0.2, (emotion.taps?.length ?? 0) * 0.08);
     engagement.value = Math.min(1, base + extra);
   }, [emotion, engagement]);
+
+  // Dual-path preference (Part 2b). Manual → this screen drives generation; Live Biometric
+  // → HR band shifts drive it from the precompiled buffer. Persisted in liveModeStore.
+  const [liveMode, setLiveMode] = useState(liveModeStore.getState().liveMode);
+  useEffect(() => {
+    setLiveMode(liveModeStore.getState().liveMode);
+    return liveModeStore.subscribe((s) => setLiveMode(s.liveMode));
+  }, []);
   const label = mode === 'listen-to-heart' ? 'Listen to your heart' : 'Generate';
 
   return (
@@ -75,6 +84,17 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
           </View>
         ) : null}
       </View>
+      <Pressable
+        onPress={() => liveModeStore.getState().setLiveMode(!liveMode)}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: liveMode }}
+        accessibilityLabel="live-mode-toggle"
+        style={{ paddingVertical: 8, paddingHorizontal: 18, borderRadius: 20, borderWidth: 1, backgroundColor: liveMode ? 'rgba(49,225,196,0.13)' : 'transparent', borderColor: liveMode ? '#31e1c4' : '#8886' }}
+      >
+        <Text style={{ color: liveMode ? '#31e1c4' : '#999', fontSize: 13, fontWeight: '600', letterSpacing: 0.3 }}>
+          {liveMode ? '● Live Biometric' : 'Manual'}
+        </Text>
+      </Pressable>
       <ActivityChips />
       <PromptBox />
       <Pressable

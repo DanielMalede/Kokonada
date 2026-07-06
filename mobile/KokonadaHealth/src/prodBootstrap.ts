@@ -9,6 +9,7 @@ import { warmStore, store } from './state/store';
 import { ColdPersistence } from './state/cold/coldPersistence';
 import { setColdPersistence } from './state/cold/coldPersistenceHolder';
 import { createSecureStore } from './storage/secureStoreFactory';
+import { bindLiveModeKV } from './experience/generate/liveModeStore';
 import type { SecureStore } from './storage/secureStore';
 
 // Production ignition. Composes the tested `bootstrapApp` sequence with the real
@@ -32,6 +33,12 @@ export async function startApp(): Promise<void> {
   } catch {
     secureStore = null;
   }
+
+  // Persist the Live/Manual preference through the same encrypted store (Part 2b),
+  // adapted to the KV port bindLiveModeKV expects. Best-effort — a null store just
+  // leaves liveMode at its in-memory Manual default.
+  const s = secureStore;
+  if (s) bindLiveModeKV({ getString: (k) => s.getItem(k) ?? undefined, set: (k, v) => { s.setItem(k, v); } });
 
   // Recover the logged-in identity from a stored session (currentUser is in-memory and
   // does not survive a restart; the token does).
