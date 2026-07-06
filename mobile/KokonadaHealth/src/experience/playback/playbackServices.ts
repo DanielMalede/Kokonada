@@ -8,6 +8,7 @@ import { store, warmStore } from '../../state/store';
 import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrator';
 import { nowPlayingStore } from './nowPlayingStore';
 import { playbackErrorStore } from './playbackErrorStore';
+import { generationStatusStore } from '../generate/generationStatusStore';
 
 // App-level bootstrap: constructs the session → socket → player → orchestrator
 // graph and wires them together. This is the on-device glue; every component it
@@ -34,9 +35,10 @@ export const kokoSocket = new KokonadaSocket({
     const e = store.getState().emotion;
     return { taps: e.taps, textPrompt: e.textPrompt, activity: e.activity };
   },
-  onPlaylist: (payload) => { playbackErrorStore.getState().clear(); void orchestrator.handlePlaylist(payload); },
+  onPlaylist: (payload) => { generationStatusStore.getState().settle(); playbackErrorStore.getState().clear(); void orchestrator.handlePlaylist(payload); },
   onLoggedOut: () => { void authSession.clear(); },
   onGenerationError: (message) => {
+    generationStatusStore.getState().settle();                         // stop the analysis loader
     orchestrator.onGenerationError();                                  // unblock the generation guard
     playbackErrorStore.getState().set(message ?? 'Could not generate a playlist — try again');
   },
@@ -50,8 +52,8 @@ export const kokoSocket = new KokonadaSocket({
 // replaces a one-shot `socketStarted` latch that permanently blocked reconnection once
 // the first open failed (e.g. a tokenless boot), which stranded the socket at hasSocket=false.
 export const playbackSocket: PlaybackSocket = {
-  requestPlaylist: () => kokoSocket.requestPlaylist(),
-  requestHeartPlaylist: (hr) => kokoSocket.requestHeartPlaylist(hr),
+  requestPlaylist: () => { generationStatusStore.getState().begin(); return kokoSocket.requestPlaylist(); },
+  requestHeartPlaylist: (hr) => { generationStatusStore.getState().begin(); return kokoSocket.requestHeartPlaylist(hr); },
   ensureConnected: () => kokoSocket.ensureOpen(),
 };
 

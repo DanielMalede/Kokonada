@@ -6,6 +6,9 @@ import { BioAura } from '../aura/BioAura';
 import { ActivityChips } from './ActivityChips';
 import { PromptBox } from './PromptBox';
 import { GenerateController, type SocketApi } from './generateController';
+import { NeuralAnalysisLoader } from './NeuralAnalysisLoader';
+import { generationStatusStore } from './generationStatusStore';
+import { useSharedValue } from 'react-native-reanimated';
 import { warmStore } from '../../state/store';
 import { playbackSocket } from '../playback/playbackServices';
 import type { Tap } from '../../state/cold/emotionSlice';
@@ -41,8 +44,24 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
 
   // Re-render the CTA whenever committed intent changes (activity chip / prompt),
   // so its Generate ↔ Listen-to-heart ↔ disabled state stays truthful.
-  useSelector((s: any) => s.emotion);
+  const emotion = useSelector((s: any) => s.emotion);
   const mode = controller.ctaMode();
+
+  // The Neural-Analysis Loader overlays the hero while a generation is in flight.
+  // `engagement` (0..1 prompt richness) lives in a SharedValue so the animation reads
+  // it on the UI thread without a React re-render each keystroke.
+  const [generating, setGenerating] = useState(generationStatusStore.getState().generating);
+  useEffect(() => {
+    setGenerating(generationStatusStore.getState().generating);
+    return generationStatusStore.subscribe((s) => setGenerating(s.generating));
+  }, []);
+  const engagement = useSharedValue(0);
+  useEffect(() => {
+    const len = emotion.textPrompt?.length ?? 0;
+    const base = Math.pow(len / 60, 0.8);
+    const extra = (emotion.activity ? 0.2 : 0) + Math.min(0.2, (emotion.taps?.length ?? 0) * 0.08);
+    engagement.value = Math.min(1, base + extra);
+  }, [emotion, engagement]);
   const label = mode === 'listen-to-heart' ? 'Listen to your heart' : 'Generate';
 
   return (
@@ -50,6 +69,11 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
       <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
         <View style={{ position: 'absolute' }}><BioAura hr={hr} size={size} /></View>
         <RadialWheel size={size} committedTaps={taps} onCommit={onCommit} />
+        {generating ? (
+          <View style={{ position: 'absolute' }} pointerEvents="none">
+            <NeuralAnalysisLoader active={generating} engagement={engagement} size={size} />
+          </View>
+        ) : null}
       </View>
       <ActivityChips />
       <PromptBox />
