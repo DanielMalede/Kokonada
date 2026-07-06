@@ -90,7 +90,7 @@ const garminIngest = require('../app/services/wearable/garminIngest');
 const User        = require('../app/models/User');
 const MusicProfile = require('../app/models/MusicProfile');
 const featureService = require('../app/services/features/featureService');
-const { signOauthState } = require('../app/utils/jwt');
+const { signOauthState, verifyOauthState } = require('../app/utils/jwt');
 
 const ctrl = require('../app/controllers/integrationsController');
 const { normalize } = require('../app/services/wearable/adapter');
@@ -149,10 +149,29 @@ describe('Spotify OAuth flow', () => {
       const stateArg = spotify.getAuthUrl.mock.calls[0][0];
       expect(stateArg.split('.')).toHaveLength(3); // header.payload.signature
     });
+
+    it('threads returnTo=app into the signed state for a mobile connect', () => {
+      spotify.getAuthUrl.mockReturnValue('https://accounts.spotify.com/authorize');
+
+      ctrl.spotifyConnect({ user: buildUser(), query: { returnTo: 'app' } }, buildRes());
+
+      const stateArg = spotify.getAuthUrl.mock.calls[0][0];
+      expect(verifyOauthState(stateArg).returnTo).toBe('app');
+    });
+
+    it('leaves returnTo unset for a web connect (default)', () => {
+      spotify.getAuthUrl.mockReturnValue('https://accounts.spotify.com/authorize');
+
+      ctrl.spotifyConnect({ user: buildUser() }, buildRes());
+
+      const stateArg = spotify.getAuthUrl.mock.calls[0][0];
+      expect(verifyOauthState(stateArg).returnTo).toBeUndefined();
+    });
   });
 
   describe('spotifyCallback', () => {
     const validState = () => signOauthState('user-123', 'spotify');
+    const appState   = () => signOauthState('user-123', 'spotify', { returnTo: 'app' });
 
     it('redirects with an error when Spotify returns an error param', async () => {
       const req = { query: { error: 'access_denied' }, cookies: {} };
@@ -198,6 +217,24 @@ describe('Spotify OAuth flow', () => {
       expect(user.setToken).toHaveBeenCalledWith('spotifyToken', tokens);
       expect(user.save).toHaveBeenCalled();
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
+    });
+
+    it('deep-links back into the native app on success when the state carried returnTo=app', async () => {
+      spotify.exchangeCode.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', expiresAt: Date.now() + 3600000 });
+      spotify.getProfile.mockResolvedValue({ spotifyId: 'sp', displayName: 'T' });
+      User.findById.mockResolvedValue(buildUser());
+
+      const res = buildRes();
+      await ctrl.spotifyCallback({ query: { code: 'auth-code', state: appState() }, cookies: {} }, res);
+
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=spotify');
+    });
+
+    it('deep-links an error back into the native app when returnTo=app', async () => {
+      const res = buildRes();
+      await ctrl.spotifyCallback({ query: { error: 'access_denied', state: appState() }, cookies: {} }, res);
+
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=spotify_access_denied');
     });
 
     it('redirects with error=spotify_failed on service failure (never raw JSON)', async () => {
