@@ -74,6 +74,11 @@ jest.mock('../app/services/ledger/serveLedger', () => ({
   getExposure:  jest.fn().mockResolvedValue(new Map()),
 }));
 
+jest.mock('../app/repositories/shadowBufferRepo', () => ({
+  getBuffer: jest.fn().mockResolvedValue(null),
+  setBuffer: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock('../app/services/wearable/adapter', () => ({
   normalize: jest.fn((source, raw) => {
     const KNOWN = ['garmin', 'apple_watch', 'fitbit'];
@@ -97,9 +102,12 @@ const youtube         = require('../app/services/youtube');
 const geminiEngine    = require('../app/services/geminiEngine');
 const playlistMixer   = require('../app/services/playlistMixer');
 
+const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
+
 const {
   registerBiometricHandler,
   generateAndEmitPlaylist,
+  recalibrateForBand,
   resolveBiometricContext,
   _debounceMap,
 } = require('../app/sockets/biometricHandler');
@@ -222,6 +230,8 @@ beforeEach(() => {
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
   PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
   MedicalProfile.findOne.mockResolvedValue(null);
+  shadowBufferRepo.getBuffer.mockResolvedValue(null); // default: cold buffer
+  shadowBufferRepo.setBuffer.mockResolvedValue(true);
   mockRecentSessions([]);
 });
 
@@ -918,6 +928,7 @@ describe('socket event dispatch wiring', () => {
 
     const socket = makeSocket();
     registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true }); // band transitions auto-drive only in Live mode
 
     socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
     socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 80 } });
@@ -979,6 +990,8 @@ describe('handleBiometricReading immediate mode', () => {
 
   it('triggers generation on the first reading (no prior baseline)', async () => {
     const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true }); // band transitions auto-drive only in Live mode
     handleBiometricReading(socket, 'garmin', { heartRate: 140 }, { immediate: true });
     await new Promise(r => setTimeout(r, 50));
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
@@ -996,6 +1009,8 @@ describe('handleBiometricReading immediate mode', () => {
 
   it('re-triggers when the change is >= 25 bpm', async () => {
     const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
     handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
     await new Promise(r => setTimeout(r, 50));
     geminiEngine.adjustBiometricPlaylist.mockClear();
@@ -1021,6 +1036,8 @@ describe('activity-mode change triggers regeneration', () => {
 
   it('immediate: re-triggers on a new activity even when HR is flat', async () => {
     const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
     handleBiometricReading(socket, 'garmin', { heartRate: 100, activityType: 0 }, { immediate: true }); // resting
     await new Promise(r => setTimeout(r, 50));
     geminiEngine.adjustBiometricPlaylist.mockClear();
@@ -1154,5 +1171,96 @@ describe('generation timeout (hard wall-clock bound)', () => {
 
     // ...but every emit in the superseded run is epoch-guarded → no stale playlist reaches the client.
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+});
+
+// ── Live-mode band recalibration (Part 2b, slice 4) ───────────────────────────
+// In Live mode a CONFIRMED band transition SERVES the precompiled buffer for the new
+// band instead of generating fresh (§3.4). Manual users are never auto-driven (the
+// mode-gate). Serves are recorded ONLY when a buffer is actually PLAYED (§3.5).
+
+describe('Live-mode band recalibration (slice 4)', () => {
+  const serveLedger  = require('../app/services/ledger/serveLedger');
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  const BUFFER_TRACKS = [
+    { id: 'b1', uri: 'spotify:track:b1', title: 'Buffered One', artist: 'Artist X' },
+    { id: 'b2', uri: 'spotify:track:b2', title: 'Buffered Two', artist: 'Artist Y' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 1, targets: { bpmCenter: 150 }, builtAt: Date.now(),
+    });
+  }
+
+  it('mode-gate: a Manual-mode socket is never auto-driven on a band transition', async () => {
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: false, stableHR: 150, latestActivity: 'running' }));
+
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+    expect(orchestrator.generateV2).not.toHaveBeenCalled();
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('warm buffer: serves the precompiled buffer instantly, without a fresh generation', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: true, stableHR: 150, latestActivity: 'running' }));
+
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call).toBeDefined();
+    expect(call[1]).toMatchObject({ trigger: 'biometric', buffered: true, familiar: 1, discovery: 1 });
+    expect(call[1].tracks).toHaveLength(BUFFER_TRACKS.length);
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:peak:running');
+    expect(orchestrator.generateV2).not.toHaveBeenCalled(); // served from buffer — zero Groq spend
+  });
+
+  it('§3.5 serve-on-play: serving a warm buffer records serves for the played tracks under the bio moodKey', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: true, stableHR: 150, latestActivity: 'running' }));
+
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+    const arg = serveLedger.recordServes.mock.calls.at(-1)[0];
+    expect(arg.entries).toHaveLength(BUFFER_TRACKS.length);
+    expect(arg.entries[0]).toEqual(expect.objectContaining({
+      canonicalKey: expect.stringMatching(/^at:/),
+      moodKey: 'bio:peak:running',
+      bioState: expect.objectContaining({ tempoBand: 'peak', activity: 'running' }),
+    }));
+  });
+
+  it('§3.5 precompile records NO serves: warming the buffer store never triggers recordServes', async () => {
+    // A biometric generation warms the buffer (setBuffer) AND emits the play. recordServes
+    // must fire exactly once — for the emitted PLAY — never a second time for the STORE.
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 150, latestActivity: 'running' }));
+
+    expect(shadowBufferRepo.setBuffer).toHaveBeenCalledTimes(1); // the precompile store happened
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);   // ...but it recorded ZERO extra serves
+  });
+
+  it('cold buffer: shows the assembling loader, then falls back to a one-time live generation', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null); // cold — no buffer for this band yet
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: true, stableHR: 150, latestActivity: 'running' }));
+
+    expect(socket.emit).toHaveBeenCalledWith('live_assembling', expect.objectContaining({
+      message: expect.stringMatching(/assembling your live biometric soundscape/i),
+    }));
+    expect(orchestrator.generateV2).toHaveBeenCalled(); // the one-time live fallback ran
+  });
+});
+
+describe('live_mode socket event', () => {
+  it('sets the per-socket liveMode flag (default is Manual/false)', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('live_mode', { enabled: true });
+    expect(_debounceMap.get(socket.id).liveMode).toBe(true);
+
+    socket._trigger('live_mode', { enabled: false });
+    expect(_debounceMap.get(socket.id).liveMode).toBe(false);
   });
 });

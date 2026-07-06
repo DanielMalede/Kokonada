@@ -154,6 +154,12 @@ function getState(socketId) {
       lastReqId:        undefined,
       // In-flight guard — collapses overlapping generations on one socket.
       generating:       false,
+      // Dual-path mode (Part 2b): false = Manual (user presses Generate), true = Live
+      // Biometric (HR band shifts auto-recalibrate from the precompiled buffer). Default
+      // Manual so a client that never opts in is NEVER auto-driven (§3, mode-gate). Set
+      // by the `live_mode` event; also gates the watch HR-ingest, which drives this same
+      // socket (integrationsController.watchHrIngest → handleBiometricReading).
+      liveMode:         false,
     });
   }
   return debounceMap.get(socketId);
@@ -566,7 +572,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // fire-and-forget. Storing records NO serves — serves happen only when a buffer is played (§3.5).
     if (!useEmotion && isPhysiologicalHR(state.stableHR)) {
       shadowBufferRepo.setBuffer(userId, moodKey, {
-        tracks: clientTracks, targets: playlist.targets, builtAt: Date.now(),
+        tracks:    clientTracks,
+        familiar:  playlist.familiar.length,
+        discovery: playlist.discovery.length,
+        targets:   playlist.targets,
+        builtAt:   Date.now(),
       }).catch(() => {});
     }
 
@@ -620,6 +630,66 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // newer generation's in-flight flag when its abandoned body finally settles.
     if (state.genSeq === myGen) state.generating = false;
   }
+}
+
+// ── Live-mode band recalibration (Part 2b / Part 3, §3.4) ─────────────────────
+// On a CONFIRMED heart-rate band transition, a Live-mode socket SERVES the precompiled
+// buffer for the new band instantly instead of generating fresh. Reuses the Part-3
+// shadow buffer (warmed inline by prior HR generations at zero extra Groq cost).
+//   • Mode-gate (§3): Manual sockets are NEVER auto-driven — they return immediately.
+//   • Warm buffer   → emit it as a `biometric` playlist and record serves ON THE PLAY
+//                     (§3.5) — the precompile store recorded none; this is the sole point
+//                     the buffer's tracks enter the exposure ledger.
+//   • Cold band     → never a silent wait: emit `live_assembling` (the neural loader's
+//                     "assembling your live biometric soundscape") then run ONE live
+//                     generation, which emits the playlist, records its own serves, and
+//                     warms THIS band's buffer for the next visit.
+async function recalibrateForBand(socket, state) {
+  if (!state.liveMode) return; // mode-gate: Manual users are never auto-driven
+
+  const userId     = socket.data.user._id.toString();
+  const bioMoodKey = syntheticBioMoodKey(state.stableHR, state.latestActivity);
+
+  let buffer = null;
+  if (bioMoodKey) {
+    try { buffer = await shadowBufferRepo.getBuffer(userId, bioMoodKey); }
+    catch { buffer = null; } // a down/erroring buffer store degrades to a cold miss → live gen
+  }
+
+  const tracks = Array.isArray(buffer?.tracks) ? buffer.tracks : [];
+  if (tracks.length === 0) {
+    // COLD: no buffer for this band yet. Show the loader, then fall back to one live gen.
+    emitToUser(socket, 'live_assembling', { message: 'assembling your live biometric soundscape' });
+    await generateAndEmitPlaylist(socket, 'biometric', state);
+    return;
+  }
+
+  // WARM: play the precompiled buffer instantly — no generation, no Groq spend. The
+  // `biometric` trigger marks it as an auto-drive the client accepts without a reqId.
+  const mode  = state.lastMode ?? 'live';
+  const reqId = state.lastReqId;
+  emitToUser(socket, 'playlist_ready', {
+    trigger:   'biometric',
+    mode,
+    reqId,
+    tracks,
+    familiar:  buffer.familiar ?? 0,
+    discovery: buffer.discovery ?? 0,
+    buffered:  true,
+  });
+
+  // Serve-on-play (§3.5): the buffer is now PLAYED, so its tracks enter the ledger here —
+  // and ONLY here. A store/precompile never records serves (that would pollute the
+  // exposure ledger with never-heard tracks and re-trigger the saturation Part 1 fixed).
+  serveLedger.recordServes({
+    userId,
+    sessionId: String(reqId ?? ''),
+    entries: tracks.map((t) => ({
+      canonicalKey: t.canonicalKey ?? canonicalKey(t),
+      moodKey: bioMoodKey,
+      bioState: { tempoBand: bandFromHeartRate(state.stableHR), activity: state.latestActivity ?? null },
+    })),
+  }).catch((e) => console.error('[serveLedger] buffer-serve record failed:', e.message));
 }
 
 // ── Shared biometric reading handler ──────────────────────────────────────────
@@ -678,8 +748,8 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     state.stableActivity = normalized.activity;
     const hrJumped = prev !== null && Math.abs(normalized.heartRate - prev) >= WATCH_HR_DELTA_THRESHOLD;
     if (prev === null || hrJumped || activityChanged) {
-      log(`[handleBiometric] immediate hr=${normalized.heartRate} activity=${normalized.activity} hrJumped=${hrJumped} activityChanged=${activityChanged} → generate`);
-      generateAndEmitPlaylist(socket, 'biometric', state);
+      log(`[handleBiometric] immediate hr=${normalized.heartRate} activity=${normalized.activity} hrJumped=${hrJumped} activityChanged=${activityChanged} → recalibrate`);
+      recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
     }
     return;
   }
@@ -716,7 +786,7 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     if (stillChanged) {
       s.stableHR       = s.pendingHR;
       s.stableActivity = s.pendingActivity;
-      generateAndEmitPlaylist(socket, 'biometric', s);
+      recalibrateForBand(socket, s); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
     } else {
       socket.emit('recalibration_cancelled', { reason: 'change_reverted' });
     }
@@ -733,6 +803,15 @@ function registerBiometricHandler(socket) {
 
   socket.on('biometric_push', ({ source, raw } = {}) => {
     handleBiometricReading(socket, source, raw);
+  });
+
+  // Dual-path mode toggle (Part 2b). The client echoes its persisted Live/Manual choice
+  // here on connect + on every toggle. Live mode is the ONLY state in which a band
+  // transition auto-recalibrates (serves the buffer); Manual users are never auto-driven.
+  socket.on('live_mode', ({ enabled } = {}) => {
+    const state = getState(socketId);
+    state.liveMode = !!enabled;
+    log(`[live_mode] enabled=${state.liveMode}`);
   });
 
   socket.on('emotion_update', ({ taps = [], textPrompt = '', activity = null, mode } = {}) => {
@@ -799,6 +878,7 @@ function registerBiometricHandler(socket) {
 module.exports = {
   registerBiometricHandler,
   generateAndEmitPlaylist,
+  recalibrateForBand,
   handleBiometricReading,
   _debounceMap: debounceMap,
   // Exported for unit testing
