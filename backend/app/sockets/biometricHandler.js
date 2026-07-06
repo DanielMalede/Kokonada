@@ -365,6 +365,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     const moodKey   = useEmotion
       ? resolveMoodKey(state.lastEmotionTaps)
       : syntheticBioMoodKey(state.stableHR, state.latestActivity);
+    // The activity CHIP the user tapped is in lastActivity; latestActivity is watch-detected
+    // motion. On the emotion path the chosen chip MUST drive translate()'s biosonic target
+    // (running→162bpm cadence, workout→high energy) — otherwise a Run/Workout stays calm.
+    const effectiveActivity = useEmotion
+      ? (state.lastActivity || state.latestActivity)
+      : state.latestActivity;
     let fetchTracks;
     let spotifyToken = null; // hoisted so the post-mix Spotify translation step can reuse it
     try {
@@ -446,7 +452,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             userId, musicProfile, moodKey, provider,
             aiParams: moodParams,
             discoveryTracks: [],
-            live: { heartRate: state.stableHR, activity: state.latestActivity },
+            live: { heartRate: state.stableHR, activity: effectiveActivity },
             crossPlatform: provider === 'spotify' && !!spotifyToken,
           });
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider);
@@ -494,7 +500,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       userId, musicProfile, moodKey, provider,
       aiParams: aiResult.params,
       discoveryTracks: cachedDiscovery,
-      live: { heartRate: state.stableHR, activity: state.latestActivity },
+      live: { heartRate: state.stableHR, activity: effectiveActivity },
       // Spotify sink + a live token ⇒ the post-mix translation step runs, so familiar
       // cross-provider (YouTube) tracks must survive selection to be resolved to Spotify.
       crossPlatform: provider === 'spotify' && !!spotifyToken,
@@ -511,7 +517,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // it derived from. A CONSTANT band across different mood requests ⇒ a constant moodKey ⇒
     // the tap intent isn't varying upstream — this line pinpoints exactly where mood is lost.
     const _lastTap = state.lastEmotionTaps?.[state.lastEmotionTaps.length - 1] ?? null;
-    console.warn(`[gen.targets] reqId=${reqId} taps=${state.lastEmotionTaps?.length ?? 0} last=${JSON.stringify(_lastTap)} moodKey=${moodKey} bpmCenter=${playlist.targets?.bpmCenter} bpmWidth=${playlist.targets?.bpmWidth} energy=[${playlist.targets?.energyFloor}..${playlist.targets?.energyCeiling}] valence=${playlist.targets?.valenceTarget} conf=${playlist.targets?.confidence} tempoBand=${playlist.targets?.tempoBand}`);
+    console.warn(`[gen.targets] reqId=${reqId} taps=${state.lastEmotionTaps?.length ?? 0} last=${JSON.stringify(_lastTap)} activity=${effectiveActivity} moodKey=${moodKey} bpmCenter=${playlist.targets?.bpmCenter} bpmWidth=${playlist.targets?.bpmWidth} energy=[${playlist.targets?.energyFloor}..${playlist.targets?.energyCeiling}] valence=${playlist.targets?.valenceTarget} conf=${playlist.targets?.confidence} tempoBand=${playlist.targets?.tempoBand}`);
 
     // Cross-platform translation: playback happens on Spotify's SDK, so every track must
     // carry a spotify: URI. This is a cheap O(n) passthrough for native Spotify tracks (no
