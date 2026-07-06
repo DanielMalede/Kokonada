@@ -19,6 +19,11 @@ const SCOPES = [
   // from listening history. Adding a scope means each user must reconnect Spotify
   // once to re-consent (buildProfile degrades gracefully on a pre-consent token).
   'user-library-read',
+  // Required to read the user's CURATED PLAYLISTS (/me/playlists + /playlists/{id}/tracks) —
+  // the strongest deliberate taste signal. Without these, paginatePlaylistTracks 403s and the
+  // playlist source is silently empty for every user. Another scope add → reconnect once.
+  'playlist-read-private',
+  'playlist-read-collaborative',
   // Required to save/remove "Liked Songs" (PUT/DELETE /me/tracks) for the Like
   // button. Another scope add → existing users must reconnect once; the save
   // endpoint detects the 403 and prompts a reconnect.

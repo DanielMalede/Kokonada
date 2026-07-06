@@ -245,6 +245,10 @@ describe('OAuth scopes', () => {
     expect(scope).toContain('user-library-read');
     expect(scope).toContain('user-top-read');
     expect(scope).toContain('user-read-recently-played');
+    // Curated playlists — the strongest deliberate taste signal — need playlist-read to fetch
+    // (without these, paginatePlaylistTracks 403s and the whole playlist source is silently lost).
+    expect(scope).toContain('playlist-read-private');
+    expect(scope).toContain('playlist-read-collaborative');
   });
 
   it('forces the consent dialog (show_dialog=true) so a reconnect re-grants newly-added scopes', () => {
