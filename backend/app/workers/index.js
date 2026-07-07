@@ -12,6 +12,7 @@ const DEFAULT_PROCESSORS = {
   [QUEUES.STATE_VECTOR_RECOMPUTE]: require('./stateVector.worker').process,
   [QUEUES.EMBEDDING_BUILD]: require('./embedding.worker').process,
   [QUEUES.BIOMETRIC_BUFFER]: require('./biometricBuffer.worker').process,
+  [QUEUES.RECLASSIFY_UNCLASSIFIED]: require('./reclassify.worker').process,
 };
 
 function startWorkers(processors = DEFAULT_PROCESSORS) {

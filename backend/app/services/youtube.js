@@ -247,7 +247,7 @@ async function paginateSubscriptions(accessToken) {
  * @param {string} accessToken
  * @param {string[]} videoIds
  * @param {{ cap?: number }} [opts]
- * @returns {Promise<Array<{ id: string, topicCategories: string[], tags: string[] }>>}
+ * @returns {Promise<Array<{ id: string, categoryId: string|null, topicCategories: string[], tags: string[] }>>}
  */
 async function fetchVideoTopics(accessToken, videoIds, { cap = 250 } = {}) {
   const ids = [...new Set((videoIds || []).filter(Boolean))].slice(0, cap);
@@ -266,6 +266,9 @@ async function fetchVideoTopics(accessToken, videoIds, { cap = 250 } = {}) {
       for (const v of data.items || []) {
         out.push({
           id: v.id,
+          // categoryId (10 = Music) is the strongest is-music signal for the classifier;
+          // snippet is already in `part`, so it costs nothing extra to surface it here.
+          categoryId: v.snippet?.categoryId ?? null,
           topicCategories: v.topicDetails?.topicCategories || [],
           tags: v.snippet?.tags || [],
         });

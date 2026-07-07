@@ -14,6 +14,7 @@ jest.mock('../app/models/PlaylistSession', () => ({ deleteMany: jest.fn().mockRe
 jest.mock('../app/models/ServeEvent',      () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 9 }) }));
 jest.mock('../app/models/Identity',        () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/RefreshToken',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 2 }) }));
+jest.mock('../app/models/UnclassifiedTrack', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 4 }) }));
 jest.mock('../app/utils/userRedisPurge',   () => ({ purgeUserKeys: jest.fn().mockResolvedValue(3) }));
 const mockDisconnectSockets = jest.fn();
 jest.mock('../app/sockets/index', () => ({
@@ -37,6 +38,7 @@ const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent      = require('../app/models/ServeEvent');
 const Identity        = require('../app/models/Identity');
 const RefreshToken    = require('../app/models/RefreshToken');
+const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
 const { revoke }      = require('../app/utils/tokenDenylist');
 const { clearAuthCookie } = require('../app/utils/jwt');
@@ -63,6 +65,7 @@ describe('deleteAccount (GDPR hard-delete)', () => {
     expect(ServeEvent.deleteMany).toHaveBeenCalledWith({ userId });
     expect(Identity.deleteMany).toHaveBeenCalledWith({ userId });
     expect(RefreshToken.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(UnclassifiedTrack.deleteMany).toHaveBeenCalledWith({ userId });
     expect(User.deleteOne).toHaveBeenCalledWith({ _id: userId });
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringMatching(/permanently deleted/i),
