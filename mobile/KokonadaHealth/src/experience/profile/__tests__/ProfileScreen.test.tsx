@@ -33,10 +33,12 @@ function texts(node: any, acc: string[] = []): string[] {
 async function render() {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<ProfileScreen />); });
-  // Flush the mount effect's loadProfile().then(setSnap) microtask chain so the identity is
-  // applied before assertions. Without this the render/promise resolution races: it passed
-  // locally but flaked in CI (ubuntu/node22 scheduler timing).
-  await ReactTestRenderer.act(async () => { await Promise.resolve(); });
+  // Drain the mount effect's loadProfile().then(setSnap) chain to a macrotask boundary so the
+  // loaded snapshot is applied before assertions. A macrotask (setTimeout 0) empties the whole
+  // microtask queue — including the setSnap re-render — deterministically across Node/CI
+  // scheduler differences (a microtask-only flush passed on Node 24 locally but flaked on the
+  // CI Node 22 runner).
+  await ReactTestRenderer.act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   return tree;
 }
 
