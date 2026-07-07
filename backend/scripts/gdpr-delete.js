@@ -19,6 +19,7 @@ const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent      = require('../app/models/ServeEvent');
 const Identity        = require('../app/models/Identity');
 const RefreshToken    = require('../app/models/RefreshToken');
+const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
 const User            = require('../app/models/User');
 const { connectRedis } = require('../app/config/redis');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
@@ -90,6 +91,7 @@ async function main() {
       const serveCount        = await ServeEvent.countDocuments({ userId });
       const identityCount     = await Identity.countDocuments({ userId });
       const refreshCount      = await RefreshToken.countDocuments({ userId });
+      const unclassifiedCount = await UnclassifiedTrack.countDocuments({ userId });
       const userExists        = await User.findById(userId).lean();
 
       console.log(`  BiometricLog: ${biometricCount} document(s) would be deleted`);
@@ -99,6 +101,7 @@ async function main() {
       console.log(`  ServeEvent: ${serveCount} document(s) would be deleted`);
       console.log(`  Identity: ${identityCount} document(s) would be deleted`);
       console.log(`  RefreshToken: ${refreshCount} document(s) would be deleted`);
+      console.log(`  UnclassifiedTrack: ${unclassifiedCount} document(s) would be deleted`);
       console.log(`  User: ${userExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
       console.log('  Redis: user-scoped ledger/pool/baseline keys would be purged');
       console.log('[DRY RUN] No changes made.');
@@ -134,6 +137,9 @@ async function main() {
       const refreshResult = await RefreshToken.deleteMany({ userId });
       console.log(`  RefreshToken: deleted ${refreshResult.deletedCount} document(s)`);
 
+      const unclassifiedResult = await UnclassifiedTrack.deleteMany({ userId });
+      console.log(`  UnclassifiedTrack: deleted ${unclassifiedResult.deletedCount} document(s)`);
+
       await connectRedis();
       const redisKeys = await purgeUserKeys(userId);
       console.log(`  Redis: purged ${redisKeys} user-scoped key(s)`);
@@ -155,6 +161,7 @@ async function main() {
           serveEvents:      serveResult.deletedCount,
           identities:       identityResult.deletedCount,
           refreshTokens:    refreshResult.deletedCount,
+          unclassifiedTracks: unclassifiedResult.deletedCount,
           redisKeys,
           user:             user ? 1 : 0,
         },

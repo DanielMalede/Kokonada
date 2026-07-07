@@ -13,6 +13,7 @@ const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
 const Identity = require('../../models/Identity');
 const RefreshToken = require('../../models/RefreshToken');
+const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
 const { purgeUserKeys } = require('../../utils/userRedisPurge');
 
 async function eraseUserChildData(userId) {
@@ -24,6 +25,7 @@ async function eraseUserChildData(userId) {
     ServeEvent.deleteMany({ userId }),
     Identity.deleteMany({ userId }),
     RefreshToken.deleteMany({ userId }),
+    UnclassifiedTrack.deleteMany({ userId }),
   ]);
   await purgeUserKeys(userId);
 }
