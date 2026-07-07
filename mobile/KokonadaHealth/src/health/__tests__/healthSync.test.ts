@@ -1,4 +1,4 @@
-import { syncMedicalProfile } from '../healthSync';
+import { syncMedicalProfile, getLastSyncCounts, subscribeSyncCounts } from '../healthSync';
 
 // D-4a: the re-homed Health Connect → MedicalProfile sync. All deps injected — no
 // native module, fully deterministic.
@@ -31,10 +31,27 @@ describe('syncMedicalProfile (D-4a)', () => {
       now: () => 1_000_000,
       minIntervalMs: 0,
     });
-    expect(res).toEqual({ synced: true, accepted: 3, inserted: 2 });
+    expect(res).toEqual({
+      synced: true, accepted: 3, inserted: 2,
+      counts: { heartRate: 1, hrv: 1, sleep: 0, restingHeartRate: 1 }, // per-type diagnostics (D-4a v2)
+    });
     const types = upload.mock.calls[0][0].map((s: any) => s.type);
     expect(types).toContain('resting_heart_rate'); // the classifier's missing input now flows
     expect(kv.set).toHaveBeenCalled(); // lastSync recorded
+    expect(getLastSyncCounts()).toEqual({ heartRate: 1, hrv: 1, sleep: 0, restingHeartRate: 1 });
+  });
+
+  it('publishes counts to subscribers so Pulse can annotate "not shared" gauges', async () => {
+    const seen: any[] = [];
+    const off = subscribeSyncCounts((c) => seen.push(c));
+    await syncMedicalProfile({
+      granted: async () => [{ recordType: 'HeartRate' }],
+      fetch: async () => ({ ...HISTORY, hrv: [] }), // watch shares no HRV
+      upload: async () => ({ accepted: 2, inserted: 2 }),
+      minIntervalMs: 0,
+    });
+    off();
+    expect(seen[seen.length - 1]).toEqual({ heartRate: 1, hrv: 0, sleep: 0, restingHeartRate: 1 });
   });
 
   it('does NOT sync (and never prompts) without a granted permission', async () => {
@@ -79,7 +96,10 @@ describe('syncMedicalProfile (D-4a)', () => {
       upload,
       minIntervalMs: 0,
     });
-    expect(res).toEqual({ synced: false, reason: 'no-data' });
+    expect(res).toEqual({
+      synced: false, reason: 'no-data',
+      counts: { heartRate: 0, hrv: 0, sleep: 0, restingHeartRate: 0 },
+    });
     expect(upload).not.toHaveBeenCalled();
   });
 

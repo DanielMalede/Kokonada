@@ -54,11 +54,12 @@ export interface KokonadaSocketDeps {
 
 const DEFAULT_MAX_AUTH_REFRESHES = 5;
 const DEFAULT_AUTH_WINDOW_MS = 60_000;
-// Building auto-retry: ~2 minutes of patience (a 4k-track profile build with YouTube
-// classification can take a while). Each playlist_building refreshes the loader, so the
-// wait is visible, never silent.
+// Building auto-retry: each playlist_building (profile build OR the server's warmup
+// heartbeat — a retry mid-generation is adopted and answered, never dropped) refreshes
+// the loader and schedules a re-request. Patience must OUTLAST the server's 180s warmup
+// ceiling so its final verdict (playlist or error) arrives before we give up locally.
 const DEFAULT_BUILDING_RETRY_MS = 4_000;
-const DEFAULT_MAX_BUILDING_RETRIES = 30;
+const DEFAULT_MAX_BUILDING_RETRIES = 55; // ≈220s at 4s cadence
 
 export class KokonadaSocket {
   private socket: SocketLike | null = null;

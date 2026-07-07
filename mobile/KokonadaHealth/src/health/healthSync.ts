@@ -11,11 +11,48 @@ import { uploadSamples } from './uploadClient';
 // store, or a network error degrades to { synced:false } — never a throw into
 // bootstrap or the UI.
 
+// Per-record-type read counts — the diagnostic that distinguishes "pipeline broken"
+// from "the watch never shared this metric" (D-4a v2). Surfaced in the sync alert,
+// logcat, and the Pulse gauges' "not shared" notes.
+export interface SyncCounts {
+  heartRate: number;
+  hrv: number;
+  sleep: number;
+  restingHeartRate: number;
+}
+
 export interface HealthSyncResult {
   synced: boolean;
   reason?: 'no-permission' | 'throttled' | 'no-data' | 'error';
   accepted?: number;
   inserted?: number;
+  counts?: SyncCounts;
+}
+
+// Tiny observable for the last sync's counts so PulseScreen can annotate gauges
+// honestly. In-memory + KV-persisted (rehydrated by the bootstrap sync even when
+// the sync itself is throttled).
+let lastCounts: SyncCounts | null = null;
+const countListeners = new Set<(c: SyncCounts | null) => void>();
+export function getLastSyncCounts(): SyncCounts | null { return lastCounts; }
+export function subscribeSyncCounts(cb: (c: SyncCounts | null) => void): () => void {
+  countListeners.add(cb);
+  return () => { countListeners.delete(cb); };
+}
+function publishCounts(c: SyncCounts | null): void {
+  lastCounts = c;
+  countListeners.forEach((cb) => { try { cb(c); } catch { /* listener errors never break sync */ } });
+}
+
+function countByType(samples: Array<{ type: string }>): SyncCounts {
+  const c: SyncCounts = { heartRate: 0, hrv: 0, sleep: 0, restingHeartRate: 0 };
+  for (const s of samples) {
+    if (s.type === 'heart_rate') c.heartRate++;
+    else if (s.type === 'hrv') c.hrv++;
+    else if (s.type === 'resting_heart_rate') c.restingHeartRate++;
+    else if (s.type.startsWith('sleep_')) c.sleep++;
+  }
+  return c;
 }
 
 export interface HealthSyncDeps {
@@ -32,7 +69,16 @@ export interface HealthSyncDeps {
 }
 
 const LAST_SYNC_KEY = 'koko-health-last-sync-at';
+const LAST_COUNTS_KEY = 'koko-health-last-counts';
 const DEFAULT_MIN_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
+async function rehydrateCounts(kv: HealthSyncDeps['kv']): Promise<void> {
+  if (!kv || lastCounts) return;
+  try {
+    const raw = await kv.getString(LAST_COUNTS_KEY);
+    if (raw) publishCounts(JSON.parse(raw));
+  } catch { /* corrupt/missing — stay null */ }
+}
 
 export async function syncMedicalProfile(deps: HealthSyncDeps = {}): Promise<HealthSyncResult> {
   const now = deps.now ?? Date.now;
@@ -46,16 +92,26 @@ export async function syncMedicalProfile(deps: HealthSyncDeps = {}): Promise<Hea
     if (minInterval > 0 && deps.kv) {
       const raw = await deps.kv.getString(LAST_SYNC_KEY);
       const last = raw ? Number(raw) : NaN;
-      if (Number.isFinite(last) && now() - last < minInterval) return { synced: false, reason: 'throttled' };
+      if (Number.isFinite(last) && now() - last < minInterval) {
+        await rehydrateCounts(deps.kv); // a throttled boot still restores the gauge notes
+        return { synced: false, reason: 'throttled' };
+      }
     }
 
     const history = await (deps.fetch ?? fetchSixMonthHistory)();
     const samples = toBackendSamples(history);
-    if (samples.length === 0) return { synced: false, reason: 'no-data' };
+    const counts = countByType(samples);
+    console.log('[koko] healthSync read counts:', JSON.stringify(counts));
+    if (samples.length === 0) {
+      publishCounts(counts); // all-zero counts still inform the gauges
+      return { synced: false, reason: 'no-data', counts };
+    }
 
     const up = await (deps.upload ?? uploadSamples)(samples);
     deps.kv?.set(LAST_SYNC_KEY, String(now()));
-    return { synced: true, accepted: up.accepted, inserted: up.inserted };
+    deps.kv?.set(LAST_COUNTS_KEY, JSON.stringify(counts));
+    publishCounts(counts);
+    return { synced: true, accepted: up.accepted, inserted: up.inserted, counts };
   } catch {
     return { synced: false, reason: 'error' };
   }

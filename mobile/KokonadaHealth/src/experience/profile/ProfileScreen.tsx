@@ -4,8 +4,8 @@ import { profileController } from './profileServices';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { warmStore } from '../../state/store';
 import { BACKEND_URL } from '../../health/config';
-import { requestHealthPermissions } from '../../health/healthConnect';
-import { syncMedicalProfile } from '../../health/healthSync';
+import { requestHealthPermissions, openHealthConnectSettings } from '../../health/healthConnect';
+import { syncMedicalProfile, type SyncCounts } from '../../health/healthSync';
 import type { ProfileSnapshot } from './profileController';
 
 // The 5th tab: identity, integration status (Spotify via the live player state +
@@ -103,18 +103,32 @@ export function ProfileScreen() {
   };
 
   // D-4a: the reachable entry point for the (previously orphaned) Health Connect →
-  // MedicalProfile ingestion. One-tap permission sheet, then a forced full sync.
+  // MedicalProfile ingestion. One-tap permission sheet; if Android's deny-throttle
+  // suppresses the sheet (request resolves with no grants), deep-link straight into
+  // Health Connect's permission screen. Per-type counts make the result diagnosable.
+  const countsLine = (c?: SyncCounts) => c
+    ? `${c.heartRate} heart-rate · ${c.hrv} HRV · ${c.sleep} sleep · ${c.restingHeartRate} resting-HR`
+    : '';
   const onSyncHealth = async () => {
     setHcBusy(true);
     try {
-      await requestHealthPermissions();
+      const granted = await requestHealthPermissions();
+      if (!granted || granted.length === 0) {
+        Alert.alert(
+          'Permission needed',
+          'Android blocked the permission popup (it does this after repeated denials). Grant Kokonada access in Health Connect instead.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Health Connect', onPress: () => openHealthConnectSettings() },
+          ],
+        );
+        return;
+      }
       const res = await syncMedicalProfile({ minIntervalMs: 0 });
       if (res.synced) {
-        Alert.alert('Health data synced', `${res.accepted ?? 0} readings ingested — Pulse will reflect them shortly.`);
+        Alert.alert('Health data synced', `${countsLine(res.counts)}\nPulse will reflect them after the next analysis (~1 min).`);
       } else if (res.reason === 'no-data') {
         Alert.alert('No health data found', 'Open Garmin Connect → Settings → Health Connect and turn on sharing, then sync your watch and try again.');
-      } else if (res.reason === 'no-permission') {
-        Alert.alert('Permission needed', 'Health Connect access was not granted.');
       } else {
         Alert.alert('Sync failed', 'Please try again in a moment.');
       }
