@@ -53,6 +53,7 @@
 | 3.1 | Store submission (A13) | needs 2.1–2.4 + Daniel portal actions (Pause & Guide) |
 | 3.2 | Test-depth outer loop | contract tests (Spotify/Groq adapters), one Detox/Maestro E2E (login→generate→play→logout), biometric soak test |
 | 3.3 | Cost guardrails + cache hit-rate metrics | Groq TPM tracking (free 6000 TPM ceiling), alarm on anomaly |
+| 3.4 | **DEFECT — root-cause `ProfileScreen` identity-from-/me Node-22 async-flush** ([issue #84](https://github.com/DanielMalede/Kokonada/issues/84)) | Auth-critical: treat as a **potential real auth-timing race**, not a CI-version artifact. Mobile CI is pinned to Node 24 as an **interim** unblock only ([ADR 0007](adr/0007-mobile-ci-node-24-interim.md)); the actual fix is deterministic identity loading, verified by driving the real flow. Must be closed before store submission (3.1). |
 
 ## D2 CONFLICT — RESOLVED (Daniel, 2026-07-07 = Option A)
 

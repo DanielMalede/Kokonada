@@ -19,3 +19,4 @@ consequences** — so the locked decisions and future ones are traceable and
 | [0004](0004-never-pure-llm-audio-features.md) | Never pure-LLM audio features | Accepted (locked) |
 | [0005](0005-zero-knowledge-biometrics.md) | Zero-knowledge biometrics (field-level AES-256-GCM) | Accepted (locked) |
 | [0006](0006-in-process-workers.md) | In-process BullMQ workers on Railway free plan | Accepted |
+| [0007](0007-mobile-ci-node-24-interim.md) | Mobile CI pinned to Node 24 (interim) | Accepted (interim — see [#84](https://github.com/DanielMalede/Kokonada/issues/84)) |
