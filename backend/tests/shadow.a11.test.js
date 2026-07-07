@@ -16,7 +16,8 @@ const { encrypt } = require('../app/utils/encryption');
 const SECRET = 'TOP-SECRET-LEAK-CANARY';
 
 describe('A11 shadow — sessions DTO is a hard whitelist (no leak, fixed shape)', () => {
-  const ALLOWED = ['activity', 'contextPrompt', 'createdAt', 'id', 'isFallback', 'moodKey', 'provider', 'skipCount', 'trackCount', 'tracks'];
+  // D-3 added derived, non-sensitive display fields: title, source, activityLabel.
+  const ALLOWED = ['activity', 'activityLabel', 'contextPrompt', 'createdAt', 'id', 'isFallback', 'moodKey', 'provider', 'skipCount', 'source', 'title', 'trackCount', 'tracks'];
 
   function hostileSession(i) {
     return {
