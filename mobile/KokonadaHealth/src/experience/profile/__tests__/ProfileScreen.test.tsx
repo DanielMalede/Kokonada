@@ -33,6 +33,10 @@ function texts(node: any, acc: string[] = []): string[] {
 async function render() {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<ProfileScreen />); });
+  // Flush the mount effect's loadProfile().then(setSnap) microtask chain so the identity is
+  // applied before assertions. Without this the render/promise resolution races: it passed
+  // locally but flaked in CI (ubuntu/node22 scheduler timing).
+  await ReactTestRenderer.act(async () => { await Promise.resolve(); });
   return tree;
 }
 
