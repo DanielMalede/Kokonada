@@ -589,7 +589,9 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       contextPrompt:     useEmotion ? (state.lastTextPrompt || '') : '',
       // Persist the resolved mood so a repeat can be detected + its tracks blacklisted.
       moodKey,
-      biometricSnapshot: { heartRate: state.stableHR, activity: state.latestActivity },
+      // Persist effectiveActivity (the chosen chip on the emotion path, watch motion on the
+      // heart path) — not raw latestActivity — so History can show the activity the user picked. (D-3)
+      biometricSnapshot: { heartRate: state.stableHR, activity: effectiveActivity },
       targetBpm:         aiResult.params.target_bpm,
       targetGenres:      aiResult.params.seed_genres || [],
       targetValence:     aiResult.params.target_valence,

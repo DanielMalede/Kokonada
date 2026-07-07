@@ -2,6 +2,7 @@
 
 const mongoose = require('mongoose');
 const PlaylistSession = require('../models/PlaylistSession');
+const { sessionLabel } = require('../services/sessionLabels');
 
 // GET /api/sessions — the persistent playlist-history feed (A11). Keyset pagination
 // over the existing { userId:1, createdAt:-1 } index. Returns an EXPLICIT whitelist
@@ -20,12 +21,18 @@ function clampLimit(raw) {
 // The owner-facing shape. contextPrompt is the owner's own words (decrypted by the
 // model getter on a real doc) — intended. heartRate / trackKeys / llmCacheKey are not.
 function toSessionDTO(doc) {
+  const activity = (doc.biometricSnapshot && doc.biometricSnapshot.activity) || null;
+  // Friendly title + Manual/Live source so History never shows a raw moodKey (D-3).
+  const { title, source, activityLabel } = sessionLabel(doc.moodKey, activity);
   return {
     id: String(doc._id),
     createdAt: doc.createdAt,
     moodKey: doc.moodKey ?? null,
+    title,
+    source,
     provider: doc.musicProvider,
-    activity: (doc.biometricSnapshot && doc.biometricSnapshot.activity) || null,
+    activity,
+    activityLabel,
     contextPrompt: doc.contextPrompt || '',
     isFallback: !!doc.isFallback,
     skipCount: doc.skipCount || 0,
