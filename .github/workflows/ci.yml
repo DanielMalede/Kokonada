@@ -54,10 +54,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'   # INTERIM (ADR 0007): node 22 fails an auth-critical async
-                               # react-test-renderer flush in ProfileScreen identity-from-/me;
-                               # green on 24. Root cause tracked in issue #84 — this pin is a
-                               # stopgap, not the fix. Do not treat as permanent.
+          node-version: '24'   # satisfies engines (node >= 22.11.0). The ProfileScreen async
+                               # flush flake (issue #84 / ADR 0007) was root-caused and fixed
+                               # in the test (deterministic setImmediate flush); node 24 is now
+                               # a deliberate target, no longer a workaround.
           cache: 'npm'
           cache-dependency-path: mobile/KokonadaHealth/package-lock.json
       - name: Install dependencies
