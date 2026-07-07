@@ -58,13 +58,25 @@ export function mapSleep(records: any[]): BackendSample[] {
   return out;
 }
 
-// Everything the backend ingests (HR time-series + HRV + per-night sleep stages),
-// de-noised of non-numeric values.
-export function toBackendSamples(history: { heartRate?: any[]; hrv?: any[]; sleep?: any[] }): BackendSample[] {
+// RestingHeartRate records carry a single bpm value at a time (D-4a). The backend
+// normalizer maps 'resting_heart_rate' → MedicalProfile.restingHeartRate, which is the
+// input every stateVector classifier rule keys on.
+export function mapRestingHeartRate(records: any[]): BackendSample[] {
+  return (records ?? []).map((r) => ({
+    type: 'resting_heart_rate',
+    value: r.beatsPerMinute,
+    startDate: r.time,
+  }));
+}
+
+// Everything the backend ingests (HR time-series + HRV + resting HR + per-night sleep
+// stages), de-noised of non-numeric values.
+export function toBackendSamples(history: { heartRate?: any[]; hrv?: any[]; sleep?: any[]; restingHeartRate?: any[] }): BackendSample[] {
   return [
     ...mapHeartRate(history.heartRate ?? []),
     ...mapHrv(history.hrv ?? []),
     ...mapSleep(history.sleep ?? []),
+    ...mapRestingHeartRate(history.restingHeartRate ?? []),
   ].filter((s) => Number.isFinite(s.value));
 }
 

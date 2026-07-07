@@ -4,6 +4,8 @@ import { profileController } from './profileServices';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { warmStore } from '../../state/store';
 import { BACKEND_URL } from '../../health/config';
+import { requestHealthPermissions } from '../../health/healthConnect';
+import { syncMedicalProfile } from '../../health/healthSync';
 import type { ProfileSnapshot } from './profileController';
 
 // The 5th tab: identity, integration status (Spotify via the live player state +
@@ -59,6 +61,7 @@ export function ProfileScreen() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ytBusy, setYtBusy] = useState(false);
+  const [hcBusy, setHcBusy] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -99,6 +102,29 @@ export function ProfileScreen() {
     }
   };
 
+  // D-4a: the reachable entry point for the (previously orphaned) Health Connect →
+  // MedicalProfile ingestion. One-tap permission sheet, then a forced full sync.
+  const onSyncHealth = async () => {
+    setHcBusy(true);
+    try {
+      await requestHealthPermissions();
+      const res = await syncMedicalProfile({ minIntervalMs: 0 });
+      if (res.synced) {
+        Alert.alert('Health data synced', `${res.accepted ?? 0} readings ingested — Pulse will reflect them shortly.`);
+      } else if (res.reason === 'no-data') {
+        Alert.alert('No health data found', 'Open Garmin Connect → Settings → Health Connect and turn on sharing, then sync your watch and try again.');
+      } else if (res.reason === 'no-permission') {
+        Alert.alert('Permission needed', 'Health Connect access was not granted.');
+      } else {
+        Alert.alert('Sync failed', 'Please try again in a moment.');
+      }
+    } catch {
+      Alert.alert('Health Connect unavailable', 'Install/update Health Connect from the Play Store and try again.');
+    } finally {
+      setHcBusy(false);
+    }
+  };
+
   const onLogout = async () => {
     setBusy(true);
     try { await profileController.logout(); } finally { setBusy(false); }
@@ -132,6 +158,13 @@ export function ProfileScreen() {
         <SpotifyRow connected={spotify === 'connected' || !!integ?.spotifyConnected} onConnect={onConnectSpotify} />
         {integ?.youtubeConnected ? <YouTubeRow onDisconnect={onDisconnectYouTube} busy={ytBusy} /> : null}
         <Badge label="Wearable" on={wearable !== 'none' || !!me?.wearableProvider} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
+          <Text style={{ fontSize: 15 }}>Health data</Text>
+          <Pressable onPress={onSyncHealth} disabled={hcBusy} accessibilityRole="button" accessibilityLabel="sync-health"
+            style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, backgroundColor: '#4f8cff', opacity: hcBusy ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{hcBusy ? 'Syncing…' : 'Sync'}</Text>
+          </Pressable>
+        </View>
       </View>
 
       <Pressable onPress={onLogout} disabled={busy} accessibilityRole="button" accessibilityLabel="log-out"
