@@ -1265,3 +1265,88 @@ describe('live_mode socket event', () => {
     expect(_debounceMap.get(socket.id).liveMode).toBe(false);
   });
 });
+
+// ── D-6 v2: warmup heartbeat architecture (no hard error on first-gen) ─────────
+// A fresh library generates slowly but healthily; the old 30s wall-clock voided the
+// run (discarding its work) and the in-flight guard silently dropped retries — an
+// infinite timeout loop on cold accounts. Warmup now heartbeats; retries are adopted.
+
+describe('D-6 v2 — warmup heartbeat + reqId adoption', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('a retry landing mid-generation gets a playlist_building heartbeat, never a silent drop', async () => {
+    const socket = makeSocket();
+    const state  = makeState({ generating: true, lastReqId: 7, lastEmotionTaps: [{ x: 0.5, y: 0.5 }] });
+
+    await generateAndEmitPlaylist(socket, 'emotion', state);
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.objectContaining({ reqId: 7 }));
+    expect(User.findById).not.toHaveBeenCalled(); // guard returned — no second pipeline
+  });
+
+  it('a background trigger hitting the in-flight guard stays silent (no spurious building)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ generating: true, lastReqId: 7 }));
+    expect(socket.emit).not.toHaveBeenCalled();
+  });
+
+  it('the completed generation replies to the ADOPTED (newest) reqId', async () => {
+    let resolveUser;
+    User.findById.mockReturnValue(new Promise((r) => { resolveUser = r; }));
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 1 });
+
+    const run = generateAndEmitPlaylist(socket, 'emotion', state);
+    state.lastReqId = 2;          // a retry arrives mid-run; the handler adopted its reqId
+    resolveUser(SPOTIFY_USER);    // pipeline proceeds and completes
+    await run;
+
+    const ready = socket.emit.mock.calls.find(([e]) => e === 'playlist_ready');
+    expect(ready).toBeDefined();
+    expect(ready[1].reqId).toBe(2); // NOT the stale 1 — the client's gate keeps its loader honest
+  });
+
+  it('WARMUP (fresh profile): the 30s wall-clock heartbeats playlist_building and the run keeps working', async () => {
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ createdAt: new Date() })));
+    spotify.getValidToken.mockReturnValue(new Promise(() => {})); // hang AFTER the profile loads
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 5 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // never resolves — hung downstream
+    await jest.advanceTimersByTimeAsync(0);            // let the pre-hang awaits settle
+    await jest.advanceTimersByTimeAsync(31_000);       // first wall-clock tick
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.objectContaining({
+      reqId: 5, message: expect.stringMatching(/warming/i),
+    }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+    expect(state.generating).toBe(true);               // the run was NOT voided
+
+    await jest.advanceTimersByTimeAsync(31_000);       // second tick — still heartbeating
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+
+    await jest.advanceTimersByTimeAsync(130_000);      // past the 180s hard ceiling
+    expect(state.generating).toBe(false);              // NOW the wedge-abort fires
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({
+      message: expect.stringMatching(/tim(e|ed)\s?out/i),
+    }));
+  });
+
+  it('NON-warmup (established profile): the 30s hard timeout behavior is unchanged', async () => {
+    spotify.getValidToken.mockReturnValue(new Promise(() => {})); // hang after profile load
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 9 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // default profile has no createdAt → not warmup
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(31_000);
+
+    expect(state.generating).toBe(false);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ reqId: 9 }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_building', expect.anything());
+  });
+});

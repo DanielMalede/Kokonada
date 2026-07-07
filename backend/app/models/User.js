@@ -21,6 +21,9 @@ const userSchema = new mongoose.Schema({
   // Lets /status tell the client whether Like/Export will work, instead of failing on a
   // 403 every click. (audit #5)
   spotifyScopes:     { type: String, default: '' },
+  // D-1: id of the hidden "Kokonada Session" playlist backing App Remote context playback
+  // (created once, rewritten each generation; plaintext, non-sensitive).
+  spotifySessionPlaylistId: { type: String, default: null },
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'health_connect', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },

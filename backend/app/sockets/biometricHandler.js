@@ -279,6 +279,30 @@ async function resolveBiometricContext(userId, currentHR) {
   return hasSignal ? ctx : null;
 }
 
+// ── D-1: session-playlist context attach ──────────────────────────────────────
+// Rewrite the user's hidden "Kokonada Session" playlist with this playlist's Spotify
+// URIs and attach its contextUri, so the client plays a CONTEXT (absolute queue parity
+// on App Remote) instead of loose track URIs. Strictly fail-open: any failure — missing
+// scope (pre-reconnect token), API error, no playable URIs — returns the payload
+// unchanged and the client falls back to track playback.
+async function attachSessionContext(socket, payload) {
+  try {
+    const uris = (payload?.tracks ?? [])
+      .map((t) => t?.uri)
+      .filter((u) => typeof u === 'string' && u.startsWith('spotify:track:'));
+    if (uris.length < 2) return payload; // a context buys nothing for 0-1 tracks
+    const user = await User.findById(socket.data.user._id.toString());
+    if (!user || !user.spotifyToken) return payload;
+    const sessionPlaylist = require('../services/spotifySessionPlaylist');
+    const { contextUri } = await sessionPlaylist.writeSessionPlaylist(user, uris);
+    console.warn(`[sessionPlaylist] context attached ${contextUri} tracks=${uris.length}`);
+    return { ...payload, contextUri };
+  } catch (e) {
+    console.warn('[sessionPlaylist] attach failed — falling back to track playback:', e?.message ?? e);
+    return payload;
+  }
+}
+
 // ── Core pipeline ──────────────────────────────────────────────────────────────
 
 async function generateAndEmitPlaylist(socket, trigger, state) {
@@ -287,6 +311,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
   // together) so two pipelines never interleave and emit out-of-order playlists.
   if (state.generating) {
     log(`[generate] skipped — already in-flight trigger=${trigger}`);
+    // D-6 heartbeat: the caller already adopted the newest reqId into state.lastReqId, and
+    // the running generation replies to it (see the emit wrapper). Answer the retry with a
+    // building signal so the client's loader stays alive — never a silent drop.
+    if (trigger === 'emotion' || trigger === 'heart') {
+      emitToUser(socket, 'playlist_building', {
+        message: 'Still working on your playlist…',
+        reqId: state.lastReqId,
+      });
+    }
     return;
   }
   state.generating = true;
@@ -302,8 +335,21 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
   const reqId = state.lastReqId;
 
   // Epoch-guarded emit: only the generation that still owns the socket may reach the client.
+  // D-6 reqId adoption: a retry that lands mid-run updates state.lastReqId; the reply must
+  // carry the NEWEST reqId or the client's gate drops its own answer as stale.
+  // D-1: a playlist_ready first gets the session-playlist contextUri attached (absolute
+  // queue parity on App Remote); the attach is fail-open — no context, same payload.
+  let readyEmitSettled = Promise.resolve(); // awaited in finally so the deferred ready lands before the lock frees
   const emit = (event, payload) => {
-    if (state.genSeq === myGen) emitToUser(socket, event, payload);
+    if (state.genSeq !== myGen) return;
+    if (payload && 'reqId' in payload) payload = { ...payload, reqId: state.lastReqId ?? payload.reqId };
+    if (event === 'playlist_ready') {
+      readyEmitSettled = attachSessionContext(socket, payload)
+        .then((p) => { if (state.genSeq === myGen) emitToUser(socket, event, p); })
+        .catch(() => {});
+      return;
+    }
+    emitToUser(socket, event, payload);
   };
 
   // HARD wall-clock bound on the WHOLE generation. Any external stall — an LLM outage, or a
@@ -313,14 +359,37 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
   // gets a reply. On expiry we free the lock and, for a user-initiated request, surface a
   // recoverable error; the abandoned pipeline settles harmlessly (the epoch guard voids it).
   const GENERATION_TIMEOUT_MS = Number(process.env.GENERATION_TIMEOUT_MS) || 30_000;
+  // D-6: a FRESH library (first minutes after signup/connect) generates slowly but
+  // healthily — cold pool, first hydration, 429 waits. Voiding the run at 30s discarded
+  // real work and looped the user into timeout→retry→timeout forever. During warmup the
+  // wall-clock becomes a HEARTBEAT (loader stays alive, run keeps working); the hard
+  // abort only fires at the ceiling — the true-wedge case the #63 guard exists for.
+  const WARMUP_CEILING_MS = Number(process.env.GENERATION_WARMUP_CEILING_MS) || 180_000;
+  const WARMUP_WINDOW_MS  = Number(process.env.GENERATION_WARMUP_WINDOW_MS) || 30 * 60_000;
   const userInitiated = trigger === 'emotion' || trigger === 'heart';
-  const timer = setTimeout(() => {
+  const startedAt = Date.now();
+  let profileWarmingUp = false; // set once the profile row is loaded below
+  let timer;
+  const onWallClock = () => {
     if (state.genSeq !== myGen) return;   // already settled — nothing to abandon
+    if (profileWarmingUp && Date.now() - startedAt < WARMUP_CEILING_MS) {
+      console.warn(`[generate] warmup heartbeat at ${Date.now() - startedAt}ms trigger=${trigger} — run continues`);
+      if (userInitiated) {
+        emitToUser(socket, 'playlist_building', {
+          message: 'Warming up your library — your first playlist is on its way…',
+          reqId: state.lastReqId ?? reqId,
+        });
+      }
+      timer = setTimeout(onWallClock, GENERATION_TIMEOUT_MS);
+      timer.unref?.();
+      return;
+    }
     state.genSeq += 1;                     // supersede: void the in-flight run's emits + its release
     state.generating = false;              // free the lock now so the next request can generate
-    console.warn(`[generate] TIMEOUT after ${GENERATION_TIMEOUT_MS}ms trigger=${trigger} reqId=${reqId} — released lock`);
-    if (userInitiated) emitToUser(socket, 'playlist_error', { message: 'Generation timed out — please try again', reqId });
-  }, GENERATION_TIMEOUT_MS);
+    console.warn(`[generate] TIMEOUT after ${Date.now() - startedAt}ms trigger=${trigger} reqId=${reqId} — released lock`);
+    if (userInitiated) emitToUser(socket, 'playlist_error', { message: 'Generation timed out — please try again', reqId: state.lastReqId ?? reqId });
+  };
+  timer = setTimeout(onWallClock, GENERATION_TIMEOUT_MS);
   timer.unref?.();
 
   try {
@@ -347,6 +416,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       emit('playlist_building', { message: 'Setting up your library — your first playlist is moments away…', reqId });
       return;
     }
+    // D-6: a just-built profile marks this generation as warmup — the wall-clock above
+    // heartbeats instead of aborting. Missing createdAt (old rows) → NOT warmup.
+    profileWarmingUp = !!musicProfile.createdAt
+      && (Date.now() - new Date(musicProfile.createdAt).getTime()) < WARMUP_WINDOW_MS;
     // Always-on diagnostic: surface the library size so an empty/thin profile (the
     // common cause of an empty playlist) is visible in prod logs.
     console.warn(`[generate] profile loaded trigger=${trigger} library=${musicProfile.library?.length ?? 0} topGenres=${(musicProfile.topGenres || []).length} genreSet=${(musicProfile.genreSet || []).length}`);
@@ -630,6 +703,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       })),
     }).catch(e => console.error('[serveLedger] record failed:', e.message));
   } finally {
+    await readyEmitSettled; // the context-attach ready emit must land before the lock frees
     clearTimeout(timer);
     // Release only if we still own the lock: a timed-out run (epoch bumped) must not clear a
     // newer generation's in-flight flag when its abandoned body finally settles.
@@ -673,7 +747,9 @@ async function recalibrateForBand(socket, state) {
   // `biometric` trigger marks it as an auto-drive the client accepts without a reqId.
   const mode  = state.lastMode ?? 'live';
   const reqId = state.lastReqId;
-  emitToUser(socket, 'playlist_ready', {
+  // D-1: buffered serves get the session-playlist context too (fail-open) so Live-mode
+  // playback also runs with absolute queue parity, not loose track URIs.
+  const readyPayload = await attachSessionContext(socket, {
     trigger:   'biometric',
     mode,
     reqId,
@@ -682,6 +758,7 @@ async function recalibrateForBand(socket, state) {
     discovery: buffer.discovery ?? 0,
     buffered:  true,
   });
+  emitToUser(socket, 'playlist_ready', readyPayload);
 
   // Serve-on-play (§3.5): the buffer is now PLAYED, so its tracks enter the ledger here —
   // and ONLY here. A store/precompile never records serves (that would pollute the
