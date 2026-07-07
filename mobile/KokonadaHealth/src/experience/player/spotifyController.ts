@@ -155,8 +155,16 @@ export class SpotifyPlayerController {
   }
 
   async dispose(): Promise<void> {
+    this.deps.remote.removeAllListeners?.();
+    // Stop audio before severing the link. App Remote's disconnect only drops the
+    // CONTROL channel — the Spotify app keeps playing whatever was last commanded —
+    // so logout leaked playback until this pause was added. Pause must precede
+    // disconnect (native pause needs the live connection) and is guarded on its own
+    // so a failing pause never prevents the disconnect. (defect D-2)
+    if (this.state === 'connected') {
+      try { await this.deps.remote.pause(); } catch { /* best-effort; still disconnect below */ }
+    }
     try {
-      this.deps.remote.removeAllListeners?.();
       await this.deps.remote.disconnect();
     } catch {
       /* best-effort teardown */
