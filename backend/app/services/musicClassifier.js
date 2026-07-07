@@ -6,6 +6,13 @@
 // music catalog and are never classified. See
 // docs/superpowers/specs/2026-07-07-music-classification-purge-design.md.
 
+const youtube = require('./youtube');
+const llmClient = require('./llmClient');
+
+// Groq batch size for the ambiguous-residue tie-breaker. ~40 short lines keeps each call
+// well under the free-tier per-request budget and lets withRetry pace them under 6000 TPM.
+const GROQ_BATCH = 40;
+
 // Wikipedia topicDetails slugs that mean "this is music" — the generic Music topic, any
 // "*_music" genre topic, plus a few bare genre/song topics.
 const MUSIC_TOPIC =
@@ -54,4 +61,80 @@ function classifyByMetadata(track, meta = {}) {
   return 'ambiguous';
 }
 
-module.exports = { classifyByMetadata };
+// Ask Groq which items in a batch are NOT music. Throws on outage / malformed JSON so the
+// caller pools the batch (never deletes on uncertainty).
+async function _groqNonMusicIndices(batch) {
+  const lines = batch
+    .map((t, i) => `${i}: ${String(t.name ?? '').slice(0, 120)} — ${String(t.artist ?? '').slice(0, 80)}`)
+    .join('\n');
+  const prompt =
+    'Classify each numbered YouTube item as a music track or not. MUSIC = official songs, ' +
+    'live performances, DJ sets, mixes, covers, instrumentals, remixes. NOT MUSIC = vlogs, ' +
+    'podcasts, tutorials, reviews, interviews, reactions, gameplay, news, documentaries, etc. ' +
+    'Return ONLY JSON {"non_music":[indices]} listing the indices that are NOT music.\n\n' + lines;
+  const raw = await llmClient.generateJson(prompt, { temperature: 0 });
+  const parsed = JSON.parse(raw);
+  const arr = Array.isArray(parsed.non_music) ? parsed.non_music : [];
+  return new Set(arr.filter((n) => Number.isInteger(n)));
+}
+
+/**
+ * Classify a batch of library tracks into music / non_music / unclassified.
+ *   1. deterministic pass on stored fields (+ optional pre-supplied `metaById`),
+ *   2. videos.list enrichment of the ambiguous set (when a token is given AND no metaById),
+ *   3. Groq tie-breaker on the residue; a batch that can't be adjudicated (LLM off /
+ *      unconfigured / errored) lands in `unclassified` — pooled, never deleted (safety floor).
+ * Non-`youtube_music` tracks pass straight through as music.
+ *
+ * @param {Array} tracks
+ * @param {{youtubeToken?:string|null, useLLM?:boolean, metaById?:Object|null}} [opts]
+ * @returns {Promise<{music:Array, nonMusic:Array, unclassified:Array}>}
+ */
+async function classifyTracks(tracks, { youtubeToken = null, useLLM = true, metaById = null } = {}) {
+  const music = [], nonMusic = [], unclassified = [];
+  const list = Array.isArray(tracks) ? tracks : [];
+
+  let ambiguous = [];
+  for (const t of list) {
+    if (t?.provider !== 'youtube_music') { music.push(t); continue; }
+    const v = classifyByMetadata(t, (metaById && metaById[t.id]) || {});
+    if (v === 'music') music.push(t);
+    else if (v === 'non_music') nonMusic.push(t);
+    else ambiguous.push(t);
+  }
+
+  if (ambiguous.length && youtubeToken && !metaById) {
+    let metas = [];
+    try {
+      metas = await youtube.fetchVideoTopics(youtubeToken, ambiguous.map((t) => t.id), { cap: ambiguous.length });
+    } catch { metas = []; }
+    const byId = {};
+    for (const m of metas) byId[m.id] = m;
+    const next = [];
+    for (const t of ambiguous) {
+      const v = classifyByMetadata(t, byId[t.id] || {});
+      if (v === 'music') music.push(t);
+      else if (v === 'non_music') nonMusic.push(t);
+      else next.push(t);
+    }
+    ambiguous = next;
+  }
+
+  if (!ambiguous.length) return { music, nonMusic, unclassified };
+  if (!useLLM || !llmClient.isConfigured()) {
+    unclassified.push(...ambiguous);
+    return { music, nonMusic, unclassified };
+  }
+  for (let i = 0; i < ambiguous.length; i += GROQ_BATCH) {
+    const batch = ambiguous.slice(i, i + GROQ_BATCH);
+    try {
+      const nonIdx = await _groqNonMusicIndices(batch);
+      batch.forEach((t, j) => (nonIdx.has(j) ? nonMusic : music).push(t));
+    } catch {
+      unclassified.push(...batch);
+    }
+  }
+  return { music, nonMusic, unclassified };
+}
+
+module.exports = { classifyByMetadata, classifyTracks };

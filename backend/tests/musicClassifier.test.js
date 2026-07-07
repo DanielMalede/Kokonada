@@ -1,6 +1,11 @@
 'use strict';
 
-const { classifyByMetadata } = require('../app/services/musicClassifier');
+jest.mock('../app/services/youtube', () => ({ fetchVideoTopics: jest.fn() }));
+jest.mock('../app/services/llmClient', () => ({ generateJson: jest.fn(), isConfigured: jest.fn(() => true) }));
+
+const youtube = require('../app/services/youtube');
+const llmClient = require('../app/services/llmClient');
+const { classifyByMetadata, classifyTracks } = require('../app/services/musicClassifier');
 
 // A youtube_music library entry: { provider, name, artist, genres }.
 const yt = (name, artist = 'Some Channel') => ({ provider: 'youtube_music', name, artist });
@@ -67,5 +72,64 @@ describe('classifyByMetadata — deterministic verdict', () => {
     it('a bare title with no signal is ambiguous', () => {
       expect(classifyByMetadata(yt('Untitled 3', 'randomuser123'))).toBe('ambiguous');
     });
+  });
+});
+
+describe('classifyTracks — 3-way partition', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    llmClient.isConfigured.mockReturnValue(true);
+  });
+
+  const ytt = (id, name, artist = 'ch') => ({ id, provider: 'youtube_music', name, artist });
+
+  it('partitions deterministically with no token/LLM; ambiguous → unclassified', async () => {
+    const tracks = [
+      { id: 's1', provider: 'spotify', name: 'anything' },
+      ytt('m1', 'Song (Official Video)'),
+      ytt('j1', 'morning routine vlog'),
+      ytt('a1', 'Untitled 3', 'randomuser'),
+    ];
+    const out = await classifyTracks(tracks, { useLLM: false });
+    expect(out.music.map(t => t.id).sort()).toEqual(['m1', 's1']);
+    expect(out.nonMusic.map(t => t.id)).toEqual(['j1']);
+    expect(out.unclassified.map(t => t.id)).toEqual(['a1']);
+    expect(youtube.fetchVideoTopics).not.toHaveBeenCalled();
+    expect(llmClient.generateJson).not.toHaveBeenCalled();
+  });
+
+  it('enriches ambiguous tracks via videos.list and re-classifies (categoryId 20 → non_music)', async () => {
+    youtube.fetchVideoTopics.mockResolvedValue([{ id: 'a1', categoryId: '20', topicCategories: [], tags: [] }]);
+    const out = await classifyTracks([ytt('a1', 'clip', 'randomuser')], { youtubeToken: 'tok', useLLM: false });
+    expect(youtube.fetchVideoTopics).toHaveBeenCalledWith('tok', ['a1'], expect.any(Object));
+    expect(out.nonMusic.map(t => t.id)).toEqual(['a1']);
+    expect(out.unclassified).toEqual([]);
+  });
+
+  it('sends the still-ambiguous residue to Groq and honors its non_music verdict', async () => {
+    llmClient.generateJson.mockResolvedValue(JSON.stringify({ non_music: [0] }));
+    const out = await classifyTracks(
+      [ytt('a1', 'weird title', 'u'), ytt('a2', 'another weird', 'u')],
+      { useLLM: true },
+    );
+    expect(llmClient.generateJson).toHaveBeenCalledTimes(1);
+    expect(out.nonMusic.map(t => t.id)).toEqual(['a1']);
+    expect(out.music.map(t => t.id)).toEqual(['a2']);
+    expect(out.unclassified).toEqual([]);
+  });
+
+  it('a Groq outage sends the residue to unclassified, never nonMusic (safety floor)', async () => {
+    llmClient.generateJson.mockRejectedValue(new Error('429 rate limited'));
+    const out = await classifyTracks([ytt('a1', 'weird', 'u')], { useLLM: true });
+    expect(out.unclassified.map(t => t.id)).toEqual(['a1']);
+    expect(out.nonMusic).toEqual([]);
+  });
+
+  it('skips videos.list when metaById is supplied (ingest reuses already-fetched meta)', async () => {
+    const out = await classifyTracks([ytt('a1', 'clip', 'u')], {
+      youtubeToken: 'tok', useLLM: false, metaById: { a1: { categoryId: '10' } },
+    });
+    expect(youtube.fetchVideoTopics).not.toHaveBeenCalled();
+    expect(out.music.map(t => t.id)).toEqual(['a1']);
   });
 });
