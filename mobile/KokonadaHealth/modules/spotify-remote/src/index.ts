@@ -2,6 +2,9 @@ import { NativeEventEmitter, NativeModules } from 'react-native';
 import Native from './NativeSpotifyRemote';
 
 const REMOTE_DISCONNECTED = 'remoteDisconnected';
+const PLAYER_STATE_CHANGED = 'playerStateChanged';
+
+export interface RemotePlayerState { trackUri: string | null; isPaused: boolean; }
 
 // A single emitter over the native module. NativeModules.SpotifyRemote exists at
 // runtime once the TurboModule is registered; the emitter is only constructed lazily.
@@ -26,6 +29,13 @@ export const SpotifyRemote = {
     Native.getPlayerState(),
   onRemoteDisconnected: (cb: () => void): (() => void) => {
     const sub = getEmitter().addListener(REMOTE_DISCONNECTED, cb);
+    return () => sub.remove();
+  },
+  // Every native PlayerState change: track auto-advance, pause/resume, in-Spotify jumps.
+  // The signal that keeps RN's queue/now-playing in lockstep with the real player (D-1).
+  onPlayerStateChanged: (cb: (state: RemotePlayerState) => void): (() => void) => {
+    const sub = getEmitter().addListener(PLAYER_STATE_CHANGED, (p: any) =>
+      cb({ trackUri: p?.trackUri ?? null, isPaused: !!p?.isPaused }));
     return () => sub.remove();
   },
 };

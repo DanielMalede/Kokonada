@@ -26,6 +26,9 @@ export interface SpotifyControllerDeps {
   getToken: () => Promise<string | null>;
   onStateChange?: (state: PlayerState) => void;
   onError?: (err: unknown) => void;
+  // D-1: every native PlayerState change (auto-advance, pause/resume, in-Spotify jump) —
+  // forwarded so the playback orchestrator can keep its queue in lockstep with reality.
+  onRemoteState?: (state: { uri: string | null; isPaused: boolean }) => void;
   maxReconnects?: number;
 }
 
@@ -41,6 +44,11 @@ export class SpotifyPlayerController {
     this.reconnectBudget = deps.maxReconnects ?? DEFAULT_MAX_RECONNECTS;
     // The native side can sever the link at any moment; treat it like any failure.
     this.deps.remote.addListener('remoteDisconnected', () => this.markDisconnected());
+    // D-1: surface the native PlayerState stream (normalized to { uri, isPaused }).
+    if (this.deps.onRemoteState) {
+      this.deps.remote.addListener('playerStateChanged', (s: any) =>
+        this.deps.onRemoteState?.({ uri: s?.trackUri ?? null, isPaused: !!s?.isPaused }));
+    }
   }
 
   getState(): PlayerState {

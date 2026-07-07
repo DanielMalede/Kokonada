@@ -68,4 +68,15 @@ export class PlaybackQueue {
     this.index = prevIdx;
     return this.tracks[this.index];
   }
+
+  // Move the cursor to the queued track with this URI (D-1: adopt a native auto-advance /
+  // in-Spotify jump to one of OUR tracks). Returns null — cursor untouched — for a URI we
+  // never queued (a foreign track the user played directly in Spotify).
+  seekToUri(uri: string): QueueTrack | null {
+    if (typeof uri !== 'string' || !uri) return null;
+    const idx = this.tracks.findIndex((t) => isPlayable(t) && t.uri === uri);
+    if (idx === -1) return null;
+    this.index = idx;
+    return this.tracks[idx];
+  }
 }

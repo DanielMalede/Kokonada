@@ -26,6 +26,10 @@ export const player = new SpotifyPlayerController({
   // Surface every player lifecycle transition into an observable store so the
   // Profile screen can show a live Spotify connection badge. (QA4 Suspect #4)
   onStateChange: (status) => playerStatusStore.getState().set(status),
+  // D-1: native PlayerState stream → orchestrator lockstep (auto-advance updates the
+  // queue + now-playing; pause/resume in the Spotify app mirrors into our UI).
+  // `orchestrator` is declared below — the closure resolves at event time, well after init.
+  onRemoteState: (s) => orchestrator.syncToRemote(s.uri, s.isPaused),
 });
 
 export const kokoSocket = new KokonadaSocket({

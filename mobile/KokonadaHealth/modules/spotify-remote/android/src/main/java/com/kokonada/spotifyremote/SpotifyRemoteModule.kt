@@ -150,10 +150,20 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
       override fun onConnected(remote: SpotifyAppRemote) {
         Log.d(NAME, "onConnected")
         appRemote = remote
-        remote.playerApi.subscribeToPlayerState().setErrorCallback {
-          appRemote = null
-          emit("remoteDisconnected")
-        }
+        // D-1: the event callback is the ONLY signal for a native auto-advance (track end →
+        // next). Without it RN's queue/now-playing desynced from the actual player (the
+        // "phantom track"). Fires on every PlayerState change: track change, pause/resume.
+        remote.playerApi.subscribeToPlayerState()
+          .setEventCallback { state ->
+            val map = Arguments.createMap()
+            map.putString("trackUri", state.track?.uri)
+            map.putBoolean("isPaused", state.isPaused)
+            emit("playerStateChanged", map)
+          }
+          .setErrorCallback {
+            appRemote = null
+            emit("remoteDisconnected")
+          }
         if (settled.compareAndSet(false, true)) {
           mainHandler.removeCallbacks(watchdog)
           promise.resolve(null)
@@ -233,9 +243,9 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
 
   override fun removeListeners(count: Double) { listenerCount -= count.toInt() }
 
-  private fun emit(event: String) {
+  private fun emit(event: String, params: Any? = null) {
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      .emit(event, null)
+      .emit(event, params)
   }
 }

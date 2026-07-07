@@ -21,6 +21,7 @@ jest.mock('@kokonada/spotify-remote', () => ({
     resume: jest.fn().mockResolvedValue(undefined),
     getPlayerState: jest.fn().mockResolvedValue({ isPaused: true, trackUri: 'spotify:track:x' }),
     onRemoteDisconnected: jest.fn(() => () => {}),
+    onPlayerStateChanged: jest.fn(() => () => {}),
   },
 }));
 
@@ -54,4 +55,10 @@ test('addListener wires remoteDisconnected through onRemoteDisconnected', () => 
   const cb = jest.fn();
   spotifyRemoteAdapter.addListener('remoteDisconnected', cb);
   expect(mockMod.onRemoteDisconnected).toHaveBeenCalledWith(cb);
+});
+
+test('addListener wires playerStateChanged through onPlayerStateChanged (D-1)', () => {
+  const cb = jest.fn();
+  spotifyRemoteAdapter.addListener('playerStateChanged', cb);
+  expect((mockMod as any).onPlayerStateChanged).toHaveBeenCalledWith(cb);
 });

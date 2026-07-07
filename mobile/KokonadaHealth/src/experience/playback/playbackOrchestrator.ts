@@ -170,15 +170,49 @@ export class PlaybackOrchestrator {
     this.emit();
   }
 
+  // Live push from the native PlayerState stream (D-1). This is what ends the "phantom
+  // track": a native auto-advance (track end → next) moves the QUEUE CURSOR to the
+  // reported track and emits now-playing — WITHOUT re-commanding play (Spotify already
+  // advanced; a play command would restart the track). A URI we never queued means the
+  // user is driving Spotify directly — reflect not-playing, same rule as reconcile.
+  syncToRemote(uri: string | null, isPaused: boolean): void {
+    // A user skip is mid-coalesce: the remote still reports the pre-skip track, and the
+    // scheduled play will assert the user's intent in a moment — don't fight it.
+    if (this.pendingPlayHandle !== null) return;
+    if (!uri) { this.isPlaying = false; this.emit(); return; }
+    const ours = this.queue.current();
+    if (ours && ours.uri === uri) {
+      // Same track — a pause/resume done inside the Spotify app. Mirror it.
+      this.isPlaying = !isPaused;
+      this.emit();
+      return;
+    }
+    const adopted = this.queue.seekToUri(uri);
+    if (adopted) {
+      this.currentTrackId = adopted.id;
+      this.isPlaying = !isPaused;
+      this.emit();
+    } else {
+      this.isPlaying = false; // foreign track — we are not driving (S11-1 rule)
+      this.emit();
+    }
+  }
+
   // Reconcile the local model with the native Spotify truth (foreground / desync).
-  // If the remote reports a track we did NOT queue (the user played something else
-  // in the Spotify app directly), Kokonada is not driving playback — reflect that
-  // truthfully as not-playing rather than leaving a "ghost" claiming our track. (S11-1)
+  // If the remote reports one of OUR queued tracks, adopt it (the cursor may have
+  // drifted while backgrounded — same lockstep rule as syncToRemote). A track we did
+  // NOT queue (the user played something else in the Spotify app directly) means
+  // Kokonada is not driving playback — reflect that truthfully as not-playing rather
+  // than leaving a "ghost" claiming our track. (S11-1)
   reconcile(remote: { isPlaying: boolean; uri?: string } | 'disconnected'): void {
     if (remote === 'disconnected') { this.isPlaying = false; this.emit(); return; }
     const ours = this.queue.current();
-    const foreign = typeof remote.uri === 'string' && ours != null && remote.uri !== ours.uri;
-    this.isPlaying = foreign ? false : !!remote.isPlaying;
+    if (typeof remote.uri === 'string' && remote.uri.length > 0 && (!ours || remote.uri !== ours.uri)) {
+      const adopted = this.queue.seekToUri(remote.uri);
+      if (adopted) { this.currentTrackId = adopted.id; this.isPlaying = !!remote.isPlaying; this.emit(); return; }
+      this.isPlaying = false; this.emit(); return; // truly foreign
+    }
+    this.isPlaying = !!remote.isPlaying;
     this.emit();
   }
 

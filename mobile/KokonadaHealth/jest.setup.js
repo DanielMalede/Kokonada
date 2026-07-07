@@ -92,5 +92,6 @@ jest.mock('@kokonada/spotify-remote', () => ({
     resume: jest.fn().mockResolvedValue(undefined),
     getPlayerState: jest.fn().mockResolvedValue({ isPaused: true, trackUri: null }),
     onRemoteDisconnected: jest.fn(() => () => {}),
+    onPlayerStateChanged: jest.fn(() => () => {}),
   },
 }));

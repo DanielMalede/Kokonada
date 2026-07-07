@@ -7,8 +7,9 @@ import { SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI } from '../../health/config';
 // takes none and the token passed by the controller is intentionally ignored.
 SpotifyRemote.configure(SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI);
 
-// Track disconnect unsubscribers so removeAllListeners can detach them.
+// Track event unsubscribers so removeAllListeners can detach them.
 let offDisconnect: (() => void) | null = null;
+let offPlayerState: (() => void) | null = null;
 
 export const spotifyRemoteAdapter: SpotifyRemoteLike = {
   connect: async (_token: string) => {
@@ -28,10 +29,14 @@ export const spotifyRemoteAdapter: SpotifyRemoteLike = {
     return { isPaused: !!s?.isPaused, track: s?.trackUri ? { uri: s.trackUri } : undefined };
   },
   addListener: (event: string, cb: (...args: any[]) => void) => {
-    // The controller only listens for 'remoteDisconnected'.
     if (event === 'remoteDisconnected') offDisconnect = SpotifyRemote.onRemoteDisconnected(cb);
+    // D-1: native PlayerState stream (auto-advance / pause / in-Spotify jumps).
+    if (event === 'playerStateChanged') offPlayerState = SpotifyRemote.onPlayerStateChanged(cb);
   },
-  removeAllListeners: () => { offDisconnect?.(); offDisconnect = null; },
+  removeAllListeners: () => {
+    offDisconnect?.(); offDisconnect = null;
+    offPlayerState?.(); offPlayerState = null;
+  },
 };
 
 // Readiness gate replacing the old token fetch: App Remote can only connect when the
