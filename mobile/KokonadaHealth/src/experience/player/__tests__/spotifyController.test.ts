@@ -201,3 +201,39 @@ describe('SpotifyPlayerController — reconnect after severance', () => {
     expect(remote.connectAttempts).toBeLessThanOrEqual(3); // initial + capped retries
   });
 });
+
+describe('SpotifyPlayerController — dispose (logout teardown, defect D-2)', () => {
+  it('pauses playback BEFORE disconnecting so audio actually stops on logout', async () => {
+    const { remote, controller } = build();
+    await controller.connect();
+    const calls: string[] = [];
+    const pauseSpy = jest.spyOn(remote, 'pause').mockImplementation(async () => { calls.push('pause'); });
+    const disconnectSpy = jest.spyOn(remote, 'disconnect').mockImplementation(async () => { calls.push('disconnect'); remote.connected = false; });
+
+    await controller.dispose();
+
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(disconnectSpy).toHaveBeenCalled();
+    expect(calls).toEqual(['pause', 'disconnect']); // pause must precede disconnect (native pause needs the live link)
+    expect(controller.getState()).toBe('disconnected');
+  });
+
+  it('still disconnects even if pause throws (best-effort teardown never leaves the link open)', async () => {
+    const { remote, controller } = build();
+    await controller.connect();
+    jest.spyOn(remote, 'pause').mockRejectedValue(new Error('pause failed'));
+    const disconnectSpy = jest.spyOn(remote, 'disconnect');
+
+    await expect(controller.dispose()).resolves.toBeUndefined();
+    expect(disconnectSpy).toHaveBeenCalled();
+    expect(controller.getState()).toBe('disconnected');
+  });
+
+  it('does not attempt a native pause when never connected (nothing to stop)', async () => {
+    const { remote, controller } = build();
+    const pauseSpy = jest.spyOn(remote, 'pause');
+    await controller.dispose();
+    expect(pauseSpy).not.toHaveBeenCalled();
+    expect(controller.getState()).toBe('disconnected');
+  });
+});
