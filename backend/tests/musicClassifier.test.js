@@ -106,11 +106,11 @@ describe('classifyTracks — 3-way partition', () => {
     expect(out.unclassified).toEqual([]);
   });
 
-  it('sends the still-ambiguous residue to Groq and honors its non_music verdict', async () => {
+  it('sends metadata-backed but still-ambiguous tracks to Groq and honors its non_music verdict', async () => {
     llmClient.generateJson.mockResolvedValue(JSON.stringify({ non_music: [0] }));
     const out = await classifyTracks(
       [ytt('a1', 'weird title', 'u'), ytt('a2', 'another weird', 'u')],
-      { useLLM: true },
+      { useLLM: true, metaById: { a1: { categoryId: '24' }, a2: { categoryId: '24' } } },
     );
     expect(llmClient.generateJson).toHaveBeenCalledTimes(1);
     expect(out.nonMusic.map(t => t.id)).toEqual(['a1']);
@@ -118,9 +118,9 @@ describe('classifyTracks — 3-way partition', () => {
     expect(out.unclassified).toEqual([]);
   });
 
-  it('a Groq outage sends the residue to unclassified, never nonMusic (safety floor)', async () => {
+  it('a Groq outage sends metadata-backed ambiguous tracks to unclassified, never nonMusic', async () => {
     llmClient.generateJson.mockRejectedValue(new Error('429 rate limited'));
-    const out = await classifyTracks([ytt('a1', 'weird', 'u')], { useLLM: true });
+    const out = await classifyTracks([ytt('a1', 'weird', 'u')], { useLLM: true, metaById: { a1: { categoryId: '24' } } });
     expect(out.unclassified.map(t => t.id)).toEqual(['a1']);
     expect(out.nonMusic).toEqual([]);
   });
@@ -131,5 +131,22 @@ describe('classifyTracks — 3-way partition', () => {
     });
     expect(youtube.fetchVideoTopics).not.toHaveBeenCalled();
     expect(out.music.map(t => t.id)).toEqual(['a1']);
+  });
+
+  // Precision fix: metadata is fetched BEFORE Groq. A YouTube-Music-tagged (categoryId 10)
+  // track is pulled out and kept; a track we can't get metadata for is pooled, never deleted.
+  it('keeps a Music-tagged (categoryId 10) track via the pre-Groq fetch, without asking Groq', async () => {
+    youtube.fetchVideoTopics.mockResolvedValue([{ id: 'a1', categoryId: '10', topicCategories: [], tags: [] }]);
+    const out = await classifyTracks([ytt('a1', 'Hine Ani Ba - HaDag Nachash', 'DanielM')], { youtubeToken: 'tok', useLLM: true });
+    expect(out.music.map(t => t.id)).toEqual(['a1']);
+    expect(llmClient.generateJson).not.toHaveBeenCalled(); // categoryId 10 kept it out of Groq
+  });
+
+  it('pools (never Groq-deletes) an ambiguous track whose metadata could not be fetched', async () => {
+    youtube.fetchVideoTopics.mockResolvedValue([]); // fetch returned nothing for a1
+    const out = await classifyTracks([ytt('a1', 'inconclusive title', 'u')], { youtubeToken: 'tok', useLLM: true });
+    expect(out.unclassified.map(t => t.id)).toEqual(['a1']);
+    expect(out.nonMusic).toEqual([]);
+    expect(llmClient.generateJson).not.toHaveBeenCalled(); // no metadata → not sent to Groq
   });
 });

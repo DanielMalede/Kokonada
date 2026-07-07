@@ -94,7 +94,7 @@ async function classifyTracks(tracks, { youtubeToken = null, useLLM = true, meta
   const music = [], nonMusic = [], unclassified = [];
   const list = Array.isArray(tracks) ? tracks : [];
 
-  let ambiguous = [];
+  const ambiguous = [];
   for (const t of list) {
     if (t?.provider !== 'youtube_music') { music.push(t); continue; }
     const v = classifyByMetadata(t, (metaById && metaById[t.id]) || {});
@@ -102,31 +102,38 @@ async function classifyTracks(tracks, { youtubeToken = null, useLLM = true, meta
     else if (v === 'non_music') nonMusic.push(t);
     else ambiguous.push(t);
   }
+  if (!ambiguous.length) return { music, nonMusic, unclassified };
 
-  if (ambiguous.length && youtubeToken && !metaById) {
+  // Fetch YouTube metadata for every still-ambiguous track we don't already have it for —
+  // BEFORE the Groq step. This guarantees a Music-tagged track (categoryId 10 / a music topic)
+  // is kept and never risked on an LLM guess. A track whose metadata we CANNOT obtain (fetch
+  // failed / no token) is POOLED for a later retry — never deleted on a metadata-less guess.
+  const fetched = {};
+  const needFetch = ambiguous.filter((t) => !(metaById && metaById[t.id]));
+  if (needFetch.length && youtubeToken) {
     let metas = [];
-    try {
-      metas = await youtube.fetchVideoTopics(youtubeToken, ambiguous.map((t) => t.id), { cap: ambiguous.length });
-    } catch { metas = []; }
-    const byId = {};
-    for (const m of metas) byId[m.id] = m;
-    const next = [];
-    for (const t of ambiguous) {
-      const v = classifyByMetadata(t, byId[t.id] || {});
-      if (v === 'music') music.push(t);
-      else if (v === 'non_music') nonMusic.push(t);
-      else next.push(t);
-    }
-    ambiguous = next;
+    try { metas = await youtube.fetchVideoTopics(youtubeToken, needFetch.map((t) => t.id), { cap: needFetch.length }); }
+    catch { metas = []; }
+    for (const m of metas) fetched[m.id] = m;
   }
 
-  if (!ambiguous.length) return { music, nonMusic, unclassified };
+  const groqCandidates = [];
+  for (const t of ambiguous) {
+    const meta = (metaById && metaById[t.id]) || fetched[t.id] || null;
+    if (!meta) { unclassified.push(t); continue; } // no metadata → pool, never Groq/delete
+    const v = classifyByMetadata(t, meta);
+    if (v === 'music') music.push(t);
+    else if (v === 'non_music') nonMusic.push(t);
+    else groqCandidates.push(t); // has metadata, YouTube's own signals inconclusive → let Groq decide
+  }
+
+  if (!groqCandidates.length) return { music, nonMusic, unclassified };
   if (!useLLM || !llmClient.isConfigured()) {
-    unclassified.push(...ambiguous);
+    unclassified.push(...groqCandidates);
     return { music, nonMusic, unclassified };
   }
-  for (let i = 0; i < ambiguous.length; i += GROQ_BATCH) {
-    const batch = ambiguous.slice(i, i + GROQ_BATCH);
+  for (let i = 0; i < groqCandidates.length; i += GROQ_BATCH) {
+    const batch = groqCandidates.slice(i, i + GROQ_BATCH);
     try {
       const nonIdx = await _groqNonMusicIndices(batch);
       batch.forEach((t, j) => (nonIdx.has(j) ? nonMusic : music).push(t));
