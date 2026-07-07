@@ -16,6 +16,12 @@ const RefreshToken = require('../../models/RefreshToken');
 const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
 const { purgeUserKeys } = require('../../utils/userRedisPurge');
 
+// Deliberately NOT erased: AudioFeature (audiofeatures) and TrackEmbedding
+// (trackembeddings) are GLOBAL, cross-user caches keyed only by recordingKey
+// (spotify:/youtube: URI of a public-catalog recording) — no userId, no PII. The
+// personal association (which recordings a user has) lives in MusicProfile.library,
+// which IS erased below. Adding these caches to the cascade would evict every other
+// user's rows and force costly re-fetches — it is intentionally excluded. (ADR 0008)
 async function eraseUserChildData(userId) {
   await Promise.all([
     BiometricLog.deleteMany({ userId }),
