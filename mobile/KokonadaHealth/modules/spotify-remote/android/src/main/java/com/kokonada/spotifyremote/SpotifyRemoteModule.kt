@@ -220,6 +220,48 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
       .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
   }
 
+  // D-1 context playback: skips act on Spotify's OWN context/queue — the same one its
+  // auto-advance uses — so the RN queue and the player can never diverge.
+  override fun skipNext(promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.skipNext()
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun skipPrevious(promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.skipPrevious()
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun skipToIndex(contextUri: String, index: Double, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.skipToIndex(contextUri, index.toInt())
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun setShuffle(enabled: Boolean, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.setShuffle(enabled)
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun setRepeat(mode: Double, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.setRepeat(mode.toInt())
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
   override fun getPlayerState(promise: Promise) {
     val remote = appRemote?.takeIf { it.isConnected }
       ?: return promise.reject("CONNECTION_FAILED", "not connected")

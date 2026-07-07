@@ -24,15 +24,24 @@ function makeOrch() {
   const socket = { requestPlaylist: jest.fn(() => 1), requestHeartPlaylist: jest.fn(() => 1), ensureConnected: jest.fn() };
   const orch = new PlaybackOrchestrator({
     player, socket,
-    // Microtask-deferred: schedule() must RETURN before its fn runs (a synchronous fn would
-    // be overwritten by the handle assignment and wedge pendingPlayHandle non-null).
-    scheduler: { schedule: (fn) => { void Promise.resolve().then(fn); return 1; }, cancel: () => {} },
+    scheduler: makeCancellableScheduler(),
     onNowPlaying: (s) => emitted.push(s),
   });
   return { orch, player, played, emitted };
 }
 
 const flush = () => new Promise((r) => setImmediate(r));
+
+// Microtask-deferred AND cancellable — schedule() must return before its fn runs, and
+// cancel() must actually stop it (the coalescer relies on it, like prod clearTimeout).
+function makeCancellableScheduler() {
+  let seq = 0;
+  const cancelled = new Set<number>();
+  return {
+    schedule: (fn: () => void) => { const id = ++seq; void Promise.resolve().then(() => { if (!cancelled.has(id)) fn(); }); return id; },
+    cancel: (id: number) => { cancelled.add(id); },
+  };
+}
 
 describe('PlaybackQueue.seekToUri (D-1)', () => {
   it('moves the cursor to a queued playable uri; leaves it for a foreign uri', () => {
@@ -131,5 +140,77 @@ describe('SpotifyPlayerController.onRemoteState (D-1 event normalization)', () =
     expect(onRemoteState).toHaveBeenCalledWith({ uri: 'spotify:track:b', isPaused: false });
     listeners.get('playerStateChanged')?.({ trackUri: null, isPaused: true });
     expect(onRemoteState).toHaveBeenCalledWith({ uri: null, isPaused: true });
+  });
+});
+
+// ── D-1 Option A: context playback (the session playlist owns the queue) ────────
+
+function makeContextOrch() {
+  const emitted: NowPlaying[] = [];
+  const player = {
+    play: jest.fn(async () => ({ ok: true })),
+    pause: jest.fn(async () => ({ ok: true })),
+    resume: jest.fn(async () => ({ ok: true })),
+    playContext: jest.fn(async () => ({ ok: true })),
+    skipToIndex: jest.fn(async () => ({ ok: true })),
+  };
+  const socket = { requestPlaylist: jest.fn(() => 1), requestHeartPlaylist: jest.fn(() => 1), ensureConnected: jest.fn() };
+  const orch = new PlaybackOrchestrator({
+    player, socket,
+    scheduler: makeCancellableScheduler(),
+    onNowPlaying: (s) => emitted.push(s),
+  });
+  return { orch, player, emitted };
+}
+
+describe('PlaybackOrchestrator — context playback (D-1 Option A)', () => {
+  const CTX = 'spotify:playlist:koko-session';
+
+  it('a playlist WITH contextUri starts the context at row 0 — no loose track play', async () => {
+    const { orch, player } = makeContextOrch();
+    await orch.handlePlaylist({ tracks: TRACKS as any, contextUri: CTX });
+    expect(player.playContext).toHaveBeenCalledWith(CTX, 0);
+    expect(player.play).not.toHaveBeenCalled();
+  });
+
+  it('a skip burst coalesces into ONE absolute skipToIndex at the final cursor row', async () => {
+    const { orch, player } = makeContextOrch();
+    await orch.handlePlaylist({ tracks: TRACKS as any, contextUri: CTX });
+    orch.skipNext();
+    orch.skipNext(); // burst: a → c
+    await flush();
+    expect(player.skipToIndex).toHaveBeenCalledTimes(1);
+    expect(player.skipToIndex).toHaveBeenCalledWith(CTX, 2);
+    expect(player.play).not.toHaveBeenCalled(); // never a context-destroying track play
+  });
+
+  it('data-only (uri:null) tracks are excluded from the playlist row index', async () => {
+    const { orch, player } = makeContextOrch();
+    const mixed = [
+      { id: 'a', uri: 'spotify:track:a', title: 'A', artist: '' },
+      { id: 'y', uri: null, title: 'YT-only', artist: '' },        // in queue, NOT in playlist
+      { id: 'b', uri: 'spotify:track:b', title: 'B', artist: '' },
+    ];
+    await orch.handlePlaylist({ tracks: mixed as any, contextUri: CTX });
+    orch.skipNext(); // cursor lands on b (queue idx 2) = playlist ROW 1
+    await flush();
+    expect(player.skipToIndex).toHaveBeenCalledWith(CTX, 1);
+  });
+
+  it('without a contextUri (attach failed server-side) playback falls back to track URIs', async () => {
+    const { orch, player } = makeContextOrch();
+    await orch.handlePlaylist({ tracks: TRACKS as any });
+    expect(player.play).toHaveBeenCalledWith('spotify:track:a');
+    expect(player.playContext).not.toHaveBeenCalled();
+  });
+
+  it('a native auto-advance in context mode still syncs the cursor without ANY command', async () => {
+    const { orch, player, emitted } = makeContextOrch();
+    await orch.handlePlaylist({ tracks: TRACKS as any, contextUri: CTX });
+    const cmds = () => player.playContext.mock.calls.length + player.skipToIndex.mock.calls.length + player.play.mock.calls.length;
+    const before = cmds();
+    orch.syncToRemote('spotify:track:b', false); // Spotify walked OUR playlist to row 1
+    expect(cmds()).toBe(before);                 // pure adoption — no re-command
+    expect(emitted[emitted.length - 1].track?.id).toBe('b');
   });
 });

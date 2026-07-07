@@ -69,6 +69,17 @@ export class PlaybackQueue {
     return this.tracks[this.index];
   }
 
+  // The current track's position among PLAYABLE tracks only — i.e. its row index in the
+  // session playlist (which the backend builds from exactly the Spotify-URI tracks, in
+  // order). Data-only tracks (uri:null) exist in the queue but not the playlist. (D-1)
+  playableIndex(): number {
+    let n = 0;
+    for (let i = 0; i < this.index && i < this.tracks.length; i++) {
+      if (isPlayable(this.tracks[i])) n++;
+    }
+    return n;
+  }
+
   // Move the cursor to the queued track with this URI (D-1: adopt a native auto-advance /
   // in-Spotify jump to one of OUR tracks). Returns null — cursor untouched — for a URI we
   // never queued (a foreign track the user played directly in Spotify).

@@ -9,6 +9,9 @@ export interface PlaybackPlayer {
   play(uri: string): Promise<{ ok: boolean }>;
   pause(): Promise<{ ok: boolean }>;
   resume(): Promise<{ ok: boolean }>;
+  // D-1 context playback (optional — absent on legacy fakes → track-play fallback).
+  playContext?(contextUri: string, index: number): Promise<{ ok: boolean }>;
+  skipToIndex?(contextUri: string, index: number): Promise<{ ok: boolean }>;
 }
 
 export interface PlaybackSocket {
@@ -57,6 +60,10 @@ export class PlaybackOrchestrator {
   private isPlaying = false;
   private currentTrackId: string | null = null;
   private pendingPlayHandle: number | null = null;
+  // D-1: the session-playlist context backing this queue (null → legacy track playback).
+  // With a context, Spotify OWNS the queue order: skips are absolute jumps within it and
+  // its auto-advance walks our tracks — divergence is structurally impossible.
+  private contextUri: string | null = null;
   private generationPending = false; // a "generate more" request is in flight
   private generationTimeoutHandle: number | null = null;
 
@@ -78,26 +85,41 @@ export class PlaybackOrchestrator {
     this.onNowPlaying?.(this.getNowPlaying());
   }
 
-  // Play the queue's current track NOW (used for a new playlist / natural advance).
-  private async playCurrent(): Promise<void> {
+  // Play the queue's current track NOW. In context mode the command is against the
+  // session playlist: a fresh start plays the context at the cursor's playlist row; a
+  // user skip is an ABSOLUTE jump (skipToIndex) — burst-safe, because N coalesced skips
+  // land as one jump to wherever the cursor ended up. Legacy (no context) plays the URI.
+  private async playCurrent(viaSkip = false): Promise<void> {
     const track = this.queue.current();
     if (!track || !track.uri) {
       console.log('[koko] playCurrent: NO playable track (uri missing) — nothing to play');
       this.isPlaying = false; this.currentTrackId = null; this.emit(); return;
     }
     this.currentTrackId = track.id;
-    console.log('[koko] playCurrent → player.play uri=', track.uri);
-    const res = await this.player.play(track.uri);
-    console.log('[koko] player.play RESULT ok=', res.ok, 'uri=', track.uri);
+    let res: { ok: boolean };
+    if (this.contextUri && this.player.playContext) {
+      const row = this.queue.playableIndex();
+      console.log('[koko] playCurrent → context', viaSkip ? 'skipToIndex' : 'playContext', 'row=', row);
+      res = viaSkip && this.player.skipToIndex
+        ? await this.player.skipToIndex(this.contextUri, row)
+        : await this.player.playContext(this.contextUri, row);
+    } else {
+      console.log('[koko] playCurrent → player.play uri=', track.uri);
+      res = await this.player.play(track.uri);
+    }
+    console.log('[koko] play RESULT ok=', res.ok, 'uri=', track.uri);
     this.isPlaying = res.ok; // a severed remote → truthfully not playing
     this.emit();
   }
 
-  async handlePlaylist(payload: { tracks: QueueTrack[] }): Promise<void> {
+  async handlePlaylist(payload: { tracks: QueueTrack[]; contextUri?: string | null }): Promise<void> {
     console.log('[koko] orchestrator.handlePlaylist tracks=', payload?.tracks?.length ?? 0,
-      'first=', payload?.tracks?.[0]?.uri);
+      'first=', payload?.tracks?.[0]?.uri, 'context=', payload?.contextUri ?? '(none)');
     this.cancelPendingPlay();
     this.clearGenerationGuard(); // the requested generation arrived
+    this.contextUri = typeof payload?.contextUri === 'string' && payload.contextUri.length > 0
+      ? payload.contextUri
+      : null;
     this.queue.load(payload?.tracks ?? []);
     await this.playCurrent();
   }
@@ -124,12 +146,13 @@ export class PlaybackOrchestrator {
   }
 
   // Coalesce a burst of skips: advance the cursor now (cheap), but debounce the
-  // actual play command so a frantic spam issues exactly ONE network/SDK call.
+  // actual command so a frantic spam issues exactly ONE network/SDK call. In context
+  // mode that one command is an absolute skipToIndex — N skips still land correctly.
   private scheduleCoalescedPlay(): void {
     this.cancelPendingPlay();
     this.pendingPlayHandle = this.scheduler.schedule(() => {
       this.pendingPlayHandle = null;
-      void this.playCurrent();
+      void this.playCurrent(true);
     }, this.coalesceMs);
   }
 

@@ -10,6 +10,11 @@ export interface SpotifyRemoteLike {
   disconnect(): Promise<void>;
   isConnectedAsync(): Promise<boolean>;
   playUri(uri: string): Promise<void>;
+  // D-1 context playback (optional — legacy fakes without them fall back to track play).
+  playContext?(contextUri: string, index: number): Promise<void>;
+  skipToIndex?(contextUri: string, index: number): Promise<void>;
+  skipNext?(): Promise<void>;
+  skipPrevious?(): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   getPlayerState?(): Promise<{ isPaused: boolean; track?: { uri: string } }>;
@@ -140,6 +145,35 @@ export class SpotifyPlayerController {
   async play(uri: string): Promise<CommandResult> {
     if (typeof uri !== 'string' || uri.length === 0) return { ok: false };
     return this.run((r) => r.playUri(uri));
+  }
+
+  // D-1: play the session-playlist CONTEXT at a position — Spotify then owns the queue
+  // order and its auto-advance walks OUR tracks. Falls back to nothing when the remote
+  // lacks context support (the caller checks canPlayContext()).
+  canPlayContext(): boolean {
+    return typeof this.deps.remote.playContext === 'function';
+  }
+
+  async playContext(contextUri: string, index: number): Promise<CommandResult> {
+    if (typeof contextUri !== 'string' || contextUri.length === 0 || !this.deps.remote.playContext) return { ok: false };
+    const at = Number.isFinite(index) && index >= 0 ? Math.floor(index) : 0;
+    return this.run((r) => r.playContext!(contextUri, at));
+  }
+
+  async skipToIndex(contextUri: string, index: number): Promise<CommandResult> {
+    if (!this.deps.remote.skipToIndex) return { ok: false };
+    const at = Number.isFinite(index) && index >= 0 ? Math.floor(index) : 0;
+    return this.run((r) => r.skipToIndex!(contextUri, at));
+  }
+
+  async skipNext(): Promise<CommandResult> {
+    if (!this.deps.remote.skipNext) return { ok: false };
+    return this.run((r) => r.skipNext!());
+  }
+
+  async skipPrevious(): Promise<CommandResult> {
+    if (!this.deps.remote.skipPrevious) return { ok: false };
+    return this.run((r) => r.skipPrevious!());
   }
 
   async pause(): Promise<CommandResult> {

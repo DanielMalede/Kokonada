@@ -25,6 +25,12 @@ export const SpotifyRemote = {
   playUri: (uri: string): Promise<void> => Native.playUri(uri),
   pause: (): Promise<void> => Native.pause(),
   resume: (): Promise<void> => Native.resume(),
+  // D-1: context-queue commands — same queue Spotify's auto-advance walks.
+  skipNext: (): Promise<void> => Native.skipNext(),
+  skipPrevious: (): Promise<void> => Native.skipPrevious(),
+  skipToIndex: (contextUri: string, index: number): Promise<void> => Native.skipToIndex(contextUri, index),
+  setShuffle: (enabled: boolean): Promise<void> => Native.setShuffle(enabled),
+  setRepeat: (mode: number): Promise<void> => Native.setRepeat(mode),
   getPlayerState: (): Promise<{ isPaused: boolean; trackUri: string | null }> =>
     Native.getPlayerState(),
   onRemoteDisconnected: (cb: () => void): (() => void) => {
