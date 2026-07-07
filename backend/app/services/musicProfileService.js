@@ -7,6 +7,8 @@ const { inferArtistGenres } = require('./geminiEngine');
 const { cleanYouTubeArtist } = require('./crossPlatform');
 const { canonicalKey } = require('./identity/trackIdentity');
 const featureService = require('./features/featureService');
+const musicClassifier = require('./musicClassifier');
+const unclassifiedRepo = require('../repositories/unclassifiedRepo');
 
 const LIBRARY_CAP = 10_000; // max tracks stored per user to stay within 16 MB doc limit
 
@@ -502,11 +504,25 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       //     per-video tags), fetched for likes AND every playlist item (via the real video
       //     id). Bounded + batched inside fetchVideoTopics. Best-effort.
       let topicGenres = [];
+      const metaById  = {};
       try {
         const videoIds = allVideos.map(_videoIdOf).filter(Boolean);
         const topics   = await youtube.fetchVideoTopics(youtubeToken, videoIds);
         topicGenres    = topics.flatMap(t => _genresFromTopicCategories(t.topicCategories));
+        // Reuse the categoryId + topics we just fetched as classifier meta (no extra call).
+        for (const m of topics) metaById[m.id] = { categoryId: m.categoryId, topicCategories: m.topicCategories };
       } catch (e) { console.warn(`[musicProfile] YouTube topics skipped: ${e.message}`); }
+
+      // Ingest gate (§D1): classify every YouTube track (Groq on) and keep only music. Junk
+      // is dropped so it never enters the library; the undecidable (Groq outage) is pooled
+      // for the periodic reclassify worker — never added to the profile unverified.
+      try {
+        const verdict = await musicClassifier.classifyTracks(ytAnalysis.library, { useLLM: true, metaById });
+        ytAnalysis.library = verdict.music;
+        if (verdict.unclassified.length) {
+          await unclassifiedRepo.addMany(userId, verdict.unclassified, 'ingest');
+        }
+      } catch (e) { console.warn(`[musicProfile] YouTube classification skipped: ${e.message}`); }
 
       // Fold the new signals into YouTube's ranked lists before the cross-provider merge.
       const ytGenresRanked  = _rankByFrequency([...ytAnalysis.topGenres,  ...topicGenres]).slice(0, 12);
@@ -581,8 +597,22 @@ async function buildProfile(userId, user, onProgress = () => {}) {
   return profile;
 }
 
+// Re-derive the taste footprint (topGenres/topArtists/genreSet) from a library. Used after a
+// classification purge or a pool-promotion changes which tracks the profile contains.
+function recomputeFootprint(library) {
+  const list    = Array.isArray(library) ? library : [];
+  const genres  = list.flatMap(t => t.genres || []);
+  const artists = list.map(t => t.artist).filter(Boolean);
+  return {
+    topGenres:  _rankByFrequency(genres).slice(0, 10),
+    topArtists: _rankByFrequency(artists).slice(0, 20),
+    genreSet:   [...new Set(genres)],
+  };
+}
+
 module.exports = {
   buildProfile,
+  recomputeFootprint,
   SOURCE_WEIGHTS,
   // Exported for unit testing
   _analyzeSpotifyProfile,
