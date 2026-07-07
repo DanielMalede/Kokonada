@@ -517,7 +517,10 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       // is dropped so it never enters the library; the undecidable (Groq outage) is pooled
       // for the periodic reclassify worker — never added to the profile unverified.
       try {
-        const verdict = await musicClassifier.classifyTracks(ytAnalysis.library, { useLLM: true, metaById });
+        // Pass youtubeToken so the classifier can fetch metadata (categoryId/topics) for any
+        // ambiguous track not covered by the pre-fetched topics — Music-tagged tracks are then
+        // always kept, and a track whose metadata can't be fetched is pooled, never dropped.
+        const verdict = await musicClassifier.classifyTracks(ytAnalysis.library, { useLLM: true, metaById, youtubeToken });
         ytAnalysis.library = verdict.music;
         if (verdict.unclassified.length) {
           await unclassifiedRepo.addMany(userId, verdict.unclassified, 'ingest');
