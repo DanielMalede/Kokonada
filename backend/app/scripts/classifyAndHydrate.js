@@ -21,10 +21,20 @@ async function runForUser(userId) {
   const profile = await MusicProfile.findOne({ userId }).lean();
   const library = profile?.library ?? [];
   const summary = await featureService.hydrate(library);
-  const hydrated = summary?.hydrated ?? 0;
-  const missing = Math.max(0, (summary?.targeted ?? 0) - hydrated);
 
-  return { purged, pooled, hydrated, missing };
+  const targeted = summary?.targeted ?? 0;
+  const upgraded = summary?.upgraded ?? 0; // targets that ALREADY had (LLM) features — not missing
+  const llm      = summary?.llm ?? 0;      // truly-missing tracks the LLM just estimated
+  const api      = summary?.api ?? 0;      // measured features written (incl. upgrades)
+  const hydrated = summary?.hydrated ?? 0;
+
+  // Truly featureless = targets that had no doc, minus the ones the LLM just filled. Upgrade
+  // candidates (already on LLM features, ReccoBeats can't measure) are NOT missing.
+  const missing = Math.max(0, targeted - upgraded - llm);
+  // Tracks kept on LLM estimates because ReccoBeats has no catalog entry to upgrade to.
+  const onLLMEstimate = Math.max(0, upgraded - api);
+
+  return { purged, pooled, hydrated, missing, onLLMEstimate };
 }
 
 // CLI: node app/scripts/classifyAndHydrate.js <userId>  (run via `railway run` against prod).
@@ -38,7 +48,7 @@ if (require.main === module) {
   (async () => {
     await mongoose.connect(process.env.MONGO_URI);
     const res = await runForUser(userId);
-    console.log(`purged=${res.purged} pooled=${res.pooled} hydrated=${res.hydrated} missing=${res.missing}`);
+    console.log(`purged=${res.purged} pooled=${res.pooled} hydrated=${res.hydrated} missing=${res.missing} onLLMEstimate=${res.onLLMEstimate}`);
     await mongoose.disconnect();
     process.exit(0);
   })().catch((e) => { console.error(e); process.exit(1); });
