@@ -9,13 +9,13 @@
 
 ---
 
-## 0. CURRENT STATE — ROAD TO LAUNCH (updated 2026-07-04, READ THIS FIRST)
+## 0. CURRENT STATE — ROAD TO LAUNCH (updated 2026-07-07, READ THIS FIRST)
 
 > Supersedes the "Current State & Next Step" blocks in Section 4 and Section D below
 > (both predate Sprint A11 and the Road-to-Launch squads). Everything through **Sprint
 > A11 is SHIPPED**; we are now in the launch-hardening phase, run as an **Agent Squad**.
 
-**Shipped & merged to `main` (currently PR #51 merged):**
+**Shipped & merged to `main` (currently PR #78 merged):**
 - **Backend Phases 0–7** — the variance engine (queues, canonical identity, feature store,
   serve ledger, biosonic `translate`, selection pipeline, vector layer). PRs #35–#41.
 - **Mobile Sprints A6–A10** — auth, RN foundation, Skia experience, playback, wearable/
@@ -30,10 +30,23 @@
   (single-flight 401-refresh-retry) on a unified `AuthSession` token plane, the auth-gated
   `startApp` ignition, HistoryScreen server feed, ProfileScreen (logout + server-first GDPR
   delete), and the richer state-vector Pulse screen.
+- **Road-to-Launch Squads 1–2** (PRs #49–#51) — prod runbooks (Atlas vector index, Railway
+  Redis auth, in-process workers, SIGTERM fix) + tech-debt janitor (single JWT plane).
+- **Launch-hardening + biosonic wave (PRs #52–#78, through 2026-07-06/07):** generation heap
+  OOM fix (#56), generation wall-clock timeout wedge (#63), never-empty L4 anti-repetition
+  (#64), WS1 feature-hydration + pool-uncap (#66), texture-outlier gates + rhythmic rotation
+  (#72), Spotify playlist-read scopes (#73), OAuth deep-link back into the app (#74), Groq
+  429-retry so generation stops collapsing to the 10-track fallback (#75), the **biometric
+  shadow buffer** — precompiled Live-mode playlists (#76), **Spotify App Remote playback +
+  biosonic Part 2** — Neural-Analysis loader, dual-path, Live-mode band-drive (#77), and
+  **music-vs-non-music classification + hard-purge** with an unclassified pool + periodic
+  reclassifier (#78). Playback + Live-mode band recalibration are now shipped end-to-end.
 
-**Test baselines (both green):** backend **81 suites / 1006 tests**; mobile **42 suites /
-361 tests**. Backend: `cd backend && npm test`. Mobile: `./node_modules/.bin/jest` from
-`mobile/KokonadaHealth` (mobile is NOT in CI — run locally).
+**Test baselines (both green):** backend **91 suites / 1126 tests** (1125 pass + 1 todo);
+mobile **48 suites / 416 tests**. Backend: `cd backend && npm test`. Mobile:
+`./node_modules/.bin/jest` from `mobile/KokonadaHealth` (mobile is NOT in CI — run locally).
+Ground truth for this update: `docs/GROUND_TRUTH_2026-07-07.md`; execution plan:
+`docs/MASTER_BLUEPRINT_2026-07-07.md`.
 
 ### Operating model — the Agent Squad
 Every task spawns a **Developer Agent** (executes end-to-end, strict TDD) paired with a
