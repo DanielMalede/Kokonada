@@ -33,6 +33,13 @@ function texts(node: any, acc: string[] = []): string[] {
 async function render() {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<ProfileScreen />); });
+  // Flush the mount effect's async loadProfile().then(setSnap) chain deterministically.
+  // A single act() around create() does NOT reliably drain a resolved-promise → setSnap →
+  // re-render chain, which intermittently failed the auth-critical "identity from /me"
+  // assertion in CI (issue #84). A setImmediate macrotask boundary empties the ENTIRE
+  // microtask queue first (the resolved promise, its .then, and React's scheduled update),
+  // and the surrounding act() commits the result — deterministic across Node/scheduler timing.
+  await ReactTestRenderer.act(async () => { await new Promise((resolve) => setImmediate(resolve)); });
   return tree;
 }
 

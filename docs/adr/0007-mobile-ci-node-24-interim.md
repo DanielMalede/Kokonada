@@ -1,7 +1,7 @@
 # ADR 0007 — Mobile CI Pinned to Node 24 (Interim)
 
-- **Status:** Accepted (INTERIM) — superseded once [issue #84](https://github.com/DanielMalede/Kokonada/issues/84) is fixed
-- **Date:** 2026-07-07 (PR #81)
+- **Status:** RESOLVED 2026-07-07 — the [#84](https://github.com/DanielMalede/Kokonada/issues/84) root cause was fixed (deterministic `setImmediate` flush in `ProfileScreen.test.tsx`); the flake had recurred on **node 24** too, confirming it was a test-flush race, not a node-version artifact. Node 24 is retained as a deliberate target (satisfies engines). The pin is no longer a workaround.
+- **Date:** 2026-07-07 (PR #81; resolved via the #84 fix)
 
 ## Context
 Bringing the mobile jest suite into CI (#81) immediately exposed a failure: `ProfileScreen ›
