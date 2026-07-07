@@ -49,6 +49,9 @@ export const kokoSocket = new KokonadaSocket({
   getLiveMode: () => liveModeStore.getState().liveMode,
   // A Live-mode cold-buffer recalibration is warming — show the loader ("assembling …").
   onAssembling: (message) => { generationStatusStore.getState().begin(message); },
+  // Onboarding (D-6): the profile is still building — keep the loader alive with the
+  // building copy (each event re-arms the 30s auto-settle) while the socket auto-retries.
+  onBuilding: (message) => { generationStatusStore.getState().begin(message ?? 'Setting up your library…'); },
 });
 
 // Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. ensureOpen()

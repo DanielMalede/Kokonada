@@ -294,6 +294,66 @@ describe('KokonadaSocket — playlist_error', () => {
   });
 });
 
+describe('KokonadaSocket — playlist_building (onboarding graceful loading, D-6)', () => {
+  function buildBuilding(overrides: any = {}) {
+    const scheduled: Array<() => void> = [];
+    const setTimer = jest.fn((fn: () => void) => { scheduled.push(fn); return scheduled.length; });
+    const clearTimer = jest.fn();
+    const onBuilding = jest.fn();
+    const onGenerationError = jest.fn();
+    const { client, created } = build({
+      setTimer, clearTimer, onBuilding, onGenerationError, buildingRetryMs: 1000, maxBuildingRetries: 3, ...overrides,
+    });
+    client.connect();
+    return { client, sock: created[0], scheduled, setTimer, clearTimer, onBuilding, onGenerationError };
+  }
+
+  it('shows the building loader and auto-retries the SAME request — never a hard error', () => {
+    const { client, sock, scheduled, onBuilding, onGenerationError } = buildBuilding();
+    const reqId = client.requestPlaylist();
+    sock.emitted.length = 0; // ignore the initial request emit
+
+    sock.fire('playlist_building', { reqId, message: 'Setting up your library…' });
+
+    expect(onBuilding).toHaveBeenCalledWith('Setting up your library…');
+    expect(onGenerationError).not.toHaveBeenCalled();
+    expect(scheduled).toHaveLength(1);            // a retry was scheduled
+    scheduled[0]();                                // fire the timer
+    expect(sock.clientEmits('request_playlist').map((e) => e.payload.reqId)).toContain(reqId);
+  });
+
+  it('gives up with a soft error once the retry budget is exhausted', () => {
+    const { client, sock, scheduled, onGenerationError } = buildBuilding({ maxBuildingRetries: 2 });
+    const reqId = client.requestPlaylist();
+    for (let i = 0; i < 3; i++) {
+      sock.fire('playlist_building', { reqId, message: 'building' });
+      if (scheduled[i]) scheduled[i]();
+    }
+    expect(onGenerationError).toHaveBeenCalled();
+  });
+
+  it('a playlist_ready after building stops the retry loop (no stale re-emit)', () => {
+    const { client, sock, scheduled, clearTimer } = buildBuilding();
+    const reqId = client.requestPlaylist();
+    sock.fire('playlist_building', { reqId });
+    expect(scheduled).toHaveLength(1);
+
+    sock.fire('playlist_ready', { reqId, tracks: [] });
+    sock.emitted.length = 0;
+    scheduled[0](); // a now-stale timer fires — must NOT re-emit (pending cleared)
+    expect(sock.clientEmits('request_playlist')).toHaveLength(0);
+    expect(clearTimer).toHaveBeenCalled();
+  });
+
+  it('ignores a stale playlist_building (superseded reqId)', () => {
+    const { client, sock, onBuilding } = buildBuilding();
+    client.requestPlaylist(); // reqId 1
+    client.requestPlaylist(); // reqId 2 (latest)
+    sock.fire('playlist_building', { reqId: 1, message: 'stale' });
+    expect(onBuilding).not.toHaveBeenCalled();
+  });
+});
+
 describe('KokonadaSocket — requestHeartPlaylist', () => {
   it('emits request_heart_playlist with the HR and a reqId that gates responses', () => {
     const { client, created, deps } = build();

@@ -341,7 +341,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // Always-on diagnostic (prod's log() is gated): the profile row is missing —
       // the background build hasn't run/finished, or it saved nothing.
       console.warn(`[generate] no MusicProfile for user — build not finished yet? trigger=${trigger}`);
-      emit('playlist_error', { message: 'Still setting up your library — try again in a few seconds.', reqId });
+      // Onboarding (D-6): a brand-new account's profile build takes >10s, so this is an
+      // EXPECTED transient state, not a failure. Emit a distinct building signal — the
+      // client keeps its loader alive and auto-retries — never a hard playlist_error.
+      emit('playlist_building', { message: 'Setting up your library — your first playlist is moments away…', reqId });
       return;
     }
     // Always-on diagnostic: surface the library size so an empty/thin profile (the

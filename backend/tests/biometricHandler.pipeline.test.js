@@ -540,15 +540,16 @@ describe('error handling', () => {
     expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
   });
 
-  it('emits playlist_error when MusicProfile does not exist', async () => {
+  it('emits playlist_building (NOT a hard error) when MusicProfile does not exist yet — onboarding D-6', async () => {
     MusicProfile.findOne.mockReturnValue(musicProfileQuery(null));
 
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
 
-    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.objectContaining({
       message: expect.any(String),
     }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
   });
 
   it('emits playlist_ready with fallback:true when Gemini fails and library is non-empty', async () => {

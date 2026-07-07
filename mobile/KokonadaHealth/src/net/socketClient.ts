@@ -33,6 +33,15 @@ export interface KokonadaSocketDeps {
   // Live-mode cold-buffer recalibration is warming a buffer — the server asks us to show
   // the loader ("assembling your live biometric soundscape") so the wait is never silent.
   onAssembling?: (message?: string) => void;
+  // Onboarding: the server is still building the user's MusicProfile (playlist_building) —
+  // show a determinate "setting up your library" loader instead of a hard error (D-6). The
+  // client auto-retries the SAME request on a bounded schedule until the build completes.
+  onBuilding?: (message?: string) => void;
+  buildingRetryMs?: number;
+  maxBuildingRetries?: number;
+  // Injectable scheduler so the building auto-retry is deterministic in tests.
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (id: unknown) => void;
   // Surface the live socket lifecycle so the UI can show a truthful connection badge
   // (the Pulse indicator was previously hardcoded to 'disconnected' — nothing wired it).
   onConnectionChange?: (status: 'connected' | 'connecting' | 'disconnected') => void;
@@ -45,6 +54,11 @@ export interface KokonadaSocketDeps {
 
 const DEFAULT_MAX_AUTH_REFRESHES = 5;
 const DEFAULT_AUTH_WINDOW_MS = 60_000;
+// Building auto-retry: ~2 minutes of patience (a 4k-track profile build with YouTube
+// classification can take a while). Each playlist_building refreshes the loader, so the
+// wait is visible, never silent.
+const DEFAULT_BUILDING_RETRY_MS = 4_000;
+const DEFAULT_MAX_BUILDING_RETRIES = 30;
 
 export class KokonadaSocket {
   private socket: SocketLike | null = null;
@@ -58,6 +72,10 @@ export class KokonadaSocket {
   // error) arrives. Re-issued on every (re)connect so a request swallowed by a token-expiry
   // gate, a socket churn, or a reply to an orphaned socket is never silently lost.
   private pending: { kind: 'playlist' | 'heart'; reqId: number; heartRate?: number | null } | null = null;
+  // Building auto-retry state (D-6): the scheduled retry timer + how many building
+  // responses the current request has absorbed. Reset on every new request.
+  private buildingTimer: unknown = null;
+  private buildingRetries = 0;
 
   constructor(private readonly deps: KokonadaSocketDeps) {}
 
@@ -91,6 +109,7 @@ export class KokonadaSocket {
     socket.on('connect_error', this.handleConnectError);
     socket.on('playlist_ready', this.handlePlaylist);
     socket.on('playlist_error', this.handlePlaylistError);
+    socket.on('playlist_building', this.handleBuilding);
     socket.on('live_assembling', this.handleAssembling);
     socket.on('auth_expired', this.handleAuthExpired);
     socket.on('disconnect', this.handleDisconnect);
@@ -109,6 +128,7 @@ export class KokonadaSocket {
     s.off('connect_error', this.handleConnectError);
     s.off('playlist_ready', this.handlePlaylist);
     s.off('playlist_error', this.handlePlaylistError);
+    s.off('playlist_building', this.handleBuilding);
     s.off('live_assembling', this.handleAssembling);
     s.off('auth_expired', this.handleAuthExpired);
     s.off('disconnect', this.handleDisconnect);
@@ -155,6 +175,7 @@ export class KokonadaSocket {
     // Drop anything that isn't the answer to our most recent request (zombie nav).
     if (payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
     if (this.pending?.reqId === payload.reqId) this.pending = null; // delivered — stop re-issuing
+    this.clearBuildingTimer(); // a real answer ends the building retry loop (D-6)
     this.deps.onPlaylist(payload);
   };
 
@@ -163,11 +184,55 @@ export class KokonadaSocket {
     this.deps.onAssembling?.(payload?.message);
   };
 
+  // Onboarding graceful loading (D-6): the server's MusicProfile row doesn't exist yet
+  // (the background build is still running). Keep the loader alive with the building copy
+  // and auto-retry the SAME pending request on a bounded schedule — the user never sees a
+  // hard error for a brand-new account. Budget-exhausted → degrade to a soft error.
+  private handleBuilding = (payload?: any) => {
+    console.log('[koko] playlist_building received:', payload?.message, 'reqId=', payload?.reqId,
+      'retries=', this.buildingRetries, 'latest=', this.latestReqId);
+    // Same reqId gate as every response — a superseded request stays silent.
+    if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
+    if (!this.pending || this.pending.reqId !== payload.reqId) return;
+
+    this.buildingRetries += 1;
+    if (this.buildingRetries > (this.deps.maxBuildingRetries ?? DEFAULT_MAX_BUILDING_RETRIES)) {
+      // Give up softly: clear the pending request (stop reconnect re-sends too) and surface
+      // a friendly retry-later message through the normal error channel.
+      this.clearBuildingTimer();
+      this.pending = null;
+      this.deps.onGenerationError?.(payload.message ?? 'Your library is still being set up — try again shortly.');
+      return;
+    }
+
+    this.deps.onBuilding?.(payload.message);
+    const reqId = payload.reqId;
+    this.clearBuildingTimer();
+    const set = this.deps.setTimer ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+    this.buildingTimer = set(() => {
+      this.buildingTimer = null;
+      // Only re-issue if this exact request is STILL unanswered (ready/error clears pending).
+      if (!this.pending || this.pending.reqId !== reqId) return;
+      const p = this.pending;
+      console.log('[koko] building retry — re-sending request reqId=', reqId);
+      if (p.kind === 'playlist') this.socket?.emit('request_playlist', { reqId });
+      else this.socket?.emit('request_heart_playlist', { reqId, heartRate: p.heartRate ?? null });
+    }, this.deps.buildingRetryMs ?? DEFAULT_BUILDING_RETRY_MS);
+  };
+
+  private clearBuildingTimer(): void {
+    if (this.buildingTimer == null) return;
+    const clear = this.deps.clearTimer ?? ((id: unknown) => clearTimeout(id as any));
+    clear(this.buildingTimer);
+    this.buildingTimer = null;
+  }
+
   private handlePlaylistError = (payload: any) => {
     console.log('[koko] playlist_error received:', payload?.message, 'reqId=', payload?.reqId, 'latest=', this.latestReqId);
     // Same reqId gate as playlist responses — a superseded request stays silent.
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
     if (this.pending?.reqId === payload.reqId) this.pending = null; // delivered — stop re-issuing
+    this.clearBuildingTimer(); // a real answer ends the building retry loop (D-6)
     this.deps.onGenerationError?.(payload.message);
   };
 
@@ -234,6 +299,7 @@ export class KokonadaSocket {
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
     this.pending = { kind: 'playlist', reqId: this.latestReqId };
+    this.clearBuildingTimer(); this.buildingRetries = 0; // fresh request → fresh building budget
     console.log('[koko] → request_playlist reqId=', this.latestReqId, 'hasSocket=', !!this.socket);
     this.emitEmotion();
     this.socket?.emit('request_playlist', { reqId: this.latestReqId });
@@ -248,6 +314,7 @@ export class KokonadaSocket {
     this.reqCounter += 1;
     this.latestReqId = this.reqCounter;
     this.pending = { kind: 'heart', reqId: this.latestReqId, heartRate };
+    this.clearBuildingTimer(); this.buildingRetries = 0; // fresh request → fresh building budget
     console.log('[koko] → request_heart_playlist reqId=', this.latestReqId, 'hr=', heartRate, 'hasSocket=', !!this.socket);
     this.socket?.emit('request_heart_playlist', { reqId: this.latestReqId, heartRate });
     return this.latestReqId;
@@ -262,6 +329,7 @@ export class KokonadaSocket {
 
   disconnect(): void {
     this.closedByUser = true;
+    this.clearBuildingTimer(); // no building retry may outlive a manual close (D-6)
     this.teardown();          // late events after a manual close are inert
     this.socket?.disconnect();
     this.socket = null;
