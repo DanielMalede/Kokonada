@@ -139,4 +139,29 @@ describe('ProfileScreen', () => {
     openURL.mockRestore();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
+
+  it('reconnect-spotify is offered WHEN already connected and re-launches the same OAuth flow (scope migration)', async () => {
+    // A stored token keeps the badge "Connected", but a new scope (playlist-modify-private)
+    // only lands on a fresh grant. Without a Reconnect control the user is stranded — the
+    // "Connect" button only shows when disconnected. So a Reconnect must always be reachable.
+    loadProfile.mockResolvedValue({
+      me: { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null },
+      integrations: { spotifyConnected: true },
+    });
+    (profileController.getSpotifyConnectToken as jest.Mock).mockResolvedValue('ct-token');
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+
+    const tree = await render();
+    const btn = byLabel(tree, 'reconnect-spotify');
+    expect(btn).toBeTruthy();
+    await ReactTestRenderer.act(async () => { await btn.props.onPress(); });
+
+    expect(openURL).toHaveBeenCalledTimes(1);
+    const url = openURL.mock.calls[0][0];
+    expect(url).toContain('/api/integrations/spotify/connect?ct=');
+    expect(url).toContain('returnTo=app'); // same deep-link-back flow as first connect
+
+    openURL.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
 });
