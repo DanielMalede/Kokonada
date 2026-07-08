@@ -112,7 +112,9 @@ jobs:
         working-directory: mobile/KokonadaHealth
       - name: Gradle — resource link + manifest merge + Kotlin/Java compile
         if: steps.changes.outputs.android == 'true'
-        run: ./gradlew :app:processDebugResources :app:compileDebugKotlin :app:compileDebugJavaWithJavac --console=plain
+        # gradlew is committed without the execute bit (authored on Windows), so actions/checkout
+        # lays it down non-executable → exit 126. chmod it before invoking.
+        run: chmod +x gradlew && ./gradlew :app:processDebugResources :app:compileDebugKotlin :app:compileDebugJavaWithJavac --console=plain
         working-directory: mobile/KokonadaHealth/android
 
   # The backend deploys via Railway's NATIVE GitHub integration: the service is
