@@ -21,20 +21,29 @@ function Badge({ label, on }: { label: string; on: boolean }) {
   );
 }
 
-// Spotify integration row: shows a real "Connect" action when the account is not yet
-// linked (backend OR live App Remote), so the user can start the OAuth sign-in.
+// Spotify integration row. A "Connect" action starts OAuth when unlinked; a "Reconnect"
+// action is ALWAYS reachable when linked, because a stored token keeps the badge green
+// while a newly-added scope (e.g. playlist-modify-private) only lands on a fresh grant —
+// re-running OAuth overwrites the token in place (it does NOT wipe the taste profile the
+// way Disconnect does). Both routes call the same onConnect handler.
 function SpotifyRow({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
       <Text style={{ fontSize: 15 }}>Spotify</Text>
-      {connected ? (
-        <Text style={{ fontSize: 14, color: '#3ecf8e' }}>Connected</Text>
-      ) : (
-        <Pressable onPress={onConnect} accessibilityRole="button" accessibilityLabel="connect-spotify"
-          style={{ paddingVertical: 6, paddingHorizontal: 18, borderRadius: 999, backgroundColor: '#1DB954' }}>
-          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Connect</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {connected ? <Text style={{ fontSize: 14, color: '#3ecf8e', marginRight: 12 }}>Connected</Text> : null}
+        <Pressable onPress={onConnect} accessibilityRole="button"
+          accessibilityLabel={connected ? 'reconnect-spotify' : 'connect-spotify'}
+          style={{
+            paddingVertical: 6, paddingHorizontal: 18, borderRadius: 999,
+            backgroundColor: connected ? 'transparent' : '#1DB954',
+            borderWidth: connected ? 1 : 0, borderColor: '#ccc',
+          }}>
+          <Text style={{ color: connected ? '#555' : '#fff', fontWeight: '600', fontSize: 13 }}>
+            {connected ? 'Reconnect' : 'Connect'}
+          </Text>
         </Pressable>
-      )}
+      </View>
     </View>
   );
 }
