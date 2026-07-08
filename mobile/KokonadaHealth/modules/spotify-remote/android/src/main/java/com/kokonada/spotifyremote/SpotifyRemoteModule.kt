@@ -16,6 +16,7 @@ import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.android.appremote.api.error.CouldNotFindSpotifyApp
 import com.spotify.android.appremote.api.error.NotLoggedInException
+import com.spotify.android.appremote.api.error.UserNotAuthorizedException
 import com.spotify.sdk.android.auth.AuthorizationClient
 import com.spotify.sdk.android.auth.AuthorizationRequest
 import com.spotify.sdk.android.auth.AuthorizationResponse
@@ -173,12 +174,18 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
         Log.w(NAME, "onFailure attempt=$attempt ${error.javaClass.simpleName}: ${error.message}")
         val code = when (error) {
           is CouldNotFindSpotifyApp -> "SPOTIFY_NOT_INSTALLED"
+          // Both mean the on-device grant is missing/insufficient → the JS adapter must run the
+          // one-time authorize() Activity. NotLoggedIn = the Spotify app has no logged-in user;
+          // UserNotAuthorized = logged in but THIS app was never authorized ("Explicit user
+          // authorization is required…"). connect() uses showAuthView(false), so it never
+          // prompts on its own — it surfaces one of these and the adapter drives authorize().
           is NotLoggedInException -> "NOT_LOGGED_IN"
+          is UserNotAuthorizedException -> "NOT_LOGGED_IN"
           else -> "CONNECTION_FAILED"
         }
         // A generic CONNECTION_FAILED ("Result was not delivered on time") is a transient
         // IPC/bindService timeout against a cold Spotify service — retry with backoff. Never
-        // retry a deterministic failure (Spotify not installed / user not logged in).
+        // retry a deterministic failure (Spotify not installed / not logged in / not authorized).
         if (code == "CONNECTION_FAILED" && attempt < MAX_CONNECT_RETRIES) {
           mainHandler.postDelayed(
             { attemptConnect(promise, attempt + 1, settled, watchdog) },
