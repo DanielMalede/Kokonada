@@ -1,6 +1,16 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 
+// CI-starvation headroom (issue #84). The first create(<ProfileScreen/>) in this file pays the
+// one-time cold-require cost of the whole ProfileScreen module tree inside the jest worker. On
+// resource-constrained CI runners (≈4 cores, many suites per worker) that first async-render
+// act() flush occasionally exceeds jest's 5000 ms default; a timed-out act() then leaves
+// react-test-renderer unable to commit, cascading the remaining tests to empty-render failures
+// (reproduced exactly with --testTimeout=1). There is NO product race — the screen shows a '—'
+// placeholder until loadProfile() resolves (correct async load). PR #97 fixed flush *ordering*;
+// this gives the tail adequate wall-clock so starvation can't trip the default ceiling.
+jest.setTimeout(20000);
+
 jest.mock('../profileServices', () => ({
   profileController: {
     loadProfile: jest.fn(),
