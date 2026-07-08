@@ -28,6 +28,12 @@ const SCOPES = [
   // button. Another scope add → existing users must reconnect once; the save
   // endpoint detects the 403 and prompts a reconnect.
   'user-library-modify',
+  // D-1 Option A (approved 2026-07-08): a single hidden app-managed "Kokonada Session"
+  // playlist is the playback TRANSPORT for App Remote — playing it as a context gives
+  // absolute queue parity (skipNext/skipToIndex operate on OUR order). This is NOT the
+  // removed user-facing playlist Export (which stays deleted); the playlist is private,
+  // invisible in-app, and rewritten in place each generation. Scope add → reconnect once.
+  'playlist-modify-private',
   'streaming',
 ].join(' ');
 

@@ -5,6 +5,7 @@ export interface HistoryResult {
   heartRate: any[];
   hrv: any[];
   sleep: any[];
+  restingHeartRate: any[];
   window: { startTime: string; endTime: string };
 }
 
@@ -36,15 +37,19 @@ async function readAll(recordType: string, timeRangeFilter: any): Promise<any[]>
 // HeartRate                  -> records[].samples[] { time, beatsPerMinute }
 // HeartRateVariabilityRmssd  -> records[]           { time, heartRateVariabilityMillis }
 // SleepSession               -> records[]           { startTime, endTime, stages[] { startTime, endTime, stage } }
+// RestingHeartRate           -> records[]           { time, beatsPerMinute }
+//   (D-4a: the stateVector classifier needs restingHeartRate; permission was already
+//   requested and manifest-declared, but the record was never read.)
 export async function fetchSixMonthHistory(): Promise<HistoryResult> {
   const window = historyWindow();
   const timeRangeFilter = { operator: 'between', ...window };
 
-  const [heartRate, hrv, sleep] = await Promise.all([
+  const [heartRate, hrv, sleep, restingHeartRate] = await Promise.all([
     readAll('HeartRate', timeRangeFilter),
     readAll('HeartRateVariabilityRmssd', timeRangeFilter),
     readAll('SleepSession', timeRangeFilter),
+    readAll('RestingHeartRate', timeRangeFilter),
   ]);
 
-  return { heartRate, hrv, sleep, window };
+  return { heartRate, hrv, sleep, restingHeartRate, window };
 }

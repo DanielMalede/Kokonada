@@ -19,8 +19,14 @@ jest.mock('@kokonada/spotify-remote', () => ({
     playUri: jest.fn().mockResolvedValue(undefined),
     pause: jest.fn().mockResolvedValue(undefined),
     resume: jest.fn().mockResolvedValue(undefined),
+    skipNext: jest.fn().mockResolvedValue(undefined),
+    skipPrevious: jest.fn().mockResolvedValue(undefined),
+    skipToIndex: jest.fn().mockResolvedValue(undefined),
+    setShuffle: jest.fn().mockResolvedValue(undefined),
+    setRepeat: jest.fn().mockResolvedValue(undefined),
     getPlayerState: jest.fn().mockResolvedValue({ isPaused: true, trackUri: 'spotify:track:x' }),
     onRemoteDisconnected: jest.fn(() => () => {}),
+    onPlayerStateChanged: jest.fn(() => () => {}),
   },
 }));
 
@@ -31,11 +37,40 @@ import { spotifyRemoteAdapter, getSpotifyReadiness } from '../spotifyRemoteAdapt
 // widened to include the jest.Mock matchers (e.g. mockResolvedValueOnce) used below.
 const mockMod = jest.mocked(SpotifyRemote);
 
-test('connect authorizes first, then calls native connect (token arg ignored)', async () => {
+beforeEach(() => { jest.clearAllMocks(); }); // clears calls only — factory implementations survive
+
+test('AUTHORIZE-ONCE: a silent connect succeeds with NO authorize Activity (the foreground-steal fix)', async () => {
   await spotifyRemoteAdapter.connect('IGNORED_TOKEN');
-  expect(mockMod.authorize).toHaveBeenCalledTimes(1); // explicit grant established first
+  expect(mockMod.authorize).not.toHaveBeenCalled(); // no login Activity — Spotify stays backgrounded
   expect(mockMod.connect).toHaveBeenCalledTimes(1);
   expect(mockMod.connect).toHaveBeenCalledWith(); // no args passed through
+});
+
+test('AUTHORIZE-ONCE: only a NOT_LOGGED_IN failure runs the one-time authorize, then reconnects', async () => {
+  mockMod.connect
+    .mockRejectedValueOnce(Object.assign(new Error('no grant'), { code: 'NOT_LOGGED_IN' }))
+    .mockResolvedValueOnce(undefined);
+  await spotifyRemoteAdapter.connect('IGNORED_TOKEN');
+  expect(mockMod.authorize).toHaveBeenCalledTimes(1);
+  expect(mockMod.connect).toHaveBeenCalledTimes(2); // silent attempt + post-grant attempt
+});
+
+test('AUTHORIZE-ONCE: any other connect failure propagates without launching authorize', async () => {
+  mockMod.connect.mockRejectedValueOnce(Object.assign(new Error('ipc'), { code: 'CONNECTION_FAILED' }));
+  await expect(spotifyRemoteAdapter.connect('x')).rejects.toThrow('ipc');
+  expect(mockMod.authorize).not.toHaveBeenCalled();
+});
+
+test('playContext plays the context uri, jumps to the row (when > 0), and pins shuffle/repeat off', async () => {
+  await spotifyRemoteAdapter.playContext!('spotify:playlist:pl1', 3);
+  expect(mockMod.playUri).toHaveBeenCalledWith('spotify:playlist:pl1');
+  expect(mockMod.skipToIndex).toHaveBeenCalledWith('spotify:playlist:pl1', 3);
+  expect(mockMod.setShuffle).toHaveBeenCalledWith(false);
+  expect(mockMod.setRepeat).toHaveBeenCalledWith(0);
+
+  jest.clearAllMocks();
+  await spotifyRemoteAdapter.playContext!('spotify:playlist:pl1', 0);
+  expect(mockMod.skipToIndex).not.toHaveBeenCalled(); // row 0 needs no jump
 });
 
 test('getPlayerState maps trackUri onto track.uri', async () => {
@@ -54,4 +89,10 @@ test('addListener wires remoteDisconnected through onRemoteDisconnected', () => 
   const cb = jest.fn();
   spotifyRemoteAdapter.addListener('remoteDisconnected', cb);
   expect(mockMod.onRemoteDisconnected).toHaveBeenCalledWith(cb);
+});
+
+test('addListener wires playerStateChanged through onPlayerStateChanged (D-1)', () => {
+  const cb = jest.fn();
+  spotifyRemoteAdapter.addListener('playerStateChanged', cb);
+  expect((mockMod as any).onPlayerStateChanged).toHaveBeenCalledWith(cb);
 });

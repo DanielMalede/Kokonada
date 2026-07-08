@@ -150,10 +150,20 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
       override fun onConnected(remote: SpotifyAppRemote) {
         Log.d(NAME, "onConnected")
         appRemote = remote
-        remote.playerApi.subscribeToPlayerState().setErrorCallback {
-          appRemote = null
-          emit("remoteDisconnected")
-        }
+        // D-1: the event callback is the ONLY signal for a native auto-advance (track end →
+        // next). Without it RN's queue/now-playing desynced from the actual player (the
+        // "phantom track"). Fires on every PlayerState change: track change, pause/resume.
+        remote.playerApi.subscribeToPlayerState()
+          .setEventCallback { state ->
+            val map = Arguments.createMap()
+            map.putString("trackUri", state.track?.uri)
+            map.putBoolean("isPaused", state.isPaused)
+            emit("playerStateChanged", map)
+          }
+          .setErrorCallback {
+            appRemote = null
+            emit("remoteDisconnected")
+          }
         if (settled.compareAndSet(false, true)) {
           mainHandler.removeCallbacks(watchdog)
           promise.resolve(null)
@@ -210,6 +220,48 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
       .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
   }
 
+  // D-1 context playback: skips act on Spotify's OWN context/queue — the same one its
+  // auto-advance uses — so the RN queue and the player can never diverge.
+  override fun skipNext(promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.skipNext()
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun skipPrevious(promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.skipPrevious()
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun skipToIndex(contextUri: String, index: Double, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.skipToIndex(contextUri, index.toInt())
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun setShuffle(enabled: Boolean, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.setShuffle(enabled)
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  override fun setRepeat(mode: Double, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    remote.playerApi.setRepeat(mode.toInt())
+      .setResultCallback { promise.resolve(null) }
+      .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
   override fun getPlayerState(promise: Promise) {
     val remote = appRemote?.takeIf { it.isConnected }
       ?: return promise.reject("CONNECTION_FAILED", "not connected")
@@ -233,9 +285,9 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
 
   override fun removeListeners(count: Double) { listenerCount -= count.toInt() }
 
-  private fun emit(event: String) {
+  private fun emit(event: String, params: Any? = null) {
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-      .emit(event, null)
+      .emit(event, params)
   }
 }

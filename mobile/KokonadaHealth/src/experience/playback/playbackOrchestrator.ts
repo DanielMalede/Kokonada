@@ -9,6 +9,9 @@ export interface PlaybackPlayer {
   play(uri: string): Promise<{ ok: boolean }>;
   pause(): Promise<{ ok: boolean }>;
   resume(): Promise<{ ok: boolean }>;
+  // D-1 context playback (optional — absent on legacy fakes → track-play fallback).
+  playContext?(contextUri: string, index: number): Promise<{ ok: boolean }>;
+  skipToIndex?(contextUri: string, index: number): Promise<{ ok: boolean }>;
 }
 
 export interface PlaybackSocket {
@@ -57,6 +60,10 @@ export class PlaybackOrchestrator {
   private isPlaying = false;
   private currentTrackId: string | null = null;
   private pendingPlayHandle: number | null = null;
+  // D-1: the session-playlist context backing this queue (null → legacy track playback).
+  // With a context, Spotify OWNS the queue order: skips are absolute jumps within it and
+  // its auto-advance walks our tracks — divergence is structurally impossible.
+  private contextUri: string | null = null;
   private generationPending = false; // a "generate more" request is in flight
   private generationTimeoutHandle: number | null = null;
 
@@ -78,26 +85,41 @@ export class PlaybackOrchestrator {
     this.onNowPlaying?.(this.getNowPlaying());
   }
 
-  // Play the queue's current track NOW (used for a new playlist / natural advance).
-  private async playCurrent(): Promise<void> {
+  // Play the queue's current track NOW. In context mode the command is against the
+  // session playlist: a fresh start plays the context at the cursor's playlist row; a
+  // user skip is an ABSOLUTE jump (skipToIndex) — burst-safe, because N coalesced skips
+  // land as one jump to wherever the cursor ended up. Legacy (no context) plays the URI.
+  private async playCurrent(viaSkip = false): Promise<void> {
     const track = this.queue.current();
     if (!track || !track.uri) {
       console.log('[koko] playCurrent: NO playable track (uri missing) — nothing to play');
       this.isPlaying = false; this.currentTrackId = null; this.emit(); return;
     }
     this.currentTrackId = track.id;
-    console.log('[koko] playCurrent → player.play uri=', track.uri);
-    const res = await this.player.play(track.uri);
-    console.log('[koko] player.play RESULT ok=', res.ok, 'uri=', track.uri);
+    let res: { ok: boolean };
+    if (this.contextUri && this.player.playContext) {
+      const row = this.queue.playableIndex();
+      console.log('[koko] playCurrent → context', viaSkip ? 'skipToIndex' : 'playContext', 'row=', row);
+      res = viaSkip && this.player.skipToIndex
+        ? await this.player.skipToIndex(this.contextUri, row)
+        : await this.player.playContext(this.contextUri, row);
+    } else {
+      console.log('[koko] playCurrent → player.play uri=', track.uri);
+      res = await this.player.play(track.uri);
+    }
+    console.log('[koko] play RESULT ok=', res.ok, 'uri=', track.uri);
     this.isPlaying = res.ok; // a severed remote → truthfully not playing
     this.emit();
   }
 
-  async handlePlaylist(payload: { tracks: QueueTrack[] }): Promise<void> {
+  async handlePlaylist(payload: { tracks: QueueTrack[]; contextUri?: string | null }): Promise<void> {
     console.log('[koko] orchestrator.handlePlaylist tracks=', payload?.tracks?.length ?? 0,
-      'first=', payload?.tracks?.[0]?.uri);
+      'first=', payload?.tracks?.[0]?.uri, 'context=', payload?.contextUri ?? '(none)');
     this.cancelPendingPlay();
     this.clearGenerationGuard(); // the requested generation arrived
+    this.contextUri = typeof payload?.contextUri === 'string' && payload.contextUri.length > 0
+      ? payload.contextUri
+      : null;
     this.queue.load(payload?.tracks ?? []);
     await this.playCurrent();
   }
@@ -124,12 +146,13 @@ export class PlaybackOrchestrator {
   }
 
   // Coalesce a burst of skips: advance the cursor now (cheap), but debounce the
-  // actual play command so a frantic spam issues exactly ONE network/SDK call.
+  // actual command so a frantic spam issues exactly ONE network/SDK call. In context
+  // mode that one command is an absolute skipToIndex — N skips still land correctly.
   private scheduleCoalescedPlay(): void {
     this.cancelPendingPlay();
     this.pendingPlayHandle = this.scheduler.schedule(() => {
       this.pendingPlayHandle = null;
-      void this.playCurrent();
+      void this.playCurrent(true);
     }, this.coalesceMs);
   }
 
@@ -170,15 +193,49 @@ export class PlaybackOrchestrator {
     this.emit();
   }
 
+  // Live push from the native PlayerState stream (D-1). This is what ends the "phantom
+  // track": a native auto-advance (track end → next) moves the QUEUE CURSOR to the
+  // reported track and emits now-playing — WITHOUT re-commanding play (Spotify already
+  // advanced; a play command would restart the track). A URI we never queued means the
+  // user is driving Spotify directly — reflect not-playing, same rule as reconcile.
+  syncToRemote(uri: string | null, isPaused: boolean): void {
+    // A user skip is mid-coalesce: the remote still reports the pre-skip track, and the
+    // scheduled play will assert the user's intent in a moment — don't fight it.
+    if (this.pendingPlayHandle !== null) return;
+    if (!uri) { this.isPlaying = false; this.emit(); return; }
+    const ours = this.queue.current();
+    if (ours && ours.uri === uri) {
+      // Same track — a pause/resume done inside the Spotify app. Mirror it.
+      this.isPlaying = !isPaused;
+      this.emit();
+      return;
+    }
+    const adopted = this.queue.seekToUri(uri);
+    if (adopted) {
+      this.currentTrackId = adopted.id;
+      this.isPlaying = !isPaused;
+      this.emit();
+    } else {
+      this.isPlaying = false; // foreign track — we are not driving (S11-1 rule)
+      this.emit();
+    }
+  }
+
   // Reconcile the local model with the native Spotify truth (foreground / desync).
-  // If the remote reports a track we did NOT queue (the user played something else
-  // in the Spotify app directly), Kokonada is not driving playback — reflect that
-  // truthfully as not-playing rather than leaving a "ghost" claiming our track. (S11-1)
+  // If the remote reports one of OUR queued tracks, adopt it (the cursor may have
+  // drifted while backgrounded — same lockstep rule as syncToRemote). A track we did
+  // NOT queue (the user played something else in the Spotify app directly) means
+  // Kokonada is not driving playback — reflect that truthfully as not-playing rather
+  // than leaving a "ghost" claiming our track. (S11-1)
   reconcile(remote: { isPlaying: boolean; uri?: string } | 'disconnected'): void {
     if (remote === 'disconnected') { this.isPlaying = false; this.emit(); return; }
     const ours = this.queue.current();
-    const foreign = typeof remote.uri === 'string' && ours != null && remote.uri !== ours.uri;
-    this.isPlaying = foreign ? false : !!remote.isPlaying;
+    if (typeof remote.uri === 'string' && remote.uri.length > 0 && (!ours || remote.uri !== ours.uri)) {
+      const adopted = this.queue.seekToUri(remote.uri);
+      if (adopted) { this.currentTrackId = adopted.id; this.isPlaying = !!remote.isPlaying; this.emit(); return; }
+      this.isPlaying = false; this.emit(); return; // truly foreign
+    }
+    this.isPlaying = !!remote.isPlaying;
     this.emit();
   }
 
