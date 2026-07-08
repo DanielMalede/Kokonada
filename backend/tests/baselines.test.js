@@ -124,7 +124,13 @@ describe('getBaselines — encrypted Redis cache (zero-knowledge boundary)', () 
     expect(key).toBe('bio:baseline:u1');
     expect(ex).toBe('EX');
     expect(ttl).toBe(6 * 3600);
-    expect(payload).not.toContain('60');                   // the median never appears in the clear
+    // The stored value is opaque base64 ciphertext — nothing else. This is stricter
+    // than (and replaces) a substring check on the median: base64's alphabet includes
+    // digits, so a random-IV ciphertext contains "60" by chance ~1.8% of runs, which
+    // made the old `not.toContain('60')` assertion flaky. Any plaintext-JSON leak
+    // (`{`, `"`, `:` …) would fail this regex, and the two checks below prove it stays
+    // encrypted-at-rest yet decryptable only with the user-bound AAD.
+    expect(payload).toMatch(/^[A-Za-z0-9+/]+={0,2}$/);     // opaque base64, no plaintext in the clear
     expect(() => JSON.parse(payload)).toThrow();           // not plaintext JSON
     expect(decrypt(payload, false, 'u1')).toContain('60'); // but decryptable with the user-bound AAD
   });

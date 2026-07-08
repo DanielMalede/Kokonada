@@ -3,13 +3,15 @@ import { View, Text, ScrollView } from 'react-native';
 import { warmStore } from '../../state/store';
 import type { WarmState } from '../../state/warm/warmStore';
 import { pulseStateStore, type PulseStoreState } from './pulseStateStore';
+import { friendlyStatus } from './statusLabels';
+import { getLastSyncCounts, subscribeSyncCounts, type SyncCounts } from '../../health/healthSync';
 
 // Pulse: the live biometric lane (warm-store HR / source / socket) PLUS the richer
 // state-vector snapshot (HRV, body battery, readiness, last-night sleep, and the
 // classifier status) fetched from GET /api/pulse/state. Every value is null-safe —
 // a missing MedicalProfile renders placeholders, never a crash. Raw HR is display-only.
 
-function Gauge({ label, value, unit }: { label: string; value: number | null; unit?: string }) {
+function Gauge({ label, value, unit, note }: { label: string; value: number | null; unit?: string; note?: string }) {
   return (
     <View style={{ flexBasis: '48%', paddingVertical: 12 }}>
       <Text style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase' }}>{label}</Text>
@@ -17,6 +19,9 @@ function Gauge({ label, value, unit }: { label: string; value: number | null; un
         {value != null ? value : '—'}
         {value != null && unit ? <Text style={{ fontSize: 13, opacity: 0.6 }}> {unit}</Text> : null}
       </Text>
+      {/* Honest note for metrics with no data source (not a broken gauge). Body Battery &
+          Readiness are Garmin-proprietary — unavailable via Health Connect (defect D-4b). */}
+      {value == null && note ? <Text style={{ fontSize: 11, opacity: 0.4 }}>{note}</Text> : null}
     </View>
   );
 }
@@ -27,6 +32,7 @@ export function PulseScreen() {
     return { liveHr: s.liveHr, connection: s.connection, biometricSource: s.biometricSource };
   });
   const [pulse, setPulse] = useState<PulseStoreState>(() => pulseStateStore.getState());
+  const [counts, setCounts] = useState<SyncCounts | null>(() => getLastSyncCounts());
 
   useEffect(() => {
     let mounted = true;
@@ -35,13 +41,19 @@ export function PulseScreen() {
     syncWarm(warmStore.getState());
     const offWarm = warmStore.subscribe(syncWarm);
     const offPulse = pulseStateStore.subscribe(syncPulse);
+    const offCounts = subscribeSyncCounts((c) => { if (mounted) setCounts(c); });
     void pulseStateStore.getState().refresh(); // fetch on tab focus
-    return () => { mounted = false; offWarm(); offPulse(); };
+    return () => { mounted = false; offWarm(); offPulse(); offCounts(); };
   }, []);
+
+  // Honest gauge note (D-4a v2): a blank driven by the WATCH not sharing the metric via
+  // Health Connect (last sync read 0 of it) says so; a blank with no sync evidence stays "—".
+  const notShared = (read?: number) => (counts && read === 0 ? 'Not shared by your watch' : undefined);
 
   const source = w.biometricSource === 'none' ? 'No biometric source' : w.biometricSource.toUpperCase();
   const data = pulse.data;
   const sv = data?.stateVector;
+  const status = friendlyStatus(sv?.status);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 24, gap: 8 }}>
@@ -51,22 +63,22 @@ export function PulseScreen() {
         <Text style={{ fontSize: 12, opacity: 0.4 }}>socket: {w.connection}</Text>
       </View>
 
-      {sv?.status ? (
+      {status ? (
         <View style={{ alignItems: 'center', paddingVertical: 12, marginBottom: 4 }}>
-          <Text style={{ fontSize: 18, fontWeight: '600' }}>{sv.status}</Text>
-          {sv.confidence != null ? (
+          <Text style={{ fontSize: 18, fontWeight: '600' }}>{status}</Text>
+          {sv?.confidence != null ? (
             <Text style={{ fontSize: 12, opacity: 0.5 }}>{Math.round(sv.confidence * 100)}% confidence</Text>
           ) : null}
         </View>
       ) : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-        <Gauge label="HRV" value={data?.vitals.hrv ?? null} unit="ms" />
-        <Gauge label="Body Battery" value={data?.vitals.bodyBattery ?? null} />
-        <Gauge label="Readiness" value={data?.vitals.dailyReadiness ?? null} />
-        <Gauge label="Resting HR" value={data?.vitals.restingHeartRate ?? null} unit="bpm" />
-        <Gauge label="Deep Sleep" value={data?.sleep.lastNight.deep ?? null} unit="min" />
-        <Gauge label="REM Sleep" value={data?.sleep.lastNight.rem ?? null} unit="min" />
+        <Gauge label="HRV" value={data?.vitals.hrv ?? null} unit="ms" note={notShared(counts?.hrv)} />
+        <Gauge label="Body Battery" value={data?.vitals.bodyBattery ?? null} note="Garmin only" />
+        <Gauge label="Readiness" value={data?.vitals.dailyReadiness ?? null} note="Garmin only" />
+        <Gauge label="Resting HR" value={data?.vitals.restingHeartRate ?? null} unit="bpm" note={notShared(counts?.restingHeartRate)} />
+        <Gauge label="Deep Sleep" value={data?.sleep.lastNight.deep ?? null} unit="min" note={notShared(counts?.sleep)} />
+        <Gauge label="REM Sleep" value={data?.sleep.lastNight.rem ?? null} unit="min" note={notShared(counts?.sleep)} />
       </View>
     </ScrollView>
   );

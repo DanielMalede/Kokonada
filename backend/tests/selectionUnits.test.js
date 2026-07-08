@@ -4,8 +4,9 @@ process.env.NODE_ENV = 'test';
 
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(() => null), createConnection: jest.fn() }));
 
+const mongoose = require('mongoose');
 const { getRedis } = require('../app/config/redis');
-const { buildPool } = require('../app/services/selection/candidatePool');
+const { buildPool, invalidateUserPools } = require('../app/services/selection/candidatePool');
 const { applyHardFilters } = require('../app/services/selection/hardFilters');
 const { scoreTrack } = require('../app/services/selection/score');
 const { select } = require('../app/services/selection/mmr');
@@ -54,7 +55,7 @@ describe('candidatePool.buildPool', () => {
     expect(pool[0].canonicalKey).toBe('at:artist|song a');
   });
 
-  it('caps the pool by affinity and marks discovery tracks', async () => {
+  it('includes the full uncapped library and marks discovery tracks', async () => {
     const many = Array.from({ length: 700 }, (_, i) => lib(`t${i}`, { artist: `A${i}`, affinity: i }));
     const pool = await buildPool({
       userId: 'u1',
@@ -64,9 +65,9 @@ describe('candidatePool.buildPool', () => {
       discoveryTracks: [{ id: 'd1', provider: 'spotify', name: 'Fresh', artist: 'New Artist' }],
     });
 
-    expect(pool.length).toBeLessThanOrEqual(501);
+    expect(pool.length).toBe(701); // uncapped: all 700 library tracks + 1 discovery
     expect(pool.find(t => t.id === 'd1').isDiscovery).toBe(true);
-    expect(pool.find(t => t.id === 't699')).toBeDefined(); // highest affinity survives the cap
+    expect(pool.find(t => t.id === 't699')).toBeDefined(); // full library present (no affinity cap)
   });
 
   it('caches the library partition in Redis and invalidates on profile rebuild (lastAnalyzed)', async () => {
@@ -87,6 +88,84 @@ describe('candidatePool.buildPool', () => {
     // Newer lastAnalyzed → rebuilt from the fresh library
     const rebuilt = await buildPool({ userId: 'u1', musicProfile: profile([lib('b')], new Date('2026-07-02')), moodKey: 'uplift', excludeGenres: [] });
     expect(rebuilt.map(t => t.id)).toEqual(['b']);
+  });
+
+  it('never leaks Mongoose subdocument internals into the pool or its Redis cache (OOM guard)', async () => {
+    // Reproduces the generation OOM: MusicProfile.library loaded WITHOUT .lean() are
+    // hydrated Mongoose subdocuments. Spreading one copies parent-proxy refs
+    // ($__parent / __parentArray / _doc) instead of the real fields (id/name live in
+    // _doc, exposed only via prototype getters). JSON.stringify then recurses into the
+    // whole parent doc PER track → quadratic blowup → 442MB heap OOM. The pool must
+    // yield PLAIN tracks with their real fields intact.
+    const sub = new mongoose.Schema(
+      { id: String, provider: String, name: String, artist: String, genres: [String], affinity: Number, uri: String },
+      { _id: false }
+    );
+    const schema = new mongoose.Schema({ userId: String, library: [sub], lastAnalyzed: Date });
+    const Model = mongoose.models.__OomProbe || mongoose.model('__OomProbe', schema);
+    const doc = new Model({
+      userId: 'u1',
+      lastAnalyzed: new Date('2026-07-01'),
+      library: [lib('a', { genres: ['pop'] }), lib('b', { genres: ['jazz'], affinity: 3 })],
+    });
+
+    const store = new Map();
+    getRedis.mockReturnValue({
+      get: jest.fn(async k => store.get(k) ?? null),
+      set: jest.fn(async (k, v) => { store.set(k, v); return 'OK'; }),
+    });
+
+    const pool = await buildPool({
+      userId: 'u1',
+      musicProfile: { library: doc.library, lastAnalyzed: doc.lastAnalyzed },
+      moodKey: 'uplift',
+      excludeGenres: [],
+    });
+
+    // Real fields survive (affinity-sorted a=5 before b=3) — not lost inside _doc.
+    expect(pool.map(t => t.id)).toEqual(['a', 'b']);
+    const INTERNAL = ['$__', '_doc', '$__parent', '__parentArray', '__index'];
+    for (const t of pool) {
+      for (const key of INTERNAL) expect(t).not.toHaveProperty(key);
+    }
+
+    // The cached partition must serialize to a compact plain-track blob, not a
+    // parent-proxy explosion (two tiny subdocs stringified to ~1.8KB pre-fix).
+    const cached = store.get('pool:u1:uplift');
+    expect(cached).toBeTruthy();
+    expect(cached).not.toContain('$__parent');
+    expect(cached).not.toContain('__parentArray');
+    expect(JSON.parse(cached).tracks).toHaveLength(2);
+  });
+});
+
+describe('candidatePool.invalidateUserPools', () => {
+  it('deletes ONLY the target user\'s pool keys (SCAN + DEL), leaving other users/keys', async () => {
+    const store = new Map([
+      ['pool:u1:calm', 'x'], ['pool:u1:uplift', 'y'], ['pool:u1:none', 'z'],
+      ['pool:u2:calm', 'a'], ['other:u1', 'b'],
+    ]);
+    getRedis.mockReturnValue({
+      scan: jest.fn(async (cursor, _match, pattern) => {
+        const re = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+        return ['0', [...store.keys()].filter(k => re.test(k))];
+      }),
+      del: jest.fn(async (...keys) => { keys.forEach(k => store.delete(k)); return keys.length; }),
+    });
+
+    const removed = await invalidateUserPools('u1');
+
+    expect(removed).toBe(3);
+    expect(store.has('pool:u1:calm')).toBe(false);
+    expect(store.has('pool:u1:uplift')).toBe(false);
+    expect(store.has('pool:u1:none')).toBe(false);
+    expect(store.has('pool:u2:calm')).toBe(true); // a different user is untouched
+    expect(store.has('other:u1')).toBe(true);      // a non-pool key is untouched
+  });
+
+  it('is a no-op (returns 0) when Redis is unavailable', async () => {
+    getRedis.mockReturnValue(null);
+    expect(await invalidateUserPools('u1')).toBe(0);
   });
 });
 
@@ -175,6 +254,51 @@ describe('score.scoreTrack', () => {
   it('every term is finite for degenerate inputs', () => {
     const out = scoreTrack({ id: 'x', canonicalKey: 'k', genres: null, affinity: null }, { targets: {}, maxAffinity: 0, exposure: new Map() });
     expect(Number.isFinite(out.total)).toBe(true);
+  });
+
+  it('an activity-driven request lets the biosonic target dominate: an on-tempo track beats a high-affinity off-tempo one', () => {
+    const base = { maxAffinity: 30, allowGenres: ['ambient'], exposure: new Map(), now: Date.now() }; // stale calm allow-list
+    const targets = { bpmCenter: 162, bpmWidth: 20, energyFloor: 0.4, energyCeiling: 0.9, valenceTarget: 0.5, confidence: 0.4 };
+    const onTempo  = { id: 'e', canonicalKey: 'ke', affinity: 3,  genres: ['techno'],  features: { bpm: 160, energy: 0.8, valence: 0.5 } };
+    const offTempo = { id: 'c', canonicalKey: 'kc', affinity: 30, genres: ['ambient'], features: { bpm: 88, energy: 0.2, valence: 0.5 } };
+
+    // Default (mood) scoring: affinity + the stale calm allow-list BURY the on-tempo track (the bug).
+    expect(scoreTrack(onTempo, { ...base, targets }).total)
+      .toBeLessThan(scoreTrack(offTempo, { ...base, targets }).total);
+
+    // Activity-driven: the biosonic target dominates → the on-tempo track WINS.
+    const intent = { ...targets, activityDriven: true };
+    expect(scoreTrack(onTempo, { ...base, targets: intent }).total)
+      .toBeGreaterThan(scoreTrack(offTempo, { ...base, targets: intent }).total);
+  });
+
+  it('an activity-driven request boosts a PROVEN, RHYTHMIC, on-target track over its tail-affinity twin', () => {
+    const targets = { bpmCenter: 162, bpmWidth: 20, energyFloor: 0.4, energyCeiling: 0.9, valenceTarget: 0.5, confidence: 0.9, activityDriven: true };
+    const base = { targets, maxAffinity: 10, allowGenres: [], exposure: new Map(), now: Date.now() };
+    const feats = { bpm: 162, energy: 0.8, valence: 0.5, danceability: 0.9 };
+    const proven = scoreTrack({ id: 'p', canonicalKey: 'kp', affinity: 10, features: feats }, base); // top affinity
+    const tail   = scoreTrack({ id: 't', canonicalKey: 'kt', affinity: 0,  features: feats }, base); // long tail
+
+    expect(proven.terms.provenRotation).toBeGreaterThan(0);
+    expect(tail.terms.provenRotation).toBe(0);              // below the proven floor → no boost
+    expect(proven.total).toBeGreaterThan(tail.total);
+  });
+
+  it('the rotation boost is disabled in mood (non-activity) mode', () => {
+    const targets = { bpmCenter: 120, bpmWidth: 20, energyFloor: 0.3, energyCeiling: 0.8, valenceTarget: 0.6, confidence: 0.9 };
+    const base = { targets, maxAffinity: 10, allowGenres: [], exposure: new Map(), now: Date.now() };
+    const out = scoreTrack({ id: 'p', canonicalKey: 'kp', affinity: 10, features: { bpm: 120, energy: 0.5, valence: 0.6, danceability: 0.9 } }, base);
+
+    expect(out.terms.provenRotation).toBe(0);
+  });
+
+  it('a proven RHYTHMIC track earns more rotation than an equally-proven NON-rhythmic one', () => {
+    const targets = { bpmCenter: 162, bpmWidth: 20, energyFloor: 0.4, energyCeiling: 0.9, valenceTarget: 0.5, confidence: 0.9, activityDriven: true };
+    const base = { targets, maxAffinity: 10, allowGenres: [], exposure: new Map(), now: Date.now() };
+    const rhythmic    = scoreTrack({ id: 'r', canonicalKey: 'kr', affinity: 10, features: { bpm: 162, energy: 0.8, valence: 0.5, danceability: 0.9 } }, base);
+    const nonRhythmic = scoreTrack({ id: 'n', canonicalKey: 'kn', affinity: 10, features: { bpm: 162, energy: 0.8, valence: 0.5, danceability: 0.2 } }, base);
+
+    expect(rhythmic.terms.provenRotation).toBeGreaterThan(nonRhythmic.terms.provenRotation);
   });
 });
 

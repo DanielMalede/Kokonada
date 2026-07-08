@@ -115,6 +115,17 @@ async function start() {
   // process instead of a separate (paid) worker service. No-op when the flag is off.
   const inProcessWorkers = startInProcessWorkers({ logger: console });
 
+  // Periodically drain the unclassified-track pool (Groq-outage safety floor): a repeatable
+  // job re-evaluates due rows and promotes music / hard-deletes non-music. Guarded to the
+  // in-process worker path (there is a consumer) + REDIS_URL; scheduleRepeatable no-ops without it.
+  if (inProcessWorkers.length) {
+    const { scheduleRepeatable } = require('./queues/queue');
+    const { QUEUES } = require('./queues/definitions');
+    scheduleRepeatable(QUEUES.RECLASSIFY_UNCLASSIFIED, process.env.RECLASSIFY_CRON || '*/30 * * * *', {})
+      .then((r) => console.log(`[reclassify] repeatable scheduled: ${JSON.stringify(r)}`))
+      .catch((e) => console.error('[reclassify] schedule failed:', e.message));
+  }
+
   // Graceful shutdown (Railway sends SIGTERM on redeploy): close the workers and the
   // HTTP server so in-flight jobs finish and the socket drains, with a hard cap so a
   // stuck close can't wedge the deploy.

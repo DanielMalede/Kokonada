@@ -100,7 +100,7 @@ async function peekBaselines(userId) {
     const { enqueue } = require('../../queues/queue');
     const { QUEUES } = require('../../queues/definitions');
     enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
-      jobId: `state-vector:${userId}`,
+      jobId: `state-vector-${userId}`, // BullMQ forbids ':' in custom job ids
       delay: 5000,
       removeOnComplete: true,
       removeOnFail: true,

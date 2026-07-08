@@ -97,3 +97,25 @@ describe('summarizeSleep', () => {
     });
   });
 });
+
+describe('mapRestingHeartRate (D-4a — the classifier input that was never sent)', () => {
+  it('maps RestingHeartRate records to resting_heart_rate samples', () => {
+    const { mapRestingHeartRate } = require('../mapToBackend');
+    expect(mapRestingHeartRate([{ time: '2026-01-01T08:00:00Z', beatsPerMinute: 52 }])).toEqual([
+      { type: 'resting_heart_rate', value: 52, startDate: '2026-01-01T08:00:00Z' },
+    ]);
+  });
+
+  it('toBackendSamples includes resting HR and drops non-numeric values', () => {
+    const { toBackendSamples } = require('../mapToBackend');
+    const out = toBackendSamples({
+      heartRate: [], hrv: [], sleep: [],
+      restingHeartRate: [
+        { time: 't1', beatsPerMinute: 51 },
+        { time: 't2', beatsPerMinute: null },
+        { time: 't3', beatsPerMinute: NaN },
+      ],
+    });
+    expect(out).toEqual([{ type: 'resting_heart_rate', value: 51, startDate: 't1' }]);
+  });
+});

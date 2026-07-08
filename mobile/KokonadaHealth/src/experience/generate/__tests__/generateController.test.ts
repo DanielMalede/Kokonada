@@ -91,6 +91,40 @@ describe('GenerateController — submit', () => {
   });
 });
 
+describe('GenerateController — live-tuned (Part 2b: Live mode yields the manual CTA)', () => {
+  function buildLive(isLiveMode: () => boolean) {
+    const store = makeStore();
+    const warm = createWarmStore();
+    const socket: SocketApi = {
+      requestPlaylist: jest.fn(() => 1),
+      requestHeartPlaylist: jest.fn(() => 2),
+    };
+    const controller = new GenerateController({ store, warmStore: warm, socket, isLiveMode });
+    return { store, warm, socket, controller };
+  }
+
+  it('ctaMode is "live-tuned" when Live mode is on, even with emotion input present', () => {
+    const { store, controller } = buildLive(() => true);
+    store.dispatch(setActivity('running')); // manual input exists, but Live mode owns the queue
+    expect(controller.ctaMode()).toBe('live-tuned');
+  });
+
+  it('ctaMode falls back to the normal manual states when Live mode is off', () => {
+    const { store, controller } = buildLive(() => false);
+    store.dispatch(setActivity('running'));
+    expect(controller.ctaMode()).toBe('generate');
+  });
+
+  it('submit in live-tuned mode does nothing and fires NO socket request (both cannot drive the queue)', () => {
+    const { store, warm, socket, controller } = buildLive(() => true);
+    warm.getState().setLiveHr(80);
+    store.dispatch(setActivity('running'));
+    expect(controller.submit()).toBeNull();
+    expect(socket.requestPlaylist).not.toHaveBeenCalled();
+    expect(socket.requestHeartPlaylist).not.toHaveBeenCalled();
+  });
+});
+
 describe('GenerateController — hot→cold race (attack #3)', () => {
   it('a burst of rapid taps racing a submit swallows NO coordinate and misaligns none', () => {
     const { store, controller } = build();

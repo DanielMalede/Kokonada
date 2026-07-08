@@ -191,8 +191,8 @@ describe('Q4 — KokonadaSocket reqId gating + auth storm (DEFENDED)', () => {
     });
     s.connect();
     const req = s.requestPlaylist(); // latest reqId
-    sock.fire('playlist', { reqId: req - 1, tracks: [] }); // stale
-    sock.fire('playlist', { reqId: req, tracks: [{ id: 'x' }] }); // current
+    sock.fire('playlist_ready', { reqId: req - 1, tracks: [] }); // stale
+    sock.fire('playlist_ready', { reqId: req, tracks: [{ id: 'x' }] }); // current
     expect(playlists).toHaveLength(1);
     expect(playlists[0].reqId).toBe(req);
   });
@@ -226,6 +226,6 @@ describe('Q4 — KokonadaSocket reqId gating + auth storm (DEFENDED)', () => {
     first.fire('auth_expired'); // storm
     await new Promise((r) => setImmediate(r));
     expect(refreshCalls).toBe(1);
-    expect(first.listenerCount('playlist')).toBe(0); // teardown detached the dead socket
+    expect(first.listenerCount('playlist_ready')).toBe(0); // teardown detached the dead socket
   });
 });

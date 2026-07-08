@@ -97,6 +97,15 @@ describe('llmEstimatorAdapter.getFeatures — engineered fallback', () => {
     expect(results[0].features).toBeNull();
   });
 
+  it('gives the bulk hydration path extra retry budget so rate-limited batches back off, not dropped', async () => {
+    llmClient.generateJson.mockResolvedValue(estimatesResponse([]));
+
+    await adapter.getFeatures([yt('v1')]);
+
+    const opts = llmClient.generateJson.mock.calls[0][1];
+    expect(opts.retries).toBeGreaterThanOrEqual(5);
+  });
+
   it('short-circuits to nulls when no LLM is configured (no request made)', async () => {
     llmClient.isConfigured.mockReturnValue(false);
 

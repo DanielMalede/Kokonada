@@ -68,10 +68,14 @@ jest.mock('../app/services/wearable/suunto', () => ({
   handleWebhook:          jest.fn(),
   getWorkouts:            jest.fn(),
 }));
+jest.mock('../app/services/features/featureService', () => ({
+  hydrate:          jest.fn(),
+  enqueueHydration: jest.fn(),
+}));
 
 // Mock mongoose models to avoid the Node 21 / mongoose 9 incompatibility
 jest.mock('../app/models/BiometricLog', () => ({}));
-jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}), findOne: jest.fn() }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
@@ -84,7 +88,9 @@ const garmin      = require('../app/services/wearable/garmin');
 const healthStore = require('../app/services/wearable/healthStore');
 const garminIngest = require('../app/services/wearable/garminIngest');
 const User        = require('../app/models/User');
-const { signOauthState } = require('../app/utils/jwt');
+const MusicProfile = require('../app/models/MusicProfile');
+const featureService = require('../app/services/features/featureService');
+const { signOauthState, verifyOauthState } = require('../app/utils/jwt');
 
 const ctrl = require('../app/controllers/integrationsController');
 const { normalize } = require('../app/services/wearable/adapter');
@@ -143,10 +149,29 @@ describe('Spotify OAuth flow', () => {
       const stateArg = spotify.getAuthUrl.mock.calls[0][0];
       expect(stateArg.split('.')).toHaveLength(3); // header.payload.signature
     });
+
+    it('threads returnTo=app into the signed state for a mobile connect', () => {
+      spotify.getAuthUrl.mockReturnValue('https://accounts.spotify.com/authorize');
+
+      ctrl.spotifyConnect({ user: buildUser(), query: { returnTo: 'app' } }, buildRes());
+
+      const stateArg = spotify.getAuthUrl.mock.calls[0][0];
+      expect(verifyOauthState(stateArg).returnTo).toBe('app');
+    });
+
+    it('leaves returnTo unset for a web connect (default)', () => {
+      spotify.getAuthUrl.mockReturnValue('https://accounts.spotify.com/authorize');
+
+      ctrl.spotifyConnect({ user: buildUser() }, buildRes());
+
+      const stateArg = spotify.getAuthUrl.mock.calls[0][0];
+      expect(verifyOauthState(stateArg).returnTo).toBeUndefined();
+    });
   });
 
   describe('spotifyCallback', () => {
     const validState = () => signOauthState('user-123', 'spotify');
+    const appState   = () => signOauthState('user-123', 'spotify', { returnTo: 'app' });
 
     it('redirects with an error when Spotify returns an error param', async () => {
       const req = { query: { error: 'access_denied' }, cookies: {} };
@@ -192,6 +217,24 @@ describe('Spotify OAuth flow', () => {
       expect(user.setToken).toHaveBeenCalledWith('spotifyToken', tokens);
       expect(user.save).toHaveBeenCalled();
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
+    });
+
+    it('deep-links back into the native app on success when the state carried returnTo=app', async () => {
+      spotify.exchangeCode.mockResolvedValue({ accessToken: 'at', refreshToken: 'rt', expiresAt: Date.now() + 3600000 });
+      spotify.getProfile.mockResolvedValue({ spotifyId: 'sp', displayName: 'T' });
+      User.findById.mockResolvedValue(buildUser());
+
+      const res = buildRes();
+      await ctrl.spotifyCallback({ query: { code: 'auth-code', state: appState() }, cookies: {} }, res);
+
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=spotify');
+    });
+
+    it('deep-links an error back into the native app when returnTo=app', async () => {
+      const res = buildRes();
+      await ctrl.spotifyCallback({ query: { error: 'access_denied', state: appState() }, cookies: {} }, res);
+
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=spotify_access_denied');
     });
 
     it('redirects with error=spotify_failed on service failure (never raw JSON)', async () => {
@@ -309,11 +352,15 @@ describe('YouTube OAuth flow', () => {
     expect(user.save).toHaveBeenCalled();
   });
 
-  it('youtubeDisconnect nulls token and saves', async () => {
+  it('youtubeDisconnect re-loads the full user, nulls token, and saves', async () => {
+    // auth() strips token blobs, so the handler re-loads via User.findById.
     const user = buildUser({ youtubeMusicToken: { blob: 'enc' } });
-    await ctrl.youtubeDisconnect({ user }, buildRes(), jest.fn());
+    User.findById.mockResolvedValue(user);
+    const res = buildRes();
+    await ctrl.youtubeDisconnect({ user: { _id: user._id } }, res, jest.fn());
     expect(user.youtubeMusicToken).toBeNull();
     expect(user.save).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'YouTube Music disconnected' }));
   });
 });
 
@@ -632,5 +679,34 @@ describe('healthBatchIngest', () => {
     await ctrl.healthBatchIngest({ user: buildUser(), body: { platform: 'healthkit', samples: [] } }, buildRes(), next);
 
     expect(next).toHaveBeenCalledWith(err);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUDIO-FEATURE HYDRATION
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('hydrateLibrary', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('hydrates the user library and returns the provider summary', async () => {
+    const library = [{ id: 'y1', provider: 'youtube_music' }, { id: 'y2', provider: 'youtube_music' }];
+    MusicProfile.findOne.mockReturnValue({ lean: () => Promise.resolve({ library }) });
+    featureService.hydrate.mockResolvedValue({ requested: 2, api: 0, llm: 2, failed: 0 });
+
+    const res = buildRes();
+    await ctrl.hydrateLibrary({ user: { _id: 'u1' } }, res, jest.fn());
+
+    expect(featureService.hydrate).toHaveBeenCalledWith(library);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ summary: expect.objectContaining({ llm: 2 }) }));
+  });
+
+  it('returns an empty-library note without calling hydrate when the profile has no tracks', async () => {
+    MusicProfile.findOne.mockReturnValue({ lean: () => Promise.resolve({ library: [] }) });
+
+    const res = buildRes();
+    await ctrl.hydrateLibrary({ user: { _id: 'u1' } }, res, jest.fn());
+
+    expect(featureService.hydrate).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ note: 'empty library' }));
   });
 });

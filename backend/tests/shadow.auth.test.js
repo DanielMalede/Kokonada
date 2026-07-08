@@ -125,7 +125,7 @@ jest.mock('../app/models/RefreshToken', () => {
 });
 
 // Child collections for the GDPR sweep — arrays with real userId filtering.
-for (const model of ['BiometricLog', 'MedicalProfile', 'MusicProfile', 'PlaylistSession', 'ServeEvent']) {
+for (const model of ['BiometricLog', 'MedicalProfile', 'MusicProfile', 'PlaylistSession', 'ServeEvent', 'UnclassifiedTrack']) {
   jest.mock(`../app/models/${model}`, () => {
     const store = [];
     return {
@@ -149,6 +149,7 @@ const MedicalProfile = require('../app/models/MedicalProfile');
 const MusicProfile = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent = require('../app/models/ServeEvent');
+const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
 const { signup, login } = require('../app/services/auth/passwordAuth');
 const { issueSession, rotate } = require('../app/services/auth/tokenService');
 const ctrl = require('../app/controllers/authController');
@@ -372,7 +373,7 @@ describe('ATTACK: GDPR erasure completeness', () => {
     await issueSession(uid);
     await issueSession(uid);
 
-    for (const m of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent]) {
+    for (const m of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent, UnclassifiedTrack]) {
       m.__store.push({ userId: uid }, { userId: 'user-1' });
     }
     redis.__map.set(`ledger:${uid}:served`, 'z');
@@ -387,7 +388,7 @@ describe('ATTACK: GDPR erasure completeness', () => {
     expect(User.__store.some((u) => String(u._id) === uid)).toBe(false);
     expect(Identity.__store.some((i) => String(i.userId) === uid)).toBe(false);
     expect(RefreshToken.__store.some((r) => String(r.userId) === uid)).toBe(false);
-    for (const m of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent]) {
+    for (const m of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent, UnclassifiedTrack]) {
       expect(m.__store.some((d) => String(d.userId) === uid)).toBe(false);
       expect(m.__store.some((d) => d.userId === 'user-1')).toBe(true); // bystander intact
     }

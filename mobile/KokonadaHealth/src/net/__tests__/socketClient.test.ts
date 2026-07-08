@@ -72,6 +72,106 @@ function makeDeps(overrides: any = {}) {
   };
 }
 
+describe('KokonadaSocket — connection status wiring (Pulse indicator was dead)', () => {
+  it('reports connecting → connected → disconnected across the socket lifecycle', () => {
+    const statuses: string[] = [];
+    const { client, created } = build({ onConnectionChange: (s: string) => statuses.push(s) });
+    client.connect();
+    expect(statuses).toContain('connecting'); // set the moment we open
+    created[0].fire('connect');
+    expect(statuses).toContain('connected');
+    created[0].fire('disconnect', 'transport close');
+    expect(statuses[statuses.length - 1]).toBe('disconnected');
+  });
+
+  it('reports disconnected when the socket errors on connect', () => {
+    const statuses: string[] = [];
+    const { client, created } = build({ onConnectionChange: (s: string) => statuses.push(s) });
+    client.connect();
+    created[0].fire('connect_error', new Error('websocket error'));
+    expect(statuses[statuses.length - 1]).toBe('disconnected');
+  });
+});
+
+describe('KokonadaSocket — ensureOpen (never emit into a null socket)', () => {
+  it('requestPlaylist opens a socket if none exists — Generate pressed before any connect', () => {
+    const { client, created } = build();
+    const reqId = client.requestPlaylist(); // NO prior client.connect()
+    expect(created).toHaveLength(1); // ensureOpen opened one
+    expect(created[0].clientEmits('request_playlist')[0].payload).toEqual({ reqId });
+  });
+
+  it('ensureOpen is idempotent — a live socket is never churned', () => {
+    const { client, created } = build();
+    client.connect();
+    client.requestPlaylist();
+    client.requestPlaylist();
+    expect(created).toHaveLength(1); // no extra sockets spun up
+  });
+});
+
+describe('KokonadaSocket — delivery guarantee (re-send pending request on reconnect)', () => {
+  it('re-issues a pending request on reconnect so a swallowed/churned request is not lost', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist();
+    sock.emitted.length = 0; // clear the send-time emits
+    // A token-expiry gate or churn: disconnect + reconnect with NO response having arrived.
+    sock.fire('disconnect', 'io server disconnect');
+    sock.fire('connect');
+    const resent = sock.clientEmits('request_playlist');
+    expect(resent).toHaveLength(1);
+    expect(resent[0].payload).toEqual({ reqId });
+  });
+
+  it('does NOT re-issue once the response has arrived', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist();
+    sock.fire('playlist_ready', { reqId, tracks: ['a'] }); // response clears the pending request
+    sock.emitted.length = 0;
+    sock.fire('connect');
+    expect(sock.clientEmits('request_playlist')).toHaveLength(0);
+  });
+
+  it('re-issues a pending heart-playlist request with its HR', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestHeartPlaylist(72);
+    sock.emitted.length = 0;
+    sock.fire('connect');
+    expect(sock.clientEmits('request_heart_playlist')[0].payload).toEqual({ reqId, heartRate: 72 });
+  });
+
+  it('clears the pending request on a matching playlist_error too', () => {
+    const { client, created } = build({ onGenerationError: jest.fn() });
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist();
+    sock.fire('playlist_error', { reqId, message: 'empty' });
+    sock.emitted.length = 0;
+    sock.fire('connect');
+    expect(sock.clientEmits('request_playlist')).toHaveLength(0);
+  });
+});
+
+describe('KokonadaSocket — server contract (the event the backend actually emits)', () => {
+  it('delivers a playlist_ready response to onPlaylist (backend emits playlist_ready, not playlist)', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    const reqId = client.requestPlaylist();
+    // biometricHandler emits socket.emit('playlist_ready', …) on success — the mobile
+    // client MUST subscribe to that exact event or a generated playlist never plays.
+    created[0].fire('playlist_ready', { reqId, tracks: [{ id: 't1', uri: 'spotify:track:t1' }] });
+    expect(deps.onPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ tracks: [{ id: 't1', uri: 'spotify:track:t1' }] }),
+    );
+  });
+});
+
 describe('KokonadaSocket — reqId gating (Zombie Navigation, attack #3)', () => {
   it('delivers the freshest response and DROPS a stale one', () => {
     const { client, created, deps } = build();
@@ -82,11 +182,11 @@ describe('KokonadaSocket — reqId gating (Zombie Navigation, attack #3)', () =>
     const second = client.requestPlaylist(); // user re-requested / switched context
 
     // stale response for the FIRST request arrives after the second was issued
-    sock.fire('playlist', { reqId: first, tracks: ['stale'] });
+    sock.fire('playlist_ready', { reqId: first, tracks: ['stale'] });
     expect(deps.onPlaylist).not.toHaveBeenCalled(); // zombie dropped
 
     // the fresh response renders
-    sock.fire('playlist', { reqId: second, tracks: ['fresh'] });
+    sock.fire('playlist_ready', { reqId: second, tracks: ['fresh'] });
     expect(deps.onPlaylist).toHaveBeenCalledTimes(1);
     expect(deps.onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ tracks: ['fresh'] }));
   });
@@ -95,9 +195,56 @@ describe('KokonadaSocket — reqId gating (Zombie Navigation, attack #3)', () =>
     const { client, created, deps } = build();
     client.connect();
     client.requestPlaylist();
-    created[0].fire('playlist', { tracks: ['no-reqid'] });
-    created[0].fire('playlist', { reqId: 9999, tracks: ['unknown'] });
+    created[0].fire('playlist_ready', { tracks: ['no-reqid'] });
+    created[0].fire('playlist_ready', { reqId: 9999, tracks: ['unknown'] });
     expect(deps.onPlaylist).not.toHaveBeenCalled();
+  });
+});
+
+describe('KokonadaSocket — Live-mode auto-drive (band recalibration serves the buffer)', () => {
+  it('accepts a server-pushed biometric playlist with no client reqId and routes it to onPlaylist', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    // A confirmed band transition on the server pushes a buffered playlist — there is no
+    // client reqId to correlate. The reqId gate must NOT drop it, or a band shift never plays.
+    created[0].fire('playlist_ready', { trigger: 'biometric', buffered: true, tracks: [{ id: 'b1', uri: 'spotify:track:b1' }] });
+    expect(deps.onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ trigger: 'biometric' }));
+  });
+
+  it('a biometric auto-push does NOT consume a pending manual request', () => {
+    const { client, created } = build();
+    client.connect();
+    const sock = created[0];
+    const reqId = client.requestPlaylist(); // a manual request is in flight
+    sock.emitted.length = 0;
+    sock.fire('playlist_ready', { trigger: 'biometric', tracks: ['auto'] }); // an auto-drive lands
+    sock.fire('connect'); // reconnect: the still-pending manual request must re-issue
+    expect(sock.clientEmits('request_playlist')[0]?.payload).toEqual({ reqId });
+  });
+
+  it('emits live_mode on connect reflecting the current mode (server gates auto-drive on it)', () => {
+    const { client, created } = build({ getLiveMode: () => true });
+    client.connect();
+    expect(created[0].clientEmits('live_mode')[0]?.payload).toEqual({ enabled: true });
+  });
+
+  it('syncLiveMode emits the current live mode immediately when the toggle flips', () => {
+    let live = false;
+    const { client, created } = build({ getLiveMode: () => live });
+    client.connect();
+    const sock = created[0];
+    sock.emitted.length = 0;
+    live = true;
+    client.syncLiveMode();
+    expect(sock.clientEmits('live_mode')[0]?.payload).toEqual({ enabled: true });
+  });
+
+  it('forwards live_assembling to onAssembling (the cold-buffer loader copy)', () => {
+    const onAssembling = jest.fn();
+    const { client, created } = build({ onAssembling });
+    client.connect();
+    created[0].fire('live_assembling', { message: 'assembling your live biometric soundscape' });
+    expect(onAssembling).toHaveBeenCalledWith('assembling your live biometric soundscape');
   });
 });
 
@@ -147,6 +294,66 @@ describe('KokonadaSocket — playlist_error', () => {
   });
 });
 
+describe('KokonadaSocket — playlist_building (onboarding graceful loading, D-6)', () => {
+  function buildBuilding(overrides: any = {}) {
+    const scheduled: Array<() => void> = [];
+    const setTimer = jest.fn((fn: () => void) => { scheduled.push(fn); return scheduled.length; });
+    const clearTimer = jest.fn();
+    const onBuilding = jest.fn();
+    const onGenerationError = jest.fn();
+    const { client, created } = build({
+      setTimer, clearTimer, onBuilding, onGenerationError, buildingRetryMs: 1000, maxBuildingRetries: 3, ...overrides,
+    });
+    client.connect();
+    return { client, sock: created[0], scheduled, setTimer, clearTimer, onBuilding, onGenerationError };
+  }
+
+  it('shows the building loader and auto-retries the SAME request — never a hard error', () => {
+    const { client, sock, scheduled, onBuilding, onGenerationError } = buildBuilding();
+    const reqId = client.requestPlaylist();
+    sock.emitted.length = 0; // ignore the initial request emit
+
+    sock.fire('playlist_building', { reqId, message: 'Setting up your library…' });
+
+    expect(onBuilding).toHaveBeenCalledWith('Setting up your library…');
+    expect(onGenerationError).not.toHaveBeenCalled();
+    expect(scheduled).toHaveLength(1);            // a retry was scheduled
+    scheduled[0]();                                // fire the timer
+    expect(sock.clientEmits('request_playlist').map((e) => e.payload.reqId)).toContain(reqId);
+  });
+
+  it('gives up with a soft error once the retry budget is exhausted', () => {
+    const { client, sock, scheduled, onGenerationError } = buildBuilding({ maxBuildingRetries: 2 });
+    const reqId = client.requestPlaylist();
+    for (let i = 0; i < 3; i++) {
+      sock.fire('playlist_building', { reqId, message: 'building' });
+      if (scheduled[i]) scheduled[i]();
+    }
+    expect(onGenerationError).toHaveBeenCalled();
+  });
+
+  it('a playlist_ready after building stops the retry loop (no stale re-emit)', () => {
+    const { client, sock, scheduled, clearTimer } = buildBuilding();
+    const reqId = client.requestPlaylist();
+    sock.fire('playlist_building', { reqId });
+    expect(scheduled).toHaveLength(1);
+
+    sock.fire('playlist_ready', { reqId, tracks: [] });
+    sock.emitted.length = 0;
+    scheduled[0](); // a now-stale timer fires — must NOT re-emit (pending cleared)
+    expect(sock.clientEmits('request_playlist')).toHaveLength(0);
+    expect(clearTimer).toHaveBeenCalled();
+  });
+
+  it('ignores a stale playlist_building (superseded reqId)', () => {
+    const { client, sock, onBuilding } = buildBuilding();
+    client.requestPlaylist(); // reqId 1
+    client.requestPlaylist(); // reqId 2 (latest)
+    sock.fire('playlist_building', { reqId: 1, message: 'stale' });
+    expect(onBuilding).not.toHaveBeenCalled();
+  });
+});
+
 describe('KokonadaSocket — requestHeartPlaylist', () => {
   it('emits request_heart_playlist with the HR and a reqId that gates responses', () => {
     const { client, created, deps } = build();
@@ -159,7 +366,7 @@ describe('KokonadaSocket — requestHeartPlaylist', () => {
     expect(heart?.payload).toEqual({ reqId, heartRate: 82 });
 
     // the shared reqId counter still gates the playlist response
-    sock.fire('playlist', { reqId, tracks: ['h'] });
+    sock.fire('playlist_ready', { reqId, tracks: ['h'] });
     expect(deps.onPlaylist).toHaveBeenCalledWith(expect.objectContaining({ tracks: ['h'] }));
   });
 
@@ -168,7 +375,7 @@ describe('KokonadaSocket — requestHeartPlaylist', () => {
     client.connect();
     const first = client.requestHeartPlaylist(70);
     client.requestPlaylist(); // newer request supersedes it
-    created[0].fire('playlist', { reqId: first, tracks: ['stale-heart'] });
+    created[0].fire('playlist_ready', { reqId: first, tracks: ['stale-heart'] });
     expect(deps.onPlaylist).not.toHaveBeenCalled();
   });
 });

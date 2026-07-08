@@ -47,6 +47,28 @@ jobs:
         run: npm run build
         working-directory: frontend
 
+  mobile:
+    name: Mobile — jest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'   # satisfies engines (node >= 22.11.0). The ProfileScreen async
+                               # flush flake (issue #84 / ADR 0007) was root-caused and fixed
+                               # in the test (deterministic setImmediate flush); node 24 is now
+                               # a deliberate target, no longer a workaround.
+          cache: 'npm'
+          cache-dependency-path: mobile/KokonadaHealth/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: mobile/KokonadaHealth
+      # jest only — NOT `tsc`: pre-existing src/health/* typing errors are documented and
+      # unrelated (see ORCHESTRATOR_FABLE definition_of_done). Local gate parity.
+      - name: Run tests
+        run: ./node_modules/.bin/jest --ci
+        working-directory: mobile/KokonadaHealth
+
   # The backend deploys via Railway's NATIVE GitHub integration: the service is
   # connected to this repo with Root Directory = /backend, branch = main, "auto-deploy
   # on push" + "wait for CI" enabled. Railway builds backend/Dockerfile itself once

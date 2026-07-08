@@ -2,6 +2,7 @@
 
 const crypto           = require('crypto');
 const axios            = require('axios');
+const { withRetry }    = require('../utils/retry');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
@@ -51,8 +52,13 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = GEMI
     // the safe one; override with LLM_MODEL globally, or per-call (the Tempo Critic
     // passes a bigger model whose world-knowledge judges niche tracks' real tempo).
     const model   = modelOverride || process.env.LLM_MODEL || 'llama-3.1-8b-instant';
+    // Groq's free tier caps tokens-per-minute (6000 TPM). Under load, generation 429s and —
+    // without a retry — the whole playlist silently collapses to the static fallback (the
+    // "tracks=10, ignores the activity" symptom). withRetry rides out the 429 honoring
+    // Retry-After; 4xx/5xx and timeouts still fail fast to the caller's fallback.
+    const maxRetries = (() => { const n = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10); return Number.isFinite(n) && n >= 0 ? n : 3; })();
     try {
-      const { data } = await axios.post(
+      const { data } = await withRetry(() => axios.post(
         `${baseUrl}/chat/completions`,
         {
           model,
@@ -65,7 +71,7 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = GEMI
           headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
           timeout: timeoutMs,
         },
-      );
+      ), maxRetries);
       return data.choices?.[0]?.message?.content ?? '';
     } catch (err) {
       // Surface the provider's real reason (e.g. a decommissioned model) instead

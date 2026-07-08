@@ -28,6 +28,15 @@ jest.mock('../app/services/features/featureService', () => ({
 }));
 const featureService = require('../app/services/features/featureService');
 
+// Ingest-gate deps. Default passthrough (everything → music) so the non-classification
+// buildProfile tests are unaffected; the ingest-gate tests override per-call.
+jest.mock('../app/services/musicClassifier', () => ({
+  classifyTracks: jest.fn(async (tracks) => ({ music: tracks, nonMusic: [], unclassified: [] })),
+}));
+const musicClassifier = require('../app/services/musicClassifier');
+jest.mock('../app/repositories/unclassifiedRepo', () => ({ addMany: jest.fn().mockResolvedValue(0) }));
+const unclassifiedRepo = require('../app/repositories/unclassifiedRepo');
+
 // ── Real service modules (axios mock intercepts their HTTP calls) ──────────────
 const spotify = require('../app/services/spotify');
 const youtube = require('../app/services/youtube');
@@ -39,6 +48,8 @@ const {
   _analyzeYouTubeTracks,
   _deduplicateById,
   _rankByFrequency,
+  recomputeFootprint,
+  SOURCE_WEIGHTS,
 } = require('../app/services/musicProfileService');
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -114,6 +125,16 @@ describe('_deduplicateById', () => {
 
   it('handles empty array', () => {
     expect(_deduplicateById([])).toEqual([]);
+  });
+});
+
+// ── SOURCE_WEIGHTS (listening-source affinity) ────────────────────────────────
+
+describe('SOURCE_WEIGHTS — curated playlists are a deliberate signal', () => {
+  it('weights a curated playlist above passive recent/saved listening, but not above top tracks', () => {
+    expect(SOURCE_WEIGHTS.playlist).toBeGreaterThan(SOURCE_WEIGHTS.recent);
+    expect(SOURCE_WEIGHTS.playlist).toBeGreaterThan(SOURCE_WEIGHTS.saved);
+    expect(SOURCE_WEIGHTS.playlist).toBeLessThanOrEqual(SOURCE_WEIGHTS.topLong);
   });
 });
 
@@ -457,6 +478,26 @@ describe('youtube.paginatePlaylistItems', () => {
   });
 });
 
+// ── recomputeFootprint ────────────────────────────────────────────────────────
+
+describe('recomputeFootprint', () => {
+  it('ranks genres/artists and derives the distinct genreSet from a library', () => {
+    const lib = [
+      { artist: 'A', genres: ['rock', 'pop'] },
+      { artist: 'A', genres: ['rock'] },
+      { artist: 'B', genres: ['jazz'] },
+    ];
+    const fp = recomputeFootprint(lib);
+    expect(fp.topArtists[0]).toBe('A'); // most frequent artist first
+    expect(fp.topGenres).toContain('rock');
+    expect(fp.genreSet.sort()).toEqual(['jazz', 'pop', 'rock']);
+  });
+
+  it('is a no-op on an empty library', () => {
+    expect(recomputeFootprint([])).toEqual({ topGenres: [], topArtists: [], genreSet: [] });
+  });
+});
+
 // ── buildProfile — integration ────────────────────────────────────────────────
 
 describe('buildProfile', () => {
@@ -485,6 +526,10 @@ describe('buildProfile', () => {
     jest.spyOn(youtube, 'paginateSubscriptions').mockResolvedValue([]);
     jest.spyOn(youtube, 'fetchVideoTopics').mockResolvedValue([]);
     MusicProfile.findOneAndUpdate.mockResolvedValue({ userId: 'user123' });
+    // Re-establish the passthrough ingest gate for every test (a prior per-call override
+    // must not leak); overridden explicitly in the ingest-gate tests.
+    musicClassifier.classifyTracks.mockImplementation(async (tracks) => ({ music: tracks, nonMusic: [], unclassified: [] }));
+    unclassifiedRepo.addMany.mockResolvedValue(0);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -583,6 +628,28 @@ describe('buildProfile', () => {
     expect(saved.topArtists).not.toContain('Random News Channel');
     expect(saved.topGenres).toEqual(expect.arrayContaining(['electronic', 'jazz'])); // liked + playlist topics
     expect(saved.genreSet).toEqual(expect.arrayContaining(['electronic', 'jazz']));
+  });
+
+  it('ingest gate: drops non-music youtube tracks and pools the unclassified ones', async () => {
+    youtube.paginateLikedVideos.mockResolvedValue([
+      { id: 'v1', snippet: { title: 'Real Song', channelTitle: 'Artist - Topic' } },
+    ]);
+    musicClassifier.classifyTracks.mockResolvedValueOnce({
+      music:        [{ id: 'v1', provider: 'youtube_music', name: 'Real Song', artist: 'Artist', genres: [] }],
+      nonMusic:     [{ id: 'j1', provider: 'youtube_music', name: 'morning vlog' }],
+      unclassified: [{ id: 'u1', provider: 'youtube_music', name: 'weird clip' }],
+    });
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
+    const lib = savedSet().library;
+
+    expect(lib.map(t => t.id)).toContain('v1');       // music kept
+    expect(lib.map(t => t.id)).not.toContain('j1');   // non-music never enters the library
+    expect(unclassifiedRepo.addMany).toHaveBeenCalledWith(
+      'user123',
+      expect.arrayContaining([expect.objectContaining({ id: 'u1' })]),
+      'ingest',
+    );
   });
 
   it('saves empty arrays gracefully when no provider is connected', async () => {

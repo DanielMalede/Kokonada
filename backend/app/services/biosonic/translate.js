@@ -24,7 +24,18 @@ const MAD_SCALE = 1.4826;
 
 // Locked walking/running cadence bands (entrainment beats intent for locomotion).
 const CADENCE_BPM = { walking: 118, running: 162, cycling: 145 };
-const ACTIVITY_EXERTION_FLOOR = { walking: 0.35, cycling: 0.5, swimming: 0.6, strength: 0.55, running: 0.65 };
+const ACTIVITY_EXERTION_FLOOR = {
+  walking: 0.35, cycling: 0.5, swimming: 0.6, strength: 0.55, running: 0.65,
+  workout: 0.7, commuting: 0.3, working: 0.25, focus: 0.3, resting: 0, 'winding down': 0,
+};
+// Activity → energy intent. The app's PRIMARY input is the activity chip (running/workout/
+// resting/…), not the mood wheel — so the activity drives the energy target and, for an
+// explicit exertion, lifts the passive recovery/wind-down cap (product decision: intent wins).
+const ACTIVITY_ENERGY = {
+  running: 0.85, workout: 0.9, cycling: 0.75, strength: 0.85, swimming: 0.7,
+  walking: 0.5, commuting: 0.45, working: 0.4, focus: 0.5,
+  resting: 0.15, 'winding down': 0.15,
+};
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const round3 = (x) => Math.round(x * 1000) / 1000;
@@ -87,11 +98,17 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   // ── Targets ───────────────────────────────────────────────────────────────
   // Recovery gates energy: a wrecked body cannot be served bangers; the mood is
   // honored in valence/genre while intensity is capped physiologically.
-  const energyCeiling = round3(Math.min(0.95, Math.max(0.2, (0.35 + 0.6 * R) * windDown)));
+  const activityEnergy = activity != null ? (ACTIVITY_ENERGY[activity] ?? null) : null;
+  const passiveCeiling = Math.min(0.95, Math.max(0.2, (0.35 + 0.6 * R) * windDown));
+  // An explicit activity is a direct exertion intent — it LIFTS the passive recovery/wind-down
+  // cap so a Workout/Run at 2am still serves energy (product decision: user intent wins).
+  const energyCeiling = round3(activityEnergy != null ? Math.max(passiveCeiling, activityEnergy) : passiveCeiling);
 
   const desc = MOOD_DESCRIPTORS[moodKey];
   const moodEnergy = desc ? desc.energy_floor : moodCoords(moodKey).energy;
-  const intentEnergy = Math.min(moodEnergy, energyCeiling);
+  // Activity is the PRIMARY input; when present it drives the energy target over a (possibly
+  // stale) mood tap. Falls back to the mood tap only when no activity was chosen.
+  const intentEnergy = Math.min(activityEnergy != null ? activityEnergy : moodEnergy, energyCeiling);
   const energyFloor = round3(Math.max(0, Math.min(intentEnergy * 0.5, energyCeiling - 0.05)));
 
   // BPM entrainment (iso-principle): locomotion cadence-locks; otherwise blend
@@ -116,6 +133,16 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
 
   const tempoBand = bpmCenter < 100 ? 'resting' : bpmCenter <= 135 ? 'active' : 'peak';
 
+  // Intensity class for the un-relaxable texture gates (enforced, with env-tunable ceilings,
+  // in biosonicBand). Derived from the explicit-activity energy intent only: a high-exertion
+  // tap forbids acoustic timbre (kills the double-time acoustic-BPM artifact); a low-exertion
+  // tap forbids club-danceable tracks (an orthogonal cross-check on a mis-read energy). Mid
+  // activities and mood-only requests get no texture gate.
+  const activityIntensity = activityEnergy == null ? null
+    : activityEnergy >= 0.7 ? 'high'
+    : activityEnergy <= 0.2 ? 'low'
+    : null;
+
   // Confidence: one step down per missing input group; never below 0.3.
   const groups = [
     finite(baselines?.rhrMedian) != null || finite(baselines?.hrvMedian) != null,
@@ -136,6 +163,12 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
     instrumentalBias,
     tempoBand,
     confidence,
+    // An explicit activity chip is a direct intent — the scorer lets the biosonic target
+    // dominate the ranking so a high-affinity off-target track can't bury on-target ones.
+    activityDriven: activityEnergy != null,
+    // Intensity class for the texture gates: 'high' → acousticness ceiling, 'low' → danceability
+    // ceiling, null → no texture gate (mid-exertion or mood-only).
+    activityIntensity,
     state: { recovery: round3(R), stress: round3(S), exertion: round3(E) },
   };
 }

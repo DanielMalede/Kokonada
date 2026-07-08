@@ -13,7 +13,7 @@ const { getRedis } = require('../../config/redis');
 
 const HOUR = 3_600_000;
 const HOT_DAYS       = () => parseInt(process.env.LEDGER_HOT_DAYS || '8', 10);
-const GLOBAL_HOURS   = () => parseInt(process.env.LEDGER_GLOBAL_EXCLUDE_HOURS || '24', 10);
+const GLOBAL_HOURS   = () => parseInt(process.env.LEDGER_GLOBAL_EXCLUDE_HOURS || '8', 10);
 const MOOD_HOURS     = () => parseInt(process.env.LEDGER_MOOD_EXCLUDE_HOURS || '72', 10);
 const EXPOSURE_DAYS  = () => parseInt(process.env.LEDGER_EXPOSURE_DAYS || '30', 10);
 

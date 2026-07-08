@@ -62,11 +62,12 @@ async function getFeatures(tracks = []) {
   for (let i = 0; i < supported.length; i += BATCH_SIZE()) {
     const batch = supported.slice(i, i + BATCH_SIZE());
     let bySpotifyId = new Map();
+    let errored = false;
     try {
       bySpotifyId = await _fetchBatch(batch.map(spotifyIdOf));
     } catch (e) {
       console.error('[reccoBeats] batch failed:', e.response?.status ?? e.message);
-      // Fall through: every track in this batch reports features:null.
+      errored = true; // transient failure — NOT a catalog gap; the LLM fallback must not estimate it
     }
     for (const track of batch) {
       const features = bySpotifyId.get(spotifyIdOf(track)) ?? null;
@@ -76,6 +77,9 @@ async function getFeatures(tracks = []) {
         features,
         source: 'api',
         confidence: features ? 1 : null,
+        // hit = measured; miss = 200 but absent (permanent catalog gap → LLM-estimable);
+        // error = the batch threw (transient → retried next hydration, never estimated).
+        apiStatus: features ? 'hit' : (errored ? 'error' : 'miss'),
       });
     }
   }

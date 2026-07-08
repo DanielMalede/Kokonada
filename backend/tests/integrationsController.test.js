@@ -39,7 +39,8 @@ jest.mock('../app/services/wearable/healthStore', () => ({ ingestBatch: jest.fn(
 jest.mock('../app/services/wearable/suunto',      () => ({ verifyWebhookSignature: jest.fn(), handleWebhook: jest.fn() }));
 jest.mock('../app/services/wearable/metricStore',   () => ({ persistMetrics: jest.fn() }));
 jest.mock('../app/models/BiometricLog',  () => ({}));
-jest.mock('../app/models/MusicProfile',  () => ({ deleteOne: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/models/MusicProfile',  () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/services/selection/candidatePool', () => ({ invalidateUserPools: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
@@ -57,6 +58,7 @@ const { persistMetrics } = require('../app/services/wearable/metricStore');
 const musicProfileService = require('../app/services/musicProfileService');
 const User               = require('../app/models/User');
 const MusicProfile       = require('../app/models/MusicProfile');
+const candidatePool      = require('../app/services/selection/candidatePool');
 const { signOauthState } = require('../app/utils/jwt');
 const ctrl               = require('../app/controllers/integrationsController');
 
@@ -102,6 +104,50 @@ describe('spotifyDisconnect', () => {
     expect(user.musicProvider).toBeNull();
     expect(MusicProfile.deleteOne).toHaveBeenCalledWith({ userId: 'user-123' });
     expect(res.json).toHaveBeenCalledWith({ message: 'Spotify disconnected' });
+  });
+});
+
+describe('youtubeDisconnect — deterministic Spotify-native rebuild', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('clears the YT token, wipes the pool cache, and rebuilds Spotify-only when Spotify remains', async () => {
+    const user = buildUser({
+      youtubeMusicToken: { blob: 'yt' },
+      spotifyToken:      { blob: 'sp' },
+      musicProvider:     'youtube',
+      getToken: jest.fn((field) => (field === 'spotifyToken' ? { accessToken: 'sp-at' } : null)),
+    });
+    User.findById.mockResolvedValue(user); // loadUserWithTokens re-loads the full doc
+    musicProfileService.buildProfile.mockResolvedValue({ library: [{ id: 'a' }, { id: 'b' }] });
+    const res = buildRes();
+
+    await ctrl.youtubeDisconnect({ user: { _id: 'user-123' } }, res, jest.fn());
+
+    expect(user.youtubeMusicToken).toBeNull();
+    expect(user.musicProvider).toBe('spotify');
+    expect(candidatePool.invalidateUserPools).toHaveBeenCalledWith('user-123');
+    expect(musicProfileService.buildProfile).toHaveBeenCalledWith('user-123', user);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ rebuilt: true, provider: 'spotify', library: 2 }),
+    );
+  });
+
+  it('does NOT rebuild (clears the library) when no Spotify connection remains', async () => {
+    const user = buildUser({ youtubeMusicToken: { blob: 'yt' }, getToken: jest.fn(() => null) });
+    User.findById.mockResolvedValue(user);
+    const res = buildRes();
+
+    await ctrl.youtubeDisconnect({ user: { _id: 'user-123' } }, res, jest.fn());
+
+    expect(user.youtubeMusicToken).toBeNull();
+    expect(user.musicProvider).toBeNull();
+    expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
+    expect(MusicProfile.findOneAndUpdate).toHaveBeenCalledWith(
+      { userId: 'user-123' },
+      expect.objectContaining({ $set: expect.objectContaining({ library: [] }) }),
+      expect.any(Object),
+    );
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ rebuilt: false, library: 0 }));
   });
 });
 

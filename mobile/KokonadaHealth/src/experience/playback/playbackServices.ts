@@ -1,13 +1,15 @@
 import { KokonadaSocket } from '../../net/socketClient';
 import { createBackendSocket } from '../../net/socketFactory';
 import { SpotifyPlayerController } from '../player/spotifyController';
-import { spotifyRemoteAdapter, getSpotifyAccessToken } from '../player/spotifyRemoteAdapter';
+import { spotifyRemoteAdapter, getSpotifyReadiness } from '../player/spotifyRemoteAdapter';
 import { authSession } from '../../auth/session';
 import { playerStatusStore } from '../player/playerStatusStore';
-import { store } from '../../state/store';
+import { store, warmStore } from '../../state/store';
 import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrator';
 import { nowPlayingStore } from './nowPlayingStore';
 import { playbackErrorStore } from './playbackErrorStore';
+import { generationStatusStore } from '../generate/generationStatusStore';
+import { liveModeStore } from '../generate/liveModeStore';
 
 // App-level bootstrap: constructs the session → socket → player → orchestrator
 // graph and wires them together. This is the on-device glue; every component it
@@ -20,10 +22,14 @@ export { authSession };
 
 export const player = new SpotifyPlayerController({
   remote: spotifyRemoteAdapter,
-  getToken: getSpotifyAccessToken,
+  getToken: getSpotifyReadiness,
   // Surface every player lifecycle transition into an observable store so the
   // Profile screen can show a live Spotify connection badge. (QA4 Suspect #4)
   onStateChange: (status) => playerStatusStore.getState().set(status),
+  // D-1: native PlayerState stream → orchestrator lockstep (auto-advance updates the
+  // queue + now-playing; pause/resume in the Spotify app mirrors into our UI).
+  // `orchestrator` is declared below — the closure resolves at event time, well after init.
+  onRemoteState: (s) => orchestrator.syncToRemote(s.uri, s.isPaused),
 });
 
 export const kokoSocket = new KokonadaSocket({
@@ -34,22 +40,35 @@ export const kokoSocket = new KokonadaSocket({
     const e = store.getState().emotion;
     return { taps: e.taps, textPrompt: e.textPrompt, activity: e.activity };
   },
-  onPlaylist: (payload) => { playbackErrorStore.getState().clear(); void orchestrator.handlePlaylist(payload); },
+  onPlaylist: (payload) => { generationStatusStore.getState().settle(); playbackErrorStore.getState().clear(); void orchestrator.handlePlaylist(payload); },
   onLoggedOut: () => { void authSession.clear(); },
   onGenerationError: (message) => {
+    generationStatusStore.getState().settle();                         // stop the analysis loader
     orchestrator.onGenerationError();                                  // unblock the generation guard
     playbackErrorStore.getState().set(message ?? 'Could not generate a playlist — try again');
   },
+  // Drive the (previously dead) Pulse connection badge from the real socket lifecycle.
+  onConnectionChange: (status) => { warmStore.getState().setConnection(status); },
+  // Part 2b: tell the server our Live/Manual mode so it only auto-drives Live-mode users.
+  getLiveMode: () => liveModeStore.getState().liveMode,
+  // A Live-mode cold-buffer recalibration is warming — show the loader ("assembling …").
+  onAssembling: (message) => { generationStatusStore.getState().begin(message); },
+  // Onboarding (D-6): the profile is still building — keep the loader alive with the
+  // building copy (each event re-arms the 30s auto-settle) while the socket auto-retries.
+  onBuilding: (message) => { generationStatusStore.getState().begin(message ?? 'Setting up your library…'); },
 });
 
-// Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. Transient
-// reconnection is socket.io's job; ensureConnected only performs the initial open
-// (idempotent) so a background-killed socket is revived on the next generation.
-let socketStarted = false;
-export const playbackSocket: PlaybackSocket = {
-  requestPlaylist: () => kokoSocket.requestPlaylist(),
-  requestHeartPlaylist: (hr) => kokoSocket.requestHeartPlaylist(hr),
-  ensureConnected: () => { if (!socketStarted) { socketStarted = true; kokoSocket.connect(); } },
+// Adapter: the orchestrator's PlaybackSocket port over the KokonadaSocket. ensureOpen()
+// is idempotent — it opens a socket only when there isn't a live one (reviving a
+// background-killed/never-opened session) and leaves a live socket untouched. This
+// replaces a one-shot `socketStarted` latch that permanently blocked reconnection once
+// the first open failed (e.g. a tokenless boot), which stranded the socket at hasSocket=false.
+export const playbackSocket: PlaybackSocket & { syncLiveMode(): void } = {
+  requestPlaylist: () => { generationStatusStore.getState().begin(); return kokoSocket.requestPlaylist(); },
+  requestHeartPlaylist: (hr) => { generationStatusStore.getState().begin(); return kokoSocket.requestHeartPlaylist(hr); },
+  ensureConnected: () => kokoSocket.ensureOpen(),
+  // Push the freshly-toggled Live/Manual choice to the server (Part 2b).
+  syncLiveMode: () => kokoSocket.syncLiveMode(),
 };
 
 export const orchestrator = new PlaybackOrchestrator({

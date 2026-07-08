@@ -56,6 +56,23 @@ export class ProfileController {
     await this.deps.clearLocal();
   }
 
+  // Mint a single-use connect token for the Spotify OAuth "connect" browser
+  // navigation. A top-level browser open can't carry the session JWT, so the backend
+  // authenticates the /spotify/connect route via ?ct=<token>. The screen builds the
+  // URL and opens it; this stays a pure, testable server call. Returns null on failure.
+  async getSpotifyConnectToken(): Promise<string | null> {
+    const res = await this.deps.apiPost<{ connectToken: string }>('/api/integrations/connect-token');
+    return res.ok ? res.data.connectToken : null;
+  }
+
+  // Disconnect YouTube as a data source. The server clears the YouTube token, purges the
+  // cached (YouTube-tainted) candidate pool, and deterministically rebuilds the profile
+  // from the remaining Spotify account — so the library becomes provider-consistent and
+  // natively playable. Returns the rebuild summary ({ rebuilt, provider, library }).
+  async disconnectYouTube(): Promise<ApiResult<{ rebuilt: boolean; provider: string | null; library: number }>> {
+    return this.deps.apiDelete('/api/integrations/youtube/disconnect');
+  }
+
   // GDPR delete — SERVER-FIRST: only wipe locally once the server confirms erasure.
   // A network failure surfaces the error and leaves the session intact (the user is
   // NOT signed out on a failed delete). No separate /logout call — the account is gone.

@@ -18,9 +18,37 @@ function _resolveWeights() {
     exposure:  parseFloat(process.env.SCORE_W_EXPOSURE ?? '0.40'),
     discovery: parseFloat(process.env.SCORE_W_DISCOVERY ?? '0.10'),
     unknown:   parseFloat(process.env.SCORE_W_UNKNOWN ?? '0.05'),
+    rotation:  parseFloat(process.env.SCORE_W_ROTATION ?? '0'), // proven-rotation boost is intent-only by default
   });
 }
-function _resetWeights() { _weights = null; }
+
+// Activity-driven profile: the user tapped an explicit exertion (Run/Workout), so the
+// BIOSONIC TARGET must dominate the ranking — otherwise raw affinity + a stale-mood genre
+// allow-list bury the very tracks that match the requested energy/tempo (the "lullaby at a
+// workout" bug). featureFit becomes the largest weight; taste drops; the stale-mood genre
+// term is neutralized (its allow-list came from a wheel tap the user didn't make).
+let _intentWeights = null;
+function _resolveIntentWeights() {
+  return (_intentWeights ??= {
+    taste:     parseFloat(process.env.SCORE_INTENT_W_TASTE ?? '0.10'),
+    feature:   parseFloat(process.env.SCORE_INTENT_W_FEATURE ?? '0.60'),
+    genre:     parseFloat(process.env.SCORE_INTENT_W_GENRE ?? '0'),
+    exposure:  parseFloat(process.env.SCORE_INTENT_W_EXPOSURE ?? '0.40'),
+    discovery: parseFloat(process.env.SCORE_INTENT_W_DISCOVERY ?? '0.10'),
+    unknown:   parseFloat(process.env.SCORE_INTENT_W_UNKNOWN ?? '0.05'),
+    // Proven RHYTHMIC rotation boost: lift tracks the user actually plays (heavy rotation) that
+    // ALSO fit the requested band. Post-gate (the band already guarantees energy/tempo), so it
+    // can never reintroduce a wrong track — it only reorders the survivors toward personal proof.
+    rotation:  parseFloat(process.env.SCORE_INTENT_W_ROTATION ?? '0.40'),
+  });
+}
+// Affinity percentile below which a track earns NO rotation boost (only genuine heavy rotation,
+// not the long tail). Memoized like the weights — read once, not per-scored-track.
+let _rotationFloor = null;
+function _resolveRotationFloor() {
+  return (_rotationFloor ??= parseFloat(process.env.SCORE_ROTATION_FLOOR ?? '0.5'));
+}
+function _resetWeights() { _weights = null; _intentWeights = null; _rotationFloor = null; }
 
 // The allow-genre Set is identical for every track in a generation — memoize per
 // array reference instead of rebuilding it hundreds of times.
@@ -79,7 +107,7 @@ function scoreTrack(track, {
   targetMoodKey = null,
   now = Date.now(),
 } = {}) {
-  const W = _resolveWeights();
+  const W = targets.activityDriven ? _resolveIntentWeights() : _resolveWeights();
   const taste = maxAffinity > 0 ? clamp01((fin(track.affinity) ?? 0) / maxAffinity) : 0;
 
   const fit = _featureFit(track.features, targets);
@@ -99,11 +127,25 @@ function scoreTrack(track, {
 
   const discoveryBonus = track.isDiscovery ? W.discovery : 0;
 
+  // Proven rhythmic rotation: proven ∈ [0,1] rewards only above-floor affinity (heavy rotation,
+  // not the tail); ×danceability makes it a RHYTHMIC boost; ×featureDistance scopes it to tracks
+  // that fit the band (a proven-but-off-target track can't hijack the ranking). Weight is 0 in
+  // mood mode, so this whole term vanishes there.
+  let provenRotation = 0;
+  if (W.rotation > 0 && maxAffinity > 0) {
+    const floor = _resolveRotationFloor();
+    const proven = clamp01(((fin(track.affinity) ?? 0) / maxAffinity - floor) / Math.max(1e-6, 1 - floor));
+    const dance = fin(track.features?.danceability);
+    const rhythmic = dance != null ? clamp01(dance) : 0.6;
+    provenRotation = proven * rhythmic * featureDistance;
+  }
+
   const total =
     W.taste * taste +
     W.feature * featureDistance +
     W.genre * moodGenreFit -
     W.exposure * rawExposure +
+    W.rotation * provenRotation +
     discoveryBonus -
     unknownFeaturePenalty;
 
@@ -116,6 +158,7 @@ function scoreTrack(track, {
       exposurePenalty: rawExposure,
       discoveryBonus,
       unknownFeaturePenalty,
+      provenRotation,
     },
   };
 }

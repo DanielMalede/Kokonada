@@ -5,10 +5,12 @@ import { currentUserStore, getCurrentUserId } from './auth/currentUser';
 import type { KokonadaUser } from './auth/auth';
 import { playbackSocket, player } from './experience/playback/playbackServices';
 import { startBiometrics } from './health/biometricsWiring';
+import { syncMedicalProfile } from './health/healthSync';
 import { warmStore, store } from './state/store';
 import { ColdPersistence } from './state/cold/coldPersistence';
 import { setColdPersistence } from './state/cold/coldPersistenceHolder';
 import { createSecureStore } from './storage/secureStoreFactory';
+import { bindLiveModeKV } from './experience/generate/liveModeStore';
 import type { SecureStore } from './storage/secureStore';
 
 // Production ignition. Composes the tested `bootstrapApp` sequence with the real
@@ -33,6 +35,12 @@ export async function startApp(): Promise<void> {
     secureStore = null;
   }
 
+  // Persist the Live/Manual preference through the same encrypted store (Part 2b),
+  // adapted to the KV port bindLiveModeKV expects. Best-effort — a null store just
+  // leaves liveMode at its in-memory Manual default.
+  const s = secureStore;
+  if (s) bindLiveModeKV({ getString: (k) => s.getItem(k) ?? undefined, set: (k, v) => { s.setItem(k, v); } });
+
   // Recover the logged-in identity from a stored session (currentUser is in-memory and
   // does not survive a restart; the token does).
   try {
@@ -53,6 +61,12 @@ export async function startApp(): Promise<void> {
     startBiometrics: () => startBiometrics({ warm: warmStore }),
     setupColdPersistence: makeColdPersistence,
   });
+
+  // D-4a: silent incremental medical-profile sync — only runs if Health Connect
+  // permission was already granted (never prompts), throttled to 12h via the encrypted
+  // KV, fail-soft (a missing/erroring HC degrades to no-op, never blocks bootstrap).
+  const kvForSync = s ? { getString: (k: string) => s.getItem(k), set: (k: string, v: string) => { s.setItem(k, v); } } : null;
+  void syncMedicalProfile({ kv: kvForSync });
 }
 
 // After a fresh login: wire the authenticated session (socket + biometrics + cold

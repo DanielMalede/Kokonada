@@ -22,11 +22,19 @@ export function RadialWheel({
   const r = size / 2;
   const layout: WheelLayout = { cx: r, cy: r, radius: r };
 
+  // Hit-test + geometry run on the JS thread. A tap is infrequent, so the single
+  // runOnJS crossing per tap is free — and keeping the pure, unit-tested geometry
+  // OFF the worklet is what fixes the on-device crash: Reanimated 4 makes calling a
+  // non-worklet function ('isOnWheel'/'screenToCircumplex') synchronously from a
+  // worklet a hard error. The worklet now only forwards the raw coordinates.
+  const commitTap = (x: number, y: number) => {
+    if (!isOnWheel({ x, y }, layout)) return;
+    onCommit(screenToCircumplex({ x, y }, layout)); // single bridge crossing per tap
+  };
+
   const tap = Gesture.Tap().maxDuration(10000).onEnd((e) => {
     'worklet';
-    if (!isOnWheel({ x: e.x, y: e.y }, layout)) return;
-    const circumplex = screenToCircumplex({ x: e.x, y: e.y }, layout);
-    runOnJS(onCommit)(circumplex); // single bridge crossing per tap
+    runOnJS(commitTap)(e.x, e.y);
   });
 
   return (

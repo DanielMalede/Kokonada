@@ -76,7 +76,7 @@ describe('serveLedger.recordServes', () => {
   });
 });
 
-describe('serveLedger.hardExcluded (24h global window)', () => {
+describe('serveLedger.hardExcluded (global serve window)', () => {
   it('reads the hot window from Redis when the key exists', async () => {
     const redis = fakeRedis();
     redis.zrangebyscore.mockResolvedValue(['at:a|s1', 'at:a|s2']);
@@ -85,7 +85,7 @@ describe('serveLedger.hardExcluded (24h global window)', () => {
     const excluded = await ledger.hardExcluded('u1', NOW);
 
     expect(excluded).toEqual(new Set(['at:a|s1', 'at:a|s2']));
-    expect(redis.zrangebyscore).toHaveBeenCalledWith('ledger:u1:served', NOW - 24 * HOUR, '+inf');
+    expect(redis.zrangebyscore).toHaveBeenCalledWith('ledger:u1:served', NOW - 8 * HOUR, '+inf');
     expect(ServeEvent.find).not.toHaveBeenCalled();
   });
 

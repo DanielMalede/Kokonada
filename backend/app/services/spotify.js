@@ -19,10 +19,21 @@ const SCOPES = [
   // from listening history. Adding a scope means each user must reconnect Spotify
   // once to re-consent (buildProfile degrades gracefully on a pre-consent token).
   'user-library-read',
+  // Required to read the user's CURATED PLAYLISTS (/me/playlists + /playlists/{id}/tracks) —
+  // the strongest deliberate taste signal. Without these, paginatePlaylistTracks 403s and the
+  // playlist source is silently empty for every user. Another scope add → reconnect once.
+  'playlist-read-private',
+  'playlist-read-collaborative',
   // Required to save/remove "Liked Songs" (PUT/DELETE /me/tracks) for the Like
   // button. Another scope add → existing users must reconnect once; the save
   // endpoint detects the 403 and prompts a reconnect.
   'user-library-modify',
+  // D-1 Option A (approved 2026-07-08): a single hidden app-managed "Kokonada Session"
+  // playlist is the playback TRANSPORT for App Remote — playing it as a context gives
+  // absolute queue parity (skipNext/skipToIndex operate on OUR order). This is NOT the
+  // removed user-facing playlist Export (which stays deleted); the playlist is private,
+  // invisible in-app, and rewritten in place each generation. Scope add → reconnect once.
+  'playlist-modify-private',
   'streaming',
 ].join(' ');
 
@@ -162,9 +173,16 @@ async function withFreshToken(user, fn) {
       return await fn(refreshed.accessToken);
     }
     if (status === 403) {
+      // Preserve Spotify's OWN reason — a generic "permission missing" made a real 403 (e.g.
+      // "You cannot create a playlist for another user", "Insufficient client scope", a
+      // dev-mode restriction) undiagnosable. Surface it in the message + attach the raw body.
+      const detail =
+        err.response?.data?.error?.message ||
+        (typeof err.response?.data?.error === 'string' ? err.response.data.error : '') ||
+        '';
       throw Object.assign(
-        new Error('Spotify permission missing — reconnect Spotify to grant playlist access'),
-        { statusCode: 403, code: 'insufficient_scope' },
+        new Error(`Spotify permission missing — reconnect Spotify to grant playlist access${detail ? ` [spotify: ${detail}]` : ''}`),
+        { statusCode: 403, code: 'insufficient_scope', spotifyError: err.response?.data ?? null, op: err.op ?? null },
       );
     }
     throw err;
@@ -268,6 +286,11 @@ async function getRecentlyPlayed(accessToken, limit = 50) {
 let _artistGenres403Until = 0;
 function artistGenresAvailable() { return Date.now() >= _artistGenres403Until; }
 function _resetArtistGenresCache() { _artistGenres403Until = 0; } // test hook
+// The generation pipeline trips this when a discovery fetch blows its time budget (a 429
+// Retry-After storm, not a literal 403) — the SAME remedy applies: skip the Spotify
+// discovery/tagging layer for a while so later generations stay fast instead of re-stalling.
+// Survives only in-process; resets on restart, which is correct (the rate window recovers).
+function markDiscoveryUnavailable(ttlMs = 3_600_000) { _artistGenres403Until = Date.now() + ttlMs; }
 
 async function getArtistsGenres(accessToken, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
@@ -722,7 +745,7 @@ async function areTracksSaved(accessToken, ids) {
 module.exports = {
   getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
-  artistGenresAvailable, _resetArtistGenresCache,
+  artistGenresAvailable, _resetArtistGenresCache, markDiscoveryUnavailable,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
   searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery, searchTrackUri,
   playTracks, getActiveDevice,

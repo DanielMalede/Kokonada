@@ -10,8 +10,13 @@ export interface SessionItem {
   id: string;
   createdAt: string;
   moodKey: string | null;
+  // D-3 display fields — optional so pre-D-3 cached rows (or a not-yet-deployed backend)
+  // still type-check; HistoryScreen falls back to moodKey/inferred source when absent.
+  title?: string;                   // friendly title
+  source?: 'manual' | 'live';       // how the playlist was generated
   provider: 'spotify' | 'youtube';
   activity: string | null;
+  activityLabel?: string | null;    // friendly chosen-activity label
   contextPrompt: string;
   isFallback: boolean;
   skipCount: number;

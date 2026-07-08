@@ -93,6 +93,22 @@ describe('reccoBeatsAdapter.getFeatures', () => {
     expect(axios.get).not.toHaveBeenCalled();
     expect(results).toEqual([]);
   });
+
+  it('tags apiStatus: hit (found), miss (200 but absent = catalog gap), error (batch threw)', async () => {
+    axios.get.mockResolvedValue({ data: { content: [apiItem('a')] } });
+    const [hit] = await adapter.getFeatures([sp('a')]);
+    expect(hit.apiStatus).toBe('hit');
+
+    axios.get.mockResolvedValue({ data: { content: [] } });
+    const [miss] = await adapter.getFeatures([sp('a')]);
+    expect(miss.features).toBeNull();
+    expect(miss.apiStatus).toBe('miss');
+
+    axios.get.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 500 } }));
+    const [err] = await adapter.getFeatures([sp('a')]);
+    expect(err.features).toBeNull();
+    expect(err.apiStatus).toBe('error');
+  });
 });
 
 describe('shadow audit — API chaos', () => {

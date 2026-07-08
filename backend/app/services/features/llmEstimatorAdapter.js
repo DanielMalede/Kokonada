@@ -16,6 +16,13 @@ const BATCH_SIZE = () => {
 };
 const MODEL      = () => process.env.FEATURE_LLM_MODEL || null; // llmClient default
 const TIMEOUT_MS = () => parseInt(process.env.FEATURE_LLM_TIMEOUT_MS || '10000', 10);
+// Bulk hydration is latency-tolerant and the heaviest Groq consumer, so it is
+// the first to hit the free-tier TPM cap. Extra retry headroom (over the client
+// default) lets each rate-limited batch ride out the Retry-After window and land.
+const MAX_RETRIES = () => {
+  const n = parseInt(process.env.FEATURE_LLM_RETRIES ?? '', 10);
+  return Number.isFinite(n) && n >= 0 ? n : 5;
+};
 
 // Numeric anchors keep the model grounded: real-world genre centroids for
 // (bpm, energy, valence, acousticness, danceability, loudness).
@@ -86,6 +93,7 @@ async function getFeatures(tracks = []) {
           model: MODEL(),
           timeoutMs: TIMEOUT_MS(),
           temperature: 0.2,
+          retries: MAX_RETRIES(),
         });
         byIndex = _parseEstimates(raw, batch.length);
       } catch (e) {

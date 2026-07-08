@@ -48,7 +48,7 @@ describe('ATTACK 1 — full-system regression boundaries', () => {
       // Deterministic jobId + delay = BullMQ coalesces the burst into ONE run;
       // removeOnComplete frees the id so the NEXT batch can re-queue.
       expect(opts).toEqual(expect.objectContaining({
-        jobId: 'state-vector:u1',
+        jobId: 'state-vector-u1', // BullMQ forbids ':' in custom job ids
         delay: expect.any(Number),
         removeOnComplete: true,
         removeOnFail: true,
@@ -139,8 +139,8 @@ describe('ATTACK 3 — zero-knowledge leak hunting', () => {
     const out = translate({ live: { heartRate: 105, activity: 'walking' }, state: { hrv: 25 } });
 
     expect(Object.keys(out).sort()).toEqual([
-      'acousticnessBias', 'bpmCenter', 'bpmWidth', 'confidence', 'energyCeiling',
-      'energyFloor', 'instrumentalBias', 'state', 'tempoBand', 'valenceTarget', 'version',
+      'acousticnessBias', 'activityDriven', 'activityIntensity', 'bpmCenter', 'bpmWidth', 'confidence',
+      'energyCeiling', 'energyFloor', 'instrumentalBias', 'state', 'tempoBand', 'valenceTarget', 'version',
     ]);
     expect(Object.keys(out.state).sort()).toEqual(['exertion', 'recovery', 'stress']);
   });

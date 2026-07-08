@@ -9,7 +9,11 @@ import type { SocketLike } from './socketClient';
 // Outside the jest graph; KokonadaSocket is tested against a fake socket.
 export function createBackendSocket(token: string): SocketLike {
   const socket = io(BACKEND_URL, {
-    transports: ['websocket'],
+    // Polling-first (the socket.io default the working web app uses), then auto-upgrade to
+    // websocket. websocket-ONLY connects the handshake but can silently fail to round-trip
+    // data frames behind proxies (Railway) — the socket shows CONNECTED yet requests never
+    // reach the server and no reply returns. Polling guarantees delivery; ws is an upgrade.
+    transports: ['polling', 'websocket'],
     auth: { token },
     autoConnect: false,
     reconnection: true,

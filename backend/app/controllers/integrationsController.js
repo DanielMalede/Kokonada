@@ -12,6 +12,8 @@ const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
 const { buildProfile } = require('../services/musicProfileService');
+const { invalidateUserPools } = require('../services/selection/candidatePool');
+const featureService = require('../services/features/featureService');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
 const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = require('../utils/providerSelect');
 const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
@@ -24,6 +26,21 @@ const { getRedis } = require('../config/redis');
 const frontendRedirect = (res, query) =>
   res.redirect(`${process.env.FRONTEND_URL}/integrations?${query}`);
 const fail = (res, code) => frontendRedirect(res, `error=${encodeURIComponent(code)}`);
+
+// Mobile clients open the OAuth connect in the SYSTEM browser and can't be returned to via a
+// web URL — the grant would strand the user on the website. When the connect carried
+// returnTo=app, the signed state remembers it and the callback deep-links back into the native
+// app (kokonada://…) so the OS foregrounds it. Web connects are unaffected (default → website).
+const APP_SCHEME = () => process.env.APP_DEEPLINK_SCHEME || 'kokonada';
+const _returnTarget = (state) => {
+  try { return verifyOauthState(state)?.returnTo === 'app' ? 'app' : 'web'; }
+  catch { return 'web'; } // unreadable/tampered state → default to the website
+};
+const oauthRedirect = (res, target, query) =>
+  target === 'app'
+    ? res.redirect(`${APP_SCHEME()}://integrations?${query}`)
+    : frontendRedirect(res, query);
+const failTo = (res, target, code) => oauthRedirect(res, target, `error=${encodeURIComponent(code)}`);
 
 // Recover the authenticated user that a public OAuth callback belongs to, from
 // the signed `state` minted at connect. Verifies signature, purpose, provider,
@@ -63,7 +80,10 @@ exports.connectToken = (req, res) => {
 // state, so the public callback needs no cookie. Mobile clients open this in a
 // WebView / in-app browser.
 exports.spotifyConnect = (req, res) => {
-  const state = signOauthState(req.user._id.toString(), 'spotify');
+  // returnTo=app (mobile) is remembered in the signed state so the callback deep-links back
+  // into the native app instead of the website. Whitelisted to 'app' — nothing else is honored.
+  const extra = req.query?.returnTo === 'app' ? { returnTo: 'app' } : {};
+  const state = signOauthState(req.user._id.toString(), 'spotify', extra);
   res.redirect(spotify.getAuthUrl(state));
 };
 
@@ -71,13 +91,15 @@ exports.spotifyConnect = (req, res) => {
 // Spotify redirects the browser here as a top-level navigation with no usable
 // credential; the user is recovered from the signed `state`.
 exports.spotifyCallback = async (req, res) => {
+  const { code, state, error } = req.query;
+  // Learn the return target (native app vs website) from the signed state so BOTH success and
+  // every failure land back where the user started. Best-effort — falls back to the website.
+  const target = _returnTarget(state);
   try {
-    const { code, state, error } = req.query;
-
-    if (error) return fail(res, `spotify_${error}`);
+    if (error) return failTo(res, target, `spotify_${error}`);
 
     const recovered = await userFromOauthState(state, 'spotify');
-    if (!recovered) return fail(res, 'spotify_state');
+    if (!recovered) return failTo(res, target, 'spotify_state');
     const { user, payload } = recovered;
 
     const tokens = await spotify.exchangeCode(code);
@@ -108,8 +130,8 @@ exports.spotifyCallback = async (req, res) => {
       }
     });
 
-    // Redirect to frontend integrations page so the web app can hydrate state
-    frontendRedirect(res, 'music=spotify');
+    // Land the user back where they started: the native app (mobile) or the website.
+    oauthRedirect(res, target, 'music=spotify');
   } catch (err) {
     console.error('[Spotify Callback Catch]', {
       status:  err?.response?.status,
@@ -117,7 +139,7 @@ exports.spotifyCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'spotify_failed');
+    return failTo(res, target, 'spotify_failed');
   }
 };
 
@@ -382,12 +404,45 @@ exports.youtubeExchange = async (req, res) => {
   }
 };
 
+// DELETE /api/integrations/youtube/disconnect
+// Cleanly removes YouTube as a data source and leaves the user with a provider-consistent
+// profile: (1) clear the YT token, (2) purge the YouTube-tainted candidate-pool cache,
+// (3) deterministically rebuild the profile from the REMAINING source. Because the YT
+// token is gone, buildProfile now yields a Spotify-only, natively-playable library — no
+// more YouTube tracks dropped by the Spotify provider filter (the empty-playlist bug).
 exports.youtubeDisconnect = async (req, res, next) => {
   try {
-    req.user.musicProvider = null;
-    req.user.youtubeMusicToken = null;
-    await req.user.save();
-    res.json({ message: 'YouTube Music disconnected' });
+    const userId = req.user._id.toString();
+    // auth() strips token blobs from req.user — re-load the FULL doc so getToken() can
+    // see the Spotify token the rebuild needs (otherwise it builds an empty profile).
+    const user = await loadUserWithTokens(req);
+
+    // 1. Clear the YouTube link. Fall back the effective provider to Spotify if it is
+    //    still connected, else null.
+    user.youtubeMusicToken = null;
+    const hasSpotify = !!user.getToken?.('spotifyToken')?.accessToken;
+    user.musicProvider = hasSpotify ? 'spotify' : null;
+    await user.save();
+
+    // 2. Purge every cached candidate pool for this user so generation can't serve
+    //    stale YouTube tracks before the rebuild's lastAnalyzed stamp invalidates them.
+    await invalidateUserPools(userId);
+
+    // 3. Deterministic rebuild from the remaining source. With no source left, wipe the
+    //    library so stale YouTube tracks don't linger in the profile.
+    let library = 0;
+    if (hasSpotify) {
+      const profile = await buildProfile(userId, user);
+      library = profile?.library?.length ?? 0;
+    } else {
+      await MusicProfile.findOneAndUpdate(
+        { userId },
+        { $set: { library: [], topGenres: [], topArtists: [], genreSet: [], knownArtistIds: [], lastAnalyzed: new Date() } },
+        { upsert: true },
+      );
+    }
+
+    res.json({ message: 'YouTube Music disconnected', rebuilt: hasSpotify, provider: user.musicProvider, library });
   } catch (err) {
     next(err);
   }
@@ -672,6 +727,24 @@ exports.getIntegrationsStatus = async (req, res, next) => {
       biometricProvider: user.wearableProvider ?? null,
       spotifyCanSave:    scopes.includes('user-library-modify'),
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Force-hydrate the caller's library synchronously (bypasses the async feature-hydration
+// queue) and return the provider breakdown — a diagnose-and-fix for an empty AudioFeature
+// store (the "same playlist" root cause: no features → the scorer can't differentiate
+// mood/HR). ReccoBeats measures spotify:<id>; the Groq LLM estimator covers youtube:<id>.
+exports.hydrateLibrary = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const profile = await MusicProfile.findOne({ userId }).lean();
+    const library = profile?.library ?? [];
+    if (!library.length) return res.status(200).json({ summary: { requested: 0 }, note: 'empty library' });
+    const summary = await featureService.hydrate(library);
+    console.warn(`[hydrateLibrary] user=${userId} ${JSON.stringify(summary)}`);
+    return res.status(200).json({ summary });
   } catch (err) {
     next(err);
   }

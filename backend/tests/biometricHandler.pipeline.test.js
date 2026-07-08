@@ -34,6 +34,7 @@ jest.mock('../app/services/spotify', () => ({
   fetchVibeDiscovery:   jest.fn(),
   getArtistsGenres:     jest.fn(),
   artistGenresAvailable: jest.fn(() => true),
+  markDiscoveryUnavailable: jest.fn(),
 }));
 
 jest.mock('../app/services/youtube', () => ({
@@ -74,6 +75,11 @@ jest.mock('../app/services/ledger/serveLedger', () => ({
   getExposure:  jest.fn().mockResolvedValue(new Map()),
 }));
 
+jest.mock('../app/repositories/shadowBufferRepo', () => ({
+  getBuffer: jest.fn().mockResolvedValue(null),
+  setBuffer: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock('../app/services/wearable/adapter', () => ({
   normalize: jest.fn((source, raw) => {
     const KNOWN = ['garmin', 'apple_watch', 'fitbit'];
@@ -97,9 +103,12 @@ const youtube         = require('../app/services/youtube');
 const geminiEngine    = require('../app/services/geminiEngine');
 const playlistMixer   = require('../app/services/playlistMixer');
 
+const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
+
 const {
   registerBiometricHandler,
   generateAndEmitPlaylist,
+  recalibrateForBand,
   resolveBiometricContext,
   _debounceMap,
 } = require('../app/sockets/biometricHandler');
@@ -123,6 +132,16 @@ function makeMusicProfile(overrides = {}) {
     ],
     ...overrides,
   };
+}
+
+// MusicProfile.findOne returns a Mongoose Query: it is awaited directly in the
+// HR-resolver path and chained .lean() in the generation path (the .lean() keeps
+// hydrated subdocuments out of candidatePool's JSON.stringify → prevents the heap
+// OOM). This stub honours both usages, mirroring a real Query.
+function musicProfileQuery(value) {
+  const query = Promise.resolve(value);
+  query.lean = () => Promise.resolve(value);
+  return query;
 }
 
 const SPOTIFY_USER = {
@@ -200,7 +219,7 @@ beforeEach(() => {
   jest.clearAllMocks();
 
   User.findById.mockResolvedValue(SPOTIFY_USER);
-  MusicProfile.findOne.mockResolvedValue(makeMusicProfile());
+  MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile()));
   spotify.getValidToken.mockResolvedValue('spotify-access-token');
   spotify.getRecommendations.mockResolvedValue(DISCOVERY_TRACKS);
   spotify.fetchVibeDiscovery.mockResolvedValue(DISCOVERY_TRACKS);
@@ -212,6 +231,8 @@ beforeEach(() => {
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
   PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
   MedicalProfile.findOne.mockResolvedValue(null);
+  shadowBufferRepo.getBuffer.mockResolvedValue(null); // default: cold buffer
+  shadowBufferRepo.setBuffer.mockResolvedValue(true);
   mockRecentSessions([]);
 });
 
@@ -280,6 +301,16 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
       expect.objectContaining({ aiParams: AI_PARAMS })
     );
 
+  });
+
+  it('passes crossPlatform=true to generateV2 when playing on Spotify with a token (familiar YouTube tracks get translated, not dropped)', async () => {
+    const orchestrator = require('../app/services/generation/orchestrator');
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    expect(orchestrator.generateV2).toHaveBeenCalledWith(
+      expect.objectContaining({ crossPlatform: true })
+    );
   });
 
   it('uses Spotify provider when user has Spotify token', async () => {
@@ -510,15 +541,16 @@ describe('error handling', () => {
     expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
   });
 
-  it('emits playlist_error when MusicProfile does not exist', async () => {
-    MusicProfile.findOne.mockResolvedValue(null);
+  it('emits playlist_building (NOT a hard error) when MusicProfile does not exist yet — onboarding D-6', async () => {
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(null));
 
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
 
-    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.objectContaining({
       message: expect.any(String),
     }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
   });
 
   it('emits playlist_ready with fallback:true when Gemini fails and library is non-empty', async () => {
@@ -624,7 +656,7 @@ describe('request_heart_playlist', () => {
 
   it('emits playlist_error when there is no heart data of any kind', async () => {
     mockBiometricLogs([]);
-    MusicProfile.findOne.mockResolvedValue({ ...makeMusicProfile(), restingHeartRate: null });
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery({ ...makeMusicProfile(), restingHeartRate: null }));
     const socket = makeSocket();
     await fireHeart(socket, { mode: 'live', reqId: 5 });
 
@@ -898,6 +930,7 @@ describe('socket event dispatch wiring', () => {
 
     const socket = makeSocket();
     registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true }); // band transitions auto-drive only in Live mode
 
     socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
     socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 80 } });
@@ -959,6 +992,8 @@ describe('handleBiometricReading immediate mode', () => {
 
   it('triggers generation on the first reading (no prior baseline)', async () => {
     const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true }); // band transitions auto-drive only in Live mode
     handleBiometricReading(socket, 'garmin', { heartRate: 140 }, { immediate: true });
     await new Promise(r => setTimeout(r, 50));
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
@@ -976,6 +1011,8 @@ describe('handleBiometricReading immediate mode', () => {
 
   it('re-triggers when the change is >= 25 bpm', async () => {
     const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
     handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
     await new Promise(r => setTimeout(r, 50));
     geminiEngine.adjustBiometricPlaylist.mockClear();
@@ -1001,6 +1038,8 @@ describe('activity-mode change triggers regeneration', () => {
 
   it('immediate: re-triggers on a new activity even when HR is flat', async () => {
     const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
     handleBiometricReading(socket, 'garmin', { heartRate: 100, activityType: 0 }, { immediate: true }); // resting
     await new Promise(r => setTimeout(r, 50));
     geminiEngine.adjustBiometricPlaylist.mockClear();
@@ -1074,5 +1113,281 @@ describe('the sealed engine — v2 is the only serving path', () => {
     expect(PlaylistSession.create).toHaveBeenCalledWith(
       expect.objectContaining({ moodKey: expect.stringMatching(/^bio:/) })
     );
+  });
+});
+
+// ── Generation timeout (hard wall-clock bound) ────────────────────────────────
+// A generation must never hold the in-flight lock indefinitely: a Spotify 429 storm
+// (withRetry waits out each Retry-After) or an LLM outage could otherwise wedge the
+// socket for minutes, so every later request_playlist hits the guard and the user
+// gets no reply. We hang the pipeline at its first await and drive the fake clock.
+
+describe('generation timeout (hard wall-clock bound)', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('times out a hung generation: releases the lock and emits playlist_error for a user trigger', () => {
+    User.findById.mockReturnValue(new Promise(() => {})); // never resolves → pipeline hangs
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 42 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // do NOT await — it never resolves
+    expect(state.generating).toBe(true);               // lock claimed synchronously
+
+    jest.advanceTimersByTime(31_000);                  // fire the wall-clock timeout
+
+    expect(state.generating).toBe(false);              // lock released by the timeout
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({
+      reqId:   42,
+      message: expect.stringMatching(/tim(e|ed)\s?out/i),
+    }));
+  });
+
+  it('a background (biometric) timeout releases the lock WITHOUT a spurious playlist_error', () => {
+    User.findById.mockReturnValue(new Promise(() => {}));
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState();
+
+    generateAndEmitPlaylist(socket, 'biometric', state);
+    jest.advanceTimersByTime(31_000);
+
+    expect(state.generating).toBe(false);              // lock still released
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+
+  it('a hung generation that later resolves does NOT emit a stale playlist after it timed out', async () => {
+    let resolveUser;
+    User.findById.mockReturnValue(new Promise(r => { resolveUser = r; }));
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }] });
+
+    generateAndEmitPlaylist(socket, 'emotion', state);
+    jest.advanceTimersByTime(31_000);                  // timeout: error emitted, lock freed, epoch bumped
+    socket.emit.mockClear();                           // ignore the timeout error; watch for a stale emit
+
+    jest.useRealTimers();
+    resolveUser(SPOTIFY_USER);                         // the abandoned pipeline resumes...
+    await new Promise(r => setTimeout(r, 50));         // ...and runs to completion
+
+    // ...but every emit in the superseded run is epoch-guarded → no stale playlist reaches the client.
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+});
+
+// ── Live-mode band recalibration (Part 2b, slice 4) ───────────────────────────
+// In Live mode a CONFIRMED band transition SERVES the precompiled buffer for the new
+// band instead of generating fresh (§3.4). Manual users are never auto-driven (the
+// mode-gate). Serves are recorded ONLY when a buffer is actually PLAYED (§3.5).
+
+describe('Live-mode band recalibration (slice 4)', () => {
+  const serveLedger  = require('../app/services/ledger/serveLedger');
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  const BUFFER_TRACKS = [
+    { id: 'b1', uri: 'spotify:track:b1', title: 'Buffered One', artist: 'Artist X' },
+    { id: 'b2', uri: 'spotify:track:b2', title: 'Buffered Two', artist: 'Artist Y' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 1, targets: { bpmCenter: 150 }, builtAt: Date.now(),
+    });
+  }
+
+  it('mode-gate: a Manual-mode socket is never auto-driven on a band transition', async () => {
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: false, stableHR: 150, latestActivity: 'running' }));
+
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+    expect(orchestrator.generateV2).not.toHaveBeenCalled();
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('warm buffer: serves the precompiled buffer instantly, without a fresh generation', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: true, stableHR: 150, latestActivity: 'running' }));
+
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call).toBeDefined();
+    expect(call[1]).toMatchObject({ trigger: 'biometric', buffered: true, familiar: 1, discovery: 1 });
+    expect(call[1].tracks).toHaveLength(BUFFER_TRACKS.length);
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:peak:running');
+    expect(orchestrator.generateV2).not.toHaveBeenCalled(); // served from buffer — zero Groq spend
+  });
+
+  it('§3.5 serve-on-play: serving a warm buffer records serves for the played tracks under the bio moodKey', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: true, stableHR: 150, latestActivity: 'running' }));
+
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+    const arg = serveLedger.recordServes.mock.calls.at(-1)[0];
+    expect(arg.entries).toHaveLength(BUFFER_TRACKS.length);
+    expect(arg.entries[0]).toEqual(expect.objectContaining({
+      canonicalKey: expect.stringMatching(/^at:/),
+      moodKey: 'bio:peak:running',
+      bioState: expect.objectContaining({ tempoBand: 'peak', activity: 'running' }),
+    }));
+  });
+
+  it('§3.5 precompile records NO serves: warming the buffer store never triggers recordServes', async () => {
+    // A biometric generation warms the buffer (setBuffer) AND emits the play. recordServes
+    // must fire exactly once — for the emitted PLAY — never a second time for the STORE.
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 150, latestActivity: 'running' }));
+
+    expect(shadowBufferRepo.setBuffer).toHaveBeenCalledTimes(1); // the precompile store happened
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);   // ...but it recorded ZERO extra serves
+  });
+
+  it('cold buffer: shows the assembling loader, then falls back to a one-time live generation', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null); // cold — no buffer for this band yet
+    const socket = makeSocket();
+    await recalibrateForBand(socket, makeState({ liveMode: true, stableHR: 150, latestActivity: 'running' }));
+
+    expect(socket.emit).toHaveBeenCalledWith('live_assembling', expect.objectContaining({
+      message: expect.stringMatching(/assembling your live biometric soundscape/i),
+    }));
+    expect(orchestrator.generateV2).toHaveBeenCalled(); // the one-time live fallback ran
+  });
+});
+
+describe('live_mode socket event', () => {
+  it('sets the per-socket liveMode flag (default is Manual/false)', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+
+    socket._trigger('live_mode', { enabled: true });
+    expect(_debounceMap.get(socket.id).liveMode).toBe(true);
+
+    socket._trigger('live_mode', { enabled: false });
+    expect(_debounceMap.get(socket.id).liveMode).toBe(false);
+  });
+});
+
+// ── D-6 v2: warmup heartbeat architecture (no hard error on first-gen) ─────────
+// A fresh library generates slowly but healthily; the old 30s wall-clock voided the
+// run (discarding its work) and the in-flight guard silently dropped retries — an
+// infinite timeout loop on cold accounts. Warmup now heartbeats; retries are adopted.
+
+describe('D-6 v2 — warmup heartbeat + reqId adoption', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('a retry landing mid-generation gets a playlist_building heartbeat, never a silent drop', async () => {
+    const socket = makeSocket();
+    const state  = makeState({ generating: true, lastReqId: 7, lastEmotionTaps: [{ x: 0.5, y: 0.5 }] });
+
+    await generateAndEmitPlaylist(socket, 'emotion', state);
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.objectContaining({ reqId: 7 }));
+    expect(User.findById).not.toHaveBeenCalled(); // guard returned — no second pipeline
+  });
+
+  it('a background trigger hitting the in-flight guard stays silent (no spurious building)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ generating: true, lastReqId: 7 }));
+    expect(socket.emit).not.toHaveBeenCalled();
+  });
+
+  it('the completed generation replies to the ADOPTED (newest) reqId', async () => {
+    let resolveUser;
+    User.findById.mockReturnValue(new Promise((r) => { resolveUser = r; }));
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 1 });
+
+    const run = generateAndEmitPlaylist(socket, 'emotion', state);
+    state.lastReqId = 2;          // a retry arrives mid-run; the handler adopted its reqId
+    resolveUser(SPOTIFY_USER);    // pipeline proceeds and completes
+    await run;
+
+    const ready = socket.emit.mock.calls.find(([e]) => e === 'playlist_ready');
+    expect(ready).toBeDefined();
+    expect(ready[1].reqId).toBe(2); // NOT the stale 1 — the client's gate keeps its loader honest
+  });
+
+  it('WARMUP (fresh profile): the 30s wall-clock heartbeats playlist_building and the run keeps working', async () => {
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ createdAt: new Date() })));
+    spotify.getValidToken.mockReturnValue(new Promise(() => {})); // hang AFTER the profile loads
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 5 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // never resolves — hung downstream
+    await jest.advanceTimersByTimeAsync(0);            // let the pre-hang awaits settle
+    await jest.advanceTimersByTimeAsync(31_000);       // first wall-clock tick
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.objectContaining({
+      reqId: 5, message: expect.stringMatching(/warming/i),
+    }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+    expect(state.generating).toBe(true);               // the run was NOT voided
+
+    await jest.advanceTimersByTimeAsync(31_000);       // second tick — still heartbeating
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+
+    await jest.advanceTimersByTimeAsync(130_000);      // past the 180s hard ceiling
+    expect(state.generating).toBe(false);              // NOW the wedge-abort fires
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({
+      message: expect.stringMatching(/tim(e|ed)\s?out/i),
+    }));
+  });
+
+  it('NON-warmup (established profile): the 30s hard timeout behavior is unchanged', async () => {
+    spotify.getValidToken.mockReturnValue(new Promise(() => {})); // hang after profile load
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 9 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // default profile has no createdAt → not warmup
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(31_000);
+
+    expect(state.generating).toBe(false);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ reqId: 9 }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_building', expect.anything());
+  });
+});
+
+// ── Generation AI budget: a stalled discovery/LLM step must NOT become a hard timeout ──
+// Root cause of the on-device "Generation timed out" after a fresh deploy: the module-level
+// artistGenresAvailable() gate resets on restart, so the first generation attempts Spotify
+// discovery, hits a 429 Retry-After storm, and buildEmotionPlaylist blocks to the 30s
+// wall-clock (which VOIDS the run into a hard error). The AI budget bounds that step below
+// the wall-clock so the existing library fallback serves a REAL playlist instead.
+describe('generation AI budget (stall → library fallback, not hard timeout)', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('an AI/discovery stall falls back to a real playlist and trips the discovery-skip gate', async () => {
+    geminiEngine.buildEmotionPlaylist.mockReturnValue(new Promise(() => {})); // hang the AI/discovery step
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 4 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // established profile → 18s AI budget
+    await jest.advanceTimersByTimeAsync(0);            // settle getValidToken + biometric context
+    await jest.advanceTimersByTimeAsync(19_000);       // trip the 18s AI budget, before the 30s wall-clock
+    await jest.advanceTimersByTimeAsync(0);            // settle the fallback's generateV2 emit
+
+    const ready = socket.emit.mock.calls.find(([e]) => e === 'playlist_ready');
+    expect(ready).toBeDefined();                        // a REAL playlist, not a hard error
+    expect(ready[1].fallback).toBe(true);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+    expect(spotify.markDiscoveryUnavailable).toHaveBeenCalled(); // next gen skips the stalled discovery
+  });
+
+  it('a healthy generation well under budget is unaffected (no fallback, no gate trip)', async () => {
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 6 });
+
+    await generateAndEmitPlaylist(socket, 'emotion', state);
+
+    const ready = socket.emit.mock.calls.find(([e]) => e === 'playlist_ready');
+    expect(ready).toBeDefined();
+    expect(ready[1].fallback).toBeFalsy();              // primary path served it
+    expect(spotify.markDiscoveryUnavailable).not.toHaveBeenCalled();
   });
 });
