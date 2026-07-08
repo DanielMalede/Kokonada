@@ -13,6 +13,7 @@ export interface SessionTeardownDeps {
   resetWarm: () => void;
   resetNowPlaying: () => void;
   resetPlaybackError: () => void;
+  resetLiveMode: () => void;          // D-9: Live/Manual preference is persisted — reset to Manual
   clearCurrentUser: () => void;       // flips the auth gate to SignIn
 }
 
@@ -33,6 +34,7 @@ export async function wipeLocalSession(deps: SessionTeardownDeps): Promise<void>
   await safe(deps.resetWarm);
   await safe(deps.resetNowPlaying);
   await safe(deps.resetPlaybackError);
+  await safe(deps.resetLiveMode);
   // 4. Drop the identity LAST — this is what flips the UI to the SignIn gate.
   await safe(deps.clearCurrentUser);
 }

@@ -52,10 +52,21 @@ describe('logout purges every credential plane (no orphaned JWT)', () => {
       resetWarm: rec('warm'),
       resetNowPlaying: rec('now'),
       resetPlaybackError: rec('err'),
+      resetLiveMode: rec('live'),
       clearCurrentUser: rec('user'),
     };
     return { deps, calls };
   }
+
+  // D-9: the Live/Manual preference is a persisted plane too. If logout doesn't reset it,
+  // the next account to log in on this device silently opens in Live mode (a stale mode that
+  // auto-drives a new session). It must be wiped like every other plane, before identity drops.
+  it('resets the Live/Manual preference so a fresh login opens in Manual', async () => {
+    const { deps, calls } = spyDeps();
+    await wipeLocalSession(deps);
+    expect(calls).toContain('live');
+    expect(calls.indexOf('live')).toBeLessThan(calls.indexOf('user')); // before the gate flips
+  });
 
   // If the migration deletes tokenStore.ts it MUST NOT drop the legacy-JWT purge:
   // an upgrading user has a token in com.kokonadahealth.jwt written by the pre-migration
