@@ -93,3 +93,34 @@ Severity:     blocker | major | minor
 ```
 
 **Result summary:** ___ / 24 PASS · ___ FAIL · ___ BLOCKED → (each FAIL → a Wave-1 defect task before A12).
+
+---
+
+## RE-PASS R1 (2026-07-08) — Wave 1 close-out
+
+First pass filed D-1…D-6; fixes shipped in #93–#102. This re-pass is the **closing evidence
+for Wave 1**. Preconditions P1–P5 unchanged — P1 (full `installDebug` rebuild off current
+`main`) is mandatory: #100/#101 changed native auth flow and icon bundling.
+
+**Already device-verified (2026-07-08, skip unless regressed):** row 3.1 audio starts
+(App Remote authorize fix, #100/#101) and tab-bar icons render (vector-icon bundling, #101).
+
+Run the full §1–§7 sweep, plus these fix-verification rows:
+
+| # | Verifies | Steps | Expected | Result | Note |
+| :-- | :--- | :--- | :--- | :-- | :-- |
+| R1.1 | D-2 (#93) | Start playback, then Profile → Log out. | Music **pauses before** disconnect — no orphaned audio after logout. | ☐ | |
+| R1.2 | D-3 (#96) | Open History after a Manual gen and (if available) a Live serve. | **Friendly titles** (no raw `moodKey`), each row shows **Manual/Live** source, chosen activity chip persisted. | ☐ | |
+| R1.3 | D-4b (#95) | Open Pulse with watch connected; also with a metric the watch doesn't share. | Friendly status labels; unshared metrics say **"Not shared by your watch"** (honest empty state), never bare dashes/errors. Body Battery/Readiness presented as Garmin-only. | ☐ | |
+| R1.4 | D-4 ingestion ([#90](https://github.com/DanielMalede/Kokonada/issues/90)) | With Health Connect granted, wait one sync cycle, re-open Pulse. | Advanced biometrics populate from HC medical-profile ingestion (#99) — no longer blank. | ☐ | |
+| R1.5 | D-6 (#98/#99, [#92](https://github.com/DanielMalede/Kokonada/issues/92)) | Fresh signup (or post-GDPR-delete account) → first Generate immediately. | `playlist_building` loader with bounded auto-retry — **no** "Still setting up your library" hard error; playlist eventually arrives. | ☐ | |
+| R1.6 | #100 Reconnect | Integrations → **Reconnect Spotify**. | Re-grant flow completes and returns to the app; badge stays Connected throughout. | ☐ | |
+| R1.7 | #102 first-gen bound | First generation right after a backend deploy (or Spotify 429 storm). | Library fallback serves within the bound — no minutes-long hang, no hard timeout error. | ☐ | |
+
+**Close-out rule:** all §1–§7 rows + R1.1–R1.7 PASS → Wave 1 CLOSED; close issues
+[#90](https://github.com/DanielMalede/Kokonada/issues/90) and
+[#92](https://github.com/DanielMalede/Kokonada/issues/92) with the evidence. Any FAIL → file
+via the defect template; it blocks Wave 2.8's Vision-Frame rollout only if it touches the
+Generate/playback path.
+
+**R1 result:** ___ PASS · ___ FAIL · ___ BLOCKED
