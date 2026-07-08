@@ -173,9 +173,16 @@ async function withFreshToken(user, fn) {
       return await fn(refreshed.accessToken);
     }
     if (status === 403) {
+      // Preserve Spotify's OWN reason — a generic "permission missing" made a real 403 (e.g.
+      // "You cannot create a playlist for another user", "Insufficient client scope", a
+      // dev-mode restriction) undiagnosable. Surface it in the message + attach the raw body.
+      const detail =
+        err.response?.data?.error?.message ||
+        (typeof err.response?.data?.error === 'string' ? err.response.data.error : '') ||
+        '';
       throw Object.assign(
-        new Error('Spotify permission missing — reconnect Spotify to grant playlist access'),
-        { statusCode: 403, code: 'insufficient_scope' },
+        new Error(`Spotify permission missing — reconnect Spotify to grant playlist access${detail ? ` [spotify: ${detail}]` : ''}`),
+        { statusCode: 403, code: 'insufficient_scope', spotifyError: err.response?.data ?? null, op: err.op ?? null },
       );
     }
     throw err;
