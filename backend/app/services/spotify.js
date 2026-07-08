@@ -286,6 +286,11 @@ async function getRecentlyPlayed(accessToken, limit = 50) {
 let _artistGenres403Until = 0;
 function artistGenresAvailable() { return Date.now() >= _artistGenres403Until; }
 function _resetArtistGenresCache() { _artistGenres403Until = 0; } // test hook
+// The generation pipeline trips this when a discovery fetch blows its time budget (a 429
+// Retry-After storm, not a literal 403) — the SAME remedy applies: skip the Spotify
+// discovery/tagging layer for a while so later generations stay fast instead of re-stalling.
+// Survives only in-process; resets on restart, which is correct (the rate window recovers).
+function markDiscoveryUnavailable(ttlMs = 3_600_000) { _artistGenres403Until = Date.now() + ttlMs; }
 
 async function getArtistsGenres(accessToken, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
@@ -740,7 +745,7 @@ async function areTracksSaved(accessToken, ids) {
 module.exports = {
   getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
-  artistGenresAvailable, _resetArtistGenresCache,
+  artistGenresAvailable, _resetArtistGenresCache, markDiscoveryUnavailable,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
   searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery, searchTrackUri,
   playTracks, getActiveDevice,

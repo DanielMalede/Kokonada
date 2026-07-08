@@ -34,6 +34,7 @@ jest.mock('../app/services/spotify', () => ({
   fetchVibeDiscovery:   jest.fn(),
   getArtistsGenres:     jest.fn(),
   artistGenresAvailable: jest.fn(() => true),
+  markDiscoveryUnavailable: jest.fn(),
 }));
 
 jest.mock('../app/services/youtube', () => ({
@@ -1348,5 +1349,45 @@ describe('D-6 v2 — warmup heartbeat + reqId adoption', () => {
     expect(state.generating).toBe(false);
     expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ reqId: 9 }));
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_building', expect.anything());
+  });
+});
+
+// ── Generation AI budget: a stalled discovery/LLM step must NOT become a hard timeout ──
+// Root cause of the on-device "Generation timed out" after a fresh deploy: the module-level
+// artistGenresAvailable() gate resets on restart, so the first generation attempts Spotify
+// discovery, hits a 429 Retry-After storm, and buildEmotionPlaylist blocks to the 30s
+// wall-clock (which VOIDS the run into a hard error). The AI budget bounds that step below
+// the wall-clock so the existing library fallback serves a REAL playlist instead.
+describe('generation AI budget (stall → library fallback, not hard timeout)', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('an AI/discovery stall falls back to a real playlist and trips the discovery-skip gate', async () => {
+    geminiEngine.buildEmotionPlaylist.mockReturnValue(new Promise(() => {})); // hang the AI/discovery step
+    jest.useFakeTimers();
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 4 });
+
+    generateAndEmitPlaylist(socket, 'emotion', state); // established profile → 18s AI budget
+    await jest.advanceTimersByTimeAsync(0);            // settle getValidToken + biometric context
+    await jest.advanceTimersByTimeAsync(19_000);       // trip the 18s AI budget, before the 30s wall-clock
+    await jest.advanceTimersByTimeAsync(0);            // settle the fallback's generateV2 emit
+
+    const ready = socket.emit.mock.calls.find(([e]) => e === 'playlist_ready');
+    expect(ready).toBeDefined();                        // a REAL playlist, not a hard error
+    expect(ready[1].fallback).toBe(true);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+    expect(spotify.markDiscoveryUnavailable).toHaveBeenCalled(); // next gen skips the stalled discovery
+  });
+
+  it('a healthy generation well under budget is unaffected (no fallback, no gate trip)', async () => {
+    const socket = makeSocket();
+    const state  = makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 6 });
+
+    await generateAndEmitPlaylist(socket, 'emotion', state);
+
+    const ready = socket.emit.mock.calls.find(([e]) => e === 'playlist_ready');
+    expect(ready).toBeDefined();
+    expect(ready[1].fallback).toBeFalsy();              // primary path served it
+    expect(spotify.markDiscoveryUnavailable).not.toHaveBeenCalled();
   });
 });

@@ -85,6 +85,21 @@ function toClientTracks(list, provider) {
   return (Array.isArray(list) ? list : []).map((t) => toClientTrack(t, provider)).filter(Boolean);
 }
 
+// Bound an external generation step (LLM + Spotify discovery) with a soft budget WELL under
+// the 30s wall-clock. A hung call — a Spotify 429 Retry-After storm across discovery searches,
+// or a stalled LLM — would otherwise block to the wall-clock, which VOIDS the whole run into a
+// hard "Generation timed out" error (the catch/fallback never runs, because a hang is not a
+// throw). On budget-exceed we reject with a typed error so the existing fallback builds a real
+// library playlist instead. Promise.race doesn't cancel the loser; it settles harmlessly.
+function withTimeout(promise, ms, label) {
+  let t;
+  const budget = new Promise((_, reject) => {
+    t = setTimeout(() => reject(Object.assign(new Error(`${label} exceeded ${ms}ms budget`), { code: 'gen_budget' })), ms);
+    t.unref?.();
+  });
+  return Promise.race([promise, budget]).finally(() => clearTimeout(t));
+}
+
 // Deliver a playlist result to the USER, not a single socket. Generation can be triggered
 // on one socket (a biometric push from the watch's socket, or a socket that later churned)
 // while the app is listening on ANOTHER of the same user's sockets — a plain socket.emit
@@ -500,22 +515,27 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // (Variation seeds + sort-axis rotation are gone: the LLM prompt cache is now
     // deterministic per context, and variance comes from the ledger + MMR.)
 
+    // Soft budget for the whole AI/discovery step. Comfortably under GENERATION_TIMEOUT_MS
+    // (30s) so a stall falls through to the fast library fallback with time to spare, instead
+    // of hitting the wall-clock and hard-erroring. A warmup profile keeps the fuller budget.
+    const AI_BUDGET_MS = Number(process.env.GENERATION_AI_BUDGET_MS)
+      || (profileWarmingUp ? 60_000 : 18_000);
     let aiResult;
     try {
       if (useEmotion) {
         // 24h health snapshot (sleep/HRV/body battery/readiness + current HR) so the
         // LLM weighs physical state against the chosen mood + activity. Best-effort.
         const biometricContext = await resolveBiometricContext(userId, state.stableHR);
-        aiResult = await buildEmotionPlaylist({
+        aiResult = await withTimeout(buildEmotionPlaylist({
           musicProfile,
           emotionTaps:  state.lastEmotionTaps,
           textPrompt:   state.lastTextPrompt || null,
           activity:     state.lastActivity || null,
           biometricContext,
           fetchTracks,
-        });
+        }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
-        aiResult = await adjustBiometricPlaylist({
+        aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
           biometric: {
             heartRate:  state.stableHR,
@@ -523,13 +543,21 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             restingHR:  musicProfile.restingHeartRate,
           },
           fetchTracks,
-        });
+        }), AI_BUDGET_MS, 'adjustBiometricPlaylist');
       }
     } catch (err) {
-      // The generation pipeline threw (LLM/Spotify/mixer). We recover below, but this
-      // path was previously only console-logged — report it so a systemic failure that
-      // silently degrades every user to the fallback playlist is visible in Sentry.
-      captureException(err, { scope: 'generate', trigger, reqId, provider });
+      // A discovery/LLM stall (budget exceeded) → trip the discovery-skip gate so the NEXT
+      // generation bypasses the stalled Spotify discovery layer and is fast, and log it plainly.
+      if (err.code === 'gen_budget') {
+        spotify.markDiscoveryUnavailable();
+        console.warn(`[generate] ${err.message} — discovery skipped going forward; serving library fallback reqId=${reqId}`);
+      } else {
+        // The generation pipeline threw (LLM/Spotify/mixer). We recover below, but this
+        // path was previously only console-logged — report it so a systemic failure that
+        // silently degrades every user to the fallback playlist is visible in Sentry. A
+        // budget timeout is an expected, handled condition (logged above) — not an exception.
+        captureException(err, { scope: 'generate', trigger, reqId, provider });
+      }
       // Zero-tolerance fallback: if the LLM is down mid-mood, build a deterministic,
       // strictly on-vibe playlist from the mood descriptors (no AI, library-only so it
       // never depends on a possibly-failing Spotify) rather than dumping off-vibe
