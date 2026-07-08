@@ -46,7 +46,31 @@
 | 2.6 | **D1: resume frontend-tooling foundation** — rebase `worktree-frontend-tooling-foundation` (8 commits: Tamagui/Moti/Lottie/haptics/vector-icons/bootsplash) onto post-#77 main; on-device smoke; PR. Check file overlap vs 2.2/2.3 before parallel dispatch | mobile | Sonnet | mobile suite green; bootsplash + tamagui verified on device | mobile build config |
 | 2.7 | **D2-followup: `classifyAndHydrate` prod run** (destructive non-music purge shipped in #78) — **Pause & Guide, not yet authorized.** Do NOT run without Daniel's explicit go-ahead; verify UnclassifiedTrack GDPR cascade + backup posture first | ops (destructive) | Opus | Daniel authorizes; purge count reported; reversible-by-rehydrate confirmed | **prod library data** |
 
-## Wave 3 — Store submission (depends on 2.1–2.4) + engineering-excellence closure
+## Wave 2.8 — UI/UX Master Overhaul: "The Synesthetic Living App" (SCHEDULED 2026-07-08)
+
+> **Authoritative spec:** `docs/UI_UX_OVERHAUL_SPEC.md`. Design language + biometric-regulation
+> philosophy recorded as [ADR 0009](adr/0009-calm-bioluminescent-design-language.md).
+
+Sequencing per the spec's §0 guardrails:
+- **Preconditions:** PR #101 merged + device-verified (✓ 2026-07-08); Wave 2.6/D1 tooling
+  (Tamagui/Moti/Lottie/bootsplash/vector-icons) **merged**; D-3 resolved (✓ #96) and D-4
+  display resolved (✓ #95 — the orphaned-ingestion remainder is tracked as issue #90).
+- Runs **before Wave 3** — 3.1 store submission now additionally depends on 2.8.
+- **Adjacent to A12 a11y (2.3):** the a11y/Dynamic-Type/screen-reader completion is done
+  **once**, folded into 2.8's token + screen work, not twice.
+- **Opens with the mandatory Vision-Frame approval gate** — no screen rollout before Daniel
+  signs off the token system, 2–3 mockup directions, and one fully-built hero Generate
+  screen running on-device.
+- Delivery: PR-per-screen with before/after on-device screenshots as closing evidence; the
+  sacred contracts (≤3-tap emotion payload, three-lane state, `screenToCircumplex`, all
+  socket/DTO contracts, pinned S/D-series tests) are untouchable.
+
+| # | Task | Package | Model | Acceptance | Blast radius |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 2.8.1 | **Vision Frame** — Tamagui token system (color/type/space/motion/haptics), 2–3 mockup directions, hero **Generate** screen built on-device → **approval gate** | mobile | Opus | Daniel approves the Vision Frame | none until approved |
+| 2.8.2 | **Screen rollout** — PR-per-screen (FTUE, Auth, Now Playing, Pulse, History, Profile/Integrations "Privacy Vault", tab bar, system states) + brand identity (icon/wordmark/bootsplash/motion signature) | mobile | Sonnet (direction locked by 2.8.1) | spec §9 DoD per screen: tokens only, light+dark, reduced-motion, WCAG 2.2 AA, 60fps floor, device screenshots | visual layer only |
+
+## Wave 3 — Store submission (depends on 2.1–2.4 + 2.8) + engineering-excellence closure
 
 | # | Task | Notes |
 | :--- | :--- | :--- |
