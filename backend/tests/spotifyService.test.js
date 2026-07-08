@@ -54,6 +54,22 @@ describe('withFreshToken', () => {
       .rejects.toMatchObject({ code: 'insufficient_scope', statusCode: 403 });
   });
 
+  it('surfaces Spotify\'s own 403 reason + raw body + the tagged op (diagnosable fail-open)', async () => {
+    const user = makeUser({ accessToken: 'good', refreshToken: 'ref', expiresAt: FUTURE() });
+    const body = { error: { status: 403, message: 'You cannot create a playlist for another user.' } };
+    const fn = jest.fn().mockRejectedValue(
+      Object.assign(new Error('forbidden'), { op: 'POST /users/{id}/playlists', response: { status: 403, data: body } }),
+    );
+
+    await expect(spotify.withFreshToken(user, fn)).rejects.toMatchObject({
+      code: 'insufficient_scope',
+      statusCode: 403,
+      op: 'POST /users/{id}/playlists',
+      spotifyError: body,
+    });
+    await expect(spotify.withFreshToken(user, fn)).rejects.toThrow(/You cannot create a playlist for another user/);
+  });
+
   it('rethrows non-401/403 errors unchanged', async () => {
     const user = makeUser({ accessToken: 'good', refreshToken: 'ref', expiresAt: FUTURE() });
     const err = Object.assign(new Error('boom'), { response: { status: 500 } });

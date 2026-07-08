@@ -14,14 +14,25 @@ let offPlayerState: (() => void) | null = null;
 export const spotifyRemoteAdapter: SpotifyRemoteLike = {
   connect: async (_token: string) => {
     // AUTHORIZE-ONCE (D-1): a silent connect first — the native handshake authenticates
-    // against Spotify's cached grant with NO UI. Only a NOT_LOGGED_IN failure (no grant
-    // yet, or revoked) runs the one-time authorize Activity. The old unconditional
-    // authorize() launched Spotify's login Activity on EVERY connect — that was the
-    // foreground steal the device QA caught.
+    // against Spotify's cached grant with NO UI. Only an authorization-required failure runs
+    // the one-time authorize() Activity. The old unconditional authorize() launched Spotify's
+    // login Activity on EVERY connect — that was the foreground steal the device QA caught.
+    //
+    // Two SDK failures mean "no on-device grant yet" and BOTH need authorize():
+    //   • NotLoggedInException      → code NOT_LOGGED_IN
+    //   • UserNotAuthorizedException → "Explicit user authorization is required…" (device QA
+    //     hit this; the native layer now also maps it to NOT_LOGGED_IN, but we match the code
+    //     AND the message so a stale native build still recovers instead of dead-ending).
     try {
       await SpotifyRemote.connect();
     } catch (err: any) {
-      if (err?.code === 'NOT_LOGGED_IN' || /NOT_LOGGED_IN/i.test(String(err?.message ?? ''))) {
+      const code = String(err?.code ?? '');
+      const msg = String(err?.message ?? '');
+      const needsAuth =
+        code === 'NOT_LOGGED_IN' ||
+        code === 'USER_NOT_AUTHORIZED' ||
+        /NOT_LOGGED_IN|authorization is required|not logged in/i.test(`${code} ${msg}`);
+      if (needsAuth) {
         await SpotifyRemote.authorize();
         await SpotifyRemote.connect();
       } else {

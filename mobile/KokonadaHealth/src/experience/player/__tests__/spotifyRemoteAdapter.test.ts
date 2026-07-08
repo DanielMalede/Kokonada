@@ -55,6 +55,20 @@ test('AUTHORIZE-ONCE: only a NOT_LOGGED_IN failure runs the one-time authorize, 
   expect(mockMod.connect).toHaveBeenCalledTimes(2); // silent attempt + post-grant attempt
 });
 
+test('AUTHORIZE-ONCE: a UserNotAuthorized failure ("Explicit user authorization is required") also runs authorize', async () => {
+  // The Spotify App Remote SDK raises UserNotAuthorizedException when the app is logged in
+  // but THIS app was never granted on-device access. It must drive the same one-time
+  // authorize() as NOT_LOGGED_IN — matched by message even if the native code differs.
+  mockMod.connect
+    .mockRejectedValueOnce(
+      Object.assign(new Error('Explicit user authorization is required to use Spotify.'), { code: 'USER_NOT_AUTHORIZED' }),
+    )
+    .mockResolvedValueOnce(undefined);
+  await spotifyRemoteAdapter.connect('IGNORED_TOKEN');
+  expect(mockMod.authorize).toHaveBeenCalledTimes(1);
+  expect(mockMod.connect).toHaveBeenCalledTimes(2);
+});
+
 test('AUTHORIZE-ONCE: any other connect failure propagates without launching authorize', async () => {
   mockMod.connect.mockRejectedValueOnce(Object.assign(new Error('ipc'), { code: 'CONNECTION_FAILED' }));
   await expect(spotifyRemoteAdapter.connect('x')).rejects.toThrow('ipc');
