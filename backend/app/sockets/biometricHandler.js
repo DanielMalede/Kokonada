@@ -294,11 +294,17 @@ async function attachSessionContext(socket, payload) {
     const user = await User.findById(socket.data.user._id.toString());
     if (!user || !user.spotifyToken) return payload;
     const sessionPlaylist = require('../services/spotifySessionPlaylist');
+    const hasScope = (user.spotifyScopes || '').includes('playlist-modify-private');
+    console.warn(`[sessionPlaylist] attaching tracks=${uris.length} playlist-modify-private=${hasScope} existingId=${user.spotifySessionPlaylistId ?? '(none)'}`);
     const { contextUri } = await sessionPlaylist.writeSessionPlaylist(user, uris);
     console.warn(`[sessionPlaylist] context attached ${contextUri} tracks=${uris.length}`);
     return { ...payload, contextUri };
   } catch (e) {
-    console.warn('[sessionPlaylist] attach failed — falling back to track playback:', e?.message ?? e);
+    // Fail-open — playback continues with loose track URIs. Log EVERYTHING needed to
+    // root-cause a real Spotify 403: which call (op), the HTTP status, and Spotify's own
+    // error body (the generic message alone was undiagnosable on-device).
+    const detail = e?.spotifyError ? ` spotify=${JSON.stringify(e.spotifyError)}` : '';
+    console.warn(`[sessionPlaylist] attach failed op=${e?.op ?? '?'} status=${e?.statusCode ?? ''} — falling back to track playback: ${e?.message ?? e}${detail}`);
     return payload;
   }
 }
