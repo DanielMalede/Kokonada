@@ -10,6 +10,7 @@ import { player, kokoSocket } from '../playback/playbackServices';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { nowPlayingStore } from '../playback/nowPlayingStore';
 import { playbackErrorStore } from '../playback/playbackErrorStore';
+import { liveModeStore } from '../generate/liveModeStore';
 import { wipeColdPersistence } from '../../state/cold/coldPersistenceHolder';
 
 // Prod composition: binds the injectable wipeLocalSession + ProfileController to the
@@ -31,6 +32,7 @@ async function clearLocal(): Promise<void> {
     resetWarm: () => warmStore.getState().reset(),
     resetNowPlaying: () => nowPlayingStore.getState().set({ track: null, isPlaying: false }),
     resetPlaybackError: () => playbackErrorStore.getState().clear(),
+    resetLiveMode: () => liveModeStore.getState().setLiveMode(false), // persists '0' → next login is Manual
     clearCurrentUser: () => currentUserStore.getState().clear(),
   });
   playerStatusStore.getState().set('disconnected');

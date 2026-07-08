@@ -69,6 +69,54 @@ jobs:
         run: ./node_modules/.bin/jest --ci
         working-directory: mobile/KokonadaHealth
 
+  mobile-android-compile:
+    name: Mobile — Android compile check
+    runs-on: ubuntu-latest
+    # Only when Android-native surface could break — jest already gates JS/TS on every PR.
+    # Catches the class of failure jest cannot: manifest-merge errors and unresolved resource
+    # refs (e.g. a missing R.style.BootTheme) that crash MainActivity.onCreate() at launch
+    # (PR #103 Resilience Audit, HIGH). Deliberately NOT a full `assembleDebug` — resource
+    # linking + manifest merge + Kotlin/Java compile are the failing tasks; the Skia CMake
+    # native build (~15 min) runs later at packageDebug and is proven by the on-device
+    # installDebug in the Squad-6 re-pass, so we skip it here to keep the PR gate fast.
+    # The job always starts (so it can be a required check) but the paths-filter below skips
+    # the costly steps on PRs that don't touch the Android surface.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect Android-affecting changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            android:
+              - 'mobile/KokonadaHealth/android/**'
+              - 'mobile/KokonadaHealth/package.json'
+              - 'mobile/KokonadaHealth/package-lock.json'
+              - '.github/workflows/ci.yml'
+      - uses: actions/setup-node@v4
+        if: steps.changes.outputs.android == 'true'
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: mobile/KokonadaHealth/package-lock.json
+      - uses: actions/setup-java@v4
+        if: steps.changes.outputs.android == 'true'
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        if: steps.changes.outputs.android == 'true'
+      - name: Install JS dependencies
+        if: steps.changes.outputs.android == 'true'
+        run: npm ci
+        working-directory: mobile/KokonadaHealth
+      - name: Gradle — resource link + manifest merge + Kotlin/Java compile
+        if: steps.changes.outputs.android == 'true'
+        # gradlew is committed without the execute bit (authored on Windows), so actions/checkout
+        # lays it down non-executable → exit 126. chmod it before invoking.
+        run: chmod +x gradlew && ./gradlew :app:processDebugResources :app:compileDebugKotlin :app:compileDebugJavaWithJavac --console=plain
+        working-directory: mobile/KokonadaHealth/android
+
   # The backend deploys via Railway's NATIVE GitHub integration: the service is
   # connected to this repo with Root Directory = /backend, branch = main, "auto-deploy
   # on push" + "wait for CI" enabled. Railway builds backend/Dockerfile itself once
