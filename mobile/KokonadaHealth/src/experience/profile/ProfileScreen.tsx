@@ -27,23 +27,25 @@ function Badge({ label, on }: { label: string; on: boolean }) {
 // re-running OAuth overwrites the token in place (it does NOT wipe the taste profile the
 // way Disconnect does). Both routes call the same onConnect handler.
 function SpotifyRow({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
+  // Connected → a single "Connected" status with a small, muted "Reconnect" text-link
+  // beneath it (a secondary action, not a competing button). Not connected → the primary
+  // green Connect pill.
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
       <Text style={{ fontSize: 15 }}>Spotify</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        {connected ? <Text style={{ fontSize: 14, color: '#3ecf8e', marginRight: 12 }}>Connected</Text> : null}
-        <Pressable onPress={onConnect} accessibilityRole="button"
-          accessibilityLabel={connected ? 'reconnect-spotify' : 'connect-spotify'}
-          style={{
-            paddingVertical: 6, paddingHorizontal: 18, borderRadius: 999,
-            backgroundColor: connected ? 'transparent' : '#1DB954',
-            borderWidth: connected ? 1 : 0, borderColor: '#ccc',
-          }}>
-          <Text style={{ color: connected ? '#555' : '#fff', fontWeight: '600', fontSize: 13 }}>
-            {connected ? 'Reconnect' : 'Connect'}
-          </Text>
+      {connected ? (
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={{ fontSize: 14, color: '#3ecf8e' }}>Connected</Text>
+          <Pressable onPress={onConnect} accessibilityRole="button" accessibilityLabel="reconnect-spotify" hitSlop={8}>
+            <Text style={{ fontSize: 12, color: '#888', marginTop: 2, textDecorationLine: 'underline' }}>Reconnect</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable onPress={onConnect} accessibilityRole="button" accessibilityLabel="connect-spotify"
+          style={{ paddingVertical: 6, paddingHorizontal: 18, borderRadius: 999, backgroundColor: '#1DB954' }}>
+          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Connect</Text>
         </Pressable>
-      </View>
+      )}
     </View>
   );
 }
