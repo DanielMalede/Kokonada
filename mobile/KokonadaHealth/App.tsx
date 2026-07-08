@@ -19,11 +19,23 @@ import { currentUserStore } from './src/auth/currentUser';
 import { startApp } from './src/prodBootstrap';
 import tamaguiConfig from './tamagui.config';
 
+// startApp's network calls carry no timeout, so a hung (not rejected) bootstrap would
+// otherwise leave the user behind the splash forever — hide is raced against this deadline.
+const SPLASH_DEADLINE_MS = 8000;
+
 export default function App() {
   const [user, setUser] = useState(() => currentUserStore.getState().user);
 
   useEffect(() => {
-    void startApp().finally(() => {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<void>((resolve) => {
+      deadline = setTimeout(resolve, SPLASH_DEADLINE_MS);
+    });
+    const settled = startApp().catch((e) => {
+      console.log('[koko] startApp failed:', e?.message ?? e);
+    });
+    void Promise.race([settled, timedOut]).then(() => {
+      clearTimeout(deadline);
       void BootSplash.hide({ fade: true });
     });
     // The gate is reactive: identity recovery (startApp), login, and logout all flow
