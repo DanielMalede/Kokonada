@@ -163,6 +163,10 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
             // finished track in the no-context fallback and auto-advance the queue.
             map.putDouble("positionMs", state.playbackPosition.toDouble())
             map.putDouble("durationMs", (state.track?.duration ?: 0L).toDouble())
+            // Diagnostic (defect A): proves this callback keeps firing (not a fire-once
+            // zombie subscription) and reveals the real end-of-track position values that
+            // the RN end-detection keys on. Filter logcat for tag SpotifyRemote.
+            Log.d(NAME, "playerState uri=${state.track?.uri} paused=${state.isPaused} pos=${state.playbackPosition} dur=${state.track?.duration}")
             emit("playerStateChanged", map)
           }
           .setErrorCallback {
