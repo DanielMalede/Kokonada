@@ -332,7 +332,7 @@ describe('watchHrIngest', () => {
   });
 
   // ── Test 8: multi-socket room → exactly one handleBiometricReading call (pins Limitation 3) ──
-  it('multi-socket room: handleBiometricReading called exactly once (single-delivery limitation)', async () => {
+  it('multi-socket room: delivers HR to EVERY socket so the Live-mode owner is never missed (defect C)', async () => {
     const userId = 'u_multi';
     // Two sockets in the room
     const socket1 = { id: 'sock_a', emit: jest.fn(), data: {} };
@@ -349,8 +349,13 @@ describe('watchHrIngest', () => {
     await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
 
     expect(res.statusCode).toBe(202);
-    // Exactly ONE call despite two sockets — deliberate single-delivery limitation
-    expect(handleBiometricReading).toHaveBeenCalledTimes(1);
+    // liveMode is per-socket; the app socket that toggled Live owns it. Delivering to only
+    // the FIRST socket (connection order) could land the reading on a stale/Manual socket
+    // whose recalibrateForBand early-returns → the band-serve silently never fired. Deliver
+    // to both; each socket's own gate decides who serves, so the owner is always reached.
+    expect(handleBiometricReading).toHaveBeenCalledTimes(2);
+    const deliveredTo = handleBiometricReading.mock.calls.map((c) => c[0].id);
+    expect(deliveredTo).toEqual(expect.arrayContaining(['sock_a', 'sock_b']));
   });
 
   // ── Test 9: malformed Authorization header edge cases → 401 ─────────────
