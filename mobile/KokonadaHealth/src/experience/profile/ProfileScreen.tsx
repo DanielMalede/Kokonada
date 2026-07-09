@@ -141,7 +141,12 @@ export function ProfileScreen() {
       } else if (res.reason === 'no-data') {
         Alert.alert('No health data found', 'Open Garmin Connect → Settings → Health Connect and turn on sharing, then sync your watch and try again.');
       } else {
-        Alert.alert('Sync failed', 'Please try again in a moment.');
+        // Surface WHAT failed (#90): the read counts prove the watch shared data, so a
+        // persistent failure is an upload problem — show the status instead of hiding it.
+        const readLine = res.counts && (res.counts.heartRate + res.counts.sleep + res.counts.restingHeartRate) > 0
+          ? `\n\nYour watch shared ${countsLine(res.counts)}, but the upload didn't complete.`
+          : '';
+        Alert.alert('Sync failed', `${res.error ?? 'Please try again in a moment.'}${readLine}`);
       }
     } catch {
       Alert.alert('Health Connect unavailable', 'Install/update Health Connect from the Play Store and try again.');

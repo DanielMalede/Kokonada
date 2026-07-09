@@ -46,9 +46,16 @@ export function PulseScreen() {
     return () => { mounted = false; offWarm(); offPulse(); offCounts(); };
   }, []);
 
-  // Honest gauge note (D-4a v2): a blank driven by the WATCH not sharing the metric via
-  // Health Connect (last sync read 0 of it) says so; a blank with no sync evidence stays "—".
-  const notShared = (read?: number) => (counts && read === 0 ? 'Not shared by your watch' : undefined);
+  // Honest gauge note (D-4a v2 / #90): distinguish the three reasons a gauge is blank.
+  //   • the watch never shared this metric (last sync read 0 of it) → say so
+  //   • the watch DID share it but it isn't in the profile yet (upload lag/failure — the
+  //     #90 symptom) → don't pretend it's missing; point the user at a re-sync
+  //   • no sync evidence at all this session → a bare "—" (nothing to explain yet)
+  const gaugeNote = (read?: number) => {
+    if (!counts) return undefined;
+    if (read === 0) return 'Not shared by your watch';
+    return 'Not in your profile yet — re-sync';
+  };
 
   const source = w.biometricSource === 'none' ? 'No biometric source' : w.biometricSource.toUpperCase();
   const data = pulse.data;
@@ -73,12 +80,12 @@ export function PulseScreen() {
       ) : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-        <Gauge label="HRV" value={data?.vitals.hrv ?? null} unit="ms" note={notShared(counts?.hrv)} />
+        <Gauge label="HRV" value={data?.vitals.hrv ?? null} unit="ms" note={gaugeNote(counts?.hrv)} />
         <Gauge label="Body Battery" value={data?.vitals.bodyBattery ?? null} note="Garmin only" />
         <Gauge label="Readiness" value={data?.vitals.dailyReadiness ?? null} note="Garmin only" />
-        <Gauge label="Resting HR" value={data?.vitals.restingHeartRate ?? null} unit="bpm" note={notShared(counts?.restingHeartRate)} />
-        <Gauge label="Deep Sleep" value={data?.sleep.lastNight.deep ?? null} unit="min" note={notShared(counts?.sleep)} />
-        <Gauge label="REM Sleep" value={data?.sleep.lastNight.rem ?? null} unit="min" note={notShared(counts?.sleep)} />
+        <Gauge label="Resting HR" value={data?.vitals.restingHeartRate ?? null} unit="bpm" note={gaugeNote(counts?.restingHeartRate)} />
+        <Gauge label="Deep Sleep" value={data?.sleep.lastNight.deep ?? null} unit="min" note={gaugeNote(counts?.sleep)} />
+        <Gauge label="REM Sleep" value={data?.sleep.lastNight.rem ?? null} unit="min" note={gaugeNote(counts?.sleep)} />
       </View>
     </ScrollView>
   );
