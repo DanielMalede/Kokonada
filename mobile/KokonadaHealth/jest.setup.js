@@ -100,3 +100,8 @@ jest.mock('@kokonada/spotify-remote', () => ({
     onPlayerStateChanged: jest.fn(() => () => {}),
   },
 }));
+
+jest.mock('react-native-bootsplash', () => ({
+  hide: jest.fn().mockResolvedValue(undefined),
+  isVisible: jest.fn().mockResolvedValue(false),
+}));

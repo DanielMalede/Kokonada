@@ -8,6 +8,6 @@ module.exports = {
   // for Redux Toolkit (and its deps) points at untranspiled TS/ESM. Allowlist them
   // through babel so the CJS/ESM source is transformed instead of failing to parse.
   transformIgnorePatterns: [
-    'node_modules/(?!(?:@react-native|react-native|@reduxjs/toolkit|immer|redux|reselect|redux-thunk|react-redux|zustand|@react-navigation|react-native-screens)/)',
+    'node_modules/(?!(?:@react-native|react-native|@reduxjs/toolkit|immer|redux|reselect|redux-thunk|react-redux|zustand|@react-navigation|react-native-screens|@tamagui|tamagui)/)',
   ],
 };
