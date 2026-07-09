@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 
+jest.setTimeout(20000); // cold-require headroom for CI 4-core starvation (same as ProfileScreen, #105)
+
 jest.mock('../pulseStateStore', () => {
   const { createStore } = require('zustand/vanilla');
   const refresh = jest.fn();

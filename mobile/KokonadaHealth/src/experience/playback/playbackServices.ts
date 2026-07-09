@@ -29,7 +29,7 @@ export const player = new SpotifyPlayerController({
   // D-1: native PlayerState stream → orchestrator lockstep (auto-advance updates the
   // queue + now-playing; pause/resume in the Spotify app mirrors into our UI).
   // `orchestrator` is declared below — the closure resolves at event time, well after init.
-  onRemoteState: (s) => orchestrator.syncToRemote(s.uri, s.isPaused),
+  onRemoteState: (s) => orchestrator.syncToRemote(s.uri, s.isPaused, s.positionMs, s.durationMs),
 });
 
 export const kokoSocket = new KokonadaSocket({

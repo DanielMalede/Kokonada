@@ -4,7 +4,10 @@ import Native from './NativeSpotifyRemote';
 const REMOTE_DISCONNECTED = 'remoteDisconnected';
 const PLAYER_STATE_CHANGED = 'playerStateChanged';
 
-export interface RemotePlayerState { trackUri: string | null; isPaused: boolean; }
+// positionMs/durationMs are present on current native builds and drive track-mode
+// auto-advance (D-7/D-8); optional so a legacy build (which emits only trackUri+isPaused)
+// still type-checks and degrades to pause-mirroring.
+export interface RemotePlayerState { trackUri: string | null; isPaused: boolean; positionMs?: number; durationMs?: number; }
 
 // A single emitter over the native module. NativeModules.SpotifyRemote exists at
 // runtime once the TurboModule is registered; the emitter is only constructed lazily.
@@ -41,7 +44,12 @@ export const SpotifyRemote = {
   // The signal that keeps RN's queue/now-playing in lockstep with the real player (D-1).
   onPlayerStateChanged: (cb: (state: RemotePlayerState) => void): (() => void) => {
     const sub = getEmitter().addListener(PLAYER_STATE_CHANGED, (p: any) =>
-      cb({ trackUri: p?.trackUri ?? null, isPaused: !!p?.isPaused }));
+      cb({
+        trackUri: p?.trackUri ?? null,
+        isPaused: !!p?.isPaused,
+        positionMs: typeof p?.positionMs === 'number' ? p.positionMs : undefined,
+        durationMs: typeof p?.durationMs === 'number' ? p.durationMs : undefined,
+      }));
     return () => sub.remove();
   },
 };
