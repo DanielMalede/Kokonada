@@ -231,10 +231,23 @@ export class PlaybackOrchestrator {
       this.sawActivePlayback = !isPaused; // adopted a new current track (context auto-advance)
       this.isPlaying = !isPaused;
       this.emit();
-    } else {
-      this.isPlaying = false; // foreign track — we are not driving (S11-1 rule)
-      this.emit();
+      return;
     }
+    // FOREIGN track — not ours, not in our queue. In no-context mode Spotify swaps trackUri
+    // SEAMLESSLY to its OWN radio when our single-URI track ends (device evidence: it never
+    // emits a paused-at-end, so position detection can't catch it). That foreign track IS the
+    // reliable "our track finished" signal → reclaim: advance our queue and play our next,
+    // instead of freezing NowPlaying on the finished track (defect A). The sawActivePlayback
+    // latch fires this exactly ONCE per incursion (playCurrent resets it), so radio bleeding a
+    // few more events can't runaway-skip the queue. Guarded to no-context + a track we actually
+    // saw playing, so context mode and "user is driving Spotify directly" still yield (S11-1).
+    if (this.contextUri === null && this.sawActivePlayback && this.queue.current()) {
+      this.sawActivePlayback = false;
+      void this.onTrackEnded(this.currentTrackId ?? undefined);
+      return;
+    }
+    this.isPlaying = false; // foreign track, and we are not driving — reflect reality (S11-1)
+    this.emit();
   }
 
   // A single-URI (no-context) track has finished when the native player is PAUSED and

@@ -223,6 +223,69 @@ describe('D-7/D-8: track-mode auto-advance when there is no Spotify context', ()
   });
 });
 
+// ═════ Defect A: Spotify auto-plays its own radio at track-end (no-context) ═══
+// Device evidence: Spotify NEVER emits a paused-at-end event — it swaps trackUri
+// seamlessly (paused=false → paused=false) and, with no context, autoplays its own
+// radio (a FOREIGN track). The old rule froze NowPlaying on the finished track. A
+// foreign track appearing while we were driving IS the reliable "our track ended"
+// signal → advance our queue and reclaim playback.
+describe('Defect A: a foreign track (Spotify radio) after ours ends → reclaim, not freeze', () => {
+  const FOREIGN = 'spotify:track:radioX';
+
+  it('no-context: our track was playing, a foreign track appears → advance + play our next', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') }); // contextUri=null → track mode
+    orch.syncToRemote('spotify:track:a', false, 120000, 200000); // A confirmed playing
+    orch.syncToRemote(FOREIGN, false, 0, 180000);                // Spotify jumped to radio
+    await Promise.resolve();
+    expect(player.played).toEqual(['spotify:track:a', 'spotify:track:b']);
+    expect(orch.getNowPlaying().track?.id).toBe('b');
+    expect(orch.getNowPlaying().isPlaying).toBe(true);
+  });
+
+  it('reclaims only ONCE despite repeated foreign events (no runaway skipping)', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b', 'c') });
+    orch.syncToRemote('spotify:track:a', false, 120000, 200000);
+    orch.syncToRemote(FOREIGN, false, 0, 180000); // → advance to b, play b
+    await Promise.resolve();
+    orch.syncToRemote(FOREIGN, false, 1000, 180000); // radio still bleeding — must NOT skip to c
+    await Promise.resolve();
+    expect(player.played).toEqual(['spotify:track:a', 'spotify:track:b']);
+    expect(orch.getNowPlaying().track?.id).toBe('b');
+  });
+
+  it('does NOT reclaim in CONTEXT mode — Spotify owns the queue, a foreign uri means the user left', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b'), contextUri: 'spotify:playlist:ctx' });
+    player.played.length = 0;
+    orch.syncToRemote('spotify:track:a', false, 1000, 200000);
+    orch.syncToRemote(FOREIGN, false, 0, 180000);
+    await Promise.resolve();
+    expect(player.played).toEqual([]);            // no reclaim command
+    expect(orch.getNowPlaying().isPlaying).toBe(false); // yields (S11-1)
+  });
+
+  it('does NOT reclaim a foreign track we never saw our own track playing behind', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') });
+    player.played.length = 0;
+    orch.syncToRemote(FOREIGN, false, 0, 180000); // never confirmed 'a' playing → user is driving Spotify
+    await Promise.resolve();
+    expect(player.played).toEqual([]);
+    expect(orch.getNowPlaying().isPlaying).toBe(false);
+  });
+
+  it('at the end of the queue, a foreign track requests a fresh generation (never dead-ends)', async () => {
+    const { orch, socket } = build();
+    await orch.handlePlaylist({ tracks: list('a') });
+    orch.syncToRemote('spotify:track:a', false, 120000, 200000);
+    orch.syncToRemote(FOREIGN, false, 0, 180000);
+    await Promise.resolve();
+    expect(socket.requestPlaylist).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ═════ ATTACK 4 (autonomous): stale track-end racing a manual skip ═══════════
 describe('ATTACK 4 (autonomous): a late track-end event must not double-skip', () => {
   it('ignores a track-end for a track the user already skipped past', async () => {
