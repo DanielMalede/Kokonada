@@ -581,6 +581,11 @@ exports.appleHealthPush = async (req, res, next) => {
 // are aggregated onto the user's MedicalProfile. Used for both the initial
 // backfill and the ongoing background delta sync.
 exports.healthBatchIngest = async (req, res, next) => {
+  // Always-on receipt log (#90): pairs with the mobile [koko] healthSync logs so ONE Sync
+  // shows the full path — did the batch reach the server, and did it persist? The device
+  // reads the data fine; the gap was an invisible upload boundary.
+  const n = Array.isArray(req.body?.samples) ? req.body.samples.length : 'none';
+  console.warn(`[healthBatch] recv platform=${req.body?.platform} samples=${n} user=${req.user?._id}`);
   try {
     const { platform, samples } = req.body || {};
     if (platform !== 'healthkit' && platform !== 'health_connect') {
@@ -588,6 +593,7 @@ exports.healthBatchIngest = async (req, res, next) => {
     }
 
     const result = await healthStore.ingestBatch(req.user._id, platform, samples);
+    console.warn(`[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} profileMetrics=${JSON.stringify(result.profileMetrics || {})}`);
 
     // Mark the wearable provider on first push so the web UI reflects the connection.
     const provider = platform === 'healthkit' ? 'apple_health' : 'health_connect';
@@ -596,7 +602,10 @@ exports.healthBatchIngest = async (req, res, next) => {
     }
 
     res.json(result);
-  } catch (err) { next(err); }
+  } catch (err) {
+    console.warn(`[healthBatch] FAILED user=${req.user?._id}: ${err.message}`);
+    next(err);
+  }
 };
 
 // ── Suunto (webhooks) ─────────────────────────────────────────────────────────
