@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { View, Text, ScrollView } from 'react-native';
 import { warmStore } from '../../state/store';
 import type { WarmState } from '../../state/warm/warmStore';
@@ -42,9 +43,17 @@ export function PulseScreen() {
     const offWarm = warmStore.subscribe(syncWarm);
     const offPulse = pulseStateStore.subscribe(syncPulse);
     const offCounts = subscribeSyncCounts((c) => { if (mounted) setCounts(c); });
-    void pulseStateStore.getState().refresh(); // fetch on tab focus
     return () => { mounted = false; offWarm(); offPulse(); offCounts(); };
   }, []);
+
+  // Re-fetch on EVERY tab focus, not just first mount. A bottom-tab screen stays MOUNTED
+  // after its first visit, so a mount-only fetch left Pulse showing a stale snapshot after a
+  // health sync — the vitals had landed server-side (/api/pulse/state returns them) but Pulse
+  // never re-read it. Refreshing on focus makes a Sync on the Profile tab reflect on return.
+  useFocusEffect(useCallback(() => {
+    void pulseStateStore.getState().refresh();
+    setCounts(getLastSyncCounts());
+  }, []));
 
   // Honest gauge note (D-4a v2 / #90): distinguish the three reasons a gauge is blank.
   //   • the watch never shared this metric (last sync read 0 of it) → say so

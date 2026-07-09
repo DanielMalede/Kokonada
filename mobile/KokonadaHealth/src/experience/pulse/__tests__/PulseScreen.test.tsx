@@ -18,6 +18,18 @@ jest.mock('../../../health/healthSync', () => ({
   subscribeSyncCounts: () => () => {},
 }));
 
+// useFocusEffect needs a navigation context; mock it to run the effect on mount and expose
+// the callback so a test can simulate returning to the tab (re-focus → re-fetch).
+let mockFocusCb: null | (() => void) = null;
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: (cb: () => void) => {
+    const { useEffect } = require('react');
+    mockFocusCb = cb;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { cb(); }, []); // run once on mount, mimicking a first focus
+  },
+}));
+
 import { PulseScreen } from '../PulseScreen';
 import { pulseStateStore } from '../pulseStateStore';
 import { warmStore } from '../../../state/store';
@@ -56,6 +68,15 @@ describe('PulseScreen', () => {
   it('fetches the state vector on mount', async () => {
     const tree = await render();
     expect(mockRefresh).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('re-fetches on every tab focus, not just first mount (stale-after-sync fix)', async () => {
+    // A bottom-tab screen stays mounted; a Sync on another tab must reflect on return.
+    const tree = await render();
+    expect(mockRefresh).toHaveBeenCalledTimes(1);       // first focus
+    await ReactTestRenderer.act(async () => { mockFocusCb?.(); }); // user returns to the Pulse tab
+    expect(mockRefresh).toHaveBeenCalledTimes(2);        // re-fetched
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
