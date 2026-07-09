@@ -66,6 +66,9 @@ export class PlaybackOrchestrator {
   private contextUri: string | null = null;
   private generationPending = false; // a "generate more" request is in flight
   private generationTimeoutHandle: number | null = null;
+  // Per-current-track latch: has the native player reported this track actively
+  // PLAYING yet? Distinguishes "position 0 at track-end" from "position 0 at start".
+  private sawActivePlayback = false;
 
   constructor(deps: PlaybackOrchestratorDeps) {
     this.player = deps.player;
@@ -96,6 +99,7 @@ export class PlaybackOrchestrator {
       this.isPlaying = false; this.currentTrackId = null; this.emit(); return;
     }
     this.currentTrackId = track.id;
+    this.sawActivePlayback = false; // fresh track — await the native "playing" confirmation
     let res: { ok: boolean };
     if (this.contextUri && this.player.playContext) {
       const row = this.queue.playableIndex();
@@ -198,13 +202,24 @@ export class PlaybackOrchestrator {
   // reported track and emits now-playing — WITHOUT re-commanding play (Spotify already
   // advanced; a play command would restart the track). A URI we never queued means the
   // user is driving Spotify directly — reflect not-playing, same rule as reconcile.
-  syncToRemote(uri: string | null, isPaused: boolean): void {
+  syncToRemote(uri: string | null, isPaused: boolean, positionMs?: number, durationMs?: number): void {
     // A user skip is mid-coalesce: the remote still reports the pre-skip track, and the
     // scheduled play will assert the user's intent in a moment — don't fight it.
     if (this.pendingPlayHandle !== null) return;
     if (!uri) { this.isPlaying = false; this.emit(); return; }
     const ours = this.queue.current();
     if (ours && ours.uri === uri) {
+      if (!isPaused) this.sawActivePlayback = true; // native confirms this track is playing
+      // D-7/D-8: track-mode auto-advance. With no Spotify context (session-playlist
+      // attach 403'd → contextUri=null), Spotify plays a single URI and will NOT walk
+      // our queue — a finished track just pauses in place, so playback dead-ends. Detect
+      // the finish from the native playback position and drive the SAME onTrackEnded
+      // advance that context mode gets for free. In context mode Spotify owns the queue
+      // and reports the NEXT uri (the adopt path below), so we must stay out here.
+      if (this.contextUri === null && isPaused && this.isTrackFinished(positionMs, durationMs)) {
+        void this.onTrackEnded(this.currentTrackId ?? undefined);
+        return;
+      }
       // Same track — a pause/resume done inside the Spotify app. Mirror it.
       this.isPlaying = !isPaused;
       this.emit();
@@ -213,12 +228,26 @@ export class PlaybackOrchestrator {
     const adopted = this.queue.seekToUri(uri);
     if (adopted) {
       this.currentTrackId = adopted.id;
+      this.sawActivePlayback = !isPaused; // adopted a new current track (context auto-advance)
       this.isPlaying = !isPaused;
       this.emit();
     } else {
       this.isPlaying = false; // foreign track — we are not driving (S11-1 rule)
       this.emit();
     }
+  }
+
+  // A single-URI (no-context) track has finished when the native player is PAUSED and
+  // the position sits at the very end — OR has reset to the start after we saw the track
+  // actively playing. Without native position (a legacy native build emits only
+  // {uri,isPaused}) end is indistinguishable from a user pause, so we report false and
+  // fall back to mirroring the pause — today's behaviour, no phantom skips.
+  private isTrackFinished(positionMs?: number, durationMs?: number): boolean {
+    if (typeof positionMs !== 'number' || typeof durationMs !== 'number' || durationMs <= 0) return false;
+    const END_EPSILON_MS = 1500; // "at the end" tolerance for the final PlayerState tick
+    if (positionMs >= durationMs - END_EPSILON_MS) return true;
+    if (positionMs <= 250 && this.sawActivePlayback) return true; // reset-to-0-at-end variant
+    return false;
   }
 
   // Reconcile the local model with the native Spotify truth (foreground / desync).

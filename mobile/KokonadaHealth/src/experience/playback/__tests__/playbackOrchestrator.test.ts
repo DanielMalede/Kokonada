@@ -153,6 +153,76 @@ describe('ATTACK 3: socket killed in background, track ends', () => {
   });
 });
 
+// ═════ D-7 / D-8: track-mode auto-advance (no Spotify context) ═══════════════
+// Root cause (device+Railway evidence): when session-playlist creation 403s, the
+// server sends contextUri=null, so Spotify plays ONE track and never walks our queue.
+// Manual playback stops at track end (D-7); each biometric re-serve plays one track
+// then silence (D-8). Fix: detect the finished track from the native PlayerState's
+// playback position and drive the SAME onTrackEnded advance context mode gets for free.
+describe('D-7/D-8: track-mode auto-advance when there is no Spotify context', () => {
+  it('a track finishing (paused at its end) auto-advances to the next track', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') }); // no contextUri → track mode
+    orch.syncToRemote('spotify:track:a', false, 1000, 200000);   // A is actively playing
+    orch.syncToRemote('spotify:track:a', true, 200000, 200000);  // A finished (paused at end)
+    await Promise.resolve();
+    expect(player.played).toEqual(['spotify:track:a', 'spotify:track:b']);
+    expect(orch.getNowPlaying().track?.id).toBe('b');
+    expect(orch.getNowPlaying().isPlaying).toBe(true);
+  });
+
+  it('also advances when Spotify resets position to 0 at end (after having played)', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') });
+    orch.syncToRemote('spotify:track:a', false, 120000, 200000); // played most of A
+    orch.syncToRemote('spotify:track:a', true, 0, 200000);       // reset to 0 + paused = ended
+    await Promise.resolve();
+    expect(player.played).toEqual(['spotify:track:a', 'spotify:track:b']);
+    expect(orch.getNowPlaying().track?.id).toBe('b');
+  });
+
+  it('a mid-track pause is mirrored, NOT mistaken for track-end (no false advance)', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') });
+    orch.syncToRemote('spotify:track:a', false, 1000, 200000);
+    orch.syncToRemote('spotify:track:a', true, 90000, 200000); // user paused mid-track
+    await Promise.resolve();
+    expect(player.played).toEqual(['spotify:track:a']); // still just A
+    expect(orch.getNowPlaying().track?.id).toBe('a');
+    expect(orch.getNowPlaying().isPlaying).toBe(false);
+  });
+
+  it('the last track finishing requests a fresh generation (never dead-ends)', async () => {
+    const { orch, socket } = build();
+    await orch.handlePlaylist({ tracks: list('a') });
+    orch.syncToRemote('spotify:track:a', false, 1000, 200000);
+    orch.syncToRemote('spotify:track:a', true, 200000, 200000);
+    await Promise.resolve();
+    expect(socket.ensureConnected).toHaveBeenCalled();
+    expect(socket.requestPlaylist).toHaveBeenCalledTimes(1);
+  });
+
+  it('degrades safely on a legacy native build (no position) — mirrors pause, no advance', async () => {
+    const { orch, player } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') });
+    orch.syncToRemote('spotify:track:a', false); // old 2-arg native event
+    orch.syncToRemote('spotify:track:a', true);  // paused, no position/duration
+    await Promise.resolve();
+    expect(player.played).toEqual(['spotify:track:a']); // no phantom advance
+    expect(orch.getNowPlaying().isPlaying).toBe(false);
+  });
+
+  it('does not double-advance in CONTEXT mode (Spotify owns auto-advance there)', async () => {
+    const { orch, player } = build();
+    // A context is present → Spotify walks the queue; our end-detection must stay out.
+    await orch.handlePlaylist({ tracks: list('a', 'b'), contextUri: 'spotify:playlist:ctx' });
+    player.played.length = 0;
+    orch.syncToRemote('spotify:track:a', true, 200000, 200000); // would look "ended"
+    await Promise.resolve();
+    expect(player.played).toEqual([]); // we issued no advance command
+  });
+});
+
 // ═════ ATTACK 4 (autonomous): stale track-end racing a manual skip ═══════════
 describe('ATTACK 4 (autonomous): a late track-end event must not double-skip', () => {
   it('ignores a track-end for a track the user already skipped past', async () => {

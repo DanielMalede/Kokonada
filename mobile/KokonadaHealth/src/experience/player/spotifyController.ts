@@ -33,7 +33,7 @@ export interface SpotifyControllerDeps {
   onError?: (err: unknown) => void;
   // D-1: every native PlayerState change (auto-advance, pause/resume, in-Spotify jump) —
   // forwarded so the playback orchestrator can keep its queue in lockstep with reality.
-  onRemoteState?: (state: { uri: string | null; isPaused: boolean }) => void;
+  onRemoteState?: (state: { uri: string | null; isPaused: boolean; positionMs?: number; durationMs?: number }) => void;
   maxReconnects?: number;
 }
 
@@ -52,7 +52,12 @@ export class SpotifyPlayerController {
     // D-1: surface the native PlayerState stream (normalized to { uri, isPaused }).
     if (this.deps.onRemoteState) {
       this.deps.remote.addListener('playerStateChanged', (s: any) =>
-        this.deps.onRemoteState?.({ uri: s?.trackUri ?? null, isPaused: !!s?.isPaused }));
+        this.deps.onRemoteState?.({
+          uri: s?.trackUri ?? null,
+          isPaused: !!s?.isPaused,
+          positionMs: typeof s?.positionMs === 'number' ? s.positionMs : undefined,
+          durationMs: typeof s?.durationMs === 'number' ? s.durationMs : undefined,
+        }));
     }
   }
 

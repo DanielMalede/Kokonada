@@ -159,6 +159,10 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
             val map = Arguments.createMap()
             map.putString("trackUri", state.track?.uri)
             map.putBoolean("isPaused", state.isPaused)
+            // D-7/D-8: forward playback position + track duration so RN can detect a
+            // finished track in the no-context fallback and auto-advance the queue.
+            map.putDouble("positionMs", state.playbackPosition.toDouble())
+            map.putDouble("durationMs", (state.track?.duration ?: 0L).toDouble())
             emit("playerStateChanged", map)
           }
           .setErrorCallback {
