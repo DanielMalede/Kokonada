@@ -113,13 +113,22 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
 
   // BPM entrainment (iso-principle): locomotion cadence-locks; otherwise blend
   // the intent anchor with where the body actually is, and drift from there.
+  // "Listen to your heart" / Live serves carry a synthetic bio:* moodKey — there the
+  // HEART is the intent, so the tempo must entrain to the actual HR (iso-principle). The
+  // watch's coarse activity usually defaults to 'resting'; the old 55/45 blend let that
+  // low-energy default bury an elevated HR (hr=115 → resting music). On the biometric path
+  // physio dominates so the tempo genuinely tracks the heart rate; a light intent nudge
+  // keeps it musical. An explicit locomotion activity still cadence-locks either way.
+  const biometricDriven = typeof moodKey === 'string' && moodKey.startsWith('bio:');
   let bpmCenter;
   if (CADENCE_BPM[activity] != null) {
     bpmCenter = CADENCE_BPM[activity];
   } else {
     const intentBpm = 70 + intentEnergy * 90;
     const physioBpm = 60 + E * 100;
-    bpmCenter = Math.round(0.55 * intentBpm + 0.45 * physioBpm);
+    bpmCenter = biometricDriven
+      ? Math.round(0.85 * physioBpm + 0.15 * intentBpm)
+      : Math.round(0.55 * intentBpm + 0.45 * physioBpm);
   }
   bpmCenter = Math.min(260, Math.max(30, bpmCenter));
 

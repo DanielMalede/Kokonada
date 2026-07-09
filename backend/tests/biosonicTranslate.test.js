@@ -69,6 +69,34 @@ describe('translate() — the well-rested control (same walk, different body)', 
   });
 });
 
+describe('translate() — "Listen to your heart" entrains tempo to the HR (biometric path)', () => {
+  // The synthetic biometric moodKey (bio:<band>:<activity>). The watch's coarse activity
+  // usually defaults to "resting"; the HEART must still drive the tempo (defect: hr=96
+  // served resting music because the 55/45 blend let the resting activity bury the HR).
+  const bio = (heartRate, activity = 'resting') =>
+    translate({ live: { heartRate, activity }, baselines: BASELINES, moodKey: `bio:active:${activity}` });
+
+  it('an elevated HR drives an ACTIVE tempo even when the watch reports "resting"', () => {
+    const out = bio(115, 'resting');
+    expect(out.tempoBand).toBe('active');
+    expect(out.bpmCenter).toBeGreaterThanOrEqual(105);
+  });
+
+  it('the tempo tracks the heart rate across bands (resting → active → peak)', () => {
+    const low = bio(70).bpmCenter;
+    const mid = bio(120).bpmCenter;
+    const high = bio(150).bpmCenter;
+    expect(mid).toBeGreaterThan(low);
+    expect(high).toBeGreaterThan(mid);
+    expect(bio(70).tempoBand).toBe('resting');
+    expect(bio(150).tempoBand).toBe('peak');
+  });
+
+  it('a real locomotion activity still cadence-locks (running overrides the HR blend)', () => {
+    expect(bio(150, 'running').bpmCenter).toBe(162);
+  });
+});
+
 describe('translate() — entrainment & context rules', () => {
   it('resting + calm intent lands in the 60–80 wind-down band', () => {
     const out = translate({
