@@ -103,11 +103,28 @@ describe('syncMedicalProfile (D-4a)', () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
-  it('fail-soft: a throwing fetch/upload degrades to error, never throws into bootstrap', async () => {
+  it('fail-soft: a throwing fetch degrades to error WITH the message (never throws into bootstrap)', async () => {
+    // The error detail is the #90 unblock — the silent catch used to swallow it.
     await expect(syncMedicalProfile({
       granted: async () => [{ recordType: 'HeartRate' }],
       fetch: async () => { throw new Error('HC read failed'); },
       minIntervalMs: 0,
-    })).resolves.toEqual({ synced: false, reason: 'error' });
+    })).resolves.toEqual({ synced: false, reason: 'error', error: 'HC read failed' });
+  });
+
+  it('a FAILED upload keeps the read counts + surfaces the status (the #90 mystery)', async () => {
+    // Root of #90: the watch data IS read, but the POST to /health/batch fails and the
+    // old silent catch hid it. Now the result carries the failure detail AND the counts
+    // that were read, so we can tell "read fine, upload broke" from "watch shared nothing".
+    const res = await syncMedicalProfile({
+      granted: async () => [{ recordType: 'HeartRate' }],
+      fetch: async () => HISTORY,
+      upload: async () => { throw new Error('Ingest failed (401) on chunk starting at 0'); },
+      minIntervalMs: 0,
+    });
+    expect(res.synced).toBe(false);
+    expect(res.reason).toBe('error');
+    expect(res.error).toContain('401');
+    expect(res.counts).toEqual({ heartRate: 1, hrv: 1, sleep: 0, restingHeartRate: 1 });
   });
 });

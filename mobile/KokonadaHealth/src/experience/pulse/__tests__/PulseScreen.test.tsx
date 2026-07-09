@@ -10,6 +10,14 @@ jest.mock('../pulseStateStore', () => {
   return { pulseStateStore: store };
 });
 
+// The last sync's per-type counts drive the honest gauge notes (#90). Mutable so a test
+// can model "watch shared restingHR/sleep but not HRV" and assert the right note per gauge.
+let mockSyncCounts: any = null;
+jest.mock('../../../health/healthSync', () => ({
+  getLastSyncCounts: () => mockSyncCounts,
+  subscribeSyncCounts: () => () => {},
+}));
+
 import { PulseScreen } from '../PulseScreen';
 import { pulseStateStore } from '../pulseStateStore';
 import { warmStore } from '../../../state/store';
@@ -32,6 +40,7 @@ async function render() {
 afterEach(() => {
   warmStore.getState().reset();
   pulseStateStore.setState({ data: null } as any);
+  mockSyncCounts = null;
   jest.clearAllMocks();
 });
 
@@ -67,6 +76,16 @@ describe('PulseScreen', () => {
     expect(all).toContain('68');
     expect(all).toContain('90');
     expect(all).toContain('confidence');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('gives honest gauge notes (#90): "not shared" vs "not in your profile yet"', async () => {
+    // The watch shared resting-HR + sleep but no HRV; none reached the profile (vitals null).
+    mockSyncCounts = { heartRate: 14087, hrv: 0, sleep: 53, restingHeartRate: 18 };
+    const tree = await render();
+    const all = texts(tree.toJSON()).join(' ');
+    expect(all).toContain('Not shared by your watch');       // HRV: genuinely absent (read 0)
+    expect(all).toContain('Not in your profile yet — re-sync'); // Resting HR/sleep: read but not ingested
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

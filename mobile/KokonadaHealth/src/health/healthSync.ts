@@ -27,6 +27,10 @@ export interface HealthSyncResult {
   accepted?: number;
   inserted?: number;
   counts?: SyncCounts;
+  // The specific failure (HTTP status / message). The old silent catch swallowed this,
+  // which is why #90 (Pulse gauges stuck on "—") stayed an undiagnosable mystery — the
+  // watch data was read but the upload failed with no trace. Surfaced to logcat + CTA.
+  error?: string;
 }
 
 // Tiny observable for the last sync's counts so PulseScreen can annotate gauges
@@ -83,6 +87,7 @@ async function rehydrateCounts(kv: HealthSyncDeps['kv']): Promise<void> {
 export async function syncMedicalProfile(deps: HealthSyncDeps = {}): Promise<HealthSyncResult> {
   const now = deps.now ?? Date.now;
   const minInterval = deps.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
+  let counts: SyncCounts | undefined; // hoisted so a failed UPLOAD still reports what was READ
   try {
     // Permission gate: never prompt from here — only sync if the user already granted
     // (the CTA runs requestHealthPermissions() first; bootstrap must stay silent).
@@ -100,7 +105,7 @@ export async function syncMedicalProfile(deps: HealthSyncDeps = {}): Promise<Hea
 
     const history = await (deps.fetch ?? fetchSixMonthHistory)();
     const samples = toBackendSamples(history);
-    const counts = countByType(samples);
+    counts = countByType(samples);
     console.log('[koko] healthSync read counts:', JSON.stringify(counts));
     if (samples.length === 0) {
       publishCounts(counts); // all-zero counts still inform the gauges
@@ -108,11 +113,17 @@ export async function syncMedicalProfile(deps: HealthSyncDeps = {}): Promise<Hea
     }
 
     const up = await (deps.upload ?? uploadSamples)(samples);
+    console.log(`[koko] healthSync uploaded accepted=${up.accepted} inserted=${up.inserted}`);
     deps.kv?.set(LAST_SYNC_KEY, String(now()));
     deps.kv?.set(LAST_COUNTS_KEY, JSON.stringify(counts));
     publishCounts(counts);
     return { synced: true, accepted: up.accepted, inserted: up.inserted, counts };
-  } catch {
-    return { synced: false, reason: 'error' };
+  } catch (e: any) {
+    // Un-swallow (#90): make the boundary failure visible. The counts (if we got as far
+    // as reading them) distinguish "read fine, upload broke" from "watch shared nothing".
+    const error = e?.message ? String(e.message) : String(e);
+    console.warn('[koko] healthSync FAILED —', error);
+    if (counts) publishCounts(counts); // let Pulse annotate what the watch actually shared
+    return counts ? { synced: false, reason: 'error', error, counts } : { synced: false, reason: 'error', error };
   }
 }
