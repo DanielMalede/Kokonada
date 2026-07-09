@@ -688,15 +688,22 @@ exports.watchHrIngest = async (req, res, next) => {
     const room = io?.sockets?.adapter?.rooms?.get(`user:${user._id}`);
     if (!room || room.size === 0) return res.status(409).json({ live: false });
 
-    // DELIBERATE LIMITATION: delivers to only the first socket in the room.
-    // Multi-tab delivery is intentionally deferred — issuing the same Spotify
-    // play command to every tab's independent Web Playback SDK device would
-    // cause duplicate playback. See final-hardening-workorder.md §Limitation 3.
-    const socketId = room.values().next().value;
-    const socket = io.sockets.sockets.get(socketId);
-    if (!socket) return res.status(409).json({ live: false });
-
-    handleBiometricReading(socket, 'garmin', { heartRate, activityType: activity, startTimeLocal }, { immediate: true });
+    // Deliver to EVERY live socket in the user's room (defect C — Live-mode intermittency).
+    // liveMode is per-socket state, set on whichever socket the app toggled Live on. The old
+    // "first socket only" (connection order) meant that after an app reconnect the reading
+    // could land on a stale/Manual socket whose recalibrateForBand early-returns, so the
+    // band-serve silently never fired — intermittently, depending on socket order. Each
+    // socket's own liveMode gate still decides whether it serves, so a Manual/idle socket
+    // just updates its HR and no-ops — no duplicate playback (the old web-multi-tab concern
+    // is moot for the single App-Remote mobile client).
+    let delivered = 0;
+    for (const socketId of room) {
+      const socket = io.sockets.sockets.get(socketId);
+      if (!socket) continue;
+      handleBiometricReading(socket, 'garmin', { heartRate, activityType: activity, startTimeLocal }, { immediate: true });
+      delivered += 1;
+    }
+    if (delivered === 0) return res.status(409).json({ live: false });
     return res.status(202).json({ ok: true });
   } catch (err) { next(err); }
 };
