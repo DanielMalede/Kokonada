@@ -415,6 +415,49 @@ async function batchAudioFeatures(accessToken, ids) {
   return results;
 }
 
+// Spotify returns album images largest-first. Pick the largest available (best for a
+// hero cover) and guard a missing/empty array — returns null when there is no artwork.
+function bestAlbumImage(images) {
+  if (!Array.isArray(images) || images.length === 0) return null;
+  return images[0]?.url ?? null;
+}
+
+/**
+ * On-demand album-art enrichment: batch-fetches up to 50 track ids per request (the
+ * /v1/tracks hard limit) and returns each track's best album-image URL. This is a
+ * read-only enrichment — NOT a schema/library change — so the caller can attach cover
+ * art to a just-built client playlist. Reuses the shared token/backoff (withRetry) with
+ * a bounded per-request timeout. Unknown ids simply don't appear; a track with no
+ * artwork yields imageUrl:null. The caller wraps this best-effort so a failure never
+ * blocks playlist delivery.
+ * @param {string} accessToken
+ * @param {string[]} ids
+ * @returns {Promise<Array<{ id: string, imageUrl: string|null }>>}
+ */
+async function getTracksByIds(accessToken, ids) {
+  const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
+  if (!list.length) return [];
+
+  const BATCH = 50;
+  const out = [];
+
+  for (let i = 0; i < list.length; i += BATCH) {
+    const batch = list.slice(i, i + BATCH);
+    const { data } = await withRetry(() =>
+      axios.get(`${BASE_API}/tracks`, {
+        headers: authHeader(accessToken),
+        params:  { ids: batch.join(',') },
+        timeout: 8_000,
+      })
+    );
+    for (const t of data.tracks ?? []) {
+      if (t?.id) out.push({ id: t.id, imageUrl: bestAlbumImage(t.album?.images) });
+    }
+  }
+
+  return out;
+}
+
 /**
  * Fetches Spotify track recommendations using AI-computed audio targets.
  * seed_artists from Gemini are display names, not Spotify IDs — we rely on
@@ -746,7 +789,7 @@ module.exports = {
   getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
   artistGenresAvailable, _resetArtistGenresCache, markDiscoveryUnavailable,
-  paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
+  paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getTracksByIds, getRecommendations,
   searchVibePlaylists, getVibePlaylistTracks, fetchVibeDiscovery, searchTrackUri,
   playTracks, getActiveDevice,
   saveTracks, removeSavedTracks, areTracksSaved,
