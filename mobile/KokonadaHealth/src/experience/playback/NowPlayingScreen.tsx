@@ -68,6 +68,13 @@ export function NowPlayingScreen() {
 
   const { track, isPlaying } = state;
 
+  // Graceful degradation (L2): a non-null but broken/404 cover URL (reachable via a stale
+  // shadow-buffer URL) must still fall back to the ♪ token placeholder — never a blank panel.
+  // The flag is keyed to the current imageUrl, so a new track re-attempts its own art.
+  const [coverFailed, setCoverFailed] = useState(false);
+  useEffect(() => { setCoverFailed(false); }, [track?.imageUrl]);
+  const showCover = !!track?.imageUrl && !coverFailed;
+
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
       {/* Album art — the REAL cover from the enriched track payload. A token-styled bio panel
@@ -79,13 +86,14 @@ export function NowPlayingScreen() {
           testID="now-playing-art"
           style={[styles.art, elevation.e2, { width: artSize, height: artSize, maxHeight: artSize, backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
         >
-          {track?.imageUrl ? (
+          {showCover ? (
             <Image
               testID="now-playing-cover"
-              source={{ uri: track.imageUrl }}
+              source={{ uri: track!.imageUrl! }}
               resizeMode="cover"
+              onError={() => setCoverFailed(true)}
               accessibilityRole="image"
-              accessibilityLabel={`Album art for ${track.title}`}
+              accessibilityLabel={`Album art for ${track!.title}`}
               style={[styles.cover, { borderRadius: radius.xl }]}
             />
           ) : (

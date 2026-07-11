@@ -66,6 +66,27 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  it('L2: falls back to the ♪ placeholder when the cover Image fails to load, then re-attempts on a new imageUrl', async () => {
+    nowPlayingStore.getState().set({ track: { ...TRACK, imageUrl: 'https://img/broken' }, isPlaying: true });
+    const tree = await render();
+    let img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
+    expect(img).toBeTruthy();
+
+    // Simulate a 404 / decode failure (reachable via a stale shadow-buffer URL).
+    await ReactTestRenderer.act(async () => { img.props.onError(); });
+    expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
+    expect(texts(tree.toJSON()).join(' ')).toContain('♪'); // degraded to the token placeholder
+
+    // A NEW track with a fresh imageUrl re-attempts its OWN art (failed flag reset).
+    await ReactTestRenderer.act(async () => {
+      nowPlayingStore.getState().set({ track: { ...TRACK, id: 't2', imageUrl: 'https://img/fresh' }, isPlaying: true });
+    });
+    img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
+    expect(img).toBeTruthy();
+    expect(img.props.source).toEqual({ uri: 'https://img/fresh' });
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('falls back to the token placeholder (no Image) when imageUrl is null', async () => {
     nowPlayingStore.getState().set({ track: { ...TRACK, imageUrl: null }, isPlaying: true });
     const tree = await render();
