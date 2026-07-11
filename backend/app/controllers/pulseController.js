@@ -60,16 +60,8 @@ exports.getPulseState = async (req, res, next) => {
   try {
     // Non-lean: the encryptedNumber getters must run to decrypt the vitals.
     const profile = await MedicalProfile.findOne({ userId: req.user._id });
-    const dto = toPulseStateDTO(profile);
-    // Diagnostic (Pulse-empty): the batch write logs profileMetrics.restingHeartRate but Pulse
-    // shows "—". This pins whether the profile is found, whether restingHR is stored (raw) yet
-    // reads back null (getter/decrypt), or whether the server returns it (→ a mobile fetch issue).
-    let rawRHR = 'n/a';
-    try { rawRHR = profile ? String(profile.get('restingHeartRate', null, { getters: false }) ?? 'null').slice(0, 14) : 'no-profile'; } catch { rawRHR = 'err'; }
-    console.warn(`[pulse/state] user=${req.user._id} found=${!!profile} profileId=${profile?._id} restingHR=${dto.vitals.restingHeartRate} rawRHR=${rawRHR} deep=${dto.sleep.lastNight.deep} rem=${dto.sleep.lastNight.rem} sampleCount=${dto.sampleCount}`);
-    res.json(dto);
+    res.json(toPulseStateDTO(profile));
   } catch (err) {
-    console.warn(`[pulse/state] FAILED user=${req.user?._id}: ${err.message}`);
     next(err);
   }
 };
