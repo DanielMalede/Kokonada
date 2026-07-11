@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, Animated, Easing, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
 import { nowPlayingStore } from './nowPlayingStore';
 import { orchestrator } from './playbackServices';
 import type { NowPlaying } from './playbackOrchestrator';
@@ -13,13 +13,14 @@ import { space, radius, type as typography, elevation } from '../../design/token
 //   • prev→skipPrev, play/pause→togglePlayPause, next→skipNext,
 //   • play/pause disabled with no track, and an empty state when nothing is playing.
 
-const ART_SIZE = 300;   // one-off cover dimension (no token for a hero cover)
-const PLAY_SIZE = 72;   // the primary transport affordance
+const ART_SIZE = 300;              // cover maximum on a roomy viewport (no token for a hero cover)
+const ART_VIEWPORT_FRACTION = 0.42; // never let the cover eat more than this of the viewport height
+const PLAY_SIZE = 72;              // the primary transport affordance
 
 // The one signature, shared with the Auth gate: a single soft cyan bloom that BREATHES
 // behind the cover — depth, not neon. Decorative (a11y-hidden) and stilled under reduced
 // motion (the breath duration collapses to 0, and the loop is torn down).
-function PlaybackAura({ color, reduced, breathMs }: { color: string; reduced: boolean; breathMs: number }) {
+function PlaybackAura({ color, reduced, breathMs, size }: { color: string; reduced: boolean; breathMs: number; size: number }) {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (reduced || breathMs <= 0) return; // reduced-motion → a still bloom, no loop
@@ -40,7 +41,7 @@ function PlaybackAura({ color, reduced, breathMs }: { color: string; reduced: bo
       pointerEvents="none"
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
-      style={[styles.aura, { backgroundColor: color, transform: [{ scale }], opacity: reduced ? 0.35 : opacity }]}
+      style={[styles.aura, { width: size, height: size, backgroundColor: color, transform: [{ scale }], opacity: reduced ? 0.35 : opacity }]}
     />
   );
 }
@@ -48,6 +49,12 @@ function PlaybackAura({ color, reduced, breathMs }: { color: string; reduced: bo
 export function NowPlayingScreen() {
   const { c } = useTheme();
   const { reduced, duration } = useMotion();
+  const { width, height } = useWindowDimensions();
+  // H1: bound the hero cover to the LIVE viewport so it can never overflow the non-scrolling
+  // artWrap and occlude the meta/transport rows. Responsive on width AND height — so portrait,
+  // landscape, split-screen and small phones all stay legible — capped at the design maximum on
+  // roomy screens. flexShrink on the art (below) is the final guarantee if space is still tight.
+  const artSize = Math.min(width - space.xl * 2, height * ART_VIEWPORT_FRACTION, ART_SIZE);
   const [state, setState] = useState<NowPlaying>({
     track: nowPlayingStore.getState().track,
     isPlaying: nowPlayingStore.getState().isPlaying,
@@ -66,8 +73,11 @@ export function NowPlayingScreen() {
       {/* Album art — QueueTrack carries no artwork URL, so a token-styled bio panel stands
           in for the cover (no invented track field). The bloom breathes behind it. */}
       <View style={styles.artWrap}>
-        <PlaybackAura color={c.accent.glow} reduced={reduced} breathMs={duration.breath} />
-        <View style={[styles.art, elevation.e2, { backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}>
+        <PlaybackAura color={c.accent.glow} reduced={reduced} breathMs={duration.breath} size={artSize} />
+        <View
+          testID="now-playing-art"
+          style={[styles.art, elevation.e2, { width: artSize, height: artSize, maxHeight: artSize, backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
+        >
           <Text
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
@@ -131,8 +141,8 @@ export function NowPlayingScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.xl, paddingTop: 96, paddingBottom: 56 },
   artWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', width: '100%' },
-  aura: { position: 'absolute', width: ART_SIZE, height: ART_SIZE, borderRadius: radius.pill },
-  art: { width: '100%', maxWidth: ART_SIZE, aspectRatio: 1, borderRadius: radius.xl, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  aura: { position: 'absolute', borderRadius: radius.pill },
+  art: { flexShrink: 1, borderRadius: radius.xl, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
   meta: { width: '100%', alignItems: 'center', paddingHorizontal: space.md },
   transport: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space['3xl'], marginTop: space['2xl'] },
   sideBtn: { padding: space.md, alignItems: 'center', justifyContent: 'center' },

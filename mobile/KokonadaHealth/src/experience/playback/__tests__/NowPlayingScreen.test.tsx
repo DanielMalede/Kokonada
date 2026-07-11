@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { Animated, AccessibilityInfo } from 'react-native';
+import { Animated, AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
 
 jest.setTimeout(20000); // cold-require headroom for CI (same rationale as ProfileScreen, #84)
 
@@ -142,6 +142,44 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     expect(loopHandle.start).toHaveBeenCalled();
     expect(loopHandle.stop).not.toHaveBeenCalled();
     loopSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // H1 (CONFIRMED HIGH): a fixed 300dp cover with no height bound overflows the non-scrolling
+  // flex container on short/landscape/split-screen viewports and occludes the transport row.
+  const artStyle = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    StyleSheet.flatten(tree.root.findAll((n) => n.props.testID === 'now-playing-art')[0].props.style) as any;
+
+  it('bounds the hero art on a short portrait viewport so the transport row is never occluded (H1)', async () => {
+    const dimSpy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 360, height: 640, scale: 2, fontScale: 2 } as any);
+    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+    const tree = await render();
+    const s = artStyle(tree);
+    expect(s.height).toBeLessThan(300);              // shrunk below the fixed maximum
+    expect(s.height).toBeLessThanOrEqual(640 * 0.42); // held within the vertical budget
+    expect(s.flexShrink).toBe(1);                     // and can give way further if space is tight
+    expect(typeof s.maxHeight).toBe('number');
+    expect(s.maxHeight).toBeLessThan(300);
+    dimSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('bounds the hero art in landscape / split-screen (height-bound, transport stays reachable) (H1)', async () => {
+    const dimSpy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 640, height: 360, scale: 2, fontScale: 2 } as any);
+    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+    const tree = await render();
+    const s = artStyle(tree);
+    expect(s.height).toBeLessThan(200);   // bound by viewport HEIGHT (not the 592 width, not the 300 cap)
+    dimSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('caps the hero art at the design maximum on a large viewport (no regression)', async () => {
+    const dimSpy = jest.spyOn(Dimensions, 'get').mockReturnValue({ width: 1200, height: 2000, scale: 3, fontScale: 1 } as any);
+    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+    const tree = await render();
+    expect(artStyle(tree).height).toBe(300); // capped at ART_SIZE
+    dimSpy.mockRestore();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
