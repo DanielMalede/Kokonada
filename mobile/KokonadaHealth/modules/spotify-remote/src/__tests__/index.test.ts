@@ -20,7 +20,7 @@ jest.mock('../NativeSpotifyRemote', () => ({
 // Note: jest's mock-hoisting only permits out-of-scope variables prefixed with
 // "mock" inside a jest.mock() factory, so this deviates from a plain `addListener`
 // name used in the task brief's snippet.
-const mockAddListener = jest.fn(() => ({ remove: jest.fn() }));
+const mockAddListener = jest.fn((_event: string, _cb: (p: any) => void) => ({ remove: jest.fn() }));
 jest.mock('react-native', () => ({
   NativeModules: { SpotifyRemote: {} },
   NativeEventEmitter: jest.fn().mockImplementation(() => ({ addListener: mockAddListener })),
