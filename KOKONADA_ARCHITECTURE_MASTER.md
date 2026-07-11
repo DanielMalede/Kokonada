@@ -141,8 +141,8 @@ future HealthKit) — Spotify for playback, YouTube as a data engine.
   open PR (`gh pr create --body-file …`) → run the **Shadow Audit** → fix findings →
   post the audit as a PR comment → **STOP and await merge approval**. Merges are
   `gh pr merge <N> --squash --delete-branch`.
-- **Git style:** short single-line commit messages, no body, no trailers. PR bodies end
-  with the Claude Code attribution footer.
+- **Git style:** short single-line commit messages, no body, no trailers. No AI/Claude/Anthropic
+  attribution in commits or PR bodies — ever.
 - The master plan (all 27 tasks, agents, sprint sequence) lives at
   `C:\Users\danie\.claude\plans\system-role-objective-eventual-shore.md`.
 

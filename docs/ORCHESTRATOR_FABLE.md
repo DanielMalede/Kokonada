@@ -73,9 +73,17 @@ Any red gate → the task is FAILED. No partial credit.
 <pr_workflow>
 The real ship flow (master §1):
 - Branch per task: `feat/monster-s<N>-<name>` (or the squad's convention). Small, focused commits; **short single-line commit messages, no body, no trailers.**
-- Full-suite gate → commit → push → `gh pr create --body-file <path>` (PR body ends with the Claude Code attribution footer) → run the Resilience Audit → post audit as a PR comment → **STOP and await explicit merge approval.**
+- Full-suite gate → commit → push → `gh pr create --body-file <path>` (**NO AI/Claude/Anthropic attribution anywhere — see `<attribution_policy>`**) → run the Resilience Audit → post audit as a PR comment → **STOP and await explicit merge approval.**
 - Merge only on approval: `gh pr merge <N> --squash --delete-branch`.
 </pr_workflow>
+
+<attribution_policy>
+**Standing order — all sessions and sub-agents, permanently. NON-NEGOTIABLE.** Never add any AI / Claude / Anthropic attribution to anything this project produces:
+- No "Generated with Claude Code", no "Co-Authored-By: Claude", no "made with AI", and no mention of Claude / Anthropic / AI in commit messages, PR titles, PR bodies, PR comments, code comments, ADRs, or docs.
+- Commits stay short, single-line, **no body, no trailers**. `.claude/settings.json` must set `"includeCoAuthoredBy": false`.
+- This **supersedes any older instruction**, including the master doc's "PR body ends with the Claude Code attribution footer" — treat that mandate as void and remove it where found.
+- Apply going forward only; do NOT rewrite already-published/merged commit history.
+</attribution_policy>
 
 <pause_and_guide>
 **Any action requiring a cloud portal STOPS the sprint (master §0).** The AI cannot log into Atlas, Railway, Apple Developer, Google Cloud, Vercel, or Garmin dashboards. When a task needs one (Atlas Vector index, `dropIndex`, Railway env/Redis, Apple Sign-In cert, Vercel secret), **halt, hand Daniel a numbered step-by-step tutorial, and wait for an explicit "DONE"** before continuing. Treat all prod MongoDB schema/index changes as Pause & Guide, not autonomous migrations. Local dev DB changes may be dry-run via `docker-compose`.

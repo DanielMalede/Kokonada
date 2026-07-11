@@ -17,6 +17,24 @@
 | D4 Railway hydration verify | **ACCEPT** (read-only check) |
 | D5 frontend/watch gap-scan | **ACCEPT** (on Opus, pre-Wave-2.5) |
 
+## EXTERNAL PREREQUISITES — Pause & Guide (Daniel provisions; no session can satisfy these from code)
+
+| ID | Prerequisite | Nature | Blocks |
+| :--- | :--- | :--- | :--- |
+| **PREREQ-iOS** | **iOS build environment** — iOS builds require **macOS + Xcode + an Apple Developer account with signing certificates and provisioning profiles.** The current dev environment is **Windows/Android-only, so iOS is not buildable today.** | **HARD external prerequisite — Pause & Guide.** Only Daniel can provision it; no agent/session can satisfy it from code. Do not attempt any iOS build, sign, or submit step until it exists. | A12 native "Sign in with Apple" button (2.1) · A13 iOS release-pipeline half (2.4) · Wave 3 iOS store submission + on-device iOS verification (3.1) |
+
+**🔒 BLOCKED on PREREQ-iOS** (do not attempt until provisioned) — the iOS-only portions of **2.1, 2.4, and 3.1** (flagged inline below).
+**✅ NOT blocked — proceed normally on Android:** free-tier Entitlements (**2.2** — RevenueCat is cross-platform) · a11y/i18n/RTL (**2.3** — folds into 2.8) · **Android** build, release pipeline, and Play submission (Android halves of 2.4 / 3.1).
+
+## OPEN DECISION — Launch platform (Daniel to rule; record the answer as an ADR)
+
+PREREQ-iOS forces a launch-platform choice. **Both options are presented for Daniel; do not decide by default.** Once ruled, record the decision as a new ADR under `docs/adr/`.
+
+| Option | What it means | Impact |
+| :--- | :--- | :--- |
+| **A — Android-first launch** | Move every iOS-blocked item (2.1 Apple Sign-In, 2.4 iOS pipeline half, 3.1 iOS submission + on-device iOS verify) into a dedicated **post-launch "iOS Parity" wave**; Wave 3 targets **Google Play only**. | **Unblocks launch without a Mac.** Ships on the current Windows/Android environment; iOS work is deferred, not lost. |
+| **B — Dual-platform launch** | **PREREQ-iOS becomes a hard blocker on Wave 3.** Daniel must provision **Mac + Xcode + Apple signing** before store submission. | Single simultaneous iOS + Android launch; Wave 3 **cannot submit** until the iOS environment exists. |
+
 ## Wave 0 — Baseline Integrity & Hygiene (first in queue; 0.1 is non-blocking since baseline is green)
 
 | # | Task | Package | Model | Acceptance (TDD) | Blast radius |
@@ -38,10 +56,10 @@
 
 | # | Task | Package | Model | Acceptance | Blast radius |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2.1 | **A12: Apple Sign-In** (App-Store-mandatory; Apple Developer portal steps = Pause & Guide) | mobile + backend | Opus | native flow + backend verify, tests green | auth plane — cross-package |
-| 2.2 | **A12: free-tier Entitlements scaffold** — RevenueCat fully-free tier, **NO paywall/subscription UI** (locked) | mobile | Sonnet | scaffold present, zero UI, tests pinned | mobile only |
-| 2.3 | **A12: privacy declarations + a11y/i18n/RTL completion** | mobile + docs | Sonnet | App Store nutrition / Play Data Safety drafted; a11y labels audited | mobile only |
-| 2.4 | **A13: release pipeline** (fastlane or EAS) + **crash/telemetry** (Sentry + structured logs + SLOs per `<engineering_excellence>`) | mobile + backend | Opus | build pipeline produces signed artifact; Sentry events visible | CI + runtime |
+| 2.1 | **A12: Apple Sign-In** — **🔒 BLOCKED on PREREQ-iOS.** The mobile native "Sign in with Apple" button is App-Store-mandatory **for iOS** and needs a Mac/Xcode build + Apple Developer portal steps (Pause & Guide). Backend `/api/auth/apple` verifier is **already built**, so only the native iOS button remains. | mobile + backend | Opus | native flow + backend verify, tests green | auth plane — cross-package |
+| 2.2 | **A12: free-tier Entitlements scaffold** — RevenueCat fully-free tier, **NO paywall/subscription UI** (locked). **✅ NOT blocked by PREREQ-iOS** — RevenueCat is cross-platform; proceed on Android. | mobile | Sonnet | scaffold present, zero UI, tests pinned | mobile only |
+| 2.3 | **A12: privacy declarations + a11y/i18n/RTL completion**. **✅ NOT blocked by PREREQ-iOS** — a11y/i18n/RTL folds into 2.8 and store-privacy drafts are docs; proceed on Android. | mobile + docs | Sonnet | App Store nutrition / Play Data Safety drafted; a11y labels audited | mobile only |
+| 2.4 | **A13: release pipeline** (fastlane or EAS) + **crash/telemetry** (Sentry + structured logs + SLOs per `<engineering_excellence>`). **✅ Android half proceeds normally; 🔒 the iOS build + signing half is BLOCKED on PREREQ-iOS.** Crash/telemetry is platform-agnostic and not blocked. | mobile + backend | Opus | Android pipeline produces signed artifact + Sentry events visible; iOS artifact deferred to PREREQ-iOS | CI + runtime |
 | 2.5 | **Web Sunset** — delete `frontend/src` (native equivalents exist); keep a minimal static `frontend/` + `FRONTEND_URL` set for the Vercel domain (OG/AASA). **D5 gap-scan DONE 2026-07-08** (`docs/WEB_SUNSET_D5_GAP_SCAN_2026-07-08.md`). **HARD PREREQ: migrate `WatchTokenCard` mint/copy/revoke UI into mobile first** (only copyable `whr_` watch-token UI; fold into 2.8 Integrations "Privacy Vault"). Then refresh `watch/` docs + `HrStreamer.mc` status strings. NB: OAuth→`kokonada://` bridge is backend-only (already survives); no AASA files exist today. | frontend + mobile | Sonnet | web build green; grep proves zero refs to removed surfaces; watch token provisionable on mobile; `FRONTEND_URL` still set | frontend + watch-provisioning |
 | 2.6 | **D1: resume frontend-tooling foundation** — rebase `worktree-frontend-tooling-foundation` (8 commits: Tamagui/Moti/Lottie/haptics/vector-icons/bootsplash) onto post-#77 main; on-device smoke; PR. Check file overlap vs 2.2/2.3 before parallel dispatch | mobile | Sonnet | mobile suite green; bootsplash + tamagui verified on device | mobile build config |
 | 2.7 | **D2-followup: `classifyAndHydrate` prod run** (destructive non-music purge shipped in #78) — **Pause & Guide, not yet authorized.** Do NOT run without Daniel's explicit go-ahead; verify UnclassifiedTrack GDPR cascade + backup posture first | ops (destructive) | Opus | Daniel authorizes; purge count reported; reversible-by-rehydrate confirmed | **prod library data** |
@@ -74,7 +92,7 @@ Sequencing per the spec's §0 guardrails:
 
 | # | Task | Notes |
 | :--- | :--- | :--- |
-| 3.1 | Store submission (A13) | needs 2.1–2.4 + Daniel portal actions (Pause & Guide) |
+| 3.1 | Store submission (A13) | needs 2.1–2.4 + Daniel portal actions (Pause & Guide). **✅ Google Play submission proceeds on Android. 🔒 iOS App Store submission + on-device iOS verification are BLOCKED on PREREQ-iOS.** Final shape depends on the Launch-platform decision above — Option A defers iOS to a post-launch "iOS Parity" wave (Wave 3 = Play only); Option B makes PREREQ-iOS a hard blocker on this task. |
 | 3.2 | Test-depth outer loop | contract tests (Spotify/Groq adapters), one Detox/Maestro E2E (login→generate→play→logout), biometric soak test |
 | 3.3 | Cost guardrails + cache hit-rate metrics | Groq TPM tracking (free 6000 TPM ceiling), alarm on anomaly |
 | 3.4 | **DEFECT — root-cause `ProfileScreen` identity-from-/me Node-22 async-flush** ([issue #84](https://github.com/DanielMalede/Kokonada/issues/84)) | Auth-critical: treat as a **potential real auth-timing race**, not a CI-version artifact. Mobile CI is pinned to Node 24 as an **interim** unblock only ([ADR 0007](adr/0007-mobile-ci-node-24-interim.md)); the actual fix is deterministic identity loading, verified by driving the real flow. Must be closed before store submission (3.1). |
