@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Image, Pressable, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
 import { nowPlayingStore } from './nowPlayingStore';
 import { orchestrator } from './playbackServices';
 import type { NowPlaying } from './playbackOrchestrator';
@@ -70,21 +70,33 @@ export function NowPlayingScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
-      {/* Album art — QueueTrack carries no artwork URL, so a token-styled bio panel stands
-          in for the cover (no invented track field). The bloom breathes behind it. */}
+      {/* Album art — the REAL cover from the enriched track payload. A token-styled bio panel
+          stands in whenever imageUrl is null (a non-Spotify track, or artwork sourcing that
+          degraded gracefully). The bloom breathes behind it. */}
       <View style={styles.artWrap}>
         <PlaybackAura color={c.accent.glow} reduced={reduced} breathMs={duration.breath} size={artSize} />
         <View
           testID="now-playing-art"
           style={[styles.art, elevation.e2, { width: artSize, height: artSize, maxHeight: artSize, backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
         >
-          <Text
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={{ fontSize: 64, color: c.content.secondary }}
-          >
-            ♪
-          </Text>
+          {track?.imageUrl ? (
+            <Image
+              testID="now-playing-cover"
+              source={{ uri: track.imageUrl }}
+              resizeMode="cover"
+              accessibilityRole="image"
+              accessibilityLabel={`Album art for ${track.title}`}
+              style={[styles.cover, { borderRadius: radius.xl }]}
+            />
+          ) : (
+            <Text
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={{ fontSize: 64, color: c.content.secondary }}
+            >
+              ♪
+            </Text>
+          )}
         </View>
       </View>
 
@@ -102,6 +114,33 @@ export function NowPlayingScreen() {
         >
           {track ? track.artist : 'Generate a vibe to start'}
         </Text>
+
+        {/* Mix-receipt — the honest "why this track": familiar/discovery role + the mood/heart
+            trigger and target tempo, all derived server-side from real signals. Hidden when the
+            track carries no receipt (e.g. a legacy payload). */}
+        {track?.receipt ? (
+          <View
+            testID="now-playing-receipt"
+            style={[styles.receipt, { backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
+            accessibilityRole="text"
+            accessibilityLabel={`Why this track: ${track.receipt.label}${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
+          >
+            <Text
+              numberOfLines={1}
+              style={{ fontSize: typography.size.caption, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading, color: c.content.primary, textAlign: 'center' }}
+            >
+              {track.receipt.label}
+            </Text>
+            {track.receipt.detail ? (
+              <Text
+                numberOfLines={1}
+                style={{ marginTop: space.xs, fontSize: typography.size.caption, color: c.content.secondary, textAlign: 'center' }}
+              >
+                {track.receipt.detail}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.transport}>
@@ -142,8 +181,10 @@ const styles = StyleSheet.create({
   screen: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.xl, paddingTop: 96, paddingBottom: 56 },
   artWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', width: '100%' },
   aura: { position: 'absolute', borderRadius: radius.pill },
-  art: { flexShrink: 1, borderRadius: radius.xl, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center' },
+  art: { flexShrink: 1, borderRadius: radius.xl, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  cover: { width: '100%', height: '100%' },
   meta: { width: '100%', alignItems: 'center', paddingHorizontal: space.md },
+  receipt: { marginTop: space.md, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
   transport: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space['3xl'], marginTop: space['2xl'] },
   sideBtn: { padding: space.md, alignItems: 'center', justifyContent: 'center' },
   playBtn: { width: PLAY_SIZE, height: PLAY_SIZE, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },

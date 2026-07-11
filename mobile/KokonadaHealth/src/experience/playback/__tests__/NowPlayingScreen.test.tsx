@@ -18,7 +18,7 @@ const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
 const togglePlayPause = orchestrator.togglePlayPause as jest.Mock;
 
-const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma' };
+const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma', imageUrl: null, receipt: null };
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -54,6 +54,42 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     const all = texts(tree.toJSON()).join(' ');
     expect(all).toContain('Deep Current');
     expect(all).toContain('Bioluma');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('renders the REAL album cover Image when the track carries an imageUrl', async () => {
+    nowPlayingStore.getState().set({ track: { ...TRACK, imageUrl: 'https://img/cover' }, isPlaying: true });
+    const tree = await render();
+    const img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
+    expect(img).toBeTruthy();
+    expect(img.props.source).toEqual({ uri: 'https://img/cover' });
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('falls back to the token placeholder (no Image) when imageUrl is null', async () => {
+    nowPlayingStore.getState().set({ track: { ...TRACK, imageUrl: null }, isPlaying: true });
+    const tree = await render();
+    expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
+    expect(texts(tree.toJSON()).join(' ')).toContain('♪'); // placeholder glyph still shown
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('renders the mix-receipt (label + detail) when the track carries one', async () => {
+    nowPlayingStore.getState().set({
+      track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } },
+      isPlaying: true,
+    });
+    const tree = await render();
+    const all = texts(tree.toJSON()).join(' ');
+    expect(all).toContain('New discovery');
+    expect(all).toContain('Matched to your mood');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('shows no receipt row when the track has no receipt', async () => {
+    nowPlayingStore.getState().set({ track: { ...TRACK, receipt: null }, isPlaying: true });
+    const tree = await render();
+    expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt')).toHaveLength(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
