@@ -18,6 +18,8 @@ export interface SpotifyRemoteLike {
   pause(): Promise<void>;
   resume(): Promise<void>;
   getPlayerState?(): Promise<{ isPaused: boolean; track?: { uri: string } }>;
+  // Client-side cover art for the current track (App Remote imagesApi → file:// path).
+  getTrackImage?(imageUri: string): Promise<string>;
   addListener(event: string, cb: (...args: any[]) => void): void;
   removeAllListeners?(): void;
 }
@@ -33,7 +35,7 @@ export interface SpotifyControllerDeps {
   onError?: (err: unknown) => void;
   // D-1: every native PlayerState change (auto-advance, pause/resume, in-Spotify jump) —
   // forwarded so the playback orchestrator can keep its queue in lockstep with reality.
-  onRemoteState?: (state: { uri: string | null; isPaused: boolean; positionMs?: number; durationMs?: number }) => void;
+  onRemoteState?: (state: { uri: string | null; isPaused: boolean; positionMs?: number; durationMs?: number; imageUri?: string | null }) => void;
   maxReconnects?: number;
 }
 
@@ -57,6 +59,8 @@ export class SpotifyPlayerController {
           isPaused: !!s?.isPaused,
           positionMs: typeof s?.positionMs === 'number' ? s.positionMs : undefined,
           durationMs: typeof s?.durationMs === 'number' ? s.durationMs : undefined,
+          // The current track's art URI → the now-playing cover resolver (decoupled from the queue).
+          imageUri: typeof s?.imageUri === 'string' ? s.imageUri : undefined,
         }));
     }
   }

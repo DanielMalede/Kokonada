@@ -141,6 +141,22 @@ describe('SpotifyPlayerController.onRemoteState (D-1 event normalization)', () =
     listeners.get('playerStateChanged')?.({ trackUri: null, isPaused: true });
     expect(onRemoteState).toHaveBeenCalledWith({ uri: null, isPaused: true });
   });
+
+  it('forwards the current track imageUri from the native event (Now Playing cover source)', () => {
+    const listeners = new Map<string, (p?: any) => void>();
+    const remote: any = {
+      connect: jest.fn(), disconnect: jest.fn(), isConnectedAsync: jest.fn(),
+      playUri: jest.fn(), pause: jest.fn(), resume: jest.fn(),
+      addListener: (e: string, cb: any) => listeners.set(e, cb),
+      removeAllListeners: jest.fn(),
+    };
+    const onRemoteState = jest.fn();
+    // eslint-disable-next-line no-new
+    new SpotifyPlayerController({ remote, getToken: async () => 'ready', onRemoteState });
+
+    listeners.get('playerStateChanged')?.({ trackUri: 'spotify:track:c', isPaused: false, imageUri: 'spotify:image:cc' });
+    expect(onRemoteState).toHaveBeenCalledWith({ uri: 'spotify:track:c', isPaused: false, imageUri: 'spotify:image:cc' });
+  });
 });
 
 // ── D-1 Option A: context playback (the session playlist owns the queue) ────────

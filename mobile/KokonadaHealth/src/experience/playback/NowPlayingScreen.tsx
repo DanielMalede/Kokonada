@@ -55,31 +55,33 @@ export function NowPlayingScreen() {
   // landscape, split-screen and small phones all stay legible — capped at the design maximum on
   // roomy screens. flexShrink on the art (below) is the final guarantee if space is still tight.
   const artSize = Math.min(width - space.xl * 2, height * ART_VIEWPORT_FRACTION, ART_SIZE);
-  const [state, setState] = useState<NowPlaying>({
+  const [state, setState] = useState<NowPlaying & { coverUri: string | null }>({
     track: nowPlayingStore.getState().track,
     isPlaying: nowPlayingStore.getState().isPlaying,
+    coverUri: nowPlayingStore.getState().coverUri,
   });
 
   useEffect(() => {
-    const sync = (s: any) => setState({ track: s.track, isPlaying: s.isPlaying });
+    const sync = (s: any) => setState({ track: s.track, isPlaying: s.isPlaying, coverUri: s.coverUri });
     sync(nowPlayingStore.getState());
     return nowPlayingStore.subscribe(sync); // cleanup returns the unsubscribe (S10-1)
   }, []);
 
-  const { track, isPlaying } = state;
+  const { track, isPlaying, coverUri } = state;
 
-  // Graceful degradation (L2): a non-null but broken/404 cover URL (reachable via a stale
-  // shadow-buffer URL) must still fall back to the ♪ token placeholder — never a blank panel.
-  // The flag is keyed to the current imageUrl, so a new track re-attempts its own art.
+  // Graceful degradation (L2): a non-null but broken/undecodable cover file must still fall
+  // back to the ♪ token placeholder — never a blank panel. The flag is keyed to the current
+  // coverUri (resolved from the live App Remote state), so a new track re-attempts its art.
   const [coverFailed, setCoverFailed] = useState(false);
-  useEffect(() => { setCoverFailed(false); }, [track?.imageUrl]);
-  const showCover = !!track?.imageUrl && !coverFailed;
+  useEffect(() => { setCoverFailed(false); }, [coverUri]);
+  const showCover = !!coverUri && !coverFailed;
 
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
-      {/* Album art — the REAL cover from the enriched track payload. A token-styled bio panel
-          stands in whenever imageUrl is null (a non-Spotify track, or artwork sourcing that
-          degraded gracefully). The bloom breathes behind it. */}
+      {/* Album art — the REAL cover for the CURRENTLY PLAYING track, resolved client-side from
+          the live App Remote player state (no Web API). A token-styled bio panel stands in
+          whenever coverUri is null (not yet resolved, a non-Spotify track, or a failed fetch).
+          The bloom breathes behind it. */}
       <View style={styles.artWrap}>
         <PlaybackAura color={c.accent.glow} reduced={reduced} breathMs={duration.breath} size={artSize} />
         <View
@@ -89,7 +91,7 @@ export function NowPlayingScreen() {
           {showCover ? (
             <Image
               testID="now-playing-cover"
-              source={{ uri: track!.imageUrl! }}
+              source={{ uri: coverUri! }}
               resizeMode="cover"
               onError={() => setCoverFailed(true)}
               accessibilityRole="image"

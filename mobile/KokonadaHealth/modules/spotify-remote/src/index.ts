@@ -7,7 +7,7 @@ const PLAYER_STATE_CHANGED = 'playerStateChanged';
 // positionMs/durationMs are present on current native builds and drive track-mode
 // auto-advance (D-7/D-8); optional so a legacy build (which emits only trackUri+isPaused)
 // still type-checks and degrades to pause-mirroring.
-export interface RemotePlayerState { trackUri: string | null; isPaused: boolean; positionMs?: number; durationMs?: number; }
+export interface RemotePlayerState { trackUri: string | null; isPaused: boolean; positionMs?: number; durationMs?: number; imageUri?: string | null; }
 
 // A single emitter over the native module. NativeModules.SpotifyRemote exists at
 // runtime once the TurboModule is registered; the emitter is only constructed lazily.
@@ -36,6 +36,9 @@ export const SpotifyRemote = {
   setRepeat: (mode: number): Promise<void> => Native.setRepeat(mode),
   getPlayerState: (): Promise<{ isPaused: boolean; trackUri: string | null }> =>
     Native.getPlayerState(),
+  // Client-side album art for the CURRENT track (App Remote imagesApi → local file path),
+  // exactly like the web read cover art off the Playback SDK — no Web API / no 403.
+  getTrackImage: (imageUri: string): Promise<string> => Native.getTrackImage(imageUri),
   onRemoteDisconnected: (cb: () => void): (() => void) => {
     const sub = getEmitter().addListener(REMOTE_DISCONNECTED, cb);
     return () => sub.remove();
@@ -49,6 +52,8 @@ export const SpotifyRemote = {
         isPaused: !!p?.isPaused,
         positionMs: typeof p?.positionMs === 'number' ? p.positionMs : undefined,
         durationMs: typeof p?.durationMs === 'number' ? p.durationMs : undefined,
+        // The current track's art URI (Now Playing cover source, resolved via getTrackImage).
+        imageUri: typeof p?.imageUri === 'string' ? p.imageUri : undefined,
       }));
     return () => sub.remove();
   },
