@@ -2,6 +2,7 @@ package com.kokonada.spotifyremote
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -17,9 +18,13 @@ import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.android.appremote.api.error.CouldNotFindSpotifyApp
 import com.spotify.android.appremote.api.error.NotLoggedInException
 import com.spotify.android.appremote.api.error.UserNotAuthorizedException
+import com.spotify.protocol.types.Image
+import com.spotify.protocol.types.ImageUri
 import com.spotify.sdk.android.auth.AuthorizationClient
 import com.spotify.sdk.android.auth.AuthorizationRequest
 import com.spotify.sdk.android.auth.AuthorizationResponse
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 // Extends the codegen-generated abstract spec NativeSpotifyRemoteSpec (produced from
@@ -163,6 +168,11 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
             // finished track in the no-context fallback and auto-advance the queue.
             map.putDouble("positionMs", state.playbackPosition.toDouble())
             map.putDouble("durationMs", (state.track?.duration ?: 0L).toDouble())
+            // The CURRENT track's album-art URI. RN resolves it to a local file via
+            // getTrackImage() (imagesApi) and renders it on Now Playing — client-side, no
+            // Web API (the backend /v1/tracks art path 403s in Dev Mode). Same source the
+            // web read cover art from off the Playback SDK's player state.
+            map.putString("imageUri", state.track?.imageUri?.raw)
             // Diagnostic (defect A): proves this callback keeps firing (not a fire-once
             // zombie subscription) and reveals the real end-of-track position values that
             // the RN end-detection keys on. Filter logcat for tag SpotifyRemote.
@@ -288,6 +298,36 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(map)
       }
       .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  // Resolve the current track's album art CLIENT-SIDE via App Remote's imagesApi (the same
+  // channel the web read cover art from off the Playback SDK) and hand RN a local file path —
+  // never base64 over the bridge (image bloat). The backend /v1/tracks art call 403s in Dev
+  // Mode; this path makes NO Web API call at all. Off-main: getImage returns a CallResult.
+  override fun getTrackImage(imageUri: String, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    if (imageUri.isBlank()) return promise.reject("IMAGE_FETCH_FAILED", "empty imageUri")
+    // Cache HIT: the bitmap for this imageUri was already decoded + written — return it
+    // immediately (no re-decode, no re-fetch). Filename keys on a stable hash of the URI.
+    val cacheFile = File(reactContext.cacheDir, "spotify-cover-${Integer.toHexString(imageUri.hashCode())}.jpg")
+    if (cacheFile.exists() && cacheFile.length() > 0L) {
+      return promise.resolve("file://${cacheFile.absolutePath}")
+    }
+    remote.imagesApi.getImage(ImageUri(imageUri), Image.Dimension.LARGE)
+      .setResultCallback { bitmap ->
+        try {
+          FileOutputStream(cacheFile).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out) }
+          promise.resolve("file://${cacheFile.absolutePath}")
+        } catch (e: Exception) {
+          Log.w(NAME, "getTrackImage write failed: ${e.message}")
+          promise.reject("IMAGE_WRITE_FAILED", e.message, e)
+        }
+      }
+      .setErrorCallback {
+        Log.w(NAME, "getTrackImage fetch failed: ${it.message}")
+        promise.reject("IMAGE_FETCH_FAILED", it.message, it)
+      }
   }
 
   override fun disconnect(promise: Promise) {
