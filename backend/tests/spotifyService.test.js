@@ -411,3 +411,37 @@ describe('saveTracks / removeSavedTracks / areTracksSaved', () => {
     expect(axios.get).not.toHaveBeenCalled();
   });
 });
+
+// ── Album-art enrichment (Wave 2.8 — Now Playing cover) ────────────────────────
+
+describe('getTracksByIds (on-demand album-art batch fetch)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('GETs /v1/tracks with comma-joined ids and returns id → best album image', async () => {
+    axios.get.mockResolvedValue({ data: { tracks: [
+      { id: 'a', album: { images: [{ url: 'https://img/a-big', width: 640 }, { url: 'https://img/a-sm', width: 64 }] } },
+      { id: 'b', album: { images: [] } },
+    ] } });
+
+    const out = await spotify.getTracksByIds('tok', ['a', 'b']);
+
+    expect(axios.get.mock.calls[0][0]).toContain('/tracks');
+    expect(axios.get.mock.calls[0][1].params.ids).toBe('a,b');
+    expect(out).toEqual([
+      { id: 'a', imageUrl: 'https://img/a-big' }, // largest (first) album image
+      { id: 'b', imageUrl: null },                // no artwork → null, never throws
+    ]);
+  });
+
+  it('batches ids in groups of 50 (the /v1/tracks hard limit)', async () => {
+    axios.get.mockResolvedValue({ data: { tracks: [] } });
+    const ids = Array.from({ length: 120 }, (_, i) => `id${i}`);
+    await spotify.getTracksByIds('tok', ids);
+    expect(axios.get).toHaveBeenCalledTimes(3); // 50 + 50 + 20
+  });
+
+  it('no-ops on an empty id list without calling the API', async () => {
+    expect(await spotify.getTracksByIds('tok', [])).toEqual([]);
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+});
