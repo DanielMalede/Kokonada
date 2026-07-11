@@ -6,9 +6,12 @@
 // not sit in the database as plaintext. (audit F3)
 //
 // Caveats (documented intentionally):
-//  - Setters run on doc construction / .create() / .save() / insertMany — NOT on
-//    findOneAndUpdate($set). Write encrypted fields via document saves, or encrypt
-//    explicitly before an update operator.
+//  - Mongoose 9 runs setters on findOneAndUpdate/updateOne($set) too — so pass the RAW
+//    value in an update operator and let the setter encrypt ONCE. Pre-encrypting into
+//    $set DOUBLE-encrypts (getter then peels one layer → Number(ciphertext)=NaN). (This
+//    bit metricStore's Health-Connect ingest — Pulse showed "—" despite a good sync.)
+//    NB: fields stored as a PLAIN String that you encrypt yourself (e.g. MedicalProfile
+//    stateVector.status) have NO setter — keep encrypting those explicitly.
 //  - The getter is tolerant of legacy plaintext (pre-encryption rows): if a value
 //    fails to decrypt it is returned/parsed as-is, enabling a gradual migration.
 //  - Schemas using these fields should set { toJSON: { getters: true },

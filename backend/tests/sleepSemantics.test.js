@@ -17,7 +17,6 @@ jest.mock('../app/queues/queue', () => ({
 
 const MedicalProfile = require('../app/models/MedicalProfile');
 const { enqueue } = require('../app/queues/queue');
-const { decrypt } = require('../app/utils/encryption');
 const { computeLastNightSleep } = require('../app/services/medicalProfileService');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
 
@@ -71,13 +70,15 @@ describe('persistMetrics — lastNightSleep persistence', () => {
     sleep('sleepRem', 45, '2026-07-01T06:00:00Z'),
   ];
 
-  it('persists encrypted latest-night sums alongside the median baseline', async () => {
+  it('persists RAW latest-night sums alongside the median baseline (the setter encrypts once)', async () => {
     await persistMetrics('u1', batch);
 
     const $set = MedicalProfile.findOneAndUpdate.mock.calls[0][1].$set;
-    expect(decrypt($set['lastNightSleep.deep'])).toBe('60');
-    expect(decrypt($set['lastNightSleep.light'])).toBe('200');
-    expect(decrypt($set['lastNightSleep.rem'])).toBe('45');
+    // RAW numbers — Mongoose 9 runs the encryptedNumber setter on $set (encrypts once).
+    // Pre-encrypting double-encrypted, so the getter read NaN and Pulse showed "—".
+    expect($set['lastNightSleep.deep']).toBe(60);
+    expect($set['lastNightSleep.light']).toBe(200);
+    expect($set['lastNightSleep.rem']).toBe(45);
     expect($set['lastNightSleep.date']).toEqual(new Date('2026-07-01'));
     expect($set.sleepUpdatedAt).toBeInstanceOf(Date);
     // The median baseline fields still write (backward-compatible).

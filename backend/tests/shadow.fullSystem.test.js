@@ -145,7 +145,7 @@ describe('ATTACK 3 — zero-knowledge leak hunting', () => {
     expect(Object.keys(out.state).sort()).toEqual(['exertion', 'recovery', 'stress']);
   });
 
-  it('every biometric value written by ingestion is ciphertext or a date — no plaintext vitals in the DB write', async () => {
+  it('ingestion writes raw numbers/dates, and the schema encrypts every vital AT REST — no plaintext at rest', async () => {
     const MedicalProfile = require('../app/models/MedicalProfile');
     await persistMetrics('u1', [
       sleepMetric('sleepDeep', 60), sleepMetric('sleepLight', 200),
@@ -153,21 +153,21 @@ describe('ATTACK 3 — zero-knowledge leak hunting', () => {
     ]);
 
     const $set = MedicalProfile.findOneAndUpdate.mock.calls[0][1].$set;
+    const RealMedicalProfile = jest.requireActual('../app/models/MedicalProfile');
+    const probe = new RealMedicalProfile(); // real schema — its setter is what encrypts at rest
     for (const [field, value] of Object.entries($set)) {
-      const isDate = value instanceof Date;
-      const isCiphertext = typeof value === 'string' && Buffer.from(value, 'base64').length >= 28; // iv+tag minimum
-      expect(isDate || isCiphertext).toBe(true);
-      if (isCiphertext) {
-        // Deterministic zero-knowledge proof: the stored value is REAL ciphertext that
-        // round-trips through decrypt() — never a plaintext echo. (The old substring
-        // scan for the raw digits was flaky: base64 of a random IV can contain those
-        // digits purely by chance. QA4 Q3 — flaky-assertion kill.)
-        expect(value).not.toMatch(/^\d+$/);            // never bare digits
-        const plain = decrypt(value);
-        expect(String(plain)).not.toBe(value);          // stored form ≠ plaintext
-        expect(Number.isFinite(Number(plain))).toBe(true); // decrypts to a real number
-      }
-      expect(String(field)).not.toMatch(/heartRate.*plain|raw/i);
+      if (value instanceof Date) continue; // dates (sleepUpdatedAt, lastNightSleep.date) aren't secret
+      // The $set carries RAW numbers: Mongoose 9 runs the encryptedNumber setter on $set and
+      // encrypts ONCE (pre-encrypting double-encrypted → getter read NaN → Pulse "—").
+      expect(typeof value).toBe('number');
+      expect(Number.isFinite(value)).toBe(true);
+      // Zero-knowledge STILL holds on the persisted form: setting the raw value on a real doc
+      // yields REAL ciphertext (iv+tag), never the plaintext number, and round-trips back.
+      probe.set(field, value);
+      const stored = String(probe.get(field, null, { getters: false }));
+      expect(stored).not.toMatch(/^-?\d+$/);                              // never bare digits at rest
+      expect(Buffer.from(stored, 'base64').length).toBeGreaterThanOrEqual(28); // real iv+tag ciphertext
+      expect(Number(decrypt(stored))).toBe(value);                        // decrypts back to the value
     }
   });
 });
