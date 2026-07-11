@@ -22,7 +22,7 @@ export function useTheme(): { name: ThemeName; c: ColorScheme } {
 
 /** Motion durations for the active reduced-motion preference. When the OS asks for
  *  reduced motion, transitions collapse and the ambient "breath" stills. */
-export function useMotion(): { reduced: boolean; duration: typeof motion.duration } {
+export function useMotion(): { reduced: boolean; duration: Record<keyof typeof motion.duration, number> } {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
     let alive = true;

@@ -56,6 +56,12 @@ describe.each(themes)('theme "%s" — content passes AA on every surface', (name
     expect(contrastRatio(c.state[k], c.surface.base)).toBeGreaterThanOrEqual(AA_LARGE);
   });
 
+  // Error copy renders as NORMAL-size text (SignInScreen's alert <Text> has no large size),
+  // so danger must clear AA-normal (4.5) on base in BOTH themes — not just AA-large.
+  it('state.danger is readable as NORMAL error text on base ≥ AA-normal', () => {
+    expect(contrastRatio(c.state.danger, c.surface.base)).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+
   it('hairline is a real separator, not invisible, and not louder than the accent', () => {
     const r = contrastRatio(c.surface.hairline, c.surface.base);
     expect(r).toBeGreaterThan(1.05);

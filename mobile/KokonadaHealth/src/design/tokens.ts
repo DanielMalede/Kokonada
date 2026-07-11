@@ -84,7 +84,7 @@ const light: ColorScheme = {
     glowInk: '#0A7A6B',     // deeper teal fill so white onAccent passes AA
     bloom: '#3D6BE0',       // deeper periwinkle for light bg
   },
-  state: { success: '#1E9E6A', warning: '#B87A18', danger: '#D64545', info: '#0C8C7B' },
+  state: { success: '#1E9E6A', warning: '#B87A18', danger: '#B4322F', info: '#0C8C7B' },
 };
 
 export const colors = { dark, light } as const;
