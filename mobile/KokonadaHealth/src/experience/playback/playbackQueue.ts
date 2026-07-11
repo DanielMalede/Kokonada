@@ -2,15 +2,35 @@
 // tracks (no Spotify URI) are data, not playable, so navigation skips them. The
 // cursor never runs off either edge.
 
+// The "why this track" mix-receipt built by the backend from real signals (familiar vs
+// discovery + the mood/heart trigger and target tempo). Rendered on Now Playing.
+export interface TrackReceipt {
+  label: string;
+  detail?: string;
+}
+
 export interface QueueTrack {
   id: string;
   uri: string | null; // Spotify URI, or null for a non-playable (data-only) track
   title: string;
   artist: string;
+  imageUrl: string | null;      // album cover URL, or null → the client shows a token placeholder
+  receipt: TrackReceipt | null; // mix-receipt, or null when a legacy payload omits it
 }
 
 function isPlayable(t: QueueTrack): boolean {
   return typeof t.uri === 'string' && t.uri.length > 0;
+}
+
+// Defensive: a legacy payload (pre-Wave-2.8) carries no imageUrl/receipt, and a
+// malformed value must never crash the queue — both default to null. A receipt is kept
+// only when it is an object with a non-empty string label (detail stays optional).
+function sanitizeReceipt(r: unknown): TrackReceipt | null {
+  if (!r || typeof r !== 'object') return null;
+  const label = (r as any).label;
+  if (typeof label !== 'string' || label.length === 0) return null;
+  const detail = (r as any).detail;
+  return typeof detail === 'string' && detail.length > 0 ? { label, detail } : { label };
 }
 
 function sanitize(raw: unknown[]): QueueTrack[] {
@@ -21,6 +41,8 @@ function sanitize(raw: unknown[]): QueueTrack[] {
       uri: typeof t.uri === 'string' && t.uri.length > 0 ? t.uri : null,
       title: typeof (t as any).title === 'string' ? (t as any).title : t.id,
       artist: typeof (t as any).artist === 'string' ? (t as any).artist : '',
+      imageUrl: typeof (t as any).imageUrl === 'string' && (t as any).imageUrl.length > 0 ? (t as any).imageUrl : null,
+      receipt: sanitizeReceipt((t as any).receipt),
     }));
 }
 

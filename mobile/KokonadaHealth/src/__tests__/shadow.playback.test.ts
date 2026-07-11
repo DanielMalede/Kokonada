@@ -10,7 +10,7 @@ import { PlaybackOrchestrator, type PlaybackSocket, type PlaybackPlayer } from '
 import { PlaybackQueue, type QueueTrack } from '../experience/playback/playbackQueue';
 import { AuthSession } from '../auth/authSession';
 
-const T = (id: string): QueueTrack => ({ id, uri: `spotify:track:${id}`, title: id, artist: 'x' });
+const T = (id: string): QueueTrack => ({ id, uri: `spotify:track:${id}`, title: id, artist: 'x', imageUrl: null, receipt: null });
 const list = (...ids: string[]) => ids.map(T);
 
 function makeScheduler() {

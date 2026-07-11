@@ -4,7 +4,7 @@
 
 import { PlaybackQueue, type QueueTrack } from '../playbackQueue';
 
-const T = (id: string, uri: string | null = `spotify:track:${id}`): QueueTrack => ({ id, uri, title: id, artist: 'x' });
+const T = (id: string, uri: string | null = `spotify:track:${id}`): QueueTrack => ({ id, uri, title: id, artist: 'x', imageUrl: null, receipt: null });
 
 describe('PlaybackQueue — load & current', () => {
   it('loads a playlist and points at the first track', () => {
@@ -73,6 +73,39 @@ describe('PlaybackQueue — skip unplayable tracks', () => {
     const q = new PlaybackQueue();
     q.load([T('a'), T('b', null)]);
     expect(q.hasNext()).toBe(false); // only unplayable ahead
+  });
+});
+
+describe('PlaybackQueue — artwork + receipt payload (Wave 2.8)', () => {
+  it('carries imageUrl and receipt through sanitize onto the current track', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      imageUrl: 'https://img/a', receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } } as any]);
+    const cur = q.current();
+    expect(cur?.imageUrl).toBe('https://img/a');
+    expect(cur?.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your mood · 128 BPM' });
+  });
+
+  it('defaults imageUrl and receipt to null when a legacy payload omits them (backward compatible)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x' } as any]); // no imageUrl / receipt
+    const cur = q.current();
+    expect(cur?.imageUrl).toBeNull();
+    expect(cur?.receipt).toBeNull();
+  });
+
+  it('keeps a receipt with only a label (detail is optional)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', receipt: { label: 'Familiar favorite' } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'Familiar favorite' });
+  });
+
+  it('drops a malformed imageUrl / receipt defensively (never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', imageUrl: 123, receipt: 'nope' } as any]);
+    const cur = q.current();
+    expect(cur?.imageUrl).toBeNull();
+    expect(cur?.receipt).toBeNull();
   });
 });
 
