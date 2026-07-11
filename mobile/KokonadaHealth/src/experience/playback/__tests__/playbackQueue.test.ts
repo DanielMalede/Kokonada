@@ -4,7 +4,7 @@
 
 import { PlaybackQueue, type QueueTrack } from '../playbackQueue';
 
-const T = (id: string, uri: string | null = `spotify:track:${id}`): QueueTrack => ({ id, uri, title: id, artist: 'x', imageUrl: null, receipt: null });
+const T = (id: string, uri: string | null = `spotify:track:${id}`): QueueTrack => ({ id, uri, title: id, artist: 'x', receipt: null });
 
 describe('PlaybackQueue — load & current', () => {
   it('loads a playlist and points at the first track', () => {
@@ -76,22 +76,24 @@ describe('PlaybackQueue — skip unplayable tracks', () => {
   });
 });
 
-describe('PlaybackQueue — artwork + receipt payload (Wave 2.8)', () => {
-  it('carries imageUrl and receipt through sanitize onto the current track', () => {
+describe('PlaybackQueue — receipt payload (Wave 2.8; cover now comes from the SDK, not the queue)', () => {
+  it('carries the receipt through sanitize onto the current track, and carries NO imageUrl', () => {
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
       imageUrl: 'https://img/a', receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } } as any]);
     const cur = q.current();
-    expect(cur?.imageUrl).toBe('https://img/a');
     expect(cur?.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your mood · 128 BPM' });
+    // The cover is decoupled — it is resolved from the live App Remote player state, so the
+    // queue track must not carry imageUrl (a stale server URL would 403 / be wrong).
+    expect(cur).not.toHaveProperty('imageUrl');
   });
 
-  it('defaults imageUrl and receipt to null when a legacy payload omits them (backward compatible)', () => {
+  it('defaults the receipt to null when a legacy payload omits it (backward compatible)', () => {
     const q = new PlaybackQueue();
-    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x' } as any]); // no imageUrl / receipt
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x' } as any]); // no receipt
     const cur = q.current();
-    expect(cur?.imageUrl).toBeNull();
     expect(cur?.receipt).toBeNull();
+    expect(cur).not.toHaveProperty('imageUrl');
   });
 
   it('keeps a receipt with only a label (detail is optional)', () => {
@@ -100,12 +102,10 @@ describe('PlaybackQueue — artwork + receipt payload (Wave 2.8)', () => {
     expect(q.current()?.receipt).toEqual({ label: 'Familiar favorite' });
   });
 
-  it('drops a malformed imageUrl / receipt defensively (never crashes)', () => {
+  it('drops a malformed receipt defensively (never crashes)', () => {
     const q = new PlaybackQueue();
-    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', imageUrl: 123, receipt: 'nope' } as any]);
-    const cur = q.current();
-    expect(cur?.imageUrl).toBeNull();
-    expect(cur?.receipt).toBeNull();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', receipt: 'nope' } as any]);
+    expect(q.current()?.receipt).toBeNull();
   });
 });
 
