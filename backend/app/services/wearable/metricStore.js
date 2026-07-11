@@ -8,7 +8,6 @@
 
 const BiometricLog   = require('../../models/BiometricLog');
 const MedicalProfile = require('../../models/MedicalProfile');
-const { encrypt }    = require('../../utils/encryption');
 const { aggregateProfileMetrics, computeLastNightSleep } = require('../medicalProfileService');
 const { enqueue } = require('../../queues/queue');
 const { QUEUES } = require('../../queues/definitions');
@@ -55,12 +54,15 @@ async function persistMetrics(userId, metrics) {
     if (hrDocs.length) await BiometricLog.insertMany(hrDocs, { ordered: false });
   }
 
-  // Profile scalars → aggregate (median) → upsert. Encrypt explicitly: encryptedNumber
-  // setters do NOT run on findOneAndUpdate($set). (audit F3)
+  // Profile scalars → aggregate (median) → upsert. Pass RAW values: Mongoose 9 DOES run
+  // the encryptedNumber setter on findOneAndUpdate($set), so it encrypts once. Pre-encrypting
+  // here (the old audit-F3 pattern, correct for Mongoose <9 where update setters didn't run)
+  // DOUBLE-encrypted every scalar — the getter then decrypted one layer and Number(ciphertext)
+  // was NaN, so Pulse showed "—" for restingHR/sleep despite a successful ingest.
   const profileMetrics = aggregateProfileMetrics(metrics);
   const $set = {};
   for (const [field, value] of Object.entries(profileMetrics)) {
-    $set[METRIC_FIELD_PATHS[field] || field] = encrypt(String(value));
+    $set[METRIC_FIELD_PATHS[field] || field] = value;
   }
 
   // Latest-night sums (the sleep-DEBT input) alongside the median baseline.
@@ -76,9 +78,9 @@ async function persistMetrics(userId, metrics) {
       existingDate = existing?.lastNightSleep?.date ? new Date(existing.lastNightSleep.date) : null;
     } catch { /* treat as no existing night */ }
     if (!existingDate || existingDate <= nightDate) {
-      $set['lastNightSleep.deep']  = encrypt(String(lastNight.deep));
-      $set['lastNightSleep.light'] = encrypt(String(lastNight.light));
-      $set['lastNightSleep.rem']   = encrypt(String(lastNight.rem));
+      $set['lastNightSleep.deep']  = lastNight.deep;   // raw — the Mongoose 9 setter encrypts once
+      $set['lastNightSleep.light'] = lastNight.light;
+      $set['lastNightSleep.rem']   = lastNight.rem;
       $set['lastNightSleep.date']  = nightDate;
       $set.sleepUpdatedAt = new Date();
     }
