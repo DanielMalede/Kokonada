@@ -354,6 +354,34 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
   });
 
+  // M1: artwork must yield to the generation wall-clock — a fixed +5s could tip a slow-but-
+  // successful run past GENERATION_TIMEOUT_MS DURING enrichment, voiding the built playlist.
+  it('M1: SKIPS artwork enrichment (no batch call) and still delivers when little wall-clock remains', async () => {
+    process.env.GENERATION_TIMEOUT_MS = '1000'; // 1s budget − safety margin ⇒ no room for artwork
+    spotify.getTracksByIds.mockResolvedValue([{ id: 'lib-1', imageUrl: 'https://img/lib-1' }]);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(spotify.getTracksByIds).not.toHaveBeenCalled(); // artwork yielded to delivery
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call).toBeDefined();
+    expect(call[1].tracks.every(t => t.imageUrl === null)).toBe(true);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+    delete process.env.GENERATION_TIMEOUT_MS;
+  });
+
+  it('M1: RUNS artwork enrichment when ample wall-clock remains', async () => {
+    process.env.GENERATION_TIMEOUT_MS = '30000';
+    spotify.getTracksByIds.mockResolvedValue([{ id: 'lib-1', imageUrl: 'https://img/lib-1' }]);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(spotify.getTracksByIds).toHaveBeenCalled();
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call[1].tracks.find(t => t.id === 'lib-1').imageUrl).toBe('https://img/lib-1');
+    delete process.env.GENERATION_TIMEOUT_MS;
+  });
+
   it('passes familiar and discovery counts in playlist_ready', async () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
@@ -649,6 +677,23 @@ describe('error handling', () => {
     const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
     expect(call[1].tracks.length).toBeGreaterThan(0);
     expect(call[1].familiar).toBe(call[1].tracks.length);
+  });
+
+  // L1: the generic double-failure fallback is an off-vibe top-affinity dump — its receipt
+  // must NOT overclaim a mood/heart match it never targeted (honest data, VISION).
+  it('L1: generic library-fallback receipts make NO mood/heart claim (honest degradation)', async () => {
+    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState()); // no taps ⇒ generic (not mood) fallback
+
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call[1].fallback).toBe(true);
+    for (const t of call[1].tracks) {
+      const detail = t.receipt?.detail ?? '';
+      expect(detail).not.toMatch(/mood/i);
+      expect(detail).not.toMatch(/heart rate/i);
+    }
   });
 
   it('emits playlist_error (not playlist_ready) when Gemini fails and library is empty', async () => {
