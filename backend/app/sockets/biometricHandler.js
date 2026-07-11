@@ -153,7 +153,10 @@ const ARTWORK_BUDGET_MS = Number(process.env.ARTWORK_BUDGET_MS) || 5_000;
 // GENERATION_TIMEOUT_MS — which would void the already-built playlist_ready. (M1)
 const ARTWORK_WALLCLOCK_MARGIN_MS = 1_500;
 async function enrichArtwork(clientTracks, provider, accessToken, { startedAt, budgetMs } = {}) {
-  if (provider !== 'spotify' || !accessToken || !Array.isArray(clientTracks)) return;
+  if (provider !== 'spotify' || !accessToken || !Array.isArray(clientTracks)) {
+    console.warn(`[artwork] skip-guard provider=${provider} token=${accessToken ? 'set' : 'null'} tracks=${Array.isArray(clientTracks) ? clientTracks.length : 'n/a'}`); // DIAG
+    return;
+  }
   const spotifyId = (uri) => (/^spotify:track:(.+)$/.exec(uri || '') || [])[1] || null;
   const ids = [];
   for (const t of clientTracks) {
@@ -161,25 +164,33 @@ async function enrichArtwork(clientTracks, provider, accessToken, { startedAt, b
     const sid = spotifyId(t.uri);
     if (sid) ids.push(sid);
   }
-  if (ids.length === 0) return;
+  if (ids.length === 0) {
+    console.warn(`[artwork] skip-no-spotify-ids tracks=${clientTracks.length} sampleUri=${clientTracks[0] && clientTracks[0].uri}`); // DIAG
+    return;
+  }
   // Bound the fetch by whatever of the generation wall-clock REMAINS (never the fixed 5s
   // alone). Too little left ⇒ SKIP entirely and deliver now: a null cover degrades to the
   // token placeholder, always safe. Artwork is strictly nice-to-have; delivery wins. (M1)
   const remaining = (typeof startedAt === 'number' && typeof budgetMs === 'number')
     ? budgetMs - (Date.now() - startedAt) - ARTWORK_WALLCLOCK_MARGIN_MS
     : ARTWORK_BUDGET_MS;
-  if (remaining <= 500) return;
+  if (remaining <= 500) {
+    console.warn(`[artwork] SKIP-wallclock remaining=${Math.round(remaining)}ms elapsed=${typeof startedAt === 'number' ? Date.now() - startedAt : 'n/a'}ms budgetMs=${budgetMs} ids=${ids.length}`); // DIAG
+    return;
+  }
   const budget = Math.min(ARTWORK_BUDGET_MS, remaining);
   try {
     const results = await withTimeout(spotify.getTracksByIds(accessToken, ids), budget, 'artwork');
     const byId = new Map((Array.isArray(results) ? results : []).map((r) => [r.id, r.imageUrl]));
+    let attached = 0; // DIAG
     for (const t of clientTracks) {
       if (!t || t.imageUrl) continue;
       const sid = spotifyId(t.uri);
-      if (sid && byId.has(sid)) t.imageUrl = byId.get(sid) ?? null;
+      if (sid && byId.has(sid)) { t.imageUrl = byId.get(sid) ?? null; if (t.imageUrl) attached++; }
     }
+    console.warn(`[artwork] done budget=${Math.round(budget)}ms ids=${ids.length} results=${Array.isArray(results) ? results.length : 'n/a'} attached=${attached}`); // DIAG
   } catch (e) {
-    log(`[generate] artwork enrichment skipped: ${e.message}`);
+    console.warn(`[artwork] FAILED ids=${ids.length} err=${e.message}`); // DIAG
   }
 }
 
