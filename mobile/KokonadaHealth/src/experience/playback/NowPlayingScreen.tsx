@@ -74,7 +74,11 @@ export function NowPlayingScreen() {
   // coverUri (resolved from the live App Remote state), so a new track re-attempts its art.
   const [coverFailed, setCoverFailed] = useState(false);
   useEffect(() => { setCoverFailed(false); }, [coverUri]);
-  const showCover = !!coverUri && !coverFailed;
+  // B1: gate the cover on TRACK metadata too. coverUri is set on its own channel (the
+  // resolver), decoupled from the track, so coverUri!=null && track==null is reachable
+  // (foreign playback at boot with an empty queue). The cover's a11y label reads
+  // track.title, so a cover with no track would null-deref — show the placeholder instead.
+  const showCover = !!coverUri && !coverFailed && !!track;
 
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>

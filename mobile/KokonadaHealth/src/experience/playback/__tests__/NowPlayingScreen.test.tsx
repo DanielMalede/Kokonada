@@ -92,6 +92,21 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  it('B1: a coverUri with NO track (foreign playback at boot, empty queue) shows the placeholder and does NOT crash', async () => {
+    // The cover is set on its own channel (resolver) decoupled from the track, so
+    // coverUri!=null && track==null is reachable — Spotify already playing a foreign song
+    // at boot with an empty queue. The cover's a11y label reads track.title, so rendering
+    // the <Image> here would null-deref. Gate the cover on track metadata.
+    nowPlayingStore.getState().set({ track: null, isPlaying: false });
+    nowPlayingStore.getState().setCover('file:///cover/foreign.jpg');
+    const tree = await render();
+    expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
+    const all = texts(tree.toJSON()).join(' ');
+    expect(all).toContain('♪');                    // placeholder shown, no crash
+    expect(all).toContain('Nothing playing yet');  // empty state intact
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('falls back to the token placeholder (no Image) when coverUri is null', async () => {
     nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
     nowPlayingStore.getState().setCover(null);
