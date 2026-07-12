@@ -6,7 +6,13 @@
 // not fatal). Runs OFF the serving path. Deps injected for testing; defaults hit real infra.
 const corpusIngest = require('../services/discovery/corpusIngest');
 
-const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+// Default throttle: empty-string and negative both fall back to the safe 250ms so a bulk run
+// can never accidentally disable pacing and flood the queue/Groq (undefined/non-numeric too).
+function _throttleDefault() {
+  const raw = process.env.BACKFILL_THROTTLE_MS;
+  const n = Number(raw);
+  return (raw === undefined || raw === '' || !Number.isFinite(n) || n < 0) ? 250 : n;
+}
 
 async function _defaultCursor() {
   const MusicProfile = require('../models/MusicProfile');
@@ -19,7 +25,7 @@ async function _defaultCursor() {
 async function runBackfill({
   ingest = corpusIngest.ingestLibrary,
   cursorFactory = _defaultCursor,
-  throttleMs = num(process.env.BACKFILL_THROTTLE_MS, 250),
+  throttleMs = _throttleDefault(),
   sleep = (ms) => new Promise(r => setTimeout(r, ms)),
 } = {}) {
   let profiles = 0, tracks = 0;

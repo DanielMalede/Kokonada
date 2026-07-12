@@ -41,4 +41,23 @@ describe('runBackfill', () => {
     expect(sleep).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledWith(250);
   });
+
+  it('a degenerate BACKFILL_THROTTLE_MS (empty or negative) still paces (falls back to default)', async () => {
+    const saved = process.env.BACKFILL_THROTTLE_MS;
+    try {
+      for (const bad of ['', '-5']) {
+        process.env.BACKFILL_THROTTLE_MS = bad;
+        const sleep = jest.fn(async () => {});
+        await runBackfill({
+          ingest: async (lib) => ({ catalogued: lib.length }),
+          cursorFactory: async function* () { yield { library: [{ recordingKey: 'a' }] }; },
+          sleep,
+        });
+        expect(sleep).toHaveBeenCalled();
+      }
+    } finally {
+      if (saved === undefined) delete process.env.BACKFILL_THROTTLE_MS;
+      else process.env.BACKFILL_THROTTLE_MS = saved;
+    }
+  });
 });
