@@ -7,6 +7,7 @@ const { inferArtistGenres } = require('./geminiEngine');
 const { cleanYouTubeArtist } = require('./crossPlatform');
 const { canonicalKey } = require('./identity/trackIdentity');
 const featureService = require('./features/featureService');
+const corpusIngest = require('./discovery/corpusIngest');
 const musicClassifier = require('./musicClassifier');
 const unclassifiedRepo = require('../repositories/unclassifiedRepo');
 
@@ -596,7 +597,7 @@ async function buildProfile(userId, user, onProgress = () => {}) {
   // Dark launch: queue audio-feature hydration for the freshly built library.
   // Fire-and-forget — profile building never waits on (or fails with) the store.
   featureService.enqueueHydration(library).catch(() => {});
-  require('./discovery/corpusIngest').ingestLibrary(library).catch(() => {}); // grow the discovery corpus
+  corpusIngest.ingestLibrary(library).catch(() => {}); // grow the discovery corpus
 
   return profile;
 }
