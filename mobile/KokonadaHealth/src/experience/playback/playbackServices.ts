@@ -34,7 +34,12 @@ export const player = new SpotifyPlayerController({
   getToken: getSpotifyReadiness,
   // Surface every player lifecycle transition into an observable store so the
   // Profile screen can show a live Spotify connection badge. (QA4 Suspect #4)
-  onStateChange: (status) => playerStatusStore.getState().set(status),
+  onStateChange: (status) => {
+    playerStatusStore.getState().set(status);
+    // Clear the cover dedupe latch on disconnect (native drives this via remoteDisconnected)
+    // so a reconnect re-fetches the current cover instead of being deduped into staleness (M4).
+    if (status === 'disconnected') coverResolver.reset();
+  },
   // D-1: native PlayerState stream → orchestrator lockstep (auto-advance updates the
   // queue + now-playing; pause/resume in the Spotify app mirrors into our UI).
   // `orchestrator` is declared below — the closure resolves at event time, well after init.

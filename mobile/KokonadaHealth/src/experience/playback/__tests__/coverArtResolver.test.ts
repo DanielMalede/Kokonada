@@ -62,16 +62,18 @@ describe('CoverArtResolver — dedupe by imageUri (fetch once per track change)'
   });
 });
 
-describe('CoverArtResolver — caching + stale-fetch resilience', () => {
-  it('re-selecting a previously-resolved track serves the cached file instantly (no second fetch)', async () => {
+describe('CoverArtResolver — no JS cache (native owns the file cache) + stale-fetch resilience', () => {
+  // M4: the resolver keeps NO JS cache — native caches to a file keyed by the uri and
+  // self-heals after a cacheDir purge via its own exists()+length check. The JS-side dedupe
+  // is purely the lastImageUri latch (prevents per-tick re-fetch), so A→B→A re-fetches A.
+  it('re-selecting a track RE-FETCHES via native (no stale JS cache short-circuit)', async () => {
     const { resolver, getTrackImage, setCover } = build();
-    resolver.onImageUri('img-a'); await flush(); // fetch A
-    resolver.onImageUri('img-b'); await flush(); // fetch B
-    expect(getTrackImage).toHaveBeenCalledTimes(2);
+    resolver.onImageUri('img-a'); await flush(); // fetch A (1)
+    resolver.onImageUri('img-b'); await flush(); // fetch B (2)
     setCover.mockClear();
-    resolver.onImageUri('img-a'); // back to A — cached, no fetch
-    expect(getTrackImage).toHaveBeenCalledTimes(2);
-    expect(setCover).toHaveBeenCalledWith('file:///cover/img-a.jpg');
+    resolver.onImageUri('img-a'); await flush(); // back to A — re-fetch (3), native cache-hits the file
+    expect(getTrackImage).toHaveBeenCalledTimes(3);
+    expect(setCover).toHaveBeenLastCalledWith('file:///cover/img-a.jpg');
   });
 
   it('a fetch that resolves AFTER the track changed again does not overwrite the current cover', async () => {
@@ -88,5 +90,47 @@ describe('CoverArtResolver — caching + stale-fetch resilience', () => {
     await flush();
     expect(setCover).not.toHaveBeenCalledWith('file:///cover/a.jpg');
     expect(setCover).toHaveBeenLastCalledWith('file:///cover/b.jpg');
+  });
+
+  // L5(c): A→B→A where B resolves LATE must not clobber the now-current A cover.
+  it('A→B→A: a late B resolution never overwrites the re-selected A cover', async () => {
+    const { resolver, getTrackImage, setCover } = build();
+    let resolveB!: (v: string) => void;
+    getTrackImage
+      .mockResolvedValueOnce('file:///cover/a1.jpg')                                  // A (1)
+      .mockImplementationOnce(() => new Promise<string>((r) => { resolveB = r; }))    // B hangs (2)
+      .mockResolvedValueOnce('file:///cover/a2.jpg');                                 // A again (3)
+    resolver.onImageUri('img-a'); await flush();
+    resolver.onImageUri('img-b'); // B in-flight (hangs)
+    resolver.onImageUri('img-a'); await flush(); // A is current again
+    expect(setCover).toHaveBeenLastCalledWith('file:///cover/a2.jpg');
+    resolveB('file:///cover/b.jpg'); await flush(); // late B — stale
+    expect(setCover).not.toHaveBeenCalledWith('file:///cover/b.jpg');
+    expect(setCover).toHaveBeenLastCalledWith('file:///cover/a2.jpg');
+  });
+
+  // L5(b): a failed fetch must NOT permanently stick — re-selecting the same imageUri later
+  // re-fetches (no JS cache marks it as failed/absent).
+  it('a rejected fetch clears the cover, and a later re-select of the same imageUri re-fetches', async () => {
+    const { resolver, getTrackImage, setCover } = build();
+    getTrackImage.mockRejectedValueOnce(new Error('imagesApi boom')); // only the first (A) fails
+    resolver.onImageUri('img-a'); await flush();
+    expect(setCover).toHaveBeenLastCalledWith(null);
+    resolver.onImageUri('img-b'); await flush(); // navigate away
+    resolver.onImageUri('img-a'); await flush(); // back to A — re-fetch, now succeeds
+    expect(getTrackImage).toHaveBeenCalledTimes(3);
+    expect(setCover).toHaveBeenLastCalledWith('file:///cover/img-a.jpg');
+  });
+
+  // M4: reset() clears the dedupe latch (wired from the remoteDisconnected path) so a
+  // reconnect re-fetches the current cover instead of being deduped into staleness.
+  it('reset() clears the latch so the same imageUri re-fetches after a disconnect', async () => {
+    const { resolver, getTrackImage } = build();
+    resolver.onImageUri('img-a'); await flush(); // fetch (1)
+    resolver.onImageUri('img-a');                // deduped — no fetch
+    expect(getTrackImage).toHaveBeenCalledTimes(1);
+    resolver.reset();
+    resolver.onImageUri('img-a'); await flush(); // latch cleared → re-fetch (2)
+    expect(getTrackImage).toHaveBeenCalledTimes(2);
   });
 });
