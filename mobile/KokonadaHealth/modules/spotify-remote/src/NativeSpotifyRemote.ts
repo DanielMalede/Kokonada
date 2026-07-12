@@ -19,6 +19,9 @@ export interface Spec extends TurboModule {
   setShuffle(enabled: boolean): Promise<void>;
   setRepeat(mode: number): Promise<void>;
   getPlayerState(): Promise<{ isPaused: boolean; trackUri: string | null }>;
+  // Resolve the current track's album art (from the App Remote imagesApi, client-side —
+  // no Web API) to a local file:// cache path. Rejects when not connected / fetch fails.
+  getTrackImage(imageUri: string): Promise<string>;
   addListener(eventName: string): void;
   removeListeners(count: number): void;
 }

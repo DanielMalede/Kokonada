@@ -18,7 +18,7 @@ const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
 const togglePlayPause = orchestrator.togglePlayPause as jest.Mock;
 
-const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma', imageUrl: null, receipt: null };
+const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma', receipt: null };
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -42,9 +42,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(false);
   nowPlayingStore.getState().set({ track: null, isPlaying: false });
+  nowPlayingStore.getState().setCover(null); // cover is decoupled from the track — reset it too
 });
 afterEach(() => {
   nowPlayingStore.getState().set({ track: null, isPlaying: false });
+  nowPlayingStore.getState().setCover(null);
 });
 
 describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', () => {
@@ -57,38 +59,57 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('renders the REAL album cover Image when the track carries an imageUrl', async () => {
-    nowPlayingStore.getState().set({ track: { ...TRACK, imageUrl: 'https://img/cover' }, isPlaying: true });
+  it('renders the REAL album cover Image from the resolved coverUri (App Remote SDK, not the queue)', async () => {
+    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+    nowPlayingStore.getState().setCover('file:///cover/live.jpg');
     const tree = await render();
     const img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
     expect(img).toBeTruthy();
-    expect(img.props.source).toEqual({ uri: 'https://img/cover' });
+    expect(img.props.source).toEqual({ uri: 'file:///cover/live.jpg' });
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('L2: falls back to the ♪ placeholder when the cover Image fails to load, then re-attempts on a new imageUrl', async () => {
-    nowPlayingStore.getState().set({ track: { ...TRACK, imageUrl: 'https://img/broken' }, isPlaying: true });
+  it('L2: falls back to the ♪ placeholder when the cover Image fails to load, then re-attempts on a new coverUri', async () => {
+    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+    nowPlayingStore.getState().setCover('file:///cover/broken.jpg');
     const tree = await render();
     let img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
     expect(img).toBeTruthy();
 
-    // Simulate a 404 / decode failure (reachable via a stale shadow-buffer URL).
+    // Simulate a decode failure on the resolved cover file.
     await ReactTestRenderer.act(async () => { img.props.onError(); });
     expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
     expect(texts(tree.toJSON()).join(' ')).toContain('♪'); // degraded to the token placeholder
 
-    // A NEW track with a fresh imageUrl re-attempts its OWN art (failed flag reset).
+    // A NEW track resolves a fresh cover → the failed flag resets and the Image re-attempts.
     await ReactTestRenderer.act(async () => {
-      nowPlayingStore.getState().set({ track: { ...TRACK, id: 't2', imageUrl: 'https://img/fresh' }, isPlaying: true });
+      nowPlayingStore.getState().set({ track: { ...TRACK, id: 't2' }, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/fresh.jpg');
     });
     img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
     expect(img).toBeTruthy();
-    expect(img.props.source).toEqual({ uri: 'https://img/fresh' });
+    expect(img.props.source).toEqual({ uri: 'file:///cover/fresh.jpg' });
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('falls back to the token placeholder (no Image) when imageUrl is null', async () => {
-    nowPlayingStore.getState().set({ track: { ...TRACK, imageUrl: null }, isPlaying: true });
+  it('B1: a coverUri with NO track (foreign playback at boot, empty queue) shows the placeholder and does NOT crash', async () => {
+    // The cover is set on its own channel (resolver) decoupled from the track, so
+    // coverUri!=null && track==null is reachable — Spotify already playing a foreign song
+    // at boot with an empty queue. The cover's a11y label reads track.title, so rendering
+    // the <Image> here would null-deref. Gate the cover on track metadata.
+    nowPlayingStore.getState().set({ track: null, isPlaying: false });
+    nowPlayingStore.getState().setCover('file:///cover/foreign.jpg');
+    const tree = await render();
+    expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
+    const all = texts(tree.toJSON()).join(' ');
+    expect(all).toContain('♪');                    // placeholder shown, no crash
+    expect(all).toContain('Nothing playing yet');  // empty state intact
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('falls back to the token placeholder (no Image) when coverUri is null', async () => {
+    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+    nowPlayingStore.getState().setCover(null);
     const tree = await render();
     expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
     expect(texts(tree.toJSON()).join(' ')).toContain('♪'); // placeholder glyph still shown

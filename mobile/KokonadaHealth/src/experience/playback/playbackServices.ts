@@ -7,6 +7,7 @@ import { playerStatusStore } from '../player/playerStatusStore';
 import { store, warmStore } from '../../state/store';
 import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrator';
 import { nowPlayingStore } from './nowPlayingStore';
+import { CoverArtResolver } from './coverArtResolver';
 import { playbackErrorStore } from './playbackErrorStore';
 import { generationStatusStore } from '../generate/generationStatusStore';
 import { liveModeStore } from '../generate/liveModeStore';
@@ -20,16 +21,33 @@ import { liveModeStore } from '../generate/liveModeStore';
 
 export { authSession };
 
+// The Now Playing cover comes from the LIVE App Remote player state (authoritative for
+// what is audible), resolved client-side to a local file — NOT from the queue and NOT via
+// the Web API (which 403s in Dev Mode). Fire-and-forget, deduped by imageUri.
+const coverResolver = new CoverArtResolver({
+  getTrackImage: (imageUri) => spotifyRemoteAdapter.getTrackImage!(imageUri),
+  setCover: (coverUri) => nowPlayingStore.getState().setCover(coverUri),
+});
+
 export const player = new SpotifyPlayerController({
   remote: spotifyRemoteAdapter,
   getToken: getSpotifyReadiness,
   // Surface every player lifecycle transition into an observable store so the
   // Profile screen can show a live Spotify connection badge. (QA4 Suspect #4)
-  onStateChange: (status) => playerStatusStore.getState().set(status),
+  onStateChange: (status) => {
+    playerStatusStore.getState().set(status);
+    // Clear the cover dedupe latch on disconnect (native drives this via remoteDisconnected)
+    // so a reconnect re-fetches the current cover instead of being deduped into staleness (M4).
+    if (status === 'disconnected') coverResolver.reset();
+  },
   // D-1: native PlayerState stream → orchestrator lockstep (auto-advance updates the
   // queue + now-playing; pause/resume in the Spotify app mirrors into our UI).
   // `orchestrator` is declared below — the closure resolves at event time, well after init.
-  onRemoteState: (s) => orchestrator.syncToRemote(s.uri, s.isPaused, s.positionMs, s.durationMs),
+  onRemoteState: (s) => {
+    orchestrator.syncToRemote(s.uri, s.isPaused, s.positionMs, s.durationMs);
+    // Resolve the current track's cover off the playback path (deduped per track change).
+    coverResolver.onImageUri(s.imageUri ?? null);
+  },
 });
 
 export const kokoSocket = new KokonadaSocket({

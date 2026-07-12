@@ -25,6 +25,7 @@ jest.mock('@kokonada/spotify-remote', () => ({
     setShuffle: jest.fn().mockResolvedValue(undefined),
     setRepeat: jest.fn().mockResolvedValue(undefined),
     getPlayerState: jest.fn().mockResolvedValue({ isPaused: true, trackUri: 'spotify:track:x' }),
+    getTrackImage: jest.fn().mockResolvedValue('file:///cover.jpg'),
     onRemoteDisconnected: jest.fn(() => () => {}),
     onPlayerStateChanged: jest.fn(() => () => {}),
   },
@@ -90,6 +91,11 @@ test('playContext plays the context uri, jumps to the row (when > 0), and pins s
 test('getPlayerState maps trackUri onto track.uri', async () => {
   const s = await spotifyRemoteAdapter.getPlayerState!();
   expect(s).toEqual({ isPaused: true, track: { uri: 'spotify:track:x' } });
+});
+
+test('getTrackImage delegates to the native module (App Remote imagesApi → file:// path)', async () => {
+  await expect(spotifyRemoteAdapter.getTrackImage!('spotify:image:abc')).resolves.toBe('file:///cover.jpg');
+  expect((mockMod as any).getTrackImage).toHaveBeenCalledWith('spotify:image:abc');
 });
 
 test('getSpotifyReadiness returns "ready" when installed, null when not', async () => {

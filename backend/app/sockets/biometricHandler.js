@@ -60,17 +60,6 @@ function log(...args) { if (DEBUG) console.log(...args); }
 // and the client (which requires a uri) rejects the whole list. For Spotify the
 // uri is reconstructed from the track id (`spotify:track:<id>`); anything still
 // lacking a uri is dropped as unplayable.
-// Best album image already carried on a track object (some Spotify recommendation /
-// search objects include album.images). Album images are largest-first, so the first
-// is the highest-res cover. Returns null when no artwork is present — the on-demand
-// batch enrichment (enrichArtwork) fills the rest, and a still-null cover degrades to
-// the client's token placeholder. This is NEVER a schema/library change.
-function pickImageUrl(t) {
-  if (typeof t?.imageUrl === 'string' && t.imageUrl) return t.imageUrl;
-  const images = t?.album?.images;
-  if (!Array.isArray(images) || images.length === 0) return null;
-  return images[0]?.url ?? null;
-}
 
 // A per-track "why this track" mix-receipt derived ENTIRELY from signals already
 // computed upstream: the track's familiar/discovery role (isDiscovery, set in
@@ -113,11 +102,9 @@ function toClientTrack(t, provider, context) {
     uri,
     title:  t.title ?? t.name ?? 'Unknown title',
     artist: t.artist ?? t.artists?.[0]?.name ?? 'Unknown artist',
-    // Additive Wave 2.8 fields — the Now Playing cover + mix-receipt. imageUrl is
-    // null here for a track carrying no inline artwork; enrichArtwork fills it via a
-    // bounded batch fetch. A missing cover is never an error — the client shows the
-    // token placeholder.
-    imageUrl: pickImageUrl(t),
+    // Wave 2.8 mix-receipt (the "why this track"). The Now Playing COVER is intentionally
+    // NOT here — it is resolved on-device from the live App Remote player state (the backend
+    // /v1/tracks art path 403s in Dev Mode), decoupled from the queue payload.
     receipt:  buildReceipt(t, context),
   };
 }
@@ -138,60 +125,6 @@ function withTimeout(promise, ms, label) {
     t.unref?.();
   });
   return Promise.race([promise, budget]).finally(() => clearTimeout(t));
-}
-
-// Artwork sourcing is a NICE-TO-HAVE that must NEVER block or break playlist delivery
-// (THE MAGIC MOMENT). After the client track list is built, enrich it IN PLACE with album
-// art via ONE bounded Spotify batch fetch (up to 50 ids/call). Best-effort: bounded by a
-// timeout AND wrapped in try/catch, so a 429/5xx/timeout leaves imageUrl null and the
-// client degrades to the token placeholder — never an error, never a stall, never a throw
-// into the generate path. Only Spotify-URI tracks still missing artwork are fetched;
-// YouTube/non-Spotify tracks stay imageUrl:null.
-const ARTWORK_BUDGET_MS = Number(process.env.ARTWORK_BUDGET_MS) || 5_000;
-// Artwork must always YIELD to playlist delivery: leave this much headroom under the
-// generation wall-clock so a bounded fetch can never tip a slow-but-successful run past
-// GENERATION_TIMEOUT_MS — which would void the already-built playlist_ready. (M1)
-const ARTWORK_WALLCLOCK_MARGIN_MS = 1_500;
-async function enrichArtwork(clientTracks, provider, accessToken, { startedAt, budgetMs } = {}) {
-  if (provider !== 'spotify' || !accessToken || !Array.isArray(clientTracks)) {
-    console.warn(`[artwork] skip-guard provider=${provider} token=${accessToken ? 'set' : 'null'} tracks=${Array.isArray(clientTracks) ? clientTracks.length : 'n/a'}`); // DIAG
-    return;
-  }
-  const spotifyId = (uri) => (/^spotify:track:(.+)$/.exec(uri || '') || [])[1] || null;
-  const ids = [];
-  for (const t of clientTracks) {
-    if (!t || t.imageUrl) continue;         // keep any inline artwork already carried
-    const sid = spotifyId(t.uri);
-    if (sid) ids.push(sid);
-  }
-  if (ids.length === 0) {
-    console.warn(`[artwork] skip-no-spotify-ids tracks=${clientTracks.length} sampleUri=${clientTracks[0] && clientTracks[0].uri}`); // DIAG
-    return;
-  }
-  // Bound the fetch by whatever of the generation wall-clock REMAINS (never the fixed 5s
-  // alone). Too little left ⇒ SKIP entirely and deliver now: a null cover degrades to the
-  // token placeholder, always safe. Artwork is strictly nice-to-have; delivery wins. (M1)
-  const remaining = (typeof startedAt === 'number' && typeof budgetMs === 'number')
-    ? budgetMs - (Date.now() - startedAt) - ARTWORK_WALLCLOCK_MARGIN_MS
-    : ARTWORK_BUDGET_MS;
-  if (remaining <= 500) {
-    console.warn(`[artwork] SKIP-wallclock remaining=${Math.round(remaining)}ms elapsed=${typeof startedAt === 'number' ? Date.now() - startedAt : 'n/a'}ms budgetMs=${budgetMs} ids=${ids.length}`); // DIAG
-    return;
-  }
-  const budget = Math.min(ARTWORK_BUDGET_MS, remaining);
-  try {
-    const results = await withTimeout(spotify.getTracksByIds(accessToken, ids), budget, 'artwork');
-    const byId = new Map((Array.isArray(results) ? results : []).map((r) => [r.id, r.imageUrl]));
-    let attached = 0; // DIAG
-    for (const t of clientTracks) {
-      if (!t || t.imageUrl) continue;
-      const sid = spotifyId(t.uri);
-      if (sid && byId.has(sid)) { t.imageUrl = byId.get(sid) ?? null; if (t.imageUrl) attached++; }
-    }
-    console.warn(`[artwork] done budget=${Math.round(budget)}ms ids=${ids.length} results=${Array.isArray(results) ? results.length : 'n/a'} attached=${attached}`); // DIAG
-  } catch (e) {
-    console.warn(`[artwork] FAILED ids=${ids.length} err=${e.message}`); // DIAG
-  }
 }
 
 // Deliver a playlist result to the USER, not a single socket. Generation can be triggered
@@ -669,7 +602,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           const moodTracks = toClientTracks(moodPlaylist?.merged, provider, { trigger, params: moodParams });
           if (moodTracks.length > 0) {
             log(`[generate] LLM failed → on-vibe mood fallback tracks=${moodTracks.length} reqId=${reqId}`);
-            await enrichArtwork(moodTracks, provider, spotifyToken, { startedAt, budgetMs: GENERATION_TIMEOUT_MS });
             emit('playlist_ready', {
               trigger,
               mode,
@@ -690,7 +622,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}, provider), provider, { source: 'favorites' });
       if (fallbackTracks.length > 0) {
         log(`[generate] AI failed → fallback tracks=${fallbackTracks.length} reqId=${reqId}`);
-        await enrichArtwork(fallbackTracks, provider, spotifyToken, { startedAt, budgetMs: GENERATION_TIMEOUT_MS });
         emit('playlist_ready', {
           trigger,
           mode,
@@ -760,10 +691,6 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       emit('playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
       return;
     }
-
-    // On-demand album art (bounded by the REMAINING wall-clock, best-effort — see
-    // enrichArtwork). Never blocks or voids delivery. (M1)
-    await enrichArtwork(clientTracks, provider, spotifyToken, { startedAt, budgetMs: GENERATION_TIMEOUT_MS });
 
     emit('playlist_ready', {
       trigger,

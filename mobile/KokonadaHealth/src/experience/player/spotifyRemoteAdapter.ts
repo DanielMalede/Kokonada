@@ -59,6 +59,9 @@ export const spotifyRemoteAdapter: SpotifyRemoteLike = {
     const s = await SpotifyRemote.getPlayerState();
     return { isPaused: !!s?.isPaused, track: s?.trackUri ? { uri: s.trackUri } : undefined };
   },
+  // Resolve the current track's cover art client-side (App Remote imagesApi → local
+  // file:// path) — mirrors how the web read art off the Playback SDK, no Web API 403.
+  getTrackImage: async (imageUri: string) => SpotifyRemote.getTrackImage(imageUri),
   addListener: (event: string, cb: (...args: any[]) => void) => {
     if (event === 'remoteDisconnected') offDisconnect = SpotifyRemote.onRemoteDisconnected(cb);
     // D-1: native PlayerState stream (auto-advance / pause / in-Spotify jumps).

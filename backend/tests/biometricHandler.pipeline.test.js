@@ -33,7 +33,6 @@ jest.mock('../app/services/spotify', () => ({
   getRecommendations:   jest.fn(),
   fetchVibeDiscovery:   jest.fn(),
   getArtistsGenres:     jest.fn(),
-  getTracksByIds:       jest.fn(),
   artistGenresAvailable: jest.fn(() => true),
   markDiscoveryUnavailable: jest.fn(),
 }));
@@ -225,7 +224,6 @@ beforeEach(() => {
   spotify.getRecommendations.mockResolvedValue(DISCOVERY_TRACKS);
   spotify.fetchVibeDiscovery.mockResolvedValue(DISCOVERY_TRACKS);
   spotify.getArtistsGenres.mockResolvedValue({});
-  spotify.getTracksByIds.mockResolvedValue([]); // default: no artwork enrichment (never blocks)
   geminiEngine.adjustBiometricPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.critiqueTrackVibe.mockImplementation(async ({ tracks }) => tracks);
@@ -255,23 +253,18 @@ function mockRecentSessions(sessions) {
   PlaylistSession.find.mockReturnValue(chain);
 }
 
-// ── toClientTrack — artwork + mix-receipt (Wave 2.8 payload) ──────────────────
+// ── toClientTrack — mix-receipt (Wave 2.8 payload; cover now sourced from the SDK) ──
 
-describe('toClientTrack — imageUrl + receipt', () => {
+describe('toClientTrack — receipt (no imageUrl)', () => {
   const { toClientTrack } = require('../app/sockets/biometricHandler');
 
-  it('attaches imageUrl from the track album images for a Spotify track', () => {
+  it('does NOT attach an imageUrl field — the Now Playing cover is resolved client-side from the App Remote SDK', () => {
     const t = {
       id: 's1', uri: 'spotify:track:s1', name: 'Song', artists: [{ name: 'A' }],
       album: { images: [{ url: 'https://img/cover', width: 640 }, { url: 'https://img/small', width: 64 }] },
     };
     const c = toClientTrack(t, 'spotify', { trigger: 'emotion', params: { target_bpm: 128 } });
-    expect(c.imageUrl).toBe('https://img/cover');
-  });
-
-  it('imageUrl is null when the track carries no album art', () => {
-    const c = toClientTrack({ id: 's2', uri: 'spotify:track:s2', name: 'Song' }, 'spotify', { trigger: 'emotion' });
-    expect(c.imageUrl).toBeNull();
+    expect(c).not.toHaveProperty('imageUrl');
   });
 
   it('receipt.label is "New discovery" for a discovery track and "Familiar favorite" otherwise', () => {
@@ -322,64 +315,18 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
     expect(call[1].tracks.every(t => typeof t.uri === 'string')).toBe(true);
   });
 
-  it('enriches emitted tracks with imageUrl from the Spotify batch fetch + a real mix-receipt', async () => {
-    spotify.getTracksByIds.mockResolvedValue([
-      { id: 'lib-1', imageUrl: 'https://img/lib-1' },
-      { id: 'd1',    imageUrl: 'https://img/d1' },
-      { id: 'd2',    imageUrl: null },
-    ]);
+  it('every emitted track carries a real mix-receipt and NO imageUrl (cover comes from the SDK player state)', async () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
 
     const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
-    // ONE batch call for exactly the emitted Spotify track ids.
-    expect(spotify.getTracksByIds).toHaveBeenCalledWith('spotify-access-token', ['lib-1', 'd1', 'd2']);
-    const byId = Object.fromEntries(call[1].tracks.map(t => [t.id, t]));
-    expect(byId['lib-1'].imageUrl).toBe('https://img/lib-1');
-    expect(byId['d2'].imageUrl).toBeNull(); // no artwork → placeholder, never an error
-    // Every emitted track carries a mix-receipt derived from real signals (isDiscovery + trigger/params).
+    // No Web-API album-art fetch happens at all — the dead /v1/tracks path is gone.
+    expect(spotify.getTracksByIds).toBeUndefined();
+    // Every emitted track carries a mix-receipt derived from real signals (isDiscovery + trigger/params)…
     expect(call[1].tracks.every(t => t.receipt && typeof t.receipt.label === 'string')).toBe(true);
     expect(call[1].tracks[0].receipt.detail).toContain('mood');
-  });
-
-  it('MAGIC MOMENT: a failing artwork batch never blocks delivery — playlist still emits with imageUrl null', async () => {
-    spotify.getTracksByIds.mockRejectedValue(new Error('spotify 429 storm'));
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-
-    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
-    expect(call).toBeDefined();
-    expect(call[1].tracks).toHaveLength(MERGED_TRACKS.length);
-    expect(call[1].tracks.every(t => t.imageUrl === null)).toBe(true);
-    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
-  });
-
-  // M1: artwork must yield to the generation wall-clock — a fixed +5s could tip a slow-but-
-  // successful run past GENERATION_TIMEOUT_MS DURING enrichment, voiding the built playlist.
-  it('M1: SKIPS artwork enrichment (no batch call) and still delivers when little wall-clock remains', async () => {
-    process.env.GENERATION_TIMEOUT_MS = '1000'; // 1s budget − safety margin ⇒ no room for artwork
-    spotify.getTracksByIds.mockResolvedValue([{ id: 'lib-1', imageUrl: 'https://img/lib-1' }]);
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-
-    expect(spotify.getTracksByIds).not.toHaveBeenCalled(); // artwork yielded to delivery
-    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
-    expect(call).toBeDefined();
-    expect(call[1].tracks.every(t => t.imageUrl === null)).toBe(true);
-    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
-    delete process.env.GENERATION_TIMEOUT_MS;
-  });
-
-  it('M1: RUNS artwork enrichment when ample wall-clock remains', async () => {
-    process.env.GENERATION_TIMEOUT_MS = '30000';
-    spotify.getTracksByIds.mockResolvedValue([{ id: 'lib-1', imageUrl: 'https://img/lib-1' }]);
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
-
-    expect(spotify.getTracksByIds).toHaveBeenCalled();
-    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
-    expect(call[1].tracks.find(t => t.id === 'lib-1').imageUrl).toBe('https://img/lib-1');
-    delete process.env.GENERATION_TIMEOUT_MS;
+    // …and none carries an imageUrl — the cover is resolved on-device from App Remote.
+    expect(call[1].tracks.every(t => !('imageUrl' in t))).toBe(true);
   });
 
   it('passes familiar and discovery counts in playlist_ready', async () => {

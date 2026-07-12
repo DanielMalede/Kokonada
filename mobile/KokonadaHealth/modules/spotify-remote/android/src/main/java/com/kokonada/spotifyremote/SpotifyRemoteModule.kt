@@ -2,6 +2,7 @@ package com.kokonada.spotifyremote
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -17,9 +18,15 @@ import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.android.appremote.api.error.CouldNotFindSpotifyApp
 import com.spotify.android.appremote.api.error.NotLoggedInException
 import com.spotify.android.appremote.api.error.UserNotAuthorizedException
+import com.spotify.protocol.types.Image
+import com.spotify.protocol.types.ImageUri
 import com.spotify.sdk.android.auth.AuthorizationClient
 import com.spotify.sdk.android.auth.AuthorizationRequest
 import com.spotify.sdk.android.auth.AuthorizationResponse
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 // Extends the codegen-generated abstract spec NativeSpotifyRemoteSpec (produced from
@@ -42,6 +49,9 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
     // listener (asleep service / lost bindService) — the JS promise would then never settle
     // and the player controller wedges in 'connecting' forever. Force-reject past this bound.
     private const val CONNECT_WATCHDOG_MS = 20_000L
+    // imagesApi.getImage() can hang the same way — no result AND no error callback — leaking
+    // a pending JS promise per fetch. Bound it like connect(), then reject. (M2)
+    private const val IMAGE_WATCHDOG_MS = 8_000L
   }
 
   private var clientId: String = ""
@@ -50,6 +60,10 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
   private var listenerCount = 0
   private val mainHandler = Handler(Looper.getMainLooper())
   private var authPromise: Promise? = null
+  // Single background thread for cover-art JPEG encode + file write, keeping that work OFF
+  // the App Remote callback thread (the main/UI thread that also delivers playerStateChanged
+  // the D-7/D-8 auto-advance keys on). (H1)
+  private val imageIoExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
   init {
     // Receive the Auth-SDK login Activity result (openLoginActivity → onActivityResult).
@@ -163,6 +177,11 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
             // finished track in the no-context fallback and auto-advance the queue.
             map.putDouble("positionMs", state.playbackPosition.toDouble())
             map.putDouble("durationMs", (state.track?.duration ?: 0L).toDouble())
+            // The CURRENT track's album-art URI. RN resolves it to a local file via
+            // getTrackImage() (imagesApi) and renders it on Now Playing — client-side, no
+            // Web API (the backend /v1/tracks art path 403s in Dev Mode). Same source the
+            // web read cover art from off the Playback SDK's player state.
+            map.putString("imageUri", state.track?.imageUri?.raw)
             // Diagnostic (defect A): proves this callback keeps firing (not a fire-once
             // zombie subscription) and reveals the real end-of-track position values that
             // the RN end-detection keys on. Filter logcat for tag SpotifyRemote.
@@ -288,6 +307,66 @@ class SpotifyRemoteModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(map)
       }
       .setErrorCallback { promise.reject("CONNECTION_FAILED", it.message, it) }
+  }
+
+  // Resolve the current track's album art CLIENT-SIDE via App Remote's imagesApi (the same
+  // channel the web read cover art from off the Playback SDK) and hand RN a local file path —
+  // never base64 over the bridge (image bloat). The backend /v1/tracks art call 403s in Dev
+  // Mode; this path makes NO Web API call at all.
+  override fun getTrackImage(imageUri: String, promise: Promise) {
+    val remote = appRemote?.takeIf { it.isConnected }
+      ?: return promise.reject("CONNECTION_FAILED", "not connected")
+    if (imageUri.isBlank()) return promise.reject("IMAGE_FETCH_FAILED", "empty imageUri")
+    // Cache HIT (self-healing): a fully-written file for this imageUri already exists — return
+    // it immediately (no re-decode, no re-fetch). Filename keys on a stable hash of the URI.
+    val cacheFile = File(reactContext.cacheDir, "spotify-cover-${Integer.toHexString(imageUri.hashCode())}.jpg")
+    if (cacheFile.exists() && cacheFile.length() > 0L) {
+      return promise.resolve("file://${cacheFile.absolutePath}")
+    }
+    // getImage() can hang without EVER firing result OR error → leaked JS promise. Guard with
+    // a watchdog and settle the promise EXACTLY ONCE across {result, error, watchdog}. (M2)
+    val settled = AtomicBoolean(false)
+    val watchdog = Runnable {
+      if (settled.compareAndSet(false, true)) {
+        Log.w(NAME, "getTrackImage watchdog fired — no imagesApi callback within ${IMAGE_WATCHDOG_MS}ms")
+        promise.reject("IMAGE_FETCH_FAILED", "getTrackImage timed out")
+      }
+    }
+    mainHandler.postDelayed(watchdog, IMAGE_WATCHDOG_MS)
+    remote.imagesApi.getImage(ImageUri(imageUri), Image.Dimension.LARGE)
+      .setResultCallback { bitmap ->
+        // Offload the JPEG encode + file write OFF the App Remote callback (main/UI) thread —
+        // a LARGE-bitmap compress there janks the UI and delays the playerStateChanged
+        // callbacks the D-7/D-8 auto-advance keys on. A Promise may be settled from any
+        // thread; the watchdog + AtomicBoolean still guarantee a single settle. (H1)
+        imageIoExecutor.execute {
+          try {
+            // Write to a temp file then atomically rename, so a process-kill / disk-full
+            // mid-encode never leaves a truncated (length>0) JPEG that the cache-hit check
+            // would then serve corrupt forever. (M3)
+            val tmp = File("${cacheFile.absolutePath}.tmp")
+            FileOutputStream(tmp).use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out) }
+            if (!tmp.renameTo(cacheFile)) { tmp.delete(); throw java.io.IOException("cover rename failed") }
+            if (settled.compareAndSet(false, true)) {
+              mainHandler.removeCallbacks(watchdog)
+              promise.resolve("file://${cacheFile.absolutePath}")
+            }
+          } catch (e: Exception) {
+            Log.w(NAME, "getTrackImage write failed: ${e.message}")
+            if (settled.compareAndSet(false, true)) {
+              mainHandler.removeCallbacks(watchdog)
+              promise.reject("IMAGE_WRITE_FAILED", e.message, e)
+            }
+          }
+        }
+      }
+      .setErrorCallback {
+        Log.w(NAME, "getTrackImage fetch failed: ${it.message}")
+        if (settled.compareAndSet(false, true)) {
+          mainHandler.removeCallbacks(watchdog)
+          promise.reject("IMAGE_FETCH_FAILED", it.message, it)
+        }
+      }
   }
 
   override fun disconnect(promise: Promise) {

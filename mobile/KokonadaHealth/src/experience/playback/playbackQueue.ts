@@ -14,7 +14,8 @@ export interface QueueTrack {
   uri: string | null; // Spotify URI, or null for a non-playable (data-only) track
   title: string;
   artist: string;
-  imageUrl: string | null;      // album cover URL, or null → the client shows a token placeholder
+  // NOTE: no album cover here — the Now Playing cover is decoupled from the queue and
+  // resolved from the LIVE App Remote player state (see coverArtResolver/nowPlayingStore).
   receipt: TrackReceipt | null; // mix-receipt, or null when a legacy payload omits it
 }
 
@@ -22,9 +23,9 @@ function isPlayable(t: QueueTrack): boolean {
   return typeof t.uri === 'string' && t.uri.length > 0;
 }
 
-// Defensive: a legacy payload (pre-Wave-2.8) carries no imageUrl/receipt, and a
-// malformed value must never crash the queue — both default to null. A receipt is kept
-// only when it is an object with a non-empty string label (detail stays optional).
+// Defensive: a legacy payload (pre-Wave-2.8) carries no receipt, and a malformed value
+// must never crash the queue — it defaults to null. A receipt is kept only when it is an
+// object with a non-empty string label (detail stays optional).
 function sanitizeReceipt(r: unknown): TrackReceipt | null {
   if (!r || typeof r !== 'object') return null;
   const label = (r as any).label;
@@ -41,7 +42,6 @@ function sanitize(raw: unknown[]): QueueTrack[] {
       uri: typeof t.uri === 'string' && t.uri.length > 0 ? t.uri : null,
       title: typeof (t as any).title === 'string' ? (t as any).title : t.id,
       artist: typeof (t as any).artist === 'string' ? (t as any).artist : '',
-      imageUrl: typeof (t as any).imageUrl === 'string' && (t as any).imageUrl.length > 0 ? (t as any).imageUrl : null,
       receipt: sanitizeReceipt((t as any).receipt),
     }));
 }
