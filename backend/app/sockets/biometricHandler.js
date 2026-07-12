@@ -691,7 +691,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         // discovery catalog so the next hydration passes through instead of re-searching Spotify.
         // Fire-and-forget, best-effort — never awaited, never allowed to fail generation.
         const resolved = resolvedDiscoveryUris(playable);
-        if (resolved.length) trackCatalogRepo.updateResolvedUris(resolved).catch(() => {});
+        if (resolved.length) {
+          // Log (don't throw) on failure so a persistent cache-write regression is observable
+          // rather than a silent no-op that quietly re-searches Spotify every generation.
+          trackCatalogRepo.updateResolvedUris(resolved)
+            .catch((e) => log(`[generate] discovery uri-cache skipped: ${e.message}`));
+        }
       } catch (e) {
         log(`[generate] cross-platform translation skipped: ${e.message}`);
       }
