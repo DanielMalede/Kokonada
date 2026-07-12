@@ -20,6 +20,7 @@ const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
+const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -41,6 +42,10 @@ const WATCH_HR_DELTA_THRESHOLD = 25;
 const DISCOVERY_FETCH_LIMIT = 60;
 // Generation tuning knobs live with their owners: the selection pipeline reads
 // SELECTION_POOL_MAX / SCORE_W_* / LEDGER_* env vars.
+// Dark-ship gate for Spotify-independent vector discovery. Read at call time so a
+// Railway env flip needs no redeploy; OFF (unset/anything-but-'true') keeps the
+// existing Spotify-discovery/fallback path byte-for-byte unchanged.
+const VECTOR_DISCOVERY = () => process.env.VECTOR_DISCOVERY === 'true';
 
 // ── Anti-repetition ────────────────────────────────────────────────────────────
 // The nine legacy layers (per-mood blacklist, session cooldowns, strict mode,
@@ -87,13 +92,16 @@ function toClientTrack(t, provider, context) {
   if (!t) return null;
   const id = t.id ?? null;
   let uri = t.uri ?? null;
-  // Only reconstruct a Spotify URI for a GENUINELY Spotify track. A familiar/
-  // fallback library entry tagged with a different provider (e.g.
-  // `youtube_music`) has a YouTube video id — rebuilding `spotify:track:<id>`
-  // from it mints a malformed URI that Spotify rejects with a 400 for the whole
-  // play request. Untagged tracks (legacy entries, Spotify recommendation
-  // objects) are assumed to match the active provider.
-  if (!uri && id && provider === 'spotify' && (!t.provider || t.provider === 'spotify')) {
+  // Only reconstruct a Spotify URI for a GENUINELY Spotify track, and ONLY from a
+  // bare track id. A familiar/fallback library entry tagged with a different
+  // provider (e.g. `youtube_music`) has a YouTube video id — rebuilding
+  // `spotify:track:<id>` from it mints a malformed URI that Spotify rejects with a
+  // 400 for the whole play request. A colon-bearing id is either a recordingKey
+  // (`spotify:<trackId>`, what discovery emits) or an already-formed URI — it must
+  // NEVER become `spotify:track:spotify:<trackId>`; it drops to null instead.
+  // Untagged tracks (legacy entries, Spotify recommendation objects) are assumed
+  // to match the active provider.
+  if (!uri && id && !String(id).includes(':') && provider === 'spotify' && (!t.provider || t.provider === 'spotify')) {
     uri = `spotify:track:${id}`;
   }
   if (!uri) return null;
@@ -514,6 +522,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         // for an Afrobeat listener). The LLM critic left the hot path in Phase 7 —
         // vibe enrichment happens asynchronously in the embedding worker.
         fetchTracks = async (params) => {
+          if (VECTOR_DISCOVERY()) {
+            // Spotify-independent discovery over our own corpus (dead /v1/recommendations
+            // replacement). Never throws; yields [] on any failure so the fallback ladder
+            // still fills the playlist.
+            return vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [] });
+          }
           // Latency cut: when Spotify won't serve artist genres (/artists 403), discovery
           // candidates can't be tagged → personalization discards them anyway → the whole
           // discovery sourcing + tagging + critic is pure wasted time (and burns the

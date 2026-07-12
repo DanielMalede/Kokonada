@@ -5,9 +5,14 @@ const TrackEmbedding = require('../../models/TrackEmbedding');
 // Mongo-backed VectorIndex adapter. getMany/upsertMany work on any MongoDB;
 // queryNear needs Atlas $vectorSearch and degrades to [] elsewhere — vector
 // search is an ENHANCEMENT (MMR falls back to feature distance), never a
-// dependency the hot path can die on.
+// dependency the hot path can die on. queryNear returns RAW cosine ([-1,1]) in
+// its `score`, matching fakeVectorIndex so DISCOVERY_MIN_COSINE is meaningful.
 
 const VECTOR_SEARCH_INDEX = () => process.env.ATLAS_VECTOR_INDEX || 'track_embedding_index';
+
+// Atlas cosine vectorSearchScore is normalized to (1+cos)/2; expose RAW cosine so
+// queryNear's contract matches fakeVectorIndex and DISCOVERY_MIN_COSINE is meaningful.
+function rawCosineFromAtlasScore(s) { return 2 * Number(s) - 1; }
 
 // One-shot observability: queryNear's catch degrades to [] for BOTH "no matches" and
 // "index misconfigured/missing" — so a wrong numDimensions/name/path would silently
@@ -62,7 +67,7 @@ async function queryNear(vector, { k = 50, filter = {} } = {}) {
       },
       { $project: { recordingKey: 1, canonicalKey: 1, score: { $meta: 'vectorSearchScore' } } },
     ]);
-    return rows.map(r => ({ recordingKey: r.recordingKey, canonicalKey: r.canonicalKey, score: r.score }));
+    return rows.map(r => ({ recordingKey: r.recordingKey, canonicalKey: r.canonicalKey, score: rawCosineFromAtlasScore(r.score) }));
   } catch (e) {
     // $vectorSearch unavailable (local Mongo, jest) or index missing → enhancement off.
     if (!_warnedVectorSearch) {
@@ -77,4 +82,4 @@ async function queryNear(vector, { k = 50, filter = {} } = {}) {
   }
 }
 
-module.exports = { upsertMany, getMany, queryNear };
+module.exports = { upsertMany, getMany, queryNear, rawCosineFromAtlasScore };
