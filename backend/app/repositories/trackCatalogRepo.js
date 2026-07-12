@@ -14,7 +14,7 @@ async function upsertMany(entries = []) {
         filter: { recordingKey: e.recordingKey },
         update: {
           $set: {
-            canonicalKey: e.canonicalKey ?? null,
+            ...(e.canonicalKey != null ? { canonicalKey: e.canonicalKey } : {}),
             ...(e.uri != null ? { uri: e.uri } : {}),
             ...(e.title != null ? { title: e.title } : {}),
             ...(e.artist != null ? { artist: e.artist } : {}),

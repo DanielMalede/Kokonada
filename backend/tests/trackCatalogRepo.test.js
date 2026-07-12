@@ -54,6 +54,14 @@ describe('trackCatalogRepo', () => {
     expect(map.get('k').title).toBe('T2');
   });
 
+  it('preserves stored canonicalKey when a re-upsert omits it (no null clobber)', async () => {
+    await repo.upsertMany([{ recordingKey: 'k', canonicalKey: 'c1' }]);
+    await repo.upsertMany([{ recordingKey: 'k', title: 'meta-only' }]);
+    const secondOp = TrackCatalog.bulkWrite.mock.calls[1][0][0].updateOne;
+    expect(secondOp.update.$set).not.toHaveProperty('canonicalKey');
+    expect(secondOp.update.$set.title).toBe('meta-only');
+  });
+
   it('empty input is a no-op', async () => {
     expect(await repo.upsertMany([])).toEqual({ upserted: 0 });
     expect(TrackCatalog.bulkWrite).not.toHaveBeenCalled();
