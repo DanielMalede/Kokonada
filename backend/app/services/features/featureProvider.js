@@ -46,6 +46,7 @@ function spotifyIdOf(track) {
 // Per-recording identity: features are keyed by the concrete recording, never the
 // song-level canonicalKey (live vs studio must not share features — audit F3).
 function recordingKeyOf(track) {
+  if (typeof track?.recordingKey === 'string' && track.recordingKey) return track.recordingKey;
   const spotifyId = spotifyIdOf(track);
   if (spotifyId) return `spotify:${spotifyId}`;
   if (track?.id && String(track?.provider ?? '').startsWith('youtube')) return `youtube:${track.id}`;
