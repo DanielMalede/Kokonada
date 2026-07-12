@@ -20,6 +20,14 @@ async function find(opts = {}) {
     minCosine = num(process.env.DISCOVERY_MIN_COSINE, 0.5),
     budgetMs = num(process.env.DISCOVERY_QUERY_BUDGET_MS, 2500),
   } = opts || {};
+  const t0 = Date.now();
+  // One parseable structured metric per call, on EVERY return path. Wrapped so the metric
+  // itself can NEVER throw and NEVER changes find's return value (enhancement contract).
+  const emit = (candidates, hits, kept) => {
+    try {
+      console.log(`[discovery] candidates=${candidates?.length ?? 0} hits=${hits?.length ?? 0} kept=${kept?.length ?? 0} latencyMs=${Date.now() - t0} indexReady=${(hits?.length ?? 0) > 0}`);
+    } catch { /* metric must never affect delivery */ }
+  };
   try {
     const target = buildTargetVector(targetFeatures, seedGenres);
     const hits = await withVectorBudget(
@@ -28,7 +36,7 @@ async function find(opts = {}) {
     // Threshold + exclude familiar (by canonicalKey).
     const kept = (hits || []).filter(h =>
       h && num(h.score, 0) >= minCosine && !excludeCanonicalKeys.has(h.canonicalKey));
-    if (!kept.length) return [];
+    if (!kept.length) { emit([], hits, kept); return []; }
 
     // Hydrate metadata; drop unplayable (no uri).
     const meta = await trackCatalogRepo.getMany(kept.map(h => h.recordingKey));
@@ -41,11 +49,14 @@ async function find(opts = {}) {
         uri: m.uri, title: m.title, artist: m.artist, genres: m.genres || [], isDiscovery: true,
       }, total: num(h.score, 0) });
     }
-    if (!candidates.length) return [];
+    if (!candidates.length) { emit(candidates, hits, kept); return []; }
 
     // MMR diversify to k (reuses the hardened selector).
-    return mmr.select(candidates, { k, lambda: 0.7 }).map(s => s.track);
+    const result = mmr.select(candidates, { k, lambda: 0.7 }).map(s => s.track);
+    emit(candidates, hits, kept);
+    return result;
   } catch {
+    emit([], undefined, []); // indexReady=false — a budget/throw means the index served nothing
     return []; // enhancement contract: any failure → no discovery, delivery unaffected
   }
 }
