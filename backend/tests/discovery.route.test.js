@@ -14,7 +14,8 @@ jest.mock('../app/repositories/trackCatalogRepo', () => ({
 }));
 // auth middleware loads the caller from the DB; supply a live, non-deleted user.
 jest.mock('../app/models/User', () => ({
-  findById: jest.fn(() => ({ select: () => Promise.resolve({ _id: 'u1' }) })),
+  // echo the token's userId so the per-user rate-limiter keys distinctly per caller
+  findById: jest.fn((id) => ({ select: () => Promise.resolve({ _id: id }) })),
 }));
 
 const express = require('express');
@@ -75,5 +76,29 @@ describe('POST /api/discovery/playback-failed', () => {
       .send({ recordingKey: 'spotify:track:xyz' });
     expect(res.status).toBe(204);
     expect(trackCatalogRepo.invalidateResolvedUri).toHaveBeenCalledWith('spotify:track:xyz');
+  });
+
+  it('rate-limits per user: the 11th report in a 1-min window returns 429', async () => {
+    const floodToken = signToken({ userId: 'flood-user' });
+    let res;
+    for (let i = 0; i < 11; i++) {
+      res = await request(app).post('/api/discovery/playback-failed')
+        .set('Authorization', `Bearer ${floodToken}`).send({ recordingKey: 'youtube:x' });
+    }
+    expect(res.status).toBe(429); // max=10/min — the 11th is throttled
+  });
+
+  it('keys the limiter per user — one user at the cap does not throttle another', async () => {
+    const heavy = signToken({ userId: 'heavy-user' });
+    for (let i = 0; i < 10; i++) {
+      await request(app).post('/api/discovery/playback-failed')
+        .set('Authorization', `Bearer ${heavy}`).send({ recordingKey: 'youtube:x' });
+    }
+    // heavy-user is now at the cap; a DIFFERENT authed user is unaffected (per-user keying,
+    // NOT per-IP — this is the constraint that would silently regress if auth ran after the limiter)
+    const other = signToken({ userId: 'other-user' });
+    const res = await request(app).post('/api/discovery/playback-failed')
+      .set('Authorization', `Bearer ${other}`).send({ recordingKey: 'youtube:y' });
+    expect(res.status).toBe(204);
   });
 });

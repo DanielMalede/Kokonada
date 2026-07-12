@@ -50,11 +50,14 @@ exports.watchLimiter = rateLimit({
 });
 
 // Client-reported discovery playback failures. Per-user keyed (testers share carrier NAT, so
-// IP keying would collapse them into one bucket); 30/min is well above a real device's failure
-// rate but caps a looping/misbehaving client hammering the self-heal endpoint.
+// IP keying would collapse them into one bucket). The report is client-trusted and the write is
+// GLOBAL (nulls a shared cached uri → forces a re-resolution for everyone), so the cap is kept
+// tight: genuine playback failures are rare, and 10/min still caps a looping/griefing client's
+// re-resolution amplification. Accepted trade-off (locked design A1/B1): trust the authed report,
+// bound abuse to transient re-search load — never data loss (metadata survives; the uri self-heals).
 exports.playbackFailedLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => (req.user?._id ? String(req.user._id) : ipKeyGenerator(req.ip)),
