@@ -596,6 +596,7 @@ async function buildProfile(userId, user, onProgress = () => {}) {
   // Dark launch: queue audio-feature hydration for the freshly built library.
   // Fire-and-forget — profile building never waits on (or fails with) the store.
   featureService.enqueueHydration(library).catch(() => {});
+  require('./discovery/corpusIngest').ingestLibrary(library).catch(() => {}); // grow the discovery corpus
 
   return profile;
 }
