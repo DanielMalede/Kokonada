@@ -77,6 +77,11 @@ describe('recordingKeyOf — per-recording identity (audit F3 boundary)', () => 
     expect(recordingKeyOf({ recordingKey: '', id: 'v1', provider: 'youtube_music' })).toBe('youtube:v1');
   });
 
+  it('falls through to derivation when recordingKey is a non-string', () => {
+    expect(recordingKeyOf({ recordingKey: 123, id: 'v1', provider: 'youtube_music' })).toBe('youtube:v1');
+    expect(recordingKeyOf({ recordingKey: {}, id: 't', provider: 'spotify', uri: 'spotify:track:t' })).toBe('spotify:t');
+  });
+
   it('lets a pre-set recordingKey win over what derivation would produce', () => {
     expect(recordingKeyOf({ recordingKey: 'spotify:pref', id: 'x', provider: 'youtube_music' }))
       .toBe('spotify:pref');

@@ -16,9 +16,7 @@ const trackIdentity = require('../identity/trackIdentity');
 function toCatalogEntry(track) {
   if (!track || typeof track !== 'object') return null;
 
-  const recordingKey = (typeof track.recordingKey === 'string' && track.recordingKey)
-    ? track.recordingKey
-    : recordingKeyOf(track);
+  const recordingKey = recordingKeyOf(track); // honors a pre-set recordingKey, else derives (youtube_music → youtube:<id>)
   if (!recordingKey) return null;
 
   return {
