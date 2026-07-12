@@ -5,7 +5,7 @@
 // the plan's mongodb-memory-server is not a dependency here, so we mock the Mongoose model and
 // assert the operations the repo emits + the hydration it builds — preserving the plan's three
 // behaviors: upsert+getMany hydration, genre-union on re-upsert (never shrinks), empty no-op.
-jest.mock('../app/models/TrackCatalog', () => ({ bulkWrite: jest.fn(), find: jest.fn() }));
+jest.mock('../app/models/TrackCatalog', () => ({ bulkWrite: jest.fn(), find: jest.fn(), updateOne: jest.fn() }));
 
 const TrackCatalog = require('../app/models/TrackCatalog');
 const repo = require('../app/repositories/trackCatalogRepo');
@@ -17,6 +17,7 @@ function mockFind(rows = []) {
 beforeEach(() => {
   jest.clearAllMocks();
   TrackCatalog.bulkWrite.mockResolvedValue({});
+  TrackCatalog.updateOne.mockResolvedValue({ modifiedCount: 0 });
   mockFind([]);
 });
 
@@ -124,5 +125,34 @@ describe('trackCatalogRepo.updateResolvedUris', () => {
   it('propagates a real DB error (caller is fire-and-forget)', async () => {
     TrackCatalog.bulkWrite.mockRejectedValue(new Error('boom'));
     await expect(repo.updateResolvedUris([{ recordingKey: 'k', uri: 'spotify:track:k' }])).rejects.toThrow('boom');
+  });
+});
+
+describe('trackCatalogRepo.invalidateResolvedUri', () => {
+  it('nulls the CACHED uri of a translated (youtube:) entry and reports invalidated:true', async () => {
+    TrackCatalog.updateOne.mockResolvedValue({ modifiedCount: 1 });
+    const res = await repo.invalidateResolvedUri('youtube:abc');
+    expect(res).toEqual({ invalidated: true });
+    expect(TrackCatalog.updateOne).toHaveBeenCalledWith({ recordingKey: 'youtube:abc' }, { $set: { uri: null } });
+  });
+
+  it('NEVER touches a native spotify:-keyed entry — its uri is identity, not cache', async () => {
+    const res = await repo.invalidateResolvedUri('spotify:track:xyz');
+    expect(res).toEqual({ invalidated: false });
+    expect(TrackCatalog.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('a missing entry / already-null uri (modifiedCount 0) reports invalidated:false', async () => {
+    TrackCatalog.updateOne.mockResolvedValue({ modifiedCount: 0 });
+    expect(await repo.invalidateResolvedUri('youtube:missing')).toEqual({ invalidated: false });
+    expect(TrackCatalog.updateOne).toHaveBeenCalledWith({ recordingKey: 'youtube:missing' }, { $set: { uri: null } });
+  });
+
+  it('a non-string / empty key is a safe no-op (invalidated:false, no write)', async () => {
+    expect(await repo.invalidateResolvedUri('')).toEqual({ invalidated: false });
+    expect(await repo.invalidateResolvedUri(null)).toEqual({ invalidated: false });
+    expect(await repo.invalidateResolvedUri(undefined)).toEqual({ invalidated: false });
+    expect(await repo.invalidateResolvedUri(42)).toEqual({ invalidated: false });
+    expect(TrackCatalog.updateOne).not.toHaveBeenCalled();
   });
 });

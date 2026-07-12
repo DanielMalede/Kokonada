@@ -62,4 +62,16 @@ async function updateResolvedUris(pairs = []) {
   return { updated: rows.length };
 }
 
-module.exports = { upsertMany, getMany, updateResolvedUris };
+// Event-driven self-heal: a reported playback failure nulls the CACHED resolved uri for a TRANSLATED
+// entry so the next hydration re-resolves it. NEVER touches a native spotify:-keyed entry — its uri is
+// its identity, not a cache; nulling would force a title/artist re-search that could mis-match. Returns
+// { invalidated } — false for a native key, an empty/non-string key, a missing entry, or an already-null uri.
+async function invalidateResolvedUri(recordingKey) {
+  if (typeof recordingKey !== 'string' || !recordingKey || recordingKey.startsWith('spotify:')) {
+    return { invalidated: false };
+  }
+  const res = await TrackCatalog.updateOne({ recordingKey }, { $set: { uri: null } });
+  return { invalidated: (res.modifiedCount ?? 0) > 0 };
+}
+
+module.exports = { upsertMany, getMany, updateResolvedUris, invalidateResolvedUri };

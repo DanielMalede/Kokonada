@@ -49,4 +49,16 @@ exports.watchLimiter = rateLimit({
   message: { error: 'Too many heart-rate posts — slow down' },
 });
 
+// Client-reported discovery playback failures. Per-user keyed (testers share carrier NAT, so
+// IP keying would collapse them into one bucket); 30/min is well above a real device's failure
+// rate but caps a looping/misbehaving client hammering the self-heal endpoint.
+exports.playbackFailedLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user?._id ? String(req.user._id) : ipKeyGenerator(req.ip)),
+  message: { error: 'Too many playback-failure reports — slow down' },
+});
+
 exports._isWatchIngest = isWatchIngest;
