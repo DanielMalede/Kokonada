@@ -10,6 +10,7 @@ jest.mock('../app/repositories/trackCatalogRepo', () => ({
   getMany: async (keys) => new Map(keys.filter(k => mockCatalog.has(k)).map(k => [k, mockCatalog.get(k)])),
 }));
 const svc = require('../app/services/discovery/discoveryVectorService');
+const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
 
 function seed(fake, recordingKey, canonicalKey, features, genres, meta) {
   fake.store.set(recordingKey, { vector: buildVector(features, genres), canonicalKey });
@@ -55,5 +56,13 @@ describe('DiscoveryVectorService.find', () => {
 
   it('never throws — a null opts argument yields []', async () => {
     await expect(svc.find(null)).resolves.toEqual([]);
+  });
+
+  it('never throws — a hydration (getMany) rejection yields []', async () => {
+    seed(fake, 'r1', 'c1', { bpm: 90, energy: 0.2 }, ['ambient'], { uri: 'spotify:track:1', title: 'Near', artist: 'A' });
+    const spy = jest.spyOn(trackCatalogRepo, 'getMany').mockRejectedValueOnce(new Error('mongo down'));
+    const out = await svc.find({ targetFeatures: { bpm: 90, energy: 0.2 }, seedGenres: ['ambient'], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
+    expect(out).toEqual([]);
+    spy.mockRestore();
   });
 });
