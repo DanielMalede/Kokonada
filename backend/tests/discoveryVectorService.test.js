@@ -42,10 +42,18 @@ describe('DiscoveryVectorService.find', () => {
     expect(out).toEqual([]);
   });
 
-  it('drops hits with no playable uri', async () => {
-    seed(fake, 'r1', 'c1', { bpm: 90 }, ['ambient'], { uri: null, title: 'NoUri', artist: 'A' });
+  it('drops a truly-unplayable hit (no uri AND no title/artist to translate)', async () => {
+    seed(fake, 'r1', 'c1', { bpm: 90 }, ['ambient'], { uri: null, title: null, artist: null });
     const out = await svc.find({ targetFeatures: { bpm: 90 }, seedGenres: ['ambient'], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
     expect(out).toEqual([]);
+  });
+
+  it('keeps a translatable no-URI candidate (YouTube-style: title+artist, uri null)', async () => {
+    seed(fake, 'youtube:abc', 'c1', { bpm: 90, energy: 0.2, valence: 0.3 }, ['ambient'], { uri: null, title: 'YT Song', artist: 'A' });
+    const out = await svc.find({ targetFeatures: { bpm: 92, energy: 0.25, valence: 0.35 }, seedGenres: ['ambient'], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ title: 'YT Song', isDiscovery: true });
+    expect(out[0].uri).toBeNull(); // not yet resolved — translation happens downstream at serve time
   });
 
   it('never throws — a queryNear failure yields []', async () => {

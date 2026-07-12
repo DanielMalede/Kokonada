@@ -38,15 +38,19 @@ async function find(opts = {}) {
       h && num(h.score, 0) >= minCosine && !excludeCanonicalKeys.has(h.canonicalKey));
     if (!kept.length) { emit([], hits, kept); return []; }
 
-    // Hydrate metadata; drop unplayable (no uri).
+    // Hydrate metadata; drop only the truly unplayable. A candidate survives when it has a
+    // URI OR is translatable (has BOTH title and artist) — a YouTube-corpus track carries
+    // uri:null but is resolved to a Spotify URI at serve time via search (translateToSpotify).
     const meta = await trackCatalogRepo.getMany(kept.map(h => h.recordingKey));
     const candidates = [];
     for (const h of kept) {
       const m = meta.get(h.recordingKey);
-      if (!m || !m.uri) continue;
+      if (!m) continue;
+      const translatable = Boolean(m.title && m.artist); // enough to resolve to Spotify via search at serve time
+      if (!m.uri && !translatable) continue;             // truly unplayable: no URI and nothing to search with
       candidates.push({ track: {
         id: m.recordingKey, recordingKey: m.recordingKey, canonicalKey: m.canonicalKey,
-        uri: m.uri, title: m.title, artist: m.artist, genres: m.genres || [], isDiscovery: true,
+        uri: m.uri ?? null, title: m.title, artist: m.artist, genres: m.genres || [], isDiscovery: true,
       }, total: num(h.score, 0) });
     }
     if (!candidates.length) { emit(candidates, hits, kept); return []; }

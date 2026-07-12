@@ -195,5 +195,18 @@ describe('pipeline.selectPlaylist — cross-platform sink (Spotify translates fa
     expect(tracks.length).toBeGreaterThan(0);
     expect(tracks.every(t => t.provider === 'youtube_music')).toBe(true); // survive selection; translated downstream
   });
+
+  it('WITH crossPlatform: a YouTube-style discovery candidate (uri:null) survives selection', async () => {
+    // A discovery candidate from the vector service: provider youtube_music, no spotify URI,
+    // translated at serve time. It must not be provider-gated out under crossPlatform.
+    const disc = {
+      id: 'youtube:disc1', recordingKey: 'youtube:disc1', provider: 'youtube_music',
+      title: 'Discovery Song', artist: 'DiscoArtist', genres: ['pop'], uri: null, isDiscovery: true,
+    };
+    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: ytProfile, crossPlatform: true, discoveryTracks: [disc], k: 50 });
+    const found = tracks.find(t => t.isDiscovery);
+    expect(found).toBeDefined();
+    expect(found).toMatchObject({ title: 'Discovery Song', provider: 'youtube_music', uri: null });
+  });
 });
 
