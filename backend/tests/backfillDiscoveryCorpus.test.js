@@ -4,7 +4,7 @@ jest.mock('../app/queues/queue', () => ({ enqueue: jest.fn(async () => {}) }));
 jest.mock('../app/services/vector/vectorIndex', () => ({ getMany: jest.fn(async () => new Map()) }));
 jest.mock('../app/services/features/featureService', () => ({ enqueueHydration: jest.fn(async () => ({ queued: true })) }));
 
-const { runBackfill } = require('../app/scripts/backfillDiscoveryCorpus');
+const { runBackfill, assertBootEnv } = require('../app/scripts/backfillDiscoveryCorpus');
 const featureService = require('../app/services/features/featureService');
 
 describe('runBackfill', () => {
@@ -29,8 +29,23 @@ describe('runBackfill', () => {
       cursorFactory: async function* () { for (const p of profiles) yield p; },
       sleep: async () => {},
     });
-    expect(res).toEqual({ profiles: 3, tracks: 3 });
+    expect(res).toEqual({ profiles: 3, catalogued: 3, embedded: 3, skipped: 0 });
     expect(ingested.sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('Option B: reports skipped-existing vs embedded-new counts and logs the progress summary', async () => {
+    // Each profile ingest catalogs all tracks but embeds only the non-existing ones
+    // (getExistingEmbeddingKeys skips already-embedded keys). Here: 3 catalogued, 2 embedded, 1 skipped.
+    const logs = [];
+    const spy = jest.spyOn(console, 'log').mockImplementation((m) => logs.push(String(m)));
+    const res = await runBackfill({
+      ingest: async (lib) => ({ catalogued: lib.length, enqueued: lib.length - 1 }),
+      cursorFactory: async function* () { yield { library: [{ recordingKey: 'a' }, { recordingKey: 'b' }, { recordingKey: 'c' }] }; },
+      sleep: async () => {},
+    });
+    spy.mockRestore();
+    expect(res).toEqual({ profiles: 1, catalogued: 3, embedded: 2, skipped: 1 });
+    expect(logs.some(l => /Skipped 1 existing tracks, Embedding 2 new tracks/.test(l))).toBe(true);
   });
 
   it('a single profile failure does not abort the run', async () => {
@@ -73,6 +88,32 @@ describe('runBackfill', () => {
     } finally {
       if (saved === undefined) delete process.env.BACKFILL_THROTTLE_MS;
       else process.env.BACKFILL_THROTTLE_MS = saved;
+    }
+  });
+});
+
+describe('assertBootEnv (fail-fast bootstrap)', () => {
+  it('throws a clear, explicit error when MONGO_URI is missing — no useless retry loop', () => {
+    const saved = process.env.MONGO_URI;
+    delete process.env.MONGO_URI;
+    try {
+      expect(() => assertBootEnv()).toThrow(
+        'Bootstrapping failed: MONGO_URI environment variable is missing from the environment or .env file'
+      );
+    } finally {
+      if (saved === undefined) delete process.env.MONGO_URI;
+      else process.env.MONGO_URI = saved;
+    }
+  });
+
+  it('passes silently when MONGO_URI is present', () => {
+    const saved = process.env.MONGO_URI;
+    process.env.MONGO_URI = 'mongodb://localhost:27017/kokonada';
+    try {
+      expect(() => assertBootEnv()).not.toThrow();
+    } finally {
+      if (saved === undefined) delete process.env.MONGO_URI;
+      else process.env.MONGO_URI = saved;
     }
   });
 });
