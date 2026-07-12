@@ -6,6 +6,7 @@ const { catalogAndEmbed } = require('./catalogAndEmbed');
 const { enqueue } = require('../../queues/queue');
 const { QUEUES } = require('../../queues/definitions');
 const vectorIndex = require('../vector/vectorIndex');
+const featureService = require('../features/featureService');
 
 // Real-dependency binding of catalogAndEmbed for profile-build / ingest. Best-effort:
 // corpus population is an enhancement and must never break profile assembly. enqueue() is a
@@ -24,4 +25,15 @@ async function ingestLibrary(libraryTracks = []) {
   }
 }
 
-module.exports = { ingestLibrary };
+// Backfill pairing: the embedding worker HARD-SKIPS keys with no AudioFeature, so the
+// standalone backfill must ensure features exist (ReccoBeats/LLM) for misses — enqueueHydration
+// self-enqueues embedding once a feature lands. The profile-build path already calls
+// enqueueHydration separately (musicProfileService), so it stays on ingestLibrary. Best-effort:
+// a hydration failure never breaks the catalog+embed path.
+async function backfillLibrary(libraryTracks = []) {
+  try { await featureService.enqueueHydration(libraryTracks); }
+  catch (e) { console.warn(`[corpusIngest] hydration skipped: ${e.message}`); }
+  return ingestLibrary(libraryTracks);
+}
+
+module.exports = { ingestLibrary, backfillLibrary };

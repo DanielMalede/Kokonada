@@ -2,11 +2,13 @@
 jest.mock('../app/repositories/trackCatalogRepo', () => ({ upsertMany: jest.fn(async () => ({ upserted: 0 })) }));
 jest.mock('../app/queues/queue', () => ({ enqueue: jest.fn(async () => {}) }));
 jest.mock('../app/services/vector/vectorIndex', () => ({ getMany: jest.fn(async () => new Map()) }));
+jest.mock('../app/services/features/featureService', () => ({ enqueueHydration: jest.fn(async () => ({ queued: true })) }));
 
 const corpusIngest = require('../app/services/discovery/corpusIngest');
 const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
 const { enqueue } = require('../app/queues/queue');
 const vectorIndex = require('../app/services/vector/vectorIndex');
+const featureService = require('../app/services/features/featureService');
 const { QUEUES } = require('../app/queues/definitions');
 
 describe('corpusIngest.ingestLibrary', () => {
@@ -35,5 +37,23 @@ describe('corpusIngest.ingestLibrary', () => {
   it('never throws — a repo failure is swallowed', async () => {
     trackCatalogRepo.upsertMany.mockRejectedValueOnce(new Error('db down'));
     await expect(corpusIngest.ingestLibrary([{ recordingKey: 'x' }])).resolves.toMatchObject({ catalogued: 0 });
+  });
+});
+
+describe('corpusIngest.backfillLibrary', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('catalogs + enqueues embedding AND ensures AudioFeatures via hydration', async () => {
+    const res = await corpusIngest.backfillLibrary([{ recordingKey: 'spotify:t1', genres: ['rock'] }]);
+    expect(res.catalogued).toBe(1);
+    expect(trackCatalogRepo.upsertMany).toHaveBeenCalledTimes(1);
+    expect(featureService.enqueueHydration).toHaveBeenCalledWith([{ recordingKey: 'spotify:t1', genres: ['rock'] }]);
+  });
+
+  it('a hydration failure does not break the catalog+embed path', async () => {
+    featureService.enqueueHydration.mockRejectedValueOnce(new Error('hydration down'));
+    const res = await corpusIngest.backfillLibrary([{ recordingKey: 'x' }]);
+    expect(res.catalogued).toBe(1);
+    expect(trackCatalogRepo.upsertMany).toHaveBeenCalledTimes(1);
   });
 });
