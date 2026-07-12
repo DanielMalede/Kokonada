@@ -23,7 +23,7 @@ async function _defaultCursor() {
 // throttleMs paces the embedding enqueue rate so a bulk one-time run does not flood the
 // queue (smoothing downstream Groq load in the worker). Injectable sleep keeps tests fast.
 async function runBackfill({
-  ingest = corpusIngest.ingestLibrary,
+  ingest = corpusIngest.backfillLibrary,
   cursorFactory = _defaultCursor,
   throttleMs = _throttleDefault(),
   sleep = (ms) => new Promise(r => setTimeout(r, ms)),

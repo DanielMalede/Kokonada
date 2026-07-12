@@ -1,7 +1,22 @@
 // backend/tests/backfillDiscoveryCorpus.test.js
+jest.mock('../app/repositories/trackCatalogRepo', () => ({ upsertMany: jest.fn(async () => ({ upserted: 0 })) }));
+jest.mock('../app/queues/queue', () => ({ enqueue: jest.fn(async () => {}) }));
+jest.mock('../app/services/vector/vectorIndex', () => ({ getMany: jest.fn(async () => new Map()) }));
+jest.mock('../app/services/features/featureService', () => ({ enqueueHydration: jest.fn(async () => ({ queued: true })) }));
+
 const { runBackfill } = require('../app/scripts/backfillDiscoveryCorpus');
+const featureService = require('../app/services/features/featureService');
 
 describe('runBackfill', () => {
+  it('the default ingest path hydrates AudioFeatures for feature-less tracks', async () => {
+    featureService.enqueueHydration.mockClear();
+    await runBackfill({
+      cursorFactory: async function* () { yield { library: [{ recordingKey: 'a' }] }; },
+      sleep: async () => {},
+    });
+    expect(featureService.enqueueHydration).toHaveBeenCalledWith([{ recordingKey: 'a' }]);
+  });
+
   it('ingests every profile library and tallies totals', async () => {
     const profiles = [
       { library: [{ recordingKey: 'a' }, { recordingKey: 'b' }] },
