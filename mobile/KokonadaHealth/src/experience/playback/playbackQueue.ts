@@ -17,6 +17,9 @@ export interface QueueTrack {
   // NOTE: no album cover here — the Now Playing cover is decoupled from the queue and
   // resolved from the LIVE App Remote player state (see coverArtResolver/nowPlayingStore).
   receipt: TrackReceipt | null; // mix-receipt, or null when a legacy payload omits it
+  // Identifies a discovery track for playback-failure reporting: `youtube:<id>` / `spotify:<id>`.
+  // A familiar track carries none → null (Phase 2 discovery playback report).
+  recordingKey: string | null;
 }
 
 function isPlayable(t: QueueTrack): boolean {
@@ -43,6 +46,7 @@ function sanitize(raw: unknown[]): QueueTrack[] {
       title: typeof (t as any).title === 'string' ? (t as any).title : t.id,
       artist: typeof (t as any).artist === 'string' ? (t as any).artist : '',
       receipt: sanitizeReceipt((t as any).receipt),
+      recordingKey: typeof (t as any).recordingKey === 'string' && (t as any).recordingKey ? (t as any).recordingKey : null,
     }));
 }
 
