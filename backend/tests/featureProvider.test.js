@@ -58,4 +58,27 @@ describe('recordingKeyOf — per-recording identity (audit F3 boundary)', () => 
     expect(recordingKeyOf({ provider: 'spotify', id: 'studio1' }))
       .not.toBe(recordingKeyOf({ provider: 'spotify', id: 'live1' }));
   });
+
+  it('honors a pre-set recordingKey (discovery candidate carries its own key)', () => {
+    expect(recordingKeyOf({ recordingKey: 'youtube:abc', id: 'youtube:abc' })).toBe('youtube:abc');
+  });
+
+  it('honors a pre-set recordingKey on a provider-less discovery shape', () => {
+    expect(recordingKeyOf({ id: 'youtube:abc', recordingKey: 'youtube:abc', title: 'X', artist: 'A', uri: null }))
+      .toBe('youtube:abc');
+  });
+
+  it('still derives when a raw track carries no recordingKey', () => {
+    expect(recordingKeyOf({ id: 'v1', provider: 'youtube_music' })).toBe('youtube:v1');
+    expect(recordingKeyOf({ id: 't', provider: 'spotify', uri: 'spotify:track:t' })).toBe('spotify:t');
+  });
+
+  it('falls through to derivation when recordingKey is an empty string', () => {
+    expect(recordingKeyOf({ recordingKey: '', id: 'v1', provider: 'youtube_music' })).toBe('youtube:v1');
+  });
+
+  it('lets a pre-set recordingKey win over what derivation would produce', () => {
+    expect(recordingKeyOf({ recordingKey: 'spotify:pref', id: 'x', provider: 'youtube_music' }))
+      .toBe('spotify:pref');
+  });
 });
