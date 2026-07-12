@@ -29,8 +29,23 @@ describe('runBackfill', () => {
       cursorFactory: async function* () { for (const p of profiles) yield p; },
       sleep: async () => {},
     });
-    expect(res).toEqual({ profiles: 3, tracks: 3 });
+    expect(res).toEqual({ profiles: 3, catalogued: 3, embedded: 3, skipped: 0 });
     expect(ingested.sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('Option B: reports skipped-existing vs embedded-new counts and logs the progress summary', async () => {
+    // Each profile ingest catalogs all tracks but embeds only the non-existing ones
+    // (getExistingEmbeddingKeys skips already-embedded keys). Here: 3 catalogued, 2 embedded, 1 skipped.
+    const logs = [];
+    const spy = jest.spyOn(console, 'log').mockImplementation((m) => logs.push(String(m)));
+    const res = await runBackfill({
+      ingest: async (lib) => ({ catalogued: lib.length, enqueued: lib.length - 1 }),
+      cursorFactory: async function* () { yield { library: [{ recordingKey: 'a' }, { recordingKey: 'b' }, { recordingKey: 'c' }] }; },
+      sleep: async () => {},
+    });
+    spy.mockRestore();
+    expect(res).toEqual({ profiles: 1, catalogued: 3, embedded: 2, skipped: 1 });
+    expect(logs.some(l => /Skipped 1 existing tracks, Embedding 2 new tracks/.test(l))).toBe(true);
   });
 
   it('a single profile failure does not abort the run', async () => {

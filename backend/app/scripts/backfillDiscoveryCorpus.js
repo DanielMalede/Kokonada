@@ -28,22 +28,35 @@ async function runBackfill({
   throttleMs = _throttleDefault(),
   sleep = (ms) => new Promise(r => setTimeout(r, ms)),
 } = {}) {
-  let profiles = 0, tracks = 0;
+  // catalogued = every valid library track (upserted); embedded = the NEW keys enqueued for
+  // embedding; skipped = catalogued − embedded, i.e. keys already in the corpus that Option B
+  // (getExistingEmbeddingKeys → vectorIndex.getMany) skipped so we waste zero Groq spend.
+  let profiles = 0, catalogued = 0, embedded = 0;
   const cursor = await cursorFactory();
   for await (const p of cursor) {
     profiles++;
     const lib = Array.isArray(p?.library) ? p.library : [];
     if (!lib.length) continue;
-    try { const r = await ingest(lib); tracks += r?.catalogued ?? 0; }
-    catch (e) { console.warn(`[backfill] profile skipped: ${e.message}`); }
+    try {
+      const r = await ingest(lib);
+      const c = r?.catalogued ?? 0, e = r?.enqueued ?? 0;
+      catalogued += c; embedded += e;
+      console.log(`[backfill] profile ${profiles}: embedding ${e} new, skipped ${c - e} existing `
+        + `(running total: embedding ${embedded}, skipped ${catalogued - embedded})`);
+    } catch (err) { console.warn(`[backfill] profile ${profiles} skipped: ${err.message}`); }
     if (throttleMs > 0) await sleep(throttleMs);
   }
-  console.warn(`[backfill] done profiles=${profiles} tracks=${tracks}`);
-  return { profiles, tracks };
+  const skipped = catalogued - embedded;
+  console.log(`[backfill] done — profiles=${profiles} catalogued=${catalogued}. `
+    + `Skipped ${skipped} existing tracks, Embedding ${embedded} new tracks.`);
+  return { profiles, catalogued, embedded, skipped };
 }
 
-// CLI entrypoint: `node app/scripts/backfillDiscoveryCorpus.js` (after DB connect in the caller).
+// CLI entrypoint: `node app/scripts/backfillDiscoveryCorpus.js`. Loads env (MONGO_URI, REDIS_URL,
+// ATLAS_VECTOR_INDEX, BACKFILL_THROTTLE_MS, …) the same way app/index.js + app/worker.js do,
+// then connects the DB and runs the backfill.
 if (require.main === module) {
+  require('dotenv').config({ override: true });
   require('../config/db')().then(runBackfill).then(() => process.exit(0))
     .catch(e => { console.error(e); process.exit(1); });
 }
