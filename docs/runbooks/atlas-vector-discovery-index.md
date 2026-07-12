@@ -22,7 +22,11 @@ Wait until status is **READY**. Until then `queryNear` returns `[]` and discover
 2. **Pause & Guide:** Daniel creates the Atlas vector index above (this is a cloud-portal
    step — never attempted from code); confirm status is **READY**.
 3. Run the one-time backfill (`node backend/app/scripts/backfillDiscoveryCorpus.js`) off-peak;
-   watch for the `[backfill] done profiles=<n> tracks=<m>` line and Groq spend.
+   watch for the `[backfill] done profiles=<n> tracks=<m>` line and Groq spend. The backfill now
+   ALSO triggers AudioFeature hydration (ReccoBeats/LLM) for feature-less tracks — the embedding
+   worker hard-skips keys with no AudioFeature, so this ensures the corpus covers ALL library
+   tracks, not just pre-featured ones. Hydration and embedding complete asynchronously via the
+   workers, so allow time (queue drain) before checking corpus coverage.
 4. Verify corpus size and that `[vectorIndex]` logs no failure warning; then set
    `VECTOR_DISCOVERY=true` on Railway.
 5. Watch the `[discovery] candidates=… hits=… kept=… latencyMs=… indexReady=…` metric line
