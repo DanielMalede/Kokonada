@@ -8,25 +8,32 @@ const TrackCatalog = require('../models/TrackCatalog');
 async function upsertMany(entries = []) {
   const rows = (entries || []).filter(e => e && e.recordingKey);
   if (!rows.length) return { upserted: 0 };
-  await TrackCatalog.bulkWrite(
-    rows.map(e => ({
-      updateOne: {
-        filter: { recordingKey: e.recordingKey },
-        update: {
-          $set: {
-            ...(e.canonicalKey != null ? { canonicalKey: e.canonicalKey } : {}),
-            ...(e.uri != null ? { uri: e.uri } : {}),
-            ...(e.title != null ? { title: e.title } : {}),
-            ...(e.artist != null ? { artist: e.artist } : {}),
-          },
-          ...(Array.isArray(e.genres) && e.genres.length
-            ? { $addToSet: { genres: { $each: e.genres } } } : {}),
+  const ops = rows.map(e => ({
+    updateOne: {
+      filter: { recordingKey: e.recordingKey },
+      update: {
+        $set: {
+          ...(e.canonicalKey != null ? { canonicalKey: e.canonicalKey } : {}),
+          ...(e.uri != null ? { uri: e.uri } : {}),
+          ...(e.title != null ? { title: e.title } : {}),
+          ...(e.artist != null ? { artist: e.artist } : {}),
         },
-        upsert: true,
+        ...(Array.isArray(e.genres) && e.genres.length
+          ? { $addToSet: { genres: { $each: e.genres } } } : {}),
       },
-    })),
-    { ordered: false }
-  );
+      upsert: true,
+    },
+  }));
+  try {
+    await TrackCatalog.bulkWrite(ops, { ordered: false });
+  } catch (e) {
+    // E11000 = a concurrent upsert already wrote this recordingKey; idempotent self-heal. A
+    // non-duplicate error is a real failure and must still throw.
+    const writeErrors = e.writeErrors ?? [];
+    const onlyDuplicates = e.code === 11000
+      || (writeErrors.length > 0 && writeErrors.every(w => (w.code ?? w.err?.code) === 11000));
+    if (!onlyDuplicates) throw e;
+  }
   return { upserted: rows.length };
 }
 

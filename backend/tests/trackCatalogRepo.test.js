@@ -68,4 +68,16 @@ describe('trackCatalogRepo', () => {
     expect((await repo.getMany([])).size).toBe(0);
     expect(TrackCatalog.find).not.toHaveBeenCalled();
   });
+
+  it('swallows duplicate-key races (E11000 = a concurrent same-recordingKey upsert already won)', async () => {
+    TrackCatalog.bulkWrite.mockRejectedValue(
+      Object.assign(new Error('E11000 duplicate key'), { code: 11000, writeErrors: [{ code: 11000 }] })
+    );
+    await expect(repo.upsertMany([{ recordingKey: 'k', genres: ['rock'] }])).resolves.toEqual({ upserted: 1 });
+  });
+
+  it('rethrows real write failures (not E11000)', async () => {
+    TrackCatalog.bulkWrite.mockRejectedValue(Object.assign(new Error('network'), { code: 6 }));
+    await expect(repo.upsertMany([{ recordingKey: 'k' }])).rejects.toThrow('network');
+  });
 });
