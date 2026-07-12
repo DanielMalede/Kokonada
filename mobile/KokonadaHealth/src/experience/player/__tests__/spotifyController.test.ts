@@ -130,7 +130,7 @@ describe('SpotifyPlayerController — severance (attack #2)', () => {
     remote.throwOnCommand = new Error('SPTAppRemote lost connection');
 
     const result = await controller.play('spotify:track:x');
-    expect(result).toEqual({ ok: false });
+    expect(result).toEqual({ ok: false, reason: 'command_failed' });
     expect(controller.getState()).toBe('disconnected');
     expect(onError).toHaveBeenCalled();
   });
@@ -149,10 +149,35 @@ describe('SpotifyPlayerController — severance (attack #2)', () => {
     const { remote, controller } = build();
     await controller.connect();
     remote.throwOnCommand = new Error('AUTHENTICATION_SERVICE_UNAVAILABLE');
-    await expect(controller.play('spotify:track:x')).resolves.toEqual({ ok: false });
-    await expect(controller.pause()).resolves.toEqual({ ok: false });
-    await expect(controller.resume()).resolves.toEqual({ ok: false });
+    await expect(controller.play('spotify:track:x')).resolves.toEqual({ ok: false, reason: 'command_failed' });
+    await expect(controller.pause()).resolves.toEqual({ ok: false, reason: 'command_failed' });
+    await expect(controller.resume()).resolves.toEqual({ ok: false, reason: 'command_failed' });
     expect(controller.getState()).toBe('disconnected');
+  });
+});
+
+describe('SpotifyPlayerController — CommandResult.reason (Phase 2 reason threading)', () => {
+  it('a command with no live connection returns reason:disconnected (severance, not a dead track)', async () => {
+    // Spotify not linked → ensureConnected can never succeed, so run() short-circuits
+    // BEFORE issuing the command. That is a SEVERANCE, not a track Spotify refused.
+    const { remote, controller } = build({ token: null });
+    const playSpy = jest.spyOn(remote, 'playUri');
+    expect(await controller.play('spotify:track:x')).toEqual({ ok: false, reason: 'disconnected' });
+    expect(await controller.pause()).toEqual({ ok: false, reason: 'disconnected' });
+    expect(playSpy).not.toHaveBeenCalled(); // never reached the native command
+  });
+
+  it('a command that throws mid-song returns reason:command_failed (a genuine command failure)', async () => {
+    const { remote, controller } = build();
+    await controller.connect();
+    remote.throwOnCommand = new Error('SPTAppRemote lost connection');
+    expect(await controller.play('spotify:track:x')).toEqual({ ok: false, reason: 'command_failed' });
+  });
+
+  it('an empty/garbage uri is a command_failed guard (never a false severance)', async () => {
+    const { controller } = build();
+    await controller.connect();
+    expect(await controller.play('')).toEqual({ ok: false, reason: 'command_failed' });
   });
 });
 

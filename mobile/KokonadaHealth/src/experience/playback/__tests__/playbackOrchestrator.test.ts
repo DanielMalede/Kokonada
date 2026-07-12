@@ -29,7 +29,7 @@ function makeScheduler() {
   };
 }
 
-function makePlayer(): PlaybackPlayer & { played: string[]; paused: number; resumed: number; nextResult: { ok: boolean } } {
+function makePlayer(): PlaybackPlayer & { played: string[]; paused: number; resumed: number; nextResult: { ok: boolean; reason?: 'disconnected' | 'command_failed' } } {
   const self: any = {
     played: [], paused: 0, resumed: 0, nextResult: { ok: true },
     play: jest.fn(async (uri: string) => { self.played.push(uri); return self.nextResult; }),
@@ -61,13 +61,22 @@ function build() {
   return { orch, player, socket, sched, nowPlaying };
 }
 
-// A player whose play() fails for a designated set of "dead" URIs and succeeds otherwise,
-// plus an onPlaybackFailed spy — the fixture for the Phase 2 discovery-failure contract.
-function buildDiscovery(opts: { dead?: string[]; maxConsecutiveFailures?: number } = {}) {
+// A player whose play() fails for a designated set of URIs and succeeds otherwise, plus an
+// onPlaybackFailed spy — the fixture for the Phase 2 discovery-failure contract. A "dead"
+// track fails with reason 'command_failed' (a track Spotify refused = a real dead discovery
+// track); a "disconnected" track fails with reason 'disconnected' (a severed remote, NOT a
+// dead track) so the two report/skip paths can be told apart.
+function buildDiscovery(opts: { dead?: string[]; disconnected?: string[]; maxConsecutiveFailures?: number } = {}) {
   const dead = new Set((opts.dead ?? []).map((id) => `spotify:track:${id}`));
+  const severed = new Set((opts.disconnected ?? []).map((id) => `spotify:track:${id}`));
   const player: any = {
     played: [] as string[],
-    play: jest.fn(async (uri: string) => { player.played.push(uri); return { ok: !dead.has(uri) }; }),
+    play: jest.fn(async (uri: string) => {
+      player.played.push(uri);
+      if (severed.has(uri)) return { ok: false, reason: 'disconnected' };
+      if (dead.has(uri)) return { ok: false, reason: 'command_failed' };
+      return { ok: true };
+    }),
     pause: jest.fn(async () => ({ ok: true })),
     resume: jest.fn(async () => ({ ok: true })),
   };
@@ -398,10 +407,10 @@ describe('Phase 2: a failed discovery track is reported and silently skipped (bo
     expect(onPlaybackFailed).not.toHaveBeenCalled();
   });
 
-  it('a failed play (Spotify severed mid-skip) auto-skips the dead tracks then stops cleanly at the queue end', async () => {
+  it('a genuine command_failed mid-skip auto-skips the dead tracks then stops cleanly at the queue end', async () => {
     const { orch, player, sched } = build();
     await orch.handlePlaylist({ tracks: list('a', 'b', 'c') });
-    player.nextResult = { ok: false }; // Spotify severed — every remaining play now fails
+    player.nextResult = { ok: false, reason: 'command_failed' }; // Spotify refused every remaining track
     orch.skipNext();
     sched.flush();
     await flushMicrotasks(); // let the bounded auto-skip recursion settle
@@ -410,5 +419,47 @@ describe('Phase 2: a failed discovery track is reported and silently skipped (bo
     expect(player.played).toEqual(['spotify:track:a', 'spotify:track:b', 'spotify:track:c']);
     expect(orch.getNowPlaying().isPlaying).toBe(false); // truthful state once the queue is exhausted
     expect(orch.getNowPlaying().track?.id).toBe('c');
+  });
+
+  // ── The reason-thread fix: a SEVERED remote (reason:'disconnected') is NOT a dead track ──
+  it('a disconnected remote mid-skip degrades in place — cursor stays, no walk, no report', async () => {
+    const { orch, player, onPlaybackFailed } = buildDiscovery({ disconnected: ['a', 'b', 'c'] });
+    await orch.handlePlaylist({ tracks: list('a', 'b', 'c') }); // list() → recordingKey null anyway
+    // 'a' returned reason:'disconnected' → the remote is gone, not the track. Degrade in place:
+    // try ONLY the current track, leave the cursor put, report nothing. The reconnect path owns recovery.
+    expect(player.played).toEqual(['spotify:track:a']); // did NOT walk b, c
+    expect(orch.getNowPlaying().track?.id).toBe('a');   // cursor stays on the same track
+    expect(orch.getNowPlaying().isPlaying).toBe(false); // reflects the severance truthfully
+    expect(onPlaybackFailed).not.toHaveBeenCalled();    // no false global-null self-heal
+  });
+
+  it('a disconnected failure does NOT burn the failure cap (a later command_failed still gets a full skip)', async () => {
+    // RED case: the old code reported+skipped on the disconnect (treating it as a dead track),
+    // burning a good track and incrementing the streak. cap:1 makes the counting observable.
+    const { orch, player, onPlaybackFailed } = buildDiscovery({
+      disconnected: ['a'], dead: ['b'], maxConsecutiveFailures: 1,
+    });
+    await orch.handlePlaylist({ tracks: [TR('a', 'k:a'), TR('b', 'k:b'), TR('c', null)] });
+    expect(player.played).toEqual(['spotify:track:a']); // degraded in place on the disconnect
+    expect(orch.getNowPlaying().track?.id).toBe('a');
+    expect(onPlaybackFailed).not.toHaveBeenCalled();    // the disconnect was NOT reported
+
+    await orch.onTrackEnded('a'); // advance to b (command_failed) → report + skip → c (ok)
+    expect(player.played).toEqual(['spotify:track:a', 'spotify:track:b', 'spotify:track:c']);
+    expect(orch.getNowPlaying().track?.id).toBe('c');   // the streak was fresh, so b's skip reached c
+    expect(orch.getNowPlaying().isPlaying).toBe(true);
+    expect(onPlaybackFailed).toHaveBeenCalledTimes(1);
+    expect(onPlaybackFailed).toHaveBeenCalledWith('k:b'); // ONLY the genuine dead track was healed
+  });
+
+  it('a throwing onPlaybackFailed reporter never rejects playCurrent — the skip still happens (LOW-1)', async () => {
+    const { orch, player, onPlaybackFailed } = buildDiscovery({ dead: ['a'] });
+    onPlaybackFailed.mockImplementation(() => { throw new Error('reporter boom'); });
+    await expect(
+      orch.handlePlaylist({ tracks: [TR('a', 'k:a'), TR('b', null)] }),
+    ).resolves.toBeUndefined();                          // did not reject the play chain
+    expect(player.played).toEqual(['spotify:track:a', 'spotify:track:b']); // skipped past the dead track
+    expect(orch.getNowPlaying().track?.id).toBe('b');
+    expect(orch.getNowPlaying().isPlaying).toBe(true);
   });
 });
