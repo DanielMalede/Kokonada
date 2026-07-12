@@ -54,4 +54,52 @@ describe('catalogAndEmbed', () => {
     expect(res).toEqual({ catalogued: 2, enqueued: 2 });
     expect(calls.embed).toEqual(['r1', 'r2']);
   });
+
+  it('normalizes RAW youtube_music-shaped library tracks (recordingKey youtube:<id>, name→title)', async () => {
+    const calls = { catalog: null, embed: null };
+    const deps = {
+      upsertCatalog: async (entries) => { calls.catalog = entries; },
+      enqueueEmbedding: async (keys, genresByKey) => { calls.embed = { keys, genresByKey }; },
+    };
+    const res = await catalogAndEmbed([
+      { id: 'abc', provider: 'youtube_music', name: 'Song', uri: 'https://youtu.be/abc', genres: ['pop'], artist: 'A' },
+      { id: 'def', provider: 'youtube_music', name: 'Other', genres: ['rock'] },
+    ], deps);
+    expect(res).toEqual({ catalogued: 2, enqueued: 2 });
+    expect(calls.catalog.map(e => e.recordingKey)).toEqual(['youtube:abc', 'youtube:def']);
+    expect(calls.catalog[0].title).toBe('Song');
+    expect(calls.embed.keys).toEqual(['youtube:abc', 'youtube:def']);
+    expect(calls.embed.genresByKey).toEqual({ 'youtube:abc': ['pop'], 'youtube:def': ['rock'] });
+  });
+
+  it('excludes already-embedded raw tracks from toEmbed but catalogs all', async () => {
+    const calls = { catalog: null, embed: null };
+    const deps = {
+      upsertCatalog: async (entries) => { calls.catalog = entries; },
+      enqueueEmbedding: async (keys, genresByKey) => { calls.embed = { keys, genresByKey }; },
+      getExistingEmbeddingKeys: async () => new Set(['youtube:abc']),
+    };
+    const res = await catalogAndEmbed([
+      { id: 'abc', provider: 'youtube_music', name: 'Song', genres: ['pop'] },
+      { id: 'def', provider: 'youtube_music', name: 'Other', genres: ['rock'] },
+    ], deps);
+    expect(res).toEqual({ catalogued: 2, enqueued: 1 });
+    expect(calls.catalog).toHaveLength(2);
+    expect(calls.embed.keys).toEqual(['youtube:def']);
+  });
+
+  it('embeds ALL raw tracks when the existence lookup throws', async () => {
+    const calls = { embed: null };
+    const deps = {
+      upsertCatalog: async () => {},
+      enqueueEmbedding: async (keys) => { calls.embed = keys; },
+      getExistingEmbeddingKeys: async () => { throw new Error('lookup down'); },
+    };
+    const res = await catalogAndEmbed([
+      { id: 'abc', provider: 'youtube_music', name: 'Song' },
+      { id: 'def', provider: 'youtube_music', name: 'Other' },
+    ], deps);
+    expect(res).toEqual({ catalogued: 2, enqueued: 2 });
+    expect(calls.embed).toEqual(['youtube:abc', 'youtube:def']);
+  });
 });

@@ -87,4 +87,32 @@ describe('translateToSpotify', () => {
     const { translated } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 9000 });
     expect(translated).toBe(12);
   });
+
+  // Discovery candidates carry `title` (NOT `name`), uri:null, isDiscovery:true — the shape
+  // discoveryVectorService.find emits for a translatable no-URI corpus track.
+  const disc = (title, artist) => ({ title, artist, uri: null, provider: 'youtube_music', isDiscovery: true });
+
+  it('translates a discovery candidate (title, not name) and preserves isDiscovery through the spread', async () => {
+    const searchFn = jest.fn().mockResolvedValue({ id: 'd1', uri: 'spotify:track:d1', name: 'YT Song', artist: 'A' });
+    const { tracks, translated, missed } = await translateToSpotify([disc('YT Song', 'A')], 'tok', { searchFn });
+    expect(translated).toBe(1);
+    expect(missed).toBe(0);
+    expect(searchFn).toHaveBeenCalledWith('tok', { title: 'YT Song', artist: 'A' });
+    expect(tracks[0]).toMatchObject({ uri: 'spotify:track:d1', provider: 'spotify', isDiscovery: true, translatedFrom: 'youtube' });
+  });
+
+  it('a search failure for one discovery candidate drops only that one — the sibling and the batch survive, order preserved', async () => {
+    // A per-track search rejection must never fail the whole batch (spotify search rejects on
+    // network/429). The throwing candidate is counted missed and dropped; the rest are unaffected.
+    const searchFn = jest.fn().mockImplementation(async (_tok, { title }) => {
+      if (title === 'Boom') throw new Error('search exploded');
+      return { id: title, uri: `spotify:track:${title}`, name: title, artist: 'A' };
+    });
+    const input = [disc('Alpha', 'A'), disc('Boom', 'A'), disc('Zeta', 'A')];
+    const { tracks, translated, missed } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 8 });
+    expect(missed).toBe(1);
+    expect(translated).toBe(2);
+    expect(tracks.map(t => t.name)).toEqual(['Alpha', 'Zeta']); // Boom dropped; surviving order preserved
+    expect(tracks.every(t => t.isDiscovery === true)).toBe(true);
+  });
 });
