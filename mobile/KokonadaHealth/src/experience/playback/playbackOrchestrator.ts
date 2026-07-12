@@ -41,6 +41,14 @@ export interface PlaybackOrchestratorDeps {
   // never emits playlist OR playlist_error), the single-flight guard must not wedge
   // forever. After this long with no answer, the guard self-heals. (QA4 Q4)
   generationTimeoutMs?: number;
+  // Report a dead DISCOVERY track (one carrying a recordingKey) so the backend can null
+  // its stale cached resolved URI (T3 self-heal). A familiar track (recordingKey null) is
+  // never reported. (Phase 2 discovery playback report)
+  onPlaybackFailed?: (recordingKey: string) => void;
+  // Cap on CONSECUTIVE failed plays before the auto-skip gives up. A severed remote also
+  // yields ok:false, so without this a dead connection would runaway-skip the whole queue.
+  // Default 3.
+  maxConsecutiveFailures?: number;
 }
 
 const realScheduler: Scheduler = {
@@ -56,6 +64,10 @@ export class PlaybackOrchestrator {
   private readonly onNowPlaying?: (state: NowPlaying) => void;
   private readonly coalesceMs: number;
   private readonly generationTimeoutMs: number;
+  private readonly onPlaybackFailed?: (recordingKey: string) => void;
+  private readonly maxConsecutiveFailures: number;
+  // Streak of back-to-back failed plays; cleared by any real play. Caps the auto-skip.
+  private consecutiveFailures = 0;
 
   private isPlaying = false;
   private currentTrackId: string | null = null;
@@ -78,6 +90,8 @@ export class PlaybackOrchestrator {
     this.onNowPlaying = deps.onNowPlaying;
     this.coalesceMs = deps.coalesceMs ?? 250;
     this.generationTimeoutMs = deps.generationTimeoutMs ?? 20000;
+    this.onPlaybackFailed = deps.onPlaybackFailed;
+    this.maxConsecutiveFailures = deps.maxConsecutiveFailures ?? 3;
   }
 
   getNowPlaying(): NowPlaying {
@@ -112,7 +126,27 @@ export class PlaybackOrchestrator {
       res = await this.player.play(track.uri);
     }
     console.log('[koko] play RESULT ok=', res.ok, 'uri=', track.uri);
-    this.isPlaying = res.ok; // a severed remote → truthfully not playing
+    if (res.ok) {
+      this.consecutiveFailures = 0; // a real play clears the failure streak
+      this.isPlaying = true;
+      this.emit();
+      return;
+    }
+    // res.ok === false. Two indistinguishable causes (a dead discovery track vs a severed
+    // remote) both land here; ACCEPT-AND-CAP: report the failed DISCOVERY track (harmless if
+    // it was really a connection drop — the backend re-resolves to the same uri), then
+    // SILENTLY skip to the next so audio continues. The cap stops a severed remote from
+    // runaway-skipping the whole queue.
+    if (track.recordingKey) this.onPlaybackFailed?.(track.recordingKey);
+    this.consecutiveFailures += 1;
+    if (this.consecutiveFailures <= this.maxConsecutiveFailures && this.queue.hasNext()) {
+      this.queue.next();
+      await this.playCurrent(viaSkip); // try the next track (bounded recursion ≤ cap)
+      return;
+    }
+    // cap reached, or nothing left to try → stop cleanly and reset the streak for the next action.
+    this.consecutiveFailures = 0;
+    this.isPlaying = false;
     this.emit();
   }
 
