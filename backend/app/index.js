@@ -18,6 +18,7 @@ const authRouter         = require('./routes/auth');
 const integrationsRouter = require('./routes/integrations');
 const sessionsRouter     = require('./routes/sessions');
 const pulseRouter        = require('./routes/pulse');
+const discoveryRouter    = require('./routes/discovery');
 const { startInProcessWorkers } = require('./workers');
 const { createSocketServer } = require('./sockets');
 
@@ -91,6 +92,7 @@ app.use('/api/auth',         authRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/sessions',     sessionsRouter);
 app.use('/api/pulse',        pulseRouter);
+app.use('/api/discovery',    discoveryRouter);
 app.use('/api/webhooks',     require('./routes/webhooks'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));

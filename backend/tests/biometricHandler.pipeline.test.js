@@ -286,6 +286,24 @@ describe('toClientTrack — receipt (no imageUrl)', () => {
   });
 });
 
+// ── toClientTrack — recordingKey passthrough (Phase 2 self-heal reporting) ──
+// A discovery track carries its native recordingKey (youtube:<id>) so the client can
+// report a playback failure for THAT catalog entry; a familiar track has none → null.
+
+describe('toClientTrack — recordingKey passthrough', () => {
+  const { toClientTrack } = require('../app/sockets/biometricHandler');
+
+  it('carries a discovery track\'s recordingKey through to the client payload', () => {
+    const c = toClientTrack({ id: 'd1', uri: 'spotify:track:d1', recordingKey: 'youtube:abc', isDiscovery: true }, 'spotify', { trigger: 'emotion' });
+    expect(c.recordingKey).toBe('youtube:abc');
+  });
+
+  it('emits recordingKey:null for a familiar track that has none', () => {
+    const c = toClientTrack({ id: 'f1', uri: 'spotify:track:f1' }, 'spotify', { trigger: 'emotion' });
+    expect(c.recordingKey).toBeNull();
+  });
+});
+
 // ── toClientTrack — Spotify-URI reconstruction guard (recordingKey-shaped ids) ──
 // The URI rebuild must fire ONLY from a bare track id. A discovery candidate carries an
 // `id` = the FULL recordingKey (spotify:<trackId>) — already colon-bearing; rebuilding it

@@ -110,6 +110,9 @@ function toClientTrack(t, provider, context) {
   return {
     id,
     uri,
+    // Native catalog key (youtube:<id> for a discovery track; null for a familiar entry) so the
+    // client can report a playback failure against THIS entry for the discovery self-heal (Phase 2).
+    recordingKey: t.recordingKey ?? null,
     title:  t.title ?? t.name ?? 'Unknown title',
     artist: t.artist ?? t.artists?.[0]?.name ?? 'Unknown artist',
     // Wave 2.8 mix-receipt (the "why this track"). The Now Playing COVER is intentionally
