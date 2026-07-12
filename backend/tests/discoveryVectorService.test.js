@@ -52,4 +52,8 @@ describe('DiscoveryVectorService.find', () => {
     const out = await svc.find({ targetFeatures: { bpm: 90 }, seedGenres: [], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
     expect(out).toEqual([]);
   });
+
+  it('never throws — a null opts argument yields []', async () => {
+    await expect(svc.find(null)).resolves.toEqual([]);
+  });
 });

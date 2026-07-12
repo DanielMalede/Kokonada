@@ -12,13 +12,14 @@ const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
 // Spotify-independent discovery: match the mood/target vector against our corpus, exclude
 // the user's library, threshold, diversify (MMR), hydrate. ENHANCEMENT — returns [] on any
 // failure and never throws into the generation path.
-async function find({
-  targetFeatures = {}, seedGenres = [], excludeCanonicalKeys = new Set(),
-  k = num(process.env.DISCOVERY_K, 30),
-  overfetch = num(process.env.DISCOVERY_OVERFETCH, 6),
-  minCosine = num(process.env.DISCOVERY_MIN_COSINE, 0.5),
-  budgetMs = num(process.env.DISCOVERY_QUERY_BUDGET_MS, 2500),
-} = {}) {
+async function find(opts = {}) {
+  const {
+    targetFeatures = {}, seedGenres = [], excludeCanonicalKeys = new Set(),
+    k = num(process.env.DISCOVERY_K, 30),
+    overfetch = num(process.env.DISCOVERY_OVERFETCH, 6),
+    minCosine = num(process.env.DISCOVERY_MIN_COSINE, 0.5),
+    budgetMs = num(process.env.DISCOVERY_QUERY_BUDGET_MS, 2500),
+  } = opts || {};
   try {
     const target = buildTargetVector(targetFeatures, seedGenres);
     const hits = await withVectorBudget(
