@@ -50,4 +50,16 @@ async function getMany(recordingKeys = []) {
   return out;
 }
 
-module.exports = { upsertMany, getMany };
+// Cache serve-time-resolved Spotify URIs onto EXISTING catalog entries (translate-once). Targeted
+// $set of uri by recordingKey; upsert:false so it only ever UPDATES (the key always came FROM the
+// catalog via discovery hydration) and never creates stub docs.
+async function updateResolvedUris(pairs = []) {
+  const rows = (pairs || []).filter(p => p && typeof p.recordingKey === 'string' && p.recordingKey
+    && typeof p.uri === 'string' && p.uri);
+  if (!rows.length) return { updated: 0 };
+  const ops = rows.map(p => ({ updateOne: { filter: { recordingKey: p.recordingKey }, update: { $set: { uri: p.uri } } } }));
+  await TrackCatalog.bulkWrite(ops, { ordered: false });
+  return { updated: rows.length };
+}
+
+module.exports = { upsertMany, getMany, updateResolvedUris };

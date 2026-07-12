@@ -20,7 +20,9 @@ const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
+const trackCatalogRepo = require('../repositories/trackCatalogRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
+const { resolvedDiscoveryUris } = require('../services/discovery/resolvedUriCache');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -685,6 +687,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       try {
         const { tracks: playable } = await translateToSpotify(playlist.merged, spotifyToken);
         if (playable.length) playlist.merged = playable;
+        // Translate-once (T3): cache serve-time-resolved Spotify URIs back onto the anonymous
+        // discovery catalog so the next hydration passes through instead of re-searching Spotify.
+        // Fire-and-forget, best-effort — never awaited, never allowed to fail generation.
+        const resolved = resolvedDiscoveryUris(playable);
+        if (resolved.length) trackCatalogRepo.updateResolvedUris(resolved).catch(() => {});
       } catch (e) {
         log(`[generate] cross-platform translation skipped: ${e.message}`);
       }
