@@ -286,6 +286,25 @@ describe('toClientTrack — receipt (no imageUrl)', () => {
   });
 });
 
+// ── toClientTrack — Spotify-URI reconstruction guard (recordingKey-shaped ids) ──
+// The URI rebuild must fire ONLY from a bare track id. A discovery candidate carries an
+// `id` = the FULL recordingKey (spotify:<trackId>) — already colon-bearing; rebuilding it
+// would mint a malformed `spotify:track:spotify:<trackId>`. The guard drops it to null.
+
+describe('toClientTrack — Spotify-URI reconstruction guard (recordingKey-shaped ids)', () => {
+  const { toClientTrack } = require('../app/sockets/biometricHandler');
+
+  it('drops a colon-bearing id with no uri instead of minting spotify:track:spotify:<id>', () => {
+    const c = toClientTrack({ id: 'spotify:abc', provider: 'spotify' }, 'spotify', { trigger: 'emotion' });
+    expect(c).toBeNull();
+  });
+
+  it('still reconstructs spotify:track:<id> from a normal bare id with no uri (regression)', () => {
+    const c = toClientTrack({ id: 'abc' }, 'spotify', { trigger: 'emotion' });
+    expect(c).toMatchObject({ id: 'abc', uri: 'spotify:track:abc' });
+  });
+});
+
 // ── generateAndEmitPlaylist — biometric trigger ───────────────────────────────
 
 describe('generateAndEmitPlaylist — biometric trigger', () => {

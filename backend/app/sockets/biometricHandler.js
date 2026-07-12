@@ -87,13 +87,16 @@ function toClientTrack(t, provider, context) {
   if (!t) return null;
   const id = t.id ?? null;
   let uri = t.uri ?? null;
-  // Only reconstruct a Spotify URI for a GENUINELY Spotify track. A familiar/
-  // fallback library entry tagged with a different provider (e.g.
-  // `youtube_music`) has a YouTube video id — rebuilding `spotify:track:<id>`
-  // from it mints a malformed URI that Spotify rejects with a 400 for the whole
-  // play request. Untagged tracks (legacy entries, Spotify recommendation
-  // objects) are assumed to match the active provider.
-  if (!uri && id && provider === 'spotify' && (!t.provider || t.provider === 'spotify')) {
+  // Only reconstruct a Spotify URI for a GENUINELY Spotify track, and ONLY from a
+  // bare track id. A familiar/fallback library entry tagged with a different
+  // provider (e.g. `youtube_music`) has a YouTube video id — rebuilding
+  // `spotify:track:<id>` from it mints a malformed URI that Spotify rejects with a
+  // 400 for the whole play request. A colon-bearing id is either a recordingKey
+  // (`spotify:<trackId>`, what discovery emits) or an already-formed URI — it must
+  // NEVER become `spotify:track:spotify:<trackId>`; it drops to null instead.
+  // Untagged tracks (legacy entries, Spotify recommendation objects) are assumed
+  // to match the active provider.
+  if (!uri && id && !String(id).includes(':') && provider === 'spotify' && (!t.provider || t.provider === 'spotify')) {
     uri = `spotify:track:${id}`;
   }
   if (!uri) return null;
