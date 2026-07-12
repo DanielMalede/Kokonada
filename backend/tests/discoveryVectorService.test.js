@@ -56,6 +56,13 @@ describe('DiscoveryVectorService.find', () => {
     expect(out[0].uri).toBeNull(); // not yet resolved — translation happens downstream at serve time
   });
 
+  it('drops a half-translatable no-URI candidate (title without artist, or artist without title)', async () => {
+    seed(fake, 'youtube:t1', 'c1', { bpm: 90 }, ['ambient'], { uri: null, title: 'Title only', artist: null });
+    seed(fake, 'youtube:t2', 'c2', { bpm: 90 }, ['ambient'], { uri: null, title: null, artist: 'Artist only' });
+    const out = await svc.find({ targetFeatures: { bpm: 90 }, seedGenres: ['ambient'], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
+    expect(out).toEqual([]); // neither is translatable (needs BOTH title and artist), and neither has a uri
+  });
+
   it('never throws — a queryNear failure yields []', async () => {
     vectorIndex.use({ queryNear: async () => { throw new Error('atlas down'); } });
     const out = await svc.find({ targetFeatures: { bpm: 90 }, seedGenres: [], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
