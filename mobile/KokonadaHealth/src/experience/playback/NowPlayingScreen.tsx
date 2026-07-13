@@ -128,6 +128,7 @@ export function NowPlayingScreen() {
   // L1: a FRESH 0-value per track id (not a shared ref reset after paint). Reset-before-paint —
   // so a discovery→discovery skip renders the new receipt already at opacity 0, never flashing the
   // prior track's end-state for one frame before re-fading. The effect below only .start()s it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional keyed remount: a new value per track id
   const reveal = useMemo(() => new Animated.Value(0), [track?.id]);
   useEffect(() => {
     if (!isDiscoveryAnchor || reduced) return; // reduced motion → no animation (instant swap below)
