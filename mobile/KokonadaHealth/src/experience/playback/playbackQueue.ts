@@ -7,6 +7,9 @@
 export interface TrackReceipt {
   label: string;
   detail?: string;
+  // Wave 2.8 enriched discovery: the non-Spotify favorite this discovery track anchors to
+  // ("Because you love <title> by <artist>"). Additive over the backend `receipt.anchor`.
+  anchor?: { title: string; artist: string };
 }
 
 export interface QueueTrack {
@@ -34,7 +37,18 @@ function sanitizeReceipt(r: unknown): TrackReceipt | null {
   const label = (r as any).label;
   if (typeof label !== 'string' || label.length === 0) return null;
   const detail = (r as any).detail;
-  return typeof detail === 'string' && detail.length > 0 ? { label, detail } : { label };
+  const receipt: TrackReceipt = typeof detail === 'string' && detail.length > 0 ? { label, detail } : { label };
+  // Keep an anchor ONLY when both fields are non-empty strings (mirror the detail keep-only
+  // pattern): a blank / half / unknown anchor is stripped so the UI never makes a false claim.
+  const anchor = (r as any).anchor;
+  if (anchor && typeof anchor === 'object') {
+    const title = (anchor as any).title;
+    const artist = (anchor as any).artist;
+    if (typeof title === 'string' && title.trim() && typeof artist === 'string' && artist.trim()) {
+      receipt.anchor = { title, artist };
+    }
+  }
+  return receipt;
 }
 
 function sanitize(raw: unknown[]): QueueTrack[] {

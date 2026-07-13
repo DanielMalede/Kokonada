@@ -109,6 +109,52 @@ describe('PlaybackQueue — receipt payload (Wave 2.8; cover now comes from the 
   });
 });
 
+describe('PlaybackQueue — receipt anchor (Wave 2.8 enriched discovery; additive, back-compat)', () => {
+  it('keeps a valid anchor { title, artist } on a discovery receipt', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', detail: 'Matched to your mood', anchor: { title: 'Blue', artist: 'Joni Mitchell' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your mood', anchor: { title: 'Blue', artist: 'Joni Mitchell' } });
+  });
+
+  it('strips the anchor when the title is missing (honest — no half claim)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', anchor: { artist: 'Joni Mitchell' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('strips the anchor when the artist is blank / whitespace', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', anchor: { title: 'Blue', artist: '   ' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('strips the anchor when the title is an empty string (detail is preserved)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', detail: 'd', anchor: { title: '', artist: 'Joni Mitchell' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'd' });
+  });
+
+  it('strips a non-object anchor defensively (never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', anchor: 'Joni Mitchell' } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('a receipt with NO anchor is byte-identical to before (back-compat)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } } as any]);
+    const r = q.current()?.receipt;
+    expect(r).toEqual({ label: 'New discovery', detail: 'Matched to your mood · 128 BPM' });
+    expect(r).not.toHaveProperty('anchor');
+  });
+});
+
 describe('PlaybackQueue — recordingKey payload (Phase 2; identifies a discovery track for failure reporting)', () => {
   it('carries a discovery track recordingKey through sanitize onto the current track', () => {
     const q = new PlaybackQueue();
