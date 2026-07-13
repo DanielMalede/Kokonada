@@ -6,7 +6,6 @@ import { haptics, type HapticKey } from './tokens';
 // required lazily so its absence is caught here rather than at import time.
 export function fireHaptic(key: HapticKey): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod: any = require('react-native-haptic-feedback');
     const trigger: ((type: string) => void) | undefined = mod?.trigger ?? mod?.default?.trigger;
     trigger?.(haptics[key]);

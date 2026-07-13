@@ -18,6 +18,12 @@ const CURSOR_RAIL_WIDTH = 3;
 const SHEET_PRESENT_TRAVEL = 480;
 const SHEET_MAX_HEIGHT = '88%';
 
+// A stable (non-inline) row separator so the FlatList never re-creates a component type per render.
+function HairlineSeparator() {
+  const { c } = useTheme();
+  return <View style={[styles.separator, { backgroundColor: c.surface.hairline }]} />;
+}
+
 export interface UpNextSheetProps {
   visible: boolean;
   onClose: () => void;
@@ -155,7 +161,7 @@ export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlayin
             data={tracks}
             keyExtractor={(t) => t.id}
             renderItem={renderRow}
-            ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: c.surface.hairline }]} />}
+            ItemSeparatorComponent={HairlineSeparator}
             ListFooterComponent={atEnd ? (
               <Text testID="upnext-footer" style={[styles.footer, { color: c.content.tertiary }]}>End of set · finding more…</Text>
             ) : null}
