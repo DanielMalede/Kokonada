@@ -125,10 +125,12 @@ export function NowPlayingScreen() {
   // + anchor line fade+rise ONCE — elapsed-time driven (Animated.timing), never a per-frame loop
   // and never a perpetual breath (that lane is the PlaybackAura's alone). A rapid next/next/next
   // cancels the in-flight reveal cleanly via the effect cleanup, so it never queues or stutters.
-  const reveal = useRef(new Animated.Value(0)).current;
+  // L1: a FRESH 0-value per track id (not a shared ref reset after paint). Reset-before-paint —
+  // so a discovery→discovery skip renders the new receipt already at opacity 0, never flashing the
+  // prior track's end-state for one frame before re-fading. The effect below only .start()s it.
+  const reveal = useMemo(() => new Animated.Value(0), [track?.id]);
   useEffect(() => {
     if (!isDiscoveryAnchor || reduced) return; // reduced motion → no animation (instant swap below)
-    reveal.setValue(0);
     const anim = Animated.timing(reveal, {
       toValue: 1,
       duration: motion.duration.slow,

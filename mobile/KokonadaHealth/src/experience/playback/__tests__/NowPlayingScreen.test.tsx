@@ -603,6 +603,27 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(handles[0].stop).toHaveBeenCalledTimes(1);   // effect cleanup tore the reveal down
       spy.mockRestore();
     });
+
+    // The reveal opacity value bound into the enriched receipt's animated style (revealStyle.opacity).
+    const revealValue = (tree: ReactTestRenderer.ReactTestRenderer) =>
+      StyleSheet.flatten(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt')[0].props.style).opacity as any;
+
+    it('L1: mints a FRESH 0-value per track id (reset-before-paint) so a discovery→discovery skip never flashes the prior end-state', async () => {
+      const { spy } = spyRevealTiming(); // inert reveal timing → the value never advances off 0 on its own
+      nowPlayingStore.getState().set({ track: DISCOVERY, isPlaying: true });
+      const tree = await render();
+      const v1 = revealValue(tree);
+      expect(v1.__getValue()).toBe(0);                    // painted at 0 on entry, not the prior end-state
+      await ReactTestRenderer.act(async () => {
+        nowPlayingStore.getState().set({ track: { ...DISCOVERY, id: 't-next' }, isPlaying: true });
+      });
+      await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+      const v2 = revealValue(tree);
+      expect(v2).not.toBe(v1);                            // a fresh value per track id (useMemo), not a shared ref
+      expect(v2.__getValue()).toBe(0);                    // and the fresh value is ALREADY at 0 before paint
+      spy.mockRestore();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
   });
 
   // ── L2: the connection subscribe effect must re-read live status on mount ──
