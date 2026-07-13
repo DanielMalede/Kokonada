@@ -143,10 +143,16 @@ export class PlaybackOrchestrator {
     // play, reason 'command_failed' or undefined) is treated as a dead discovery track: report it
     // (self-heal the backend's stale cached uri) + silently skip, bounded by the cap.
     if (res.reason === 'disconnected') {
+      // L4 (ACCEPTED / SAFE): consecutiveFailures is intentionally NOT reset on a disconnect-interrupted
+      // walk. It can only leave the streak >0, so a later jump's cap is at most SHORTER, never runaway —
+      // pre-existing and inherited equally by the shipped skip path.
       this.isPlaying = false;
       this.emit();
       return;
     }
+    // V1 (ACCEPTED / DEFERRED): a remote that drops DURING action() surfaces here as 'command_failed'
+    // (not 'disconnected'), costing one bounded, deduped, self-correcting false report + one skip.
+    // Native-error-code classification is the Daniel-accepted deferral — the #130 device logcat closes it.
     if (track.recordingKey) {
       // A dead DISCOVERY track (recordingKey present) is reported so the backend nulls its stale
       // cached uri. Fire-and-forget: an injected reporter that throws must never reject playCurrent
