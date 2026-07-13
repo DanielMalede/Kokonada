@@ -500,6 +500,29 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(pill.props.accessible).toBe(true);
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
+
+    // ── M2 (resilience): branch-determinism — a FAMILIAR track carrying a stray anchor stays quiet.
+    // Pins the recordingKey requirement in the gate (a mutation to `!!anchor` would leak the enriched
+    // treatment onto a familiar favorite). The receipt is set directly (bypassing sanitizeReceipt).
+    it('M2: a familiar track (recordingKey null) with a stray well-formed anchor renders the quiet pill, not the discovery treatment', async () => {
+      nowPlayingStore.getState().set({
+        track: {
+          ...TRACK,
+          recordingKey: null,
+          receipt: { label: 'Familiar favorite', detail: 'A song you already love', anchor: { title: 'Weightless', artist: 'Marconi Union' } },
+        },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery')).toHaveLength(0);
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.surface.hairline); // hairline, never an accent
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('Familiar favorite');
+      expect(all).not.toContain('✦');                 // no discovery shape signal
+      expect(all).not.toContain('Because you love');  // and no leaked "Because you love …" claim
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
   });
 
   // ── L2: the connection subscribe effect must re-read live status on mount ──
