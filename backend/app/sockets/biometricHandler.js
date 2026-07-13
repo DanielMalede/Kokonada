@@ -621,6 +621,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       const moodParams = useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : null;
       if (moodParams) {
         try {
+          // ACCEPTED (audit): no precomputed targets here → generateV2 recomputes the band; harmless (discoveryTracks:[], same live/mood inputs) so it can never drift from a discovery pass that did not run.
           const moodPlaylist = await orchestrator.generateV2({
             userId, musicProfile, moodKey, provider,
             aiParams: moodParams,

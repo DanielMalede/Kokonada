@@ -98,6 +98,7 @@ async function find(opts = {}) {
     // Hydrate metadata; drop only the truly unplayable. A candidate survives when it has a
     // URI OR is translatable (has BOTH title and artist) — a YouTube-corpus track carries
     // uri:null but is resolved to a Spotify URI at serve time via search (translateToSpotify).
+    // ACCEPTED (audit): the feature getMany above + this catalog getMany are single indexed $in batches (not N+1), bounded by the outer AI_BUDGET_MS, not this call's budgetMs.
     const meta = await trackCatalogRepo.getMany(survivors.map(h => h.recordingKey));
     const candidates = [];
     for (const h of survivors) {
