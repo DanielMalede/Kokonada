@@ -1,14 +1,19 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, Pressable, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
 import { nowPlayingStore } from './nowPlayingStore';
 import { orchestrator } from './playbackServices';
 import type { NowPlaying } from './playbackOrchestrator';
+import type { QueueTrack } from './playbackQueue';
 import { UpNextSheet } from './UpNextSheet';
+import { SpotifyAttribution } from '../player/SpotifyAttribution';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { store } from '../../state/store';
 import { emotionAccentFor } from '../../design/emotionAccent';
 import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, type as typography, elevation } from '../../design/tokens';
+
+// A stable empty snapshot so a closed sheet never hands the sheet a fresh array identity each render.
+const NO_TRACKS: QueueTrack[] = [];
 
 // Now Playing — Wave 2.8 "Bioluminescence" full-screen player. The current track and its
 // transport, driven entirely by the unit-tested PlaybackOrchestrator. This is a visual
@@ -75,8 +80,21 @@ export function NowPlayingScreen() {
   // its soft states; the session accent is chosen ONCE (static per session, never per-track).
   const [upNextVisible, setUpNextVisible] = useState(false);
   const [connection, setConnection] = useState(playerStatusStore.getState().status);
-  useEffect(() => playerStatusStore.subscribe((s) => setConnection(s.status)), []);
+  // L2: re-read the LIVE status on mount before wiring the subscription — a connect/disconnect that
+  // lands between the initial render and the effect commit would otherwise be dropped (mirrors the
+  // nowPlayingStore effect above, which already syncs current state on mount).
+  useEffect(() => {
+    setConnection(playerStatusStore.getState().status);
+    return playerStatusStore.subscribe((s) => setConnection(s.status));
+  }, []);
+  // L5 (ACCEPTED): mounted before COLD hydration, taps may be empty → the session quadrant renders
+  // `calm` (the brand default). Cosmetic and consistent with the "static per session" accent design.
   const quadrant = useMemo(() => emotionAccentFor(store.getState().emotion.taps), []);
+
+  // L3: snapshot the queue ONCE while the sheet is open (stable identity until it reopens), and keep
+  // the jump handler stable — so the sheet's memoized rows aren't churned by unrelated re-renders.
+  const queueTracks = useMemo(() => (upNextVisible ? orchestrator.getQueueTracks() : NO_TRACKS), [upNextVisible]);
+  const onJump = useCallback((t: QueueTrack) => orchestrator.jumpToId(t.id), []);
 
   const { track, isPlaying, coverUri } = state;
 
@@ -166,6 +184,15 @@ export function NowPlayingScreen() {
             ) : null}
           </View>
         ) : null}
+
+        {/* NP-ATTR (compliance C1/C2): the reusable Spotify attribution + link-back for the live
+            Spotify content on this surface. Its own element, separated from the mix-receipt by a
+            hairline — nothing here may imply Spotify authored the pick or merge with the receipt. */}
+        {track ? (
+          <View testID="now-playing-attribution" style={[styles.attribution, { borderTopColor: c.surface.hairline }]}>
+            <SpotifyAttribution />
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.transport}>
@@ -214,12 +241,12 @@ export function NowPlayingScreen() {
       <UpNextSheet
         visible={upNextVisible}
         onClose={() => setUpNextVisible(false)}
-        tracks={upNextVisible ? orchestrator.getQueueTracks() : []}
+        tracks={queueTracks}
         currentTrackId={track?.id ?? null}
         isPlaying={isPlaying}
         quadrant={quadrant}
         connection={connection}
-        onJump={(t) => orchestrator.jumpToId(t.id)}
+        onJump={onJump}
       />
     </View>
   );
@@ -233,6 +260,7 @@ const styles = StyleSheet.create({
   cover: { width: '100%', height: '100%' },
   meta: { width: '100%', alignItems: 'center', paddingHorizontal: space.md },
   receipt: { marginTop: space.md, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
+  attribution: { alignSelf: 'stretch', marginTop: space.lg, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth },
   transport: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space['3xl'], marginTop: space['2xl'] },
   sideBtn: { padding: space.md, alignItems: 'center', justifyContent: 'center' },
   // ≥44pt a11y tap target via the space['3xl'] (48) token — low-emphasis, centered chevron + label.

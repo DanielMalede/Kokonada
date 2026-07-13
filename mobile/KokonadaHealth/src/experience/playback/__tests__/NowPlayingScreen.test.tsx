@@ -14,9 +14,24 @@ jest.mock('../playbackServices', () => ({
   player: { connect: jest.fn() },
 }));
 
+// SpotifyAttribution pulls the native link-back graph — stub it to a marker (with a link-back node)
+// so the NP-ATTR placement can be asserted here; the real mark is covered in SpotifyAttribution.test.
+jest.mock('../../player/SpotifyAttribution', () => {
+  const React2 = require('react');
+  const { View, Text } = require('react-native');
+  return {
+    SpotifyAttribution: () =>
+      React2.createElement(View, { testID: 'spotify-attribution' },
+        React2.createElement(Text, {
+          testID: 'spotify-attribution-linkback', accessibilityRole: 'button', accessibilityLabel: 'GET SPOTIFY FREE',
+        }, 'GET SPOTIFY FREE')),
+  };
+});
+
 import { NowPlayingScreen } from '../NowPlayingScreen';
 import { orchestrator } from '../playbackServices';
 import { nowPlayingStore } from '../nowPlayingStore';
+import { playerStatusStore } from '../../player/playerStatusStore';
 
 const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
@@ -298,6 +313,46 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
       expect(tree.root.findAll((n) => n.props.testID === 'upnext-sheet').length).toBeGreaterThan(0);
       expect(orchestrator.getQueueTracks as jest.Mock).toHaveBeenCalled();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+  });
+
+  // ── NP-ATTR (compliance C1/C2): Spotify attribution + link-back on the Now Playing surface ──
+  describe('Spotify attribution on Now Playing (NP-ATTR)', () => {
+    it('renders the Spotify attribution mark + link-back on the surface, as its own element distinct from the receipt', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } },
+        isPlaying: true,
+      });
+      const tree = await render();
+      // the attribution mark is present on the surface…
+      expect(tree.root.findAll((n) => n.props.testID === 'spotify-attribution').length).toBeGreaterThan(0);
+      // …with the link-back affordance…
+      expect(tree.root.findAll((n) => n.props.testID === 'spotify-attribution-linkback').length).toBeGreaterThan(0);
+      // …and it is NOT merged into / a descendant of the receipt node (nothing implies Spotify authored the pick).
+      const receipt = tree.root.findAll((n) => n.props.testID === 'now-playing-receipt')[0];
+      expect(receipt).toBeTruthy();
+      expect(receipt.findAll((n) => n.props.testID === 'spotify-attribution')).toHaveLength(0);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+  });
+
+  // ── L2: the connection subscribe effect must re-read live status on mount ──
+  describe('L2: live connection status is re-synced on mount', () => {
+    it('re-reads playerStatusStore on effect-commit so a transition after the initial render is not dropped', async () => {
+      // getState() is disconnected for the useState initializer, then connected by effect-commit time —
+      // the mount re-read must catch up. Old code (subscribe-only) would strand on disconnected.
+      let calls = 0;
+      const real = playerStatusStore.getState.bind(playerStatusStore);
+      const spy = jest.spyOn(playerStatusStore, 'getState').mockImplementation(() => {
+        calls += 1;
+        return { ...real(), status: calls <= 1 ? 'disconnected' : 'connected' } as any;
+      });
+      const tree = await render(); // no track → no soft note unless we are stranded on 'disconnected'
+      await ReactTestRenderer.act(async () => { byLabel(tree, 'Up next').props.onPress(); });
+      await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+      expect(texts(tree.toJSON()).join(' ')).not.toContain('Reconnecting'); // caught the → connected transition
+      spy.mockRestore();
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
   });
