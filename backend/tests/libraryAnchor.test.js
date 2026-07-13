@@ -40,6 +40,31 @@ describe('libraryAnchor.nearestLibraryAnchor', () => {
     expect(nearestLibraryAnchor(d, [cand], { minCosine: exact + 1e-9 })).toBeNull();       // just below → null
   });
 
+  describe('L1 — floor config footgun (the default must be a POSITIVE finite cosine)', () => {
+    // Two genuinely orthogonal unit vectors (cosine exactly 0). A non-negative embedding
+    // pair only reaches 0 when their supports are disjoint — this is the "any non-negative
+    // cosine qualifies" trap a floor collapsed to 0 (or a negative floor) would open.
+    const unit = (i) => { const v = new Array(70).fill(0); v[i] = 1; return v; };
+    const orthDisc = { embedding: unit(0) };
+    const orthYt   = yt({ embedding: unit(1) });
+
+    it('an orthogonal (cosine 0) youtube_music neighbour yields NO anchor under the unset default (0.6)', () => {
+      expect(cosine(orthDisc.embedding, orthYt.embedding)).toBe(0);
+      expect(nearestLibraryAnchor(orthDisc, [orthYt], {})).toBeNull();  // minCosine unset → 0.6
+      expect(nearestLibraryAnchor(orthDisc, [orthYt])).toBeNull();      // opts omitted → 0.6
+    });
+
+    it.each([
+      ['',   'empty string → Number("")===0'],
+      ['-1', 'negative string → always-passes'],
+      [0,    'numeric zero'],
+      [-1,   'numeric negative'],
+      ['abc','non-numeric → NaN'],
+    ])('minCosine=%p (%s) falls back to 0.6, so an orthogonal neighbour stays anchor-less', (bad) => {
+      expect(nearestLibraryAnchor(orthDisc, [orthYt], { minCosine: bad })).toBeNull();
+    });
+  });
+
   describe('COMPLIANCE provider gate', () => {
     it('returns null when the genuine nearest is spotify-sourced, even with a farther above-floor youtube_music candidate', () => {
       const d = disc();

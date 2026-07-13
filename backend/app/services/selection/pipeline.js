@@ -14,8 +14,10 @@ const { attachLibraryAnchors } = require('../discovery/libraryAnchor');
 // Similarity floor for the discovery mix-receipt library anchor. Read at call time
 // (like DISCOVERY_MIN_COSINE) so a Railway env flip needs no redeploy.
 const ANCHOR_MIN_COSINE = () => {
+  // Require a POSITIVE finite value: an empty env (Number("")===0), a zero, or a negative
+  // would collapse the floor to always-pass, so anything non-positive falls back to 0.6.
   const v = Number(process.env.DISCOVERY_ANCHOR_MIN_COSINE);
-  return Number.isFinite(v) ? v : 0.6;
+  return Number.isFinite(v) && v > 0 ? v : 0.6;
 };
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR.

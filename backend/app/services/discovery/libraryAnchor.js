@@ -15,8 +15,11 @@ const { cosine } = require('../vector/embedding');
 const DEFAULT_MIN_COSINE = 0.6;
 
 function _floor(opts) {
+  // A cosine floor MUST be a positive finite value. An empty-string env (Number("")===0),
+  // a zero, or a negative would otherwise collapse the gate to "any non-negative cosine
+  // qualifies" (or always-pass) — so anything non-positive falls back to the default.
   const v = Number(opts && opts.minCosine);
-  return Number.isFinite(v) ? v : DEFAULT_MIN_COSINE;
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_MIN_COSINE;
 }
 
 function _nameable(candidate) {

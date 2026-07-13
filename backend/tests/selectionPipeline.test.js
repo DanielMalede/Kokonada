@@ -264,6 +264,18 @@ describe('pipeline.selectPlaylist — enriched discovery anchor (nearest LIBRARY
     expect(d.anchor).toBeUndefined();
   });
 
+  it.each(['', '-1'])('DISCOVERY_ANCHOR_MIN_COSINE=%p (footgun) does NOT collapse/invert the floor — a below-0.6 neighbour stays anchor-less', async (footgun) => {
+    process.env.DISCOVERY_ANCHOR_MIN_COSINE = footgun; // Number("")===0 / Number("-1")===-1 would make the floor always-pass
+    vectorIndex.getMany.mockResolvedValue(new Map([
+      ['youtube:y0', buildVector(F_FAR, ['ambient'])], // ~0.285 vs disc — above 0, below the real 0.6 default
+      ['youtube:disc1', buildVector(F, AFRO)],
+    ]));
+    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: ytLibProfile, crossPlatform: true, discoveryTracks: [disc], k: 50 });
+    const d = tracks.find(t => t.isDiscovery);
+    expect(d).toBeDefined();
+    expect(d.anchor).toBeUndefined(); // the footgun value must fall back to 0.6, not a 0/negative floor
+  });
+
   it('omits the anchor (provider gate) when the nearest library neighbour is spotify-sourced', async () => {
     const spotLibProfile = {
       library: [{ id: 's0', provider: 'spotify', name: 'S0', artist: 'ArtistS0', genres: AFRO, affinity: 30, uri: 'spotify:track:s0' }],
