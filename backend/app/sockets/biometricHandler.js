@@ -87,7 +87,15 @@ function buildReceipt(t, context = {}) {
     if (Number.isFinite(bpm) && bpm > 0) parts.push(`${bpm} BPM`);
   }
   const detail = parts.length ? parts.join(' · ') : undefined;
-  return detail ? { label, detail } : { label };
+  const receipt = detail ? { label, detail } : { label };
+  // Wave 2.8 enriched receipt: a DISCOVERY track whose nearest LIBRARY neighbour is a
+  // non-Spotify favorite carries an anchor ("Because you love <artist>"), attached
+  // upstream in the selection pipeline. Familiar tracks NEVER receive an anchor; a blank
+  // artist is omitted (honest — no claim). Additive: the client strips unknown fields.
+  if (t?.isDiscovery && t.anchor && typeof t.anchor.artist === 'string' && t.anchor.artist.trim()) {
+    receipt.anchor = { title: t.anchor.title ?? null, artist: t.anchor.artist };
+  }
+  return receipt;
 }
 
 function toClientTrack(t, provider, context) {

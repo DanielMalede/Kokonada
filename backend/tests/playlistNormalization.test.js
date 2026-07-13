@@ -93,3 +93,35 @@ describe('toClientTracks — filtering', () => {
     expect(toClientTracks(undefined, 'spotify')).toEqual([]);
   });
 });
+
+describe('buildReceipt — enriched discovery anchor', () => {
+  const disc = (over = {}) => ({ id: 'x', uri: REAL_SPOTIFY_URI, name: 'Disc', artist: 'A', isDiscovery: true, ...over });
+
+  it('surfaces a discovery anchor without disturbing label/detail', () => {
+    const out = toClientTrack(disc({ anchor: { title: 'Ye', artist: 'Burna Boy' } }), 'spotify', { trigger: 'emotion', params: { target_bpm: 120 } });
+    expect(out.receipt.label).toBe('New discovery');
+    expect(out.receipt.detail).toBe('Matched to your mood · 120 BPM');
+    expect(out.receipt.anchor).toEqual({ title: 'Ye', artist: 'Burna Boy' });
+  });
+
+  it('a discovery track WITHOUT an anchor yields exactly { label, detail? } (backward-compat)', () => {
+    const withDetail = toClientTrack(disc(), 'spotify', { trigger: 'emotion' });
+    expect(withDetail.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your mood' });
+    expect('anchor' in withDetail.receipt).toBe(false);
+
+    const noDetail = toClientTrack(disc(), 'spotify', {});
+    expect(noDetail.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('a familiar track with a stray anchor NEVER gets an anchor in its receipt', () => {
+    const fam = { id: 'lib-1', name: 'Fam', artist: 'A', anchor: { title: 'Ye', artist: 'Burna Boy' } };
+    const out = toClientTrack(fam, 'spotify', { trigger: 'emotion' });
+    expect(out.receipt.label).toBe('Familiar favorite');
+    expect('anchor' in out.receipt).toBe(false);
+  });
+
+  it('omits the anchor when the anchor artist is empty/whitespace', () => {
+    const out = toClientTrack(disc({ anchor: { title: 'Ye', artist: '   ' } }), 'spotify', {});
+    expect('anchor' in out.receipt).toBe(false);
+  });
+});
