@@ -523,6 +523,33 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(all).not.toContain('Because you love');  // and no leaked "Because you love …" claim
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
+
+    // ── L2 (resilience, defense-in-depth): the screen ITSELF requires nameable anchor fields, so a
+    // FUTURE non-sanitized write path (a half-anchor: title without artist) can never surface
+    // "Because you love X by undefined". sanitizeReceipt strips these today; this guards the screen.
+    it('L2: a discovery track with a half-anchor (title only, no artist) renders the quiet pill — no half-sentence, no throw', async () => {
+      let tree!: ReactTestRenderer.ReactTestRenderer;
+      await expect((async () => {
+        nowPlayingStore.getState().set({
+          track: {
+            ...TRACK,
+            recordingKey: 'youtube:abc',
+            receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', anchor: { title: 'Weightless' } as any },
+          },
+          isPlaying: true,
+        });
+        tree = await render();
+      })()).resolves.not.toThrow();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery')).toHaveLength(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.surface.hairline); // quiet pill, not an accent
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('New discovery');          // graceful quiet-pill copy
+      expect(all).not.toContain('✦');
+      expect(all).not.toContain('Because you love');   // never a half-claim
+      expect(all).not.toContain('undefined');          // and never "by undefined"
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
   });
 
   // ── L2: the connection subscribe effect must re-read live status on mount ──

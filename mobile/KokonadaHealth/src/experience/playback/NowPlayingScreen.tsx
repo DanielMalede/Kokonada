@@ -115,7 +115,11 @@ export function NowPlayingScreen() {
   // present) whose backend receipt ALSO carries an anchor (kept above the similarity floor by
   // sanitizeReceipt). A familiar track, or a discovery track below the floor, gets the quiet pill.
   const anchor = track?.receipt?.anchor ?? null;
-  const isDiscoveryAnchor = !!(track?.recordingKey && anchor);
+  // L2 (defense-in-depth): require the nameable fields on the screen too — a FUTURE non-sanitized
+  // write path handing a half-anchor (title without artist) could otherwise surface "Because you
+  // love X by undefined". sanitizeReceipt strips half-anchors today, so this is behaviour-neutral
+  // on the real path (a kept anchor always has both title and artist).
+  const isDiscoveryAnchor = !!(track?.recordingKey && anchor?.title && anchor?.artist);
 
   // discoveryReveal (§2.a): on track-change INTO a discovery-with-anchor track the accent border
   // + anchor line fade+rise ONCE — elapsed-time driven (Animated.timing), never a per-frame loop
