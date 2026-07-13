@@ -1,21 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, Modal, FlatList, Animated, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, Pressable, Modal, FlatList, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
 import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, type as typography, elevation, motion } from '../../design/tokens';
 import type { EmotionQuadrant } from '../../design/tokens';
-import { DiscoveryBadge } from '../../design/components/DiscoveryBadge';
 import { SpotifyAttribution } from '../player/SpotifyAttribution';
 import { fireHaptic } from '../../design/haptics';
+import { UpNextRow } from './UpNextRow';
 import type { QueueTrack } from './playbackQueue';
 
 // Up-Next queue sheet (SCREENS §7, finally built). A modal over Now Playing that lists the generated
 // set with the live cursor — pure typography + accent, NO per-track cover art (compliant + a 60fps
 // decision). Tap a row → playback jumps there through the orchestrator (the #130 self-heal path).
 
-// Design values with no design token (following the ART_SIZE precedent): a 3px cursor rail (spec
-// §2.b) and the slide-in travel of the present animation.
-const CURSOR_RAIL_WIDTH = 3;
-const SHEET_PRESENT_TRAVEL = 480;
 const SHEET_MAX_HEIGHT = '88%';
 
 // A stable (non-inline) row separator so the FlatList never re-creates a component type per render.
@@ -41,6 +37,7 @@ export interface UpNextSheetProps {
 export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlaying, quadrant, connection, onJump }: UpNextSheetProps) {
   const { c } = useTheme();
   const { reduced } = useMotion();
+  const { height: windowHeight } = useWindowDimensions();
   const accent = c.emotionAccent[quadrant];
 
   // Optimistic cursor: a tap moves the rail immediately, then the real orchestrator state (arriving
@@ -50,19 +47,77 @@ export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlayin
   useEffect(() => { setOptimisticId(null); }, [currentTrackId]);
   const effectiveCursorId = optimisticId ?? currentTrackId;
 
-  // Present/dismiss motion: gentle spring slide + scrim fade; reduced motion → instant, scrim toggles
-  // instantly (matches PlaybackAura's still-under-reduce convention — the slide is torn down).
-  const present = useRef(new Animated.Value(0)).current;
+  // R1: keep the sheet MOUNTED across a dismiss so it can animate OUT (slide down + scrim fade) with
+  // the gentle spring, unmounting only on completion — no more "slides in, snaps out". Reduced motion
+  // keeps the instant path. `present` drives both the sheet translateY and the scrim opacity.
+  const [mounted, setMounted] = useState(visible);
+  const shownRef = useRef(visible); // is the sheet currently presented? (guards a pointless exit anim)
+  const present = useRef(new Animated.Value(visible ? 1 : 0)).current;
   useEffect(() => {
-    if (!visible) return;
-    if (reduced) { present.setValue(1); return; }
-    present.setValue(0);
-    const anim = Animated.spring(present, { toValue: 1, ...motion.spring.gentle, useNativeDriver: true });
-    anim.start();
+    if (visible) {
+      shownRef.current = true;
+      setMounted(true);
+      if (reduced) { present.setValue(1); return; }
+      present.setValue(0);
+      const anim = Animated.spring(present, { toValue: 1, ...motion.spring.gentle, useNativeDriver: true });
+      anim.start();
+      return () => anim.stop();
+    }
+    if (!shownRef.current) return; // never presented → nothing to animate out
+    shownRef.current = false;
+    if (reduced) { present.setValue(0); setMounted(false); return; }
+    const anim = Animated.spring(present, { toValue: 0, ...motion.spring.gentle, useNativeDriver: true });
+    anim.start(({ finished }) => { if (finished) setMounted(false); }); // unmount only when the exit settles
     return () => anim.stop();
   }, [visible, reduced, present]);
 
-  if (!visible) return null;
+  // R2: the cursor rail + wash settle on a move — an optimistic jump OR the reconcile fade their
+  // opacity in rather than teleporting the rail across the list (a dead-track skip snapped twice
+  // before). Reduced motion → instant (opacity pinned to 1).
+  const railOpacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (reduced) { railOpacity.setValue(1); return; }
+    railOpacity.setValue(0);
+    const anim = Animated.timing(railOpacity, {
+      toValue: 1, duration: motion.duration.base, easing: Easing.bezier(...motion.easing.calm), useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [effectiveCursorId, reduced, railOpacity]);
+
+  // Present/dismiss TRAVEL is derived from the MEASURED sheet height, so a taller sheet fully clears
+  // the screen at the animation start instead of peeking. Until measured (jest has no layout), the
+  // full viewport height is a safe fallback that always clears on any device.
+  const [sheetHeight, setSheetHeight] = useState<number | null>(null);
+  const travel = sheetHeight ?? windowHeight;
+
+  // Stable tap handler: a fresh per-row closure here would bust every row's React.memo on any
+  // unrelated re-render (L3/V2). One memoized fn; the row binds its own item.
+  const onRowPress = useCallback((t: QueueTrack) => {
+    if (!t.uri) return;        // M1/L1: a data-only row is never a jump target (defense in depth)
+    fireHaptic('selection');   // commit
+    setOptimisticId(t.id);     // optimistic rail
+    onJump(t);                 // → orchestrator.jumpToId (real state reconciles the rail)
+  }, [onJump]);
+
+  // Memoized row renderer feeding stable, per-row props — only the rows whose isCursor flips re-render.
+  const renderRow = useCallback(({ item, index }: { item: QueueTrack; index: number }) => (
+    <UpNextRow
+      item={item}
+      index={index}
+      n={tracks.length}
+      isCursor={item.id === effectiveCursorId}
+      isPlaying={isPlaying}
+      disconnected={connection === 'disconnected'}
+      quadrant={quadrant}
+      accent={accent}
+      railOpacity={railOpacity}
+      c={c}
+      onPress={onRowPress}
+    />
+  ), [tracks, effectiveCursorId, isPlaying, connection, quadrant, accent, railOpacity, c, onRowPress]);
+
+  if (!mounted) return null;
 
   const n = tracks.length;
   const newCount = tracks.filter((t) => t.recordingKey != null).length;
@@ -74,58 +129,7 @@ export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlayin
   const atEnd = effectiveCursorId != null && effectiveCursorId === lastPlayableId;
   const softNote = disconnected ? 'Reconnecting…' : foreign ? 'Playing from Spotify' : null;
 
-  const translateY = present.interpolate({ inputRange: [0, 1], outputRange: [SHEET_PRESENT_TRAVEL, 0] });
-
-  const onRowPress = (t: QueueTrack) => {
-    fireHaptic('selection');   // commit
-    setOptimisticId(t.id);     // optimistic rail
-    onJump(t);                 // → orchestrator.jumpToId (real state reconciles the rail)
-  };
-
-  const rowLabel = (t: QueueTrack, index: number) => {
-    let s = `Play ${t.title} by ${t.artist}`;
-    if (t.recordingKey != null) s += ', new discovery';
-    if (t.id === effectiveCursorId) s += isPlaying ? ', now playing' : ', paused';
-    return `${s}, track ${index + 1} of ${n}`;
-  };
-
-  const renderRow = ({ item, index }: { item: QueueTrack; index: number }) => {
-    const isCursor = item.id === effectiveCursorId;
-    const isDiscovery = item.recordingKey != null;
-    const titleColor = disconnected ? c.content.tertiary : c.content.primary;
-    const artistColor = disconnected ? c.content.tertiary : c.content.secondary;
-    return (
-      <Pressable
-        testID={`upnext-row-${item.id}`}
-        onPress={() => onRowPress(item)}
-        accessibilityRole="button"
-        accessibilityLabel={rowLabel(item, index)}
-        style={[styles.row, { backgroundColor: isCursor ? accent.wash : 'transparent' }]}
-      >
-        <View
-          {...(isCursor ? { testID: 'upnext-cursor-rail' } : {})}
-          style={[styles.rail, { backgroundColor: isCursor ? accent.ink : 'transparent' }]}
-        />
-        <View style={styles.rowText}>
-          <Text
-            numberOfLines={1}
-            style={{ fontSize: typography.size.callout, fontWeight: isCursor ? typography.weight.semibold : typography.weight.regular, color: titleColor }}
-          >
-            {item.title}
-          </Text>
-          <Text numberOfLines={1} style={{ marginTop: space.xs, fontSize: typography.size.footnote, color: artistColor }}>
-            {item.artist}
-          </Text>
-        </View>
-        {isCursor ? (
-          <Text testID="upnext-cursor-glyph" style={{ fontSize: typography.size.footnote, color: accent.ink }}>
-            {isPlaying ? '▶' : '❙❙'}
-          </Text>
-        ) : null}
-        {isDiscovery ? <DiscoveryBadge quadrant={quadrant} /> : null}
-      </Pressable>
-    );
-  };
+  const translateY = present.interpolate({ inputRange: [0, 1], outputRange: [travel, 0] });
 
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
@@ -137,9 +141,21 @@ export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlayin
         <Animated.View
           testID="upnext-sheet"
           accessibilityViewIsModal
+          onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
           style={[styles.sheet, elevation.e3, { backgroundColor: c.surface.overlay, transform: [{ translateY }] }]}
         >
-          <View style={[styles.grabber, { backgroundColor: c.surface.hairline }]} importantForAccessibility="no-hide-descendants" />
+          {/* The grabber doubles as an in-trap "Close" button so SR users have a dismiss INSIDE the
+              focus trap (the scrim's Close sits outside accessibilityViewIsModal). */}
+          <Pressable
+            testID="upnext-grabber"
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close up next"
+            hitSlop={space.md}
+            style={styles.grabberHit}
+          >
+            <View style={[styles.grabber, { backgroundColor: c.surface.hairline }]} />
+          </Pressable>
 
           <View style={styles.header}>
             <Text testID="upnext-header" style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>
@@ -181,15 +197,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingBottom: space.xl,
   },
-  grabber: { width: space['2xl'], height: space.xs, borderRadius: radius.pill, alignSelf: 'center', marginTop: space.sm, marginBottom: space.md },
+  grabberHit: { alignSelf: 'center', paddingVertical: space.sm, paddingHorizontal: space.xl, marginTop: space.xs, marginBottom: space.sm },
+  grabber: { width: space['2xl'], height: space.xs, borderRadius: radius.pill },
   header: { gap: space.md, paddingBottom: space.md },
   attribution: { alignSelf: 'stretch' },
   divider: { height: StyleSheet.hairlineWidth },
   note: { paddingTop: space.md, fontSize: typography.size.footnote },
   list: { flexShrink: 1, marginTop: space.sm },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, paddingRight: space.sm, borderRadius: radius.md },
-  rail: { width: CURSOR_RAIL_WIDTH, alignSelf: 'stretch', borderRadius: radius.pill },
-  rowText: { flex: 1 },
   separator: { height: StyleSheet.hairlineWidth },
   footer: { textAlign: 'center', paddingVertical: space.xl, fontSize: typography.size.footnote },
 });

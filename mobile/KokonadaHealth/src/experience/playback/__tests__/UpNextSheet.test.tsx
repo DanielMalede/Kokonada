@@ -282,4 +282,64 @@ describe('UpNextSheet — motion', () => {
     expect(handle.stop).toHaveBeenCalled(); // reduce-motion resolved → slide stilled
     spy.mockRestore();
   });
+
+  // R1: DISMISS must animate down + scrim out with the gentle spring, then unmount only on
+  // completion — no more "slides in, snaps out". Reduced motion keeps the instant teardown.
+  it('R1: dismiss animates the sheet down (toValue 0) and unmounts only when the animation finishes', async () => {
+    let dismissCb: ((r: { finished: boolean }) => void) | undefined;
+    const handle = { start: jest.fn((cb?: any) => { dismissCb = cb; }), stop: jest.fn() };
+    const spy = jest.spyOn(Animated, 'spring').mockReturnValue(handle as any);
+    const tree = await render(<UpNextSheet {...base} visible />);
+    expect(allById(tree.root, 'upnext-sheet').length).toBeGreaterThan(0);
+    // Hide it: a dismiss spring toward 0 starts, but the sheet stays mounted while it plays out.
+    await ReactTestRenderer.act(async () => { tree.update(<UpNextSheet {...base} visible={false} />); });
+    const last = spy.mock.calls[spy.mock.calls.length - 1];
+    expect(last[1].toValue).toBe(0);
+    expect(allById(tree.root, 'upnext-sheet').length).toBeGreaterThan(0); // still mounted, animating out
+    // The exit animation completes → NOW it unmounts.
+    await ReactTestRenderer.act(async () => { dismissCb?.({ finished: true }); });
+    expect(allById(tree.root, 'upnext-sheet').length).toBe(0);
+    spy.mockRestore();
+  });
+
+  it('R1: under reduced motion, dismiss is instant — no exit spring, unmounts at once', async () => {
+    (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
+    const spy = jest.spyOn(Animated, 'spring');
+    const tree = await render(<UpNextSheet {...base} visible />);
+    spy.mockClear(); // drop the present-phase spring churn; judge only the dismiss
+    await ReactTestRenderer.act(async () => { tree.update(<UpNextSheet {...base} visible={false} />); });
+    expect(allById(tree.root, 'upnext-sheet').length).toBe(0); // gone immediately
+    expect(spy).not.toHaveBeenCalled();                        // no exit spring under reduce-motion
+    spy.mockRestore();
+  });
+});
+
+describe('UpNextSheet — data-only (uri:null) rows are true no-ops (M1/L1)', () => {
+  it('renders an unresolved discovery row (uri:null) as non-interactive — no Play button, cannot take the rail', async () => {
+    const onJump = jest.fn();
+    const tracks = [TR('a'), TR('x', 'k:x', null), TR('b')]; // x is a data-only (unresolved) discovery row
+    const tree = await render(<UpNextSheet {...base} tracks={tracks} currentTrackId="a" onJump={onJump} />);
+    const dataRow = byId(tree.root, 'upnext-row-x');
+    // not tappable: no onPress, not a button, and no "Play …" label
+    expect(dataRow.props.onPress).toBeUndefined();
+    expect(dataRow.props.accessibilityRole).not.toBe('button');
+    expect(dataRow.props.accessibilityLabel ?? '').not.toContain('Play');
+    // the rail stays on the real cursor 'a' and never sticks on the data-only row
+    expect(byId(byId(tree.root, 'upnext-row-a'), 'upnext-cursor-rail')).toBeTruthy();
+    expect(allById(dataRow, 'upnext-cursor-rail').length).toBe(0);
+    expect(onJump).not.toHaveBeenCalled();
+  });
+});
+
+describe('UpNextSheet — in-trap grabber Close button (designer minor)', () => {
+  it('the grabber is an accessible "Close up next" button inside the focus trap that dismisses', async () => {
+    const onClose = jest.fn();
+    const tree = await render(<UpNextSheet {...base} onClose={onClose} />);
+    const grabber = byId(byId(tree.root, 'upnext-sheet'), 'upnext-grabber'); // inside the modal trap
+    expect(grabber).toBeTruthy();
+    expect(grabber.props.accessibilityRole).toBe('button');
+    expect(grabber.props.accessibilityLabel).toBe('Close up next');
+    await ReactTestRenderer.act(async () => { grabber.props.onPress(); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
