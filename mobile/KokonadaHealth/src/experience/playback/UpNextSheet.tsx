@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, Modal, FlatList, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, Modal, FlatList, Animated, Easing, StyleSheet, useWindowDimensions, BackHandler } from 'react-native';
 import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, type as typography, elevation, motion } from '../../design/tokens';
 import type { EmotionQuadrant } from '../../design/tokens';
@@ -70,6 +70,24 @@ export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlayin
     anim.start(({ finished }) => { if (finished) setMounted(false); }); // unmount only when the exit settles
     return () => anim.stop();
   }, [visible, reduced, present]);
+
+  // R3: hardware/system Back must dismiss through the SAME animated exit as a scrim tap. On Android the
+  // native Modal auto-dismisses its own window on Back — snapping the sheet shut and bypassing the R1
+  // slide-down (onRequestClose alone can't stop that native teardown, which races the JS animation).
+  // Intercept Back here while the sheet is shown: run onClose (→ the R1 animated exit via the parent's
+  // visible flip) and return true to CONSUME the event so the native window is not torn down mid-anim.
+  // onRequestClose stays wired below as a belt-and-suspenders path; onClose is idempotent. The ref keeps
+  // the latest onClose without re-registering the listener on every parent re-render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!visible) return; // only intercept Back while the sheet is actually presented
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onCloseRef.current();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible]);
 
   // R2: the cursor rail + wash settle on a move — an optimistic jump OR the reconcile fade their
   // opacity in rather than teleporting the rail across the list (a dead-track skip snapped twice
