@@ -48,6 +48,10 @@ const DISCOVERY_FETCH_LIMIT = 60;
 // Railway env flip needs no redeploy; OFF (unset/anything-but-'true') keeps the
 // existing Spotify-discovery/fallback path byte-for-byte unchanged.
 const VECTOR_DISCOVERY = () => process.env.VECTOR_DISCOVERY === 'true';
+// Band-aware discovery: compute the biosonic band ONCE and share it with BOTH vector
+// discovery (so its candidates survive the pipeline's un-relaxable band) and the selection
+// pipeline (identical band, no drift). Read at call time; OFF → today's path exactly.
+const DISCOVERY_BAND_AWARE = () => process.env.DISCOVERY_BAND_AWARE === 'true';
 
 // ── Anti-repetition ────────────────────────────────────────────────────────────
 // The nine legacy layers (per-mood blacklist, session cooldowns, strict mode,
@@ -515,6 +519,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     const effectiveActivity = useEmotion
       ? (state.lastActivity || state.latestActivity)
       : state.latestActivity;
+    // Band-aware discovery: compute the biosonic band ONCE, up front, so vector discovery and
+    // the pipeline key off the SAME object (no double translate). OFF → stays null and every
+    // downstream call behaves exactly as today (generateV2's default targets is null → recompute).
+    const bandTargets = DISCOVERY_BAND_AWARE()
+      ? await orchestrator.buildTargets({ userId, live: { heartRate: state.stableHR, activity: effectiveActivity }, moodKey })
+      : null;
     let fetchTracks;
     let spotifyToken = null; // hoisted so the post-mix Spotify translation step can reuse it
     try {
@@ -531,7 +541,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
             // Spotify-independent discovery over our own corpus (dead /v1/recommendations
             // replacement). Never throws; yields [] on any failure so the fallback ladder
             // still fills the playlist.
-            return vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [] });
+            return vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
           }
           // Latency cut: when Spotify won't serve artist genres (/artists 403), discovery
           // candidates can't be tagged → personalization discards them anyway → the whole
@@ -664,6 +674,9 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       aiParams: aiResult.params,
       discoveryTracks: cachedDiscovery,
       live: { heartRate: state.stableHR, activity: effectiveActivity },
+      // The SAME band discovery filtered against (band-aware ON), so the pipeline enforces an
+      // identical window — no second translate, no drift. Null when OFF ⇒ generateV2 recomputes.
+      targets: bandTargets,
       // Spotify sink + a live token ⇒ the post-mix translation step runs, so familiar
       // cross-provider (YouTube) tracks must survive selection to be resolved to Spotify.
       crossPlatform: provider === 'spotify' && !!spotifyToken,

@@ -66,6 +66,11 @@ jest.mock('../app/services/generation/orchestrator', () => ({
     telemetry: { poolSize: 3, afterFilters: 3, relaxLevel: 0, stageMs: { total: 5 } },
     targets:   { bpmCenter: 120 },
   })),
+  buildTargets: jest.fn(async () => ({ bpmCenter: 120 })),
+}));
+
+jest.mock('../app/services/discovery/discoveryFetch', () => ({
+  vectorDiscoveryFetch: jest.fn(async () => []),
 }));
 
 jest.mock('../app/services/ledger/serveLedger', () => ({
@@ -1490,5 +1495,54 @@ describe('generation AI budget (stall → library fallback, not hard timeout)', 
     expect(ready).toBeDefined();
     expect(ready[1].fallback).toBeFalsy();              // primary path served it
     expect(spotify.markDiscoveryUnavailable).not.toHaveBeenCalled();
+  });
+});
+
+// ── Band-aware discovery threading (DISCOVERY_BAND_AWARE) ─────────────────────
+// The biosonic band is computed ONCE and shared by BOTH vector discovery (so its
+// candidates survive the pipeline's un-relaxable band) and generateV2 (so the pipeline
+// enforces the identical band) — no double translate, no drift.
+describe('band-aware discovery threading (DISCOVERY_BAND_AWARE)', () => {
+  const orchestrator   = require('../app/services/generation/orchestrator');
+  const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
+  const BAND = { bpmCenter: 150, bpmWidth: 12, energyFloor: 0.4, energyCeiling: 0.8, confidence: 0.85, activityDriven: true };
+
+  beforeEach(() => {
+    process.env.VECTOR_DISCOVERY     = 'true'; // route the closure to vector discovery
+    process.env.DISCOVERY_BAND_AWARE = 'true';
+    orchestrator.buildTargets.mockResolvedValue(BAND);
+    // Capture + invoke the fetchTracks closure so the discovery forward actually fires.
+    geminiEngine.adjustBiometricPlaylist.mockImplementation(async ({ fetchTracks }) => {
+      await fetchTracks(AI_PARAMS);
+      return { params: AI_PARAMS, tracks: DISCOVERY_TRACKS };
+    });
+  });
+  afterEach(() => { delete process.env.VECTOR_DISCOVERY; delete process.env.DISCOVERY_BAND_AWARE; });
+
+  it('computes the band ONCE via buildTargets (no double translate)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(orchestrator.buildTargets).toHaveBeenCalledTimes(1);
+  });
+
+  it('threads the SAME band object into vector discovery', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(vectorDiscoveryFetch).toHaveBeenCalledWith(expect.objectContaining({ targets: BAND }));
+  });
+
+  it('threads the SAME band object into generateV2 (pipeline + discovery agree)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    const call = orchestrator.generateV2.mock.calls.find(c => c[0].targets);
+    expect(call[0].targets).toBe(BAND);
+  });
+
+  it('flag OFF: buildTargets is never called and generateV2 gets no precomputed band', async () => {
+    delete process.env.DISCOVERY_BAND_AWARE;
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(orchestrator.buildTargets).not.toHaveBeenCalled();
+    expect(orchestrator.generateV2).toHaveBeenCalledWith(expect.objectContaining({ targets: null }));
   });
 });
