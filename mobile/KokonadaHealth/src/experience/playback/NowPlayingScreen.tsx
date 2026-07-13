@@ -10,7 +10,7 @@ import { playerStatusStore } from '../player/playerStatusStore';
 import { store } from '../../state/store';
 import { emotionAccentFor } from '../../design/emotionAccent';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, type as typography, elevation } from '../../design/tokens';
+import { space, radius, type as typography, elevation, motion } from '../../design/tokens';
 
 // A stable empty snapshot so a closed sheet never hands the sheet a fresh array identity each render.
 const NO_TRACKS: QueueTrack[] = [];
@@ -109,6 +109,37 @@ export function NowPlayingScreen() {
   // track.title, so a cover with no track would null-deref — show the placeholder instead.
   const showCover = !!coverUri && !coverFailed && !!track;
 
+  // The session discovery accent (static per session — the quadrant is chosen ONCE, above).
+  const accent = c.emotionAccent[quadrant];
+  // The enriched "why this discovery" branch fires only for a DISCOVERY track (recordingKey
+  // present) whose backend receipt ALSO carries an anchor (kept above the similarity floor by
+  // sanitizeReceipt). A familiar track, or a discovery track below the floor, gets the quiet pill.
+  const anchor = track?.receipt?.anchor ?? null;
+  const isDiscoveryAnchor = !!(track?.recordingKey && anchor);
+
+  // discoveryReveal (§2.a): on track-change INTO a discovery-with-anchor track the accent border
+  // + anchor line fade+rise ONCE — elapsed-time driven (Animated.timing), never a per-frame loop
+  // and never a perpetual breath (that lane is the PlaybackAura's alone). A rapid next/next/next
+  // cancels the in-flight reveal cleanly via the effect cleanup, so it never queues or stutters.
+  const reveal = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!isDiscoveryAnchor || reduced) return; // reduced motion → no animation (instant swap below)
+    reveal.setValue(0);
+    const anim = Animated.timing(reveal, {
+      toValue: 1,
+      duration: motion.duration.slow,
+      easing: Easing.bezier(...motion.easing.enter),
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop(); // cancel-on-change — the reveal interrupts instead of stacking
+  }, [track?.id, isDiscoveryAnchor, reduced, reveal]);
+  // Under reduced motion the treatment renders static (no opacity ramp, no translate) — a true
+  // instant swap. Otherwise the border + content fade in and rise a hair on the reveal.
+  const revealStyle = reduced
+    ? null
+    : { opacity: reveal, transform: [{ translateY: reveal.interpolate({ inputRange: [0, 1], outputRange: [space.xs, 0] }) }] };
+
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
       {/* Album art — the REAL cover for the CURRENTLY PLAYING track, resolved client-side from
@@ -158,40 +189,86 @@ export function NowPlayingScreen() {
           {track ? track.artist : 'Generate a vibe to start'}
         </Text>
 
-        {/* Mix-receipt — the honest "why this track": familiar/discovery role + the mood/heart
-            trigger and target tempo, all derived server-side from real signals. Hidden when the
-            track carries no receipt (e.g. a legacy payload). */}
-        {track?.receipt ? (
-          <View
-            testID="now-playing-receipt"
-            style={[styles.receipt, { backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
-            accessibilityRole="text"
-            accessibilityLabel={`Why this track: ${track.receipt.label}${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
-          >
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: typography.size.caption, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading, color: c.content.primary, textAlign: 'center' }}
-            >
-              {track.receipt.label}
-            </Text>
-            {track.receipt.detail ? (
-              <Text
-                numberOfLines={1}
-                style={{ marginTop: space.xs, fontSize: typography.size.caption, color: c.content.secondary, textAlign: 'center' }}
-              >
-                {track.receipt.detail}
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
-
         {/* NP-ATTR (compliance C1/C2): the reusable Spotify attribution + link-back for the live
-            Spotify content on this surface. Its own element, separated from the mix-receipt by a
-            hairline — nothing here may imply Spotify authored the pick or merge with the receipt. */}
+            Spotify content on this surface. Ordered (Daniel) BETWEEN the metadata and the receipt —
+            its own element, hairline-separated and visually distinct — so nothing here can imply
+            Spotify authored the pick or bleed into the "why this track" receipt copy below. */}
         {track ? (
           <View testID="now-playing-attribution" style={[styles.attribution, { borderTopColor: c.surface.hairline }]}>
             <SpotifyAttribution />
           </View>
+        ) : null}
+
+        {/* Mix-receipt — the honest "why this track", built server-side from real signals. THREE
+            branches, ONE node, no error state ever (§2.a):
+              • familiar (recordingKey null)        → the quiet pill, exactly as shipped;
+              • discovery + anchor                  → the enriched, accent-outlined treatment;
+              • discovery, no anchor (below floor)  → graceful fallback to the quiet pill.
+            Hidden entirely when the track carries no receipt (e.g. a legacy payload). */}
+        {track?.receipt ? (
+          isDiscoveryAnchor ? (
+            <Animated.View
+              testID="now-playing-receipt"
+              style={[styles.receipt, styles.receiptDiscovery, { backgroundColor: c.surface.raised, borderColor: accent.ink }, revealStyle]}
+              accessibilityRole="text"
+              accessibilityLabel={`Why this track: New discovery. Because you love ${anchor!.title} by ${anchor!.artist}.${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
+            >
+              {/* The enriched treatment carries its own id so both branches are test-addressable
+                  while the container keeps the shipped now-playing-receipt id. */}
+              <View testID="now-playing-discovery" style={styles.discovery}>
+                <View style={styles.discoveryHead}>
+                  {/* Leading ✦ — the SHAPE signal, so colour is never the sole differentiator. */}
+                  <Text
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    style={{ fontSize: typography.size.footnote, color: accent.ink }}
+                  >
+                    ✦
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: typography.size.caption, fontWeight: typography.weight.semibold, letterSpacing: typography.tracking.heading, color: c.content.primary }}
+                  >
+                    New discovery
+                  </Text>
+                </View>
+                {/* The emotional payload — the anchor title tinted in the session accent, 1 line,
+                    tail-truncated. This line NEVER drops under Dynamic Type. */}
+                <Text numberOfLines={1} style={{ fontSize: typography.size.footnote, color: c.content.secondary }}>
+                  Because you love{' '}
+                  <Text style={{ color: accent.ink, fontWeight: typography.weight.medium }}>{anchor!.title}</Text>
+                </Text>
+                {/* De-emphasized detail — the FIRST line to drop under Dynamic-Type-large. */}
+                {track.receipt.detail ? (
+                  <Text numberOfLines={1} style={{ fontSize: typography.size.caption, color: c.content.tertiary }}>
+                    {track.receipt.detail}
+                  </Text>
+                ) : null}
+              </View>
+            </Animated.View>
+          ) : (
+            <View
+              testID="now-playing-receipt"
+              style={[styles.receipt, { backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
+              accessibilityRole="text"
+              accessibilityLabel={`Why this track: ${track.receipt.label}${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
+            >
+              <Text
+                numberOfLines={1}
+                style={{ fontSize: typography.size.caption, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading, color: c.content.primary, textAlign: 'center' }}
+              >
+                {track.receipt.label}
+              </Text>
+              {track.receipt.detail ? (
+                <Text
+                  numberOfLines={1}
+                  style={{ marginTop: space.xs, fontSize: typography.size.caption, color: c.content.secondary, textAlign: 'center' }}
+                >
+                  {track.receipt.detail}
+                </Text>
+              ) : null}
+            </View>
+          )
         ) : null}
       </View>
 
@@ -260,6 +337,11 @@ const styles = StyleSheet.create({
   cover: { width: '100%', height: '100%' },
   meta: { width: '100%', alignItems: 'center', paddingHorizontal: space.md },
   receipt: { marginTop: space.md, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
+  // The enriched treatment reads as a left-aligned block inside the same pill slot (overrides the
+  // quiet pill's centering), so the glyph, label, anchor and detail share one left edge.
+  receiptDiscovery: { alignItems: 'stretch' },
+  discovery: { gap: space.xs },
+  discoveryHead: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   attribution: { alignSelf: 'stretch', marginTop: space.lg, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth },
   transport: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space['3xl'], marginTop: space['2xl'] },
   sideBtn: { padding: space.md, alignItems: 'center', justifyContent: 'center' },

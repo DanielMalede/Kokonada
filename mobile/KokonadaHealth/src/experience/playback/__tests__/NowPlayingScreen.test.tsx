@@ -32,6 +32,8 @@ import { NowPlayingScreen } from '../NowPlayingScreen';
 import { orchestrator } from '../playbackServices';
 import { nowPlayingStore } from '../nowPlayingStore';
 import { playerStatusStore } from '../../player/playerStatusStore';
+import { PlaybackQueue } from '../playbackQueue';
+import { colors } from '../../../design/tokens';
 
 const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
@@ -333,6 +335,131 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       const receipt = tree.root.findAll((n) => n.props.testID === 'now-playing-receipt')[0];
       expect(receipt).toBeTruthy();
       expect(receipt.findAll((n) => n.props.testID === 'spotify-attribution')).toHaveLength(0);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('reorder (Daniel): attribution sits between the meta and the receipt — it precedes the receipt in the tree', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } },
+        isPlaying: true,
+      });
+      const tree = await render();
+      // DFS tree order: attribution must come BEFORE the receipt (art → meta → attribution → receipt → transport).
+      // (findAll yields each RN View twice — the JS component + its host instance — so collapse runs.)
+      const order = tree.root
+        .findAll((n) => n.props.testID === 'now-playing-attribution' || n.props.testID === 'now-playing-receipt')
+        .map((n) => n.props.testID)
+        .filter((id, i, a) => id !== a[i - 1]);
+      expect(order).toEqual(['now-playing-attribution', 'now-playing-receipt']);
+      // still its own element — not folded into the receipt — and the album art is untouched.
+      const receipt = tree.root.findAll((n) => n.props.testID === 'now-playing-receipt')[0];
+      expect(receipt.findAll((n) => n.props.testID === 'now-playing-attribution')).toHaveLength(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-art').length).toBeGreaterThan(0);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+  });
+
+  // ── §2.a: the "why this discovery" receipt — three branches, one node, no error state ──
+  describe('why this discovery receipt (§2.a — three branches, one node)', () => {
+    const receiptStyle = (tree: ReactTestRenderer.ReactTestRenderer) =>
+      StyleSheet.flatten(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt')[0].props.style) as any;
+
+    it('Familiar favorite (recordingKey null) → the quiet pill exactly as shipped: no accent, no discovery treatment', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'Familiar favorite', detail: 'A song you already love' }, recordingKey: null },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery')).toHaveLength(0);
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.surface.hairline); // hairline, never an accent
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('Familiar favorite');
+      expect(all).toContain('A song you already love');
+      expect(all).not.toContain('✦');
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('Discovery + anchor → the enriched treatment: ✦ glyph, "New discovery", "Because you love {title}", accent border, a11y', async () => {
+      nowPlayingStore.getState().set({
+        track: {
+          ...TRACK,
+          receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', anchor: { title: 'Weightless', artist: 'Marconi Union' } },
+          recordingKey: 'youtube:abc',
+        },
+        isPlaying: true,
+      });
+      const tree = await render();
+      // the enriched branch is addressable AND the shipped receipt node id is preserved.
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery').length).toBeGreaterThan(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('New discovery');
+      expect(all).toContain('Because you love');
+      expect(all).toContain('Weightless');           // the emotional payload — the anchor title
+      expect(all).toContain('✦');                     // the SHAPE signal — colour is never alone
+      // soft colored outline in the session accent (calm/dark default), not the hairline.
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.emotionAccent.calm.ink);
+      // triple-redundant a11y: the words carry the meaning for a colour-blind / SR user.
+      expect(byLabel(tree, 'Why this track: New discovery. Because you love Weightless by Marconi Union., Matched to your calm · 96 BPM')).toBeTruthy();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('Discovery, NO anchor (below the similarity floor) → graceful quiet-pill fallback "New discovery" + detail, no accent, no error', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM' }, recordingKey: 'youtube:xyz' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery')).toHaveLength(0);
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.surface.hairline); // no accent, no apology
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('New discovery');
+      expect(all).toContain('Matched to your calm');
+      expect(all).not.toContain('✦');
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('reduced motion → the discovery reveal is an instant swap (no transform), content identical', async () => {
+      (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', anchor: { title: 'Weightless', artist: 'Marconi Union' } }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(receiptStyle(tree).transform).toBeUndefined(); // no rise/translate under reduced motion
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('New discovery');
+      expect(all).toContain('Weightless');               // content is identical, just no motion
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('with motion ON the discovery reveal applies an animated transform (the instant-swap assertion is not vacuous)', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', anchor: { title: 'Weightless', artist: 'Marconi Union' } }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(Array.isArray(receiptStyle(tree).transform)).toBe(true); // discoveryReveal fade+rise present
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('integration: a sanitized QueueTrack (receipt.anchor + recordingKey) reaches the screen and renders the enriched branch', async () => {
+      const q = new PlaybackQueue();
+      q.load([{
+        id: 't9', uri: 'spotify:track:9', title: 'Deep Current', artist: 'Bioluma', recordingKey: 'youtube:abc',
+        receipt: { label: 'New discovery', detail: 'Matched to your calm', anchor: { title: 'Weightless', artist: 'Marconi Union' } },
+      }]);
+      const cur = q.current();
+      expect(cur?.receipt?.anchor).toEqual({ title: 'Weightless', artist: 'Marconi Union' }); // sanitizeReceipt kept it
+      expect(cur?.recordingKey).toBe('youtube:abc');
+      nowPlayingStore.getState().set({ track: cur, isPlaying: true });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery').length).toBeGreaterThan(0);
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('Because you love');
+      expect(all).toContain('Weightless');
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
   });
