@@ -175,3 +175,41 @@ describe('DiscoveryVectorService.find — guards (byte-identical to today when n
     expect(audioFeatureRepo.getMany).not.toHaveBeenCalled();
   });
 });
+
+describe('DiscoveryVectorService.find — DISCOVERY_BAND_OVERFETCH clamp (env footgun L1/L2)', () => {
+  let queryNear;
+  const targets = { bpmCenter: 120, bpmWidth: 20, energyFloor: 0.3, energyCeiling: 0.8, confidence: 1 };
+  beforeEach(() => {
+    queryNear = jest.fn(async () => []); // returns no hits: we only assert the over-fetched k
+    vectorIndex.use({ queryNear });
+    process.env.DISCOVERY_BAND_AWARE = 'true';
+  });
+  afterEach(() => { vectorIndex.use(null); delete process.env.DISCOVERY_BAND_AWARE; delete process.env.DISCOVERY_BAND_OVERFETCH; });
+
+  // find is called with k=5 (BASE), so queryNear sees k = 5 * effOverfetch.
+  const overfetchK = () => queryNear.mock.calls[0][1].k;
+
+  it.each(['', '0', '-3', 'abc'])('a non-finite / <2 value (%p) floors to the default 12 over-fetch', async (val) => {
+    process.env.DISCOVERY_BAND_OVERFETCH = val;
+    await svc.find({ ...BASE, targets });
+    expect(overfetchK()).toBe(5 * 12);
+  });
+
+  it('an unset env uses the default 12 over-fetch', async () => {
+    delete process.env.DISCOVERY_BAND_OVERFETCH;
+    await svc.find({ ...BASE, targets });
+    expect(overfetchK()).toBe(5 * 12);
+  });
+
+  it('a valid mid value (8) is honored', async () => {
+    process.env.DISCOVERY_BAND_OVERFETCH = '8';
+    await svc.find({ ...BASE, targets });
+    expect(overfetchK()).toBe(5 * 8);
+  });
+
+  it('a huge value is CEILINGed to the max (16) so numCandidates stays under Atlas 10k cap', async () => {
+    process.env.DISCOVERY_BAND_OVERFETCH = '100000';
+    await svc.find({ ...BASE, targets });
+    expect(overfetchK()).toBe(5 * 16);
+  });
+});
