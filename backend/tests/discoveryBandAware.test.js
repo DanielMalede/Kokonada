@@ -128,14 +128,15 @@ describe('DiscoveryVectorService.find — band-aware (DISCOVERY_BAND_AWARE on)',
     expect(out.map(t => t.recordingKey)).toEqual(['deep']);
   });
 
-  it('emits a [discovery] metric line carrying banded=<survivors>', async () => {
+  it('emits a [discovery] metric line carrying bandKept=<survivors> (distinct from [selection.v2] banded=)', async () => {
     seed(fake, 'in',  'c1', { bpm: 120, energy: 0.5 }, ['rock'], {}, { bpm: 120, energy: 0.5 });
     seed(fake, 'out', 'c2', { bpm: 120, energy: 0.5 }, ['rock'], {}, { bpm: 220, energy: 0.5 });
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await svc.find({ ...BASE, targets });
     const line = spy.mock.calls.flat().map(String).find(l => l.includes('[discovery]'));
     expect(line).toBeDefined();
-    expect(line).toContain('banded=1');
+    expect(line).toContain('bandKept=1');
+    expect(line).not.toContain('banded='); // never collide with the pool's [selection.v2] banded=
     spy.mockRestore();
   });
 });

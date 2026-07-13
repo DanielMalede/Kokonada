@@ -64,10 +64,12 @@ async function find(opts = {}) {
   const effOverfetch = bandAware ? bandOverfetch() : overfetch;
   // One parseable structured metric per call, on EVERY return path. Wrapped so the metric
   // itself can NEVER throw and NEVER changes find's return value (enhancement contract).
-  // banded = in-band survivors (band-aware path); -1 when the band filter did not run.
-  const emit = (candidates, hits, kept, banded = -1) => {
+  // bandKept = in-band survivors (band-aware path); -1 when the band filter did not run.
+  // NAMED bandKept (not banded) so it never conflates with the pipeline's [selection.v2]
+  // banded= (pool tracks passing the band) — two different numbers on two different lines.
+  const emit = (candidates, hits, kept, bandKept = -1) => {
     try {
-      console.log(`[discovery] candidates=${candidates?.length ?? 0} hits=${hits?.length ?? 0} kept=${kept?.length ?? 0} banded=${banded} latencyMs=${Date.now() - t0} indexReady=${(hits?.length ?? 0) > 0}`);
+      console.log(`[discovery] candidates=${candidates?.length ?? 0} hits=${hits?.length ?? 0} kept=${kept?.length ?? 0} bandKept=${bandKept} latencyMs=${Date.now() - t0} indexReady=${(hits?.length ?? 0) > 0}`);
     } catch { /* metric must never affect delivery */ }
   };
   try {
@@ -85,12 +87,12 @@ async function find(opts = {}) {
     // on the pipeline's feature shape. Featureless candidates (no doc) pass, exactly as
     // withinBand/filterBand treat them. Hydrating ONLY survivors cuts catalog reads vs today.
     let survivors = kept;
-    let banded = -1;
+    let bandKept = -1;
     if (bandAware) {
       const featureMap = await audioFeatureRepo.getMany(kept.map(h => h.recordingKey));
       survivors = kept.filter(h => withinBand({ features: featuresOf(featureMap.get(h.recordingKey)) }, targets));
-      banded = survivors.length;
-      if (!survivors.length) { emit([], hits, kept, banded); return []; } // starve, never widen the band
+      bandKept = survivors.length;
+      if (!survivors.length) { emit([], hits, kept, bandKept); return []; } // starve, never widen the band
     }
 
     // Hydrate metadata; drop only the truly unplayable. A candidate survives when it has a
@@ -108,11 +110,11 @@ async function find(opts = {}) {
         uri: m.uri ?? null, title: m.title, artist: m.artist, genres: m.genres || [], isDiscovery: true,
       }, total: num(h.score, 0) });
     }
-    if (!candidates.length) { emit(candidates, hits, kept, banded); return []; }
+    if (!candidates.length) { emit(candidates, hits, kept, bandKept); return []; }
 
     // MMR diversify to k (reuses the hardened selector).
     const result = mmr.select(candidates, { k, lambda: 0.7 }).map(s => s.track);
-    emit(candidates, hits, kept, banded);
+    emit(candidates, hits, kept, bandKept);
     return result;
   } catch {
     emit([], undefined, []); // indexReady=false — a budget/throw means the index served nothing
