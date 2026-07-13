@@ -12,7 +12,11 @@
    NO dedicated discovery screen and NO History recap this phase.
 2. **Receipt enriched from the start:** the backend derives an honest discovery-specific reason —
    the nearest anchor in the *user's own library* by embedding similarity ("Because you love X") —
-   threaded through selection → `toClientTrack`.
+   threaded through selection → `toClientTrack`. **Compliance gate (Daniel, 2026-07-13):** the anchor
+   is derived/displayed ONLY when the nearest library track's `provider === 'youtube_music'`; a
+   `spotify`-sourced nearest track claims NO anchor (degrades to the neutral pill). This is the
+   compliance-auditor's sanctioned alternative (i) to the Policy §II HALT — see
+   `2026-07-13-discovery-ui-compliance.md`. Works fully for the current 100%-YouTube prod profile.
 3. **Badge home:** the §7-spec'd but never-built **Up-Next queue sheet** on Now Playing; badges
    live on its rows.
 4. **Sheet is interactive:** tap a row → playback jumps there (`skipToIndex`, already implemented
@@ -50,13 +54,29 @@ The §7 "open full playlist" affordance, finally built: a sheet over Now Playing
 generated set with the live cursor.
 
 - **Rows:** title/artist + `DiscoveryBadge`. **No per-track cover art** (Spotify Dev Mode 403s the
-  art path; App Remote art resolves only the playing track) — virtualized, typography/accent-driven.
+  art path; App Remote art resolves only the playing track — and omitting art is explicitly
+  compliant per the Design Guidelines) — virtualized, typography/accent-driven. Metadata shown is
+  the **Spotify-resolved, unmodified, legible** title/artist (compliance C3).
 - **Header:** honest set summary ("50 tracks · 12 new for you").
 - **Tap-to-jump** via the orchestrator. #130 invariants must hold under user-intent cursor moves:
   jump to a dead discovery track → same one-report + audible auto-skip self-heal; jump while
   disconnected → degrades in place (reason-threaded); the consecutive-failure cap still bounds.
 - **States:** cursor playing/paused · foreign-track reconcile (remote is truth) · disconnected
   (soft) · end-of-queue.
+
+## E. Spotify attribution + link-back (compliance C1/C2 — mandatory this phase)
+
+Per the compliance-auditor and Daniel's decision, attribution + link-back ship on **both** the new
+Up-Next sheet AND the already-shipped Now Playing screen (closing a pre-existing gap where the RN app
+displays Spotify Content with no attribution/link-back today):
+
+- **C1 — attribution:** a Spotify logo/icon + "content from Spotify" mark, per-surface (not per-row),
+  visually separate from the recommendation copy so nothing implies Spotify authored the pick.
+- **C2 — link-back:** an affordance reading "OPEN SPOTIFY" / "PLAY ON SPOTIFY" / "LISTEN ON SPOTIFY"
+  when Spotify is installed, or "GET SPOTIFY FREE" when it is not.
+- **Asset:** the official Spotify brand asset is obtained via Pause & Guide (Daniel); the rendered
+  marks + placement get a compliance re-check before ship. `DiscoveryBadge` must avoid Spotify green
+  (#1DB954/#1ED760) and any soundwave-in-circle motif (compliance C4).
 
 ## D. DiscoveryBadge
 
