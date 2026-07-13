@@ -2,7 +2,7 @@
 
 process.env.NODE_ENV = 'test';
 
-const { clampFeatures, recordingKeyOf, FEATURE_RANGES } = require('../app/services/features/featureProvider');
+const { clampFeatures, recordingKeyOf, featuresOf, FEATURE_RANGES } = require('../app/services/features/featureProvider');
 
 describe('clampFeatures — the poisoning defense', () => {
   it('clamps out-of-range numerics into the legal window', () => {
@@ -33,6 +33,18 @@ describe('clampFeatures — the poisoning defense', () => {
     expect(clampFeatures({ bpm: 'x', energy: null })).toBeNull();
     expect(clampFeatures({})).toBeNull();
     expect(clampFeatures(null)).toBeNull();
+  });
+});
+
+describe('featuresOf — the ONE feature projection discovery + the pipeline share', () => {
+  it('projects exactly the band-relevant fields from an AudioFeature doc', () => {
+    const doc = { recordingKey: 'spotify:x', source: 'api', loudness: -6, bpm: 122, energy: 0.7, valence: 0.4, acousticness: 0.1, danceability: 0.8 };
+    expect(featuresOf(doc)).toEqual({ bpm: 122, energy: 0.7, valence: 0.4, acousticness: 0.1, danceability: 0.8 });
+  });
+
+  it('returns null for an absent doc (null/undefined) — featureless semantics', () => {
+    expect(featuresOf(null)).toBeNull();
+    expect(featuresOf(undefined)).toBeNull();
   });
 });
 

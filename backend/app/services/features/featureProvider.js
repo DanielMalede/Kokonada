@@ -54,4 +54,14 @@ function recordingKeyOf(track) {
   return null;
 }
 
-module.exports = { FEATURE_RANGES, clampFeatures, recordingKeyOf, spotifyIdOf };
+// The ONE slim feature projection the selection pipeline and the band post-filter judge a
+// track on. Discovery and the pipeline MUST build candidate features through this single
+// helper so they agree on which tracks are in-band (no divergent projection — resilience
+// audit M1). null for an absent doc, matching withinBand's featureless-passes semantics.
+function featuresOf(doc) {
+  return doc
+    ? { bpm: doc.bpm, energy: doc.energy, valence: doc.valence, acousticness: doc.acousticness, danceability: doc.danceability }
+    : null;
+}
+
+module.exports = { FEATURE_RANGES, clampFeatures, recordingKeyOf, featuresOf, spotifyIdOf };

@@ -7,6 +7,7 @@ const audioFeatureRepo = require('../../repositories/audioFeatureRepo');
 const { buildTargetVector } = require('./targetVector');
 const { withVectorBudget } = require('./withVectorBudget');
 const { withinBand } = require('../selection/biosonicBand');
+const { featuresOf } = require('../features/featureProvider');
 const mmr = require('../selection/mmr');
 
 const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -24,12 +25,8 @@ function hasUsableBand(t) {
   return bpm || energy || texture;
 }
 
-// The slim feature shape the SELECTION PIPELINE builds from an AudioFeature doc — the
-// band post-filter must judge candidates on EXACTLY this shape so discovery and the
-// pipeline agree on which tracks are in-band (no divergent band logic).
-const featuresOf = (doc) => (doc
-  ? { bpm: doc.bpm, energy: doc.energy, valence: doc.valence, acousticness: doc.acousticness, danceability: doc.danceability }
-  : null);
+// featuresOf (the shared feature projection discovery and the pipeline both judge the band
+// on) lives in featureProvider so the two can never drift — resilience audit M1.
 
 // Spotify-independent discovery: match the mood/target vector against our corpus, exclude
 // the user's library, threshold, diversify (MMR), hydrate. ENHANCEMENT — returns [] on any
