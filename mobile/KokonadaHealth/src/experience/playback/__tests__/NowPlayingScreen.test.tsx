@@ -401,7 +401,11 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       // soft colored outline in the session accent (calm/dark default), not the hairline.
       expect(receiptStyle(tree).borderColor).toBe(colors.light.emotionAccent.calm.ink);
       // triple-redundant a11y: the words carry the meaning for a colour-blind / SR user.
-      expect(byLabel(tree, 'Why this track: New discovery. Because you love Weightless by Marconi Union., Matched to your calm · 96 BPM')).toBeTruthy();
+      // COPY-1: clean SR phrasing — the artist clause ends in a single period, the detail follows as
+      // its own clause (no "Marconi Union., Matched…" double-punctuation).
+      expect(byLabel(tree, 'Why this track: New discovery. Because you love Weightless by Marconi Union. Matched to your calm · 96 BPM')).toBeTruthy();
+      const label = anchoredNode(tree).props.accessibilityLabel;
+      expect(label).not.toContain('.,'); // never a period immediately followed by a comma
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 

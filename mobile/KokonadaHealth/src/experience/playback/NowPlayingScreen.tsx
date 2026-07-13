@@ -214,7 +214,7 @@ export function NowPlayingScreen() {
               accessible={true}
               style={[styles.receipt, styles.receiptDiscovery, { backgroundColor: c.surface.raised, borderColor: accent.ink }, revealStyle]}
               accessibilityRole="text"
-              accessibilityLabel={`Why this track: New discovery. Because you love ${anchor!.title} by ${anchor!.artist}.${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
+              accessibilityLabel={`Why this track: New discovery. Because you love ${anchor!.title} by ${anchor!.artist}.${track.receipt.detail ? ` ${track.receipt.detail}` : ''}`}
             >
               {/* The enriched treatment carries its own id so both branches are test-addressable
                   while the container keeps the shipped now-playing-receipt id. */}
