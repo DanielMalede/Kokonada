@@ -80,6 +80,44 @@ describe('libraryAnchor.nearestLibraryAnchor', () => {
     });
   });
 
+  describe('M1 — a non-finite-scored candidate cannot leak past the legal gate or scramble the argmax', () => {
+    const poison = (val) => buildVector(F, AFRO).map((x, i) => (i === 0 ? val : x));
+
+    it('an Infinity-scored youtube_music candidate does NOT leak past the provider gate — the genuine finite Spotify argmax decides it → null', () => {
+      const d = disc();
+      const inf = yt({ artist: 'InfArtist', name: 'InfName', embedding: poison(Infinity) });
+      const spotTwin = { provider: 'spotify', artist: 'S', name: 'SN', embedding: buildVector(F, AFRO) }; // genuine finite argmax
+      expect(cosine(d.embedding, inf.embedding)).toBe(Infinity);         // it WOULD sort to the top of a naive rank
+      expect(cosine(d.embedding, spotTwin.embedding)).toBeCloseTo(1, 5); // the true nearest is spotify → the gate must null
+      expect(nearestLibraryAnchor(d, [inf, spotTwin], { minCosine: 0.6 })).toBeNull();
+    });
+
+    it('an Infinity-scored youtube_music candidate does NOT displace a genuinely-nearer FINITE youtube_music argmax', () => {
+      const d = disc();
+      const inf  = yt({ artist: 'InfArtist',  name: 'InfName',  embedding: poison(Infinity) });
+      const twin = yt({ artist: 'RealArtist', name: 'RealName', embedding: buildVector(F, AFRO) }); // genuine finite argmax
+      expect(nearestLibraryAnchor(d, [inf, twin], { minCosine: 0.6 }).anchor)
+        .toEqual({ title: 'RealName', artist: 'RealArtist' });
+    });
+
+    it('an Infinity-scored youtube_music candidate alone is never named', () => {
+      const inf = yt({ artist: 'InfArtist', name: 'InfName', embedding: poison(Infinity) });
+      expect(nearestLibraryAnchor(disc(), [inf], { minCosine: 0.6 })).toBeNull();
+    });
+
+    it('a NaN-scored candidate is SKIPPED (not sorted) so it cannot suppress a genuine finite anchor, whatever its input position', () => {
+      const d = disc();
+      const nan  = yt({ artist: 'NaNArtist',  name: 'NaNName',  embedding: poison(NaN) });
+      const twin = yt({ artist: 'RealArtist', name: 'RealName', embedding: buildVector(F, AFRO) });
+      expect(cosine(d.embedding, nan.embedding)).toBeNaN();
+      // NaN-first is exactly the order where the old full-sort scramble suppressed the valid anchor.
+      expect(nearestLibraryAnchor(d, [nan, twin], { minCosine: 0.6 }).anchor)
+        .toEqual({ title: 'RealName', artist: 'RealArtist' });
+      expect(nearestLibraryAnchor(d, [twin, nan], { minCosine: 0.6 }).anchor)
+        .toEqual({ title: 'RealName', artist: 'RealArtist' });
+    });
+  });
+
   it('returns null for an empty library', () => {
     expect(nearestLibraryAnchor(disc(), [], { minCosine: 0.6 })).toBeNull();
     expect(nearestLibraryAnchor(disc(), undefined, { minCosine: 0.6 })).toBeNull();

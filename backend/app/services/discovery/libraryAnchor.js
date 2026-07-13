@@ -34,36 +34,49 @@ function nearestLibraryAnchor(discoveryTrack, libraryCandidates, opts = {}) {
   const minCosine = _floor(opts);
   const candidates = Array.isArray(libraryCandidates) ? libraryCandidates : [];
 
-  // Score every embedding-compatible candidate once (ALL providers), rank by cosine desc.
-  // The global nearest — regardless of provider — decides the compliance gate.
-  const ranked = [];
+  // SINGLE O(n) pass (no full sort): find the genuine global argmax across ALL providers and,
+  // in the same pass, remember the best above-floor nameable youtube_music candidate for the
+  // fallback. A candidate whose cosine is NON-finite is SKIPPED — a stored embedding carrying
+  // Infinity/NaN would otherwise score non-finite, sort to the top of a naive rank, clear the
+  // floor, pass the gate and get NAMED over a genuinely-nearer real track (the legal-gate leak).
+  let nearest = null;       // { candidate, score } — genuine global argmax (any provider)
+  let bestNameable = null;  // { candidate, score } — best above-floor nameable youtube_music
   for (const c of candidates) {
     const cEmb = c && c.embedding;
+    // L3 (accepted): a dimension mismatch is a cross-embedding-VERSION pair — skip it. During a
+    // future v1→v2 embedding rollout the gate is decided over the same-version subset only;
+    // revisit this at any embedding-version migration.
     if (!Array.isArray(cEmb) || cEmb.length !== emb.length) continue;
-    ranked.push({ candidate: c, score: cosine(emb, cEmb) });
-  }
-  if (ranked.length === 0) return null;
-  ranked.sort((a, b) => b.score - a.score);
 
-  // Floor: the genuine nearest must clear the bar (== floor passes; NaN fails).
-  const nearest = ranked[0];
+    const score = cosine(emb, cEmb);
+    if (!Number.isFinite(score)) continue; // M1: Inf/NaN can neither win the argmax nor scramble it
+
+    // L2 (accepted): an exact-cosine tie is order-dependent (strict `>` keeps the first-seen
+    // argmax). SAFE because the gate below never NAMES a non-youtube_music track — a tie only
+    // shifts which track DECIDES the gate, never lets a Spotify track be surfaced as the anchor.
+    if (nearest === null || score > nearest.score) nearest = { candidate: c, score };
+
+    if (score >= minCosine && c.provider === 'youtube_music' && _nameable(c)
+        && (bestNameable === null || score > bestNameable.score)) {
+      bestNameable = { candidate: c, score };
+    }
+  }
+  if (nearest === null) return null;
+
+  // Floor: the genuine nearest must clear the bar (== floor passes; sub-floor fails).
   if (!(nearest.score >= minCosine)) return null;
 
-  // COMPLIANCE gate: the genuine nearest neighbour must be non-Spotify-sourced.
-  // A Spotify nearest → no claim (never fall through to a farther youtube_music track).
+  // COMPLIANCE gate: the genuine nearest neighbour must be non-Spotify-sourced. A Spotify
+  // nearest → no claim (never fall through to a farther youtube_music track).
   if (nearest.candidate.provider !== 'youtube_music') return null;
 
-  // Nearest-nameable fallback: the nearest is youtube_music but may lack an artist
-  // (a data gap, not a legal one) — fall through to the next above-floor youtube_music
-  // candidate that IS nameable; if none, omit.
-  for (const { candidate, score } of ranked) {
-    if (score < minCosine) break;                            // ranked desc — nothing below is above-floor
-    if (candidate.provider !== 'youtube_music') continue;    // never name a Spotify track
-    if (!_nameable(candidate)) continue;
-    const title = (candidate.name != null ? candidate.name : candidate.title) ?? null;
-    return { anchor: { title, artist: candidate.artist }, score };
-  }
-  return null;
+  // Nearest-nameable fallback: the nearest is youtube_music but may itself lack an artist
+  // (a data gap, not a legal one) — surface the highest-scored above-floor nameable
+  // youtube_music candidate collected above; if none, omit.
+  if (bestNameable === null) return null;
+  const cand = bestNameable.candidate;
+  const title = (cand.name != null ? cand.name : cand.title) ?? null;
+  return { anchor: { title, artist: cand.artist }, score: bestNameable.score };
 }
 
 // Mutate each qualifying discovery pick with pick.anchor = { title, artist }. Any failure
