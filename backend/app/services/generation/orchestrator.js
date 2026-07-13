@@ -1,55 +1,14 @@
 'use strict';
 
-const MedicalProfile = require('../../models/MedicalProfile');
-const { peekBaselines } = require('../biosonic/baselines');
-const { translate } = require('../biosonic/translate');
+const { buildTargets } = require('./targetsBuilder');
 const { selectPlaylist } = require('../selection/pipeline');
 
 // THE serving path (Phase 7 sealed the flip — the legacy mixer and its rollback
 // flag are gone): full biosonic inputs → translate() targets → the selection
-// pipeline.
+// pipeline. The biosonic-targets builder lives in targetsBuilder (model I/O) so the
+// SAME band can be computed once and shared by discovery + the pipeline.
 
 const PLAYLIST_SIZE = () => parseInt(process.env.PLAYLIST_SIZE || '50', 10);
-
-// Assemble the biosonic targets from everything the system knows: cached
-// personal baselines (never the heavy compute — request path), the profile's
-// encrypted scalars (getters decrypt), last-night sleep, and the live reading.
-// Every source is best-effort: translate() degrades confidence, never throws.
-async function _targets({ userId, live = {}, moodKey = null, now = Date.now() }) {
-  let baselines = null;
-  try { baselines = await peekBaselines(userId); } catch { /* degrade */ }
-
-  let sleep = {};
-  let state = {};
-  try {
-    const profile = await MedicalProfile.findOne({ userId });
-    if (profile) {
-      if (profile.lastNightSleep && (profile.lastNightSleep.deep != null || profile.lastNightSleep.light != null)) {
-        sleep = {
-          lastNight: {
-            deep:  profile.lastNightSleep.deep,
-            light: profile.lastNightSleep.light,
-            rem:   profile.lastNightSleep.rem,
-          },
-        };
-      }
-      state = {
-        hrv:            profile.hrv,
-        bodyBattery:    profile.bodyBattery,
-        dailyReadiness: profile.dailyReadiness,
-      };
-    }
-  } catch { /* degrade */ }
-
-  return translate({
-    live,
-    baselines: baselines ?? {},
-    sleep,
-    state,
-    hourOfDay: new Date(now).getHours(),
-    moodKey,
-  });
-}
 
 async function generateV2({
   userId,
@@ -59,13 +18,17 @@ async function generateV2({
   aiParams = {},
   discoveryTracks = [],
   live = {},
+  targets = null,
   k = PLAYLIST_SIZE(),
   now = Date.now(),
   crossPlatform = false,
 }) {
-  const targets = await _targets({ userId, live, moodKey, now });
+  // Use a precomputed band verbatim when the caller supplies one (band-aware
+  // discovery threads the SAME object so discovery and the pipeline never drift);
+  // otherwise compute it here (mood-fallback + legacy callers).
+  const resolvedTargets = targets != null ? targets : await buildTargets({ userId, live, moodKey, now });
   const { tracks, telemetry } = await selectPlaylist({
-    userId, musicProfile, moodKey, provider, aiParams, targets, discoveryTracks, k, now, crossPlatform,
+    userId, musicProfile, moodKey, provider, aiParams, targets: resolvedTargets, discoveryTracks, k, now, crossPlatform,
   });
 
   return {
@@ -73,8 +36,8 @@ async function generateV2({
     discovery: tracks.filter(t => t.isDiscovery),
     merged:    tracks,
     telemetry,
-    targets,
+    targets: resolvedTargets,
   };
 }
 
-module.exports = { generateV2 };
+module.exports = { generateV2, buildTargets };

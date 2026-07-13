@@ -7,7 +7,7 @@ const { applyHardFilters } = require('./hardFilters');
 const { scoreTrack } = require('./score');
 const { select } = require('./mmr');
 const { filterBand } = require('./biosonicBand');
-const { recordingKeyOf } = require('../features/featureProvider');
+const { recordingKeyOf, featuresOf } = require('../features/featureProvider');
 const vectorIndex = require('../vector/vectorIndex');
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR.
@@ -82,10 +82,7 @@ async function selectPlaylist({
   }
   for (const track of pool) {
     const rk = recordingKeyOf(track);
-    const doc = featureMap.get(rk);
-    track.features = doc
-      ? { bpm: doc.bpm, energy: doc.energy, valence: doc.valence, acousticness: doc.acousticness, danceability: doc.danceability }
-      : null;
+    track.features = featuresOf(featureMap.get(rk));
     track.embedding = embeddings.get(rk) ?? null;
   }
   // How many pool tracks actually resolved features — the single serve-path number that

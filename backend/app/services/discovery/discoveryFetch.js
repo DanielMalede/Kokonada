@@ -18,15 +18,36 @@ function extractTargetFeatures(aiParams = {}) {
   };
 }
 
+// Recall aid ONLY: when the biosonic band is known, re-centre the QUERY vector on the band
+// so the over-fetch surfaces genuinely in-band candidates (the hard cut is still withinBand
+// downstream). Leaves the no-targets path — and extractTargetFeatures — byte-identical.
+function biasToBand(base, targets) {
+  if (!targets || typeof targets !== 'object') return base;
+  const center = num(targets.bpmCenter);
+  const floor = num(targets.energyFloor);
+  const ceil = num(targets.energyCeiling);
+  const energy = (floor !== undefined && ceil !== undefined) ? (floor + ceil) / 2 : undefined;
+  return {
+    ...base,
+    bpm:          center ?? base.bpm,
+    energy:       energy ?? base.energy,
+    valence:      num(targets.valenceTarget) ?? base.valence,
+    acousticness: num(targets.acousticnessBias) ?? base.acousticness,
+  };
+}
+
 // Vector-discovery replacement for the dead fetchVibeDiscovery. Exclude the user's library +
-// the anti-repeat blacklist so results are genuinely undiscovered.
-async function vectorDiscoveryFetch({ musicProfile = {}, aiParams = {}, blacklistCanonicalKeys = [] } = {}) {
+// the anti-repeat blacklist so results are genuinely undiscovered. When band-aware discovery
+// is active the caller threads the SAME biosonic targets the pipeline enforces, so the
+// service can post-filter candidates to the un-relaxable band before they are all dropped.
+async function vectorDiscoveryFetch({ musicProfile = {}, aiParams = {}, blacklistCanonicalKeys = [], targets = null } = {}) {
   const exclude = new Set(blacklistCanonicalKeys || []);
   for (const t of musicProfile.library || []) if (t?.canonicalKey) exclude.add(t.canonicalKey);
   return discoveryVectorService.find({
-    targetFeatures: extractTargetFeatures(aiParams),
+    targetFeatures: biasToBand(extractTargetFeatures(aiParams), targets),
     seedGenres: Array.isArray(aiParams.seed_genres) ? aiParams.seed_genres : [],
     excludeCanonicalKeys: exclude,
+    targets: targets ?? null,
   });
 }
 

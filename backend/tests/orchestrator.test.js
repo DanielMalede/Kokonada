@@ -94,4 +94,33 @@ describe('orchestrator.generateV2', () => {
 
     expect(selectPlaylist).toHaveBeenCalledWith(expect.objectContaining({ aiParams, discoveryTracks }));
   });
+
+  it('uses a precomputed targets verbatim (no recompute) when one is provided', async () => {
+    const T = { bpmCenter: 137, bpmWidth: 12, energyFloor: 0.4, energyCeiling: 0.8, confidence: 0.85 };
+
+    const out = await orchestrator.generateV2({ userId: 'u1', musicProfile: {}, moodKey: 'calm', targets: T });
+
+    // The exact object flows into the selector AND back out — the pipeline and discovery
+    // must key off ONE identical band (no second translate, no drift).
+    expect(selectPlaylist.mock.calls[0][0].targets).toBe(T);
+    expect(out.targets).toBe(T);
+    // No biometric read happened — the band was not recomputed.
+    expect(peekBaselines).not.toHaveBeenCalled();
+    expect(MedicalProfile.findOne).not.toHaveBeenCalled();
+  });
+
+  it('recomputes the band (reads baselines) when no targets are provided', async () => {
+    await orchestrator.generateV2({ userId: 'u1', musicProfile: {}, moodKey: 'calm' });
+    expect(peekBaselines).toHaveBeenCalled();
+  });
+});
+
+describe('orchestrator.buildTargets (extracted biosonic-targets builder)', () => {
+  it('is exported and assembles a finite biosonic band from the biometric inputs', async () => {
+    expect(typeof orchestrator.buildTargets).toBe('function');
+    const targets = await orchestrator.buildTargets({ userId: 'u1', moodKey: 'energize', live: { heartRate: 100, activity: 'walking' } });
+    expect(targets.bpmCenter).toBe(118);            // walking cadence lock
+    expect(Number.isFinite(targets.energyCeiling)).toBe(true);
+    expect(peekBaselines).toHaveBeenCalled();
+  });
 });

@@ -3,11 +3,47 @@
 
 const vectorIndex = require('../vector/vectorIndex');
 const trackCatalogRepo = require('../../repositories/trackCatalogRepo');
+const audioFeatureRepo = require('../../repositories/audioFeatureRepo');
 const { buildTargetVector } = require('./targetVector');
 const { withVectorBudget } = require('./withVectorBudget');
+const { withinBand } = require('../selection/biosonicBand');
+const { featuresOf } = require('../features/featureProvider');
 const mmr = require('../selection/mmr');
 
 const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
+const fin = (v) => Number.isFinite(Number(v));
+
+// DISCOVERY_BAND_OVERFETCH env footgun clamp (resilience audit L1/L2). num() alone lets
+// Number("")/"0"/negative through as < 2 → queryNear(k·~0) → 1 candidate (worse than the
+// no-band default 6); and an unbounded value blows numCandidates (= k·overfetch·10 in the
+// Atlas adapter) past Atlas's 10 000 cap → the aggregate throws → discovery silently OFF.
+// FLOOR: anything not a finite number >= 2 → the default 12. CEILING: 16, because with the
+// adapter's numCandidates = k·10 and discovery k <= 50, 16·50·10 = 8 000 stays well within
+// the 10 000 cap (at the operational k=30 it is 4 800). (16 not 40: 40 already blows the
+// cap at k>=25 — a "max" that reproduces the very bug this guards.)
+const BAND_OVERFETCH_DEFAULT = 12;
+const BAND_OVERFETCH_MIN = 2;
+const BAND_OVERFETCH_MAX = 16;
+function bandOverfetch() {
+  const raw = Number(process.env.DISCOVERY_BAND_OVERFETCH);
+  if (!Number.isFinite(raw) || raw < BAND_OVERFETCH_MIN) return BAND_OVERFETCH_DEFAULT;
+  return Math.min(BAND_OVERFETCH_MAX, raw);
+}
+
+// Band-aware only fires when the flag is ON at call time AND the targets object carries
+// a gate withinBand actually applies — a bpm window (center + width, or an activity-wide
+// window), an energy floor/ceiling, or a texture-intent class. Anything else → no-op guard.
+const bandAwareEnabled = () => process.env.DISCOVERY_BAND_AWARE === 'true';
+function hasUsableBand(t) {
+  if (!t || typeof t !== 'object') return false;
+  const bpm = fin(t.bpmCenter) && (t.activityDriven === true || fin(t.bpmWidth));
+  const energy = fin(t.energyFloor) && fin(t.energyCeiling);
+  const texture = t.activityIntensity === 'high' || t.activityIntensity === 'low';
+  return bpm || energy || texture;
+}
+
+// featuresOf (the shared feature projection discovery and the pipeline both judge the band
+// on) lives in featureProvider so the two can never drift — resilience audit M1.
 
 // Spotify-independent discovery: match the mood/target vector against our corpus, exclude
 // the user's library, threshold, diversify (MMR), hydrate. ENHANCEMENT — returns [] on any
@@ -15,35 +51,57 @@ const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d);
 async function find(opts = {}) {
   const {
     targetFeatures = {}, seedGenres = [], excludeCanonicalKeys = new Set(),
+    targets = null,
     k = num(process.env.DISCOVERY_K, 30),
     overfetch = num(process.env.DISCOVERY_OVERFETCH, 6),
     minCosine = num(process.env.DISCOVERY_MIN_COSINE, 0.5),
     budgetMs = num(process.env.DISCOVERY_QUERY_BUDGET_MS, 2500),
   } = opts || {};
   const t0 = Date.now();
+  // Band-aware post-filter: when ON, over-fetch more (the band drops candidates) and align
+  // to the SAME band the pipeline enforces so survivors are not all discarded downstream.
+  const bandAware = bandAwareEnabled() && hasUsableBand(targets);
+  const effOverfetch = bandAware ? bandOverfetch() : overfetch;
   // One parseable structured metric per call, on EVERY return path. Wrapped so the metric
   // itself can NEVER throw and NEVER changes find's return value (enhancement contract).
-  const emit = (candidates, hits, kept) => {
+  // bandKept = in-band survivors (band-aware path); -1 when the band filter did not run.
+  // NAMED bandKept (not banded) so it never conflates with the pipeline's [selection.v2]
+  // banded= (pool tracks passing the band) — two different numbers on two different lines.
+  const emit = (candidates, hits, kept, bandKept = -1) => {
     try {
-      console.log(`[discovery] candidates=${candidates?.length ?? 0} hits=${hits?.length ?? 0} kept=${kept?.length ?? 0} latencyMs=${Date.now() - t0} indexReady=${(hits?.length ?? 0) > 0}`);
+      console.log(`[discovery] candidates=${candidates?.length ?? 0} hits=${hits?.length ?? 0} kept=${kept?.length ?? 0} bandKept=${bandKept} latencyMs=${Date.now() - t0} indexReady=${(hits?.length ?? 0) > 0}`);
     } catch { /* metric must never affect delivery */ }
   };
   try {
     const target = buildTargetVector(targetFeatures, seedGenres);
     const hits = await withVectorBudget(
-      vectorIndex.queryNear(target, { k: Math.max(1, k * overfetch) }), budgetMs, []
+      vectorIndex.queryNear(target, { k: Math.max(1, k * effOverfetch) }), budgetMs, []
     );
     // Threshold + exclude familiar (by canonicalKey).
     const kept = (hits || []).filter(h =>
       h && num(h.score, 0) >= minCosine && !excludeCanonicalKeys.has(h.canonicalKey));
     if (!kept.length) { emit([], hits, kept); return []; }
 
+    // Band post-filter (flag ON + usable band). ONE feature batch for the kept candidates,
+    // then drop anything the pipeline's un-relaxable band would drop — withinBand VERBATIM,
+    // on the pipeline's feature shape. Featureless candidates (no doc) pass, exactly as
+    // withinBand/filterBand treat them. Hydrating ONLY survivors cuts catalog reads vs today.
+    let survivors = kept;
+    let bandKept = -1;
+    if (bandAware) {
+      const featureMap = await audioFeatureRepo.getMany(kept.map(h => h.recordingKey));
+      survivors = kept.filter(h => withinBand({ features: featuresOf(featureMap.get(h.recordingKey)) }, targets));
+      bandKept = survivors.length;
+      if (!survivors.length) { emit([], hits, kept, bandKept); return []; } // starve, never widen the band
+    }
+
     // Hydrate metadata; drop only the truly unplayable. A candidate survives when it has a
     // URI OR is translatable (has BOTH title and artist) — a YouTube-corpus track carries
     // uri:null but is resolved to a Spotify URI at serve time via search (translateToSpotify).
-    const meta = await trackCatalogRepo.getMany(kept.map(h => h.recordingKey));
+    // ACCEPTED (audit): the feature getMany above + this catalog getMany are single indexed $in batches (not N+1), bounded by the outer AI_BUDGET_MS, not this call's budgetMs.
+    const meta = await trackCatalogRepo.getMany(survivors.map(h => h.recordingKey));
     const candidates = [];
-    for (const h of kept) {
+    for (const h of survivors) {
       const m = meta.get(h.recordingKey);
       if (!m) continue;
       const translatable = Boolean(m.title && m.artist); // enough to resolve to Spotify via search at serve time
@@ -53,11 +111,11 @@ async function find(opts = {}) {
         uri: m.uri ?? null, title: m.title, artist: m.artist, genres: m.genres || [], isDiscovery: true,
       }, total: num(h.score, 0) });
     }
-    if (!candidates.length) { emit(candidates, hits, kept); return []; }
+    if (!candidates.length) { emit(candidates, hits, kept, bandKept); return []; }
 
     // MMR diversify to k (reuses the hardened selector).
     const result = mmr.select(candidates, { k, lambda: 0.7 }).map(s => s.track);
-    emit(candidates, hits, kept);
+    emit(candidates, hits, kept, bandKept);
     return result;
   } catch {
     emit([], undefined, []); // indexReady=false — a budget/throw means the index served nothing
