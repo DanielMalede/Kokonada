@@ -234,6 +234,10 @@ export function NowPlayingScreen() {
                   >
                     ✦
                   </Text>
+                  {/* L4 (per-spec, intentional): the enriched branch hardcodes "New discovery" — the
+                      structural gate (recordingKey + full anchor) is the source of truth here and
+                      deliberately wins over receipt.label, so an inconsistent backend payload
+                      (label:'Familiar favorite' WITH recordingKey+anchor) still reads "New discovery". */}
                   <Text
                     numberOfLines={1}
                     style={{ fontSize: typography.size.caption, fontWeight: typography.weight.semibold, letterSpacing: typography.tracking.heading, color: c.content.primary }}
