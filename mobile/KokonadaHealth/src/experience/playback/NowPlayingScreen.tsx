@@ -1,8 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, Pressable, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
 import { nowPlayingStore } from './nowPlayingStore';
 import { orchestrator } from './playbackServices';
 import type { NowPlaying } from './playbackOrchestrator';
+import { UpNextSheet } from './UpNextSheet';
+import { playerStatusStore } from '../player/playerStatusStore';
+import { store } from '../../state/store';
+import { emotionAccentFor } from '../../design/emotionAccent';
 import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, type as typography, elevation } from '../../design/tokens';
 
@@ -66,6 +70,13 @@ export function NowPlayingScreen() {
     sync(nowPlayingStore.getState());
     return nowPlayingStore.subscribe(sync); // cleanup returns the unsubscribe (S10-1)
   }, []);
+
+  // Up-Next sheet: a low-emphasis trigger opens the queue over Now Playing. Live connection drives
+  // its soft states; the session accent is chosen ONCE (static per session, never per-track).
+  const [upNextVisible, setUpNextVisible] = useState(false);
+  const [connection, setConnection] = useState(playerStatusStore.getState().status);
+  useEffect(() => playerStatusStore.subscribe((s) => setConnection(s.status)), []);
+  const quadrant = useMemo(() => emotionAccentFor(store.getState().emotion.taps), []);
 
   const { track, isPlaying, coverUri } = state;
 
@@ -187,6 +198,29 @@ export function NowPlayingScreen() {
           <Text style={{ fontSize: typography.size.title, color: c.content.secondary }}>⏭</Text>
         </Pressable>
       </View>
+
+      {/* Low-emphasis "Up next" affordance (SCREENS §7): tap to open the queue sheet over Now
+          Playing. Sits beneath the transport without disturbing the art→meta→transport hierarchy. */}
+      <Pressable
+        onPress={() => setUpNextVisible(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Up next"
+        style={styles.upNext}
+      >
+        <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>⌃</Text>
+        <Text style={{ fontSize: typography.size.footnote, color: c.content.secondary }}>Up next</Text>
+      </Pressable>
+
+      <UpNextSheet
+        visible={upNextVisible}
+        onClose={() => setUpNextVisible(false)}
+        tracks={upNextVisible ? orchestrator.getQueueTracks() : []}
+        currentTrackId={track?.id ?? null}
+        isPlaying={isPlaying}
+        quadrant={quadrant}
+        connection={connection}
+        onJump={(t) => orchestrator.jumpToId(t.id)}
+      />
     </View>
   );
 }
@@ -201,5 +235,7 @@ const styles = StyleSheet.create({
   receipt: { marginTop: space.md, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
   transport: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space['3xl'], marginTop: space['2xl'] },
   sideBtn: { padding: space.md, alignItems: 'center', justifyContent: 'center' },
+  // ≥44pt a11y tap target via the space['3xl'] (48) token — low-emphasis, centered chevron + label.
+  upNext: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, minHeight: space['3xl'], marginTop: space.lg, paddingHorizontal: space.md },
   playBtn: { width: PLAY_SIZE, height: PLAY_SIZE, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
 });

@@ -7,7 +7,11 @@ jest.setTimeout(20000); // cold-require headroom for CI (same rationale as Profi
 // The orchestrator is the native-heavy playback graph — mock it to pure spies so the
 // reskin's transport wiring can be asserted without touching socket/spotify-remote.
 jest.mock('../playbackServices', () => ({
-  orchestrator: { skipPrev: jest.fn(), skipNext: jest.fn(), togglePlayPause: jest.fn() },
+  orchestrator: {
+    skipPrev: jest.fn(), skipNext: jest.fn(), togglePlayPause: jest.fn(),
+    getQueueTracks: jest.fn(() => []), jumpToId: jest.fn(),
+  },
+  player: { connect: jest.fn() },
 }));
 
 import { NowPlayingScreen } from '../NowPlayingScreen';
@@ -259,5 +263,42 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     expect(artStyle(tree).height).toBe(300); // capped at ART_SIZE
     dimSpy.mockRestore();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── §2.a tail: the low-emphasis "Up next" trigger opening the Up-Next sheet ──
+  describe('Up next sheet trigger (§2.a tail — shipped hierarchy preserved)', () => {
+    it('renders a low-emphasis "Up next" button beneath the transport with a ≥44pt tap target', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      const tree = await render();
+      const trigger = byLabel(tree, 'Up next');
+      expect(trigger).toBeTruthy();
+      expect(trigger.props.accessibilityRole).toBe('button');
+      expect(StyleSheet.flatten(trigger.props.style).minHeight).toBeGreaterThanOrEqual(44);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('does not disturb the shipped now-playing-receipt node (Task 3 owns it)', async () => {
+      nowPlayingStore.getState().set({ track: { ...TRACK, receipt: { label: 'Familiar favorite' } }, isPlaying: true });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('keeps the Up-Next sheet closed by default', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'upnext-sheet')).toHaveLength(0);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('tapping "Up next" opens the sheet (reads the live queue through the orchestrator)', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      const tree = await render();
+      await ReactTestRenderer.act(async () => { byLabel(tree, 'Up next').props.onPress(); });
+      await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+      expect(tree.root.findAll((n) => n.props.testID === 'upnext-sheet').length).toBeGreaterThan(0);
+      expect(orchestrator.getQueueTracks as jest.Mock).toHaveBeenCalled();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
   });
 });
