@@ -33,7 +33,7 @@ import { orchestrator } from '../playbackServices';
 import { nowPlayingStore } from '../nowPlayingStore';
 import { playerStatusStore } from '../../player/playerStatusStore';
 import { PlaybackQueue } from '../playbackQueue';
-import { colors, motion } from '../../../design/tokens';
+import { colors, motion, space, type as typography } from '../../../design/tokens';
 
 const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
@@ -291,6 +291,24 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(trigger).toBeTruthy();
       expect(trigger.props.accessibilityRole).toBe('button');
       expect(StyleSheet.flatten(trigger.props.style).minHeight).toBeGreaterThanOrEqual(44);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('is easy to tap: a generous hitSlop, a larger readable label (≥ subheading), and more room below the transport', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      const tree = await render();
+      const trigger = byLabel(tree, 'Up next');
+      // generous hitSlop so the low-emphasis affordance is comfortably tappable
+      expect(trigger.props.hitSlop).toBeDefined();
+      // more breathing room below the transport (was space.lg — too cramped)
+      expect(StyleSheet.flatten(trigger.props.style).marginTop).toBeGreaterThanOrEqual(space.xl);
+      // the "Up next" label is at least subheading-sized (was footnote — too small to read/tap)
+      const labelNode = tree.root.findAll(
+        (n) => Array.isArray(n.children) && n.children[0] === 'Up next'
+          && (StyleSheet.flatten(n.props.style) as any)?.fontSize != null,
+      )[0];
+      expect(labelNode).toBeTruthy();
+      expect((StyleSheet.flatten(labelNode.props.style) as any).fontSize).toBeGreaterThanOrEqual(typography.size.subheading);
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
