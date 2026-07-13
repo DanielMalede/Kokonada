@@ -13,6 +13,8 @@ export function createPlaybackFailureReporter(deps: { post: typeof apiPost }): R
     if (typeof recordingKey !== 'string' || !recordingKey) return; // familiar track / no key → nothing to heal
     if (reported.has(recordingKey)) return;                        // already reported this session
     reported.add(recordingKey);
+    // [QA-130] self-heal observability: the actual POST that nulls the backend's stale cached uri.
+    console.log('[QA-130] POST /api/discovery/playback-failed (self-heal) recordingKey=', recordingKey);
     // .catch keeps fire-and-forget honest: apiPost never rejects, but if post ever did, the
     // rejection is swallowed here rather than surfacing as an unhandled rejection.
     void deps.post('/api/discovery/playback-failed', { recordingKey }).catch(() => {});
