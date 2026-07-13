@@ -33,7 +33,7 @@ import { orchestrator } from '../playbackServices';
 import { nowPlayingStore } from '../nowPlayingStore';
 import { playerStatusStore } from '../../player/playerStatusStore';
 import { PlaybackQueue } from '../playbackQueue';
-import { colors } from '../../../design/tokens';
+import { colors, motion } from '../../../design/tokens';
 
 const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
@@ -549,6 +549,59 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(all).not.toContain('Because you love');   // never a half-claim
       expect(all).not.toContain('undefined');          // and never "by undefined"
       await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+  });
+
+  // ── M1 (resilience): the discoveryReveal lifecycle — cancel-on-change + cleanup-on-unmount ──
+  describe('discovery reveal lifecycle (M1 — cancel-on-change + no leak on unmount)', () => {
+    const DISCOVERY = {
+      ...TRACK,
+      recordingKey: 'youtube:abc',
+      receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', anchor: { title: 'Weightless', artist: 'Marconi Union' } },
+    };
+    // Fake ONLY the reveal timing (duration === motion.duration.slow); the ambient aura timings keep
+    // their real behavior so the aura loop is undisturbed. Handles are captured in creation order.
+    function spyRevealTiming() {
+      const realTiming: (...a: any[]) => any = (Animated.timing as any).bind(Animated);
+      const handles: Array<{ start: jest.Mock; stop: jest.Mock; reset: jest.Mock }> = [];
+      const spy = jest.spyOn(Animated, 'timing').mockImplementation((value: any, cfg: any) => {
+        if (cfg && cfg.duration === motion.duration.slow) {
+          const h = { start: jest.fn(), stop: jest.fn(), reset: jest.fn() };
+          handles.push(h);
+          return h as any;
+        }
+        return realTiming(value, cfg); // aura timings keep real behavior
+      });
+      return { spy, handles };
+    }
+
+    it('M1(a): a discovery→discovery skip (new track.id) cancels the in-flight reveal (.stop) and starts a fresh reveal timing', async () => {
+      const { spy, handles } = spyRevealTiming();
+      nowPlayingStore.getState().set({ track: DISCOVERY, isPlaying: true });
+      const tree = await render();
+      expect(handles).toHaveLength(1);                    // reveal #1 minted on mount…
+      expect(handles[0].start).toHaveBeenCalledTimes(1);  // …and started
+      expect(handles[0].stop).not.toHaveBeenCalled();
+      await ReactTestRenderer.act(async () => {
+        nowPlayingStore.getState().set({ track: { ...DISCOVERY, id: 't-next' }, isPlaying: true });
+      });
+      await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+      expect(handles[0].stop).toHaveBeenCalledTimes(1);   // prior reveal cancelled on change…
+      expect(handles).toHaveLength(2);                    // …a fresh timing was created…
+      expect(handles[1].start).toHaveBeenCalledTimes(1);  // …and started (no stacking, no stutter)
+      spy.mockRestore();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('M1(b): unmounting mid-reveal stops the animation (no leaked timer / setState-after-unmount)', async () => {
+      const { spy, handles } = spyRevealTiming();
+      nowPlayingStore.getState().set({ track: DISCOVERY, isPlaying: true });
+      const tree = await render();
+      expect(handles).toHaveLength(1);
+      expect(handles[0].stop).not.toHaveBeenCalled();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+      expect(handles[0].stop).toHaveBeenCalledTimes(1);   // effect cleanup tore the reveal down
+      spy.mockRestore();
     });
   });
 
