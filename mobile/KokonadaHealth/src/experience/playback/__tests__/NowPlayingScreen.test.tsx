@@ -462,6 +462,40 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(all).toContain('Weightless');
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
+
+    // ── A11Y-1 (designer): the crafted receipt sentence must be announced as ONE element ──
+    const anchoredNode = (tree: ReactTestRenderer.ReactTestRenderer) =>
+      tree.root.findAll((n) => typeof n.props.accessibilityLabel === 'string'
+        && n.props.accessibilityLabel.includes('Because you love'))[0];
+
+    it('A11Y-1: the enriched discovery receipt is a single accessibility element (accessible=true) so the crafted sentence is announced whole', async () => {
+      nowPlayingStore.getState().set({
+        track: {
+          ...TRACK,
+          receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', anchor: { title: 'Weightless', artist: 'Marconi Union' } },
+          recordingKey: 'youtube:abc',
+        },
+        isPlaying: true,
+      });
+      const tree = await render();
+      const node = anchoredNode(tree);
+      expect(node).toBeTruthy();
+      expect(node.props.accessible).toBe(true);       // one focusable a11y element, not scattered Text fragments
+      expect(node.props.accessibilityRole).toBe('text');
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('A11Y-1: the quiet familiar pill is also a single accessibility element (accessible=true)', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'Familiar favorite', detail: 'A song you already love' }, recordingKey: null },
+        isPlaying: true,
+      });
+      const tree = await render();
+      const pill = tree.root.findAll((n) => n.props.testID === 'now-playing-receipt' && typeof n.props.accessibilityLabel === 'string')[0];
+      expect(pill).toBeTruthy();
+      expect(pill.props.accessible).toBe(true);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
   });
 
   // ── L2: the connection subscribe effect must re-read live status on mount ──

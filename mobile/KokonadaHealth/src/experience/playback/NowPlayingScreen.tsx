@@ -209,6 +209,9 @@ export function NowPlayingScreen() {
           isDiscoveryAnchor ? (
             <Animated.View
               testID="now-playing-receipt"
+              // accessible: collapse the child Text fragments into ONE a11y element so the crafted
+              // "Why this track: …" sentence is announced whole (a bare View is not a single node).
+              accessible={true}
               style={[styles.receipt, styles.receiptDiscovery, { backgroundColor: c.surface.raised, borderColor: accent.ink }, revealStyle]}
               accessibilityRole="text"
               accessibilityLabel={`Why this track: New discovery. Because you love ${anchor!.title} by ${anchor!.artist}.${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
@@ -249,6 +252,7 @@ export function NowPlayingScreen() {
           ) : (
             <View
               testID="now-playing-receipt"
+              accessible={true} // collapse to one a11y element, mirroring the enriched branch
               style={[styles.receipt, { backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
               accessibilityRole="text"
               accessibilityLabel={`Why this track: ${track.receipt.label}${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
