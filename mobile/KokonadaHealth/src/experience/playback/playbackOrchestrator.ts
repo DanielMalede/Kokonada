@@ -225,6 +225,25 @@ export class PlaybackOrchestrator {
     this.scheduleCoalescedPlay();
   }
 
+  // Up-Next sheet tap-to-jump: move the cursor to the tapped queued track and play it through
+  // the SAME coalesced path as a skip (scheduleCoalescedPlay → playCurrent(viaSkip=true)). This
+  // deliberately reuses the skip path so every #130 self-heal invariant still holds under a
+  // user-intent jump: a dead discovery track is one-reported + auto-skipped, a severed remote
+  // degrades in place, and the consecutive-failure cap bounds the walk. Tapping an id that is not
+  // a playable queued row is a no-op (the cursor never lands on a data-only / unknown track).
+  jumpToId(id: string): void {
+    const t = this.queue.seekToId(id);
+    if (t === null) return;
+    this.currentTrackId = t.id; // mark intent so a stale end-event is ignored
+    this.scheduleCoalescedPlay();
+  }
+
+  // Read-only ordered snapshot of the queue for the Up-Next sheet (a copy — the sheet can
+  // never mutate the live queue). The live cursor is exposed via getNowPlaying().track.
+  getQueueTracks(): QueueTrack[] {
+    return this.queue.list();
+  }
+
   // Fired when a track finishes. Ignore a stale end-event for a track the user has
   // already skipped past (it would otherwise double-advance behind their back).
   async onTrackEnded(endedTrackId?: string): Promise<void> {

@@ -130,4 +130,22 @@ export class PlaybackQueue {
     this.index = idx;
     return this.tracks[idx];
   }
+
+  // Move the cursor to the queued track with this id — the Up-Next sheet's tap-to-jump.
+  // Matches by the stable track id (not the URI) so an exact tapped row is honoured.
+  // Returns null — cursor untouched — for an id that isn't a PLAYABLE queued track
+  // (an unknown id, or a data-only row a user should not be able to jump onto).
+  seekToId(id: string): QueueTrack | null {
+    if (typeof id !== 'string' || !id) return null;
+    const idx = this.tracks.findIndex((t) => isPlayable(t) && t.id === id);
+    if (idx === -1) return null;
+    this.index = idx;
+    return this.tracks[idx];
+  }
+
+  // Read-only ordered snapshot of the whole queue (playable AND data-only rows) for the
+  // Up-Next sheet. A COPY, so a consumer can never mutate the live queue behind the cursor.
+  list(): QueueTrack[] {
+    return this.tracks.slice();
+  }
 }

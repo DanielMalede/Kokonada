@@ -184,6 +184,52 @@ describe('PlaybackQueue — recordingKey payload (Phase 2; identifies a discover
   });
 });
 
+describe('PlaybackQueue — seekToId (Up-Next tap-to-jump to a specific queued track)', () => {
+  it('moves the cursor to the playable track with that id and returns it', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b'), T('c')]);
+    expect(q.seekToId('c')?.id).toBe('c');
+    expect(q.current()?.id).toBe('c');
+  });
+
+  it('returns null and leaves the cursor put for an id we never queued', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b')]);
+    expect(q.seekToId('zzz')).toBeNull();
+    expect(q.current()?.id).toBe('a');
+  });
+
+  it('returns null for a data-only (unplayable) row and does not move the cursor', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b', null)]);
+    expect(q.seekToId('b')).toBeNull();
+    expect(q.current()?.id).toBe('a');
+  });
+
+  it('is defensive against a non-string / empty id (never throws, never moves)', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a')]);
+    expect(q.seekToId(undefined as any)).toBeNull();
+    expect(q.seekToId('')).toBeNull();
+    expect(q.current()?.id).toBe('a');
+  });
+});
+
+describe('PlaybackQueue — list (read-only snapshot for the Up-Next sheet)', () => {
+  it('returns every queued track in order, including data-only rows', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b', null), T('c')]);
+    expect(q.list().map((t) => t.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns a copy — mutating the snapshot cannot corrupt the queue', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b')]);
+    q.list().pop();
+    expect(q.list().map((t) => t.id)).toEqual(['a', 'b']);
+  });
+});
+
 describe('PlaybackQueue — resilience', () => {
   it('FUZZ: garbage track entries are dropped, never crash', () => {
     const q = new PlaybackQueue();
