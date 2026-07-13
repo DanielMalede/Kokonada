@@ -91,9 +91,9 @@ describe('ATTACK 2: Spotify remote severed while the wheel is actively tapping',
     // Spotify app killed mid-song, then every command auth-fails, while taps keep coming
     remote.sever();
     remote.boom = new Error('AUTHENTICATION_SERVICE_UNAVAILABLE');
-    await expect(player.play('spotify:track:x')).resolves.toEqual({ ok: false });
+    await expect(player.play('spotify:track:x')).resolves.toEqual({ ok: false, reason: 'command_failed' });
     controller.commitTap({ x: 0.6, y: -0.1 });
-    await expect(player.pause()).resolves.toEqual({ ok: false });
+    await expect(player.pause()).resolves.toEqual({ ok: false, reason: 'command_failed' });
 
     expect(player.getState()).toBe('disconnected');            // player degraded
     expect(store.getState().emotion.taps).toHaveLength(2);     // wheel lane untouched

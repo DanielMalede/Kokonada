@@ -5,13 +5,18 @@ import { PlaybackQueue, type QueueTrack } from './playbackQueue';
 // skip spam is coalesced into one command, a dead socket is revived on track-end,
 // and a late track-end event can't skip behind the user's back.
 
+// A play command resolves with why it failed, so the orchestrator can tell a severed
+// remote ('disconnected' → degrade in place) apart from a track Spotify refused
+// ('command_failed'/undefined → report + skip the dead discovery track).
+type PlayResult = { ok: boolean; reason?: 'disconnected' | 'command_failed' };
+
 export interface PlaybackPlayer {
-  play(uri: string): Promise<{ ok: boolean }>;
+  play(uri: string): Promise<PlayResult>;
   pause(): Promise<{ ok: boolean }>;
   resume(): Promise<{ ok: boolean }>;
   // D-1 context playback (optional — absent on legacy fakes → track-play fallback).
-  playContext?(contextUri: string, index: number): Promise<{ ok: boolean }>;
-  skipToIndex?(contextUri: string, index: number): Promise<{ ok: boolean }>;
+  playContext?(contextUri: string, index: number): Promise<PlayResult>;
+  skipToIndex?(contextUri: string, index: number): Promise<PlayResult>;
 }
 
 export interface PlaybackSocket {
@@ -41,6 +46,14 @@ export interface PlaybackOrchestratorDeps {
   // never emits playlist OR playlist_error), the single-flight guard must not wedge
   // forever. After this long with no answer, the guard self-heals. (QA4 Q4)
   generationTimeoutMs?: number;
+  // Report a dead DISCOVERY track (one carrying a recordingKey) so the backend can null
+  // its stale cached resolved URI (T3 self-heal). A familiar track (recordingKey null) is
+  // never reported. (Phase 2 discovery playback report)
+  onPlaybackFailed?: (recordingKey: string) => void;
+  // Cap on CONSECUTIVE failed plays before the auto-skip gives up. A severed remote also
+  // yields ok:false, so without this a dead connection would runaway-skip the whole queue.
+  // Default 3.
+  maxConsecutiveFailures?: number;
 }
 
 const realScheduler: Scheduler = {
@@ -56,6 +69,10 @@ export class PlaybackOrchestrator {
   private readonly onNowPlaying?: (state: NowPlaying) => void;
   private readonly coalesceMs: number;
   private readonly generationTimeoutMs: number;
+  private readonly onPlaybackFailed?: (recordingKey: string) => void;
+  private readonly maxConsecutiveFailures: number;
+  // Streak of back-to-back failed plays; cleared by any real play. Caps the auto-skip.
+  private consecutiveFailures = 0;
 
   private isPlaying = false;
   private currentTrackId: string | null = null;
@@ -78,6 +95,8 @@ export class PlaybackOrchestrator {
     this.onNowPlaying = deps.onNowPlaying;
     this.coalesceMs = deps.coalesceMs ?? 250;
     this.generationTimeoutMs = deps.generationTimeoutMs ?? 20000;
+    this.onPlaybackFailed = deps.onPlaybackFailed;
+    this.maxConsecutiveFailures = deps.maxConsecutiveFailures ?? 3;
   }
 
   getNowPlaying(): NowPlaying {
@@ -100,7 +119,7 @@ export class PlaybackOrchestrator {
     }
     this.currentTrackId = track.id;
     this.sawActivePlayback = false; // fresh track — await the native "playing" confirmation
-    let res: { ok: boolean };
+    let res: PlayResult;
     if (this.contextUri && this.player.playContext) {
       const row = this.queue.playableIndex();
       console.log('[koko] playCurrent → context', viaSkip ? 'skipToIndex' : 'playContext', 'row=', row);
@@ -112,7 +131,39 @@ export class PlaybackOrchestrator {
       res = await this.player.play(track.uri);
     }
     console.log('[koko] play RESULT ok=', res.ok, 'uri=', track.uri);
-    this.isPlaying = res.ok; // a severed remote → truthfully not playing
+    if (res.ok) {
+      this.consecutiveFailures = 0; // a real play clears the failure streak
+      this.isPlaying = true;
+      this.emit();
+      return;
+    }
+    // A SEVERED/not-connected remote also returns ok:false — but that is NOT a dead track. Degrade
+    // in place (cursor stays, no report, no skip, streak untouched) exactly as before reason-threading;
+    // the reconnect path owns recovery. Only a genuine command failure (a track Spotify refused to
+    // play, reason 'command_failed' or undefined) is treated as a dead discovery track: report it
+    // (self-heal the backend's stale cached uri) + silently skip, bounded by the cap.
+    if (res.reason === 'disconnected') {
+      this.isPlaying = false;
+      this.emit();
+      return;
+    }
+    if (track.recordingKey) {
+      // A dead DISCOVERY track (recordingKey present) is reported so the backend nulls its stale
+      // cached uri. Fire-and-forget: an injected reporter that throws must never reject playCurrent
+      // (its void call sites have no .catch), so swallow to keep playback flowing. (LOW-1)
+      try { this.onPlaybackFailed?.(track.recordingKey); } catch { /* reporter must never break playback */ }
+    }
+    this.consecutiveFailures += 1;
+    if (this.consecutiveFailures <= this.maxConsecutiveFailures && this.queue.hasNext()) {
+      this.queue.next();
+      await this.playCurrent(viaSkip); // try the next track (bounded recursion ≤ cap)
+      return;
+    }
+    // Cap reached, or nothing left to try → stop cleanly and reset the streak for the next action. A
+    // failed track at genuine end-of-queue does NOT requestMore: the successful-end onTrackEnded path
+    // still owns the legitimate "ran out → generate more" case, unchanged. (LOW-2)
+    this.consecutiveFailures = 0;
+    this.isPlaying = false;
     this.emit();
   }
 

@@ -4,7 +4,7 @@
 
 import { PlaybackQueue, type QueueTrack } from '../playbackQueue';
 
-const T = (id: string, uri: string | null = `spotify:track:${id}`): QueueTrack => ({ id, uri, title: id, artist: 'x', receipt: null });
+const T = (id: string, uri: string | null = `spotify:track:${id}`): QueueTrack => ({ id, uri, title: id, artist: 'x', receipt: null, recordingKey: null });
 
 describe('PlaybackQueue — load & current', () => {
   it('loads a playlist and points at the first track', () => {
@@ -106,6 +106,35 @@ describe('PlaybackQueue — receipt payload (Wave 2.8; cover now comes from the 
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', receipt: 'nope' } as any]);
     expect(q.current()?.receipt).toBeNull();
+  });
+});
+
+describe('PlaybackQueue — recordingKey payload (Phase 2; identifies a discovery track for failure reporting)', () => {
+  it('carries a discovery track recordingKey through sanitize onto the current track', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', recordingKey: 'youtube:abc' } as any]);
+    expect(q.current()?.recordingKey).toBe('youtube:abc');
+  });
+
+  it('defaults recordingKey to null for a familiar track that carries none', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x' } as any]); // no recordingKey
+    expect(q.current()?.recordingKey).toBeNull();
+  });
+
+  it('coerces a non-string recordingKey to null (never trusts a malformed payload)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', recordingKey: 123 } as any]);
+    expect(q.current()?.recordingKey).toBeNull();
+    const q2 = new PlaybackQueue();
+    q2.load([{ id: 'b', uri: 'spotify:track:b', title: 'B', artist: 'x', recordingKey: {} } as any]);
+    expect(q2.current()?.recordingKey).toBeNull();
+  });
+
+  it('coerces an empty-string recordingKey to null', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', recordingKey: '' } as any]);
+    expect(q.current()?.recordingKey).toBeNull();
   });
 });
 

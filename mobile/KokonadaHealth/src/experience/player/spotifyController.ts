@@ -26,7 +26,10 @@ export interface SpotifyRemoteLike {
 
 export type PlayerState = 'connected' | 'connecting' | 'disconnected';
 export interface PlaybackSnapshot { isPlaying: boolean; uri?: string; }
-export interface CommandResult { ok: boolean; }
+// A failed command carries WHY it failed so the caller can tell a severed remote
+// ('disconnected' — the link is gone, degrade in place) apart from a track Spotify
+// refused ('command_failed' — a genuine command failure worth reporting/skipping).
+export interface CommandResult { ok: boolean; reason?: 'disconnected' | 'command_failed'; }
 
 export interface SpotifyControllerDeps {
   remote: SpotifyRemoteLike;
@@ -138,21 +141,24 @@ export class SpotifyPlayerController {
   private async run(action: (r: SpotifyRemoteLike) => Promise<void>): Promise<CommandResult> {
     const connected = await this.ensureConnected();
     console.log('[koko] AppRemote.run ensureConnected=', connected, 'state=', this.state, 'budget=', this.reconnectBudget);
-    if (!connected) return { ok: false };
+    // No live connection — the command never ran. This is a SEVERANCE, not a track failure.
+    if (!connected) return { ok: false, reason: 'disconnected' };
     try {
       await action(this.deps.remote);
       console.log('[koko] AppRemote command OK');
       return { ok: true };
     } catch (err) {
-      // Command threw → the link is gone (severance / revoked auth). Degrade.
+      // Command threw — Spotify refused it (dead track / transient command error). Degrade.
       console.warn('[koko] AppRemote command THREW:', (err as any)?.message ?? String(err));
       this.markDisconnected(err);
-      return { ok: false };
+      return { ok: false, reason: 'command_failed' };
     }
   }
 
   async play(uri: string): Promise<CommandResult> {
-    if (typeof uri !== 'string' || uri.length === 0) return { ok: false };
+    // Defensive guard (unreachable from playCurrent, which pre-checks !track.uri): a bad uri is a
+    // command-level failure, never a severance — don't let it masquerade as a dropped connection.
+    if (typeof uri !== 'string' || uri.length === 0) return { ok: false, reason: 'command_failed' };
     return this.run((r) => r.playUri(uri));
   }
 

@@ -7,6 +7,7 @@ import { playerStatusStore } from '../player/playerStatusStore';
 import { store, warmStore } from '../../state/store';
 import { PlaybackOrchestrator, type PlaybackSocket } from './playbackOrchestrator';
 import { nowPlayingStore } from './nowPlayingStore';
+import { reportPlaybackFailure } from './playbackFailureReporter';
 import { CoverArtResolver } from './coverArtResolver';
 import { playbackErrorStore } from './playbackErrorStore';
 import { generationStatusStore } from '../generate/generationStatusStore';
@@ -93,6 +94,9 @@ export const orchestrator = new PlaybackOrchestrator({
   player,
   socket: playbackSocket,
   onNowPlaying: (state) => nowPlayingStore.getState().set(state),
+  // Self-heal: when a discovery track fails to play on device, tell the backend to null its
+  // stale cached URI. Fire-and-forget, deduped per session; only fires for a real recordingKey.
+  onPlaybackFailed: (recordingKey) => reportPlaybackFailure(recordingKey),
 });
 
 // Called once at app entry (after login). Restores the session, connects the socket

@@ -18,7 +18,7 @@ const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
 const togglePlayPause = orchestrator.togglePlayPause as jest.Mock;
 
-const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma', receipt: null };
+const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma', receipt: null, recordingKey: null };
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
