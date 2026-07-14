@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Kokonada pre-commit — fast guards (secrets + binaries). Enable once:
+#   git config core.hooksPath .githooks
+# Override in an emergency: git commit --no-verify
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+fail=0
+
+# 1) Block committed binaries / build artifacts
+if echo "$staged" | grep -Eiq '\.(apk|aab|keystore|jks|p12|so)$|/\.cxx/|/[Bb]uild/'; then
+  echo "X pre-commit: build artifact/binary staged — gitignore it, don't commit:"
+  echo "$staged" | grep -Ei '\.(apk|aab|keystore|jks|p12|so)$|/\.cxx/|/[Bb]uild/' | sed 's/^/    /'
+  fail=1
+fi
+
+# 2) Secret scan on the staged diff (gitleaks if available, else regex on added lines)
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! git diff --cached | gitleaks stdin --no-banner >/dev/null 2>&1; then
+    echo "X pre-commit: gitleaks flagged a secret in the staged diff."
+    fail=1
+  fi
+else
+  added=$(git diff --cached -U0 --diff-filter=ACM | grep -aE '^\+' | grep -av '^\+\+\+')
+  if echo "$added" | grep -aiEq '(AIza[0-9A-Za-z_-]{10,}|ghp_[0-9A-Za-z]{20,}|sk-[0-9A-Za-z]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|whr_[0-9A-Za-z]{16,})'; then
+    echo "X pre-commit: possible secret/token in staged diff — remove it."
+    fail=1
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "Commit blocked. Fix the above (or 'git commit --no-verify' to override)."
+  exit 1
+fi
+echo "ok pre-commit: clean (no secrets, no binaries)"
+exit 0

@@ -7,6 +7,19 @@
 
 ---
 
+## APPROVED VISUAL DIRECTION (Daniel, 2026-07-12 — LOCKED)
+
+Reviewed against concept mockups and approved. Build the Vision Frame to **this**:
+- **Light "Clinical Premium" is the PRIMARY / default mode** — airy, white-based, frosted, generous whitespace. **Dark "Bioluminescence" is the alternate.**
+- **Reactive emotion accent** — the bio-aura, the emotion-wheel tap dots, and the primary CTA all re-tint to the current emotion (from the valence×arousal circumplex): Calm = teal, Joyful = amber/coral, Intense = violet/magenta, Reflective = indigo. Per the regulator ethic, high-arousal negative states stay **soft — never an alarming red.**
+- **Large floating aura is the signature element** — a big, soft, breathing field (~half the screen) behind the hero and, above all, the **Genesis** moment. It MUST run on the UI thread, be frame-rate-independent and reduced-motion-aware, and degrade under low-power/thermal (per §6).
+- **Genesis = no spinner** — a breathing neural-particle field + one calm status line.
+- **Restraint everywhere else** so the wheel + aura are the stars; WCAG 2.2 AA maintained for all text over the aura/gradients.
+
+This is the north-star feel the token system (§2) and the screen rollout (§4 / `docs/SCREENS.md`) implement.
+
+---
+
 ## 0. PRIME DIRECTIVE & GUARDRAILS (read before anything)
 
 **Persona:** Lead Product Designer + Principal Frontend Architect, Apple-Design-Award calibre. Take full end-to-end ownership; innovate proactively within the approved system. But elite design leadership is **vision *with* a gate** — that discipline is exactly what ships award-winning apps.
@@ -67,6 +80,8 @@ All styling flows from a centralised Tamagui token architecture; no hardcoded va
 ---
 
 ## 4. SCREEN-BY-SCREEN SCOPE
+
+> **Per-screen detail lives in `docs/SCREENS.md`** — the full catalog (layout, components, every state, interactions, data source) for each screen. Build each screen from there; this section is the design-intent summary.
 
 - **FTUE / Onboarding:** a cinematic, guided **sensory** journey that teaches the body↔music connection with almost no text. Preserve the "**Try with mood only**" path (wearable optional).
 - **Auth:** Sign in with Apple / Google to **exact HIG** dimensions, fonts, and placement.
