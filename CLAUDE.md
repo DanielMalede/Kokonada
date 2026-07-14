@@ -20,3 +20,34 @@ Commits stay short, single-line, **NO body, NO trailers**.
 This aligns with `docs/ORCHESTRATOR_FABLE.md` `<attribution_policy>`, which is the source of truth.
 
 Apply going forward only — do NOT rewrite already-merged/published commit history.
+
+## Operating model — start every session here
+
+The orchestration directive is **`docs/ORCHESTRATOR_FABLE.md`** (the "main" system directive). At session start, run its `<session_start_protocol>` (read `docs/VISION.md` + `docs/SCREENS.md` + saved state, then recommend the one job). **Fable** (the orchestrator) plans; execution runs on **Opus 4.8** squads. All agents operate at maximum reasoning — use the `ultrathink` keyword.
+
+## Build-time agents (`.claude/agents/`) — the team that writes Kokonada
+
+Dispatch work to these five named sub-agents (all Opus, all read the docs above). Pair a `developer` with the reviewers a task needs; **UI screens also get `designer`**; anything touching a third-party API/store/brand also gets `compliance-auditor`.
+
+- **`architect`** — read-only. Principal-level analysis + dependency-ordered plans; surfaces forks as decision tables. Invoke before any non-trivial change.
+- **`designer`** — read-only. Design lead: authors the Vision Frame + tokens + per-screen direction, and gives the **SHIP / REVISE** design-review verdict. No screen merges without a `designer` SHIP.
+- **`developer`** — full tools. Builds ONE scoped task under strict TDD; real (on-device) evidence, never green mocks.
+- **`resilience-auditor`** — read-only. Master QA: stress/boundary tests, fault-tree root-cause, hunts false-greens, pins regression guards.
+- **`compliance-auditor`** — read-only (+ web). Verifies external-API/store/branding surfaces against current TOS and **HALTs** on ban/rejection risk; mandatory gate before store submission.
+
+No agent merges or approves its own work. Cloud portals = Pause & Guide (stop and hand the human a tutorial).
+
+## Runtime agents (the app itself) — do NOT confuse with the above
+
+`docs/RUNTIME_AGENT_ARCHITECTURE.md` specifies the **runtime** multi-agent system (backend services that turn live biometrics + emotion into music: ingestion, physiology, biosonic translation, feature store, selection, playback, learning…). Those are Node.js services under `backend/app/agents/runtime/`, **not** Claude Code sub-agents. Build agents implement them; they don't dispatch to them.
+
+## Document map (authority order)
+
+- **`KOKONADA_ARCHITECTURE_MASTER.md` §0** — authoritative current state (supersedes all).
+- **`docs/ORCHESTRATOR_FABLE.md`** — the orchestration directive (agents, workflow, gates, session-start).
+- **`docs/VISION.md`** — product vision (body + mind → music; the "magic moment").
+- **`docs/UI_UX_OVERHAUL_SPEC.md`** — design language (Calm × Bioluminescent) + APPROVED VISUAL DIRECTION.
+- **`docs/SCREENS.md`** — per-screen catalog + build queue + per-screen Definition of Done.
+- **`docs/MASTER_BLUEPRINT_2026-07-07.md`** — the execution roadmap (waves).
+- **`docs/RUNTIME_AGENT_ARCHITECTURE.md`** — the app's runtime multi-agent system.
+- **`docs/GROUND_TRUTH_2026-07-07.md`** — persisted baselines + gaps.

@@ -85,13 +85,16 @@ Sequencing per the spec's §0 guardrails:
 
 | # | Task | Package | Model | Acceptance | Blast radius |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2.8.1 | **Vision Frame** — Tamagui token system (color/type/space/motion/haptics), 2–3 mockup directions, hero **Generate** screen built on-device → **approval gate** | mobile | Opus | Daniel approves the Vision Frame | none until approved |
-| 2.8.2 | **Screen rollout** — PR-per-screen (FTUE, Auth, Now Playing, Pulse, History, Profile/Integrations "Privacy Vault", tab bar, system states) + brand identity (icon/wordmark/bootsplash/motion signature) | mobile | Sonnet (direction locked by 2.8.1) | spec §9 DoD per screen: tokens only, light+dark, reduced-motion, WCAG 2.2 AA, 60fps floor, device screenshots | visual layer only |
+| 2.8.1 | **Vision Frame** — `designer` authors the Tamagui token system (color/type/space/motion/haptics) + 2–3 mockup directions; `developer` builds the hero **Generate** screen on-device → **approval gate** | mobile | Opus | Daniel approves the Vision Frame | none until approved |
+| 2.8.2 | **Screen rollout** — PR-per-screen (FTUE, Auth, Connect Services, Generate, History, Profile/Integrations "Privacy Vault", tab bar, system states; Now Playing + Pulse last, once unblocked) + brand identity (icon/wordmark/bootsplash/motion signature) | mobile | Opus (developer is Opus-locked; direction from 2.8.1) | spec §9 DoD per screen: tokens only, light+dark, reduced-motion, WCAG 2.2 AA, 60fps floor, device screenshots, designer SHIP verdict | visual layer only |
+
+**Rollout protocol (2.8.2) — continuous, one screen at a time, NO re-prompt each page.** Once the Vision Frame (2.8.1) is approved, the `designer` + `developer` + `resilience-auditor` + `compliance-auditor` squads work through the screens **one by one** in order per `docs/SCREENS.md`, each as its own PR with on-device before/after screenshots and a **`designer` SHIP verdict** (design-review pass on the built screen). On each merge the queue **auto-advances to the next screen** — no fresh kickoff needed. It stops ONLY at: each PR's **merge approval** (never self-merge), a **`designer` REVISE verdict**, a **compliance-auditor HALT** (ban/rejection risk), the **HELD** screens **Now Playing + Pulse** (blocked until D-7/D-8/#90 are fixed — build these last), and any cloud/device **Pause & Guide**. Suggested order: FTUE → Auth → Connect Services → Generate → History → Profile → tab bar / system states → (Now Playing, Pulse once unblocked). Every screen honors the sacred contracts (≤3-tap payload, three-lane state, `screenToCircumplex`).
 
 ## Wave 3 — Store submission (depends on 2.1–2.4 + 2.8) + engineering-excellence closure
 
 | # | Task | Notes |
 | :--- | :--- | :--- |
+| **3.0** | **COMPLIANCE GATE — mandatory, blocks 3.1** | Run the `compliance-auditor` agent across every external surface (Spotify, Apple, Google Play, Garmin, Suunto, YouTube) + store metadata + OS permissions + branding/attribution, verified against each provider's **current** TOS / API terms / branding / store guidelines (cited). Any **BAN-RISK** or **STORE-REJECTION** finding HALTS submission until resolved. Store submission (3.1) MUST NOT proceed until this returns COMPLIANT. |
 | 3.1 | Store submission (A13) | needs 2.1–2.4 + Daniel portal actions (Pause & Guide). **✅ Google Play submission proceeds on Android. 🔒 iOS App Store submission + on-device iOS verification are BLOCKED on PREREQ-iOS.** Final shape depends on the Launch-platform decision above — Option A defers iOS to a post-launch "iOS Parity" wave (Wave 3 = Play only); Option B makes PREREQ-iOS a hard blocker on this task. |
 | 3.2 | Test-depth outer loop | contract tests (Spotify/Groq adapters), one Detox/Maestro E2E (login→generate→play→logout), biometric soak test |
 | 3.3 | Cost guardrails + cache hit-rate metrics | Groq TPM tracking (free 6000 TPM ceiling), alarm on anomaly |
@@ -107,6 +110,7 @@ The D2 "SHELVE" ruling was overtaken by events: **PR #78 (full music-classificat
 
 - Read this file + `GROUND_TRUTH_2026-07-07.md` first; do NOT re-read the 647-line master except §0 (post-refresh).
 - Dispatch = Developer Agent + Resilience Auditor per task; independent tasks in one turn; never with unmet dependencies.
+- Invoke the `compliance-auditor` agent before any external-API / OAuth-scope / OS-permission / branding change, and it is a **mandatory gate (3.0) before store submission (3.1)**.
 - Rule of 2 (`<error_budget>`): two failed verifications → revert + escalate, never a third attempt.
 - Cloud portals = Pause & Guide, always. Never add a `railway up` CI job.
 - Re-invoke Fable ONLY to re-adjudicate a conflict this Blueprint explicitly flags (HITL-1 execution disputes, D2 un-shelving).

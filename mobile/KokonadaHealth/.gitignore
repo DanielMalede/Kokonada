@@ -60,6 +60,9 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 android/app/src/main/assets/index.android.bundle
+# Bundled drawables + resource shrinker output copied from node_modules at build time
+android/app/src/main/assets/drawable-*
+android/app/src/main/assets/raw/
 
 # Ruby / CocoaPods
 **/Pods/
