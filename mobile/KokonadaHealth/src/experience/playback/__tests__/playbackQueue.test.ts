@@ -191,6 +191,22 @@ describe('PlaybackQueue — receipt caption (discovery-caption LLM; the witty "w
     expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
   });
 
+  it('strips an OBJECT caption defensively (typeof-object is not a string — never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', caption: { text: 'nope' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+    expect(q.current()?.receipt).not.toHaveProperty('caption');
+  });
+
+  it('strips an ARRAY caption defensively (typeof-object is not a string — never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', caption: ['nope'] } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+    expect(q.current()?.receipt).not.toHaveProperty('caption');
+  });
+
   it('a receipt with NO caption is byte-identical to before (back-compat)', () => {
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
