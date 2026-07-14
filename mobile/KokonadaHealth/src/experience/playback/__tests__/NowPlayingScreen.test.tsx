@@ -552,6 +552,131 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     });
   });
 
+  // ── discovery caption (LLM "why this discovery") — the witty one-liner PREFERRED over the anchor ──
+  // Transition window: the backend emits receipt.caption ALONGSIDE receipt.anchor (Step 4 removes the
+  // anchor). The client must prefer the caption when present, fall back to the anchor, then the pill.
+  describe('discovery caption (LLM one-liner — preferred over the deterministic anchor)', () => {
+    const receiptStyle = (tree: ReactTestRenderer.ReactTestRenderer) =>
+      StyleSheet.flatten(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt')[0].props.style) as any;
+    const CAPTION = "A slow jam your calm didn't know it needed.";
+    // The single leaf Text whose entire content is the caption string (accent-tinted one-liner).
+    const captionNode = (tree: ReactTestRenderer.ReactTestRenderer) =>
+      tree.root.findAll((n) => n.props.children === CAPTION)[0];
+
+    it('Discovery + caption → the enriched treatment renders the caption (✦ + accent outline), NOT "Because you love"', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', caption: CAPTION }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery').length).toBeGreaterThan(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('New discovery');
+      expect(all).toContain(CAPTION);                  // the witty one-liner is the emotional payload…
+      expect(all).not.toContain('Because you love');   // …and it REPLACES the deterministic anchor line
+      expect(all).toContain('✦');                      // the SHAPE signal — colour is never alone
+      expect(all).toContain('Matched to your calm');   // the de-emphasized detail line stays
+      // soft colored outline in the session accent (calm/dark default), not the hairline.
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.emotionAccent.calm.ink);
+      // the caption line itself is tinted in the session accent ink (the witty one-liner).
+      expect(StyleSheet.flatten(captionNode(tree).props.style).color).toBe(colors.light.emotionAccent.calm.ink);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('a11y: a caption receipt is one element labelled "Why this track: New discovery. {caption}"', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', caption: CAPTION }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      const node = byLabel(tree, `Why this track: New discovery. ${CAPTION}`);
+      expect(node).toBeTruthy();
+      expect(node.props.accessible).toBe(true);
+      expect(node.props.accessibilityRole).toBe('text');
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('caption WINS over anchor: a discovery track carrying BOTH renders the caption, never the anchor line', async () => {
+      nowPlayingStore.getState().set({
+        track: {
+          ...TRACK,
+          receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', caption: CAPTION, anchor: { title: 'Weightless', artist: 'Marconi Union' } },
+          recordingKey: 'youtube:abc',
+        },
+        isPlaying: true,
+      });
+      const tree = await render();
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain(CAPTION);
+      expect(all).not.toContain('Because you love'); // the anchor line is suppressed while a caption exists
+      expect(all).not.toContain('Weightless');        // the anchor title never surfaces
+      // and the announced sentence is the caption, not the anchor.
+      expect(byLabel(tree, `Why this track: New discovery. ${CAPTION}`)).toBeTruthy();
+      expect(tree.root.findAll((n) => typeof n.props.accessibilityLabel === 'string'
+        && n.props.accessibilityLabel.includes('Because you love'))).toHaveLength(0);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('back-compat: discovery + anchor ONLY (no caption) still renders "Because you love {title}" (anchor removed only in Step 4)', async () => {
+      nowPlayingStore.getState().set({
+        track: {
+          ...TRACK,
+          receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', anchor: { title: 'Weightless', artist: 'Marconi Union' } },
+          recordingKey: 'youtube:abc',
+        },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery').length).toBeGreaterThan(0);
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('Because you love');
+      expect(all).toContain('Weightless');
+      expect(byLabel(tree, 'Why this track: New discovery. Because you love Weightless by Marconi Union. Matched to your calm · 96 BPM')).toBeTruthy();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('discovery with NEITHER caption NOR anchor → the quiet "New discovery" pill, no ✦, no accent', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM' }, recordingKey: 'youtube:xyz' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery')).toHaveLength(0);
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.surface.hairline);
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('New discovery');
+      expect(all).not.toContain('✦');
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('reduced motion → the reveal is an instant swap (no transform) yet the caption still renders', async () => {
+      (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', caption: CAPTION }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(receiptStyle(tree).transform).toBeUndefined(); // no rise/translate under reduced motion
+      expect(texts(tree.toJSON()).join(' ')).toContain(CAPTION); // content identical, just no motion
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('a long caption is capped to 2 lines with tail-truncation (no overflow past the treatment)', async () => {
+      const LONG = 'A slow smoky late-night jam your calm did not even know it was quietly missing tonight.';
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', caption: LONG }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      const node = tree.root.findAll((n) => n.props.children === LONG)[0];
+      expect(node).toBeTruthy();
+      expect(node.props.numberOfLines).toBe(2);          // wraps to at most two lines…
+      expect(node.props.ellipsizeMode).toBe('tail');     // …then tail-truncates rather than overflowing
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+  });
+
   // ── M1 (resilience): the discoveryReveal lifecycle — cancel-on-change + cleanup-on-unmount ──
   describe('discovery reveal lifecycle (M1 — cancel-on-change + no leak on unmount)', () => {
     const DISCOVERY = {
