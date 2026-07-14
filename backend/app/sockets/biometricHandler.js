@@ -745,24 +745,35 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // Hard-budgeted inside the service and fail-open here: a timeout/error yields no captions and
     // NEVER blocks or fails generation. Attached before toClientTracks so buildReceipt emits them.
     if (DISCOVERY_CAPTION_LLM() && Array.isArray(playlist?.merged)) {
-      const discoveryTracks = playlist.merged.filter((t) => t?.isDiscovery && t.recordingKey && t.features);
-      if (discoveryTracks.length) {
+      const allDiscovery = playlist.merged.filter((t) => t?.isDiscovery);
+      // A track can only be captioned once selection ATTACHED its features (pipeline.js:95);
+      // a featureless catalog entry (no AudioFeature doc) is skipped, not sent to the model.
+      const captionable = allDiscovery.filter((t) => t.recordingKey && t.features);
+      let captioned = 0;
+      if (captionable.length) {
         try {
-          const captions = await captionService.captionDiscovery(discoveryTracks, {
+          // L2 (ACCEPTED, audit): with the flag ON this awaits up to DISCOVERY_CAPTION_BUDGET_MS
+          // of serial latency BEFORE playlist_ready. Dark-launch-acceptable; revisit for rollout
+          // (this could move off the critical path — emit first, patch captions after).
+          const captions = await captionService.captionDiscovery(captionable, {
             moodKey,
             emotionTaps: state.lastEmotionTaps,
             activity:    effectiveActivity,
             hrBand:      bandFromHeartRate(state.stableHR),
             targets:     playlist.targets,
           });
-          for (const t of discoveryTracks) {
+          for (const t of captionable) {
             const cap = captions?.get?.(t.recordingKey);
-            if (typeof cap === 'string' && cap) t.caption = cap;
+            if (typeof cap === 'string' && cap) { t.caption = cap; captioned += 1; }
           }
         } catch (e) {
           log(`[generate] discovery captions skipped: ${e.message}`);
         }
       }
+      // Always-on: how many discovery tracks actually got an LLM caption out of the total, so a
+      // live no-op (0/N — a featureless catalog, or a budget/parse miss) is observable in prod
+      // without DEBUG. NO track data — §II keeps titles/artists/genres out of logs, not just the model.
+      console.warn(`[discovery.caption] captionedDiscovery=${captioned}/${allDiscovery.length} reqId=${reqId}`);
     }
 
     // Normalize to the client contract (and reconstruct/validate uris). Guard on
