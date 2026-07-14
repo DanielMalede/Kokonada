@@ -23,6 +23,7 @@ const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const trackCatalogRepo = require('../repositories/trackCatalogRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 const { resolvedDiscoveryUris } = require('../services/discovery/resolvedUriCache');
+const captionService = require('../services/discovery/captionService');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -52,6 +53,10 @@ const VECTOR_DISCOVERY = () => process.env.VECTOR_DISCOVERY === 'true';
 // discovery (so its candidates survive the pipeline's un-relaxable band) and the selection
 // pipeline (identical band, no drift). Read at call time; OFF → today's path exactly.
 const DISCOVERY_BAND_AWARE = () => process.env.DISCOVERY_BAND_AWARE === 'true';
+// Dark-launch gate for the LLM discovery caption (Step 2). Read at call time so a Railway env
+// flip needs no redeploy; OFF (unset/anything-but-'true') skips the caption path entirely —
+// no Groq call, generation byte-for-byte unchanged.
+const DISCOVERY_CAPTION_LLM = () => process.env.DISCOVERY_CAPTION_LLM === 'true';
 
 // ── Anti-repetition ────────────────────────────────────────────────────────────
 // The nine legacy layers (per-mood blacklist, session cooldowns, strict mode,
@@ -98,6 +103,13 @@ function buildReceipt(t, context = {}) {
   // artist is omitted (honest — no claim). Additive: the client strips unknown fields.
   if (t?.isDiscovery && t.anchor && typeof t.anchor.artist === 'string' && t.anchor.artist.trim()) {
     receipt.anchor = { title: t.anchor.title ?? null, artist: t.anchor.artist };
+  }
+  // Step 2 (dark-launched): a DISCOVERY track may carry an LLM-written witty caption
+  // ("why this discovery"), grounded ONLY in its audio feel + this session's mood, attached
+  // upstream by the caption service. Additive alongside the anchor (removed in Step 4);
+  // familiar tracks NEVER get one; a blank caption is omitted (the client strips unknowns).
+  if (t?.isDiscovery && typeof t.caption === 'string' && t.caption.trim()) {
+    receipt.caption = t.caption.trim();
   }
   return receipt;
 }
@@ -724,6 +736,32 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         }
       } catch (e) {
         log(`[generate] cross-platform translation skipped: ${e.message}`);
+      }
+    }
+
+    // Discovery captions (Step 2, dark-launched behind DISCOVERY_CAPTION_LLM): ONE batched Groq
+    // call writes a short witty "why this discovery" line per discovery track from its audio
+    // FEATURES + this session's mood/activity/HR context ONLY — never a title/artist/genre (§II).
+    // Hard-budgeted inside the service and fail-open here: a timeout/error yields no captions and
+    // NEVER blocks or fails generation. Attached before toClientTracks so buildReceipt emits them.
+    if (DISCOVERY_CAPTION_LLM() && Array.isArray(playlist?.merged)) {
+      const discoveryTracks = playlist.merged.filter((t) => t?.isDiscovery && t.recordingKey && t.features);
+      if (discoveryTracks.length) {
+        try {
+          const captions = await captionService.captionDiscovery(discoveryTracks, {
+            moodKey,
+            emotionTaps: state.lastEmotionTaps,
+            activity:    effectiveActivity,
+            hrBand:      bandFromHeartRate(state.stableHR),
+            targets:     playlist.targets,
+          });
+          for (const t of discoveryTracks) {
+            const cap = captions?.get?.(t.recordingKey);
+            if (typeof cap === 'string' && cap) t.caption = cap;
+          }
+        } catch (e) {
+          log(`[generate] discovery captions skipped: ${e.message}`);
+        }
       }
     }
 
