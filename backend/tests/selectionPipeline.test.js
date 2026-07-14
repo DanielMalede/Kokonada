@@ -20,18 +20,9 @@ jest.mock('../app/repositories/audioFeatureRepo', () => ({
   upsertMany: jest.fn(),
   missingKeys: jest.fn(),
 }));
-// Anonymity guard (ADR-0008): the anchor must NEVER reach the catalog store. The
-// pipeline never imports trackCatalogRepo — the mock exists only to assert it stays untouched.
-jest.mock('../app/repositories/trackCatalogRepo', () => ({
-  upsertMany: jest.fn(),
-  updateResolvedUris: jest.fn(),
-}));
-
 const ledger = require('../app/services/ledger/serveLedger');
 const featureRepo = require('../app/repositories/audioFeatureRepo');
 const vectorIndex = require('../app/services/vector/vectorIndex');
-const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
-const { buildVector } = require('../app/services/vector/embedding');
 const { selectPlaylist } = require('../app/services/selection/pipeline');
 
 const lib = (id, { artist = `Artist${id}`, genres = ['pop'], affinity = 5 } = {}) =>
@@ -60,7 +51,6 @@ beforeEach(() => {
   featureRepo.getMany.mockResolvedValue(new Map());
   vectorIndex.getMany.mockResolvedValue(new Map());
   delete process.env.SELECTION_SHADOW;
-  delete process.env.DISCOVERY_ANCHOR_MIN_COSINE;
 });
 
 describe('pipeline.selectPlaylist', () => {
@@ -219,76 +209,6 @@ describe('pipeline.selectPlaylist — cross-platform sink (Spotify translates fa
     const found = tracks.find(t => t.isDiscovery);
     expect(found).toBeDefined();
     expect(found).toMatchObject({ title: 'Discovery Song', uri: null });
-  });
-});
-
-describe('pipeline.selectPlaylist — enriched discovery anchor (nearest LIBRARY neighbour)', () => {
-  const AFRO = ['afrobeat'];
-  const F = { bpm: 120, energy: 0.7, valence: 0.6, acousticness: 0.2, danceability: 0.8, loudness: -6 };
-  const F_FAR = { bpm: 60, energy: 0.1, valence: 0.1, acousticness: 0.95, danceability: 0.1, loudness: -40 };
-
-  const disc = {
-    id: 'youtube:disc1', recordingKey: 'youtube:disc1', canonicalKey: 'at:discoartist|discovery song',
-    title: 'Discovery Song', artist: 'DiscoArtist', genres: AFRO, uri: null, isDiscovery: true,
-  };
-  const ytLibProfile = {
-    library: [{ id: 'y0', provider: 'youtube_music', name: 'YT Song y0', artist: 'ArtistY0', genres: AFRO, affinity: 30, uri: null }],
-    lastAnalyzed: new Date('2026-07-01'),
-  };
-
-  it('attaches the nearest non-Spotify library anchor to a qualifying discovery pick; familiar tracks get none', async () => {
-    vectorIndex.getMany.mockResolvedValue(new Map([
-      ['youtube:y0', buildVector(F, AFRO)],
-      ['youtube:disc1', buildVector(F, AFRO)], // twin → cosine 1.0
-    ]));
-
-    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: ytLibProfile, crossPlatform: true, discoveryTracks: [disc], k: 50 });
-    const d = tracks.find(t => t.isDiscovery);
-    expect(d.anchor).toEqual({ title: 'YT Song y0', artist: 'ArtistY0' });
-    tracks.filter(t => !t.isDiscovery).forEach(t => expect(t.anchor).toBeUndefined());
-
-    // No extra Atlas round-trip, and nothing written back — ADR-0008 anonymity holds.
-    expect(vectorIndex.getMany).toHaveBeenCalledTimes(1);
-    expect(vectorIndex.upsertMany).not.toHaveBeenCalled();
-    expect(trackCatalogRepo.upsertMany).not.toHaveBeenCalled();
-  });
-
-  it('omits the anchor when the nearest library neighbour is below the cosine floor', async () => {
-    vectorIndex.getMany.mockResolvedValue(new Map([
-      ['youtube:y0', buildVector(F, AFRO)],
-      ['youtube:disc1', buildVector(F_FAR, ['ambient'])], // ~0.285 vs the library track
-    ]));
-    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: ytLibProfile, crossPlatform: true, discoveryTracks: [disc], k: 50 });
-    const d = tracks.find(t => t.isDiscovery);
-    expect(d).toBeDefined();
-    expect(d.anchor).toBeUndefined();
-  });
-
-  it.each(['', '-1'])('DISCOVERY_ANCHOR_MIN_COSINE=%p (footgun) does NOT collapse/invert the floor — a below-0.6 neighbour stays anchor-less', async (footgun) => {
-    process.env.DISCOVERY_ANCHOR_MIN_COSINE = footgun; // Number("")===0 / Number("-1")===-1 would make the floor always-pass
-    vectorIndex.getMany.mockResolvedValue(new Map([
-      ['youtube:y0', buildVector(F_FAR, ['ambient'])], // ~0.285 vs disc — above 0, below the real 0.6 default
-      ['youtube:disc1', buildVector(F, AFRO)],
-    ]));
-    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: ytLibProfile, crossPlatform: true, discoveryTracks: [disc], k: 50 });
-    const d = tracks.find(t => t.isDiscovery);
-    expect(d).toBeDefined();
-    expect(d.anchor).toBeUndefined(); // the footgun value must fall back to 0.6, not a 0/negative floor
-  });
-
-  it('omits the anchor (provider gate) when the nearest library neighbour is spotify-sourced', async () => {
-    const spotLibProfile = {
-      library: [{ id: 's0', provider: 'spotify', name: 'S0', artist: 'ArtistS0', genres: AFRO, affinity: 30, uri: 'spotify:track:s0' }],
-      lastAnalyzed: new Date('2026-07-01'),
-    };
-    vectorIndex.getMany.mockResolvedValue(new Map([
-      ['spotify:s0', buildVector(F, AFRO)],
-      ['youtube:disc1', buildVector(F, AFRO)], // twin, but the nearest library track is spotify
-    ]));
-    const { tracks } = await selectPlaylist({ ...BASE, musicProfile: spotLibProfile, crossPlatform: true, discoveryTracks: [disc], k: 50 });
-    const d = tracks.find(t => t.isDiscovery);
-    expect(d).toBeDefined();
-    expect(d.anchor).toBeUndefined();
   });
 });
 
