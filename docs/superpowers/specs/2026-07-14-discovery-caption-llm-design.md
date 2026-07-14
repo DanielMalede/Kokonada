@@ -12,11 +12,18 @@ the anchor sometimes names garbage ("Because you love देखो! पार्
 "cool, short, genuinely-reasoned" line Daniel wants. Replace it with an LLM-written one-liner.
 
 ## Locked decisions
-1. **Grounding (compliance-shaping):** the caption reasons over **the discovery track's own character**
-   (genre / tempo / vibe) **+ the user's session mood** (emotion taps / activity / heart-rate that drove
-   this generation). It **never** touches the user's listening *taste*. → §II-clean (no Spotify-derived
-   taste), so it can show on **every** discovery track (no youtube_music gate), and it's immune to
-   junk-title naming (it describes the vibe, never names a library entry).
+1. **Grounding (compliance-LOCKED — auditor option ii, 2026-07-14):** the caption reasons ONLY over
+   **the discovery track's audio FEATURES** (tempo / energy / valence / danceability / acousticness —
+   ReccoBeats/LLM-derived, **NOT** Spotify) **+ the user's first-party session context** (emotion taps /
+   activity chip / heart-rate band that drove this generation). **NO title, artist, or genres are ever
+   sent to the LLM.** → sends **zero Spotify Content to Groq**, needs **no provenance gate**, shows on
+   **every** discovery track, and is immune to junk-title naming (it describes the sonic vibe + mood, never
+   names a track). The caption describes *feel* (slow, smoky, driving, bright, high-energy) + *your mood*,
+   not the track's name or genre label.
+   > **Why not title/artist/genres:** the compliance gate (below) HALTed that — a discovery candidate's
+   > title/artist/genres originate (for Spotify-origin catalog rows) from the Spotify Web API, so feeding
+   > them to Groq = "ingest Spotify Content into an AI model" (Policy §II, inference-time limb). Excluding
+   > *taste* does not cure it; the violation attaches to the track metadata itself.
 2. **Voice:** witty / human — casual, clever, a wink. ≤ ~10 words, specific, no clichés, no "generic."
    Examples: "A slow jam your calm didn't know it needed." / "Smooth enough to lower your heart rate."
 3. **Batch-at-generation:** ONE structured Groq call per generation captions all selected discovery
@@ -29,9 +36,12 @@ the anchor sometimes names garbage ("Because you love देखो! पार्
 6. **Flag:** dark-launch behind `DISCOVERY_CAPTION_LLM` (default off).
 
 ## Architecture
-- **Backend caption service** (new, isolated): given the selected discovery tracks (title/artist/genres/
-  tempo/energy) + the session context (mood/activity/HR band, i.e. the biosonic `targets` + emotion), makes
-  ONE Groq call with a strict style contract and **structured output** (`{ recordingKey|trackId → caption }`).
+- **Backend caption service** (new, isolated): given the selected discovery tracks' **audio features
+  ONLY** (tempo/energy/valence/danceability/acousticness — via `audioFeatureRepo`/`featureService`, never
+  title/artist/genres) + the session context (mood/activity/HR band, i.e. the biosonic `targets` + emotion
+  quadrant), makes ONE Groq call with a strict style contract and **structured output**
+  (`{ recordingKey|trackId → caption }`). The prompt MUST NOT receive any track name/artist/genre — a
+  test asserts no such field is ever placed in the request payload (the compliance guard).
   Wrapped in a hard budget timeout (env, e.g. `DISCOVERY_CAPTION_BUDGET_MS`); any failure/timeout/parse
   error → return an empty map (no captions), never throw. Called from `generateAndEmitPlaylist` behind the
   flag, after selection, before `toClientTracks`. The caption is attached to each discovery track and
@@ -47,16 +57,22 @@ the anchor sometimes names garbage ("Because you love देखो! पार्
   `NowPlayingScreen` on the client. Surgical, last (Step 4), after the caption path is green so there's no
   window with no anchor line at all.
 
-## Compliance (Step 1 — MUST pass before backend logic)
-The caption is grounded in the discovery track (anonymous `TrackCatalog`, translated-to-Spotify only at
-serve time) + the user's own first-party session input (emotion/activity/HR) — no Spotify-derived taste.
-BUT feeding *track metadata* (title/artist/genres) to an LLM re-touches Policy §II ("do not ingest Spotify
-Content into an ML model" / "do not analyze Spotify Content to create derived functionality"). The
-compliance-auditor must confirm: (a) the grounding data is not "Spotify Content" in the §II sense (catalog
-track metadata + first-party session data), (b) the displayed caption implies no Spotify endorsement / is
-first-party Kokonada voice, and (c) no attribution/link-back change is triggered. A HALT reshapes the
-grounding (e.g. caption from non-Spotify-sourced track metadata only, or from features/mood without
-title/artist).
+## Compliance (Step 1 — RESOLVED 2026-07-14)
+**Auditor verdict: HALT on the original grounding (title/artist/genres), GO under option ii.** Feeding a
+discovery track's title/artist/genres to Groq feeds Spotify Content into an AI model at inference —
+Policy §II "…or otherwise ingest Spotify Content into a machine learning or AI model" (the inference-time
+limb, confirmed against Spotify's live *Building with AI* docs) + the derived-functionality limb.
+Track/artist names + Spotify-derived genres ARE "Spotify Content" (Developer Terms definition includes
+"metadata"), and for the Spotify-origin subset of the shared `TrackCatalog` (populated via
+`corpusIngest.ingestLibrary` from Spotify-Web-API metadata) they reach the caption call. Excluding user
+taste does NOT cure it — the violation is the metadata itself. Live access-revocation risk (Spotify
+Feb-2026 enforcement update).
+**Resolution (Daniel-approved):** ground the caption in **audio features + first-party session context
+ONLY** — tempo/energy/valence (ReccoBeats/LLM-derived, non-Spotify) + emotion/activity/HR. **Zero Spotify
+Content to Groq**, no provenance gate, works on every track, still yields the witty vibe line. Display
+side PASSES (first-party voice, visually distinct from the Spotify-provided metadata it never modifies, no
+Spotify Marks, no new attribution/link-back beyond the shipped C1/C2). **Hard build guard:** a test must
+assert the Groq request payload contains NO track title/artist/genre for any candidate.
 
 ## Implementation sequence (4 isolated steps — each gated)
 1. **Spec + compliance green light** (this doc → compliance-auditor). No code until clean.
