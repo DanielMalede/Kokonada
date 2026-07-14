@@ -117,7 +117,7 @@ export function NowPlayingScreen() {
   // it. A familiar track, or a discovery track with neither, gets the quiet pill.
   // Defense-in-depth (mirrors the anchor guard below): treat the caption as present only when it's a
   // non-empty string, so a FUTURE non-sanitized write path can't surface a blank enriched line.
-  const caption = typeof track?.receipt?.caption === 'string' && track.receipt.caption.trim() ? track.receipt.caption : null;
+  const caption = typeof track?.receipt?.caption === 'string' && track.receipt.caption.trim() ? track.receipt.caption.trim() : null;
   const anchor = track?.receipt?.anchor ?? null;
   // L2 (defense-in-depth): require the nameable fields on the screen too — a FUTURE non-sanitized
   // write path handing a half-anchor (title without artist) could otherwise surface "Because you
@@ -227,8 +227,10 @@ export function NowPlayingScreen() {
               accessibilityRole="text"
               // The caption is the announced payload when present; the anchor sentence is the
               // back-compat fallback (removed in Step 4). COPY-1 punctuation applies to the anchor.
+              // Detail-parity (M1): the de-emphasized detail <Text> renders in BOTH branches, so a
+              // screen-reader user must hear it too — append it here exactly as the anchor branch does.
               accessibilityLabel={caption
-                ? `Why this track: New discovery. ${caption}`
+                ? `Why this track: New discovery. ${caption}${track.receipt.detail ? ` ${track.receipt.detail}` : ''}`
                 : `Why this track: New discovery. Because you love ${anchor!.title} by ${anchor!.artist}.${track.receipt.detail ? ` ${track.receipt.detail}` : ''}`}
             >
               {/* The enriched treatment carries its own id so both branches are test-addressable
@@ -259,7 +261,9 @@ export function NowPlayingScreen() {
                     tail-truncate. Falls back to the deterministic anchor line (1 line) until Step 4
                     removes the anchor. This line NEVER drops under Dynamic Type. */}
                 {caption ? (
-                  <Text numberOfLines={2} ellipsizeMode="tail" style={{ fontSize: typography.size.footnote, color: accent.ink, fontWeight: typography.weight.medium }}>
+                  // Explicit calm leading (footnote size × leading.normal) so the 2-line accent caption
+                  // breathes at the app's body rhythm instead of the tighter platform default. Token-sourced.
+                  <Text numberOfLines={2} ellipsizeMode="tail" style={{ fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal, color: accent.ink, fontWeight: typography.weight.medium }}>
                     {caption}
                   </Text>
                 ) : (

@@ -542,6 +542,31 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
+    // ── M2 (resilience): branch-determinism for the CAPTION arm — a FAMILIAR track carrying a stray
+    // caption stays quiet. Pins the recordingKey requirement in the gate so a mutation that hoists the
+    // caption out of the gate (e.g. `!!(caption || (anchor…))`) can't leak the enriched treatment onto
+    // a familiar favorite. The receipt is set directly (bypassing sanitizeReceipt).
+    it('M2: a familiar track (recordingKey null) with a stray caption renders the quiet pill, not the discovery treatment', async () => {
+      const STRAY_CAPTION = 'A slow jam your calm did not know it needed.';
+      nowPlayingStore.getState().set({
+        track: {
+          ...TRACK,
+          recordingKey: null,
+          receipt: { label: 'Familiar favorite', detail: 'A song you already love', caption: STRAY_CAPTION },
+        },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-receipt').length).toBeGreaterThan(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'now-playing-discovery')).toHaveLength(0);
+      expect(receiptStyle(tree).borderColor).toBe(colors.light.surface.hairline); // hairline, never an accent
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).toContain('Familiar favorite');
+      expect(all).not.toContain('✦');                 // no discovery shape signal
+      expect(all).not.toContain(STRAY_CAPTION);        // the stray caption text never surfaces
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
     // ── L2 (resilience, defense-in-depth): the screen ITSELF requires nameable anchor fields, so a
     // FUTURE non-sanitized write path (a half-anchor: title without artist) can never surface
     // "Because you love X by undefined". sanitizeReceipt strips these today; this guards the screen.
@@ -602,13 +627,15 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
-    it('a11y: a caption receipt is one element labelled "Why this track: New discovery. {caption}"', async () => {
+    it('a11y (detail-parity): a caption receipt is one element labelled "Why this track: New discovery. {caption} {detail}"', async () => {
       nowPlayingStore.getState().set({
         track: { ...TRACK, receipt: { label: 'New discovery', detail: 'Matched to your calm · 96 BPM', caption: CAPTION }, recordingKey: 'youtube:abc' },
         isPlaying: true,
       });
       const tree = await render();
-      const node = byLabel(tree, `Why this track: New discovery. ${CAPTION}`);
+      // A screen-reader user must hear the SAME detail a sighted user reads: the de-emphasized detail
+      // <Text> renders in this branch, so the a11y label appends it too (parity with the anchor branch).
+      const node = byLabel(tree, `Why this track: New discovery. ${CAPTION} Matched to your calm · 96 BPM`);
       expect(node).toBeTruthy();
       expect(node.props.accessible).toBe(true);
       expect(node.props.accessibilityRole).toBe('text');
@@ -629,8 +656,8 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(all).toContain(CAPTION);
       expect(all).not.toContain('Because you love'); // the anchor line is suppressed while a caption exists
       expect(all).not.toContain('Weightless');        // the anchor title never surfaces
-      // and the announced sentence is the caption, not the anchor.
-      expect(byLabel(tree, `Why this track: New discovery. ${CAPTION}`)).toBeTruthy();
+      // and the announced sentence is the caption (with the detail appended for parity), not the anchor.
+      expect(byLabel(tree, `Why this track: New discovery. ${CAPTION} Matched to your calm · 96 BPM`)).toBeTruthy();
       expect(tree.root.findAll((n) => typeof n.props.accessibilityLabel === 'string'
         && n.props.accessibilityLabel.includes('Because you love'))).toHaveLength(0);
       await ReactTestRenderer.act(async () => { tree.unmount(); });
@@ -691,6 +718,54 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(node).toBeTruthy();
       expect(node.props.numberOfLines).toBe(2);          // wraps to at most two lines…
       expect(node.props.ellipsizeMode).toBe('tail');     // …then tail-truncates rather than overflowing
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    // ── L1 (defense-in-depth): render the TRIMMED caption. sanitizeReceipt already trims on the real
+    // path, so this only matters for a FUTURE non-sanitized write — but the rendered leaf must never
+    // carry a stray leading/trailing space that would shift the accent line. Constructed directly.
+    it('L1: a caption carrying leading/trailing whitespace (bypassing sanitize) renders the TRIMMED value', async () => {
+      const PADDED = '   Smooth enough to lower your heart rate.   ';
+      const TRIMMED = 'Smooth enough to lower your heart rate.';
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', caption: PADDED }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      expect(tree.root.findAll((n) => n.props.children === TRIMMED).length).toBeGreaterThan(0); // trimmed leaf present
+      expect(tree.root.findAll((n) => n.props.children === PADDED)).toHaveLength(0);            // never the padded raw
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    // ── L2 (input-hardening): a caption with emoji / RTL script / an embedded newline / a very long
+    // unbroken word renders without throwing and stays bounded (2 lines, tail-truncated).
+    it('L2: an emoji / RTL / embedded-newline / long-unbroken-word caption renders bounded and never throws', async () => {
+      const WILD = 'שלום 😌🎧 first\nsecond superlongunbrokenwordthatcannotwrapnicelyatallonanarrowpill';
+      let tree!: ReactTestRenderer.ReactTestRenderer;
+      await expect((async () => {
+        nowPlayingStore.getState().set({
+          track: { ...TRACK, receipt: { label: 'New discovery', caption: WILD }, recordingKey: 'youtube:abc' },
+          isPlaying: true,
+        });
+        tree = await render();
+      })()).resolves.not.toThrow();
+      const node = tree.root.findAll((n) => n.props.children === WILD)[0];
+      expect(node).toBeTruthy();                          // the caption leaf is present
+      expect(node.props.numberOfLines).toBe(2);           // stays bounded to two lines…
+      expect(node.props.ellipsizeMode).toBe('tail');      // …then tail-truncates rather than overflowing
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    // ── designer polish: the 2-line accent caption carries an EXPLICIT calm lineHeight from the type
+    // tokens (footnote size × the calm `leading.normal` multiplier), not the tighter platform default.
+    it('designer: the caption uses an explicit calm lineHeight sourced from the type tokens', async () => {
+      nowPlayingStore.getState().set({
+        track: { ...TRACK, receipt: { label: 'New discovery', caption: CAPTION }, recordingKey: 'youtube:abc' },
+        isPlaying: true,
+      });
+      const tree = await render();
+      const style = StyleSheet.flatten(captionNode(tree).props.style) as any;
+      expect(style.lineHeight).toBe(typography.size.footnote * typography.leading.normal);
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
   });
