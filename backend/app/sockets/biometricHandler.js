@@ -97,17 +97,9 @@ function buildReceipt(t, context = {}) {
   }
   const detail = parts.length ? parts.join(' · ') : undefined;
   const receipt = detail ? { label, detail } : { label };
-  // Wave 2.8 enriched receipt: a DISCOVERY track whose nearest LIBRARY neighbour is a
-  // non-Spotify favorite carries an anchor ("Because you love <artist>"), attached
-  // upstream in the selection pipeline. Familiar tracks NEVER receive an anchor; a blank
-  // artist is omitted (honest — no claim). Additive: the client strips unknown fields.
-  if (t?.isDiscovery && t.anchor && typeof t.anchor.artist === 'string' && t.anchor.artist.trim()) {
-    receipt.anchor = { title: t.anchor.title ?? null, artist: t.anchor.artist };
-  }
-  // Step 2 (dark-launched): a DISCOVERY track may carry an LLM-written witty caption
-  // ("why this discovery"), grounded ONLY in its audio feel + this session's mood, attached
-  // upstream by the caption service. Additive alongside the anchor (removed in Step 4);
-  // familiar tracks NEVER get one; a blank caption is omitted (the client strips unknowns).
+  // A DISCOVERY track may carry an LLM-written witty caption ("why this discovery"), grounded
+  // ONLY in its audio feel + this session's mood, attached upstream by the caption service.
+  // Familiar tracks NEVER get one; a blank caption is omitted (the client strips unknowns).
   if (t?.isDiscovery && typeof t.caption === 'string' && t.caption.trim()) {
     receipt.caption = t.caption.trim();
   }

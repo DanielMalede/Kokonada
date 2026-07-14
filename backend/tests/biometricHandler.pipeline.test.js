@@ -316,9 +316,9 @@ describe('toClientTrack — recordingKey passthrough', () => {
   });
 });
 
-// ── buildReceipt — discovery caption (Step 2, additive; anchor coexists) ──────
-// A DISCOVERY track carrying an LLM caption emits receipt.caption; the existing anchor
-// emission is UNCHANGED (its removal is Step 4). Familiar tracks never get a caption.
+// ── buildReceipt — discovery caption ─────────────────────────────────────────
+// A DISCOVERY track carrying an LLM caption emits receipt.caption. The deterministic
+// anchor is GONE (Step 4) — a stray anchor field is never surfaced. Familiar tracks never get a caption.
 
 describe('toClientTrack — receipt.caption (discovery caption)', () => {
   const { toClientTrack } = require('../app/sockets/biometricHandler');
@@ -337,12 +337,12 @@ describe('toClientTrack — receipt.caption (discovery caption)', () => {
     expect(c.receipt).not.toHaveProperty('caption');
   });
 
-  it('still emits the existing anchor alongside the caption (both coexist until Step 4)', () => {
+  it('never emits an anchor: a discovery track carrying a legacy anchor field surfaces only the caption', () => {
     const c = toClientTrack(
       { id: 'd1', uri: 'spotify:track:d1', isDiscovery: true, caption: 'Bright and driving', anchor: { title: 'Song', artist: 'Someone' } },
       'spotify', { trigger: 'emotion' });
     expect(c.receipt.caption).toBe('Bright and driving');
-    expect(c.receipt.anchor).toEqual({ title: 'Song', artist: 'Someone' });
+    expect(c.receipt).not.toHaveProperty('anchor');
   });
 
   it('a familiar track never receives a caption even if one is set', () => {
