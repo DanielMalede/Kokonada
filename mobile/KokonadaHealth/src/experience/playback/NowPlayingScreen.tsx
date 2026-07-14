@@ -340,10 +340,11 @@ export function NowPlayingScreen() {
         onPress={() => setUpNextVisible(true)}
         accessibilityRole="button"
         accessibilityLabel="Up next"
+        hitSlop={space.md}
         style={styles.upNext}
       >
-        <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>⌃</Text>
-        <Text style={{ fontSize: typography.size.footnote, color: c.content.secondary }}>Up next</Text>
+        <Text style={{ fontSize: typography.size.heading, color: c.content.secondary }}>⌃</Text>
+        <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>Up next</Text>
       </Pressable>
 
       <UpNextSheet
@@ -377,6 +378,8 @@ const styles = StyleSheet.create({
   transport: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space['3xl'], marginTop: space['2xl'] },
   sideBtn: { padding: space.md, alignItems: 'center', justifyContent: 'center' },
   // ≥44pt a11y tap target via the space['3xl'] (48) token — low-emphasis, centered chevron + label.
-  upNext: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, minHeight: space['3xl'], marginTop: space.lg, paddingHorizontal: space.md },
+  // Extra room below the transport (marginTop space.xl) so the affordance reads as its own zone; the
+  // Pressable also carries a hitSlop for a comfortable target beyond the visible bounds.
+  upNext: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, minHeight: space['3xl'], marginTop: space.xl, paddingHorizontal: space.md },
   playBtn: { width: PLAY_SIZE, height: PLAY_SIZE, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
 });

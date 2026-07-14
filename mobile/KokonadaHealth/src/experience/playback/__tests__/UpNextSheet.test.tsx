@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { AccessibilityInfo, Animated, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Animated, StyleSheet, BackHandler } from 'react-native';
 
 // SpotifyAttribution pulls the native playback graph for its default wiring — stub it to a marker so
 // this suite stays focused on the sheet (the real mark is covered in SpotifyAttribution.test.tsx).
@@ -311,6 +311,70 @@ describe('UpNextSheet — motion', () => {
     expect(allById(tree.root, 'upnext-sheet').length).toBe(0); // gone immediately
     expect(spy).not.toHaveBeenCalled();                        // no exit spring under reduce-motion
     spy.mockRestore();
+  });
+});
+
+// Android hardware/system Back must dismiss through the SAME animated exit as a scrim tap — the native
+// Modal snaps its window shut on Back, bypassing the R1 slide-down. We intercept Back, run the animated
+// dismiss, and CONSUME the event (return true) so the native window is not torn down mid-animation.
+describe('UpNextSheet — hardware Back dismisses gracefully (not a native snap)', () => {
+  // A stateful harness mirroring the real parent (NowPlayingScreen): onClose flips `visible`, so a
+  // hardware-back dismiss must flow through the SAME animated exit as a scrim tap / grabber close.
+  function Harness() {
+    const [visible, setVisible] = React.useState(true);
+    return <UpNextSheet {...base} visible={visible} onClose={() => setVisible(false)} />;
+  }
+
+  it('registers a hardwareBackPress handler while shown that runs onClose and CONSUMES the event (returns true)', async () => {
+    const addSpy = jest.spyOn(BackHandler, 'addEventListener');
+    const onClose = jest.fn();
+    await render(<UpNextSheet {...base} onClose={onClose} />);
+    const call = addSpy.mock.calls.find((c) => c[0] === 'hardwareBackPress');
+    expect(call).toBeTruthy(); // a back handler is registered while the sheet is presented
+    const handler = call![1] as () => boolean;
+    let consumed: boolean | undefined;
+    await ReactTestRenderer.act(async () => { consumed = handler(); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(consumed).toBe(true); // consumed → the native Modal window is NOT auto-dismissed (no snap)
+    addSpy.mockRestore();
+  });
+
+  it('hardware Back animates the sheet out (stays mounted, exit spring toValue 0) and unmounts only on completion', async () => {
+    const addSpy = jest.spyOn(BackHandler, 'addEventListener');
+    let dismissCb: ((r: { finished: boolean }) => void) | undefined;
+    const handle = { start: jest.fn((cb?: any) => { dismissCb = cb; }), stop: jest.fn() };
+    const springSpy = jest.spyOn(Animated, 'spring').mockReturnValue(handle as any);
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<Harness />); });
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(allById(tree.root, 'upnext-sheet').length).toBeGreaterThan(0);
+    const handler = addSpy.mock.calls.find((c) => c[0] === 'hardwareBackPress')![1] as () => boolean;
+    // hardware back → the SAME animated exit as a scrim tap: dismiss spring toward 0, still mounted.
+    await ReactTestRenderer.act(async () => { handler(); });
+    const last = springSpy.mock.calls[springSpy.mock.calls.length - 1];
+    expect(last[1].toValue).toBe(0);
+    expect(allById(tree.root, 'upnext-sheet').length).toBeGreaterThan(0); // NOT snapped shut
+    await ReactTestRenderer.act(async () => { dismissCb?.({ finished: true }); });
+    expect(allById(tree.root, 'upnext-sheet').length).toBe(0); // unmounts only when the exit settles
+    springSpy.mockRestore();
+    addSpy.mockRestore();
+  });
+
+  it('reduced motion → hardware Back dismiss is instant (unmounts at once, no exit spring)', async () => {
+    (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
+    const addSpy = jest.spyOn(BackHandler, 'addEventListener');
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<Harness />); });
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    const springSpy = jest.spyOn(Animated, 'spring');
+    const handler = addSpy.mock.calls.find((c) => c[0] === 'hardwareBackPress')![1] as () => boolean;
+    await ReactTestRenderer.act(async () => { handler(); });
+    expect(allById(tree.root, 'upnext-sheet').length).toBe(0); // gone at once under reduce-motion
+    expect(springSpy).not.toHaveBeenCalled();                  // no exit spring
+    springSpy.mockRestore();
+    addSpy.mockRestore();
   });
 });
 

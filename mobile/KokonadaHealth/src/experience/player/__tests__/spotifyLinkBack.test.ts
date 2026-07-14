@@ -33,12 +33,23 @@ describe('spotifyLinkBack — installed check reuses the existing native probe',
   });
 });
 
-describe('spotifyLinkBack — foregroundSpotify reuses the App Remote connect/wake path', () => {
-  it('wakes Spotify through player.connect() (the existing path, not a new native call)', async () => {
+describe('spotifyLinkBack — foregroundSpotify brings the Spotify app to the foreground', () => {
+  it('foregrounds Spotify via its URL scheme (Linking.openURL("spotify:")) — the real "OPEN SPOTIFY" action', async () => {
+    const spy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+    await foregroundSpotify();
+    expect(spy).toHaveBeenCalledWith('spotify:');
+  });
+  it('still wakes the App Remote through the existing connect path (playback continuity)', async () => {
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
     await foregroundSpotify();
     expect(connect).toHaveBeenCalledTimes(1);
   });
+  it('never throws into the UI when the link-back openURL rejects', async () => {
+    jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('no handler'));
+    await expect(foregroundSpotify()).resolves.toBeUndefined();
+  });
   it('never throws into the UI when the wake connect rejects', async () => {
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
     connect.mockRejectedValueOnce(new Error('remote severed'));
     await expect(foregroundSpotify()).resolves.toBeUndefined();
   });

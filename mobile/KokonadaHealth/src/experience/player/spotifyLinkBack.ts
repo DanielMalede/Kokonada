@@ -17,10 +17,18 @@ export async function isSpotifyInstalled(): Promise<boolean> {
   }
 }
 
-// Foreground/wake the Spotify app through the EXISTING App Remote connect/wake path (the
-// SpotifyPlayerController singleton) — no new native call. player.connect already swallows its own
-// failures, but the extra guard keeps the promise from ever rejecting into a UI handler.
+// Bring the Spotify app to the foreground ("OPEN SPOTIFY"). On device the App Remote is ALREADY
+// connected at boot, so player.connect() no-ops and never foregrounds the app — the URL-scheme launch
+// is what actually surfaces Spotify. Both steps are defensive: a link-back miss is cosmetic, never a
+// crash into the UI.
 export async function foregroundSpotify(): Promise<void> {
+  // The foregrounding action — launch/foreground the Spotify app via its URL scheme.
+  try {
+    await Linking.openURL('spotify:');
+  } catch {
+    /* link-back is best-effort — never throw into the UI */
+  }
+  // Keep waking the App Remote for playback continuity (its own guard — connect already swallows).
   try {
     await player.connect();
   } catch {
