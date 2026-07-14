@@ -463,3 +463,92 @@ describe('Phase 2: a failed discovery track is reported and silently skipped (bo
     expect(orch.getNowPlaying().isPlaying).toBe(true);
   });
 });
+
+// ═════ Up-Next sheet: tap-to-jump MUST route through the SAME self-heal play path ═════
+// The user taps a row in the Up-Next sheet → the cursor jumps there and plays through the
+// EXACT coalesced playCurrent(viaSkip) path a manual skip uses. So every #130 invariant still
+// holds under a user-intent cursor move: a dead discovery track is one-reported + auto-skipped,
+// a severed remote degrades in place (no report/no walk), and the consecutive-failure cap bounds
+// the walk. These prove the tap-to-jump does NOT bypass the self-heal.
+describe('Up-Next tap-to-jump: jumpToId routes through the coalesced self-heal play path', () => {
+  it('jumps the cursor to the tapped track and plays it (one coalesced command)', async () => {
+    const { orch, player, sched } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b', 'c', 'd') });
+    player.played.length = 0;
+    orch.jumpToId('c');
+    expect(player.played).toEqual([]); // coalesced — nothing fired yet
+    sched.flush();
+    await Promise.resolve();
+    expect(player.played).toEqual(['spotify:track:c']);
+    expect(orch.getNowPlaying().track?.id).toBe('c');
+    expect(orch.getNowPlaying().isPlaying).toBe(true);
+  });
+
+  it('a tap on an id we never queued (or a data-only row) is a no-op — nothing scheduled, cursor unmoved', async () => {
+    const { orch, player, sched } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') });
+    player.played.length = 0;
+    orch.jumpToId('nope');
+    expect(sched.isPending()).toBe(false); // never scheduled a play
+    sched.flush();
+    await Promise.resolve();
+    expect(player.played).toEqual([]);
+    expect(orch.getNowPlaying().track?.id).toBe('a');
+  });
+
+  it('tapping a DEAD discovery track reports it once and silently skips to the next (#130 self-heal on the jump path)', async () => {
+    const { orch, player, sched, onPlaybackFailed } = buildDiscovery({ dead: ['c'] });
+    await orch.handlePlaylist({ tracks: [TR('a', null), TR('b', null), TR('c', 'k:c'), TR('d', null)] });
+    player.played.length = 0;
+    orch.jumpToId('c'); // user taps the dead discovery row
+    sched.flush();
+    await flushMicrotasks();
+    expect(player.played).toEqual(['spotify:track:c', 'spotify:track:d']); // tried c (dead), skipped to d
+    expect(orch.getNowPlaying().track?.id).toBe('d');
+    expect(orch.getNowPlaying().isPlaying).toBe(true);
+    expect(onPlaybackFailed).toHaveBeenCalledTimes(1);
+    expect(onPlaybackFailed).toHaveBeenCalledWith('k:c'); // ONLY the dead one self-healed
+  });
+
+  it('tapping into a run of dead discovery tracks never burns past the consecutive-failure cap', async () => {
+    const { orch, player, sched, onPlaybackFailed } = buildDiscovery({
+      dead: ['b', 'c', 'd', 'e'], maxConsecutiveFailures: 2,
+    });
+    await orch.handlePlaylist({ tracks: [TR('a', null), TR('b', 'k:b'), TR('c', 'k:c'), TR('d', 'k:d'), TR('e', 'k:e')] });
+    player.played.length = 0;
+    orch.jumpToId('b'); // tap into the dead run
+    sched.flush();
+    await flushMicrotasks();
+    expect(player.played).toEqual(['spotify:track:b', 'spotify:track:c', 'spotify:track:d']); // cap+1 tries then STOP
+    expect(orch.getNowPlaying().isPlaying).toBe(false); // stopped cleanly, not wedged
+    expect(onPlaybackFailed).toHaveBeenCalledTimes(3);
+  });
+
+  it('tapping a track while the remote is SEVERED degrades in place — cursor lands on the tap, no walk, no report', async () => {
+    const { orch, player, sched, onPlaybackFailed } = buildDiscovery({ disconnected: ['c', 'd'] });
+    await orch.handlePlaylist({ tracks: [TR('a', null), TR('b', null), TR('c', 'k:c'), TR('d', 'k:d')] });
+    player.played.length = 0;
+    orch.jumpToId('c'); // tap while the remote is gone
+    sched.flush();
+    await flushMicrotasks();
+    expect(player.played).toEqual(['spotify:track:c']); // did NOT walk to d
+    expect(orch.getNowPlaying().track?.id).toBe('c');   // cursor stays on the tapped track
+    expect(orch.getNowPlaying().isPlaying).toBe(false); // reflects the severance truthfully
+    expect(onPlaybackFailed).not.toHaveBeenCalled();    // no false self-heal on a disconnect
+  });
+});
+
+describe('getQueueTracks — read-only snapshot for the Up-Next sheet', () => {
+  it('returns the loaded queue in order', async () => {
+    const { orch } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b', 'c') });
+    expect(orch.getQueueTracks().map((t) => t.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns a copy — mutating it cannot corrupt the queue', async () => {
+    const { orch } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') });
+    orch.getQueueTracks().pop();
+    expect(orch.getQueueTracks().map((t) => t.id)).toEqual(['a', 'b']);
+  });
+});

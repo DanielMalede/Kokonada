@@ -1,10 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Image, Pressable, Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
 import { nowPlayingStore } from './nowPlayingStore';
 import { orchestrator } from './playbackServices';
 import type { NowPlaying } from './playbackOrchestrator';
+import type { QueueTrack } from './playbackQueue';
+import { UpNextSheet } from './UpNextSheet';
+import { SpotifyAttribution } from '../player/SpotifyAttribution';
+import { playerStatusStore } from '../player/playerStatusStore';
+import { store } from '../../state/store';
+import { emotionAccentFor } from '../../design/emotionAccent';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, type as typography, elevation } from '../../design/tokens';
+import { space, radius, type as typography, elevation, motion } from '../../design/tokens';
+
+// A stable empty snapshot so a closed sheet never hands the sheet a fresh array identity each render.
+const NO_TRACKS: QueueTrack[] = [];
 
 // Now Playing — Wave 2.8 "Bioluminescence" full-screen player. The current track and its
 // transport, driven entirely by the unit-tested PlaybackOrchestrator. This is a visual
@@ -67,6 +76,26 @@ export function NowPlayingScreen() {
     return nowPlayingStore.subscribe(sync); // cleanup returns the unsubscribe (S10-1)
   }, []);
 
+  // Up-Next sheet: a low-emphasis trigger opens the queue over Now Playing. Live connection drives
+  // its soft states; the session accent is chosen ONCE (static per session, never per-track).
+  const [upNextVisible, setUpNextVisible] = useState(false);
+  const [connection, setConnection] = useState(playerStatusStore.getState().status);
+  // L2: re-read the LIVE status on mount before wiring the subscription — a connect/disconnect that
+  // lands between the initial render and the effect commit would otherwise be dropped (mirrors the
+  // nowPlayingStore effect above, which already syncs current state on mount).
+  useEffect(() => {
+    setConnection(playerStatusStore.getState().status);
+    return playerStatusStore.subscribe((s) => setConnection(s.status));
+  }, []);
+  // L5 (ACCEPTED): mounted before COLD hydration, taps may be empty → the session quadrant renders
+  // `calm` (the brand default). Cosmetic and consistent with the "static per session" accent design.
+  const quadrant = useMemo(() => emotionAccentFor(store.getState().emotion.taps), []);
+
+  // L3: snapshot the queue ONCE while the sheet is open (stable identity until it reopens), and keep
+  // the jump handler stable — so the sheet's memoized rows aren't churned by unrelated re-renders.
+  const queueTracks = useMemo(() => (upNextVisible ? orchestrator.getQueueTracks() : NO_TRACKS), [upNextVisible]);
+  const onJump = useCallback((t: QueueTrack) => orchestrator.jumpToId(t.id), []);
+
   const { track, isPlaying, coverUri } = state;
 
   // Graceful degradation (L2): a non-null but broken/undecodable cover file must still fall
@@ -79,6 +108,44 @@ export function NowPlayingScreen() {
   // (foreign playback at boot with an empty queue). The cover's a11y label reads
   // track.title, so a cover with no track would null-deref — show the placeholder instead.
   const showCover = !!coverUri && !coverFailed && !!track;
+
+  // The session discovery accent (static per session — the quadrant is chosen ONCE, above).
+  const accent = c.emotionAccent[quadrant];
+  // The enriched "why this discovery" branch fires only for a DISCOVERY track (recordingKey
+  // present) whose backend receipt ALSO carries an anchor (kept above the similarity floor by
+  // sanitizeReceipt). A familiar track, or a discovery track below the floor, gets the quiet pill.
+  const anchor = track?.receipt?.anchor ?? null;
+  // L2 (defense-in-depth): require the nameable fields on the screen too — a FUTURE non-sanitized
+  // write path handing a half-anchor (title without artist) could otherwise surface "Because you
+  // love X by undefined". sanitizeReceipt strips half-anchors today, so this is behaviour-neutral
+  // on the real path (a kept anchor always has both title and artist).
+  const isDiscoveryAnchor = !!(track?.recordingKey && anchor?.title && anchor?.artist);
+
+  // discoveryReveal (§2.a): on track-change INTO a discovery-with-anchor track the accent border
+  // + anchor line fade+rise ONCE — elapsed-time driven (Animated.timing), never a per-frame loop
+  // and never a perpetual breath (that lane is the PlaybackAura's alone). A rapid next/next/next
+  // cancels the in-flight reveal cleanly via the effect cleanup, so it never queues or stutters.
+  // L1: a FRESH 0-value per track id (not a shared ref reset after paint). Reset-before-paint —
+  // so a discovery→discovery skip renders the new receipt already at opacity 0, never flashing the
+  // prior track's end-state for one frame before re-fading. The effect below only .start()s it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional keyed remount: a new value per track id
+  const reveal = useMemo(() => new Animated.Value(0), [track?.id]);
+  useEffect(() => {
+    if (!isDiscoveryAnchor || reduced) return; // reduced motion → no animation (instant swap below)
+    const anim = Animated.timing(reveal, {
+      toValue: 1,
+      duration: motion.duration.slow,
+      easing: Easing.bezier(...motion.easing.enter),
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop(); // cancel-on-change — the reveal interrupts instead of stacking
+  }, [track?.id, isDiscoveryAnchor, reduced, reveal]);
+  // Under reduced motion the treatment renders static (no opacity ramp, no translate) — a true
+  // instant swap. Otherwise the border + content fade in and rise a hair on the reveal.
+  const revealStyle = reduced
+    ? null
+    : { opacity: reveal, transform: [{ translateY: reveal.interpolate({ inputRange: [0, 1], outputRange: [space.xs, 0] }) }] };
 
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
@@ -129,31 +196,94 @@ export function NowPlayingScreen() {
           {track ? track.artist : 'Generate a vibe to start'}
         </Text>
 
-        {/* Mix-receipt — the honest "why this track": familiar/discovery role + the mood/heart
-            trigger and target tempo, all derived server-side from real signals. Hidden when the
-            track carries no receipt (e.g. a legacy payload). */}
+        {/* NP-ATTR (compliance C1/C2): the reusable Spotify attribution + link-back for the live
+            Spotify content on this surface. Ordered (Daniel) BETWEEN the metadata and the receipt —
+            its own element, hairline-separated and visually distinct — so nothing here can imply
+            Spotify authored the pick or bleed into the "why this track" receipt copy below. */}
+        {track ? (
+          <View testID="now-playing-attribution" style={[styles.attribution, { borderTopColor: c.surface.hairline }]}>
+            <SpotifyAttribution />
+          </View>
+        ) : null}
+
+        {/* Mix-receipt — the honest "why this track", built server-side from real signals. THREE
+            branches, ONE node, no error state ever (§2.a):
+              • familiar (recordingKey null)        → the quiet pill, exactly as shipped;
+              • discovery + anchor                  → the enriched, accent-outlined treatment;
+              • discovery, no anchor (below floor)  → graceful fallback to the quiet pill.
+            Hidden entirely when the track carries no receipt (e.g. a legacy payload). */}
         {track?.receipt ? (
-          <View
-            testID="now-playing-receipt"
-            style={[styles.receipt, { backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
-            accessibilityRole="text"
-            accessibilityLabel={`Why this track: ${track.receipt.label}${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
-          >
-            <Text
-              numberOfLines={1}
-              style={{ fontSize: typography.size.caption, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading, color: c.content.primary, textAlign: 'center' }}
+          isDiscoveryAnchor ? (
+            <Animated.View
+              testID="now-playing-receipt"
+              // accessible: collapse the child Text fragments into ONE a11y element so the crafted
+              // "Why this track: …" sentence is announced whole (a bare View is not a single node).
+              accessible={true}
+              style={[styles.receipt, styles.receiptDiscovery, { backgroundColor: c.surface.raised, borderColor: accent.ink }, revealStyle]}
+              accessibilityRole="text"
+              accessibilityLabel={`Why this track: New discovery. Because you love ${anchor!.title} by ${anchor!.artist}.${track.receipt.detail ? ` ${track.receipt.detail}` : ''}`}
             >
-              {track.receipt.label}
-            </Text>
-            {track.receipt.detail ? (
+              {/* The enriched treatment carries its own id so both branches are test-addressable
+                  while the container keeps the shipped now-playing-receipt id. */}
+              <View testID="now-playing-discovery" style={styles.discovery}>
+                <View style={styles.discoveryHead}>
+                  {/* Leading ✦ — the SHAPE signal, so colour is never the sole differentiator. */}
+                  <Text
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    style={{ fontSize: typography.size.footnote, color: accent.ink }}
+                  >
+                    ✦
+                  </Text>
+                  {/* L4 (per-spec, intentional): the enriched branch hardcodes "New discovery" — the
+                      structural gate (recordingKey + full anchor) is the source of truth here and
+                      deliberately wins over receipt.label, so an inconsistent backend payload
+                      (label:'Familiar favorite' WITH recordingKey+anchor) still reads "New discovery". */}
+                  <Text
+                    numberOfLines={1}
+                    style={{ fontSize: typography.size.caption, fontWeight: typography.weight.semibold, letterSpacing: typography.tracking.heading, color: c.content.primary }}
+                  >
+                    New discovery
+                  </Text>
+                </View>
+                {/* The emotional payload — the anchor title tinted in the session accent, 1 line,
+                    tail-truncated. This line NEVER drops under Dynamic Type. */}
+                <Text numberOfLines={1} style={{ fontSize: typography.size.footnote, color: c.content.secondary }}>
+                  Because you love{' '}
+                  <Text style={{ color: accent.ink, fontWeight: typography.weight.medium }}>{anchor!.title}</Text>
+                </Text>
+                {/* De-emphasized detail — the FIRST line to drop under Dynamic-Type-large. */}
+                {track.receipt.detail ? (
+                  <Text numberOfLines={1} style={{ fontSize: typography.size.caption, color: c.content.tertiary }}>
+                    {track.receipt.detail}
+                  </Text>
+                ) : null}
+              </View>
+            </Animated.View>
+          ) : (
+            <View
+              testID="now-playing-receipt"
+              accessible={true} // collapse to one a11y element, mirroring the enriched branch
+              style={[styles.receipt, { backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
+              accessibilityRole="text"
+              accessibilityLabel={`Why this track: ${track.receipt.label}${track.receipt.detail ? `, ${track.receipt.detail}` : ''}`}
+            >
               <Text
                 numberOfLines={1}
-                style={{ marginTop: space.xs, fontSize: typography.size.caption, color: c.content.secondary, textAlign: 'center' }}
+                style={{ fontSize: typography.size.caption, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading, color: c.content.primary, textAlign: 'center' }}
               >
-                {track.receipt.detail}
+                {track.receipt.label}
               </Text>
-            ) : null}
-          </View>
+              {track.receipt.detail ? (
+                <Text
+                  numberOfLines={1}
+                  style={{ marginTop: space.xs, fontSize: typography.size.caption, color: c.content.secondary, textAlign: 'center' }}
+                >
+                  {track.receipt.detail}
+                </Text>
+              ) : null}
+            </View>
+          )
         ) : null}
       </View>
 
@@ -187,6 +317,29 @@ export function NowPlayingScreen() {
           <Text style={{ fontSize: typography.size.title, color: c.content.secondary }}>⏭</Text>
         </Pressable>
       </View>
+
+      {/* Low-emphasis "Up next" affordance (SCREENS §7): tap to open the queue sheet over Now
+          Playing. Sits beneath the transport without disturbing the art→meta→transport hierarchy. */}
+      <Pressable
+        onPress={() => setUpNextVisible(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Up next"
+        style={styles.upNext}
+      >
+        <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>⌃</Text>
+        <Text style={{ fontSize: typography.size.footnote, color: c.content.secondary }}>Up next</Text>
+      </Pressable>
+
+      <UpNextSheet
+        visible={upNextVisible}
+        onClose={() => setUpNextVisible(false)}
+        tracks={queueTracks}
+        currentTrackId={track?.id ?? null}
+        isPlaying={isPlaying}
+        quadrant={quadrant}
+        connection={connection}
+        onJump={onJump}
+      />
     </View>
   );
 }
@@ -199,7 +352,15 @@ const styles = StyleSheet.create({
   cover: { width: '100%', height: '100%' },
   meta: { width: '100%', alignItems: 'center', paddingHorizontal: space.md },
   receipt: { marginTop: space.md, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
+  // The enriched treatment reads as a left-aligned block inside the same pill slot (overrides the
+  // quiet pill's centering), so the glyph, label, anchor and detail share one left edge.
+  receiptDiscovery: { alignItems: 'stretch' },
+  discovery: { gap: space.xs },
+  discoveryHead: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  attribution: { alignSelf: 'stretch', marginTop: space.lg, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth },
   transport: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space['3xl'], marginTop: space['2xl'] },
   sideBtn: { padding: space.md, alignItems: 'center', justifyContent: 'center' },
+  // ≥44pt a11y tap target via the space['3xl'] (48) token — low-emphasis, centered chevron + label.
+  upNext: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, minHeight: space['3xl'], marginTop: space.lg, paddingHorizontal: space.md },
   playBtn: { width: PLAY_SIZE, height: PLAY_SIZE, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
 });

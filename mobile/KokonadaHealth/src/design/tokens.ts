@@ -11,6 +11,13 @@
 
 import type { Hex } from './contrast';
 
+// A discovery accent maps a valence×arousal quadrant to a text-safe `ink` (AA on every discovery
+// surface, both themes) and a decorative `wash` (alpha baked into the hex). `intense` is
+// deliberately VIOLET, never red — the regulator ethic lives in the token, not the component.
+export type EmotionQuadrant = 'calm' | 'joyful' | 'intense' | 'reflective';
+export interface EmotionQuadrantColor { ink: Hex; wash: Hex; }
+export type EmotionAccent = Record<EmotionQuadrant, EmotionQuadrantColor>;
+
 // ── Semantic color matrices ──────────────────────────────────────────────────
 export interface ColorScheme {
   surface: {
@@ -19,6 +26,7 @@ export interface ColorScheme {
     overlay: Hex;   // sheets / higher elevation
     glassFallback: Hex; // OPAQUE fallback the glass blur degrades to (must pass AA)
     hairline: Hex;  // 1px separators
+    scrim: Hex;     // decorative dim behind a modal sheet (alpha; not a text backdrop → no AA)
   };
   content: {
     primary: Hex;   // titles / body
@@ -31,6 +39,8 @@ export interface ColorScheme {
     glowInk: Hex;   // accent fill that carries onAccent text at AA (button surfaces)
     bloom: Hex;     // secondary bio accent
   };
+  // valence×arousal quadrant accent for discovery UI (calm.ink === accent.glow, dark).
+  emotionAccent: EmotionAccent;
   state: {
     success: Hex;
     warning: Hex;
@@ -43,6 +53,10 @@ export interface ColorScheme {
 // degrade to the opaque fallback (which is what the AA test judges).
 export const glassAlpha = { dark: 0.55, light: 0.6 } as const;
 
+// The brand bioluminescent accent literal, shared by dark `accent.glow` and the calm
+// `emotionAccent.ink` so a calm session provably wears the brand accent — one source, no drift.
+const BRAND_GLOW_DARK: Hex = '#31E1C4';
+
 const dark: ColorScheme = {
   surface: {
     base: '#060B11',        // abyss — deep-sea black with a blue cast
@@ -50,6 +64,7 @@ const dark: ColorScheme = {
     overlay: '#182634',     // tide (glass base)
     glassFallback: '#182634',
     hairline: '#22303D',
+    scrim: '#00000073',     // 45% black behind the Up-Next sheet
   },
   content: {
     primary: '#EAF3F6',     // foam
@@ -58,9 +73,15 @@ const dark: ColorScheme = {
     onAccent: '#04120F',    // near-black-green, rides on the bright glow fill
   },
   accent: {
-    glow: '#31E1C4',        // plankton cyan — the signature
+    glow: BRAND_GLOW_DARK,  // plankton cyan — the signature
     glowInk: '#31E1C4',     // bright glow is dark-theme-safe for onAccent text
     bloom: '#8FB0FF',       // periwinkle
+  },
+  emotionAccent: {
+    calm:       { ink: BRAND_GLOW_DARK, wash: '#31E1C424' },
+    joyful:     { ink: '#FFC06B', wash: '#FFC06B24' },
+    intense:    { ink: '#C4A6FF', wash: '#C4A6FF24' }, // violet, not red — regulator ethic
+    reflective: { ink: '#9DB4FF', wash: '#9DB4FF24' },
   },
   state: { success: '#3ECF8E', warning: '#E7B75B', danger: '#FF6B6B', info: '#31E1C4' },
 };
@@ -72,6 +93,7 @@ const light: ColorScheme = {
     overlay: '#E9F1F4',
     glassFallback: '#FFFFFF',
     hairline: '#D3DFE6',
+    scrim: '#12202B59',     // 35% cool slate behind the Up-Next sheet
   },
   content: {
     primary: '#0E1920',     // ink — deep slate
@@ -83,6 +105,12 @@ const light: ColorScheme = {
     glow: '#0C8C7B',        // teal (readable as text/icon on porcelain)
     glowInk: '#0A7A6B',     // deeper teal fill so white onAccent passes AA
     bloom: '#3D6BE0',       // deeper periwinkle for light bg
+  },
+  emotionAccent: {
+    calm:       { ink: '#0A7A6B', wash: '#0A7A6B14' },
+    joyful:     { ink: '#A34E24', wash: '#A34E2414' },
+    intense:    { ink: '#6E3FC4', wash: '#6E3FC414' }, // violet, not red — regulator ethic
+    reflective: { ink: '#3A5CCC', wash: '#3A5CCC14' },
   },
   state: { success: '#1E9E6A', warning: '#B87A18', danger: '#B4322F', info: '#0C8C7B' },
 };

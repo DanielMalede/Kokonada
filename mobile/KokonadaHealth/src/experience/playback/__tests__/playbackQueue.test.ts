@@ -109,6 +109,52 @@ describe('PlaybackQueue — receipt payload (Wave 2.8; cover now comes from the 
   });
 });
 
+describe('PlaybackQueue — receipt anchor (Wave 2.8 enriched discovery; additive, back-compat)', () => {
+  it('keeps a valid anchor { title, artist } on a discovery receipt', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', detail: 'Matched to your mood', anchor: { title: 'Blue', artist: 'Joni Mitchell' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your mood', anchor: { title: 'Blue', artist: 'Joni Mitchell' } });
+  });
+
+  it('strips the anchor when the title is missing (honest — no half claim)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', anchor: { artist: 'Joni Mitchell' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('strips the anchor when the artist is blank / whitespace', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', anchor: { title: 'Blue', artist: '   ' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('strips the anchor when the title is an empty string (detail is preserved)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', detail: 'd', anchor: { title: '', artist: 'Joni Mitchell' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'd' });
+  });
+
+  it('strips a non-object anchor defensively (never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', anchor: 'Joni Mitchell' } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('a receipt with NO anchor is byte-identical to before (back-compat)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } } as any]);
+    const r = q.current()?.receipt;
+    expect(r).toEqual({ label: 'New discovery', detail: 'Matched to your mood · 128 BPM' });
+    expect(r).not.toHaveProperty('anchor');
+  });
+});
+
 describe('PlaybackQueue — recordingKey payload (Phase 2; identifies a discovery track for failure reporting)', () => {
   it('carries a discovery track recordingKey through sanitize onto the current track', () => {
     const q = new PlaybackQueue();
@@ -135,6 +181,52 @@ describe('PlaybackQueue — recordingKey payload (Phase 2; identifies a discover
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x', recordingKey: '' } as any]);
     expect(q.current()?.recordingKey).toBeNull();
+  });
+});
+
+describe('PlaybackQueue — seekToId (Up-Next tap-to-jump to a specific queued track)', () => {
+  it('moves the cursor to the playable track with that id and returns it', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b'), T('c')]);
+    expect(q.seekToId('c')?.id).toBe('c');
+    expect(q.current()?.id).toBe('c');
+  });
+
+  it('returns null and leaves the cursor put for an id we never queued', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b')]);
+    expect(q.seekToId('zzz')).toBeNull();
+    expect(q.current()?.id).toBe('a');
+  });
+
+  it('returns null for a data-only (unplayable) row and does not move the cursor', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b', null)]);
+    expect(q.seekToId('b')).toBeNull();
+    expect(q.current()?.id).toBe('a');
+  });
+
+  it('is defensive against a non-string / empty id (never throws, never moves)', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a')]);
+    expect(q.seekToId(undefined as any)).toBeNull();
+    expect(q.seekToId('')).toBeNull();
+    expect(q.current()?.id).toBe('a');
+  });
+});
+
+describe('PlaybackQueue — list (read-only snapshot for the Up-Next sheet)', () => {
+  it('returns every queued track in order, including data-only rows', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b', null), T('c')]);
+    expect(q.list().map((t) => t.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns a copy — mutating the snapshot cannot corrupt the queue', () => {
+    const q = new PlaybackQueue();
+    q.load([T('a'), T('b')]);
+    q.list().pop();
+    expect(q.list().map((t) => t.id)).toEqual(['a', 'b']);
   });
 });
 

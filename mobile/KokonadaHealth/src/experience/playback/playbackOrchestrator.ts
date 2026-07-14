@@ -143,10 +143,16 @@ export class PlaybackOrchestrator {
     // play, reason 'command_failed' or undefined) is treated as a dead discovery track: report it
     // (self-heal the backend's stale cached uri) + silently skip, bounded by the cap.
     if (res.reason === 'disconnected') {
+      // L4 (ACCEPTED / SAFE): consecutiveFailures is intentionally NOT reset on a disconnect-interrupted
+      // walk. It can only leave the streak >0, so a later jump's cap is at most SHORTER, never runaway —
+      // pre-existing and inherited equally by the shipped skip path.
       this.isPlaying = false;
       this.emit();
       return;
     }
+    // V1 (ACCEPTED / DEFERRED): a remote that drops DURING action() surfaces here as 'command_failed'
+    // (not 'disconnected'), costing one bounded, deduped, self-correcting false report + one skip.
+    // Native-error-code classification is the Daniel-accepted deferral — the #130 device logcat closes it.
     if (track.recordingKey) {
       // A dead DISCOVERY track (recordingKey present) is reported so the backend nulls its stale
       // cached uri. Fire-and-forget: an injected reporter that throws must never reject playCurrent
@@ -223,6 +229,25 @@ export class PlaybackOrchestrator {
     if (t === null) return;
     this.currentTrackId = t.id;
     this.scheduleCoalescedPlay();
+  }
+
+  // Up-Next sheet tap-to-jump: move the cursor to the tapped queued track and play it through
+  // the SAME coalesced path as a skip (scheduleCoalescedPlay → playCurrent(viaSkip=true)). This
+  // deliberately reuses the skip path so every #130 self-heal invariant still holds under a
+  // user-intent jump: a dead discovery track is one-reported + auto-skipped, a severed remote
+  // degrades in place, and the consecutive-failure cap bounds the walk. Tapping an id that is not
+  // a playable queued row is a no-op (the cursor never lands on a data-only / unknown track).
+  jumpToId(id: string): void {
+    const t = this.queue.seekToId(id);
+    if (t === null) return;
+    this.currentTrackId = t.id; // mark intent so a stale end-event is ignored
+    this.scheduleCoalescedPlay();
+  }
+
+  // Read-only ordered snapshot of the queue for the Up-Next sheet (a copy — the sheet can
+  // never mutate the live queue). The live cursor is exposed via getNowPlaying().track.
+  getQueueTracks(): QueueTrack[] {
+    return this.queue.list();
   }
 
   // Fired when a track finishes. Ignore a stale end-event for a track the user has
