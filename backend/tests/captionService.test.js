@@ -143,6 +143,37 @@ describe('captionService.captionDiscovery — budget timeout', () => {
     expect(map.size).toBe(0);
     expect(elapsed).toBeLessThan(1000);
   }, 2000);
+
+  // L1 (Node-24 async hygiene): the real danger isn't a hang — it's the Groq promise
+  // REJECTING *after* the budget timer already won the race. Promise.race attaches a
+  // rejection reaction to BOTH racers, so the late reject is HANDLED (no 'unhandledRejection').
+  // This locks that guarantee; a regression would need a .catch(()=>{}) on the losing promise.
+  it('a Groq call that REJECTS after the budget already fired returns {} and never unhandled-rejects', async () => {
+    const budgetMs = 40;
+    llmClient.generateJson.mockImplementation(() => new Promise((_, reject) => {
+      const t = setTimeout(() => reject(new Error('Groq 503 after budget')), budgetMs + 50);
+      t.unref?.();
+    }));
+
+    const seen = [];
+    const onUnhandled = (reason) => seen.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const start = Date.now();
+      const map = await captionService.captionDiscovery([disco('youtube:a')], SESSION, { budgetMs });
+      expect(map).toBeInstanceOf(Map);
+      expect(map.size).toBe(0);
+      expect(Date.now() - start).toBeLessThan(1000); // resolved on the budget, not the late reject
+
+      // Let the loser rejection actually fire, then flush the micro/macrotask queue so a
+      // dangling unhandled rejection (if the race left the loser unhandled) would surface.
+      await new Promise((r) => setTimeout(r, budgetMs + 140));
+      await Promise.resolve();
+      expect(seen.find((r) => r instanceof Error && /after budget/.test(r.message))).toBeUndefined();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  }, 3000);
 });
 
 describe('captionService.captionDiscovery — error / parse / empty never throw', () => {
