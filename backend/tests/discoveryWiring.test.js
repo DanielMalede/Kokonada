@@ -6,6 +6,7 @@ const { vectorDiscoveryFetch, extractTargetFeatures } = require('../app/services
 
 describe('discoveryFetch', () => {
   beforeEach(() => mockFind.mockClear());
+  afterEach(() => { delete process.env.DISCOVERY_FEATURE_ONLY_TARGET; });
 
   it('extracts sonic targets from aiParams (bpm center + energy midpoint + valence)', () => {
     expect(extractTargetFeatures({ target_bpm: 120, energy: [0.2, 0.5], valence: 0.6 }))
@@ -21,7 +22,17 @@ describe('discoveryFetch', () => {
     expect(out[0].isDiscovery).toBe(true);
     const arg = mockFind.mock.calls[0][0];
     expect([...arg.excludeCanonicalKeys]).toEqual(expect.arrayContaining(['owned1', 'bl1']));
-    expect(arg.seedGenres).toEqual(['rock']);
+  });
+
+  it('DEFAULT: builds a FEATURE-ONLY discovery target — drops seed_genres so the query stays in the same (genre-less) subspace as the corpus', async () => {
+    await vectorDiscoveryFetch({ musicProfile: {}, aiParams: { target_bpm: 120, seed_genres: ['rock', 'pop'] } });
+    expect(mockFind.mock.calls[0][0].seedGenres).toEqual([]);
+  });
+
+  it('DISCOVERY_FEATURE_ONLY_TARGET=false restores genre-seeded targets (legacy / future genre-rich corpus)', async () => {
+    process.env.DISCOVERY_FEATURE_ONLY_TARGET = 'false';
+    await vectorDiscoveryFetch({ musicProfile: {}, aiParams: { target_bpm: 120, seed_genres: ['rock', 'pop'] } });
+    expect(mockFind.mock.calls[0][0].seedGenres).toEqual(['rock', 'pop']);
   });
 
   it('forwards the biosonic targets to the service so it can post-filter by the band', async () => {
