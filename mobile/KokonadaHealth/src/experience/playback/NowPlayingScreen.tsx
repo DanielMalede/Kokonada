@@ -112,20 +112,14 @@ export function NowPlayingScreen() {
   // The session discovery accent (static per session — the quadrant is chosen ONCE, above).
   const accent = c.emotionAccent[quadrant];
   // The enriched "why this discovery" branch fires for a DISCOVERY track (recordingKey present)
-  // whose backend receipt carries EITHER an LLM caption OR a full anchor. The caption is PREFERRED
-  // (the witty one-liner); the deterministic anchor is the back-compat fallback until Step 4 removes
-  // it. A familiar track, or a discovery track with neither, gets the quiet pill.
-  // Defense-in-depth (mirrors the anchor guard below): treat the caption as present only when it's a
-  // non-empty string, so a FUTURE non-sanitized write path can't surface a blank enriched line.
+  // whose backend receipt carries an LLM caption (the witty one-liner). A familiar track, or a
+  // discovery track with no caption, gets the quiet pill.
+  // Defense-in-depth: treat the caption as present only when it's a non-empty string, so a FUTURE
+  // non-sanitized write path can't surface a blank enriched line.
   const caption = typeof track?.receipt?.caption === 'string' && track.receipt.caption.trim() ? track.receipt.caption.trim() : null;
-  const anchor = track?.receipt?.anchor ?? null;
-  // L2 (defense-in-depth): require the nameable fields on the screen too — a FUTURE non-sanitized
-  // write path handing a half-anchor (title without artist) could otherwise surface "Because you
-  // love X by undefined". sanitizeReceipt strips half-anchors today, so this is behaviour-neutral
-  // on the real path (a kept anchor always has both title and artist).
-  const isDiscoveryEnriched = !!(track?.recordingKey && (caption || (anchor?.title && anchor?.artist)));
+  const isDiscoveryEnriched = !!(track?.recordingKey && caption);
 
-  // discoveryReveal (§2.a): on track-change INTO an enriched discovery track (caption or anchor) the
+  // discoveryReveal (§2.a): on track-change INTO an enriched discovery track (caption present) the
   // accent border + payload line fade+rise ONCE — elapsed-time driven (Animated.timing), never a per-frame loop
   // and never a perpetual breath (that lane is the PlaybackAura's alone). A rapid next/next/next
   // cancels the in-flight reveal cleanly via the effect cleanup, so it never queues or stutters.
@@ -212,9 +206,9 @@ export function NowPlayingScreen() {
 
         {/* Mix-receipt — the honest "why this track", built server-side from real signals. THREE
             branches, ONE node, no error state ever (§2.a):
-              • familiar (recordingKey null)                → the quiet pill, exactly as shipped;
-              • discovery + caption OR anchor               → the enriched, accent-outlined treatment;
-              • discovery, neither (below floor / flag off) → graceful fallback to the quiet pill.
+              • familiar (recordingKey null)      → the quiet pill, exactly as shipped;
+              • discovery + caption               → the enriched, accent-outlined treatment;
+              • discovery, no caption (flag off)  → graceful fallback to the quiet pill.
             Hidden entirely when the track carries no receipt (e.g. a legacy payload). */}
         {track?.receipt ? (
           isDiscoveryEnriched ? (
@@ -225,13 +219,9 @@ export function NowPlayingScreen() {
               accessible={true}
               style={[styles.receipt, styles.receiptDiscovery, { backgroundColor: c.surface.raised, borderColor: accent.ink }, revealStyle]}
               accessibilityRole="text"
-              // The caption is the announced payload when present; the anchor sentence is the
-              // back-compat fallback (removed in Step 4). COPY-1 punctuation applies to the anchor.
-              // Detail-parity (M1): the de-emphasized detail <Text> renders in BOTH branches, so a
-              // screen-reader user must hear it too — append it here exactly as the anchor branch does.
-              accessibilityLabel={caption
-                ? `Why this track: New discovery. ${caption}${track.receipt.detail ? ` ${track.receipt.detail}` : ''}`
-                : `Why this track: New discovery. Because you love ${anchor!.title} by ${anchor!.artist}.${track.receipt.detail ? ` ${track.receipt.detail}` : ''}`}
+              // The caption is the announced payload. Detail-parity (M1): the de-emphasized detail
+              // <Text> renders alongside, so a screen-reader user must hear it too — append it here.
+              accessibilityLabel={`Why this track: New discovery. ${caption}${track.receipt.detail ? ` ${track.receipt.detail}` : ''}`}
             >
               {/* The enriched treatment carries its own id so both branches are test-addressable
                   while the container keeps the shipped now-playing-receipt id. */}
@@ -246,9 +236,9 @@ export function NowPlayingScreen() {
                     ✦
                   </Text>
                   {/* L4 (per-spec, intentional): the enriched branch hardcodes "New discovery" — the
-                      structural gate (recordingKey + full anchor) is the source of truth here and
+                      structural gate (recordingKey + caption) is the source of truth here and
                       deliberately wins over receipt.label, so an inconsistent backend payload
-                      (label:'Familiar favorite' WITH recordingKey+anchor) still reads "New discovery". */}
+                      (label:'Familiar favorite' WITH recordingKey+caption) still reads "New discovery". */}
                   <Text
                     numberOfLines={1}
                     style={{ fontSize: typography.size.caption, fontWeight: typography.weight.semibold, letterSpacing: typography.tracking.heading, color: c.content.primary }}
@@ -256,22 +246,14 @@ export function NowPlayingScreen() {
                     New discovery
                   </Text>
                 </View>
-                {/* The emotional payload — PREFERRED as the LLM caption (the witty one-liner) tinted
-                    whole in the session accent. Up to ~10 words, so it may wrap to 2 lines then
-                    tail-truncate. Falls back to the deterministic anchor line (1 line) until Step 4
-                    removes the anchor. This line NEVER drops under Dynamic Type. */}
-                {caption ? (
-                  // Explicit calm leading (footnote size × leading.normal) so the 2-line accent caption
-                  // breathes at the app's body rhythm instead of the tighter platform default. Token-sourced.
-                  <Text numberOfLines={2} ellipsizeMode="tail" style={{ fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal, color: accent.ink, fontWeight: typography.weight.medium }}>
-                    {caption}
-                  </Text>
-                ) : (
-                  <Text numberOfLines={1} style={{ fontSize: typography.size.footnote, color: c.content.secondary }}>
-                    Because you love{' '}
-                    <Text style={{ color: accent.ink, fontWeight: typography.weight.medium }}>{anchor!.title}</Text>
-                  </Text>
-                )}
+                {/* The emotional payload — the LLM caption (the witty one-liner) tinted whole in the
+                    session accent. Up to ~10 words, so it may wrap to 2 lines then tail-truncate.
+                    This line NEVER drops under Dynamic Type.
+                    Explicit calm leading (footnote size × leading.normal) so the 2-line accent caption
+                    breathes at the app's body rhythm instead of the tighter platform default. Token-sourced. */}
+                <Text numberOfLines={2} ellipsizeMode="tail" style={{ fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal, color: accent.ink, fontWeight: typography.weight.medium }}>
+                  {caption}
+                </Text>
                 {/* De-emphasized detail — the FIRST line to drop under Dynamic-Type-large. */}
                 {track.receipt.detail ? (
                   <Text numberOfLines={1} style={{ fontSize: typography.size.caption, color: c.content.tertiary }}>
@@ -374,7 +356,7 @@ const styles = StyleSheet.create({
   meta: { width: '100%', alignItems: 'center', paddingHorizontal: space.md },
   receipt: { marginTop: space.md, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
   // The enriched treatment reads as a left-aligned block inside the same pill slot (overrides the
-  // quiet pill's centering), so the glyph, label, anchor and detail share one left edge.
+  // quiet pill's centering), so the glyph, label, caption and detail share one left edge.
   receiptDiscovery: { alignItems: 'stretch' },
   discovery: { gap: space.xs },
   discoveryHead: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
