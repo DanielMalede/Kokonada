@@ -63,6 +63,11 @@ function _sessionLine(ctx = {}) {
   return parts.length ? parts.join(', ') : 'no specific mood signal';
 }
 
+// L3 (ACCEPTED, audit): §II governs the INPUT and it is clean — no title/artist/genre is ever
+// sent to the model (only audio features + first-party mood context; captionService.test.js
+// pins this). The OUTPUT is constrained by the prompt below, which forbids the model from
+// naming or inventing a song/artist/genre. A server-side proper-noun strip on the output is
+// intentionally NOT added (disproportionate for a witty one-liner); revisit if brand-safety requires.
 function _buildPrompt(tracks, sessionContext) {
   const lines = tracks.map((t, i) => _featureLine(i, t.features)).join('\n');
   return `You are Kokonada's in-house music curator writing a one-line "why this discovery" note for each track a listener is about to hear. You are given ONLY the sonic feel of each track (its audio features) and the listener's current mood/context — never a song name, artist, or genre, and you must never invent or guess one.
