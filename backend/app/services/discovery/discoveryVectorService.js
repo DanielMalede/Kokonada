@@ -30,6 +30,17 @@ function bandOverfetch() {
   return Math.min(BAND_OVERFETCH_MAX, raw);
 }
 
+// DISCOVERY_MIN_COSINE floor parse (same env-footgun class as bandOverfetch): a BLANK or
+// non-finite value falls back to the default rather than Number('')===0 silently DISABLING the
+// floor; an explicit '0' is honored (opt-out). Clamped to [0,1]. Only the env DEFAULT flows
+// through here — an explicit opts.minCosine still wins via destructuring.
+function minCosineDefault(d = 0.3) {
+  const raw = process.env.DISCOVERY_MIN_COSINE;
+  if (raw === undefined || String(raw).trim() === '') return d;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : d;
+}
+
 // Band-aware only fires when the flag is ON at call time AND the targets object carries
 // a gate withinBand actually applies — a bpm window (center + width, or an activity-wide
 // window), an energy floor/ceiling, or a texture-intent class. Anything else → no-op guard.
@@ -54,7 +65,12 @@ async function find(opts = {}) {
     targets = null,
     k = num(process.env.DISCOVERY_K, 30),
     overfetch = num(process.env.DISCOVERY_OVERFETCH, 6),
-    minCosine = num(process.env.DISCOVERY_MIN_COSINE, 0.5),
+    // Low FLOOR guard, not the primary gate. The starvation root cause was the genre-seeded
+    // target (fixed in discoveryFetch), not this value — with a feature-only target the corpus
+    // cosines cluster ~0.99, so this only rejects genuinely near-orthogonal hits; the
+    // un-relaxable biosonic band (withinBand) + MMR + exclude-library are the real quality gates.
+    // Lowered 0.5 → 0.3 purely to remove a stale genre-era floor; band-aware carries mood.
+    minCosine = minCosineDefault(),
     budgetMs = num(process.env.DISCOVERY_QUERY_BUDGET_MS, 2500),
   } = opts || {};
   const t0 = Date.now();

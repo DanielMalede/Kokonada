@@ -6,6 +6,17 @@ const discoveryVectorService = require('./discoveryVectorService');
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
 const mid = (r) => (Array.isArray(r) && r.length === 2 ? (num(r[0]) + num(r[1])) / 2 : num(r));
 
+// Feature-only discovery target (default ON; opt out with DISCOVERY_FEATURE_ONLY_TARGET=false).
+// The corpus embeddings are ~98% genre-less (source tracks — esp. YouTube library — carry no
+// genre metadata, so buildVector fills only the 6 audio-feature dims). A genre-seeded target
+// puts most of its unit-norm in the 64-dim genre bag, which is ORTHOGONAL to the genre-less
+// corpus → raw cosine collapses just under DISCOVERY_MIN_COSINE and discovery starves. Until the
+// corpus carries real genres (cross-provider ingestion), match on audio features only.
+// FULL legacy rollback needs BOTH DISCOVERY_FEATURE_ONLY_TARGET=false AND DISCOVERY_MIN_COSINE=0.5
+// — the flag alone restores genre-seeded targets but the retuned 0.3 floor would then admit the
+// ~0.48 genre-orthogonal collapsed hits the old 0.5 floor rejected.
+const featureOnlyTarget = () => process.env.DISCOVERY_FEATURE_ONLY_TARGET !== 'false';
+
 // Map the generator's aiParams to the buildVector feature space. Params carry bpm as a
 // center and energy as a [min,max] band — take the center / midpoint.
 function extractTargetFeatures(aiParams = {}) {
@@ -45,7 +56,7 @@ async function vectorDiscoveryFetch({ musicProfile = {}, aiParams = {}, blacklis
   for (const t of musicProfile.library || []) if (t?.canonicalKey) exclude.add(t.canonicalKey);
   return discoveryVectorService.find({
     targetFeatures: biasToBand(extractTargetFeatures(aiParams), targets),
-    seedGenres: Array.isArray(aiParams.seed_genres) ? aiParams.seed_genres : [],
+    seedGenres: featureOnlyTarget() ? [] : (Array.isArray(aiParams.seed_genres) ? aiParams.seed_genres : []),
     excludeCanonicalKeys: exclude,
     targets: targets ?? null,
   });
