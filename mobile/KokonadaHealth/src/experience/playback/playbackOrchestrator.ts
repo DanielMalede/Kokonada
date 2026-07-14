@@ -143,6 +143,8 @@ export class PlaybackOrchestrator {
     // play, reason 'command_failed' or undefined) is treated as a dead discovery track: report it
     // (self-heal the backend's stale cached uri) + silently skip, bounded by the cap.
     if (res.reason === 'disconnected') {
+      // [QA-130] self-heal: a severed remote degrades IN PLACE — cursor holds, no report, no skip.
+      console.log('[QA-130] disconnected → degrade in place (no report, no skip). track=', track.id, 'uri=', track.uri);
       // L4 (ACCEPTED / SAFE): consecutiveFailures is intentionally NOT reset on a disconnect-interrupted
       // walk. It can only leave the streak >0, so a later jump's cap is at most SHORTER, never runaway —
       // pre-existing and inherited equally by the shipped skip path.
@@ -154,6 +156,8 @@ export class PlaybackOrchestrator {
     // (not 'disconnected'), costing one bounded, deduped, self-correcting false report + one skip.
     // Native-error-code classification is the Daniel-accepted deferral — the #130 device logcat closes it.
     if (track.recordingKey) {
+      // [QA-130] self-heal: a dead DISCOVERY track (recordingKey present) → fire the backend report.
+      console.log('[QA-130] dead discovery track → firing self-heal report. track=', track.id, 'recordingKey=', track.recordingKey);
       // A dead DISCOVERY track (recordingKey present) is reported so the backend nulls its stale
       // cached uri. Fire-and-forget: an injected reporter that throws must never reject playCurrent
       // (its void call sites have no .catch), so swallow to keep playback flowing. (LOW-1)
@@ -161,10 +165,14 @@ export class PlaybackOrchestrator {
     }
     this.consecutiveFailures += 1;
     if (this.consecutiveFailures <= this.maxConsecutiveFailures && this.queue.hasNext()) {
+      // [QA-130] self-heal: silently auto-skip the failed track (bounded by the consecutive cap).
+      console.log('[QA-130] auto-skip failed track', this.consecutiveFailures, 'of', this.maxConsecutiveFailures, '→ next. failed=', track.id, 'reportable=', !!track.recordingKey);
       this.queue.next();
       await this.playCurrent(viaSkip); // try the next track (bounded recursion ≤ cap)
       return;
     }
+    // [QA-130] self-heal: the consecutive-failure cap was hit (or the queue ran out) → stop cleanly.
+    console.log('[QA-130] consecutive-failure cap hit / queue end → stop. failures=', this.consecutiveFailures, 'cap=', this.maxConsecutiveFailures, 'hasNext=', this.queue.hasNext());
     // Cap reached, or nothing left to try → stop cleanly and reset the streak for the next action. A
     // failed track at genuine end-of-queue does NOT requestMore: the successful-end onTrackEnded path
     // still owns the legitimate "ran out → generate more" case, unchanged. (LOW-2)
