@@ -23,6 +23,7 @@ const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const trackCatalogRepo = require('../repositories/trackCatalogRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 const { resolvedDiscoveryUris } = require('../services/discovery/resolvedUriCache');
+const captionService = require('../services/discovery/captionService');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -52,6 +53,10 @@ const VECTOR_DISCOVERY = () => process.env.VECTOR_DISCOVERY === 'true';
 // discovery (so its candidates survive the pipeline's un-relaxable band) and the selection
 // pipeline (identical band, no drift). Read at call time; OFF → today's path exactly.
 const DISCOVERY_BAND_AWARE = () => process.env.DISCOVERY_BAND_AWARE === 'true';
+// Dark-launch gate for the LLM discovery caption (Step 2). Read at call time so a Railway env
+// flip needs no redeploy; OFF (unset/anything-but-'true') skips the caption path entirely —
+// no Groq call, generation byte-for-byte unchanged.
+const DISCOVERY_CAPTION_LLM = () => process.env.DISCOVERY_CAPTION_LLM === 'true';
 
 // ── Anti-repetition ────────────────────────────────────────────────────────────
 // The nine legacy layers (per-mood blacklist, session cooldowns, strict mode,
@@ -92,12 +97,11 @@ function buildReceipt(t, context = {}) {
   }
   const detail = parts.length ? parts.join(' · ') : undefined;
   const receipt = detail ? { label, detail } : { label };
-  // Wave 2.8 enriched receipt: a DISCOVERY track whose nearest LIBRARY neighbour is a
-  // non-Spotify favorite carries an anchor ("Because you love <artist>"), attached
-  // upstream in the selection pipeline. Familiar tracks NEVER receive an anchor; a blank
-  // artist is omitted (honest — no claim). Additive: the client strips unknown fields.
-  if (t?.isDiscovery && t.anchor && typeof t.anchor.artist === 'string' && t.anchor.artist.trim()) {
-    receipt.anchor = { title: t.anchor.title ?? null, artist: t.anchor.artist };
+  // A DISCOVERY track may carry an LLM-written witty caption ("why this discovery"), grounded
+  // ONLY in its audio feel + this session's mood, attached upstream by the caption service.
+  // Familiar tracks NEVER get one; a blank caption is omitted (the client strips unknowns).
+  if (t?.isDiscovery && typeof t.caption === 'string' && t.caption.trim()) {
+    receipt.caption = t.caption.trim();
   }
   return receipt;
 }
@@ -725,6 +729,43 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       } catch (e) {
         log(`[generate] cross-platform translation skipped: ${e.message}`);
       }
+    }
+
+    // Discovery captions (Step 2, dark-launched behind DISCOVERY_CAPTION_LLM): ONE batched Groq
+    // call writes a short witty "why this discovery" line per discovery track from its audio
+    // FEATURES + this session's mood/activity/HR context ONLY — never a title/artist/genre (§II).
+    // Hard-budgeted inside the service and fail-open here: a timeout/error yields no captions and
+    // NEVER blocks or fails generation. Attached before toClientTracks so buildReceipt emits them.
+    if (DISCOVERY_CAPTION_LLM() && Array.isArray(playlist?.merged)) {
+      const allDiscovery = playlist.merged.filter((t) => t?.isDiscovery);
+      // A track can only be captioned once selection ATTACHED its features (pipeline.js:95);
+      // a featureless catalog entry (no AudioFeature doc) is skipped, not sent to the model.
+      const captionable = allDiscovery.filter((t) => t.recordingKey && t.features);
+      let captioned = 0;
+      if (captionable.length) {
+        try {
+          // L2 (ACCEPTED, audit): with the flag ON this awaits up to DISCOVERY_CAPTION_BUDGET_MS
+          // of serial latency BEFORE playlist_ready. Dark-launch-acceptable; revisit for rollout
+          // (this could move off the critical path — emit first, patch captions after).
+          const captions = await captionService.captionDiscovery(captionable, {
+            moodKey,
+            emotionTaps: state.lastEmotionTaps,
+            activity:    effectiveActivity,
+            hrBand:      bandFromHeartRate(state.stableHR),
+            targets:     playlist.targets,
+          });
+          for (const t of captionable) {
+            const cap = captions?.get?.(t.recordingKey);
+            if (typeof cap === 'string' && cap) { t.caption = cap; captioned += 1; }
+          }
+        } catch (e) {
+          log(`[generate] discovery captions skipped: ${e.message}`);
+        }
+      }
+      // Always-on: how many discovery tracks actually got an LLM caption out of the total, so a
+      // live no-op (0/N — a featureless catalog, or a budget/parse miss) is observable in prod
+      // without DEBUG. NO track data — §II keeps titles/artists/genres out of logs, not just the model.
+      console.warn(`[discovery.caption] captionedDiscovery=${captioned}/${allDiscovery.length} reqId=${reqId}`);
     }
 
     // Normalize to the client contract (and reconstruct/validate uris). Guard on

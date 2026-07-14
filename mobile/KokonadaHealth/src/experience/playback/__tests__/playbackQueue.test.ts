@@ -109,49 +109,72 @@ describe('PlaybackQueue — receipt payload (Wave 2.8; cover now comes from the 
   });
 });
 
-describe('PlaybackQueue — receipt anchor (Wave 2.8 enriched discovery; additive, back-compat)', () => {
-  it('keeps a valid anchor { title, artist } on a discovery receipt', () => {
+describe('PlaybackQueue — receipt caption (discovery-caption LLM; the witty "why this discovery" one-liner)', () => {
+  it('keeps a valid non-empty caption string on a discovery receipt', () => {
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
-      receipt: { label: 'New discovery', detail: 'Matched to your mood', anchor: { title: 'Blue', artist: 'Joni Mitchell' } } } as any]);
-    expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your mood', anchor: { title: 'Blue', artist: 'Joni Mitchell' } });
+      receipt: { label: 'New discovery', detail: 'Matched to your calm', caption: 'A slow jam your calm didn\'t know it needed.' } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your calm', caption: 'A slow jam your calm didn\'t know it needed.' });
   });
 
-  it('strips the anchor when the title is missing (honest — no half claim)', () => {
+  it('trims a caption with surrounding whitespace before keeping it', () => {
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
-      receipt: { label: 'New discovery', anchor: { artist: 'Joni Mitchell' } } } as any]);
-    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+      receipt: { label: 'New discovery', caption: '  Smooth enough to lower your heart rate.  ' } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery', caption: 'Smooth enough to lower your heart rate.' });
   });
 
-  it('strips the anchor when the artist is blank / whitespace', () => {
+  it('strips an empty-string caption', () => {
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
-      receipt: { label: 'New discovery', anchor: { title: 'Blue', artist: '   ' } } } as any]);
-    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
-  });
-
-  it('strips the anchor when the title is an empty string (detail is preserved)', () => {
-    const q = new PlaybackQueue();
-    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
-      receipt: { label: 'New discovery', detail: 'd', anchor: { title: '', artist: 'Joni Mitchell' } } } as any]);
+      receipt: { label: 'New discovery', detail: 'd', caption: '' } } as any]);
     expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'd' });
   });
 
-  it('strips a non-object anchor defensively (never crashes)', () => {
+  it('strips a whitespace-only caption (never surfaces a blank enriched line)', () => {
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
-      receipt: { label: 'New discovery', anchor: 'Joni Mitchell' } } as any]);
+      receipt: { label: 'New discovery', caption: '   ' } } as any]);
     expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
   });
 
-  it('a receipt with NO anchor is byte-identical to before (back-compat)', () => {
+  it('strips a non-string caption defensively (never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', caption: 123 } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+  });
+
+  it('strips an OBJECT caption defensively (typeof-object is not a string — never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', caption: { text: 'nope' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+    expect(q.current()?.receipt).not.toHaveProperty('caption');
+  });
+
+  it('strips an ARRAY caption defensively (typeof-object is not a string — never crashes)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', caption: ['nope'] } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery' });
+    expect(q.current()?.receipt).not.toHaveProperty('caption');
+  });
+
+  it('a receipt with NO caption is byte-identical to before (back-compat)', () => {
     const q = new PlaybackQueue();
     q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
       receipt: { label: 'New discovery', detail: 'Matched to your mood · 128 BPM' } } as any]);
     const r = q.current()?.receipt;
     expect(r).toEqual({ label: 'New discovery', detail: 'Matched to your mood · 128 BPM' });
-    expect(r).not.toHaveProperty('anchor');
+    expect(r).not.toHaveProperty('caption');
+  });
+
+  it('drops a legacy anchor field, keeping the caption (the deterministic anchor is removed)', () => {
+    const q = new PlaybackQueue();
+    q.load([{ id: 'a', uri: 'spotify:track:a', title: 'A', artist: 'x',
+      receipt: { label: 'New discovery', detail: 'd', caption: 'A slow jam.', anchor: { title: 'Blue', artist: 'Joni Mitchell' } } } as any]);
+    expect(q.current()?.receipt).toEqual({ label: 'New discovery', detail: 'd', caption: 'A slow jam.' });
   });
 });
 

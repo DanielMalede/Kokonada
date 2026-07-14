@@ -9,16 +9,6 @@ const { select } = require('./mmr');
 const { filterBand } = require('./biosonicBand');
 const { recordingKeyOf, featuresOf } = require('../features/featureProvider');
 const vectorIndex = require('../vector/vectorIndex');
-const { attachLibraryAnchors } = require('../discovery/libraryAnchor');
-
-// Similarity floor for the discovery mix-receipt library anchor. Read at call time
-// (like DISCOVERY_MIN_COSINE) so a Railway env flip needs no redeploy.
-const ANCHOR_MIN_COSINE = () => {
-  // Require a POSITIVE finite value: an empty env (Number("")===0), a zero, or a negative
-  // would collapse the floor to always-pass, so anything non-positive falls back to 0.6.
-  const v = Number(process.env.DISCOVERY_ANCHOR_MIN_COSINE);
-  return Number.isFinite(v) && v > 0 ? v : 0.6;
-};
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR.
 // Zero LLM in the path. When filters would starve the playlist, a relaxation
@@ -181,16 +171,6 @@ async function selectPlaylist({
   t = Date.now();
   const picks = select(scored, { k });
   mark('mmr', t);
-
-  // Enriched mix-receipt: attach the nearest NON-Spotify library anchor ("Because you
-  // love <artist>") to each qualifying discovery pick. Pure and in-memory over the pool
-  // that Stage 2 ALREADY embedded (the single vectorIndex.getMany batch) — no new I/O,
-  // no Atlas round-trip. The anchor is a transient, user-scoped mutation on in-memory
-  // track objects only; it is NEVER persisted (ADR-0008 catalog anonymity) and does not
-  // touch the pool Redis cache (written back in Stage 1, before embeddings attach).
-  const libraryCandidates = pool.filter(tr => !tr.isDiscovery && Array.isArray(tr.embedding) && tr.embedding.length);
-  const discoveryPicks = picks.map(p => p.track).filter(tr => tr.isDiscovery && Array.isArray(tr.embedding));
-  attachLibraryAnchors(discoveryPicks, libraryCandidates, { minCosine: ANCHOR_MIN_COSINE() });
 
   stageMs.total = Date.now() - t0;
   return {

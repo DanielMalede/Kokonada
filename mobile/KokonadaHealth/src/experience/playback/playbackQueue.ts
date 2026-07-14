@@ -7,9 +7,10 @@
 export interface TrackReceipt {
   label: string;
   detail?: string;
-  // Wave 2.8 enriched discovery: the non-Spotify favorite this discovery track anchors to
-  // ("Because you love <title> by <artist>"). Additive over the backend `receipt.anchor`.
-  anchor?: { title: string; artist: string };
+  // discovery-caption: the LLM-written "why this discovery" one-liner (the witty vibe line). Present
+  // only for a discovery track with a caption. Additive over the backend `receipt.caption`; a
+  // discovery track with no caption degrades to the quiet "New discovery" pill.
+  caption?: string;
 }
 
 export interface QueueTrack {
@@ -38,15 +39,11 @@ function sanitizeReceipt(r: unknown): TrackReceipt | null {
   if (typeof label !== 'string' || label.length === 0) return null;
   const detail = (r as any).detail;
   const receipt: TrackReceipt = typeof detail === 'string' && detail.length > 0 ? { label, detail } : { label };
-  // Keep an anchor ONLY when both fields are non-empty strings (mirror the detail keep-only
-  // pattern): a blank / half / unknown anchor is stripped so the UI never makes a false claim.
-  const anchor = (r as any).anchor;
-  if (anchor && typeof anchor === 'object') {
-    const title = (anchor as any).title;
-    const artist = (anchor as any).artist;
-    if (typeof title === 'string' && title.trim() && typeof artist === 'string' && artist.trim()) {
-      receipt.anchor = { title, artist };
-    }
+  // Keep the LLM caption ONLY when it's a non-empty string (mirror the detail keep-only
+  // pattern), storing the TRIMMED value so a stray leading/trailing space never shifts the line.
+  const caption = (r as any).caption;
+  if (typeof caption === 'string' && caption.trim()) {
+    receipt.caption = caption.trim();
   }
   return receipt;
 }

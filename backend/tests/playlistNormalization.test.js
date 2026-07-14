@@ -19,7 +19,6 @@ jest.mock('../app/services/geminiEngine', () => ({ buildEmotionPlaylist: jest.fn
 jest.mock('../app/services/playlistMixer', () => ({ mixPlaylist: jest.fn(), generateFallbackPlaylist: jest.fn() }));
 
 const { toClientTrack, toClientTracks } = require('../app/sockets/biometricHandler');
-const { translateToSpotify } = require('../app/services/crossPlatform');
 
 const REAL_SPOTIFY_URI = 'spotify:track:7ouMYWpwJ422jRcDASZB7P';
 
@@ -95,63 +94,14 @@ describe('toClientTracks — filtering', () => {
   });
 });
 
-describe('buildReceipt — enriched discovery anchor', () => {
+describe('buildReceipt — discovery receipt shape', () => {
   const disc = (over = {}) => ({ id: 'x', uri: REAL_SPOTIFY_URI, name: 'Disc', artist: 'A', isDiscovery: true, ...over });
 
-  it('surfaces a discovery anchor without disturbing label/detail', () => {
-    const out = toClientTrack(disc({ anchor: { title: 'Ye', artist: 'Burna Boy' } }), 'spotify', { trigger: 'emotion', params: { target_bpm: 120 } });
-    expect(out.receipt.label).toBe('New discovery');
-    expect(out.receipt.detail).toBe('Matched to your mood · 120 BPM');
-    expect(out.receipt.anchor).toEqual({ title: 'Ye', artist: 'Burna Boy' });
-  });
-
-  it('a discovery track WITHOUT an anchor yields exactly { label, detail? } (backward-compat)', () => {
+  it('a discovery track yields exactly { label, detail? } — no other fields when there is no caption', () => {
     const withDetail = toClientTrack(disc(), 'spotify', { trigger: 'emotion' });
     expect(withDetail.receipt).toEqual({ label: 'New discovery', detail: 'Matched to your mood' });
-    expect('anchor' in withDetail.receipt).toBe(false);
 
     const noDetail = toClientTrack(disc(), 'spotify', {});
     expect(noDetail.receipt).toEqual({ label: 'New discovery' });
-  });
-
-  it('a familiar track with a stray anchor NEVER gets an anchor in its receipt', () => {
-    const fam = { id: 'lib-1', name: 'Fam', artist: 'A', anchor: { title: 'Ye', artist: 'Burna Boy' } };
-    const out = toClientTrack(fam, 'spotify', { trigger: 'emotion' });
-    expect(out.receipt.label).toBe('Familiar favorite');
-    expect('anchor' in out.receipt).toBe(false);
-  });
-
-  it('omits the anchor when the anchor artist is empty/whitespace', () => {
-    const out = toClientTrack(disc({ anchor: { title: 'Ye', artist: '   ' } }), 'spotify', {});
-    expect('anchor' in out.receipt).toBe(false);
-  });
-});
-
-// L4 regression pin: the Spotify sink replaces playlist.merged with translateToSpotify output
-// BEFORE toClientTracks (biometricHandler). The anchor is preserved today (passthrough for a
-// native spotify: URI, {...t} spread for a translated YouTube track), but nothing LOCKED it —
-// a future refactor of either branch could silently drop the "Because you love <artist>" claim.
-describe('buildReceipt — anchor survives translateToSpotify → toClientTracks (both branches)', () => {
-  const anchor = { title: 'Ye', artist: 'Burna Boy' };
-
-  it('native-passthrough branch: a spotify-URI discovery track keeps its anchor through to receipt.anchor', async () => {
-    const native = { id: 'n1', uri: REAL_SPOTIFY_URI, name: 'Disc', artist: 'A', provider: 'spotify', isDiscovery: true, anchor };
-    const searchFn = jest.fn(); // MUST NOT be called on the passthrough path
-    const { tracks: playable } = await translateToSpotify([native], 'tok', { searchFn });
-    expect(searchFn).not.toHaveBeenCalled();
-    expect(playable[0]).toMatchObject({ isDiscovery: true, anchor });
-    const [client] = toClientTracks(playable, 'spotify', { trigger: 'emotion' });
-    expect(client.receipt.anchor).toEqual(anchor);
-  });
-
-  it('translated branch: a YouTube discovery track keeps its anchor through the {...t} spread to receipt.anchor', async () => {
-    const ytDisc = { title: 'YT Song', artist: 'A', uri: null, provider: 'youtube_music', isDiscovery: true, anchor };
-    // Stateful fake resolving the YT title to a real playable Spotify URI (the prod translate path).
-    const searchFn = jest.fn().mockResolvedValue({ id: 'd1', uri: REAL_SPOTIFY_URI, name: 'YT Song', artist: 'A' });
-    const { tracks: playable, translated } = await translateToSpotify([ytDisc], 'tok', { searchFn });
-    expect(translated).toBe(1);
-    expect(playable[0]).toMatchObject({ provider: 'spotify', translatedFrom: 'youtube', isDiscovery: true, anchor });
-    const [client] = toClientTracks(playable, 'spotify', { trigger: 'emotion' });
-    expect(client.receipt.anchor).toEqual(anchor);
   });
 });

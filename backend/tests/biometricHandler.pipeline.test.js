@@ -73,6 +73,10 @@ jest.mock('../app/services/discovery/discoveryFetch', () => ({
   vectorDiscoveryFetch: jest.fn(async () => []),
 }));
 
+jest.mock('../app/services/discovery/captionService', () => ({
+  captionDiscovery: jest.fn(async () => new Map()),
+}));
+
 jest.mock('../app/services/ledger/serveLedger', () => ({
   recordServes: jest.fn().mockResolvedValue({ recorded: 0 }),
   hardExcluded: jest.fn().mockResolvedValue(new Set()),
@@ -109,6 +113,7 @@ const geminiEngine    = require('../app/services/geminiEngine');
 const playlistMixer   = require('../app/services/playlistMixer');
 
 const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
+const captionService   = require('../app/services/discovery/captionService');
 
 const {
   registerBiometricHandler,
@@ -238,6 +243,8 @@ beforeEach(() => {
   MedicalProfile.findOne.mockResolvedValue(null);
   shadowBufferRepo.getBuffer.mockResolvedValue(null); // default: cold buffer
   shadowBufferRepo.setBuffer.mockResolvedValue(true);
+  captionService.captionDiscovery.mockResolvedValue(new Map());
+  delete process.env.DISCOVERY_CAPTION_LLM; // caption path OFF by default (dark launch)
   mockRecentSessions([]);
 });
 
@@ -306,6 +313,43 @@ describe('toClientTrack — recordingKey passthrough', () => {
   it('emits recordingKey:null for a familiar track that has none', () => {
     const c = toClientTrack({ id: 'f1', uri: 'spotify:track:f1' }, 'spotify', { trigger: 'emotion' });
     expect(c.recordingKey).toBeNull();
+  });
+});
+
+// ── buildReceipt — discovery caption ─────────────────────────────────────────
+// A DISCOVERY track carrying an LLM caption emits receipt.caption. The deterministic
+// anchor is GONE (Step 4) — a stray anchor field is never surfaced. Familiar tracks never get a caption.
+
+describe('toClientTrack — receipt.caption (discovery caption)', () => {
+  const { toClientTrack } = require('../app/sockets/biometricHandler');
+
+  it('emits receipt.caption for a discovery track that carries a caption', () => {
+    const c = toClientTrack(
+      { id: 'd1', uri: 'spotify:track:d1', isDiscovery: true, caption: 'A slow, smoky burner' },
+      'spotify', { trigger: 'emotion' });
+    expect(c.receipt.caption).toBe('A slow, smoky burner');
+  });
+
+  it('trims the caption and omits an empty/whitespace one', () => {
+    const c = toClientTrack(
+      { id: 'd1', uri: 'spotify:track:d1', isDiscovery: true, caption: '   ' },
+      'spotify', { trigger: 'emotion' });
+    expect(c.receipt).not.toHaveProperty('caption');
+  });
+
+  it('never emits an anchor: a discovery track carrying a legacy anchor field surfaces only the caption', () => {
+    const c = toClientTrack(
+      { id: 'd1', uri: 'spotify:track:d1', isDiscovery: true, caption: 'Bright and driving', anchor: { title: 'Song', artist: 'Someone' } },
+      'spotify', { trigger: 'emotion' });
+    expect(c.receipt.caption).toBe('Bright and driving');
+    expect(c.receipt).not.toHaveProperty('anchor');
+  });
+
+  it('a familiar track never receives a caption even if one is set', () => {
+    const c = toClientTrack(
+      { id: 'f1', uri: 'spotify:track:f1', caption: 'should be ignored' },
+      'spotify', { trigger: 'emotion' });
+    expect(c.receipt).not.toHaveProperty('caption');
   });
 });
 
@@ -502,6 +546,85 @@ describe('generateAndEmitPlaylist — emotion trigger', () => {
 
     const arg = geminiEngine.buildEmotionPlaylist.mock.calls.at(-1)[0];
     expect(arg.biometricContext).toBeNull();
+  });
+});
+
+// ── generateAndEmitPlaylist — discovery captions wiring (Step 2) ──────────────
+
+describe('generateAndEmitPlaylist — discovery captions wiring', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  // A selection result whose discovery tracks carry the fields the caption path needs
+  // (isDiscovery + recordingKey + features) and playable spotify: URIs (so the crossPlatform
+  // pass-through preserves the same objects and the caption survives to the payload).
+  function mockPlaylistWithDiscovery() {
+    const familiar  = [{ id: 'lib-1', uri: 'spotify:track:lib-1' }];
+    const discovery = [
+      { id: 'd1', uri: 'spotify:track:d1', isDiscovery: true, recordingKey: 'youtube:d1', features: { bpm: 92, energy: 0.4, valence: 0.3 } },
+      { id: 'd2', uri: 'spotify:track:d2', isDiscovery: true, recordingKey: 'youtube:d2', features: { bpm: 128, energy: 0.8, valence: 0.7 } },
+    ];
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar, discovery, merged: [...familiar, ...discovery],
+      telemetry: { stageMs: {} }, targets: { bpmCenter: 100 },
+    });
+  }
+
+  it('FLAG ON: attaches captions to the discovery tracks in the emitted payload; familiar tracks get none', async () => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    mockPlaylistWithDiscovery();
+    captionService.captionDiscovery.mockResolvedValue(new Map([
+      ['youtube:d1', 'A slow burner your calm needed'],
+      ['youtube:d2', 'Bright, driving, wide awake'],
+    ]));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(captionService.captionDiscovery).toHaveBeenCalledTimes(1);
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    const byId = Object.fromEntries(call[1].tracks.map(t => [t.id, t]));
+    expect(byId.d1.receipt.caption).toBe('A slow burner your calm needed');
+    expect(byId.d2.receipt.caption).toBe('Bright, driving, wide awake');
+    expect(byId['lib-1'].receipt).not.toHaveProperty('caption');
+  });
+
+  it('FLAG ON: passes ONLY features + first-party session context to the caption service', async () => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    mockPlaylistWithDiscovery();
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], stableHR: 150, latestActivity: 'running' }));
+
+    const [tracksArg, ctxArg] = captionService.captionDiscovery.mock.calls[0];
+    expect(tracksArg.every(t => t.features && t.recordingKey)).toBe(true);
+    expect(ctxArg).toEqual(expect.objectContaining({
+      moodKey: expect.any(String),
+      hrBand:  expect.any(String),
+      activity: 'running',
+    }));
+  });
+
+  it('FLAG OFF (default dark launch): never calls the caption service and emits no captions', async () => {
+    mockPlaylistWithDiscovery();
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(captionService.captionDiscovery).not.toHaveBeenCalled();
+    const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(call[1].tracks.every(t => !(t.receipt && 'caption' in t.receipt))).toBe(true);
+  });
+
+  it('FLAG ON: a caption-service failure never blocks generation — playlist_ready still emits', async () => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    mockPlaylistWithDiscovery();
+    captionService.captionDiscovery.mockRejectedValueOnce(new Error('caption boom'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
   });
 });
 
