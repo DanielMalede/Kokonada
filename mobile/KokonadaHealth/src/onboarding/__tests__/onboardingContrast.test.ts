@@ -5,6 +5,7 @@ import { colors, type ColorScheme, type ThemeName } from '../../design/tokens';
 import { contrastRatio, parseHex, flatten, AA_NORMAL } from '../../design/contrast';
 import { BREATH_OPACITY } from '../../experience/aura/BreathingGlow';
 import { OnboardingPanel } from '../OnboardingPanel';
+import { SPLASH_WORDMARK_SCRIM_ALPHA } from '../../splash/SplashScreen';
 
 // HONEST copy-legibility gate. The copy's safety does NOT come from being AA over the aura
 // core — at the aura's TRUE animation peak (BREATH_OPACITY.peak = 0.75) the dark near-white
@@ -35,6 +36,29 @@ describe('the aura CORE at peak is NOT a safe text backdrop — this is WHY the 
     const core = flatHex(c.accent.glow, BREATH_OPACITY.peak, c.surface.base);
     // The real number. If copy ever sat on the core it would be illegible — so it must not.
     expect(contrastRatio(c.content.primary, core)).toBeLessThan(AA_NORMAL);
+  });
+});
+
+// The SPLASH wordmark DOES sit centered on the glow (the brand-breath moment), so — unlike
+// the onboarding copy — it cannot be moved off the core. Its legibility is restored by a
+// subtle surface-colored scrim between the glow and the glyphs. The glow breathes brightest
+// at peak inhale (0.75), where white-on-core ≈ 2.5:1 without the scrim; the scrim must lift
+// that back to AA. This is the assertion that was missing before (only copy-over-base was
+// pinned, never the splash wordmark over the glow).
+describe('splash wordmark AA over the breathing glow core (scrim-protected)', () => {
+  const glowCore = (c: ColorScheme) => flatHex(c.accent.glow, BREATH_OPACITY.peak, c.surface.base);
+  const withScrim = (c: ColorScheme) => flatHex(c.surface.base, SPLASH_WORDMARK_SCRIM_ALPHA, glowCore(c));
+
+  it('DARK: without the scrim, white ink over the glow core at peak breath fails AA (the reported bug)', () => {
+    expect(contrastRatio(colors.dark.content.primary, glowCore(colors.dark))).toBeLessThan(AA_NORMAL);
+  });
+
+  it('DARK: WITH the scrim, white ink over (glow core + scrim) at peak breath clears AA', () => {
+    expect(contrastRatio(colors.dark.content.primary, withScrim(colors.dark))).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+
+  it('LIGHT: slate ink over (glow core + scrim) at peak breath also clears AA (scrim never harms it)', () => {
+    expect(contrastRatio(colors.light.content.primary, withScrim(colors.light))).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 });
 
