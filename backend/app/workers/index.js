@@ -13,6 +13,7 @@ const DEFAULT_PROCESSORS = {
   [QUEUES.EMBEDDING_BUILD]: require('./embedding.worker').process,
   [QUEUES.BIOMETRIC_BUFFER]: require('./biometricBuffer.worker').process,
   [QUEUES.RECLASSIFY_UNCLASSIFIED]: require('./reclassify.worker').process,
+  [QUEUES.GLOBAL_SEED_INGEST]: require('./globalSeedIngest.worker').process,
 };
 
 function startWorkers(processors = DEFAULT_PROCESSORS) {

@@ -10,6 +10,9 @@ const QUEUES = Object.freeze({
   // Periodically drains the unclassified-track pool (Groq-outage safety floor): re-evaluates
   // due rows and promotes music into the profile or hard-deletes non-music.
   RECLASSIFY_UNCLASSIFIED: 'reclassify-unclassified',
+  // Periodically ingests a bounded batch of CC0 AcousticBrainz records into the provider-agnostic
+  // global discovery corpus (flag-gated OFF by default — see GLOBAL_SEED_INGEST_ENABLED).
+  GLOBAL_SEED_INGEST: 'global-seed-ingest',
 });
 
 const QUEUE_NAMES = new Set(Object.values(QUEUES));
