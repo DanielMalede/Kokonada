@@ -57,7 +57,7 @@ describe('spatial invariant — the copy never sits behind the aura (disjoint zo
     let tree!: ReactTestRenderer.ReactTestRenderer;
     await ReactTestRenderer.act(async () => {
       tree = ReactTestRenderer.create(
-        React.createElement(OnboardingPanel, { width: 360, copy: COPY }, React.createElement(Text, null, HERO)),
+        React.createElement(OnboardingPanel, { width: 360, copy: COPY, children: React.createElement(Text, null, HERO) }),
       );
     });
 
