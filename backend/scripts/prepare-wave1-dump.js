@@ -17,8 +17,6 @@
 //        [--out wave1_seed_dump.ndjson] [--limit 5000] [--all]
 // Memory is bounded by --limit (default 5000 distinct MBIDs held from the high-level pass).
 
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
-
 const fs = require('fs');
 const zlib = require('node:zlib');
 
@@ -67,8 +65,16 @@ function isServable(seed) {
 
 // --- streaming ------------------------------------------------------------
 
+// Built-in zstd landed in node:zlib at Node 22.15 — this repo's dev env is Node 24. Older Node
+// (e.g. CI's Node 20) lacks it, so we gate on the function's presence and give a clear error rather
+// than a cryptic "createZstdDecompress is not a function".
+const hasBuiltinZstd = () => typeof zlib.createZstdDecompress === 'function';
+
 function decompressorFor(filePath) {
-  if (/\.zst$/i.test(filePath)) return zlib.createZstdDecompress();
+  if (/\.zst$/i.test(filePath)) {
+    if (hasBuiltinZstd()) return zlib.createZstdDecompress();
+    throw new Error('.zst needs Node ≥22.15 built-in zstd (run on the repo\'s Node 24) — or pre-decompress to .tar, or use a .gz/.bz2 dump');
+  }
   if (/\.(gz|tgz)$/i.test(filePath)) return zlib.createGunzip();
   if (/\.bz2$/i.test(filePath)) {
     try { return require('unbzip2-stream')(); }
@@ -155,6 +161,8 @@ function parseArgs(argv = process.argv.slice(2)) {
 }
 
 async function main() {
+  // Load .env only in CLI mode (not on require) so importing the pure helpers for tests has no side effects.
+  require('dotenv').config({ path: require('path').join(__dirname, '../.env'), quiet: true });
   const args = parseArgs();
   if (!args.highlevel || !args.lowlevel) {
     console.error('Usage: node scripts/prepare-wave1-dump.js --highlevel <hl.tar.zst> --lowlevel <ll.tar.zst> [--out wave1_seed_dump.ndjson] [--limit 5000] [--all]');

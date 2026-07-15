@@ -81,10 +81,17 @@ describe('prepare-wave1-dump — output is consumable by the ingest reader (roun
 });
 
 describe('prepare-wave1-dump — decompressorFor', () => {
-  it('maps .zst / .gz to a stream, plain .tar to null, and .bz2 to a clear error', () => {
-    expect(typeof decompressorFor('x.tar.zst').pipe).toBe('function');
+  it('maps .gz to a stream, plain .tar to null, and .bz2 to a clear error', () => {
     expect(typeof decompressorFor('x.tar.gz').pipe).toBe('function');
     expect(decompressorFor('x.tar')).toBeNull();
     expect(() => decompressorFor('x.tar.bz2')).toThrow(/unbzip2-stream/);
+  });
+
+  it('.zst uses built-in zstd when present (Node ≥22.15), else throws a clear version error', () => {
+    if (typeof require('node:zlib').createZstdDecompress === 'function') {
+      expect(typeof decompressorFor('x.tar.zst').pipe).toBe('function');
+    } else {
+      expect(() => decompressorFor('x.tar.zst')).toThrow(/Node ≥22\.15|built-in zstd/);
+    }
   });
 });
