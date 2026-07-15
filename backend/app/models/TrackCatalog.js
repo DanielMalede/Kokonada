@@ -13,6 +13,11 @@ const trackCatalogSchema = new mongoose.Schema({
   title:        { type: String, default: null },
   artist:       { type: String, default: null },
   genres:       { type: [String], default: [] },
+  // Provenance ONLY — how a row entered the anonymous corpus, NOT who owns it. 'library' = seeded
+  // from a user's MusicProfile.library (the original bootstrap); 'global' = fetched by the global
+  // seed-ingestion pipeline. A non-user enum, safe under ADR-0008 (still zero userId/PII); it exists
+  // to manage/refresh/roll back global seeds and to weight discovery, never to link a track to a user.
+  source:       { type: String, enum: ['library', 'global'], default: 'library', index: true },
 }, { timestamps: { createdAt: false, updatedAt: 'updatedAt' } });
 
 module.exports = mongoose.model('TrackCatalog', trackCatalogSchema);
