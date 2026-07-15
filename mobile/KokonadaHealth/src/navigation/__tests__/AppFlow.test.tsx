@@ -15,6 +15,7 @@ jest.mock('../../auth/SignInScreen', () => ({ SignInScreen: marker('route-signin
 jest.mock('../RootNavigator', () => ({ __esModule: true, default: marker('route-app') }));
 jest.mock('../../experience/playback/AppLifecycle', () => ({ AppLifecycle: () => null }));
 
+import BootSplash from 'react-native-bootsplash';
 import { AppFlow, SPLASH_DWELL_MS } from '../AppFlow';
 import { motion } from '../../design/tokens';
 import { currentUserStore } from '../../auth/currentUser';
@@ -33,6 +34,7 @@ async function renderResolved(dwellMs = 0) {
 }
 
 beforeEach(() => {
+  (BootSplash.hide as jest.Mock).mockClear();
   currentUserStore.setState({ user: null });
   onboardingStore.setState({ seen: false });
 });
@@ -101,6 +103,39 @@ describe('AppFlow — 4-state route machine', () => {
     expect(has(tree, 'route-signin')).toBe(true);
     await ReactTestRenderer.act(async () => { currentUserStore.getState().setUser(USER); });
     expect(has(tree, 'route-app')).toBe(true);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('AppFlow — native BootSplash hand-off (re-homed from App)', () => {
+  it('hides the native BootSplash once ignition settles (revealing the JS splash)', async () => {
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      tree = ReactTestRenderer.create(<AppFlow dwellMs={100000} start={jest.fn().mockResolvedValue(undefined)} />);
+    });
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(BootSplash.hide).toHaveBeenCalledWith({ fade: true });
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('hides the native BootSplash even when ignition REJECTS (never trapped behind the splash)', async () => {
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      tree = ReactTestRenderer.create(<AppFlow dwellMs={100000} start={jest.fn().mockRejectedValue(new Error('bootstrap failed'))} />);
+    });
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(BootSplash.hide).toHaveBeenCalled();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('hides the native BootSplash on the deadline when ignition HANGS (no settle ever)', async () => {
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      tree = ReactTestRenderer.create(<AppFlow dwellMs={100000} splashDeadlineMs={40} start={() => new Promise<void>(() => {})} />);
+    });
+    expect(BootSplash.hide).not.toHaveBeenCalled(); // not before the deadline
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setTimeout(r, 80)); });
+    expect(BootSplash.hide).toHaveBeenCalled();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
