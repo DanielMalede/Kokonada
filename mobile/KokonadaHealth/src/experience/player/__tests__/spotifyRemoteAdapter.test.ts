@@ -116,3 +116,68 @@ test('addListener wires playerStateChanged through onPlayerStateChanged (D-1)', 
   spotifyRemoteAdapter.addListener('playerStateChanged', cb);
   expect((mockMod as any).onPlayerStateChanged).toHaveBeenCalledWith(cb);
 });
+
+// The top-level SpotifyRemote.configure(...) is an import-time side effect: on Android
+// the native method's @NonNull redirectUri throws (red-box at LAUNCH) if the config is
+// incomplete. These tests pin the "degrade, don't crash" guard. Because configure fires
+// at module load, each case resetModules + doMock's the config, then re-require()s the
+// adapter so the guard runs against that case's config. The config path is relative to
+// THIS test file (src/experience/player/__tests__), hence ../../../health/config.
+describe('configure guard (native @NonNull redirectUri launch-crash fix)', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();               // restore the console.warn spy
+    jest.dontMock('../../../health/config');
+    jest.resetModules();
+  });
+
+  test('skips configure and warns (never throws) when SPOTIFY_REDIRECT_URI is missing', () => {
+    jest.resetModules();
+    jest.doMock('../../../health/config', () => ({
+      SPOTIFY_CLIENT_ID: 'client-abc',
+      SPOTIFY_REDIRECT_URI: undefined, // clean-checkout template omits this
+    }));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { SpotifyRemote: FreshRemote } = require('@kokonada/spotify-remote');
+    expect(() => require('../spotifyRemoteAdapter')).not.toThrow();
+    expect(FreshRemote.configure).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('treats an empty-string redirect uri as missing (truthy guard catches "")', () => {
+    jest.resetModules();
+    jest.doMock('../../../health/config', () => ({
+      SPOTIFY_CLIENT_ID: 'client-abc',
+      SPOTIFY_REDIRECT_URI: '',
+    }));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { SpotifyRemote: FreshRemote } = require('@kokonada/spotify-remote');
+    require('../spotifyRemoteAdapter');
+    expect(FreshRemote.configure).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('skips configure and warns when SPOTIFY_CLIENT_ID is missing', () => {
+    jest.resetModules();
+    jest.doMock('../../../health/config', () => ({
+      SPOTIFY_CLIENT_ID: undefined,
+      SPOTIFY_REDIRECT_URI: 'kokonadahealth://spotify-callback',
+    }));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { SpotifyRemote: FreshRemote } = require('@kokonada/spotify-remote');
+    require('../spotifyRemoteAdapter');
+    expect(FreshRemote.configure).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('calls configure exactly once with (clientId, redirectUri) when both are present', () => {
+    jest.resetModules();
+    jest.doMock('../../../health/config', () => ({
+      SPOTIFY_CLIENT_ID: 'client-abc',
+      SPOTIFY_REDIRECT_URI: 'kokonadahealth://spotify-callback',
+    }));
+    const { SpotifyRemote: FreshRemote } = require('@kokonada/spotify-remote');
+    require('../spotifyRemoteAdapter');
+    expect(FreshRemote.configure).toHaveBeenCalledTimes(1);
+    expect(FreshRemote.configure).toHaveBeenCalledWith('client-abc', 'kokonadahealth://spotify-callback');
+  });
+});
