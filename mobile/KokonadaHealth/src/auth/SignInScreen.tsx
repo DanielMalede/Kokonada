@@ -1,42 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator, Animated, Easing, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, Dimensions } from 'react-native';
 import { signInWithGoogle } from './auth';
 import { currentUserStore } from './currentUser';
 import { onSignedIn } from '../prodBootstrap';
 import { useTheme, useMotion } from '../design/theme';
 import { space, radius, type as typography, elevation } from '../design/tokens';
+import { BreathingGlow } from '../experience/aura/BreathingGlow';
 
 // The auth gate's signed-out face — Wave 2.8 "Bioluminescence" first impression.
 // SACRED CONTRACT: the sign-in LOGIC is unchanged (signInWithGoogle → setUser →
 // onSignedIn, QA4 Suspect #1). This is a visual reskin on the token system only.
 
-// The one signature: a single soft cyan glow that BREATHES behind the wordmark — the
-// brand's recognisable gesture. Decorative (a11y-hidden) and stilled under reduced motion.
-function BreathingGlow({ color, reduced, breathMs }: { color: string; reduced: boolean; breathMs: number }) {
-  const t = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (reduced || breathMs <= 0) return; // reduced-motion → a still glow, no loop
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(t, { toValue: 1, duration: breathMs / 2, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(t, { toValue: 0, duration: breathMs / 2, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [reduced, breathMs, t]);
-
-  const scale = t.interpolate({ inputRange: [0, 1], outputRange: [1, 1.14] });
-  const opacity = t.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0.75] });
-  return (
-    <Animated.View
-      pointerEvents="none"
-      importantForAccessibility="no-hide-descendants"
-      accessibilityElementsHidden
-      style={[styles.glow, { backgroundColor: color, transform: [{ scale }], opacity: reduced ? 0.55 : opacity }]}
-    />
-  );
-}
+// The signature glow (BreathingGlow) is now the SHARED source used by Splash + Onboarding
+// too. Its size is proportional to the viewport (an aura scales with the device — not a
+// magic number) so it fills the hero on any screen width.
+const GLOW_FRACTION = 0.66;
 
 export function SignInScreen() {
   const { c } = useTheme();
@@ -61,7 +39,7 @@ export function SignInScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
       <View style={styles.hero}>
-        <BreathingGlow color={c.accent.glow} reduced={reduced} breathMs={duration.breath} />
+        <BreathingGlow color={c.accent.glow} reduced={reduced} breathMs={duration.breath} size={Dimensions.get('window').width * GLOW_FRACTION} />
         <Text
           accessibilityRole="header"
           style={{ fontSize: typography.size.display, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.display, color: c.content.primary }}
@@ -108,7 +86,6 @@ export function SignInScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.xl, paddingTop: 96, paddingBottom: 56 },
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  glow: { position: 'absolute', width: 260, height: 260, borderRadius: radius.pill },
   actions: { width: '100%', alignItems: 'center' },
   button: { width: '100%', maxWidth: 360, paddingVertical: space.lg, alignItems: 'center', borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth },
 });
