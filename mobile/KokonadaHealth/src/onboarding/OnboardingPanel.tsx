@@ -27,8 +27,10 @@ export function OnboardingPanel({
   const { c } = useTheme();
   return (
     <Animated.View style={[styles.panel, { width }]}>
-      <Animated.View style={[styles.heroZone, heroStyle]}>{children}</Animated.View>
-      <Animated.View style={styles.copyZone}>
+      {/* heroZone (top ~60%) and copyZone (bottom ~40%) are DISJOINT siblings — the aura
+          lives here, the copy there, so the bright glow core never sits behind the text. */}
+      <Animated.View testID="onboarding-hero-zone" style={[styles.heroZone, heroStyle]}>{children}</Animated.View>
+      <Animated.View testID="onboarding-copy-zone" style={styles.copyZone}>
         <Text
           style={{
             fontSize: typography.size.title,

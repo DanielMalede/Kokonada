@@ -15,9 +15,12 @@ import { radius } from '../../design/tokens';
 // swell in scale and opacity, defined ONCE here so every surface breathes identically.
 const SCALE_REST = 1;
 const SCALE_PEAK = 1.14;
-const OPACITY_REST = 0.45;
-const OPACITY_PEAK = 0.75;
-const OPACITY_STILL = 0.55; // reduced-motion: a fixed, calm glow
+// Exported so contrast tests judge legibility against the TRUE animation opacities (the
+// glow is brightest at `peak`), never a guessed number the animation might exceed.
+export const BREATH_OPACITY = { rest: 0.45, peak: 0.75, still: 0.55 } as const; // still = reduced-motion fixed glow
+const OPACITY_REST = BREATH_OPACITY.rest;
+const OPACITY_PEAK = BREATH_OPACITY.peak;
+const OPACITY_STILL = BREATH_OPACITY.still;
 
 export function BreathingGlow({
   color,

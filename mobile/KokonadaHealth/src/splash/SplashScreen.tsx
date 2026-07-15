@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Animated, Easing, StyleSheet, Dimensions } from 'react-native';
 import { useTheme, useMotion } from '../design/theme';
-import { type as typography, motion } from '../design/tokens';
+import { space, type as typography, motion } from '../design/tokens';
 import { BreathingGlow } from '../experience/aura/BreathingGlow';
 
 // The first breath of the instrument — the same organism as SignInScreen: one soft
@@ -15,7 +15,7 @@ import { BreathingGlow } from '../experience/aura/BreathingGlow';
 
 const GLOW_FRACTION = 0.9; // aura hero fills ~90% of the viewport width (proportional, not a token)
 const ENTER = Easing.bezier(...motion.easing.enter);
-const FADE_RISE = 12; // px the wordmark rises as it fades in (the "up" in fade-up)
+const FADE_RISE = space.md; // the wordmark rises one space step as it fades in (the "up" in fade-up)
 
 export function SplashScreen() {
   const { c } = useTheme();
