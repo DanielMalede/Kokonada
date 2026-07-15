@@ -1,26 +1,20 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
-import { radius } from '../../design/tokens';
+import { SoftGlow } from './SoftGlow';
 
-// THE brand gesture: a single soft glow that BREATHES. Extracted from SignInScreen so
-// Splash, the Onboarding aura hero, and Sign-in all share ONE source of the breath — no
-// drift, no duplication. Decorative (a11y-hidden) and non-interactive by contract.
+// THE brand gesture: a single soft glow that BREATHES. It renders a soft-falloff Skia glow
+// (SoftGlow: Circle + Blur) — a bioluminescent FIELD, never a hard-edged flat disc — behind
+// a decorative wrapper that carries the breath. Shared by Splash, the Onboarding aura hero,
+// and Sign-in, so the breath has ONE source (no drift, no duplication).
 //
-// The breath is a sine on React Native's Animated with useNativeDriver — i.e. it runs on
-// the UI thread and is time-based, so it looks identical at 60fps or a throttled 30fps —
-// and it disposes on unmount (loop.stop). Under reduced motion (or a non-positive breath)
-// it STILLS to a fixed dim glow with no scale loop, exactly as the shipped SignInScreen.
+// The breath is a sine on React Native's Animated with useNativeDriver — UI-thread and
+// time-based, so it looks identical at 60fps or a throttled 30fps — driving the wrapper's
+// OPACITY, and it disposes on unmount (loop.stop). Under reduced motion (or a non-positive
+// breath) it STILLS to a fixed dim glow with no loop. Decorative (a11y-hidden) by contract.
 
-// The breath curve is inherent to the gesture (not a spacing/color token): a gentle
-// swell in scale and opacity, defined ONCE here so every surface breathes identically.
-const SCALE_REST = 1;
-const SCALE_PEAK = 1.14;
-// Exported so contrast tests judge legibility against the TRUE animation opacities (the
-// glow is brightest at `peak`), never a guessed number the animation might exceed.
+// The breath opacity curve — a gentle swell, defined ONCE here so every surface breathes
+// identically. Exported so contrast tests judge legibility against the TRUE peak (0.75).
 export const BREATH_OPACITY = { rest: 0.45, peak: 0.75, still: 0.55 } as const; // still = reduced-motion fixed glow
-const OPACITY_REST = BREATH_OPACITY.rest;
-const OPACITY_PEAK = BREATH_OPACITY.peak;
-const OPACITY_STILL = BREATH_OPACITY.still;
 
 export function BreathingGlow({
   color,
@@ -48,22 +42,22 @@ export function BreathingGlow({
     return () => loop.stop();
   }, [reduced, breathMs, t]);
 
-  const scale = t.interpolate({ inputRange: [0, 1], outputRange: [SCALE_REST, SCALE_PEAK] });
-  const opacity = t.interpolate({ inputRange: [0, 1], outputRange: [OPACITY_REST, OPACITY_PEAK] });
+  const opacity = reduced
+    ? BREATH_OPACITY.still
+    : t.interpolate({ inputRange: [0, 1], outputRange: [BREATH_OPACITY.rest, BREATH_OPACITY.peak] });
+
   return (
     <Animated.View
       pointerEvents="none"
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
-      style={[
-        styles.glow,
-        { width: size, height: size, backgroundColor: color, transform: [{ scale }], opacity: reduced ? OPACITY_STILL : opacity },
-        style,
-      ]}
-    />
+      style={[styles.glow, { width: size, height: size, opacity }, style]}
+    >
+      <SoftGlow color={color} size={size} />
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  glow: { position: 'absolute', borderRadius: radius.pill },
+  glow: { position: 'absolute' },
 });

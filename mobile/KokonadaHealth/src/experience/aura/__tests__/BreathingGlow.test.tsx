@@ -1,20 +1,20 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { BreathingGlow } from '../BreathingGlow';
-import { radius } from '../../../design/tokens';
+import { BreathingGlow, BREATH_OPACITY } from '../BreathingGlow';
 
-// The brand's single recognisable gesture — a soft glow that BREATHES — extracted from
-// SignInScreen so Splash + Onboarding share ONE source of the breath (no duplication).
-// It is purely decorative: hidden from assistive tech, non-interactive, and it STILLS
-// (a fixed dim glow, no scale loop) under reduced motion or a non-positive breath.
+// The brand's single recognisable gesture — a soft glow that BREATHES — now rendered as a
+// SOFT-FALLOFF Skia glow (SoftGlow: Circle + Blur), not a hard-edged flat disc. It is
+// purely decorative: hidden from assistive tech, non-interactive. The breath drives the
+// wrapper's OPACITY (sine at motion.duration.breath); reduced motion → a still soft glow.
 
-function findGlow(tree: ReactTestRenderer.ReactTestRenderer) {
-  return tree.root.findAll((n) => n.props?.accessibilityElementsHidden === true)[0];
-}
 function flatStyle(node: any): Record<string, unknown> {
   const s = node.props.style;
   return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
 }
+const findWrapper = (tree: ReactTestRenderer.ReactTestRenderer) =>
+  tree.root.findAll((n) => n.props?.accessibilityElementsHidden === true)[0];
+const findCircle = (tree: ReactTestRenderer.ReactTestRenderer, color: string) =>
+  tree.root.findAll((n) => n.props?.color === color && typeof n.props?.r === 'number')[0];
 
 async function render(el: React.ReactElement) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
@@ -23,31 +23,38 @@ async function render(el: React.ReactElement) {
   return tree;
 }
 
-describe('BreathingGlow — the shared brand breath', () => {
-  it('is decorative: hidden from a11y, non-interactive, and wears the given color + pill radius', async () => {
+describe('BreathingGlow — the shared soft brand breath', () => {
+  it('is decorative (a11y-hidden, non-interactive) and the given size', async () => {
     const tree = await render(<BreathingGlow color="#31E1C4" reduced={false} breathMs={4200} size={200} />);
-    const glow = findGlow(tree);
-    expect(glow).toBeTruthy();
-    expect(glow.props.importantForAccessibility).toBe('no-hide-descendants');
-    expect(glow.props.pointerEvents).toBe('none');
-    const st = flatStyle(glow);
-    expect(st.backgroundColor).toBe('#31E1C4');
-    expect(st.borderRadius).toBe(radius.pill);
+    const w = findWrapper(tree);
+    expect(w).toBeTruthy();
+    expect(w.props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(w.props.pointerEvents).toBe('none');
+    const st = flatStyle(w);
     expect(st.width).toBe(200);
     expect(st.height).toBe(200);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('STILLS under reduced motion (fixed dim opacity, renders without a loop) and unmounts cleanly', async () => {
+  it('renders a SOFT glow (Skia Circle + Blur in the given color), NOT a hard flat disc', async () => {
+    const tree = await render(<BreathingGlow color="#31E1C4" reduced={false} breathMs={4200} size={200} />);
+    expect(findCircle(tree, '#31E1C4')).toBeTruthy();          // Skia circle carries the color
+    expect(tree.root.findAll((n) => n.props?.blur !== undefined).length).toBeGreaterThan(0); // soft falloff
+    // the color must NOT be painted as a flat filled rectangle (the old flat-disc bug)
+    const flatDisc = tree.root.findAll((n) => (flatStyle(n) as any).backgroundColor === '#31E1C4');
+    expect(flatDisc).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('STILLS under reduced motion at the fixed dim opacity (no breath loop), unmounts clean', async () => {
     const tree = await render(<BreathingGlow color="#31E1C4" reduced breathMs={4200} size={120} />);
-    const glow = findGlow(tree);
-    expect(flatStyle(glow).opacity).toBe(0.55);
-    await ReactTestRenderer.act(async () => { tree.unmount(); }); // dispose-on-unmount, no crash
+    expect(flatStyle(findWrapper(tree)).opacity).toBe(BREATH_OPACITY.still);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('a non-positive breath does not start a loop (still glow), no crash', async () => {
     const tree = await render(<BreathingGlow color="#0C8C7B" reduced={false} breathMs={0} size={80} />);
-    expect(findGlow(tree)).toBeTruthy();
+    expect(findWrapper(tree)).toBeTruthy();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

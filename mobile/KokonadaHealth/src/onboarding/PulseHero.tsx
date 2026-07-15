@@ -3,6 +3,7 @@ import { View, Animated, Easing, StyleSheet } from 'react-native';
 import { useMotion } from '../design/theme';
 import { emotionAnchors, radius } from '../design/tokens';
 import { BreathingGlow } from '../experience/aura/BreathingGlow';
+import { SoftGlow } from '../experience/aura/SoftGlow';
 
 // Panel 2 — "Your body is heard." The aura REACTING: a concentric ring pulses out on a
 // gentle heartbeat cadence while the hue drifts calm↔warm. The cadence is derived from the
@@ -56,15 +57,17 @@ export function PulseHero({ size }: { size: number }) {
       accessibilityElementsHidden
       style={[styles.hero, { width: size, height: size }]}
     >
-      {/* base calm glow */}
+      {/* base calm glow (soft-falloff) */}
       <BreathingGlow color={emotionAnchors.calm} reduced={reduced} breathMs={duration.breath} size={size} />
-      {/* warm-drift overlay — cross-fades the perceived hue calm↔warm on the UI thread */}
+      {/* warm-drift overlay — a soft-falloff warm glow whose opacity cross-fades the perceived hue calm↔warm */}
       <Animated.View
         pointerEvents="none"
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        style={[styles.glow, { width: size, height: size, backgroundColor: emotionAnchors.warm, opacity: warmOpacity }]}
-      />
+        style={[styles.glow, { width: size, height: size, opacity: warmOpacity }]}
+      >
+        <SoftGlow color={emotionAnchors.warm} size={size} />
+      </Animated.View>
       {/* the heartbeat ring */}
       <Animated.View
         pointerEvents="none"
