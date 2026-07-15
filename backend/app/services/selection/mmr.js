@@ -91,4 +91,4 @@ function select(scored = [], { k = 50, lambda = 0.7, similarity = defaultSimilar
   return picked;
 }
 
-module.exports = { select, defaultSimilarity };
+module.exports = { select, defaultSimilarity, _jaccardSets };

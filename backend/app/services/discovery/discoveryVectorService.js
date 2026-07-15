@@ -56,6 +56,34 @@ function hasUsableBand(t) {
 // featuresOf (the shared feature projection discovery and the pipeline both judge the band
 // on) lives in featureProvider so the two can never drift — resilience audit M1.
 
+// DORMANT genre-relevance seam. The stored/searched vector is now ALWAYS genre-free (the
+// embedding.worker.js dilution fix), so genre relevance is a SEPARATE, EXPLICIT term — reusing
+// mmr.js's proven Jaccard blend pattern, not a second embedding/Atlas index. Small, env-tunable
+// weight, footgun-clamped to [0, GENRE_WEIGHT_MAX] (same guard class as bandOverfetch/minCosineDefault).
+// CEILING 0.5 (not 1.0) is deliberate: a full-1.0 weight would let a perfect genre match equal an entire
+// cosine unit and dominate feature relevance — a scoring-layer echo of the very dilution this fix removes.
+// Whoever ACTIVATES this seam (passes queryGenres) must still empirically validate the blend, like #135.
+const GENRE_WEIGHT_DEFAULT = 0.15;
+const GENRE_WEIGHT_MAX = 0.5;
+function genreWeight() {
+  const raw = process.env.DISCOVERY_GENRE_WEIGHT;
+  // Blank/undefined → default (Number('')===0 would otherwise silently DISABLE the boost — the same
+  // footgun minCosineDefault guards against). A set numeric value is clamped to [0, GENRE_WEIGHT_MAX].
+  if (raw === undefined || String(raw).trim() === '') return GENRE_WEIGHT_DEFAULT;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(GENRE_WEIGHT_MAX, Math.max(0, n)) : GENRE_WEIGHT_DEFAULT;
+}
+
+// Blends a feature cosine with an OPTIONAL genre-Jaccard boost. Dormancy invariant: when
+// queryGenreSet is empty (every current caller — no one passes `queryGenres` to find() yet),
+// this returns featureCosine UNCHANGED, byte-identical to pre-seam behavior. Exported for direct
+// unit testing of the blend math (ranking-order tests alone can't pin exact values).
+function _scoreTotal(featureCosine, candidateGenres, queryGenreSet) {
+  if (!queryGenreSet || !queryGenreSet.size) return featureCosine;
+  const candidateSet = new Set((candidateGenres || []).map(g => String(g).toLowerCase()));
+  return featureCosine + genreWeight() * mmr._jaccardSets(queryGenreSet, candidateSet);
+}
+
 // Spotify-independent discovery: match the mood/target vector against our corpus, exclude
 // the user's library, threshold, diversify (MMR), hydrate. ENHANCEMENT — returns [] on any
 // failure and never throws into the generation path.
@@ -63,6 +91,7 @@ async function find(opts = {}) {
   const {
     targetFeatures = {}, seedGenres = [], excludeCanonicalKeys = new Set(),
     targets = null,
+    queryGenres = [], // dormant genre-relevance seam — no current caller passes this (see _scoreTotal)
     k = num(process.env.DISCOVERY_K, 30),
     overfetch = num(process.env.DISCOVERY_OVERFETCH, 6),
     // Low FLOOR guard, not the primary gate. The starvation root cause was the genre-seeded
@@ -116,6 +145,7 @@ async function find(opts = {}) {
     // uri:null but is resolved to a Spotify URI at serve time via search (translateToSpotify).
     // ACCEPTED (audit): the feature getMany above + this catalog getMany are single indexed $in batches (not N+1), bounded by the outer AI_BUDGET_MS, not this call's budgetMs.
     const meta = await trackCatalogRepo.getMany(survivors.map(h => h.recordingKey));
+    const queryGenreSet = new Set((Array.isArray(queryGenres) ? queryGenres : []).map(g => String(g).toLowerCase()));
     const candidates = [];
     for (const h of survivors) {
       const m = meta.get(h.recordingKey);
@@ -125,7 +155,7 @@ async function find(opts = {}) {
       candidates.push({ track: {
         id: m.recordingKey, recordingKey: m.recordingKey, canonicalKey: m.canonicalKey,
         uri: m.uri ?? null, title: m.title, artist: m.artist, genres: m.genres || [], isDiscovery: true,
-      }, total: num(h.score, 0) });
+      }, total: _scoreTotal(num(h.score, 0), m.genres, queryGenreSet) });
     }
     if (!candidates.length) { emit(candidates, hits, kept, bandKept); return []; }
 
@@ -139,4 +169,4 @@ async function find(opts = {}) {
   }
 }
 
-module.exports = { find };
+module.exports = { find, _scoreTotal };

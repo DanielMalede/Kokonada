@@ -55,4 +55,9 @@ describe('discoveryFetch', () => {
     expect(mockFind.mock.calls[0][0].targets).toBeNull();
     expect(mockFind.mock.calls[0][0].targetFeatures).toMatchObject({ bpm: 90, energy: 0.15000000000000002, valence: 0.3 });
   });
+
+  it('DORMANCY GUARD: never passes queryGenres to find() — the genre-relevance seam stays dormant until an explicit future activation', async () => {
+    await vectorDiscoveryFetch({ musicProfile: {}, aiParams: { target_bpm: 120, seed_genres: ['rock', 'pop'] } });
+    expect(mockFind.mock.calls[0][0].queryGenres).toBeUndefined();
+  });
 });

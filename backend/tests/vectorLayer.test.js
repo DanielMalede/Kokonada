@@ -140,6 +140,41 @@ describe('embedding.worker — build + vibe enrichment', () => {
   it('is registered for the embedding-build queue', () => {
     expect(DEFAULT_PROCESSORS[QUEUES.EMBEDDING_BUILD]).toBe(worker.process);
   });
+
+  it('DILUTION FIX: the stored vector is genre-free (dims 6-69 all zero) even when genresByKey/vibeTags carry real genres', async () => {
+    featureRepo.getMany.mockResolvedValue(new Map([
+      ['spotify:genrefull', { ...FEATURES, recordingKey: 'spotify:genrefull', vibeTags: ['warm', 'driving'] }],
+    ]));
+    const fake = fakeVectorIndex();
+    vectorIndex.use(fake);
+
+    await worker.process({ data: {
+      recordingKeys: ['spotify:genrefull'],
+      genresByKey: { 'spotify:genrefull': ['pop', 'rock', 'jazz', 'metal', 'folk', 'soul'] },
+    } });
+
+    const stored = (await vectorIndex.getMany(['spotify:genrefull'])).get('spotify:genrefull');
+    expect(stored.slice(6)).toEqual(new Array(64).fill(0)); // genre-bag dims never populated
+    // matches a feature-only build exactly — no dilution of the feature dims' relative magnitude.
+    expect(stored).toEqual(buildVector(FEATURES, []));
+  });
+
+  it('DILUTION FIX: two tracks with identical features but different genre richness produce the IDENTICAL stored vector', async () => {
+    featureRepo.getMany.mockResolvedValue(new Map([
+      ['a', { ...FEATURES, recordingKey: 'a' }],
+      ['b', { ...FEATURES, recordingKey: 'b', vibeTags: ['many', 'genre', 'tags', 'here'] }],
+    ]));
+    const fake = fakeVectorIndex();
+    vectorIndex.use(fake);
+
+    await worker.process({ data: {
+      recordingKeys: ['a', 'b'],
+      genresByKey: { b: ['pop', 'rock', 'jazz', 'metal', 'folk', 'soul', 'punk'] },
+    } });
+
+    const map = await vectorIndex.getMany(['a', 'b']);
+    expect(map.get('a')).toEqual(map.get('b'));
+  });
 });
 
 describe('shadow audit — vector & critic chaos', () => {
