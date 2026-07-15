@@ -6,9 +6,12 @@ import { createStore } from 'zustand/vanilla';
 // than in the never-persisted warmStore or the per-user cold slice.
 //
 // The defining invariant: markSeen() is ONE-WAY. Once true it stays true forever; there
-// is deliberately NO unset/reset. The App route machine relies on this so a LOGOUT
-// resolves to Sign-in, never back to Onboarding, and so logout teardown never has to
-// (and never does) wipe it.
+// is deliberately NO unset/reset. FTUE-seen is a per-DEVICE-install flag, not per-account,
+// so it must persist across BOTH logout and account-delete. That persistence is
+// STRUCTURAL, not luck: this key lives under the `koko.` prefix, and logout's cold wipe
+// (ColdPersistence.wipe → SecureStore.removeByPrefix('cold.')) is scoped to the `cold.`
+// namespace only — koko.onboarding.seen is never in its blast radius. The App route
+// machine relies on the flag surviving so a LOGOUT resolves to Sign-in, never Onboarding.
 
 export const ONBOARDING_SEEN_KEY = 'koko.onboarding.seen';
 

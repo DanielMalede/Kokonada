@@ -126,19 +126,47 @@ describe('ColdPersistence — shared-device cross-user isolation (autonomous fin
 });
 
 describe('ColdPersistence — logout wipe', () => {
-  it('wipe() clears the backend AND resets in-memory intent', () => {
+  it('wipe() clears every user\'s cold namespace AND resets in-memory intent', () => {
     const backend = makeBackend();
     const secure = new SecureStore({ backend, cipher: b64 });
+
+    // two users have committed intent on this device
+    const storeA = makeStore();
+    const pA = new ColdPersistence({ store: storeA, secure, getUserId: () => 'userA' });
+    pA.attach();
+    storeA.dispatch(setTextPrompt('A intent'));
+    pA.flush();
+    const storeB = makeStore();
+    const pB = new ColdPersistence({ store: storeB, secure, getUserId: () => 'userB' });
+    pB.attach();
+    storeB.dispatch(setTextPrompt('B intent'));
+    pB.flush();
+
+    // logging out of A wipes ALL cold intent (no user's intent survives a switch)…
+    pA.wipe();
+    expect(secure.getItem('cold.emotion.userA')).toBeNull();
+    expect(secure.getItem('cold.emotion.userB')).toBeNull();
+    expect(storeA.getState().emotion).toEqual({ taps: [], activity: null, textPrompt: '' });
+  });
+
+  it('COLLATERAL-DAMAGE GUARD: a non-cold device pref (koko.onboarding.seen) SURVIVES wipe()', () => {
+    const backend = makeBackend();
+    const secure = new SecureStore({ backend, cipher: b64 });
+    // a device preference sharing the same encrypted instance
+    secure.setItem('koko.onboarding.seen', '1');
+    secure.setItem('koko.liveMode', '0');
+
     const store = makeStore();
     const p = new ColdPersistence({ store, secure, getUserId: () => 'userA' });
     p.attach();
     store.dispatch(addTap({ x: 1, y: 1 }));
-    store.dispatch(setTextPrompt('bye'));
     p.flush();
 
-    p.wipe();
-    expect(backend.__map.size).toBe(0);
-    expect(store.getState().emotion).toEqual({ taps: [], activity: null, textPrompt: '' });
+    p.wipe(); // logout
+
+    expect(secure.getItem('cold.emotion.userA')).toBeNull();   // cold intent gone
+    expect(secure.getItem('koko.onboarding.seen')).toBe('1');  // device prefs untouched
+    expect(secure.getItem('koko.liveMode')).toBe('0');
   });
 });
 
