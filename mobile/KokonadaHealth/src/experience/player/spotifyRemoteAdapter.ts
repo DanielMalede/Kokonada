@@ -5,7 +5,24 @@ import { SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI } from '../../health/config';
 // Configure the native module once with app identity (dashboard-registered client +
 // redirect). App Remote authorizes on-device; there is no access token — connect()
 // takes none and the token passed by the controller is intentionally ignored.
-SpotifyRemote.configure(SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI);
+//
+// Guard this import-time side effect: the native configure() is @NonNull on both args,
+// so a missing value (undefined / null / empty string) red-boxes the app at LAUNCH,
+// before any UI renders. Degrade instead — warn once naming what's missing and skip the
+// native call; Spotify playback stays unavailable until identity is configured, but the
+// app still starts. Never throws.
+const missingSpotifyConfig = [
+  SPOTIFY_CLIENT_ID ? null : 'SPOTIFY_CLIENT_ID',
+  SPOTIFY_REDIRECT_URI ? null : 'SPOTIFY_REDIRECT_URI',
+].filter(Boolean);
+if (missingSpotifyConfig.length === 0) {
+  SpotifyRemote.configure(SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI);
+} else {
+  console.warn(
+    `[spotifyRemoteAdapter] Skipping SpotifyRemote.configure — missing ${missingSpotifyConfig.join(', ')} ` +
+      'in src/health/config.ts. Spotify playback will be unavailable until it is configured.',
+  );
+}
 
 // Track event unsubscribers so removeAllListeners can detach them.
 let offDisconnect: (() => void) | null = null;
