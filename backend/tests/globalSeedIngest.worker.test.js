@@ -17,7 +17,7 @@ beforeEach(() => {
   cursorRepo.getOffset.mockResolvedValue(10);
   cursorRepo.setOffset.mockResolvedValue(true);
   readBatch.mockResolvedValue({ records: [{ id: 1 }], nextOffset: 12, done: false });
-  globalIngest.runOnce.mockResolvedValue({ ingested: 1, embedded: 1 });
+  globalIngest.runOnce.mockResolvedValue({ ok: true, ingested: 1, embedded: 1 });
 });
 afterEach(() => { delete process.env.GLOBAL_SEED_INGEST_ENABLED; delete process.env.GLOBAL_AB_DUMP_PATH; delete process.env.GLOBAL_SEED_BATCH; });
 
@@ -35,6 +35,13 @@ describe('globalSeedIngest.worker', () => {
     readBatch.mockResolvedValue({ records: [], nextOffset: 99, done: true });
     await worker.process();
     expect(cursorRepo.setOffset).toHaveBeenCalledWith('global-seed', 0);
+  });
+
+  it('HOLDS the cursor (no advance) when runOnce reports a caught failure — batch retried next run', async () => {
+    globalIngest.runOnce.mockResolvedValue({ ok: false, ingested: 0, embedded: 0 });
+    const res = await worker.process();
+    expect(cursorRepo.setOffset).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ ok: false, held: true, offset: 10 });
   });
 
   it('is a DARK no-op when the flag is off', async () => {

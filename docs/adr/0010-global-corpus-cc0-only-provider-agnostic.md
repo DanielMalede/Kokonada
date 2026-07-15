@@ -1,4 +1,4 @@
-# ADR 0009 — The global discovery corpus is CC0-only and provider-agnostic
+# ADR 0010 — The global discovery corpus is CC0-only and provider-agnostic
 
 Status: Accepted (2026-07-15)
 

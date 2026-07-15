@@ -26,9 +26,10 @@ function mapRecord(rec) {
   const hl = rec.highlevel || {};
   const features = {};
 
-  // Direct, measured dims.
+  // Direct, measured dims. bpm is clamped to the AudioFeature schema range [0,300] — bulkWrite
+  // updates skip validators, so a corrupt dump bpm (negative / 1e9) would otherwise store out of range.
   const bpm = num(rec.rhythm?.bpm);
-  if (bpm !== undefined) features.bpm = bpm;
+  if (bpm !== undefined) features.bpm = Math.min(300, Math.max(0, bpm));
   const dance = prob(hl.danceability, 'danceable');
   if (dance !== undefined) features.danceability = clamp01(dance);
 

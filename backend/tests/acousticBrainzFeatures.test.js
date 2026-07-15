@@ -58,6 +58,11 @@ describe('acousticBrainzFeatures.mapRecord', () => {
     for (const v of Object.values(f)) expect(Number.isFinite(v)).toBe(true);
   });
 
+  it('clamps a corrupt bpm to the AudioFeature schema range [0,300]', () => {
+    expect(mapRecord(fixture({ rhythm: { bpm: 1e9 } })).features.bpm).toBe(300);
+    expect(mapRecord(fixture({ rhythm: { bpm: -40 } })).features.bpm).toBe(0);
+  });
+
   it('returns null for a record with no MusicBrainz recording id (cannot be canonically keyed)', () => {
     expect(mapRecord(fixture({ tags: { musicbrainz_recordingid: [] } }))).toBeNull();
     expect(mapRecord({})).toBeNull();

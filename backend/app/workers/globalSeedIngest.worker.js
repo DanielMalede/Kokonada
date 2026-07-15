@@ -25,7 +25,9 @@ async function processJob() {
     const offset = await cursorRepo.getOffset(CURSOR);
     const { records, nextOffset, done } = await readBatch({ path, offset, limit });
     const res = await globalIngest.runOnce({ records });
-    // On EOF, wrap to 0 so the next scheduled run re-scans (picks up refreshed dumps / retries misses).
+    // HOLD the cursor on a caught ingest failure (ok:false) so this batch is retried next run rather
+    // than silently skipped. Only a clean run advances (or wraps to 0 at EOF to re-scan fresh dumps).
+    if (res.ok === false) return { ...res, offset, held: true };
     const advanced = done ? 0 : nextOffset;
     await cursorRepo.setOffset(CURSOR, advanced);
     return { ...res, offset, nextOffset: advanced, done };

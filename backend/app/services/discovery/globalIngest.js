@@ -5,29 +5,31 @@
 // PROVIDER-AGNOSTIC corpus rows: canonical MBID identity, measured/derived audio features, LLM-inferred
 // genres — and NO platform id (no Spotify URI / YouTube video id). Playback resolution is a separate
 // runtime concern (Discovery Engine ⊥ Runtime Resolver). Enhancement-contract: NEVER throws into the
-// worker; a failure at any step yields an empty result and leaves delivery untouched.
+// worker. Returns { ok, ingested, embedded }: ok=false ONLY on a caught failure so the worker can HOLD
+// the cursor and retry the batch (an empty/unmappable batch is ok=true — a clean, advanceable run).
 
 const { mapRecord } = require('../features/acousticBrainzFeatures');
 const audioFeatureRepo = require('../../repositories/audioFeatureRepo');
 const corpusIngest = require('./corpusIngest');
 const trackIdentity = require('../identity/trackIdentity');
+const geminiEngine = require('../geminiEngine');
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
-const CAP = () => num(process.env.GLOBAL_SEED_TRACK_CAP) && num(process.env.GLOBAL_SEED_TRACK_CAP) > 0
-  ? Math.floor(num(process.env.GLOBAL_SEED_TRACK_CAP)) : 500;
+const CAP = () => (num(process.env.GLOBAL_SEED_TRACK_CAP) > 0 ? Math.floor(num(process.env.GLOBAL_SEED_TRACK_CAP)) : 500);
 // AcousticBrainz confidence: bpm/danceability measured, but energy/valence/acousticness are mood-model
 // derivations — measured-but-approximate, so ranked above LLM (≤0.7) and below ReccoBeats 'api' (1.0).
 const CONFIDENCE = () => { const n = num(process.env.GLOBAL_AB_CONFIDENCE); return n && n > 0 && n <= 1 ? n : 0.85; };
 
-async function _inferGenresDefault(artist) {
+// CC0-safe genre inference (never MusicBrainz — its genres are CC BY-NC-SA). Contract: names[] → { name: genres[] }.
+// geminiEngine.inferArtistGenres already takes an ARRAY and returns the map (one batched LLM call).
+async function _inferGenresDefault(names) {
   try {
-    const svc = require('../musicProfileService');
-    if (typeof svc.inferArtistGenres === 'function') {
-      const g = await svc.inferArtistGenres(artist);
-      return Array.isArray(g) ? g : [];
+    if (typeof geminiEngine.inferArtistGenres === 'function') {
+      const map = await geminiEngine.inferArtistGenres(names);
+      return map && typeof map === 'object' ? map : {};
     }
   } catch { /* genres are an enhancement — never break ingest on inference failure */ }
-  return [];
+  return {};
 }
 
 async function runOnce({ records = [], inferGenres, cap, confidence, deps = {} } = {}) {
@@ -41,32 +43,29 @@ async function runOnce({ records = [], inferGenres, cap, confidence, deps = {} }
   const _conf = Number.isFinite(confidence) ? confidence : CONFIDENCE();
 
   try {
-    // 1. map → dedupe by canonical recordingKey → cap
+    // 1. map → require SERVABLE (mbid recordingKey + title + artist) → dedupe → cap. A row lacking
+    //    title/artist can never be resolved to a provider at play time, so skip it (no wasted embed).
     const seen = new Set();
     const tracks = [];
     for (const rec of records || []) {
       let t = null;
       try { t = _map(rec); } catch { t = null; }
       if (!t || !t.recordingKey || seen.has(t.recordingKey)) continue;
+      if (!t.title || !t.artist) continue;
       t.canonicalKey = _canon(t) ?? null;
       seen.add(t.recordingKey);
       tracks.push(t);
       if (tracks.length >= _cap) break;
     }
-    if (!tracks.length) return { ingested: 0, embedded: 0 };
+    if (!tracks.length) return { ok: true, ingested: 0, embedded: 0 };
 
-    // 2. genres once per unique artist (CC0-safe LLM path, never MusicBrainz) — batch-cached
-    const genreByArtist = new Map();
-    for (const t of tracks) {
-      const a = (t.artist || '').trim();
-      if (!a || genreByArtist.has(a)) continue;
-      let g = [];
-      try { g = await _genres(a); } catch { g = []; }
-      genreByArtist.set(a, Array.isArray(g) ? g : []);
-    }
-    const genresOf = (t) => genreByArtist.get((t.artist || '').trim()) || [];
+    // 2. genres in ONE batched LLM call for all unique artists (CC0-safe path, never MusicBrainz)
+    const artists = [...new Set(tracks.map(t => (t.artist || '').trim()).filter(Boolean))];
+    let genreMap = {};
+    try { genreMap = (await _genres(artists)) || {}; } catch { genreMap = {}; }
+    const genresOf = (t) => { const g = genreMap[(t.artist || '').trim()]; return Array.isArray(g) ? g : []; };
 
-    // 3. AcousticBrainz feature docs (measured/derived, keyed by MBID)
+    // 3. acousticbrainz feature docs (keyed by MBID)
     await _af.upsertMany(tracks.map(t => ({
       recordingKey: t.recordingKey,
       canonicalKey: t.canonicalKey,
@@ -86,10 +85,10 @@ async function runOnce({ records = [], inferGenres, cap, confidence, deps = {} }
       source: 'global',
     })));
 
-    return { ingested: tracks.length, embedded: res?.enqueued ?? 0 };
+    return { ok: true, ingested: tracks.length, embedded: res?.enqueued ?? 0 };
   } catch (e) {
-    try { console.warn(`[globalIngest] run skipped: ${e.message}`); } catch { /* metric must never affect delivery */ }
-    return { ingested: 0, embedded: 0 };
+    try { console.warn(`[globalIngest] run skipped: ${e.message}`); } catch { /* never affect delivery */ }
+    return { ok: false, ingested: 0, embedded: 0 };
   }
 }
 
