@@ -59,11 +59,19 @@ function hasUsableBand(t) {
 // DORMANT genre-relevance seam. The stored/searched vector is now ALWAYS genre-free (the
 // embedding.worker.js dilution fix), so genre relevance is a SEPARATE, EXPLICIT term — reusing
 // mmr.js's proven Jaccard blend pattern, not a second embedding/Atlas index. Small, env-tunable
-// weight (footgun-clamped to [0,1], same class of guard as bandOverfetch/minCosineDefault).
+// weight, footgun-clamped to [0, GENRE_WEIGHT_MAX] (same guard class as bandOverfetch/minCosineDefault).
+// CEILING 0.5 (not 1.0) is deliberate: a full-1.0 weight would let a perfect genre match equal an entire
+// cosine unit and dominate feature relevance — a scoring-layer echo of the very dilution this fix removes.
+// Whoever ACTIVATES this seam (passes queryGenres) must still empirically validate the blend, like #135.
 const GENRE_WEIGHT_DEFAULT = 0.15;
+const GENRE_WEIGHT_MAX = 0.5;
 function genreWeight() {
-  const raw = Number(process.env.DISCOVERY_GENRE_WEIGHT);
-  return Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : GENRE_WEIGHT_DEFAULT;
+  const raw = process.env.DISCOVERY_GENRE_WEIGHT;
+  // Blank/undefined → default (Number('')===0 would otherwise silently DISABLE the boost — the same
+  // footgun minCosineDefault guards against). A set numeric value is clamped to [0, GENRE_WEIGHT_MAX].
+  if (raw === undefined || String(raw).trim() === '') return GENRE_WEIGHT_DEFAULT;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(GENRE_WEIGHT_MAX, Math.max(0, n)) : GENRE_WEIGHT_DEFAULT;
 }
 
 // Blends a feature cosine with an OPTIONAL genre-Jaccard boost. Dormancy invariant: when
