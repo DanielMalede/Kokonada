@@ -11,6 +11,7 @@ import { ColdPersistence } from './state/cold/coldPersistence';
 import { setColdPersistence } from './state/cold/coldPersistenceHolder';
 import { createSecureStore } from './storage/secureStoreFactory';
 import { bindLiveModeKV } from './experience/generate/liveModeStore';
+import { bindOnboardingKV } from './onboarding/onboardingStore';
 import type { SecureStore } from './storage/secureStore';
 
 // Production ignition. Composes the tested `bootstrapApp` sequence with the real
@@ -39,7 +40,13 @@ export async function startApp(): Promise<void> {
   // adapted to the KV port bindLiveModeKV expects. Best-effort — a null store just
   // leaves liveMode at its in-memory Manual default.
   const s = secureStore;
-  if (s) bindLiveModeKV({ getString: (k) => s.getItem(k) ?? undefined, set: (k, v) => { s.setItem(k, v); } });
+  if (s) {
+    const kv = { getString: (k: string) => s.getItem(k) ?? undefined, set: (k: string, v: string) => { s.setItem(k, v); } };
+    bindLiveModeKV(kv);
+    // Hydrate the one-shot FTUE flag so the splash can resolve straight to Sign-in for a
+    // returning (but logged-out) device, skipping Onboarding.
+    bindOnboardingKV(kv);
+  }
 
   // Recover the logged-in identity from a stored session (currentUser is in-memory and
   // does not survive a restart; the token does).
