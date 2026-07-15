@@ -2,6 +2,7 @@
 const vectorIndex = require('../app/services/vector/vectorIndex');
 const { fakeVectorIndex } = require('../app/services/vector/fakeVectorIndex');
 const { buildVector, cosine } = require('../app/services/vector/embedding');
+const { _scoreTotal } = require('../app/services/discovery/discoveryVectorService');
 
 // In-memory catalog stub matching trackCatalogRepo.getMany's contract.
 // (mock-prefixed so Jest's hoisted mock factory may reference it.)
@@ -122,5 +123,45 @@ describe('DiscoveryVectorService.find', () => {
     const out = await svc.find({ targetFeatures: { bpm: 90, energy: 0.2 }, seedGenres: ['ambient'], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
     expect(out).toEqual([]);
     spy.mockRestore();
+  });
+
+  it('DORMANT SEAM: with NO queryGenres (every current caller), total is byte-identical to the pure feature cosine regardless of candidate genre richness', async () => {
+    seed(fake, 'r1', 'c1', { bpm: 90, energy: 0.2, valence: 0.3 }, [], { uri: 'spotify:track:1', title: 'GenreLess', artist: 'A' });
+    seed(fake, 'r2', 'c2', { bpm: 90, energy: 0.2, valence: 0.3 }, ['ambient', 'downtempo', 'chill'], { uri: 'spotify:track:2', title: 'GenreRich', artist: 'B' });
+    const out = await svc.find({ targetFeatures: { bpm: 90, energy: 0.2, valence: 0.3 }, excludeCanonicalKeys: new Set(), k: 10, minCosine: 0, budgetMs: 500 });
+    expect(out).toHaveLength(2); // both survive identically — genre richness plays no role by default
+  });
+
+  it('DORMANT SEAM: an explicit queryGenres param is accepted end-to-end without throwing (mechanism present, unused by any current caller)', async () => {
+    seed(fake, 'r1', 'c1', { bpm: 90, energy: 0.2 }, ['ambient'], { uri: 'spotify:track:1', title: 'X', artist: 'A' });
+    const out = await svc.find({ targetFeatures: { bpm: 90, energy: 0.2 }, queryGenres: ['ambient', 'downtempo'], excludeCanonicalKeys: new Set(), k: 5, minCosine: 0, budgetMs: 500 });
+    expect(out).toHaveLength(1);
+  });
+});
+
+describe('discoveryVectorService._scoreTotal (dormant genre-relevance blend — direct unit test)', () => {
+  it('returns the feature cosine UNCHANGED when the query genre set is empty (dormancy invariant)', () => {
+    expect(_scoreTotal(0.87, ['pop', 'rock'], new Set())).toBe(0.87);
+    expect(_scoreTotal(0.87, [], new Set())).toBe(0.87);
+  });
+
+  it('adds a positive Jaccard-weighted boost when the query genre set overlaps the candidate genres', () => {
+    const boosted = _scoreTotal(0.5, ['pop', 'rock'], new Set(['pop', 'indie']));
+    expect(boosted).toBeGreaterThan(0.5);
+  });
+
+  it('adds ZERO boost when the query genre set is non-empty but shares nothing with the candidate', () => {
+    expect(_scoreTotal(0.5, ['classical'], new Set(['trap', 'drill']))).toBe(0.5);
+  });
+
+  it('a candidate with no genres and a non-empty query genre set gets zero boost, not a crash', () => {
+    expect(_scoreTotal(0.5, [], new Set(['pop']))).toBe(0.5);
+    expect(_scoreTotal(0.5, undefined, new Set(['pop']))).toBe(0.5);
+  });
+
+  it('the boost is bounded — a perfect genre match cannot push a low feature cosine above a well-matched feature-only candidate\'s territory unboundedly', () => {
+    const perfectGenreMatch = _scoreTotal(0.1, ['pop'], new Set(['pop']));
+    expect(perfectGenreMatch).toBeLessThan(0.1 + 1); // weight is a small fraction, not a 1:1 override
+    expect(perfectGenreMatch).toBeGreaterThan(0.1);
   });
 });
