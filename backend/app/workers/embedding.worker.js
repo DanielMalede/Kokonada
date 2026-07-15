@@ -60,7 +60,6 @@ Respond ONLY with: {"tags":[{"i":0,"vibeTags":["warm","driving"]}]}`;
 // global inside its own body, turning process.env into undefined.
 async function processJob(job) {
   const recordingKeys = job?.data?.recordingKeys ?? [];
-  const genresByKey = job?.data?.genresByKey ?? {};
   if (!recordingKeys.length) return { embedded: 0, tagged: 0 };
 
   const features = await featureRepo.getMany(recordingKeys);
@@ -71,7 +70,12 @@ async function processJob(job) {
     docs.push({
       recordingKey: key,
       canonicalKey: doc.canonicalKey ?? null,
-      vector: buildVector(doc, genresByKey[key] ?? doc.vibeTags ?? []),
+      // ALWAYS genre-free: buildVector's genre-bag mass dilutes the feature dims' L2-normalized
+      // magnitude, and unevenly so — a genre-rich track's feature signal shrinks relative to a
+      // genre-less one, corrupting feature-only cosine comparisons across the corpus. Genre
+      // relevance is a separate, explicit, dormant Jaccard signal (discoveryVectorService.js),
+      // never mixed into the stored/searched vector.
+      vector: buildVector(doc, []),
     });
   }
   if (docs.length) await vectorIndex.upsertMany(docs);
