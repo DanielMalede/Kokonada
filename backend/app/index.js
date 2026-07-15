@@ -126,6 +126,14 @@ async function start() {
     scheduleRepeatable(QUEUES.RECLASSIFY_UNCLASSIFIED, process.env.RECLASSIFY_CRON || '*/30 * * * *', {})
       .then((r) => console.log(`[reclassify] repeatable scheduled: ${JSON.stringify(r)}`))
       .catch((e) => console.error('[reclassify] schedule failed:', e.message));
+
+    // Global seed ingestion — DARK by default (GLOBAL_SEED_INGEST_ENABLED). Grows the
+    // provider-agnostic CC0 discovery corpus from AcousticBrainz records on a daily cron.
+    if (process.env.GLOBAL_SEED_INGEST_ENABLED === 'true') {
+      scheduleRepeatable(QUEUES.GLOBAL_SEED_INGEST, process.env.GLOBAL_SEED_CRON || '0 3 * * *', {})
+        .then((r) => console.log(`[globalSeedIngest] repeatable scheduled: ${JSON.stringify(r)}`))
+        .catch((e) => console.error('[globalSeedIngest] schedule failed:', e.message));
+    }
   }
 
   // Graceful shutdown (Railway sends SIGTERM on redeploy): close the workers and the

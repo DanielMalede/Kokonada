@@ -5,6 +5,9 @@ const TrackCatalog = require('../models/TrackCatalog');
 
 // Anonymous track-metadata catalog access. Upsert unions genres ($addToSet) so a track
 // re-seen from another library only ever GAINS genre signal; scalar metadata is last-write.
+// Provenance (`source`) is stamped via $setOnInsert so it is written ONCE on the first insert and
+// never mutated afterward — a first-writer-wins rule: a row is 'global' or 'library' by whichever
+// path created it, and a later re-upsert from the other path never downgrades/overwrites it.
 async function upsertMany(entries = []) {
   const rows = (entries || []).filter(e => e && e.recordingKey);
   if (!rows.length) return { upserted: 0 };
@@ -18,6 +21,7 @@ async function upsertMany(entries = []) {
           ...(e.title != null ? { title: e.title } : {}),
           ...(e.artist != null ? { artist: e.artist } : {}),
         },
+        $setOnInsert: { source: e.source === 'global' ? 'global' : 'library' },
         ...(Array.isArray(e.genres) && e.genres.length
           ? { $addToSet: { genres: { $each: e.genres } } } : {}),
       },

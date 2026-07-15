@@ -36,4 +36,27 @@ async function backfillLibrary(libraryTracks = []) {
   return ingestLibrary(libraryTracks);
 }
 
-module.exports = { ingestLibrary, backfillLibrary };
+// Global-seed variant: entries are ALREADY normalized (canonical MBID recordingKey, source:'global',
+// uri:null, no platform id) — so we do NOT run toCatalogEntry (which would strip `source` and re-derive
+// a platform recordingKey). Upsert the catalog (source flows via trackCatalogRepo), then enqueue embedding
+// only for keys not already embedded. Best-effort: corpus growth is an enhancement, never throws upward.
+async function ingestGlobal(entries = []) {
+  try {
+    const rows = (entries || []).filter(e => e && e.recordingKey);
+    if (!rows.length) return { catalogued: 0, enqueued: 0 };
+    await trackCatalogRepo.upsertMany(rows);
+    let existing = new Set();
+    try { existing = new Set((await vectorIndex.getMany(rows.map(e => e.recordingKey))).keys()); }
+    catch { existing = new Set(); } // existence lookup failed → embed all (re-paying is fine, dropping is not)
+    const toEmbed = rows.filter(e => !existing.has(e.recordingKey));
+    const genresByKey = {};
+    for (const e of toEmbed) if (Array.isArray(e.genres) && e.genres.length) genresByKey[e.recordingKey] = e.genres;
+    if (toEmbed.length) await enqueue(QUEUES.EMBEDDING_BUILD, { recordingKeys: toEmbed.map(e => e.recordingKey), genresByKey });
+    return { catalogued: rows.length, enqueued: toEmbed.length };
+  } catch (e) {
+    console.warn(`[corpusIngest] global skipped: ${e.message}`);
+    return { catalogued: 0, enqueued: 0 };
+  }
+}
+
+module.exports = { ingestLibrary, backfillLibrary, ingestGlobal };

@@ -19,9 +19,11 @@ const audioFeatureSchema = new mongoose.Schema({
   danceability: { type: Number, default: null, min: 0,   max: 1 },
   loudness:     { type: Number, default: null, min: -60, max: 5 },
 
-  // 'api' = measured (ReccoBeats, confidence 1.0); 'llm' = estimated (capped ≤0.7).
-  // An 'llm' record may be upgraded to 'api' later, never the reverse.
-  source:       { type: String, enum: ['api', 'llm'], required: true },
+  // Measurement provenance & precedence (api > acousticbrainz > llm): 'api' = measured (ReccoBeats,
+  // confidence 1.0); 'acousticbrainz' = the CC0 AcousticBrainz analysis (MBID-keyed — bpm/danceability
+  // measured, energy/valence/acousticness derived from mood models, ~0.85); 'llm' = estimated (≤0.7).
+  // A lower-precedence source never overwrites a higher one (enforced in audioFeatureRepo.upsertMany).
+  source:       { type: String, enum: ['api', 'llm', 'acousticbrainz'], required: true },
   confidence:   { type: Number, required: true, min: 0, max: 1 },
 
   // Semantic tags written by the async enrichment worker (Phase 7 critics).

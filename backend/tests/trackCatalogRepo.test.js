@@ -63,6 +63,25 @@ describe('trackCatalogRepo', () => {
     expect(secondOp.update.$set.title).toBe('meta-only');
   });
 
+  it('stamps provenance via $setOnInsert (global path) so it sets on INSERT only — never downgrades an existing row', async () => {
+    await repo.upsertMany([{ recordingKey: 'g1', source: 'global', title: 'T' }]);
+    const op = TrackCatalog.bulkWrite.mock.calls[0][0][0].updateOne;
+    expect(op.update.$setOnInsert).toEqual({ source: 'global' });
+    expect(op.update.$set).not.toHaveProperty('source'); // never in $set, else every re-upsert would clobber
+  });
+
+  it('defaults provenance to library when no source is given (existing library ingest unchanged)', async () => {
+    await repo.upsertMany([{ recordingKey: 'l1', title: 'T' }]);
+    const op = TrackCatalog.bulkWrite.mock.calls[0][0][0].updateOne;
+    expect(op.update.$setOnInsert).toEqual({ source: 'library' });
+  });
+
+  it('coerces an unknown source to library (enum guard)', async () => {
+    await repo.upsertMany([{ recordingKey: 'x1', source: 'bogus' }]);
+    const op = TrackCatalog.bulkWrite.mock.calls[0][0][0].updateOne;
+    expect(op.update.$setOnInsert).toEqual({ source: 'library' });
+  });
+
   it('empty input is a no-op', async () => {
     expect(await repo.upsertMany([])).toEqual({ upserted: 0 });
     expect(TrackCatalog.bulkWrite).not.toHaveBeenCalled();

@@ -96,16 +96,28 @@ describe('audioFeatureRepo.upsertMany — coherence rules', () => {
     expect(redis.set).toHaveBeenCalledWith('af:spotify:a', expect.any(String), 'EX', expect.any(Number));
   });
 
-  it('llm docs can never clobber an api record ($ne filter) and invalidate the cache key', async () => {
+  it('llm docs never clobber a higher-precedence record (api OR acousticbrainz) and invalidate the cache key', async () => {
     const redis = fakeRedis();
     getRedis.mockReturnValue(redis);
 
     await repo.upsertMany([doc('youtube:v1', { source: 'llm', confidence: 0.6 })]);
 
     const ops = AudioFeature.bulkWrite.mock.calls[0][0];
-    expect(ops[0].updateOne.filter).toEqual({ recordingKey: 'youtube:v1', source: { $ne: 'api' } });
+    expect(ops[0].updateOne.filter).toEqual({ recordingKey: 'youtube:v1', source: { $nin: ['api', 'acousticbrainz'] } });
     expect(redis.del).toHaveBeenCalledWith('af:youtube:v1');
     expect(redis.set).not.toHaveBeenCalled();
+  });
+
+  it('acousticbrainz docs (measured CC0) never clobber an api record but DO write through to Redis', async () => {
+    const redis = fakeRedis();
+    getRedis.mockReturnValue(redis);
+
+    await repo.upsertMany([doc('mbid:x', { source: 'acousticbrainz', confidence: 0.85 })]);
+
+    const ops = AudioFeature.bulkWrite.mock.calls[0][0];
+    expect(ops[0].updateOne.filter).toEqual({ recordingKey: 'mbid:x', source: { $nin: ['api'] } });
+    expect(redis.set).toHaveBeenCalledWith('af:mbid:x', expect.any(String), 'EX', expect.any(Number));
+    expect(redis.del).not.toHaveBeenCalled();
   });
 
   it('swallows duplicate-key races (E11000 = an api record already won)', async () => {

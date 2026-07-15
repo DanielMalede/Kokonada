@@ -40,6 +40,35 @@ describe('corpusIngest.ingestLibrary', () => {
   });
 });
 
+describe('corpusIngest.ingestGlobal', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('catalogs pre-normalized entries WITHOUT re-deriving keys (source flows through) + enqueues embedding', async () => {
+    const res = await corpusIngest.ingestGlobal([
+      { recordingKey: 'mbid:m1', canonicalKey: 'at:a|b', uri: null, title: 'B', artist: 'A', genres: ['jazz'], source: 'global' },
+    ]);
+    expect(res).toMatchObject({ catalogued: 1, enqueued: 1 });
+    expect(trackCatalogRepo.upsertMany).toHaveBeenCalledWith([expect.objectContaining({ recordingKey: 'mbid:m1', source: 'global', uri: null })]);
+    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['mbid:m1'], genresByKey: { 'mbid:m1': ['jazz'] } });
+  });
+
+  it('skips keys already embedded', async () => {
+    vectorIndex.getMany.mockResolvedValueOnce(new Map([['mbid:m1', [0.1]]]));
+    const res = await corpusIngest.ingestGlobal([
+      { recordingKey: 'mbid:m1', source: 'global' },
+      { recordingKey: 'mbid:m2', source: 'global', genres: ['rock'] },
+    ]);
+    expect(res).toMatchObject({ catalogued: 2, enqueued: 1 });
+    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['mbid:m2'], genresByKey: { 'mbid:m2': ['rock'] } });
+  });
+
+  it('never throws — a repo failure is swallowed; empty input no-op', async () => {
+    trackCatalogRepo.upsertMany.mockRejectedValueOnce(new Error('db down'));
+    await expect(corpusIngest.ingestGlobal([{ recordingKey: 'mbid:x', source: 'global' }])).resolves.toMatchObject({ catalogued: 0 });
+    expect(await corpusIngest.ingestGlobal([])).toMatchObject({ catalogued: 0, enqueued: 0 });
+  });
+});
+
 describe('corpusIngest.backfillLibrary', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 

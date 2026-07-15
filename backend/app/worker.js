@@ -74,6 +74,16 @@ async function runWorker({
     `[worker] consuming ${workers.length} queue(s): ${Object.values(QUEUES).join(', ')}`
   );
 
+  // Register the flag-gated recurring GLOBAL_SEED_INGEST schedule on the DEDICATED worker path too:
+  // app/index.js only registers repeatables on the in-process path, so a standalone worker service
+  // would otherwise never enqueue the recurring job. DARK by default (GLOBAL_SEED_INGEST_ENABLED).
+  if (process.env.GLOBAL_SEED_INGEST_ENABLED === 'true') {
+    const { scheduleRepeatable } = require('./queues/queue');
+    await scheduleRepeatable(QUEUES.GLOBAL_SEED_INGEST, process.env.GLOBAL_SEED_CRON || '0 3 * * *', {})
+      .then((r) => logger.log(`[globalSeedIngest] repeatable scheduled: ${JSON.stringify(r)}`))
+      .catch((e) => logger.error(`[globalSeedIngest] schedule failed: ${e.message}`));
+  }
+
   const shutdown = makeShutdown(workers, { logger, exit });
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
