@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, Easing, StyleSheet, Dimensions } from 'react-native';
+import { View, Animated, Easing, StyleSheet, Dimensions } from 'react-native';
 import { useTheme, useMotion } from '../design/theme';
 import { type as typography, motion } from '../design/tokens';
 import { BreathingGlow } from '../experience/aura/BreathingGlow';

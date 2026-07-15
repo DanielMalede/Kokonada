@@ -33,7 +33,7 @@ describe('onboardingStore — one-shot persisted seen flag', () => {
   it('markSeen is ONE-WAY — there is no unset/reset surface (stays true forever)', () => {
     const s = createOnboardingStore(makeKV());
     s.getState().markSeen();
-    const api = s.getState() as Record<string, unknown>;
+    const api = s.getState() as unknown as Record<string, unknown>;
     expect(typeof api.markSeen).toBe('function');
     expect(api.unsee).toBeUndefined();
     expect(api.reset).toBeUndefined();
