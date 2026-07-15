@@ -11,9 +11,12 @@ import { circumplexToScreen, type WheelLayout } from '../experience/wheel/wheelG
 // wheel geometry (circumplexToScreen, READ-ONLY — this is a decorative teaser, not the
 // wheel) so the tease sits exactly where a committed emotion would.
 //
+// The travel only STARTS once panel 3 is the ACTIVE panel (`active`), so the reveal plays
+// on-screen — not off-screen at app mount while the user is still on panel 1.
+//
 // onSettle drives the parent's "Begin" fade-in. It is GUARANTEED to fire: immediately
-// under reduced motion (dot pre-settled), otherwise on a bounded timer that tracks the
-// spring — so "Begin" can never get stuck hidden.
+// under reduced motion (dot pre-settled), otherwise on a bounded timer that is NOT
+// cancelled by swiping away (only on unmount) — so "Begin" can never get stuck hidden.
 
 const COMPACT_FRACTION = 0.55; // the condensed glow, smaller than the resting aura
 const RING_FRACTION = 0.8;     // faint wheel ring radius, as a fraction of the half-hero
@@ -22,7 +25,7 @@ const SETTLE_ANGLE = Math.PI / 3; // decorative rest angle on the rim (unit vect
 const START_CIRCUMPLEX = { x: 0, y: 0 };                                   // travels from center
 const SETTLE_CIRCUMPLEX = { x: Math.cos(SETTLE_ANGLE), y: Math.sin(SETTLE_ANGLE) }; // to the rim
 
-export function WheelTeaseHero({ size, onSettle }: { size: number; onSettle?: () => void }) {
+export function WheelTeaseHero({ size, active = false, onSettle }: { size: number; active?: boolean; onSettle?: () => void }) {
   const { c } = useTheme();
   const { reduced, duration } = useMotion();
 
@@ -36,26 +39,38 @@ export function WheelTeaseHero({ size, onSettle }: { size: number; onSettle?: ()
   // 0 = at start (center), 1 = settled on the rim. Pre-settled under reduced motion.
   const progress = useRef(new Animated.Value(reduced ? 1 : 0)).current;
   const settledRef = useRef(false);
+  const startedRef = useRef(false);
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSettleRef = useRef(onSettle);
   onSettleRef.current = onSettle;
   const fireSettle = () => { if (!settledRef.current) { settledRef.current = true; onSettleRef.current?.(); } };
 
   useEffect(() => {
     if (reduced) { progress.setValue(1); fireSettle(); return; }
-    const anim = Animated.spring(progress, {
+    // Play the travel ON-SCREEN: wait until panel 3 is active, and start exactly once.
+    if (!active || startedRef.current) return;
+    startedRef.current = true;
+    progress.setValue(0);
+    animRef.current = Animated.spring(progress, {
       toValue: 1,
       stiffness: motion.spring.gentle.stiffness,
       damping: motion.spring.gentle.damping,
       mass: motion.spring.gentle.mass,
       useNativeDriver: true,
     });
-    anim.start(({ finished }) => { if (finished) fireSettle(); });
-    // Guaranteed settle signal — the gentle spring settles well within a slow beat; this
-    // makes "Begin" appear even if the native spring callback is dropped.
-    const t = setTimeout(fireSettle, Math.max(duration.slow, duration.base));
-    return () => { anim.stop(); clearTimeout(t); };
+    animRef.current.start(({ finished }) => { if (finished) fireSettle(); });
+    // Guaranteed settle signal — bounded, and NOT cancelled by swiping away (cleared only
+    // on unmount) — so "Begin" appears even if the native spring callback is dropped.
+    timerRef.current = setTimeout(fireSettle, Math.max(duration.slow, duration.base));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reduced]);
+  }, [reduced, active]);
+
+  // Dispose the travel + guarantee timer on unmount (frame-rate-independent teardown).
+  useEffect(() => () => {
+    animRef.current?.stop();
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
 
   const translateX = progress.interpolate({ inputRange: [0, 1], outputRange: [start.x - settle.x, 0] });
   const translateY = progress.interpolate({ inputRange: [0, 1], outputRange: [start.y - settle.y, 0] });

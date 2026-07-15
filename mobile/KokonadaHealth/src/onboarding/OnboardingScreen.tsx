@@ -112,7 +112,7 @@ export function OnboardingScreen({
             ) : i === 1 ? (
               <PulseHero size={heroSize} />
             ) : (
-              <WheelTeaseHero size={heroSize} onSettle={() => setBeginReady(true)} />
+              <WheelTeaseHero size={heroSize} active={page === LAST} onSettle={() => setBeginReady(true)} />
             );
           return (
             <OnboardingPanel key={i} width={width} copy={copy} heroStyle={heroStyle}>
@@ -173,6 +173,9 @@ export function OnboardingScreen({
             onPress={onBegin}
             accessibilityRole="button"
             accessibilityLabel="Begin"
+            // While it is still fading in (opacity 0), it must not eat touches — an
+            // invisible-but-tappable target is a trap. Gate touches on the settle flag.
+            pointerEvents={reduced || beginReady ? 'auto' : 'none'}
             style={[styles.cta, { backgroundColor: c.accent.glowInk, opacity: reduced ? 1 : beginFade }]}
           >
             <Text style={[styles.ctaText, { color: c.content.onAccent }]}>Begin</Text>

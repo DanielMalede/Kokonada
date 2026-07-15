@@ -82,7 +82,7 @@ describe('WheelTeaseHero — panel 3 "Your soundtrack, tuned to you."', () => {
   it('renders the faint wheel ring + a travelling dot positioned within the hero bounds', async () => {
     (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(false);
     const size = 240;
-    const tree = await render(<WheelTeaseHero size={size} onSettle={jest.fn()} />);
+    const tree = await render(<WheelTeaseHero size={size} active onSettle={jest.fn()} />);
     const dot = tree.root.findAll((n) => n.props?.testID === 'wheel-tease-dot')[0];
     expect(dot).toBeTruthy();
     const st = flatStyle(dot) as any;
@@ -94,12 +94,27 @@ describe('WheelTeaseHero — panel 3 "Your soundtrack, tuned to you."', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('eventually fires onSettle even with motion on (guaranteed settle → Begin never stuck hidden)', async () => {
+  it('WAITS for panel 3 to become ACTIVE — the dot does not settle while off-screen (reveal not wasted)', async () => {
     (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(false);
+    jest.useFakeTimers();
     const onSettle = jest.fn();
-    const tree = await render(<WheelTeaseHero size={240} onSettle={onSettle} />);
-    await ReactTestRenderer.act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<WheelTeaseHero size={240} active={false} onSettle={onSettle} />); });
+    await ReactTestRenderer.act(async () => { await jest.advanceTimersByTimeAsync(2000); });
+    expect(onSettle).not.toHaveBeenCalled(); // still off-screen → no reveal, no settle
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+    jest.useRealTimers();
+  });
+
+  it('once ACTIVE, GUARANTEES settle via the bounded fallback (Begin never stuck hidden)', async () => {
+    (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(false);
+    jest.useFakeTimers();
+    const onSettle = jest.fn();
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<WheelTeaseHero size={240} active onSettle={onSettle} />); });
+    await ReactTestRenderer.act(async () => { await jest.advanceTimersByTimeAsync(1000); });
     expect(onSettle).toHaveBeenCalledTimes(1);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+    jest.useRealTimers();
   });
 });
