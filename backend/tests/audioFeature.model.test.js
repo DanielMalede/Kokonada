@@ -17,8 +17,8 @@ describe('AudioFeature schema', () => {
     expect(path('canonicalKey').options.index).toBe(true);
   });
 
-  it('source is restricted to api|llm and confidence to [0,1]', () => {
-    expect(path('source').enumValues).toEqual(['api', 'llm']);
+  it('source is restricted to api|llm|acousticbrainz and confidence to [0,1]', () => {
+    expect(path('source').enumValues).toEqual(['api', 'llm', 'acousticbrainz']);
     expect(path('confidence').options.min).toBe(0);
     expect(path('confidence').options.max).toBe(1);
   });

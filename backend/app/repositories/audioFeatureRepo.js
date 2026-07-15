@@ -6,11 +6,20 @@ const { getRedis } = require('../config/redis');
 // Cache-aside repository over the permanent AudioFeature store.
 // Coherence rules (shadow-audit hardened):
 //  - Mongo is the source of truth; Redis is a 7-day hot cache keyed af:{recordingKey}.
-//  - 'api' (measured) docs write through to Redis; 'llm' (estimated) docs only
+//  - MEASURED docs ('api', 'acousticbrainz') write through to Redis; 'llm' (estimated) docs only
 //    INVALIDATE their key, so a racing reader can never pin a guess over a
 //    measurement — the next read re-fills from Mongo truth.
-//  - An 'llm' upsert can never overwrite an 'api' record (filtered $ne + the
-//    unique index turns the race into a swallowed E11000).
+//  - Source PRECEDENCE api > acousticbrainz > llm: an upsert never overwrites a HIGHER-precedence
+//    record (the filter excludes higher sources; the unique index turns the race into a swallowed
+//    E11000). So 'llm' cannot clobber 'api'/'acousticbrainz', and 'acousticbrainz' cannot clobber 'api'.
+
+const PRECEDENCE = { llm: 1, acousticbrainz: 2, api: 3 };
+const MEASURED = new Set(['api', 'acousticbrainz']);
+// Sources that outrank `source` — an upsert must not overwrite a doc already owned by one of these.
+const higherSources = (source) =>
+  Object.keys(PRECEDENCE)
+    .filter((s) => PRECEDENCE[s] > (PRECEDENCE[source] ?? 0))
+    .sort((a, b) => PRECEDENCE[b] - PRECEDENCE[a]); // highest precedence first (deterministic)
 
 const TTL_SECONDS = () => parseInt(process.env.AF_REDIS_TTL_S || String(7 * 24 * 3600), 10);
 
@@ -59,17 +68,20 @@ async function getMany(recordingKeys = []) {
 async function upsertMany(docs = []) {
   if (!docs.length) return { upserted: 0 };
 
-  const ops = docs.map((doc) => ({
-    updateOne: {
-      filter: doc.source === 'api'
-        ? { recordingKey: doc.recordingKey }
-        // Estimates never clobber measurements. If an 'api' doc exists, this
-        // filter matches nothing and the upsert insert hits the unique index.
-        : { recordingKey: doc.recordingKey, source: { $ne: 'api' } },
-      update: { $set: { ...doc, fetchedAt: doc.fetchedAt ?? new Date() } },
-      upsert: true,
-    },
-  }));
+  const ops = docs.map((doc) => {
+    const higher = higherSources(doc.source);
+    return {
+      updateOne: {
+        // A lower/equal-precedence upsert must not clobber a higher-precedence record. If one exists,
+        // this filter matches nothing and the upsert insert hits the unique index (swallowed E11000).
+        filter: higher.length
+          ? { recordingKey: doc.recordingKey, source: { $nin: higher } }
+          : { recordingKey: doc.recordingKey },
+        update: { $set: { ...doc, fetchedAt: doc.fetchedAt ?? new Date() } },
+        upsert: true,
+      },
+    };
+  });
 
   try {
     await AudioFeature.bulkWrite(ops, { ordered: false });
@@ -84,7 +96,7 @@ async function upsertMany(docs = []) {
   const redis = getRedis();
   if (redis) {
     for (const doc of docs) {
-      const op = doc.source === 'api'
+      const op = MEASURED.has(doc.source)
         ? redis.set(_cacheKey(doc.recordingKey), JSON.stringify(doc), 'EX', TTL_SECONDS())
         : redis.del(_cacheKey(doc.recordingKey));
       op.catch(() => {});
