@@ -6,6 +6,14 @@ export const BACKEND_URL = 'https://YOUR-BACKEND.up.railway.app';
 // client ID — the Android OAuth client is matched separately by package + SHA-1.
 export const GOOGLE_WEB_CLIENT_ID = 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com';
 
+// Spotify App Remote identity, read at import time by spotifyRemoteAdapter's native
+// configure(). SPOTIFY_CLIENT_ID is your Spotify Developer Dashboard app id (public —
+// it ships in the app binary; set it to enable Spotify playback). SPOTIFY_REDIRECT_URI
+// is a Dashboard registration match key, not a browser redirect target: a fixed, public,
+// non-secret constant that must match the uri registered on the Dashboard.
+export const SPOTIFY_CLIENT_ID = 'YOUR_SPOTIFY_CLIENT_ID';
+export const SPOTIFY_REDIRECT_URI = 'kokonadahealth://spotify-callback';
+
 // ~6 months. Health Connect only returns what Garmin has actually synced into the
 // store — for a new connection that is typically ~2 weeks–90 days (forward-accrue),
 // not a guaranteed 6 months. The window is still requested at 6 months so depth is
