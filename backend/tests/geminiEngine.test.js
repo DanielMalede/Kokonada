@@ -317,6 +317,14 @@ describe('inferArtistGenres', () => {
     mockGenerateContent.mockRejectedValueOnce(new Error('boom'));
     expect(await inferArtistGenres(['X'])).toEqual({});
   });
+
+  it('maps a case-mismatched LLM key back to the CALLER-supplied exact-case artist name (the model does not reliably honor "EXACT artist names" in the prompt)', async () => {
+    // Real Groq responses lowercase JSON keys regardless of the prompt instruction — reproduced
+    // live against prod during the Wave-1 global-seed data run (all 200 genres silently dropped).
+    makeGeminiResponse({ 'the beatles': ['rock', 'pop'], u2: ['post-punk'] });
+    const out = await inferArtistGenres(['The Beatles', 'U2']);
+    expect(out).toEqual({ 'The Beatles': ['rock', 'pop'], U2: ['post-punk'] });
+  });
 });
 
 // ── Micro-genre seed shifting (drive Spotify into distinct catalog sectors) ────

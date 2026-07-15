@@ -426,6 +426,13 @@ async function inferArtistGenres(artistNames = []) {
   const names = [...new Set((artistNames || []).filter(Boolean))].slice(0, MAX_BACKFILL_ARTISTS);
   if (names.length === 0) return {};
 
+  // The prompt asks for "EXACT artist names" as JSON keys, but the model does not reliably honor
+  // that (observed live: Groq consistently lowercases keys regardless of instruction) — a caller
+  // doing out[originalCaseName] would silently miss every entry. Map back to the caller's own
+  // exact-case input via case-insensitive matching so this function's contract (keyed by the
+  // caller's original strings) holds regardless of how the model cases its response.
+  const byLower = new Map(names.map(n => [n.toLowerCase().trim(), n]));
+
   const batches = [];
   for (let i = 0; i < names.length; i += BACKFILL_BATCH) batches.push(names.slice(i, i + BACKFILL_BATCH));
 
@@ -439,7 +446,10 @@ async function inferArtistGenres(artistNames = []) {
     for (const [name, genres] of Object.entries(r.value)) {
       if (Array.isArray(genres)) {
         const clean = genres.filter((g) => typeof g === 'string' && g.trim()).map((g) => g.toLowerCase().trim());
-        if (clean.length) out[name] = [...new Set(clean)];
+        if (clean.length) {
+          const original = byLower.get(String(name).toLowerCase().trim()) ?? name;
+          out[original] = [...new Set(clean)];
+        }
       }
     }
   }
