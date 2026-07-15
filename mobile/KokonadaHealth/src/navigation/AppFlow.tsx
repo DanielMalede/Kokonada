@@ -49,7 +49,11 @@ export function AppFlow({
     const settled = start().catch((e: any) => { console.log('[koko] startApp failed:', e?.message ?? e); });
     void Promise.race([settled, timedOut]).then(() => {
       clearTimeout(deadline);
-      void BootSplash.hide({ fade: true }); // reveal the JS splash beneath
+      // Reveal the JS splash beneath. If the native module is absent on a bad build,
+      // hide() can throw SYNCHRONOUSLY — it must NOT skip scheduling the dwell, or the
+      // route would never advance and the splash would be permanent (the 8s deadline
+      // doesn't save that). Isolate it so the dwell is always scheduled.
+      try { void BootSplash.hide({ fade: true }); } catch { /* native BootSplash unavailable — proceed */ }
       dwell = setTimeout(() => setPhase('resolved'), dwellMs); // hold one inhale, then route
     });
 
