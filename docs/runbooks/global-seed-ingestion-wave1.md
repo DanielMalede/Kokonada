@@ -23,8 +23,16 @@ each record is the high-level + low-level JSON joined by MBID, shaped like:
    "mood_party":{"all":{"party":0.5}},"mood_relaxed":{"all":{"relaxed":0.4}},
    "mood_acoustic":{"all":{"acoustic":0.65}}}}
 ```
-Produce this NDJSON from the two dumps (join by MBID). A prep script is a small follow-up; only the fields
-above are consumed — extras are ignored, and any line lacking `musicbrainz_recordingid` is skipped.
+Produce this NDJSON with the bundled tool (streams both dumps, joins by MBID, bounded by `--limit`):
+```
+node backend/scripts/prepare-wave1-dump.js \
+  --highlevel <acousticbrainz-highlevel-*.tar.zst> \
+  --lowlevel  <acousticbrainz-lowlevel-*.tar.zst> \
+  --out wave1_seed_dump.ndjson --limit 5000
+```
+It uses `tar-stream` + Node 24's built-in zstd (no extra deps); `.gz` inputs work too, `.bz2` needs
+`unbzip2-stream` (or convert first). Only the fields above are consumed; a record lacking an MBID or
+title/artist (un-servable) is skipped. Memory is bounded by `--limit` distinct MBIDs.
 
 ## 3. Configure env (Railway = Pause & Guide)
 - `GLOBAL_AB_DUMP_PATH` = absolute path to the NDJSON from step 2 (must be readable by the worker service).

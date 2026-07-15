@@ -37,6 +37,15 @@ const musicClassifier = require('../app/services/musicClassifier');
 jest.mock('../app/repositories/unclassifiedRepo', () => ({ addMany: jest.fn().mockResolvedValue(0) }));
 const unclassifiedRepo = require('../app/repositories/unclassifiedRepo');
 
+// buildProfile fire-and-forgets corpusIngest.ingestLibrary — mock it so the test never triggers a
+// real TrackCatalog.bulkWrite (with no DB it buffers 10s, then logs AFTER the test → "Cannot log
+// after tests are done" flakes a later suite once test timing shifts).
+jest.mock('../app/services/discovery/corpusIngest', () => ({
+  ingestLibrary: jest.fn(async () => ({ catalogued: 0, enqueued: 0 })),
+  backfillLibrary: jest.fn(async () => ({ catalogued: 0, enqueued: 0 })),
+  ingestGlobal: jest.fn(async () => ({ catalogued: 0, enqueued: 0 })),
+}));
+
 // ── Real service modules (axios mock intercepts their HTTP calls) ──────────────
 const spotify = require('../app/services/spotify');
 const youtube = require('../app/services/youtube');
