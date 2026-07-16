@@ -11,7 +11,12 @@
 // provider is spotify. Matching is anchored + case-insensitive so `spotify:track:x`,
 // `SPOTIFY:...`, and a bare `provider:'spotify'` all fail closed.
 
+// In-memory predicate scheme: case-INSENSITIVE so a mislabeled `SPOTIFY:...` in JS-land fails closed.
 const SPOTIFY_SCHEME = /^spotify:/i;
+// Mongo-query scheme: case-SENSITIVE. Persisted recordingKey/uri are always lowercase `spotify:`
+// (recordingKeyOf emits `spotify:${id}`), and a `/i` regex is non-SARGable — it forces a full
+// collection scan and defeats the recordingKey index. Anchored + case-sensitive stays index-friendly.
+const SPOTIFY_SCHEME_DB = /^spotify:/;
 
 function isSpotifyKey(value) {
   return typeof value === 'string' && SPOTIFY_SCHEME.test(value.trim());
@@ -32,15 +37,16 @@ function isSpotifyRow(row) {
   return isSpotifyKey(row.recordingKey) || isSpotifyKey(row.uri);
 }
 
-// The equivalent Mongo selector for countDocuments/deleteMany over the real collections.
+// The equivalent Mongo selector for countDocuments/deleteMany over the real collections. Uses the
+// case-SENSITIVE scheme so the query stays index-friendly (real keys are always lowercase).
 function spotifyRowSelector() {
   return {
     $or: [
-      { recordingKey: SPOTIFY_SCHEME },
-      { uri: SPOTIFY_SCHEME },
+      { recordingKey: SPOTIFY_SCHEME_DB },
+      { uri: SPOTIFY_SCHEME_DB },
       { spotifyId: { $ne: null } },
     ],
   };
 }
 
-module.exports = { isSpotifyContent, isSpotifyKey, isSpotifyRow, spotifyRowSelector, SPOTIFY_SCHEME };
+module.exports = { isSpotifyContent, isSpotifyKey, isSpotifyRow, spotifyRowSelector, SPOTIFY_SCHEME, SPOTIFY_SCHEME_DB };

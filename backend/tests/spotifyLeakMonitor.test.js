@@ -1,6 +1,6 @@
 'use strict';
 
-const { checkSpotifyLeak } = require('../app/services/monitoring/spotifyLeakMonitor');
+const { checkSpotifyLeak, checkSpotifyLeakCached, _resetCache } = require('../app/services/monitoring/spotifyLeakMonitor');
 const { spotifyRowSelector } = require('../app/utils/spotifyContent');
 
 function matches(row, q) {
@@ -50,5 +50,33 @@ describe('spotifyLeakMonitor.checkSpotifyLeak', () => {
     const spy = { async countDocuments(q) { this.q = q; return 0; }, q: null };
     await checkSpotifyLeak({ collections: { TrackCatalog: spy } });
     expect(spy.q).toEqual(spotifyRowSelector());
+  });
+
+  it('spotifyRowSelector uses a case-SENSITIVE anchored regex so the DB query can use the index', () => {
+    const sel = spotifyRowSelector();
+    const rk = sel.$or.find((c) => c.recordingKey)?.recordingKey;
+    expect(rk).toBeInstanceOf(RegExp);
+    expect(rk.flags).not.toContain('i');
+    expect(rk.test('spotify:abc')).toBe(true);
+    expect(rk.test('SPOTIFY:abc')).toBe(false); // real keys are lowercase; case-insensitivity would defeat the index
+  });
+});
+
+describe('spotifyLeakMonitor.checkSpotifyLeakCached', () => {
+  beforeEach(() => _resetCache());
+
+  it('serves a cached result within the TTL (no repeat collection scans), rescans after it expires', async () => {
+    let calls = 0;
+    const collections = { TrackCatalog: { async countDocuments() { calls++; return 0; } } };
+    let t = 1000;
+    const now = () => t;
+
+    await checkSpotifyLeakCached({ collections, ttlMs: 5000, now });
+    await checkSpotifyLeakCached({ collections, ttlMs: 5000, now }); // within TTL → cached
+    expect(calls).toBe(1);
+
+    t = 7000; // past the TTL
+    await checkSpotifyLeakCached({ collections, ttlMs: 5000, now });
+    expect(calls).toBe(2);
   });
 });

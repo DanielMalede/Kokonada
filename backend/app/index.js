@@ -104,11 +104,12 @@ app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
 // Standing Spotify-ToS leak monitor (ADR 0011): non-destructive count of any spotify:-keyed
 // rows still in the global caches. Must read zero post-containment/purge; returns 503 (so an
-// uptime check alerts) when a leak is present. Kept OFF the hot /health path — queried on demand.
+// uptime check alerts) when a leak is present. Kept OFF the hot /health path, and short-TTL
+// cached so repeated (unauthenticated) polls can't force repeated full collection scans.
 app.get('/health/spotify-leak', async (req, res) => {
   try {
-    const { checkSpotifyLeak, defaultCollections } = require('./services/monitoring/spotifyLeakMonitor');
-    const result = await checkSpotifyLeak({ collections: defaultCollections() });
+    const { checkSpotifyLeakCached, defaultCollections } = require('./services/monitoring/spotifyLeakMonitor');
+    const result = await checkSpotifyLeakCached({ collections: defaultCollections() });
     res.status(result.ok ? 200 : 503).json(result);
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
