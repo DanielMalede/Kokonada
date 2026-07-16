@@ -27,6 +27,10 @@ jest.mock('../app/models/PlaylistSession', () => ({
 jest.mock('../app/models/MedicalProfile', () => ({
   findOne: jest.fn().mockResolvedValue(null),
 }));
+jest.mock('../app/utils/biometricAudit', () => ({
+  logBiometricAccess: jest.fn(),
+  auditedDecrypt: jest.fn(),
+}));
 
 jest.mock('../app/services/spotify', () => ({
   getValidToken:        jest.fn(),
@@ -106,6 +110,7 @@ const User            = require('../app/models/User');
 const MusicProfile    = require('../app/models/MusicProfile');
 const BiometricLog    = require('../app/models/BiometricLog');
 const MedicalProfile  = require('../app/models/MedicalProfile');
+const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const spotify         = require('../app/services/spotify');
 const youtube         = require('../app/services/youtube');
@@ -941,14 +946,17 @@ describe('request_heart_playlist', () => {
     );
   });
 
-  it('falls back to resting HR from the profile when no logs or current HR exist', async () => {
+  it('falls back to resting HR from the encrypted MedicalProfile when no logs or current HR exist (T3.3)', async () => {
     mockBiometricLogs([]);
+    MedicalProfile.findOne.mockResolvedValue({ restingHeartRate: 60 }); // resting baseline now lives here
     const socket = makeSocket();
     await fireHeart(socket, { mode: 'live', reqId: 3 }); // no client HR, fresh state → no stableHR
 
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
-      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 60 }) }), // makeMusicProfile.restingHeartRate
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 60 }) }), // MedicalProfile.restingHeartRate
     );
+    // ADR-0005 (M2): decrypting the resting-HR baseline is an audited special-category access.
+    expect(logBiometricAccess).toHaveBeenCalledWith('user-123', expect.any(String));
   });
 
   it('emits playlist_ready with trigger=heart (immediate, not queued)', async () => {
@@ -961,7 +969,7 @@ describe('request_heart_playlist', () => {
 
   it('emits playlist_error when there is no heart data of any kind', async () => {
     mockBiometricLogs([]);
-    MusicProfile.findOne.mockReturnValue(musicProfileQuery({ ...makeMusicProfile(), restingHeartRate: null }));
+    MedicalProfile.findOne.mockResolvedValue(null); // no resting baseline anywhere
     const socket = makeSocket();
     await fireHeart(socket, { mode: 'live', reqId: 5 });
 
@@ -1127,6 +1135,7 @@ describe('serve ledger wiring (variance engine, Phase 3)', () => {
 describe('HR physiological validation (Bug: HR=0 / garbage / stale)', () => {
   it('rejects a non-physiological logged HR and falls back to resting', async () => {
     mockBiometricLogs([{ heartRate: 0, activity: 'x' }]);
+    MedicalProfile.findOne.mockResolvedValue({ restingHeartRate: 60 }); // resting baseline (T3.3)
     const socket = makeSocket();
     registerBiometricHandler(socket);
     socket._trigger('request_heart_playlist', { mode: 'live', reqId: 11 });

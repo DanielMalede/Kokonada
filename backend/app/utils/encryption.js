@@ -75,4 +75,47 @@ function decrypt(blob, parseJson = false, aad = null) {
   throw lastErr || new Error('Decryption failed');
 }
 
-module.exports = { encrypt, decrypt };
+/**
+ * Deterministic keyed blind index for an encrypted field. HMAC-SHA256 keyed by the primary
+ * encryption key, so the SAME value always maps to the SAME index (queryable) while an
+ * attacker without the key can't precompute it from the plaintext. Lets us look up a row by
+ * an encrypted value (e.g. garminUserId) WITHOUT decrypting every document. (T3.3)
+ * @param {string|null} value
+ * @returns {string|null} hex digest, or null for null/empty input
+ */
+function blindIndex(value) {
+  if (value == null || String(value) === '') return null;
+  const key = getKeys()[0];
+  return crypto.createHmac('sha256', key).update(String(value)).digest('hex');
+}
+
+/**
+ * Rotation-safe LOOKUP indexes: the blind index under the primary key (first) AND under every
+ * configured rotation key (ENCRYPTION_KEY_PREVIOUS). A value indexed before a key rotation stays
+ * resolvable via `{ $in: blindIndexAll(v) }` with no reindex outage — the write path
+ * (blindIndex) still uses the current key, so rows matched under an old key self-heal on next
+ * save. (H2)
+ * @param {string|null} value
+ * @returns {string[]} hex digests (current key first), or [] for null/empty input
+ */
+function blindIndexAll(value) {
+  if (value == null || String(value) === '') return [];
+  return getKeys().map((key) => crypto.createHmac('sha256', key).update(String(value)).digest('hex'));
+}
+
+/**
+ * Structural check: is `blob` shaped like one of OUR ciphertexts (base64 of iv + authTag + >=1
+ * ciphertext byte)? This is about FORMAT, not authenticity — a tampered blob still returns true.
+ * Lets a caller tell "well-formed blob that failed to decrypt" (real tamper/wrong-key/AAD alarm)
+ * apart from "not our ciphertext at all" (genuine legacy plaintext). (M1)
+ * @param {*} blob
+ * @returns {boolean}
+ */
+function isCiphertextFormat(blob) {
+  if (typeof blob !== 'string' || blob.length === 0) return false;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(blob)) return false; // not even base64 → plaintext
+  const buf = Buffer.from(blob, 'base64');
+  return buf.length >= IV_LENGTH + AUTH_TAG_LENGTH + 1;
+}
+
+module.exports = { encrypt, decrypt, blindIndex, blindIndexAll, isCiphertextFormat };

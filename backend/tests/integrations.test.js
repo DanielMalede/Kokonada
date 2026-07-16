@@ -55,6 +55,10 @@ jest.mock('../app/services/wearable/garmin', () => ({
 jest.mock('../app/services/wearable/garminIngest', () => ({
   ingestSummaries: jest.fn(),
 }));
+// garminUserId is encrypted — the webhook resolves the plaintext gid via this blind-index lookup.
+jest.mock('../app/services/wearable/garminUserLookup', () => ({
+  resolveGarminUser: jest.fn(),
+}));
 jest.mock('../app/services/wearable/appleHealth', () => ({
   ingestBatch: jest.fn(),
 }));
@@ -87,6 +91,7 @@ const youtube     = require('../app/services/youtube');
 const garmin      = require('../app/services/wearable/garmin');
 const healthStore = require('../app/services/wearable/healthStore');
 const garminIngest = require('../app/services/wearable/garminIngest');
+const { resolveGarminUser } = require('../app/services/wearable/garminUserLookup');
 const User        = require('../app/models/User');
 const MusicProfile = require('../app/models/MusicProfile');
 const featureService = require('../app/services/features/featureService');
@@ -600,7 +605,7 @@ describe('garminWebhook', () => {
   });
 
   it('groups summaries per Garmin user and ingests for a known user', async () => {
-    User.findOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'user-1' }) });
+    resolveGarminUser.mockResolvedValue({ _id: 'user-1' }); // garminUserId is encrypted → resolved via blind index
     garminIngest.ingestSummaries.mockResolvedValue({ accepted: 2, inserted: 1, profileMetrics: {} });
 
     const body = {
@@ -610,7 +615,7 @@ describe('garminWebhook', () => {
     const res = buildRes();
     await ctrl.garminWebhook({ query: { secret }, body }, res, jest.fn());
 
-    expect(User.findOne).toHaveBeenCalledWith({ garminUserId: 'g1', deletedAt: null });
+    expect(resolveGarminUser).toHaveBeenCalledWith('g1'); // resolves the encrypted id via its blind index
     const [uid, items] = garminIngest.ingestSummaries.mock.calls[0];
     expect(uid).toBe('user-1');
     expect(items).toHaveLength(2); // sleeps + dailies grouped for g1
@@ -619,7 +624,7 @@ describe('garminWebhook', () => {
   });
 
   it('skips summaries whose Garmin userId maps to no user', async () => {
-    User.findOne.mockReturnValue({ select: () => Promise.resolve(null) });
+    resolveGarminUser.mockResolvedValue(null);
     const res = buildRes();
     await ctrl.garminWebhook({ query: { secret }, body: { sleeps: [{ userId: 'ghost', startTimeInSeconds: 1 }] } }, res, jest.fn());
     expect(garminIngest.ingestSummaries).not.toHaveBeenCalled();
@@ -650,7 +655,7 @@ describe('garminWebhook', () => {
   it('accepts the LIVE query-string ?secret= (permanent Garmin transport) and ingests — no deprecation log spam [F2/C1]', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      User.findOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'user-1' }) });
+      resolveGarminUser.mockResolvedValue({ _id: 'user-1' }); // garminUserId encrypted → resolved via blind index
       garminIngest.ingestSummaries.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
       const res = buildRes();
       await ctrl.garminWebhook({
@@ -667,7 +672,7 @@ describe('garminWebhook', () => {
   });
 
   it('falls through to the query ?secret= when a proxy injects an EMPTY header — never blocks live Garmin traffic [F3]', async () => {
-    User.findOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'user-1' }) });
+    resolveGarminUser.mockResolvedValue({ _id: 'user-1' }); // garminUserId encrypted → resolved via blind index
     garminIngest.ingestSummaries.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
     const res = buildRes();
     await ctrl.garminWebhook({
@@ -679,7 +684,7 @@ describe('garminWebhook', () => {
   });
 
   it('accepts the secret via the x-garmin-webhook-secret HEADER and ingests', async () => {
-    User.findOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'user-1' }) });
+    resolveGarminUser.mockResolvedValue({ _id: 'user-1' }); // garminUserId encrypted → resolved via blind index
     garminIngest.ingestSummaries.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
     const res = buildRes();
     await ctrl.garminWebhook({
@@ -687,7 +692,7 @@ describe('garminWebhook', () => {
       query: {},
       body: { dailies: [{ userId: 'g1', startTimeInSeconds: 1, restingHeartRateInBeatsPerMinute: 52 }] },
     }, res, jest.fn());
-    expect(User.findOne).toHaveBeenCalledWith({ garminUserId: 'g1', deletedAt: null });
+    expect(resolveGarminUser).toHaveBeenCalledWith('g1'); // resolves the encrypted id via its blind index
     expect(res.json).toHaveBeenCalledWith({ received: true, users: 1 });
   });
 
@@ -712,7 +717,7 @@ describe('garminWebhook', () => {
       query: {},
       body: { sleeps: [{ userId: { $gt: '' }, startTimeInSeconds: 1 }] },
     }, res, jest.fn());
-    expect(User.findOne).not.toHaveBeenCalled();
+    expect(resolveGarminUser).not.toHaveBeenCalled(); // the injection guard rejects it before the blind-index lookup
     expect(garminIngest.ingestSummaries).not.toHaveBeenCalled();
     expect(res.json).toHaveBeenCalledWith({ received: true, users: 0 });
   });

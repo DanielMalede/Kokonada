@@ -18,6 +18,7 @@ const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/prov
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
+const { logBiometricAccess } = require('../utils/biometricAudit');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const trackCatalogRepo = require('../repositories/trackCatalogRepo');
@@ -290,8 +291,11 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
     return { heartRate: clientHeartRate, activity: state.latestActivity || 'unknown', source: 'client' };
   }
 
-  const profile = await MusicProfile.findOne({ userId });
+  // Resting-HR fallback: the baseline lives on the ENCRYPTED MedicalProfile (T3.3), not on
+  // MusicProfile (which no longer stores plaintext vitals). The getter decrypts on access.
+  const profile = await MedicalProfile.findOne({ userId });
   if (profile && isPhysiologicalHR(profile.restingHeartRate)) {
+    logBiometricAccess(userId, 'live-heart-context'); // ADR-0005: reading the encrypted resting-HR baseline
     return { heartRate: profile.restingHeartRate, activity: 'resting', source: 'resting' };
   }
   return null;
@@ -629,12 +633,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           fetchTracks,
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
+        // Wave-0 HR branch maps the CURRENT heart rate to a coarse band server-side
+        // (adjustBiometricPlaylist → applyBiometricBands); it no longer consumes a resting-HR
+        // baseline, so no MedicalProfile read is needed here. The resting baseline still feeds
+        // the emotion branch via resolveBiometricContext (encrypted MedicalProfile). (T3.3 + Wave-0)
         aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
           biometric: {
             heartRate:  state.stableHR,
             activity:   state.latestActivity,
-            restingHR:  musicProfile.restingHeartRate,
           },
           fetchTracks,
         }), AI_BUDGET_MS, 'adjustBiometricPlaylist');

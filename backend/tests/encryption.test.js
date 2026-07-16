@@ -3,7 +3,28 @@
 // Set a valid 64-hex-char key before requiring the module
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
-const { encrypt, decrypt } = require('../app/utils/encryption');
+const { encrypt, decrypt, isCiphertextFormat } = require('../app/utils/encryption');
+
+describe('isCiphertextFormat (tamper-vs-legacy classifier, M1)', () => {
+  it('recognizes a well-formed GCM blob (iv + authTag + ciphertext)', () => {
+    expect(isCiphertextFormat(encrypt('hello'))).toBe(true);
+    expect(isCiphertextFormat(encrypt(72))).toBe(true);
+  });
+
+  it('rejects short/plaintext legacy values that are NOT our format', () => {
+    expect(isCiphertextFormat('80')).toBe(false);          // too short to be iv+tag+ct
+    expect(isCiphertextFormat('feeling anxious')).toBe(false); // space → not base64
+    expect(isCiphertextFormat('')).toBe(false);
+    expect(isCiphertextFormat(null)).toBe(false);
+    expect(isCiphertextFormat(42)).toBe(false);
+  });
+
+  it('still recognizes a well-formed blob whose auth tag was tampered (format ≠ authenticity)', () => {
+    const buf = Buffer.from(encrypt('sensitive'), 'base64');
+    buf[20] ^= 0xff; // flip a byte in the auth-tag region
+    expect(isCiphertextFormat(buf.toString('base64'))).toBe(true);
+  });
+});
 
 describe('encryption utility', () => {
   describe('encrypt()', () => {

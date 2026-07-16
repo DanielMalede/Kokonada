@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
-const { encrypt, decrypt } = require('../utils/encryption');
+const { encrypt, decrypt, blindIndex } = require('../utils/encryption');
+const { encryptedString } = require('./encryptedField');
 
 const encryptedTokenSchema = new mongoose.Schema({
   blob: { type: String, required: true }, // AES-256-GCM encrypted JSON
@@ -27,10 +28,14 @@ const userSchema = new mongoose.Schema({
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'health_connect', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },
-  // Garmin Health API account id — plaintext + indexed so the server-to-server
-  // webhook can map an inbound Garmin userId to our user. (The same id is also kept
-  // inside the encrypted wearableToken blob.)
-  garminUserId:      { type: String, default: null, index: true },
+  // Garmin Health API account id — special-category account identifier, ENCRYPTED at rest
+  // (T3.3). It can no longer be queried directly; the webhook routes via garminUserIdHmac
+  // (a keyed blind index) instead. (The same id is also kept inside the encrypted
+  // wearableToken blob.)
+  garminUserId:      encryptedString({ default: null }),
+  // Deterministic keyed HMAC of garminUserId — indexed so the Garmin webhook can look up the
+  // owning user WITHOUT decrypting every row. Backfilled on write by the pre-save hook below.
+  garminUserIdHmac:  { type: String, default: null },
 
   // Opaque device token for the sideloaded Garmin watch app (HR streaming).
   // We store ONLY the sha256 hash — the plaintext (whr_…) is shown to the user
@@ -41,9 +46,11 @@ const userSchema = new mongoose.Schema({
     lastSeenAt: { type: Date,   default: null },
   },
 
-  // Mobile push notification tokens (FCM for Android, APNs for iOS)
+  // Mobile push notification tokens (FCM for Android, APNs for iOS) — device secrets,
+  // ENCRYPTED at rest (T3.3). The getter decrypts transparently, so authController's
+  // `t.token === deviceToken` dedup still works.
   pushTokens: [{
-    token:     { type: String, required: true },
+    token:     encryptedString({ required: true }),
     platform:  { type: String, enum: ['ios', 'android', 'web'], required: true },
     createdAt: { type: Date, default: Date.now },
     _id: false,
@@ -68,6 +75,23 @@ userSchema.index({ email: 1 });
 // Sparse: most users never enroll a watch, so watchToken.hash is null for them
 // — sparse keeps those documents out of the index and the lookup unique-friendly.
 userSchema.index({ 'watchToken.hash': 1 }, { sparse: true });
+// Blind-index lookup path for the Garmin webhook (garminUserId is encrypted, unqueryable).
+// Sparse: most users never connect Garmin. (T3.3)
+userSchema.index({ garminUserIdHmac: 1 }, { sparse: true });
+
+// Recompute the garminUserId blind index from the (decrypted) plaintext. Idempotent; null
+// when the id is cleared. Exposed as a method so callers/tests can backfill deterministically.
+userSchema.methods.syncGarminIndex = function () {
+  this.garminUserIdHmac = this.garminUserId ? blindIndex(this.garminUserId) : null;
+  return this;
+};
+
+// Backfill-on-write: keep garminUserIdHmac in lockstep with garminUserId on every save that
+// touches it, so the webhook lookup never goes stale. Synchronous hook (no next) — the
+// modern Mongoose style, and the next-callback form isn't invoked with a callback here. (T3.3)
+userSchema.pre('save', function () {
+  if (this.isModified('garminUserId')) this.syncGarminIndex();
+});
 
 // Helpers for encrypting/decrypting token objects on the document
 userSchema.methods.setToken = function (field, tokenObj) {
