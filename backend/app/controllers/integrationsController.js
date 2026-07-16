@@ -17,6 +17,7 @@ const featureService = require('../services/features/featureService');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
 const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = require('../utils/providerSelect');
 const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
+const timingSafe = require('../utils/timingSafeEqual');
 const { revoke, isRevoked } = require('../utils/tokenDenylist');
 const { getRedis } = require('../config/redis');
 
@@ -526,10 +527,32 @@ exports.garminDisconnect = async (req, res, next) => {
 // per-request auth header from Garmin, so the route is guarded by an unguessable
 // secret (GARMIN_WEBHOOK_SECRET) and we only ingest summaries whose Garmin userId
 // maps to a known user. Summaries are grouped per user, then handed to garminIngest.
+//
+// Auth is FAIL-CLOSED: an unset secret in production rejects (503) rather than
+// accepting the world. The secret is read from the x-garmin-webhook-secret header
+// so it never lands in access/proxy/Sentry logs; the ?secret= query param is a
+// DEPRECATED constant-time fallback for Garmin's already-registered webhook URL.
+// Comparison is constant-time (timingSafeEqualStr — SHA-256 digest + timingSafeEqual)
+// and summary.userId is validated as a string before any DB lookup so a NoSQL
+// operator ({"$gt":""}) can't poison another user's biometrics. (audit T2.1)
 exports.garminWebhook = async (req, res, next) => {
   try {
-    if (process.env.GARMIN_WEBHOOK_SECRET && req.query.secret !== process.env.GARMIN_WEBHOOK_SECRET) {
-      return res.status(401).json({ error: 'unauthorized' });
+    const configured = process.env.GARMIN_WEBHOOK_SECRET;
+    if (!configured) {
+      // Fail closed in production; a non-prod skip keeps local/dev convenient.
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({ error: 'garmin webhook not configured' });
+      }
+    } else {
+      const headerSecret = req.headers?.['x-garmin-webhook-secret'];
+      let provided = headerSecret;
+      if (provided == null && typeof req.query?.secret === 'string') {
+        console.warn('[garmin] webhook secret via query string is deprecated — migrate to the x-garmin-webhook-secret header');
+        provided = req.query.secret;
+      }
+      if (!timingSafe.timingSafeEqualStr(provided ?? '', configured)) {
+        return res.status(401).json({ error: 'unauthorized' });
+      }
     }
 
     const byGarminUser = new Map(); // garminUserId -> [{ type, summary }]
@@ -537,7 +560,9 @@ exports.garminWebhook = async (req, res, next) => {
       if (!Array.isArray(list)) continue;
       for (const summary of list) {
         const gid = summary?.userId;
-        if (!gid) continue;
+        // Only a plain string is a valid Garmin userId — reject objects/operators
+        // ({"$gt":""}) before they can reach User.findOne. (audit T2.1d)
+        if (typeof gid !== 'string' || !gid) continue;
         if (!byGarminUser.has(gid)) byGarminUser.set(gid, []);
         byGarminUser.get(gid).push({ type, summary });
       }
