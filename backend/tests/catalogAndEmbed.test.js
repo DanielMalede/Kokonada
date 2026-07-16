@@ -88,6 +88,23 @@ describe('catalogAndEmbed', () => {
     expect(calls.embed.keys).toEqual(['youtube:def']);
   });
 
+  it('drops spotify tracks before catalog/embed — youtube passes (Spotify-ToS containment)', async () => {
+    const calls = { catalog: null, embed: null };
+    const deps = {
+      upsertCatalog: async (entries) => { calls.catalog = entries; },
+      enqueueEmbedding: async (keys, genresByKey) => { calls.embed = { keys, genresByKey }; },
+    };
+    const res = await catalogAndEmbed([
+      { id: 'sp', provider: 'spotify', uri: 'spotify:track:sp', name: 'S', genres: ['rock'] },
+      { recordingKey: 'spotify:pre', uri: 'spotify:track:pre', genres: ['pop'] },
+      { id: 'abc', provider: 'youtube_music', name: 'Song', genres: ['pop'] },
+    ], deps);
+    expect(res).toEqual({ catalogued: 1, enqueued: 1 });
+    expect(calls.catalog.map(e => e.recordingKey)).toEqual(['youtube:abc']);
+    expect(calls.embed.keys).toEqual(['youtube:abc']);
+    expect(Object.keys(calls.embed.genresByKey)).toEqual(['youtube:abc']);
+  });
+
   it('embeds ALL raw tracks when the existence lookup throws', async () => {
     const calls = { embed: null };
     const deps = {

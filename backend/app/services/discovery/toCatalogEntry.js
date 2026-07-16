@@ -3,6 +3,7 @@
 
 const { recordingKeyOf } = require('../features/featureProvider');
 const trackIdentity = require('../identity/trackIdentity');
+const { isSpotifyContent } = require('../../utils/spotifyContent');
 
 // Normalize a raw library track (shape { id, provider, name, uri, canonicalKey, genres, artist })
 // into a discovery-catalog entry. Pure, no I/O. Returns a catalog-shaped object or null so callers
@@ -18,6 +19,11 @@ function toCatalogEntry(track) {
 
   const recordingKey = recordingKeyOf(track); // honors a pre-set recordingKey, else derives (youtube_music → youtube:<id>)
   if (!recordingKey) return null;
+
+  // Spotify-ToS containment: Spotify Content must never be catalogued into the discovery
+  // corpus. Gate on the derived recordingKey/uri/provider so a spotify: track is dropped
+  // (null) at the single normalization choke every corpus caller flows through.
+  if (isSpotifyContent({ ...track, recordingKey })) return null;
 
   return {
     recordingKey,

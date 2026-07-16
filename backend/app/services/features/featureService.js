@@ -7,6 +7,27 @@ const llmEstimator = require('./llmEstimatorAdapter');
 const repo = require('../../repositories/audioFeatureRepo');
 const { enqueue } = require('../../queues/queue');
 const { QUEUES } = require('../../queues/definitions');
+const { isSpotifyKey, isSpotifyContent } = require('../../utils/spotifyContent');
+
+// Spotify-ToS containment choke: Spotify Content must never land in the AudioFeature
+// store or the embedding queue (which self-enqueues off the store). Both hydrate() and
+// enqueueHydration() drop Spotify recordings here, so no measured-feature fetch, store
+// write, or EMBEDDING_BUILD job can ever be keyed to Spotify Content.
+//
+// The predicate is provider- AND spotifyId-aware (not just recordingKey-scheme) to match the
+// other four gates and the leak monitor: ReccoBeats.supports() keys off spotifyId, so a
+// malformed/mislabeled track (mbid recordingKey + provider:'spotify', or youtube recordingKey +
+// a bare spotifyId) MUST be dropped BEFORE the measured fetch — otherwise it would be measured
+// and stored with a live spotifyId that the leak monitor's own selector would then flag.
+function _isSpotify(p) {
+  return isSpotifyContent(p.track) || isSpotifyKey(p.recordingKey) || spotifyIdOf(p.track) != null;
+}
+function _dropSpotify(prepped, tag) {
+  const kept = prepped.filter(p => !_isSpotify(p));
+  const excluded = prepped.length - kept.length;
+  if (excluded > 0) console.info(`[featureService] ${tag} excluded ${excluded} spotify recording(s) (ToS containment)`);
+  return kept;
+}
 
 // Hydration orchestrator: measured features first (ReccoBeats), engineered LLM
 // estimation only for what the API can't serve. Tracks that fail both providers
@@ -38,7 +59,7 @@ function _doc(result, prepByKey) {
 }
 
 async function hydrate(tracks = []) {
-  const prepped = _prep(tracks);
+  const prepped = _dropSpotify(_prep(tracks), 'hydrate');
   const summary = { requested: prepped.length, targeted: 0, hydrated: 0, api: 0, llm: 0, upgraded: 0, failed: 0 };
   if (!prepped.length) return summary;
 
@@ -91,20 +112,25 @@ async function hydrate(tracks = []) {
     }
   }
 
-  if (docs.length) {
-    await repo.upsertMany(docs);
+  // Belt (Spotify-ToS): prepped is already spotify-free, but never let a mislabeled adapter
+  // result persist a spotify: key OR a doc carrying a live spotifyId, nor seed a spotify-keyed
+  // EMBEDDING_BUILD job. Mirrors the leak monitor's row selector (recordingKey scheme + spotifyId).
+  const storable = docs.filter(d => !isSpotifyKey(d.recordingKey) && d.spotifyId == null);
+  if (storable.length) {
+    await repo.upsertMany(storable);
     // Enrichment (vectors + vibe tags) rides the embedding-build queue —
-    // fire-and-forget, hydration never waits on it.
+    // fire-and-forget, hydration never waits on it. genresByKey is spotify-free by
+    // construction (storable is gated), so no Spotify-derived genres reach the LLM enricher.
     const genresByKey = {};
-    for (const doc of docs) {
+    for (const doc of storable) {
       const prep = prepByKey.get(doc.recordingKey);
       if (prep?.track?.genres?.length) genresByKey[doc.recordingKey] = prep.track.genres;
     }
-    enqueue(QUEUES.EMBEDDING_BUILD, { recordingKeys: docs.map(d => d.recordingKey), genresByKey })
+    enqueue(QUEUES.EMBEDDING_BUILD, { recordingKeys: storable.map(d => d.recordingKey), genresByKey })
       .catch(() => {});
   }
-  summary.hydrated = docs.length;
-  summary.failed = targets.length - docs.length;
+  summary.hydrated = storable.length;
+  summary.failed = targets.length - storable.length;
   return summary;
 }
 
@@ -112,7 +138,7 @@ async function hydrate(tracks = []) {
 // hydration is an enhancement, not a request dependency.
 async function enqueueHydration(tracks = []) {
   try {
-    const prepped = _prep(tracks);
+    const prepped = _dropSpotify(_prep(tracks), 'enqueueHydration');
     if (!prepped.length) return { queued: false, reason: 'no-keyable-tracks' };
 
     const missing = new Set(await repo.missingKeys(prepped.map(p => p.recordingKey)));

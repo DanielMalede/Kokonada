@@ -33,7 +33,7 @@ const ytTrack = (id) => ({ id, provider: 'youtube_music', name: `Video ${id}`, a
 const apiHit = (track, features = { bpm: 120, energy: 0.5 }) => ({
   track, recordingKey: `spotify:${track.id}`, features, source: 'api', confidence: 1,
 });
-const llmHit = (track, features = { bpm: 100 }) => ({
+const ytLlmHit = (track, features = { bpm: 100 }) => ({
   track, recordingKey: `youtube:${track.id}`, features, source: 'llm', confidence: 0.5,
 });
 
@@ -47,122 +47,126 @@ beforeEach(() => {
   enqueue.mockResolvedValue({ queued: true });
 });
 
+// Spotify-ToS containment: ReccoBeats (the measured-feature adapter) supports ONLY
+// spotify tracks, and Spotify Content must never enter the AudioFeature store or the
+// embedding queue. So hydration now excludes spotify: recordings at the entry choke and
+// exercises the LLM-estimation path for the non-spotify (youtube / global mbid) corpus.
 describe('featureService.hydrate', () => {
-  it('skips recordings already measured in the store', async () => {
-    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'api', bpm: 120 }]]));
+  it('excludes spotify tracks entirely — never fetched, stored, or enqueued (Spotify-ToS containment)', async () => {
     reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
+    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => ytLlmHit(t)));
 
-    await hydrate([spTrack('a'), spTrack('b')]);
-
-    const sent = reccoBeats.getFeatures.mock.calls[0][0];
-    expect(sent).toHaveLength(1);
-    expect(sent[0].id).toBe('b');
-  });
-
-  it('UPGRADES a stored LLM estimate once the track has a Spotify id (api overwrites llm)', async () => {
-    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'llm', confidence: 0.5 }]]));
-    reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
-
-    const summary = await hydrate([spTrack('a')]);
-
-    expect(summary.upgraded).toBe(1);
-    expect(reccoBeats.getFeatures.mock.calls[0][0][0].id).toBe('a');
-    expect(llmEstimator.getFeatures).not.toHaveBeenCalled(); // upgrades never re-enter the LLM path
-    expect(repo.upsertMany.mock.calls[0][0][0]).toEqual(expect.objectContaining({ source: 'api', confidence: 1 }));
-  });
-
-  it('stored API measurements are never re-fetched or downgraded', async () => {
-    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'api' }]]));
-
-    const summary = await hydrate([spTrack('a')]);
+    const summary = await hydrate([spTrack('a'), spTrack('b')]);
 
     expect(reccoBeats.getFeatures).not.toHaveBeenCalled();
-    expect(summary.upgraded).toBe(0);
+    expect(llmEstimator.getFeatures).not.toHaveBeenCalled();
+    expect(repo.upsertMany).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(summary.requested).toBe(0);
   });
 
-  it('enqueues embedding enrichment for freshly hydrated recordings (fire-and-forget)', async () => {
+  // Invariant guards (replacing the deleted measured-tier coverage): the gate must hold even for a
+  // MALFORMED/MISLABELED track that a future producer could emit — provider- and spotifyId-aware,
+  // not just recordingKey-scheme. These prove the still-live ReccoBeats measured path can never be
+  // reached (and its spotifyId can never be stored) by a surviving Spotify-tagged input.
+  it('gate holds under a malformed track: mbid recordingKey but provider spotify (never fetched/stored)', async () => {
     reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
 
-    await hydrate([spTrack('a')]);
+    const summary = await hydrate([{ recordingKey: 'mbid:x', provider: 'spotify', id: 'abc' }]);
 
-    expect(enqueue).toHaveBeenCalledWith('embedding-build', expect.objectContaining({
-      recordingKeys: ['spotify:a'],
-      genresByKey: expect.objectContaining({ 'spotify:a': ['pop'] }),
-    }));
+    expect(reccoBeats.getFeatures).not.toHaveBeenCalled();
+    expect(repo.upsertMany).not.toHaveBeenCalled();
+    expect(summary.requested).toBe(0);
   });
 
-  it('api-fed recordings never reach the LLM; api misses do', async () => {
-    const sp = spTrack('a');
-    const yt = ytTrack('v1');
-    reccoBeats.getFeatures.mockResolvedValue([apiHit(sp)]);
-    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => llmHit(t)));
+  it('gate holds under a mislabeled track: youtube recordingKey but a spotifyId (never fetched/stored)', async () => {
+    reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
 
-    await hydrate([sp, yt]);
+    const summary = await hydrate([{ recordingKey: 'youtube:x', spotifyId: 'abc' }]);
 
+    expect(reccoBeats.getFeatures).not.toHaveBeenCalled();
+    expect(repo.upsertMany).not.toHaveBeenCalled();
+    expect(summary.requested).toBe(0);
+  });
+
+  it('hydrates youtube-only tracks via the LLM estimator and stores them', async () => {
+    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => ytLlmHit(t)));
+
+    const summary = await hydrate([ytTrack('v1')]);
+
+    const docs = repo.upsertMany.mock.calls[0][0];
+    expect(docs.map(d => d.recordingKey)).toEqual(['youtube:v1']);
+    expect(summary).toEqual(expect.objectContaining({ hydrated: 1, llm: 1 }));
+  });
+
+  it('enqueues embedding enrichment with spotify-free genresByKey (fire-and-forget)', async () => {
+    const yt = { id: 'v1', provider: 'youtube_music', name: 'V', artist: 'C', genres: ['lofi'] };
+    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => ytLlmHit(t)));
+
+    await hydrate([yt]);
+
+    expect(enqueue).toHaveBeenCalledWith('embedding-build', expect.objectContaining({
+      recordingKeys: ['youtube:v1'],
+      genresByKey: { 'youtube:v1': ['lofi'] },
+    }));
+    const [, payload] = enqueue.mock.calls[0];
+    expect(Object.keys(payload.genresByKey).some(k => /^spotify:/i.test(k))).toBe(false);
+  });
+
+  it('a mixed library hydrates youtube via LLM but excludes spotify (Spotify-ToS containment)', async () => {
+    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => ytLlmHit(t)));
+
+    await hydrate([spTrack('a'), ytTrack('v1')]);
+
+    // reccoBeats supports ONLY spotify; with spotify gated out, only youtube reaches the LLM path.
     const llmSent = llmEstimator.getFeatures.mock.calls[0][0];
     expect(llmSent.map(t => t.id)).toEqual(['v1']);
+    const docs = repo.upsertMany.mock.calls[0][0];
+    expect(docs.map(d => d.recordingKey)).toEqual(['youtube:v1']);
+  });
+
+  it('the store never receives a spotify: doc even if an adapter mislabels one (belt before upsertMany)', async () => {
+    llmEstimator.getFeatures.mockResolvedValue(
+      [{ track: ytTrack('v1'), recordingKey: 'spotify:leak', features: { bpm: 90 }, source: 'llm', confidence: 0.5 }],
+    );
+
+    await hydrate([ytTrack('v1')]);
+
+    expect(repo.upsertMany).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('persists docs carrying identity + provenance and returns an honest summary', async () => {
-    const sp = spTrack('a');
     const yt = ytTrack('v1');
     const ghost = ytTrack('ghost');
-    reccoBeats.getFeatures.mockResolvedValue([apiHit(sp)]);
     llmEstimator.getFeatures.mockImplementation(async (tracks) =>
-      tracks.map(t => (t.id === 'v1' ? llmHit(t) : { track: t, recordingKey: `youtube:${t.id}`, features: null, source: 'llm', confidence: null })));
+      tracks.map(t => (t.id === 'v1'
+        ? ytLlmHit(t)
+        : { track: t, recordingKey: `youtube:${t.id}`, features: null, source: 'llm', confidence: null })));
 
-    const summary = await hydrate([sp, yt, ghost]);
+    const summary = await hydrate([yt, ghost]);
 
     const docs = repo.upsertMany.mock.calls[0][0];
-    expect(docs).toHaveLength(2);
+    expect(docs).toHaveLength(1);
     expect(docs[0]).toEqual(expect.objectContaining({
-      recordingKey: 'spotify:a', spotifyId: 'a', canonicalKey: expect.stringMatching(/^at:/),
-      source: 'api', confidence: 1, bpm: 120,
+      recordingKey: 'youtube:v1', spotifyId: null, canonicalKey: expect.stringMatching(/^at:/),
+      source: 'llm', confidence: 0.5, bpm: 100,
     }));
-    expect(docs[1]).toEqual(expect.objectContaining({ recordingKey: 'youtube:v1', source: 'llm', confidence: 0.5 }));
-    expect(summary).toEqual(expect.objectContaining({ requested: 3, hydrated: 2, api: 1, llm: 1, failed: 1 }));
-  });
-
-  it('estimates a Spotify track ReccoBeats CONFIRMS it lacks (apiStatus miss) — closes the data gap', async () => {
-    const missTrack = spTrack('miss');
-    reccoBeats.getFeatures.mockResolvedValue([
-      { track: missTrack, recordingKey: 'spotify:miss', features: null, source: 'api', confidence: null, apiStatus: 'miss' },
-    ]);
-    llmEstimator.getFeatures.mockImplementation(async (tracks) =>
-      tracks.map(t => ({ track: t, recordingKey: `spotify:${t.id}`, features: { bpm: 128 }, source: 'llm', confidence: 0.6 })));
-
-    const summary = await hydrate([missTrack]);
-
-    expect(llmEstimator.getFeatures.mock.calls[0][0].map(t => t.id)).toEqual(['miss']);
-    expect(summary.llm).toBe(1);
-    expect(summary.failed).toBe(0);
-  });
-
-  it('never estimates a Spotify track whose ReccoBeats batch ERRORED (apiStatus error) — anti-poisoning holds', async () => {
-    const errTrack = spTrack('err');
-    reccoBeats.getFeatures.mockResolvedValue([
-      { track: errTrack, recordingKey: 'spotify:err', features: null, source: 'api', confidence: null, apiStatus: 'error' },
-    ]);
-    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => llmHit(t)));
-
-    const summary = await hydrate([errTrack]);
-
-    expect(llmEstimator.getFeatures).not.toHaveBeenCalled();
-    expect(summary.failed).toBe(1);
+    expect(summary).toEqual(expect.objectContaining({ requested: 2, hydrated: 1, llm: 1, failed: 1 }));
   });
 
   it('dedupes by recordingKey and drops keyless tracks', async () => {
-    reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
+    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => ytLlmHit(t)));
 
-    await hydrate([spTrack('a'), spTrack('a'), { name: 'no id at all' }]);
+    await hydrate([ytTrack('v1'), ytTrack('v1'), { name: 'no id at all' }]);
 
-    expect(reccoBeats.getFeatures.mock.calls[0][0]).toHaveLength(1);
+    expect(llmEstimator.getFeatures.mock.calls[0][0]).toHaveLength(1);
   });
 
   it('does nothing (no adapters, no writes) when everything is already stored', async () => {
-    repo.getMany.mockResolvedValue(new Map([['spotify:a', { source: 'api' }]]));
+    repo.getMany.mockResolvedValue(new Map([['youtube:v1', { source: 'llm' }]]));
 
-    const summary = await hydrate([spTrack('a')]);
+    const summary = await hydrate([ytTrack('v1')]);
 
     expect(reccoBeats.getFeatures).not.toHaveBeenCalled();
     expect(llmEstimator.getFeatures).not.toHaveBeenCalled();
@@ -171,30 +175,11 @@ describe('featureService.hydrate', () => {
   });
 });
 
-describe('shadow audit — outage degradation', () => {
-  it('a ReccoBeats outage never lets LLM guesses replace measurable Spotify features', async () => {
-    const sp = spTrack('a');
-    // API supports the track but the batch failed → features:null
-    reccoBeats.getFeatures.mockResolvedValue([
-      { track: sp, recordingKey: 'spotify:a', features: null, source: 'api', confidence: null },
-    ]);
-    llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => llmHit(t)));
-
-    const summary = await hydrate([sp]);
-
-    // The Spotify track stays MISSING (retried next hydration) instead of being
-    // permanently degraded to an LLM estimate the repo would then protect.
-    expect(llmEstimator.getFeatures).not.toHaveBeenCalled();
-    expect(repo.upsertMany).not.toHaveBeenCalled();
-    expect(summary.failed).toBe(1);
-  });
-});
-
 describe('featureService.enqueueHydration', () => {
   it('short-circuits when nothing is missing', async () => {
     repo.missingKeys.mockResolvedValue([]);
 
-    const result = await enqueueHydration([spTrack('a')]);
+    const result = await enqueueHydration([ytTrack('v1')]);
 
     expect(result).toEqual({ queued: false, reason: 'all-hydrated' });
     expect(enqueue).not.toHaveBeenCalled();
@@ -203,7 +188,7 @@ describe('featureService.enqueueHydration', () => {
   it('enqueues a minimal payload for the missing recordings only', async () => {
     repo.missingKeys.mockResolvedValue(['youtube:v1']);
 
-    const result = await enqueueHydration([spTrack('a'), ytTrack('v1')]);
+    const result = await enqueueHydration([ytTrack('v1')]);
 
     expect(result).toEqual({ queued: true });
     const [queueName, payload] = enqueue.mock.calls[0];
@@ -214,9 +199,28 @@ describe('featureService.enqueueHydration', () => {
     }));
   });
 
+  it('excludes spotify tracks from the enqueued payload (Spotify-ToS containment)', async () => {
+    const result = await enqueueHydration([spTrack('a'), ytTrack('v1')]);
+
+    expect(result).toEqual({ queued: true });
+    // Only the youtube key is diffed against the store — spotify never reaches missingKeys.
+    expect(repo.missingKeys).toHaveBeenCalledWith(['youtube:v1']);
+    const [, payload] = enqueue.mock.calls[0];
+    expect(payload.tracks.map(t => t.provider)).toEqual(['youtube_music']);
+    expect(payload.tracks.some(t => /^spotify:/i.test(t.uri ?? ''))).toBe(false);
+  });
+
+  it('a spotify-only batch enqueues nothing (no keyable non-spotify tracks)', async () => {
+    const result = await enqueueHydration([spTrack('a'), spTrack('b')]);
+
+    expect(result).toEqual({ queued: false, reason: 'no-keyable-tracks' });
+    expect(repo.missingKeys).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('never throws — a repo failure degrades to {queued:false}', async () => {
     repo.missingKeys.mockRejectedValue(new Error('mongo down'));
 
-    await expect(enqueueHydration([spTrack('a')])).resolves.toEqual({ queued: false, reason: 'error' });
+    await expect(enqueueHydration([ytTrack('v1')])).resolves.toEqual({ queued: false, reason: 'error' });
   });
 });

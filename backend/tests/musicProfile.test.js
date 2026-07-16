@@ -45,6 +45,7 @@ jest.mock('../app/services/discovery/corpusIngest', () => ({
   backfillLibrary: jest.fn(async () => ({ catalogued: 0, enqueued: 0 })),
   ingestGlobal: jest.fn(async () => ({ catalogued: 0, enqueued: 0 })),
 }));
+const corpusIngest = require('../app/services/discovery/corpusIngest');
 
 // ── Real service modules (axios mock intercepts their HTTP calls) ──────────────
 const spotify = require('../app/services/spotify');
@@ -558,6 +559,28 @@ describe('buildProfile', () => {
     featureService.enqueueHydration.mockRejectedValueOnce(new Error('queue down'));
 
     await expect(buildProfile('user123', makeMockUser({ hasSpotify: true }))).resolves.toBeDefined();
+  });
+
+  it('excludes spotify tracks from corpus ingest — only non-spotify rows reach ingestLibrary (Spotify-ToS containment)', async () => {
+    youtube.paginateLikedVideos.mockResolvedValue([
+      { id: 'yt1', snippet: { title: 'YT Song', channelTitle: 'Some Artist - Topic' } },
+    ]);
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: true, hasYouTube: true }));
+
+    expect(corpusIngest.ingestLibrary).toHaveBeenCalledTimes(1);
+    const [ingested] = corpusIngest.ingestLibrary.mock.calls[0];
+    expect(ingested.length).toBeGreaterThan(0);
+    expect(ingested.every(t => t.provider !== 'spotify')).toBe(true);
+    expect(ingested.some(t => t.provider === 'youtube_music')).toBe(true);
+  });
+
+  it('a spotify-only library ingests zero rows into the corpus (Spotify-ToS containment)', async () => {
+    await buildProfile('user123', makeMockUser({ hasSpotify: true }));
+
+    expect(corpusIngest.ingestLibrary).toHaveBeenCalledTimes(1);
+    const [ingested] = corpusIngest.ingestLibrary.mock.calls[0];
+    expect(ingested).toEqual([]);
   });
 
   it('builds from listening history (top/saved/recent) without calling audio-features', async () => {

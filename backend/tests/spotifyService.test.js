@@ -267,6 +267,13 @@ describe('OAuth scopes', () => {
     expect(scope).toContain('playlist-read-collaborative');
   });
 
+  it('does NOT request user-read-email / user-read-private (least privilege — getProfile only verifies the token)', () => {
+    const url = spotify.getAuthUrl('state123');
+    const scope = decodeURIComponent(new URL(url).searchParams.get('scope'));
+    expect(scope).not.toContain('user-read-email');
+    expect(scope).not.toContain('user-read-private');
+  });
+
   it('forces the consent dialog (show_dialog=true) so a reconnect re-grants newly-added scopes', () => {
     // A token minted before playlist-modify-*/user-library-modify was added lacks
     // those scopes; with show_dialog=false Spotify silently reuses the old consent

@@ -40,6 +40,8 @@ jest.mock('../app/services/wearable/suunto',      () => ({ verifyWebhookSignatur
 jest.mock('../app/services/wearable/metricStore',   () => ({ persistMetrics: jest.fn() }));
 jest.mock('../app/models/BiometricLog',  () => ({}));
 jest.mock('../app/models/MusicProfile',  () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/models/ServeEvent',    () => ({ deleteMany: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/utils/userRedisPurge', () => ({ purgeUserKeys: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/services/selection/candidatePool', () => ({ invalidateUserPools: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
@@ -58,6 +60,8 @@ const { persistMetrics } = require('../app/services/wearable/metricStore');
 const musicProfileService = require('../app/services/musicProfileService');
 const User               = require('../app/models/User');
 const MusicProfile       = require('../app/models/MusicProfile');
+const ServeEvent         = require('../app/models/ServeEvent');
+const { purgeUserKeys }  = require('../app/utils/userRedisPurge');
 const candidatePool      = require('../app/services/selection/candidatePool');
 const { signOauthState } = require('../app/utils/jwt');
 const ctrl               = require('../app/controllers/integrationsController');
@@ -104,6 +108,15 @@ describe('spotifyDisconnect', () => {
     expect(user.musicProvider).toBeNull();
     expect(MusicProfile.deleteOne).toHaveBeenCalledWith({ userId: 'user-123' });
     expect(res.json).toHaveBeenCalledWith({ message: 'Spotify disconnected' });
+  });
+
+  it('erases the personalized serve history and user Redis state (Spotify retention containment)', async () => {
+    const user = buildUser({ spotifyToken: { blob: 'x' }, musicProvider: 'spotify' });
+    const res = buildRes();
+    await ctrl.spotifyDisconnect({ user }, res, jest.fn());
+
+    expect(ServeEvent.deleteMany).toHaveBeenCalledWith({ userId: 'user-123' });
+    expect(purgeUserKeys).toHaveBeenCalledWith('user-123');
   });
 });
 

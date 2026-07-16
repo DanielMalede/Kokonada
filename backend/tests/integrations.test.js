@@ -80,6 +80,8 @@ jest.mock('../app/services/features/featureService', () => ({
 // Mock mongoose models to avoid the Node 21 / mongoose 9 incompatibility
 jest.mock('../app/models/BiometricLog', () => ({}));
 jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}), findOne: jest.fn() }));
+jest.mock('../app/models/ServeEvent', () => ({ deleteMany: jest.fn().mockResolvedValue({}) }));
+jest.mock('../app/utils/userRedisPurge', () => ({ purgeUserKeys: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),

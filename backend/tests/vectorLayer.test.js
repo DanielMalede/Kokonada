@@ -99,22 +99,22 @@ describe('vectorIndex port (mongo adapter default, injectable fake)', () => {
 describe('embedding.worker — build + vibe enrichment', () => {
   it('builds vectors from stored features and upserts them to the index', async () => {
     featureRepo.getMany.mockResolvedValue(new Map([
-      ['spotify:a', { ...FEATURES, recordingKey: 'spotify:a', canonicalKey: 'at:x|a' }],
+      ['youtube:a', { ...FEATURES, recordingKey: 'youtube:a', canonicalKey: 'at:x|a' }],
     ]));
     const fake = fakeVectorIndex();
     vectorIndex.use(fake);
 
-    const out = await worker.process({ data: { recordingKeys: ['spotify:a'], genresByKey: { 'spotify:a': ['pop'] } } });
+    const out = await worker.process({ data: { recordingKeys: ['youtube:a'], genresByKey: { 'youtube:a': ['pop'] } } });
 
     expect(out.embedded).toBe(1);
-    expect((await vectorIndex.getMany(['spotify:a'])).get('spotify:a')).toHaveLength(70);
+    expect((await vectorIndex.getMany(['youtube:a'])).get('youtube:a')).toHaveLength(70);
   });
 
   it('vibe enrichment is optional: no LLM → vectors still built, tags skipped', async () => {
-    featureRepo.getMany.mockResolvedValue(new Map([['spotify:a', { ...FEATURES }]]));
+    featureRepo.getMany.mockResolvedValue(new Map([['youtube:a', { ...FEATURES }]]));
     vectorIndex.use(fakeVectorIndex());
 
-    const out = await worker.process({ data: { recordingKeys: ['spotify:a'] } });
+    const out = await worker.process({ data: { recordingKeys: ['youtube:a'] } });
 
     expect(out.embedded).toBe(1);
     expect(out.tagged).toBe(0);
@@ -122,17 +122,17 @@ describe('embedding.worker — build + vibe enrichment', () => {
   });
 
   it('sanitizes LLM vibe tags (strings only, capped count and length)', async () => {
-    featureRepo.getMany.mockResolvedValue(new Map([['spotify:a', { ...FEATURES, title: 'Song' }]]));
+    featureRepo.getMany.mockResolvedValue(new Map([['youtube:a', { ...FEATURES, title: 'Song' }]]));
     vectorIndex.use(fakeVectorIndex());
     llmClient.isConfigured.mockReturnValue(true);
     llmClient.generateJson.mockResolvedValue(JSON.stringify({
       tags: [{ i: 0, vibeTags: ['warm', 42, 'x'.repeat(200), 'driving', 'dark', 'hazy', 'extra-sixth', { evil: 1 }] }],
     }));
 
-    await worker.process({ data: { recordingKeys: ['spotify:a'] } });
+    await worker.process({ data: { recordingKeys: ['youtube:a'] } });
 
     const [key, tags] = featureRepo.setVibeTags.mock.calls[0];
-    expect(key).toBe('spotify:a');
+    expect(key).toBe('youtube:a');
     expect(tags.length).toBeLessThanOrEqual(5);
     expect(tags.every(t => typeof t === 'string' && t.length <= 24)).toBe(true);
   });
@@ -143,17 +143,17 @@ describe('embedding.worker — build + vibe enrichment', () => {
 
   it('DILUTION FIX: the stored vector is genre-free (dims 6-69 all zero) even when genresByKey/vibeTags carry real genres', async () => {
     featureRepo.getMany.mockResolvedValue(new Map([
-      ['spotify:genrefull', { ...FEATURES, recordingKey: 'spotify:genrefull', vibeTags: ['warm', 'driving'] }],
+      ['youtube:genrefull', { ...FEATURES, recordingKey: 'youtube:genrefull', vibeTags: ['warm', 'driving'] }],
     ]));
     const fake = fakeVectorIndex();
     vectorIndex.use(fake);
 
     await worker.process({ data: {
-      recordingKeys: ['spotify:genrefull'],
-      genresByKey: { 'spotify:genrefull': ['pop', 'rock', 'jazz', 'metal', 'folk', 'soul'] },
+      recordingKeys: ['youtube:genrefull'],
+      genresByKey: { 'youtube:genrefull': ['pop', 'rock', 'jazz', 'metal', 'folk', 'soul'] },
     } });
 
-    const stored = (await vectorIndex.getMany(['spotify:genrefull'])).get('spotify:genrefull');
+    const stored = (await vectorIndex.getMany(['youtube:genrefull'])).get('youtube:genrefull');
     expect(stored.slice(6)).toEqual(new Array(64).fill(0)); // genre-bag dims never populated
     // matches a feature-only build exactly — no dilution of the feature dims' relative magnitude.
     expect(stored).toEqual(buildVector(FEATURES, []));
@@ -179,26 +179,26 @@ describe('embedding.worker — build + vibe enrichment', () => {
 
 describe('shadow audit — vector & critic chaos', () => {
   it('a ruthless critic (LLM rejects every call) cannot loop or block: vectors stored, tags skipped, NO re-enqueue', async () => {
-    featureRepo.getMany.mockResolvedValue(new Map([['spotify:a', { ...FEATURES }]]));
+    featureRepo.getMany.mockResolvedValue(new Map([['youtube:a', { ...FEATURES }]]));
     vectorIndex.use(fakeVectorIndex());
     llmClient.isConfigured.mockReturnValue(true);
     llmClient.generateJson.mockRejectedValue(new Error('Groq rejects everything'));
 
-    const out = await worker.process({ data: { recordingKeys: ['spotify:a'] } });
+    const out = await worker.process({ data: { recordingKeys: ['youtube:a'] } });
 
     expect(out).toEqual({ embedded: 1, tagged: 0 }); // one pass, done — no retry loop exists
-    expect((await vectorIndex.getMany(['spotify:a'])).get('spotify:a')).toBeDefined();
+    expect((await vectorIndex.getMany(['youtube:a'])).get('youtube:a')).toBeDefined();
   });
 
   it('freshly written vectors are immediately readable (no stale window between hydrate and select)', async () => {
     const fake = fakeVectorIndex();
     vectorIndex.use(fake);
-    featureRepo.getMany.mockResolvedValue(new Map([['spotify:hot', { ...FEATURES }]]));
+    featureRepo.getMany.mockResolvedValue(new Map([['youtube:hot', { ...FEATURES }]]));
 
-    await worker.process({ data: { recordingKeys: ['spotify:hot'] } });
-    const read = await vectorIndex.getMany(['spotify:hot']); // same tick, no delay
+    await worker.process({ data: { recordingKeys: ['youtube:hot'] } });
+    const read = await vectorIndex.getMany(['youtube:hot']); // same tick, no delay
 
-    expect(read.get('spotify:hot')).toHaveLength(70);
+    expect(read.get('youtube:hot')).toHaveLength(70);
   });
 
   it('a total vector-index write outage never breaks enrichment consumers (adapter contract)', async () => {
@@ -207,9 +207,9 @@ describe('shadow audit — vector & critic chaos', () => {
       getMany: jest.fn().mockResolvedValue(new Map()),
       queryNear: jest.fn().mockResolvedValue([]),
     });
-    featureRepo.getMany.mockResolvedValue(new Map([['spotify:a', { ...FEATURES }]]));
+    featureRepo.getMany.mockResolvedValue(new Map([['youtube:a', { ...FEATURES }]]));
 
-    await expect(worker.process({ data: { recordingKeys: ['spotify:a'] } })).rejects.toThrow('index down');
+    await expect(worker.process({ data: { recordingKeys: ['youtube:a'] } })).rejects.toThrow('index down');
     // BullMQ marks the job failed (removeOnFail) — serving reads via pipeline are
     // independently guarded by getMany().catch(() => new Map()).
   });

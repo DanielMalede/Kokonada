@@ -29,11 +29,15 @@ describe('writeSessionPlaylist (D-1 Option A transport)', () => {
     const user = makeUser();
     const res = await writeSessionPlaylist(user, URIS);
 
+    // Current Spotify create-playlist endpoint (POST /me/playlists); /users/{id}/playlists is
+    // deprecated and required a preceding GET /me for the user id — which we no longer make.
     expect(axios.post).toHaveBeenCalledWith(
-      expect.stringContaining('/users/spotify-user/playlists'),
+      expect.stringContaining('/me/playlists'),
       expect.objectContaining({ name: 'Kokonada Session', public: false }),
       expect.anything(),
     );
+    expect(axios.post.mock.calls[0][0]).not.toContain('/users/');
+    expect(axios.get).not.toHaveBeenCalled(); // no GET /me needed anymore
     expect(user.spotifySessionPlaylistId).toBe('pl-123');
     expect(user.save).toHaveBeenCalled();
     expect(axios.put).toHaveBeenCalledWith(

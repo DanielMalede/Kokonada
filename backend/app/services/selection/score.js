@@ -5,6 +5,13 @@ const { exposurePenalty } = require('../ledger/exposureScore');
 // Weighted candidate scoring. Every term ∈ [0,1] (exposure capped at 2 before
 // weighting); weights are env-tunable now and become bandit-sampled posteriors
 // with the T7 feedback loop.
+//
+// Spotify-ToS containment guard (ADR 0011): the T7 bandit posteriors that will replace these
+// static env weights MUST NEVER be fit on Spotify-derived signals (Spotify Content, its
+// audio features, or engagement measured against Spotify recordings). Fitting a model on
+// Spotify Content would recreate the prohibited "derived functionality / ML ingestion" the
+// containment removed. Today this scorer reads only static env weights + non-Spotify corpus
+// features, so there is nothing to change here yet — this note pins the constraint for T7.
 
 // Weights resolve from env ONCE and memoize: process.env access is a syscall-ish
 // C++ hop, and the scorer runs hundreds of times per generation under load

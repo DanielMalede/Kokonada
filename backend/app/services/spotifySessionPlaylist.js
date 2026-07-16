@@ -24,16 +24,16 @@ function tagOp(op, err) {
 
 async function createSessionPlaylist(user) {
   return spotify.withFreshToken(user, async (token) => {
-    const { data: me } = await axios
-      .get(`${BASE_API}/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .catch((e) => tagOp('GET /me', e));
+    // POST /me/playlists is Spotify's current "Create Playlist" endpoint; it creates the
+    // playlist for the authenticated user directly, so the prior GET /me (just to learn the
+    // user id for the deprecated /users/{id}/playlists path) is no longer needed.
     const { data: playlist } = await axios
       .post(
-        `${BASE_API}/users/${encodeURIComponent(me.id)}/playlists`,
+        `${BASE_API}/me/playlists`,
         { name: PLAYLIST_NAME, public: false, description: PLAYLIST_DESCRIPTION },
         { headers: { Authorization: `Bearer ${token}` } },
       )
-      .catch((e) => tagOp('POST /users/{id}/playlists', e));
+      .catch((e) => tagOp('POST /me/playlists', e));
     return playlist.id;
   });
 }

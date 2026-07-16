@@ -602,7 +602,14 @@ async function buildProfile(userId, user, onProgress = () => {}) {
   // Dark launch: queue audio-feature hydration for the freshly built library.
   // Fire-and-forget — profile building never waits on (or fails with) the store.
   featureService.enqueueHydration(library).catch(() => {});
-  corpusIngest.ingestLibrary(library).catch(() => {}); // grow the discovery corpus
+  // Spotify-ToS containment (defense-in-depth): the discovery corpus is a persistent,
+  // cross-user cache, so Spotify Content must never be seeded into it. Strip spotify rows
+  // before ingest — the catalog choke (toCatalogEntry) drops them too, but filtering here
+  // keeps the corpus caller honest and the excluded count auditable.
+  const corpusLibrary = library.filter(t => t.provider !== 'spotify');
+  const excludedSpotify = library.length - corpusLibrary.length;
+  if (excludedSpotify > 0) console.info(`[musicProfile] corpus ingest excluded ${excludedSpotify} spotify track(s) (ToS containment)`);
+  corpusIngest.ingestLibrary(corpusLibrary).catch(() => {}); // grow the discovery corpus
 
   return profile;
 }
