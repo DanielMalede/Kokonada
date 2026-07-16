@@ -17,15 +17,21 @@ describe('toCatalogEntry', () => {
     });
   });
 
-  it('normalizes a raw spotify library track (recordingKey spotify:<id>)', () => {
-    const entry = toCatalogEntry({ id: 'xyz', provider: 'spotify', name: 'S2', uri: 'spotify:track:xyz' });
-    expect(entry.recordingKey).toBe('spotify:xyz');
-    expect(entry.title).toBe('S2');
+  it('drops a raw spotify library track — returns null (Spotify-ToS containment)', () => {
+    expect(toCatalogEntry({ id: 'xyz', provider: 'spotify', name: 'S2', uri: 'spotify:track:xyz' })).toBeNull();
   });
 
-  it('passes an already-normalized track through unchanged (idempotent)', () => {
-    const entry = toCatalogEntry({ recordingKey: 'spotify:q', title: 'T', canonicalKey: 'isrc:USABC1234567' });
-    expect(entry.recordingKey).toBe('spotify:q');
+  it('drops a pre-keyed spotify recordingKey — returns null (Spotify-ToS containment)', () => {
+    expect(toCatalogEntry({ recordingKey: 'spotify:q', title: 'T', canonicalKey: 'isrc:USABC1234567' })).toBeNull();
+  });
+
+  it('drops a track whose uri is a spotify uri even if the provider differs', () => {
+    expect(toCatalogEntry({ id: 'z', provider: 'foo', uri: 'spotify:track:z' })).toBeNull();
+  });
+
+  it('passes an already-normalized non-spotify track through unchanged (idempotent)', () => {
+    const entry = toCatalogEntry({ recordingKey: 'youtube:q', title: 'T', canonicalKey: 'isrc:USABC1234567' });
+    expect(entry.recordingKey).toBe('youtube:q');
     expect(entry.title).toBe('T');
     expect(entry.canonicalKey).toBe('isrc:USABC1234567');
   });
@@ -52,7 +58,7 @@ describe('toCatalogEntry', () => {
   });
 
   it('derives canonicalKey when absent but title+artist are present', () => {
-    const entry = toCatalogEntry({ id: 'x', provider: 'spotify', uri: 'spotify:track:x', name: 'Song', artist: 'A' });
+    const entry = toCatalogEntry({ id: 'x', provider: 'youtube_music', name: 'Song', artist: 'A' });
     expect(entry.canonicalKey).not.toBeNull();
     expect(entry.canonicalKey).toEqual(expect.stringMatching(/^(at:|isrc:)/));
   });

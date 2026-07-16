@@ -2,6 +2,7 @@
 'use strict';
 
 const { toCatalogEntry } = require('./toCatalogEntry');
+const { isSpotifyContent } = require('../../utils/spotifyContent');
 
 // Fan a batch of library tracks into the discovery corpus: upsert the anonymous catalog
 // (metadata + genres) and enqueue an embedding-build job. Deps are injected so the unit is
@@ -13,7 +14,10 @@ const { toCatalogEntry } = require('./toCatalogEntry');
 // already in the corpus so a resumable bulk run wastes no Groq spend. A missing/failed
 // existence lookup falls back to embedding ALL — re-paying is acceptable, dropping is not.
 async function catalogAndEmbed(tracks = [], deps = {}) {
-  const entries = (tracks || []).map(toCatalogEntry).filter(Boolean);
+  // toCatalogEntry already drops Spotify Content; this is the belt-and-suspenders gate at
+  // the write choke — nothing spotify: reaches upsertCatalog/enqueueEmbedding even if a
+  // caller injects a pre-built entry that bypassed normalization (Spotify-ToS containment).
+  const entries = (tracks || []).map(toCatalogEntry).filter(Boolean).filter(e => !isSpotifyContent(e));
   if (!entries.length) return { catalogued: 0, enqueued: 0 };
 
   await deps.upsertCatalog(entries);
