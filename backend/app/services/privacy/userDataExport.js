@@ -17,6 +17,7 @@ const ServeEvent        = require('../../models/ServeEvent');
 const Identity          = require('../../models/Identity');
 const RefreshToken      = require('../../models/RefreshToken');
 const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
+const ConsentRecord     = require('../../models/ConsentRecord');
 const User              = require('../../models/User');
 const { logBiometricAccess } = require('../../utils/biometricAudit');
 
@@ -31,6 +32,7 @@ const COLLECTIONS = [
   { model: Identity,     redact: ['passwordHash'] },   // argon2id hash — never exported
   { model: RefreshToken, redact: ['tokenHash'] },      // session secret — never exported
   { model: UnclassifiedTrack },
+  { model: ConsentRecord },                            // Art.9 consent history (audit H-9)
 ];
 
 // Curated, non-secret slice of the User doc. Deliberately excludes OAuth token blobs
@@ -76,4 +78,4 @@ async function exportUserData(userId) {
   };
 }
 
-module.exports = { exportUserData };
+module.exports = { exportUserData, COLLECTIONS };

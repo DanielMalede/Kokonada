@@ -19,6 +19,10 @@ const {
 } = require('../controllers/integrationsController');
 // Per-provider wearable erasure lives in a SEPARATE controller (ownership ruling). (T3.2)
 const { deleteWearableProvider } = require('../controllers/wearableErasureController');
+// Server-side Art.9 consent hard gate for special-category ingestion (audit H-9). (WS5)
+const requireConsent = require('../middleware/requireConsent');
+
+const HEALTH_CONSENT = 'health_biometric_processing';
 
 // Public OAuth callbacks. The browser arrives here from the provider as a
 // top-level navigation carrying NO cookie/Bearer/ct, so these MUST sit ABOVE
@@ -33,6 +37,9 @@ router.post('/garmin/webhook',   garminWebhook); // Garmin Health API server-to-
 
 // Watch HR stream (PUBLIC — authenticated by the opaque device token, not the
 // session cookie; same placement rationale as the webhooks above).
+// TODO(H-9): watch/hr and garmin/webhook are INTENTIONALLY left UNGATED by requireConsent for
+// now — they authenticate device-token/webhook-secret (no session req.user) and are separate
+// flows not yet user-facing/approved for the consent gate. Gate them when they become so.
 router.post('/watch/hr', watchLimiter, watchHrIngest);
 
 // Watch pairing-code exchange (PUBLIC — the watch has no session; it presents the
@@ -72,11 +79,13 @@ router.get('/youtube/status',         youtubeStatus);
 router.get('/garmin/connect',        garminConnect);
 router.delete('/garmin/disconnect',  garminDisconnect);
 
-// Apple HealthKit (mobile push — no server-side OAuth needed)
-router.post('/apple/push',           appleHealthPush);
+// Apple HealthKit (mobile push — no server-side OAuth needed). Special-category ingestion →
+// gated behind a current-version Art.9 consent record (audit H-9). (WS5)
+router.post('/apple/push',           requireConsent(HEALTH_CONSENT), appleHealthPush);
 
-// Health store batch (HealthKit / Health Connect medical-profile backfill + delta sync)
-router.post('/health/batch',         healthBatchIngest);
+// Health store batch (HealthKit / Health Connect medical-profile backfill + delta sync).
+// Special-category ingestion → same consent hard gate. (WS5)
+router.post('/health/batch',         requireConsent(HEALTH_CONSENT), healthBatchIngest);
 
 // Suunto (webhook — raw body needed for HMAC)
 router.post('/suunto/webhook',       suuntoWebhook);
