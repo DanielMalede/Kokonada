@@ -5,6 +5,7 @@ const vectorIndex = require('../services/vector/vectorIndex');
 const { buildVector } = require('../services/vector/embedding');
 const llmClient = require('../services/llmClient');
 const { isSpotifyKey } = require('../utils/spotifyContent');
+const { isYoutubeKey } = require('../utils/youtubeContent');
 
 // Enrichment worker (embedding-build queue): builds deterministic v1 vectors
 // from stored features and, when an LLM is configured, adds sanitized vibe
@@ -66,10 +67,12 @@ async function processJob(job) {
   const features = await featureRepo.getMany(recordingKeys);
   const docs = [];
   for (const key of recordingKeys) {
-    // Spotify-ToS containment (belt-and-suspenders): never build/store a Spotify-keyed
-    // vector even if a spotify: key slips past the upstream hydration gate — the embedding
-    // index is a persistent, cross-user cache of derived Spotify Content otherwise.
-    if (isSpotifyKey(key)) continue;
+    // Third-party-ToS containment (belt-and-suspenders): never build/store a Spotify- OR
+    // YouTube-keyed vector even if a spotify:/youtube: key slips past the upstream hydration
+    // gate — the embedding index is a persistent, cross-user cache of derived third-party
+    // Content otherwise (Spotify Developer Terms + YouTube API Services Terms). Only mbid:
+    // (CC0) vectors reach the index.
+    if (isSpotifyKey(key) || isYoutubeKey(key)) continue;
     const doc = features.get(key);
     if (!doc) continue;
     docs.push({
