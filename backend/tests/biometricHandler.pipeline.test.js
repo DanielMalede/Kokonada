@@ -732,6 +732,36 @@ describe('provider selection', () => {
   });
 });
 
+// ── YouTube-only discovery sources from the vector corpus, never search.list ──────
+// The per-generation YouTube search.list call (100 quota units) is retired. A YouTube-only
+// user's discovery candidates come from the provider-agnostic mbid vector corpus, exactly
+// like the Spotify sourcing path — no quota is spent on a live YouTube search per generation.
+describe('YouTube-only discovery — no per-generation search.list', () => {
+  const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
+
+  beforeEach(() => {
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    // Capture + invoke the fetchTracks closure so the discovery forward actually fires.
+    geminiEngine.adjustBiometricPlaylist.mockImplementation(async ({ fetchTracks }) => {
+      await fetchTracks(AI_PARAMS);
+      return { params: AI_PARAMS, tracks: DISCOVERY_TRACKS };
+    });
+  });
+
+  it('routes discovery through the vector corpus (candidates still returned)', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(vectorDiscoveryFetch).toHaveBeenCalled();
+  });
+
+  it('makes ZERO calls to the YouTube search.list endpoint during generation', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(youtube.searchRecommendations).not.toHaveBeenCalled();
+  });
+});
+
 // ── Error handling ────────────────────────────────────────────────────────────
 
 describe('error handling', () => {

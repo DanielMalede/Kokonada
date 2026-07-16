@@ -570,8 +570,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           return onTaste;
         };
       } else {
-        const accessToken = await youtube.getValidToken(user);
-        fetchTracks = (params) => youtube.searchRecommendations(accessToken, { ...params, limit: DISCOVERY_FETCH_LIMIT });
+        // YouTube-as-data, no Spotify playback: keep the OAuth token warm for first-party
+        // taste import, but discovery no longer burns a per-generation search.list (100 quota
+        // units). Candidates come from the SAME provider-agnostic mbid vector corpus the
+        // Spotify path uses — never a live YouTube search.
+        await youtube.getValidToken(user);
+        fetchTracks = (params) => vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
       }
     } catch (err) {
       emit('playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
