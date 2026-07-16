@@ -17,6 +17,13 @@ const mid = (r) => (Array.isArray(r) && r.length === 2 ? (num(r[0]) + num(r[1]))
 // ~0.48 genre-orthogonal collapsed hits the old 0.5 floor rejected.
 const featureOnlyTarget = () => process.env.DISCOVERY_FEATURE_ONLY_TARGET !== 'false';
 
+// Activation flag for the #139 dormant genre-Jaccard seam (see discoveryVectorService._scoreTotal).
+// OPT-IN (default OFF — strict === 'true', matching bandAwareEnabled): when ON we thread the mood's
+// seed_genres as queryGenres so scoring adds a small genre-relevance boost. This is a SCORING-LAYER
+// term only — the query VECTOR stays genre-free: seedGenres remains gated by DISCOVERY_FEATURE_ONLY_TARGET
+// (the #139 invariant) and MUST NOT be touched here.
+const genreRelevanceEnabled = () => process.env.DISCOVERY_GENRE_RELEVANCE === 'true';
+
 // Map the generator's aiParams to the buildVector feature space. Params carry bpm as a
 // center and energy as a [min,max] band — take the center / midpoint.
 function extractTargetFeatures(aiParams = {}) {
@@ -57,6 +64,7 @@ async function vectorDiscoveryFetch({ musicProfile = {}, aiParams = {}, blacklis
   return discoveryVectorService.find({
     targetFeatures: biasToBand(extractTargetFeatures(aiParams), targets),
     seedGenres: featureOnlyTarget() ? [] : (Array.isArray(aiParams.seed_genres) ? aiParams.seed_genres : []),
+    queryGenres: genreRelevanceEnabled() ? (Array.isArray(aiParams.seed_genres) ? aiParams.seed_genres : []) : [],
     excludeCanonicalKeys: exclude,
     targets: targets ?? null,
   });

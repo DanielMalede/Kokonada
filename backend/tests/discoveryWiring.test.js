@@ -6,7 +6,7 @@ const { vectorDiscoveryFetch, extractTargetFeatures } = require('../app/services
 
 describe('discoveryFetch', () => {
   beforeEach(() => mockFind.mockClear());
-  afterEach(() => { delete process.env.DISCOVERY_FEATURE_ONLY_TARGET; });
+  afterEach(() => { delete process.env.DISCOVERY_FEATURE_ONLY_TARGET; delete process.env.DISCOVERY_GENRE_RELEVANCE; });
 
   it('extracts sonic targets from aiParams (bpm center + energy midpoint + valence)', () => {
     expect(extractTargetFeatures({ target_bpm: 120, energy: [0.2, 0.5], valence: 0.6 }))
@@ -56,8 +56,28 @@ describe('discoveryFetch', () => {
     expect(mockFind.mock.calls[0][0].targetFeatures).toMatchObject({ bpm: 90, energy: 0.15000000000000002, valence: 0.3 });
   });
 
-  it('DORMANCY GUARD: never passes queryGenres to find() — the genre-relevance seam stays dormant until an explicit future activation', async () => {
+  it('DORMANT BY DEFAULT: passes queryGenres:[] to find() — the genre-relevance seam is byte-equivalent to off (empty set → _scoreTotal returns cosine unchanged)', async () => {
     await vectorDiscoveryFetch({ musicProfile: {}, aiParams: { target_bpm: 120, seed_genres: ['rock', 'pop'] } });
-    expect(mockFind.mock.calls[0][0].queryGenres).toBeUndefined();
+    expect(mockFind.mock.calls[0][0].queryGenres).toEqual([]);
+  });
+
+  it('DISCOVERY_GENRE_RELEVANCE=true activates the seam — threads aiParams.seed_genres as queryGenres', async () => {
+    process.env.DISCOVERY_GENRE_RELEVANCE = 'true';
+    await vectorDiscoveryFetch({ musicProfile: {}, aiParams: { target_bpm: 120, seed_genres: ['rock', 'pop'] } });
+    expect(mockFind.mock.calls[0][0].queryGenres).toEqual(['rock', 'pop']);
+  });
+
+  it('DISCOVERY_GENRE_RELEVANCE=true with a non-array seed_genres falls back to queryGenres:[] (no throw, seam stays inert)', async () => {
+    process.env.DISCOVERY_GENRE_RELEVANCE = 'true';
+    await vectorDiscoveryFetch({ musicProfile: {}, aiParams: { target_bpm: 120, seed_genres: 'rock' } });
+    expect(mockFind.mock.calls[0][0].queryGenres).toEqual([]);
+  });
+
+  it('VECTOR-INVARIANT under active seam: DISCOVERY_GENRE_RELEVANCE=true scores genre-aware (queryGenres) while the query VECTOR stays genre-free (seedGenres:[]) — DISCOVERY_FEATURE_ONLY_TARGET default keeps #139 intact', async () => {
+    process.env.DISCOVERY_GENRE_RELEVANCE = 'true';
+    await vectorDiscoveryFetch({ musicProfile: {}, aiParams: { target_bpm: 120, seed_genres: ['rock', 'pop'] } });
+    const arg = mockFind.mock.calls[0][0];
+    expect(arg.seedGenres).toEqual([]);
+    expect(arg.queryGenres).toEqual(['rock', 'pop']);
   });
 });
