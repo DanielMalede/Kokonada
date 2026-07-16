@@ -312,6 +312,30 @@ function applyBiometricBands(params, ctx) {
   return out;
 }
 
+// Wave-0 hardening (H1): the client-supplied activity chip is untrusted and is
+// interpolated into the LLM prompt. Validate it against the KNOWN preset enum so a
+// non-standard client can never inject arbitrary free-text (undermining the closed-
+// vocabulary guarantee). A missing value → null (omit the line); an unrecognized value
+// → 'unknown' (never the raw string).
+const ACTIVITY_PRESETS = ['resting', 'walking', 'running', 'cycling', 'swimming', 'strength', 'unknown'];
+const _ACTIVITY_ALIASES = {
+  rest: 'resting', idle: 'resting', still: 'resting',
+  walk: 'walking', stroll: 'walking', hike: 'walking', hiking: 'walking',
+  run: 'running', jog: 'running', jogging: 'running', sprint: 'running', cardio: 'running',
+  cycle: 'cycling', bike: 'cycling', biking: 'cycling', spinning: 'cycling',
+  swim: 'swimming',
+  strength_training: 'strength', 'strength training': 'strength',
+  weights: 'strength', lifting: 'strength', gym: 'strength', workout: 'strength', hiit: 'strength',
+};
+
+function normalizeActivity(activity) {
+  if (typeof activity !== 'string' || !activity.trim()) return null;
+  const key = activity.toLowerCase().trim();
+  if (ACTIVITY_PRESETS.includes(key)) return key;
+  if (_ACTIVITY_ALIASES[key]) return _ACTIVITY_ALIASES[key];
+  return 'unknown';
+}
+
 // ── Wave-0 egress containment: free-text note → structured intent (T0.2) ──────
 // Deterministic, zero-LLM, CLOSED-VOCABULARY extraction. Only canonical tags already
 // in our lexicon are emitted, so arbitrary user text (or PII) can never leak through.
@@ -377,4 +401,5 @@ module.exports = {
   biometricBand,
   applyBiometricBands,
   extractIntent,
+  normalizeActivity,
 };

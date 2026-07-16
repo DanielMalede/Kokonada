@@ -5,7 +5,7 @@ const axios            = require('axios');
 const { withRetry }    = require('../utils/retry');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
-const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, extractIntent } = require('./moodDescriptors');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -182,7 +182,9 @@ function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null,
   // closed-vocabulary set of derived intent tags (extractIntent), so only canonical
   // tokens — never the user's own words / PII — can enter the outbound request.
   const intent = extractIntent(textPrompt);
-  const effectiveActivity = activity || intent.activity;
+  // H1: the client-supplied activity CHIP is validated against the preset enum before it
+  // can enter the prompt; the server-derived intent activity is already closed-vocabulary.
+  const effectiveActivity = normalizeActivity(activity) || intent.activity;
   const intentLine = intent.keywords.length
     ? `Derived listener intent (structured tags, not the user's words): ${intent.keywords.join(', ')}`
     : '';
@@ -202,7 +204,7 @@ User's musical taste profile (anonymised):
 - Baseline acousticness: ${acousticness ?? 'unknown'}
 
 Current emotional state — 2D coordinates from an emotion wheel (x = arousal, y = valence, range -1 to 1):
-${JSON.stringify(emotionTaps)}
+${JSON.stringify((emotionTaps || []).map((t) => ({ x: Number(t?.x), y: Number(t?.y) })))}
 ${intentLine}
 ${effectiveActivity ? `Current activity: ${effectiveActivity}` : ''}
 
@@ -227,7 +229,9 @@ Analyse the emotional coordinates in the context of the user's taste profile and
  * returns (adjustBiometricPlaylist → applyBiometricBands).
  */
 function _buildBiometricPrompt(musicProfile, biometric, seed = null) {
-  const { heartRate, activity } = biometric;
+  const { heartRate } = biometric;
+  // H1: normalize the activity to the known preset enum before it enters the prompt.
+  const activity = normalizeActivity(biometric.activity);
   const band = bandFromHeartRate(heartRate) || 'active';
 
   return `You are a music curator matching a listener's physiological intensity.

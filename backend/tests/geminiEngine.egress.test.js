@@ -152,6 +152,41 @@ describe('outbound body — no Spotify Content (T0.3)', () => {
   });
 });
 
+// ── Hardening H1: client activity is validated to the preset enum ─────────────
+
+describe('outbound body — client activity is preset-validated (H1)', () => {
+  it('an arbitrary client activity chip never reaches the outbound request', async () => {
+    mockLLM();
+    await buildEmotionPlaylist({
+      musicProfile: SENTINEL_PROFILE, emotionTaps: [{ x: 0.1, y: 0.95 }],
+      activity: 'SENTINEL_ACTIVITY_INJECTION <script>', fetchTracks: jest.fn().mockResolvedValue([]),
+    });
+    const body = outboundBody();
+    expect(body).not.toContain('SENTINEL_ACTIVITY_INJECTION');
+    expect(body).not.toContain('<script>');
+  });
+});
+
+// ── Hardening M1: emotionTaps are reduced to {x,y} only ───────────────────────
+
+describe('outbound body — emotionTaps carry only x/y (M1)', () => {
+  it('extra client-supplied keys on a tap object never reach the outbound request', async () => {
+    mockLLM();
+    await buildEmotionPlaylist({
+      musicProfile: SENTINEL_PROFILE,
+      emotionTaps: [{ x: 0.1, y: 0.95, pii: 'SENTINEL_TAP_PII', note: '<injected>' }],
+      fetchTracks: jest.fn().mockResolvedValue([]),
+    });
+    const body = outboundBody();
+    expect(body).not.toContain('SENTINEL_TAP_PII');
+    expect(body).not.toContain('<injected>');
+    expect(body).not.toContain('pii');
+    // The coordinates themselves are still present.
+    expect(body).toContain('0.1');
+    expect(body).toContain('0.95');
+  });
+});
+
 // ── T0.4: fail closed — no vetted provider means NO LLM call at all ────────────
 
 describe('no vetted provider → fail closed (T0.4)', () => {
