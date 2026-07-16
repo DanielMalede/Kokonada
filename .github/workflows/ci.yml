@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history so a secret in any commit is caught
+          # On push/PR gitleaks-action scans only THIS event's commit range — not the
+          # whole repo. The full-history sweep runs weekly in secret-scan-history.yml.
+          fetch-depth: 0
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
