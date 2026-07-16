@@ -27,4 +27,14 @@ const biometricLogSchema = new mongoose.Schema({
 
 biometricLogSchema.index({ userId: 1, recordedAt: -1 });
 
+// Retention (T3.1): special-category health samples are kept only as long as the analytics
+// window needs them, then Mongo expires them (data-minimization). The longest reader is the
+// 30-day rolling RHR baseline (services/biosonic/baselines.js WINDOW_DAYS=30); retain 90 days
+// — 3x headroom so recomputation after an app gap is never starved, matching the ServeEvent
+// 90-day precedent — but special-category data never lingers indefinitely. Env-tunable.
+// DEPLOY NOTE: creating this TTL index on the existing prod collection triggers a background
+// index build — a human-gated Pause & Guide action (see PR body); the code ships regardless.
+const RETENTION_DAYS = Number(process.env.BIOMETRIC_RETENTION_DAYS) || 90;
+biometricLogSchema.index({ recordedAt: 1 }, { expireAfterSeconds: RETENTION_DAYS * 24 * 3600 });
+
 module.exports = mongoose.model('BiometricLog', biometricLogSchema);
