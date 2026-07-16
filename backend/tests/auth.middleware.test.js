@@ -207,7 +207,7 @@ describe('auth middleware', () => {
       const ct = signConnectToken('ct-user');
       mockSelect.mockResolvedValue(fakeUser);
 
-      const req  = { cookies: {}, headers: {}, query: { ct } };
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/garmin/connect' };
       const res  = buildRes();
       const next = jest.fn();
 
@@ -218,6 +218,21 @@ describe('auth middleware', () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
+    it('rejects a valid ?ct= presented on a NON-connect route (scope) with 401 and no DB lookup', async () => {
+      const ct = signConnectToken('ct-user');
+
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/spotify/token' };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid token scope' });
+      expect(mockFindById).not.toHaveBeenCalled();
+      expect(next).not.toHaveBeenCalled();
+    });
+
     it('prefers a valid ?ct= over an ambient cookie (a mobile connect must NOT adopt the phone browser session)', async () => {
       // Repro of the on-device bug: the system browser carried a stale kokonada_token
       // cookie for a since-deleted account. The connect token is authoritative — the
@@ -226,7 +241,7 @@ describe('auth middleware', () => {
       const staleCookie = signToken({ userId: 'stale-browser-user' });
       mockSelect.mockResolvedValue(fakeUser);
 
-      const req  = { cookies: { [COOKIE_NAME]: staleCookie }, headers: {}, query: { ct } };
+      const req  = { cookies: { [COOKIE_NAME]: staleCookie }, headers: {}, query: { ct }, path: '/api/integrations/spotify/connect' };
       const res  = buildRes();
       const next = jest.fn();
 
@@ -241,7 +256,7 @@ describe('auth middleware', () => {
     it('rejects a normal session token presented as ?ct= (wrong purpose)', async () => {
       const sessionTok = signToken({ userId: 'ct-user' });
 
-      const req  = { cookies: {}, headers: {}, query: { ct: sessionTok } };
+      const req  = { cookies: {}, headers: {}, query: { ct: sessionTok }, path: '/api/integrations/spotify/connect' };
       const res  = buildRes();
       const next = jest.fn();
 

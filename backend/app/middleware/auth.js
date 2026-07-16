@@ -17,6 +17,14 @@ module.exports = async function authMiddleware(req, res, next) {
     // prior web use; honoring it would fail on a deleted account, or worse, silently
     // link the WRONG user's Spotify.) (audit F1)
     if (typeof req.query?.ct === 'string') {
+      // A connect token is scoped to the OAuth "connect" navigation it was minted
+      // for. It must NEVER authenticate an arbitrary protected route — a ct leaked
+      // to logs/history/Referer could otherwise drive any authenticated action.
+      // Allow it only on the provider connect paths. (audit T2.4)
+      const path = (req.path || req.originalUrl || '').split('?')[0];
+      if (!/\/(spotify|youtube|garmin)\/connect$/.test(path)) {
+        return res.status(401).json({ error: 'Invalid token scope' });
+      }
       payload = verifyToken(req.query.ct);
       if (payload.purpose !== 'oauth-connect') {
         return res.status(401).json({ error: 'Invalid token purpose' });
