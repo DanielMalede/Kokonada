@@ -233,6 +233,36 @@ describe('auth middleware', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
+    it('accepts a ?ct= on a connect path with a TRAILING SLASH (Express routes it) [F6]', async () => {
+      const ct = signConnectToken('ct-user');
+      mockSelect.mockResolvedValue(fakeUser);
+
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/spotify/connect/' };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(req.user).toBe(fakeUser);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('accepts a ?ct= on a MIXED-CASE connect path (Express is case-insensitive) [F6]', async () => {
+      const ct = signConnectToken('ct-user');
+      mockSelect.mockResolvedValue(fakeUser);
+
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/Spotify/Connect' };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(req.user).toBe(fakeUser);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
     it('prefers a valid ?ct= over an ambient cookie (a mobile connect must NOT adopt the phone browser session)', async () => {
       // Repro of the on-device bug: the system browser carried a stale kokonada_token
       // cookie for a since-deleted account. The connect token is authoritative — the

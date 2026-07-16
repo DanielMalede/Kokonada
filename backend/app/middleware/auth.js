@@ -19,10 +19,12 @@ module.exports = async function authMiddleware(req, res, next) {
     if (typeof req.query?.ct === 'string') {
       // A connect token is scoped to the OAuth "connect" navigation it was minted
       // for. It must NEVER authenticate an arbitrary protected route — a ct leaked
-      // to logs/history/Referer could otherwise drive any authenticated action.
-      // Allow it only on the provider connect paths. (audit T2.4)
+      // to logs/history/Referer could otherwise drive any authenticated action, so
+      // this HARD-FAILS (401) by design on every non-connect route. The match is
+      // case-insensitive and tolerates a trailing slash because Express routes
+      // /Spotify/Connect and .../connect/ to the same handler. (audit T2.4 / F6)
       const path = (req.path || req.originalUrl || '').split('?')[0];
-      if (!/\/(spotify|youtube|garmin)\/connect$/.test(path)) {
+      if (!/\/(spotify|youtube|garmin)\/connect\/?$/i.test(path)) {
         return res.status(401).json({ error: 'Invalid token scope' });
       }
       payload = verifyToken(req.query.ct);
