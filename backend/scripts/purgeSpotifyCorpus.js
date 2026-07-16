@@ -13,29 +13,11 @@
 //   node scripts/purgeSpotifyCorpus.js               # dry-run (counts only, no changes)
 //   node scripts/purgeSpotifyCorpus.js --apply       # perform the deletes (destructive, irreversible)
 
-const { SPOTIFY_SCHEME } = require('../app/utils/spotifyContent');
+// The spotify-row predicate + Mongo selector live in utils/spotifyContent so the purge and the
+// standing leak monitor share ONE definition (they must never drift).
+const { isSpotifyRow, spotifyRowSelector: spotifySelector } = require('../app/utils/spotifyContent');
 
 // --- pure, testable core ---------------------------------------------------
-
-// A corpus row is Spotify Content when its identity is a spotify: scheme OR it carries a spotifyId.
-// (spotifyId is checked in addition to isSpotifyContent because AudioFeature stores the bare id.)
-function isSpotifyRow(row) {
-  if (!row || typeof row !== 'object') return false;
-  if (row.spotifyId != null) return true;
-  return SPOTIFY_SCHEME.test(String(row.recordingKey ?? '')) || SPOTIFY_SCHEME.test(String(row.uri ?? ''));
-}
-
-// The Mongo selector used for countDocuments/deleteMany against the real collections. Mirrors
-// isSpotifyRow: any of recordingKey/uri spotify: scheme, or a present-and-non-null spotifyId.
-function spotifySelector() {
-  return {
-    $or: [
-      { recordingKey: SPOTIFY_SCHEME },
-      { uri: SPOTIFY_SCHEME },
-      { spotifyId: { $ne: null } },
-    ],
-  };
-}
 
 // Runs the count/report (and, when apply=true, the deletes) over injected collections so it is
 // testable without a real Mongo/Redis. `collections` maps a display name → a Mongo-model-like

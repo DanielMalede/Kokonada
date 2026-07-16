@@ -23,4 +23,24 @@ function isSpotifyContent(row) {
   return isSpotifyKey(row.recordingKey) || isSpotifyKey(row.uri) || isSpotifyKey(row.canonicalKey);
 }
 
-module.exports = { isSpotifyContent, isSpotifyKey, SPOTIFY_SCHEME };
+// Standing-data variant used by the corpus purge + leak monitor: a persisted cache ROW is
+// Spotify Content when its identity is spotify: OR it carries a bare spotifyId (AudioFeature
+// stores the id without a scheme). Shared so the purge selector and the monitor never drift.
+function isSpotifyRow(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (row.spotifyId != null) return true;
+  return isSpotifyKey(row.recordingKey) || isSpotifyKey(row.uri);
+}
+
+// The equivalent Mongo selector for countDocuments/deleteMany over the real collections.
+function spotifyRowSelector() {
+  return {
+    $or: [
+      { recordingKey: SPOTIFY_SCHEME },
+      { uri: SPOTIFY_SCHEME },
+      { spotifyId: { $ne: null } },
+    ],
+  };
+}
+
+module.exports = { isSpotifyContent, isSpotifyKey, isSpotifyRow, spotifyRowSelector, SPOTIFY_SCHEME };
