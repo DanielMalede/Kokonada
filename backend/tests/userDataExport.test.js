@@ -6,6 +6,8 @@
 // another user's rows.
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
+jest.mock('../app/utils/biometricAudit', () => ({ logBiometricAccess: jest.fn(), auditedDecrypt: jest.fn() }));
+const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const BiometricLog    = require('../app/models/BiometricLog');
 const MedicalProfile  = require('../app/models/MedicalProfile');
 const MusicProfile    = require('../app/models/MusicProfile');
@@ -82,5 +84,10 @@ describe('exportUserData', () => {
       'biometriclogs', 'identities', 'medicalprofiles', 'musicprofiles',
       'playlistsessions', 'refreshtokens', 'serveevents', 'unclassifiedtracks',
     ].sort());
+  });
+
+  it('records an audited biometric access for the bulk export decrypt (ADR-0005, M2)', async () => {
+    await exportUserData(OID);
+    expect(logBiometricAccess).toHaveBeenCalledWith(String(OID), 'gdpr-export');
   });
 });

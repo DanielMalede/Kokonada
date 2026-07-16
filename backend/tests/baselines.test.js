@@ -5,14 +5,20 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 jest.mock('../app/models/BiometricLog', () => ({ find: jest.fn() }));
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(), createConnection: jest.fn() }));
-jest.mock('../app/utils/biometricAudit', () => ({
-  logBiometricAccess: jest.fn(),
-  auditedDecrypt: jest.fn(),
-}));
+jest.mock('../app/utils/biometricAudit', () => {
+  const { decrypt } = jest.requireActual('../app/utils/encryption');
+  return {
+    logBiometricAccess: jest.fn(),
+    // Functional spy: performs the REAL audited decrypt so cache reads still work, while
+    // letting tests assert the accessor was actually used.
+    auditedDecrypt: jest.fn((userId, purpose, blob, opts = {}) =>
+      decrypt(blob, opts.parseJson ?? false, userId == null ? null : String(userId))),
+  };
+});
 
 const BiometricLog = require('../app/models/BiometricLog');
 const { getRedis } = require('../app/config/redis');
-const { logBiometricAccess } = require('../app/utils/biometricAudit');
+const { logBiometricAccess, auditedDecrypt } = require('../app/utils/biometricAudit');
 const { decrypt } = require('../app/utils/encryption');
 const baselines = require('../app/services/biosonic/baselines');
 
@@ -159,6 +165,16 @@ describe('getBaselines — encrypted Redis cache (zero-knowledge boundary)', () 
 
     expect(stats.rhrMedian).toBe(61);
     expect(BiometricLog.find).not.toHaveBeenCalled();
+  });
+
+  it('routes the cached-blob decrypt through the audited accessor (ADR-0005, M2)', async () => {
+    const { encrypt } = require('../app/utils/encryption');
+    const blob = encrypt(JSON.stringify({ rhrMedian: 61 }), 'u1');
+    getRedis.mockReturnValue(fakeRedis(blob));
+
+    await baselines.getBaselines('u1');
+
+    expect(auditedDecrypt).toHaveBeenCalledWith('u1', expect.any(String), blob, expect.objectContaining({ parseJson: true }));
   });
 
   it('a corrupt/tampered cache entry falls through to a fresh compute', async () => {

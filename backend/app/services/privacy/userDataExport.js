@@ -18,6 +18,7 @@ const Identity          = require('../../models/Identity');
 const RefreshToken      = require('../../models/RefreshToken');
 const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
 const User              = require('../../models/User');
+const { logBiometricAccess } = require('../../utils/biometricAudit');
 
 // Same collections erasure cascades over. `redact` strips credential secrets from the export
 // (the row is still represented — only the secret field is removed).
@@ -50,6 +51,11 @@ function _publicProfile(u) {
 }
 
 async function exportUserData(userId) {
+  // ADR-0005 audit trail (M2): the export decrypts the subject's special-category health data
+  // (BiometricLog / MedicalProfile / PlaylistSession) via the model getters. Record the bulk
+  // access — userId + purpose + timestamp, never a value.
+  logBiometricAccess(String(userId), 'gdpr-export');
+
   const collections = {};
   for (const { model, redact } of COLLECTIONS) {
     // NOT .lean(): the encrypted getters must run so the subject's own health data decrypts.

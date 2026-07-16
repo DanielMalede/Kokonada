@@ -2,8 +2,8 @@
 
 const BiometricLog = require('../../models/BiometricLog');
 const { getRedis } = require('../../config/redis');
-const { encrypt, decrypt } = require('../../utils/encryption');
-const { logBiometricAccess } = require('../../utils/biometricAudit');
+const { encrypt } = require('../../utils/encryption');
+const { logBiometricAccess, auditedDecrypt } = require('../../utils/biometricAudit');
 
 // Personal biometric baselines: rolling 30-day median/MAD of resting heart rate.
 //
@@ -102,7 +102,7 @@ async function peekBaselines(userId) {
   if (redis) {
     try {
       const blob = await redis.get(_cacheKey(userId));
-      if (blob) return decrypt(blob, true, String(userId));
+      if (blob) return auditedDecrypt(String(userId), 'baseline-cache-peek', blob, { parseJson: true });
     } catch { /* corrupt/tampered → treat as miss */ }
   }
   try {
@@ -123,7 +123,7 @@ async function getBaselines(userId) {
   if (redis) {
     try {
       const blob = await redis.get(_cacheKey(userId));
-      if (blob) return decrypt(blob, true, String(userId));
+      if (blob) return auditedDecrypt(String(userId), 'baseline-cache-read', blob, { parseJson: true });
     } catch {
       // corrupt/tampered/rotated-key cache entry → recompute from truth
     }

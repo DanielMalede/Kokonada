@@ -27,6 +27,10 @@ jest.mock('../app/models/PlaylistSession', () => ({
 jest.mock('../app/models/MedicalProfile', () => ({
   findOne: jest.fn().mockResolvedValue(null),
 }));
+jest.mock('../app/utils/biometricAudit', () => ({
+  logBiometricAccess: jest.fn(),
+  auditedDecrypt: jest.fn(),
+}));
 
 jest.mock('../app/services/spotify', () => ({
   getValidToken:        jest.fn(),
@@ -106,6 +110,7 @@ const User            = require('../app/models/User');
 const MusicProfile    = require('../app/models/MusicProfile');
 const BiometricLog    = require('../app/models/BiometricLog');
 const MedicalProfile  = require('../app/models/MedicalProfile');
+const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const spotify         = require('../app/services/spotify');
 const youtube         = require('../app/services/youtube');
@@ -950,6 +955,8 @@ describe('request_heart_playlist', () => {
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
       expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 60 }) }), // MedicalProfile.restingHeartRate
     );
+    // ADR-0005 (M2): decrypting the resting-HR baseline is an audited special-category access.
+    expect(logBiometricAccess).toHaveBeenCalledWith('user-123', expect.any(String));
   });
 
   it('emits playlist_ready with trigger=heart (immediate, not queued)', async () => {

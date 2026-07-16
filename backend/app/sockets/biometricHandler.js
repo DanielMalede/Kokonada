@@ -18,6 +18,7 @@ const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/prov
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
+const { logBiometricAccess } = require('../utils/biometricAudit');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const trackCatalogRepo = require('../repositories/trackCatalogRepo');
@@ -294,6 +295,7 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
   // MusicProfile (which no longer stores plaintext vitals). The getter decrypts on access.
   const profile = await MedicalProfile.findOne({ userId });
   if (profile && isPhysiologicalHR(profile.restingHeartRate)) {
+    logBiometricAccess(userId, 'live-heart-context'); // ADR-0005: reading the encrypted resting-HR baseline
     return { heartRate: profile.restingHeartRate, activity: 'resting', source: 'resting' };
   }
   return null;
@@ -634,6 +636,8 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         // Resting-HR baseline now comes from the ENCRYPTED MedicalProfile (T3.3), not the
         // MusicProfile plaintext field (which was removed). Best-effort — a miss → null.
         const medProfile = await MedicalProfile.findOne({ userId }).catch(() => null);
+        if (medProfile?.restingHeartRate != null) logBiometricAccess(userId, 'biometric-generation'); // ADR-0005
+
         aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
           biometric: {
