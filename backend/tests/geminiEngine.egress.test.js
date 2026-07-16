@@ -152,6 +152,24 @@ describe('outbound body — no Spotify Content (T0.3)', () => {
   });
 });
 
+// ── T0.4: fail closed — no vetted provider means NO LLM call at all ────────────
+
+describe('no vetted provider → fail closed (T0.4)', () => {
+  it('throws instead of ever calling an unvetted endpoint', async () => {
+    const saved = process.env.LLM_API_KEY;
+    delete process.env.LLM_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    try {
+      await expect(buildEmotionPlaylist({
+        musicProfile: SENTINEL_PROFILE, emotionTaps: [{ x: 0.1, y: 0.95 }], fetchTracks: jest.fn(),
+      })).rejects.toThrow(/vetted LLM provider/i);
+      expect(axios.post).not.toHaveBeenCalled(); // no HTTP request to ANY endpoint
+    } finally {
+      process.env.LLM_API_KEY = saved;
+    }
+  });
+});
+
 // ── byLower case-map guard (inferArtistGenres must NOT be modified) ────────────
 
 describe('inferArtistGenres — byLower case-map guard', () => {

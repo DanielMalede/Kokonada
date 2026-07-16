@@ -1,16 +1,17 @@
 'use strict';
 
-process.env.GEMINI_API_KEY = 'test-gemini-key';
 process.env.NODE_ENV = 'test';
+// Wave-0: the only provider is the vetted Groq (LLM_API_KEY) — the Gemini fallback is gone.
+process.env.LLM_API_KEY = 'test-llm-key';
+delete process.env.GROQ_API_KEY;
+delete process.env.GEMINI_API_KEY;
 
-// Mock must be declared before require() calls — Jest hoists these
-const mockGenerateContent = jest.fn();
+jest.mock('axios');
+const axios = require('axios');
+
+// The Gemini SDK stays importable even though the removed provider path never calls it.
 jest.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: jest.fn(() => ({
-    getGenerativeModel: jest.fn(() => ({
-      generateContent: mockGenerateContent,
-    })),
-  })),
+  GoogleGenerativeAI: jest.fn(() => ({ getGenerativeModel: jest.fn() })),
 }));
 
 const {
@@ -43,10 +44,9 @@ const VALID_AI_PARAMS = {
   seed_genres: ['electronic', 'ambient'],
 };
 
+// Mock the vetted-provider (Groq) chat/completions response the LLM client parses.
 function makeGeminiResponse(obj) {
-  mockGenerateContent.mockResolvedValueOnce({
-    response: { text: () => JSON.stringify(obj) },
-  });
+  axios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: JSON.stringify(obj) } }] } });
 }
 
 // ── _parseAndValidate ──────────────────────────────────────────────────────────
@@ -300,7 +300,7 @@ describe('inferArtistGenres', () => {
   });
 
   it('fails open to {} when the LLM errors', async () => {
-    mockGenerateContent.mockRejectedValueOnce(new Error('boom'));
+    axios.post.mockRejectedValueOnce(new Error('boom'));
     expect(await inferArtistGenres(['X'])).toEqual({});
   });
 
@@ -375,7 +375,7 @@ describe('buildEmotionPlaylist (Spotify provider)', () => {
 
   beforeEach(() => {
     spotifyFetch.mockClear();
-    mockGenerateContent.mockClear();
+    axios.post.mockClear();
   });
 
   it('calls fetchTracks with the normalized (mood-enforced) parameters', async () => {
@@ -411,32 +411,28 @@ describe('buildEmotionPlaylist (Spotify provider)', () => {
   });
 
   it('propagates Gemini API errors', async () => {
-    mockGenerateContent.mockRejectedValueOnce(new Error('Gemini API quota exceeded'));
+    axios.post.mockRejectedValueOnce(new Error('Gemini API quota exceeded'));
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch })
     ).rejects.toThrow('Gemini API quota exceeded');
   });
 
-  it('throws a clear error when Gemini returns prose instead of JSON', async () => {
-    mockGenerateContent.mockResolvedValueOnce({
-      response: { text: () => 'Sure! Here is a great playlist for you...' },
-    });
+  it('throws a clear error when the model returns prose instead of JSON', async () => {
+    axios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: 'Sure! Here is a great playlist for you...' } }] } });
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch })
     ).rejects.toThrow('invalid JSON');
   });
 
-  it('throws when Gemini JSON is missing required fields', async () => {
-    mockGenerateContent.mockResolvedValueOnce({
-      response: { text: () => JSON.stringify({ target_bpm: 120 }) },
-    });
+  it('throws when the model JSON is missing required fields', async () => {
+    axios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: JSON.stringify({ target_bpm: 120 }) } }] } });
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch })
     ).rejects.toThrow('missing required field');
   });
 
-  it('throws a clear error when Gemini returns an empty body (caller falls back)', async () => {
-    mockGenerateContent.mockResolvedValueOnce({ response: { text: () => '' } });
+  it('throws a clear error when the model returns an empty body (caller falls back)', async () => {
+    axios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: '' } }] } });
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch })
     ).rejects.toThrow('empty response');
@@ -453,7 +449,7 @@ describe('buildEmotionPlaylist — strict mood fallback', () => {
 
   beforeEach(() => {
     fetch.mockClear();
-    mockGenerateContent.mockClear();
+    axios.post.mockClear();
   });
 
   it('overrides an off-vibe LLM genre pick + attaches exclude_genres in the params fed to search', async () => {
@@ -480,7 +476,7 @@ describe('adjustBiometricPlaylist — empty seed_genres robustness', () => {
 
   beforeEach(() => {
     fetch.mockClear();
-    mockGenerateContent.mockClear();
+    axios.post.mockClear();
   });
 
   it('backfills seed_genres from the user top genres when the LLM returns none', async () => {
@@ -500,7 +496,7 @@ describe('buildEmotionPlaylist (YouTube Music provider)', () => {
 
   beforeEach(() => {
     youtubeFetch.mockClear();
-    mockGenerateContent.mockClear();
+    axios.post.mockClear();
   });
 
   it('calls YouTube fetchTracks with the normalized (mood-enforced) parameters', async () => {
@@ -530,7 +526,7 @@ describe('adjustBiometricPlaylist (Spotify provider)', () => {
 
   beforeEach(() => {
     spotifyFetch.mockClear();
-    mockGenerateContent.mockClear();
+    axios.post.mockClear();
   });
 
   it('applies the deterministic HR band to the params fed to search (no raw HR to the LLM)', async () => {
@@ -555,16 +551,14 @@ describe('adjustBiometricPlaylist (Spotify provider)', () => {
   });
 
   it('propagates Gemini errors', async () => {
-    mockGenerateContent.mockRejectedValueOnce(new Error('network timeout'));
+    axios.post.mockRejectedValueOnce(new Error('network timeout'));
     await expect(
       adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch })
     ).rejects.toThrow('network timeout');
   });
 
-  it('throws when Gemini response is missing required fields', async () => {
-    mockGenerateContent.mockResolvedValueOnce({
-      response: { text: () => JSON.stringify({ target_bpm: 128, target_energy: 0.9 }) },
-    });
+  it('throws when the model response is missing required fields', async () => {
+    axios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: JSON.stringify({ target_bpm: 128, target_energy: 0.9 }) } }] } });
     await expect(
       adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch })
     ).rejects.toThrow('missing required field');
@@ -587,7 +581,7 @@ describe('adjustBiometricPlaylist (YouTube Music provider)', () => {
 
   beforeEach(() => {
     youtubeFetch.mockClear();
-    mockGenerateContent.mockClear();
+    axios.post.mockClear();
   });
 
   it('applies the deterministic HR band to the YouTube params (60 bpm → resting band)', async () => {

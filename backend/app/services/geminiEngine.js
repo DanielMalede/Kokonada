@@ -3,7 +3,6 @@
 const crypto           = require('crypto');
 const axios            = require('axios');
 const { withRetry }    = require('../utils/retry');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, extractIntent } = require('./moodDescriptors');
@@ -19,75 +18,55 @@ const REQUIRED_FIELDS = [
 // sit in this band; an invalid/missing value is filled deterministically downstream.
 const TEMPO_CATEGORIES = ['resting', 'active', 'peak'];
 
-const GEMINI_TIMEOUT_MS = 5_000;
+const LLM_TIMEOUT_MS = 5_000;
 
-function _withTimeout(ms, promise) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms);
-  });
-  // Clear the timer once the race settles so a resolved call never leaves a dangling
-  // handle alive for `ms` (leaks the event loop; trips Jest's open-handle warning).
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-function getModel() {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  // gemini-1.5-flash was retired by Google (v1beta generateContent now 404s it).
-  // gemini-2.0-flash is the current fast/cheap GA model — ideal for this small,
-  // latency-sensitive JSON task (see GEMINI_TIMEOUT_MS). Override via GEMINI_MODEL.
-  return genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
-}
-
-// Provider-agnostic generation. If an OpenAI-compatible key is set (LLM_API_KEY,
-// e.g. a free Groq key — no credit card needed), call that endpoint; otherwise
-// fall back to the Gemini SDK. This lets the app run on a free provider when a
-// Google account has no Gemini quota (free_tier limit: 0). Returns the raw text.
-async function _generate(prompt, { model: modelOverride = null, timeoutMs = GEMINI_TIMEOUT_MS } = {}) {
+// Generation against the VETTED OpenAI-compatible provider (Groq via LLM_API_KEY).
+// Wave-0 egress containment: the old silent fallback to Google Gemini's free tier —
+// training-eligible, no Zero-Data-Retention — is REMOVED. With no vetted key configured
+// we throw, so the caller degrades to the deterministic mood/BPM path (applyMoodFallback)
+// rather than ever reaching an unvetted endpoint. Returns the raw text.
+async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_TIMEOUT_MS } = {}) {
   const llmKey = process.env.LLM_API_KEY || process.env.GROQ_API_KEY;
-  if (llmKey) {
-    const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
-    // 8b-instant is Groq's most stable always-on model and is plenty for this
-    // small structured-JSON task. Providers rotate larger models, so default to
-    // the safe one; override with LLM_MODEL globally, or per-call (the Tempo Critic
-    // passes a bigger model whose world-knowledge judges niche tracks' real tempo).
-    const model   = modelOverride || process.env.LLM_MODEL || 'llama-3.1-8b-instant';
-    // Groq's free tier caps tokens-per-minute (6000 TPM). Under load, generation 429s and —
-    // without a retry — the whole playlist silently collapses to the static fallback (the
-    // "tracks=10, ignores the activity" symptom). withRetry rides out the 429 honoring
-    // Retry-After; 4xx/5xx and timeouts still fail fast to the caller's fallback.
-    const maxRetries = (() => { const n = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10); return Number.isFinite(n) && n >= 0 ? n : 3; })();
-    try {
-      const { data } = await withRetry(() => axios.post(
-        `${baseUrl}/chat/completions`,
-        {
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-          // The prompts already demand strict JSON; json_object mode guarantees it.
-          response_format: { type: 'json_object' },
-        },
-        {
-          headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
-          timeout: timeoutMs,
-        },
-      ), maxRetries);
-      return data.choices?.[0]?.message?.content ?? '';
-    } catch (err) {
-      // Surface the provider's real reason (e.g. a decommissioned model) instead
-      // of axios's opaque "Request failed with status code 404".
-      const apiMsg = err.response?.data?.error?.message || err.message;
-      console.error('[llm] request failed', { status: err.response?.status, model, error: apiMsg });
-      // Report LLM outages/timeouts (previously only console-logged) so a provider going
-      // down — which silently degrades every playlist to the static fallback — is visible.
-      captureException(err, { scope: 'llm', model, status: err.response?.status, apiMsg });
-      throw new Error(`LLM request failed (${model}): ${apiMsg}`);
-    }
+  if (!llmKey) {
+    throw new Error('No vetted LLM provider configured (set LLM_API_KEY) — refusing to call an unvetted endpoint');
   }
-
-  const model  = getModel();
-  const result = await _withTimeout(timeoutMs, model.generateContent(prompt));
-  return result.response.text();
+  const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
+  // 8b-instant is Groq's most stable always-on model and is plenty for this
+  // small structured-JSON task. Providers rotate larger models, so default to
+  // the safe one; override with LLM_MODEL globally, or per-call (the Tempo Critic
+  // passes a bigger model whose world-knowledge judges niche tracks' real tempo).
+  const model   = modelOverride || process.env.LLM_MODEL || 'llama-3.1-8b-instant';
+  // Groq's free tier caps tokens-per-minute (6000 TPM). Under load, generation 429s and —
+  // without a retry — the whole playlist silently collapses to the static fallback (the
+  // "tracks=10, ignores the activity" symptom). withRetry rides out the 429 honoring
+  // Retry-After; 4xx/5xx and timeouts still fail fast to the caller's fallback.
+  const maxRetries = (() => { const n = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10); return Number.isFinite(n) && n >= 0 ? n : 3; })();
+  try {
+    const { data } = await withRetry(() => axios.post(
+      `${baseUrl}/chat/completions`,
+      {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        // The prompts already demand strict JSON; json_object mode guarantees it.
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
+        timeout: timeoutMs,
+      },
+    ), maxRetries);
+    return data.choices?.[0]?.message?.content ?? '';
+  } catch (err) {
+    // Surface the provider's real reason (e.g. a decommissioned model) instead
+    // of axios's opaque "Request failed with status code 404".
+    const apiMsg = err.response?.data?.error?.message || err.message;
+    console.error('[llm] request failed', { status: err.response?.status, model, error: apiMsg });
+    // Report LLM outages/timeouts (previously only console-logged) so a provider going
+    // down — which silently degrades every playlist to the static fallback — is visible.
+    captureException(err, { scope: 'llm', model, status: err.response?.status, apiMsg });
+    throw new Error(`LLM request failed (${model}): ${apiMsg}`);
+  }
 }
 
 // ── Response validation ────────────────────────────────────────────────────────
@@ -271,13 +250,13 @@ Choose musical parameters that match a "${band}" intensity. Output ONLY a valid 
 
 // ── Gemini call ────────────────────────────────────────────────────────────────
 
-// DATA EGRESS NOTE (audit F16): prompts are sent to Google Gemini, a third-party
-// sub-processor — document it in the privacy policy / DPA. Prompts are anonymised
-// (no name/email/userId; only taste signals, emotion coords, HR, and the user's
-// free-text note). The Redis cache key is md5(prompt) and the cached VALUE is only
-// the derived AI params (target_bpm, etc.) — raw biometrics are never stored in the
-// cache, and the md5 key is not reversible to the heart rate.
-async function _callGemini(prompt) {
+// DATA EGRESS NOTE (audit F16): prompts are sent to the VETTED provider (Groq) — list it
+// as a sub-processor in the privacy policy / DPA. Wave-0 egress containment: prompts carry
+// NO name/email/userId, NO special-category vitals, NO raw free-text, and NO Spotify Content
+// — only abstract emotion coords, activity, closed-vocabulary intent tags, and mood-descriptor
+// genres. The Redis cache key is md5(prompt) and the cached VALUE is only the derived AI
+// params (target_bpm, etc.); the md5 key is not reversible.
+async function _callLlm(prompt) {
   const redis = getRedis();
   let cacheKey = null;
 
@@ -309,7 +288,7 @@ async function _callGemini(prompt) {
  */
 async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, activity = null, biometricContext = null, fetchTracks, seed = null }) {
   const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed, { activity });
-  const rawParams = await _callGemini(prompt);
+  const rawParams = await _callLlm(prompt);
   // Wave-0 two-stage split: the decrypted vitals never crossed the LLM boundary — they
   // map to the audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here,
   // AFTER the LLM has returned, reusing the moodDescriptors band machinery.
@@ -336,7 +315,7 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
  */
 async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, seed = null }) {
   const prompt = _buildBiometricPrompt(musicProfile, biometric, seed);
-  const rawParams = await _callGemini(prompt);
+  const rawParams = await _callLlm(prompt);
   // Wave-0 two-stage split: the numeric HR never crossed the LLM boundary — map it to the
   // audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here, after the
   // LLM returns, reusing the moodDescriptors band machinery.
