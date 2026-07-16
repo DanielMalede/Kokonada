@@ -38,12 +38,24 @@ const userSchema = new mongoose.Schema({
   garminUserIdHmac:  { type: String, default: null },
 
   // Opaque device token for the sideloaded Garmin watch app (HR streaming).
-  // We store ONLY the sha256 hash — the plaintext (whr_…) is shown to the user
-  // once at generation time and pasted into Garmin Connect app settings.
+  // We store ONLY the sha256 hash. The plaintext (whr_…) is a long-lived
+  // credential and is NEVER rendered in the browser DOM or clipboard (audit
+  // L-15) — it is minted server-side and handed directly to the watch app via
+  // the pairing exchange below (or, historically, the authenticated
+  // issueWatchToken endpoint, still available for non-browser callers).
   watchToken: {
     hash:       { type: String, default: null },
     createdAt:  { type: Date,   default: null },
     lastSeenAt: { type: Date,   default: null },
+  },
+
+  // Short-lived, single-use pairing code (watch onboarding, audit L-15). The web
+  // UI shows only this code — never the long-lived watchToken — so the DOM/
+  // clipboard never carry a durable credential. Consumed (nulled) atomically on
+  // first successful exchange, or simply expires unused.
+  watchPairing: {
+    hash:      { type: String, default: null },
+    expiresAt: { type: Date,   default: null },
   },
 
   // Mobile push notification tokens (FCM for Android, APNs for iOS) — device secrets,
@@ -75,6 +87,8 @@ userSchema.index({ email: 1 });
 // Sparse: most users never enroll a watch, so watchToken.hash is null for them
 // — sparse keeps those documents out of the index and the lookup unique-friendly.
 userSchema.index({ 'watchToken.hash': 1 }, { sparse: true });
+// Sparse: only set while a pairing is in flight (minutes at most).
+userSchema.index({ 'watchPairing.hash': 1 }, { sparse: true });
 // Blind-index lookup path for the Garmin webhook (garminUserId is encrypted, unqueryable).
 // Sparse: most users never connect Garmin. (T3.3)
 userSchema.index({ garminUserIdHmac: 1 }, { sparse: true });
