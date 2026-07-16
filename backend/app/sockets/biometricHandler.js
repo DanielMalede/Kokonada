@@ -194,7 +194,7 @@ function emitToUser(socket, event, payload) {
   if (event === 'playlist_ready') {
     console.warn(`[gen] emit playlist_ready reqId=${payload?.reqId} tracks=${payload?.tracks?.length ?? 0} user=${uid}`);
   } else if (event === 'playlist_error') {
-    console.warn(`[gen] emit playlist_error reqId=${payload?.reqId} msg="${payload?.message ?? ''}" user=${uid}`);
+    console.warn(`[gen] emit playlist_error reqId=${payload?.reqId} reason=${payload?.reason ?? ''} msg="${payload?.message ?? ''}" user=${uid}`);
   }
   if (uid && socket.nsp && typeof socket.nsp.to === 'function') {
     socket.nsp.to(`user:${uid}`).emit(event, payload);

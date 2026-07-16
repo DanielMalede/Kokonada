@@ -838,12 +838,16 @@ describe('YouTube-only user — no playable provider surfaces a clear, actionabl
     });
 
     const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 101 }));
 
     const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
     expect(errCall).toBeTruthy();
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
     expect(errCall[1].reason).toBe('NO_PLAYABLE_PROVIDER');
+    // reqId MUST survive on this branch — both clients (mobile socketClient.ts, web useSocket.ts)
+    // gate on reqId matching before showing ANY error, so a dropped reqId here would silently
+    // swallow this exact message: the failure mode this fix exists to kill.
+    expect(errCall[1].reqId).toBe(101);
     expect(errCall[1].message).toMatch(/spotify/i);        // names the actual fix
     expect(errCall[1].message).not.toMatch(/try again/i);  // NOT the misleading generic retry copy
   });
@@ -857,12 +861,13 @@ describe('YouTube-only user — no playable provider surfaces a clear, actionabl
     geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
 
     const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 102 }));
 
     const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
     expect(errCall).toBeTruthy();
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
     expect(errCall[1].reason).toBe('NO_PLAYABLE_PROVIDER');
+    expect(errCall[1].reqId).toBe(102);                       // reqId survives the AI-threw fallback branch too
     expect(errCall[1].message).toMatch(/spotify/i);
     expect(errCall[1].message).not.toMatch(/Gemini timeout/); // never leak the raw internal error
   });
@@ -872,11 +877,12 @@ describe('YouTube-only user — no playable provider surfaces a clear, actionabl
     orchestrator.generateV2.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [], telemetry: { stageMs: {} } });
 
     const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }] }));
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 103 }));
 
     const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
     expect(errCall).toBeTruthy();
     expect(errCall[1].reason).toBeUndefined();
+    expect(errCall[1].reqId).toBe(103);                       // the generic path must still carry reqId
     expect(errCall[1].message).toEqual(expect.any(String));
   });
 });
