@@ -68,6 +68,31 @@ in-`find` band filter never runs and familiars aren't excluded. The reported mbi
 bound** on a real band-aware, familiar-excluded feed. The band guardrail is supplied separately as the
 per-track `withinBand` membership count above. If even this ceiling shows no lift, the seam is not worth flipping.
 
+## T5 RESULTS (prod, 2026-07-16) — gate #4 PASSES at weight 0.35
+
+Preflight: `mbidGenreCoverage=0.9952` (mbid 4933/4957), legacy 0.0104. Seam well-fueled.
+Prod runs `DISCOVERY_BAND_AWARE=true` → the genre rerank is applied AFTER the band filter, so out-of-band
+admission is impossible by construction (band=HARD-FAIL satisfied structurally; the ceiling `admitsExtraOOB`
+for sad-acoustic was a non-band-aware artifact). Faithful **band-aware** M_served (representative moderate-
+confidence band; deterministic across runs):
+
+| archetype    | M_retrieval | BA OFF | ON@0.1 | ON@0.15 | ON@0.25 | ON@0.35 | bar    | verdict |
+|--------------|-------------|--------|--------|---------|---------|---------|--------|---------|
+| energetic    | 15.2%       | 6.7%   | 10.0%  | 10.0%   | 10.0%   | 10.0%   | (low ok)| correct scarcity |
+| calm         | 15.4%       | 36.7%  | 36.7%  | 36.7%   | 36.7%   | 36.7%   | (low ok)| already high; inert |
+| moderate     | 8.2%        | 6.7%   | 13.3%  | 16.7%   | 20.0%   | 26.7%   | ≥20%   | PASS ≥0.25 |
+| happy-dance  | 18.4%       | 16.7%  | 20.0%  | 23.3%   | 23.3%   | 26.7%   | ≥25%   | **PASS @0.35** |
+| sad-acoustic | 9.4%        | 23.3%  | 26.7%  | 26.7%   | 30.0%   | 30.0%   | ≥30%   | PASS ≥0.25 |
+
+**Lowest weight clearing ALL THREE bars = 0.35** (moderate 26.7%, happy-dance 26.7%, sad-acoustic 30.0%),
+monotonic in weight. Guardrails: band-safe by construction; legacy stays majority (no collapse); mbid 10–37%
+(no monoculture). energetic/calm correctly untouched. Note: sad-acoustic sits exactly at its 30% floor
+(minimal headroom); happy-dance clears only at 0.35 (the agreed cap). **Ship weight = 0.35.**
+
+Flip (post-merge + deploy of PR #142):
+`railway variables --set "DISCOVERY_GENRE_RELEVANCE=true" --set "DISCOVERY_GENRE_WEIGHT=0.35"`
+Rollback: `railway variables --set "DISCOVERY_GENRE_RELEVANCE=false"`.
+
 ## Phase-2 trigger (only if warranted)
 If M_served stays starved at a target where mbid SHOULD fit AND `mbidShare500` (M_retrieval) shows real mbid
 mass there (i.e. the pool has them but the rerank isn't surfacing them) → consider a clamped
