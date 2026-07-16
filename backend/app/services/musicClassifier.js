@@ -1,17 +1,13 @@
 'use strict';
 
 // Music-vs-non-music classification for YouTube-sourced library tracks. A deterministic
-// verdict from cheap signals (category / topicDetails / channel / title lexicon), with a
-// Groq tie-breaker (classifyTracks) for the ambiguous residue. Spotify tracks come from a
-// music catalog and are never classified. See
-// docs/superpowers/specs/2026-07-07-music-classification-purge-design.md.
+// verdict from cheap signals (category / topicDetails / channel / title lexicon) ONLY — no
+// LLM ever sees a video title, channel or artist string (user library data must not egress
+// to any third-party model). The ambiguous residue is pooled as `unclassified` and revisited
+// later, never guessed by an LLM. Spotify tracks come from a music catalog and are never
+// classified. See docs/superpowers/specs/2026-07-07-music-classification-purge-design.md.
 
 const youtube = require('./youtube');
-const llmClient = require('./llmClient');
-
-// Groq batch size for the ambiguous-residue tie-breaker. ~40 short lines keeps each call
-// well under the free-tier per-request budget and lets withRetry pace them under 6000 TPM.
-const GROQ_BATCH = 40;
 
 // Wikipedia topicDetails slugs that mean "this is music" — the generic Music topic, any
 // "*_music" genre topic, plus a few bare genre/song topics.
@@ -61,30 +57,16 @@ function classifyByMetadata(track, meta = {}) {
   return 'ambiguous';
 }
 
-// Ask Groq which items in a batch are NOT music. Throws on outage / malformed JSON so the
-// caller pools the batch (never deletes on uncertainty).
-async function _groqNonMusicIndices(batch) {
-  const lines = batch
-    .map((t, i) => `${i}: ${String(t.name ?? '').slice(0, 120)} — ${String(t.artist ?? '').slice(0, 80)}`)
-    .join('\n');
-  const prompt =
-    'Classify each numbered YouTube item as a music track or not. MUSIC = official songs, ' +
-    'live performances, DJ sets, mixes, covers, instrumentals, remixes. NOT MUSIC = vlogs, ' +
-    'podcasts, tutorials, reviews, interviews, reactions, gameplay, news, documentaries, etc. ' +
-    'Return ONLY JSON {"non_music":[indices]} listing the indices that are NOT music.\n\n' + lines;
-  const raw = await llmClient.generateJson(prompt, { temperature: 0 });
-  const parsed = JSON.parse(raw);
-  const arr = Array.isArray(parsed.non_music) ? parsed.non_music : [];
-  return new Set(arr.filter((n) => Number.isInteger(n)));
-}
-
 /**
  * Classify a batch of library tracks into music / non_music / unclassified.
  *   1. deterministic pass on stored fields (+ optional pre-supplied `metaById`),
  *   2. videos.list enrichment of the ambiguous set (when a token is given AND no metaById),
- *   3. Groq tie-breaker on the residue; a batch that can't be adjudicated (LLM off /
- *      unconfigured / errored) lands in `unclassified` — pooled, never deleted (safety floor).
+ *   3. any residue still inconclusive after YouTube's own signals is POOLED as
+ *      `unclassified` — never deleted, never sent to an LLM (title/channel must not egress).
  * Non-`youtube_music` tracks pass straight through as music.
+ *
+ * `useLLM` is accepted for caller compatibility but is now inert — classification is fully
+ * deterministic and never invokes any model.
  *
  * @param {Array} tracks
  * @param {{youtubeToken?:string|null, useLLM?:boolean, metaById?:Object|null}} [opts]
@@ -117,30 +99,17 @@ async function classifyTracks(tracks, { youtubeToken = null, useLLM = true, meta
     for (const m of metas) fetched[m.id] = m;
   }
 
-  const groqCandidates = [];
   for (const t of ambiguous) {
     const meta = (metaById && metaById[t.id]) || fetched[t.id] || null;
-    if (!meta) { unclassified.push(t); continue; } // no metadata → pool, never Groq/delete
+    if (!meta) { unclassified.push(t); continue; } // no metadata → pool, never delete
     const v = classifyByMetadata(t, meta);
     if (v === 'music') music.push(t);
     else if (v === 'non_music') nonMusic.push(t);
-    else groqCandidates.push(t); // has metadata, YouTube's own signals inconclusive → let Groq decide
+    // Metadata present but YouTube's own signals are inconclusive → POOL as unclassified for a
+    // later pass. Never guessed by an LLM: a title/channel string must not egress to any model.
+    else unclassified.push(t);
   }
 
-  if (!groqCandidates.length) return { music, nonMusic, unclassified };
-  if (!useLLM || !llmClient.isConfigured()) {
-    unclassified.push(...groqCandidates);
-    return { music, nonMusic, unclassified };
-  }
-  for (let i = 0; i < groqCandidates.length; i += GROQ_BATCH) {
-    const batch = groqCandidates.slice(i, i + GROQ_BATCH);
-    try {
-      const nonIdx = await _groqNonMusicIndices(batch);
-      batch.forEach((t, j) => (nonIdx.has(j) ? nonMusic : music).push(t));
-    } catch {
-      unclassified.push(...batch);
-    }
-  }
   return { music, nonMusic, unclassified };
 }
 
