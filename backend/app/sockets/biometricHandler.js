@@ -633,17 +633,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           fetchTracks,
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
-        // Resting-HR baseline now comes from the ENCRYPTED MedicalProfile (T3.3), not the
-        // MusicProfile plaintext field (which was removed). Best-effort — a miss → null.
-        const medProfile = await MedicalProfile.findOne({ userId }).catch(() => null);
-        if (medProfile?.restingHeartRate != null) logBiometricAccess(userId, 'biometric-generation'); // ADR-0005
-
+        // Wave-0 HR branch maps the CURRENT heart rate to a coarse band server-side
+        // (adjustBiometricPlaylist → applyBiometricBands); it no longer consumes a resting-HR
+        // baseline, so no MedicalProfile read is needed here. The resting baseline still feeds
+        // the emotion branch via resolveBiometricContext (encrypted MedicalProfile). (T3.3 + Wave-0)
         aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
           biometric: {
             heartRate:  state.stableHR,
             activity:   state.latestActivity,
-            restingHR:  medProfile?.restingHeartRate ?? null,
           },
           fetchTracks,
         }), AI_BUDGET_MS, 'adjustBiometricPlaylist');
