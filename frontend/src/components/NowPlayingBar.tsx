@@ -4,6 +4,7 @@ import { Play, Pause, ChevronUp } from 'lucide-react';
 import type { RootState } from '@/store';
 import { spotifyPlayerService } from '@/services/spotifyPlayer';
 import { cn } from '@/lib/utils';
+import SpotifyAttribution from '@/components/SpotifyAttribution';
 
 /**
  * Compact persistent mini-player. Appears above the mobile nav and at the foot
@@ -44,6 +45,10 @@ export default function NowPlayingBar({ className }: { className?: string }) {
           <p className="truncate text-xs text-muted-foreground">{track.artist}</p>
         </div>
       </button>
+      {/* Spotify Design Guidelines: any surface showing Spotify metadata during
+          playback must carry the mark + a link back to the content. Renders
+          nothing for non-Spotify tracks (gated inside the component). */}
+      <SpotifyAttribution uri={track.uri} compact />
       <button
         onClick={toggle}
         aria-label={sdkIsPaused ? 'Play' : 'Pause'}

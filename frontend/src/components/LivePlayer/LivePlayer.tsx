@@ -3,6 +3,7 @@ import type { RootState, AppDispatch } from '../../store';
 import { skipTrack as skipTrackAction } from '../../store/slices/playerSlice';
 import { spotifyPlayerService } from '../../services/spotifyPlayer';
 import { useSocket } from '../../hooks/useSocket';
+import SpotifyAttribution from '../SpotifyAttribution';
 
 export default function LivePlayer() {
   const dispatch = useDispatch<AppDispatch>();
@@ -31,6 +32,9 @@ export default function LivePlayer() {
         <div className="flex-1 min-w-0 mr-3">
           <p className="text-white font-semibold text-sm truncate">{track.title}</p>
           <p className="text-gray-400 text-xs truncate">{track.artist}</p>
+          {/* Spotify Design Guidelines: mark + link back required on every surface
+              showing Spotify metadata during playback. No-ops for non-Spotify tracks. */}
+          <SpotifyAttribution uri={track.uri} compact className="mt-1 text-gray-400 hover:text-white" />
         </div>
         <div className="flex gap-2 shrink-0">
           <button

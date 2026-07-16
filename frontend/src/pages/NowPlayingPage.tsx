@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Play, Pause, SkipForward, SkipBack, Disc3, Heart } from 'lucide-react';
-import SpotifyLogo from '@/components/SpotifyLogo';
+import SpotifyAttribution from '@/components/SpotifyAttribution';
+import GarminAttribution from '@/components/GarminAttribution';
 import { toast } from 'sonner';
 import type { AppDispatch, RootState } from '@/store';
 import { setSdkState, setCurrentIndex } from '@/store/slices/playerSlice';
@@ -216,23 +217,16 @@ export default function NowPlayingPage() {
         </div>
 
         {/* Spotify attribution (Design Guidelines): link the playing track back to Spotify. */}
-        {track.uri?.startsWith('spotify:track:') && (
-          <a
-            href={`https://open.spotify.com/track/${track.uri.split(':')[2]}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 self-start text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <SpotifyLogo className="size-4" /> Listen on Spotify
-          </a>
-        )}
+        <SpotifyAttribution uri={track.uri} className="mt-3 self-start" />
 
-        <div className="mt-3 flex w-full flex-wrap gap-2">
+        <div className="mt-3 flex w-full flex-wrap items-center gap-2">
           {moodLabel && <Badge variant="secondary">{moodLabel}</Badge>}
           {heartRate !== null && (
             <Badge variant="outline" className="font-mono">♥ {heartRate} BPM</Badge>
           )}
           {!isOnline && <Badge variant="outline">Offline</Badge>}
+          {/* Garmin API Brand Guidelines: required wherever Garmin-sourced HR is shown. */}
+          {heartRate !== null && <GarminAttribution />}
         </div>
 
         {/* Progress / seek */}
