@@ -2,15 +2,15 @@
 const { toCatalogEntry } = require('../app/services/discovery/toCatalogEntry');
 
 describe('toCatalogEntry', () => {
-  it('normalizes a raw youtube_music library track (recordingKey youtube:<id>, name→title)', () => {
+  it('normalizes a pre-keyed mbid corpus entry (name→title, full shape preserved)', () => {
     const entry = toCatalogEntry({
-      id: 'abc', provider: 'youtube_music', name: 'Song', uri: 'https://youtu.be/abc',
+      recordingKey: 'mbid:abc', name: 'Song', uri: null,
       canonicalKey: 'at:a|song', genres: ['pop'], artist: 'A',
     });
     expect(entry).toEqual({
-      recordingKey: 'youtube:abc',
+      recordingKey: 'mbid:abc',
       canonicalKey: 'at:a|song',
-      uri: 'https://youtu.be/abc',
+      uri: null,
       title: 'Song',
       artist: 'A',
       genres: ['pop'],
@@ -29,9 +29,9 @@ describe('toCatalogEntry', () => {
     expect(toCatalogEntry({ id: 'z', provider: 'foo', uri: 'spotify:track:z' })).toBeNull();
   });
 
-  it('passes an already-normalized non-spotify track through unchanged (idempotent)', () => {
-    const entry = toCatalogEntry({ recordingKey: 'youtube:q', title: 'T', canonicalKey: 'isrc:USABC1234567' });
-    expect(entry.recordingKey).toBe('youtube:q');
+  it('passes an already-normalized mbid corpus track through unchanged (idempotent)', () => {
+    const entry = toCatalogEntry({ recordingKey: 'mbid:q', title: 'T', canonicalKey: 'isrc:USABC1234567' });
+    expect(entry.recordingKey).toBe('mbid:q');
     expect(entry.title).toBe('T');
     expect(entry.canonicalKey).toBe('isrc:USABC1234567');
   });
@@ -47,19 +47,37 @@ describe('toCatalogEntry', () => {
   });
 
   it('defaults genres to [] when not an array', () => {
-    const entry = toCatalogEntry({ id: 'abc', provider: 'youtube_music', name: 'Song' });
+    const entry = toCatalogEntry({ recordingKey: 'mbid:abc', name: 'Song' });
     expect(entry.genres).toEqual([]);
   });
 
   it('sets title to null when neither title nor name is present', () => {
-    const entry = toCatalogEntry({ id: 'abc', provider: 'youtube_music' });
-    expect(entry.recordingKey).toBe('youtube:abc');
+    const entry = toCatalogEntry({ recordingKey: 'mbid:abc' });
+    expect(entry.recordingKey).toBe('mbid:abc');
     expect(entry.title).toBeNull();
   });
 
   it('derives canonicalKey when absent but title+artist are present', () => {
-    const entry = toCatalogEntry({ id: 'x', provider: 'youtube_music', name: 'Song', artist: 'A' });
+    const entry = toCatalogEntry({ recordingKey: 'mbid:x', name: 'Song', artist: 'A' });
     expect(entry.canonicalKey).not.toBeNull();
     expect(entry.canonicalKey).toEqual(expect.stringMatching(/^(at:|isrc:)/));
+  });
+
+  it('drops a raw youtube_music library track even as the only input — returns null (YouTube-ToS containment)', () => {
+    expect(toCatalogEntry({ id: 'abc', provider: 'youtube_music', name: 'Song', uri: 'https://youtu.be/abc' })).toBeNull();
+  });
+
+  it('drops a pre-keyed youtube: recordingKey — returns null (YouTube-ToS containment)', () => {
+    expect(toCatalogEntry({ recordingKey: 'youtube:q', title: 'T', canonicalKey: 'isrc:USABC1234567' })).toBeNull();
+  });
+
+  it('drops a track whose uri is a youtube: uri even if the provider differs', () => {
+    expect(toCatalogEntry({ id: 'z', provider: 'foo', uri: 'youtube:z' })).toBeNull();
+  });
+
+  it('passes a legitimate mbid: recordingKey through (the CC0 corpus survives containment)', () => {
+    const entry = toCatalogEntry({ recordingKey: 'mbid:legit', title: 'T', canonicalKey: 'isrc:USABC1234567', genres: ['jazz'] });
+    expect(entry.recordingKey).toBe('mbid:legit');
+    expect(entry.genres).toEqual(['jazz']);
   });
 });
