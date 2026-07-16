@@ -628,21 +628,54 @@ describe('garminWebhook', () => {
 
   // ── audit T2.1 — fail-closed + header secret + constant-time + injection guard ──
 
-  it('fails closed with 503 when the secret is UNSET in production (no unauthenticated writes)', async () => {
+  it('fails closed with 503 whenever the secret is UNSET — regardless of NODE_ENV (no fail-open) [F1]', async () => {
     const prevSecret = process.env.GARMIN_WEBHOOK_SECRET;
     const prevEnv = process.env.NODE_ENV;
     delete process.env.GARMIN_WEBHOOK_SECRET;
-    process.env.NODE_ENV = 'production';
     try {
-      const res = buildRes();
-      await ctrl.garminWebhook({ headers: {}, query: {}, body: {} }, res, jest.fn());
-      expect(res.status).toHaveBeenCalledWith(503);
-      expect(res.json).toHaveBeenCalledWith({ error: 'garmin webhook not configured' });
+      for (const env of [undefined, 'production', 'test']) {
+        if (env === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = env;
+        const res = buildRes();
+        await ctrl.garminWebhook({ headers: {}, query: {}, body: { dailies: [{ userId: 'g1', startTimeInSeconds: 1 }] } }, res, jest.fn());
+        expect(res.status).toHaveBeenCalledWith(503);
+        expect(res.json).toHaveBeenCalledWith({ error: 'garmin webhook not configured' });
+      }
       expect(garminIngest.ingestSummaries).not.toHaveBeenCalled();
     } finally {
       process.env.GARMIN_WEBHOOK_SECRET = prevSecret;
       process.env.NODE_ENV = prevEnv;
     }
+  });
+
+  it('accepts the LIVE query-string ?secret= (permanent Garmin transport) and ingests — no deprecation log spam [F2/C1]', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      User.findOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'user-1' }) });
+      garminIngest.ingestSummaries.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
+      const res = buildRes();
+      await ctrl.garminWebhook({
+        headers: {},
+        query: { secret },
+        body: { dailies: [{ userId: 'g1', startTimeInSeconds: 1, restingHeartRateInBeatsPerMinute: 52 }] },
+      }, res, jest.fn());
+      expect(garminIngest.ingestSummaries).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({ received: true, users: 1 });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('falls through to the query ?secret= when a proxy injects an EMPTY header — never blocks live Garmin traffic [F3]', async () => {
+    User.findOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'user-1' }) });
+    garminIngest.ingestSummaries.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
+    const res = buildRes();
+    await ctrl.garminWebhook({
+      headers: { 'x-garmin-webhook-secret': '' },
+      query: { secret },
+      body: { dailies: [{ userId: 'g1', startTimeInSeconds: 1 }] },
+    }, res, jest.fn());
+    expect(res.json).toHaveBeenCalledWith({ received: true, users: 1 });
   });
 
   it('accepts the secret via the x-garmin-webhook-secret HEADER and ingests', async () => {
