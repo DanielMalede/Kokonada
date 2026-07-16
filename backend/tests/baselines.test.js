@@ -5,9 +5,14 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 jest.mock('../app/models/BiometricLog', () => ({ find: jest.fn() }));
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(), createConnection: jest.fn() }));
+jest.mock('../app/utils/biometricAudit', () => ({
+  logBiometricAccess: jest.fn(),
+  auditedDecrypt: jest.fn(),
+}));
 
 const BiometricLog = require('../app/models/BiometricLog');
 const { getRedis } = require('../app/config/redis');
+const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const { decrypt } = require('../app/utils/encryption');
 const baselines = require('../app/services/biosonic/baselines');
 
@@ -102,6 +107,16 @@ describe('computeBaselines (worker-only heavy path)', () => {
     const stats = await baselines.computeBaselines('u1');
 
     expect(stats.sampleCount).toBe(2);
+  });
+
+  it('emits an audited biometric access (ADR-0005) with a sample count, never a value', async () => {
+    mockBatches(Array.from({ length: 12 }, (_, i) => hr(60, i)), []);
+
+    await baselines.computeBaselines('u1');
+
+    expect(logBiometricAccess).toHaveBeenCalledWith(
+      'u1', expect.any(String), expect.objectContaining({ count: expect.any(Number) }),
+    );
   });
 });
 

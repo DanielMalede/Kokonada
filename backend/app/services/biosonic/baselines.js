@@ -3,6 +3,7 @@
 const BiometricLog = require('../../models/BiometricLog');
 const { getRedis } = require('../../config/redis');
 const { encrypt, decrypt } = require('../../utils/encryption');
+const { logBiometricAccess } = require('../../utils/biometricAudit');
 
 // Personal biometric baselines: rolling 30-day median/MAD of resting heart rate.
 //
@@ -48,6 +49,7 @@ async function computeBaselines(userId) {
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 3600 * 1000);
   const restingHr = [];
   let lastId = null;
+  let decryptedCount = 0;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const query = { userId, recordedAt: { $gte: since }, ...(lastId ? { _id: { $gt: lastId } } : {}) };
@@ -56,6 +58,7 @@ async function computeBaselines(userId) {
     if (!docs.length) break;
 
     for (const doc of docs) {
+      decryptedCount += 1; // the getter below decrypts special-category data — auditable (ADR-0005)
       if (doc.heartRate == null) continue; // Number(null) === 0 — reject before coercing
       const value = Number(doc.heartRate);
       if (!Number.isFinite(value)) continue;
@@ -64,6 +67,12 @@ async function computeBaselines(userId) {
     }
     lastId = docs[docs.length - 1]._id;
     if (docs.length < PAGE_SIZE) break;
+  }
+
+  // ADR-0005 audit trail: record the bulk biometric decryption (userId + purpose + count),
+  // never a single reading. Only when data was actually read.
+  if (decryptedCount > 0) {
+    logBiometricAccess(userId, 'baseline-aggregation', { count: decryptedCount });
   }
 
   const enough = restingHr.length >= MIN_SAMPLES;
