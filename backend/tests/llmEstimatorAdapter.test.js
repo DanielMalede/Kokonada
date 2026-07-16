@@ -37,16 +37,50 @@ describe('llmEstimatorAdapter.getFeatures — engineered fallback', () => {
     expect(r.confidence).toBeLessThanOrEqual(0.7); // never trusted like a measurement
   });
 
-  it('the prompt carries genre anchors and the numbered track list', async () => {
+  it('the prompt carries genre anchors + genre tags and the numbered list, NEVER the title', async () => {
     llmClient.generateJson.mockResolvedValue(estimatesResponse([]));
 
     await adapter.getFeatures([yt('v1', 'Midnight Drive', ['synthwave'])]);
 
     const prompt = llmClient.generateJson.mock.calls[0][0];
     expect(prompt).toMatch(/anchor/i);
-    expect(prompt).toContain('Midnight Drive');
-    expect(prompt).toContain('synthwave');
+    expect(prompt).toContain('synthwave');          // genre tag drives the estimate
+    expect(prompt).not.toContain('Midnight Drive'); // title must not egress
     expect(prompt).toMatch(/"i"/); // index-joined output contract
+  });
+
+  // LLM-egress boundary guard: a track's title / artist must NEVER leave the process in the
+  // outbound estimator request. Only its genre tags (+ the anchor table) may be sent.
+  it('egress guard: track title / artist never appear in the outbound estimator prompt', async () => {
+    llmClient.generateJson.mockResolvedValue(estimatesResponse([]));
+    const SENTINEL_TITLE  = 'ZZ_TITLE_SENTINEL_7742';
+    const SENTINEL_ARTIST = 'ZZ_ARTIST_SENTINEL_7742';
+
+    await adapter.getFeatures([
+      { provider: 'youtube_music', id: 'v1', title: SENTINEL_TITLE, artist: SENTINEL_ARTIST, genres: ['ambient'] },
+    ]);
+
+    const outbound = JSON.stringify(llmClient.generateJson.mock.calls);
+    expect(outbound).not.toContain(SENTINEL_TITLE);
+    expect(outbound).not.toContain(SENTINEL_ARTIST);
+    expect(outbound).toContain('ambient'); // genre tags still drive the estimate
+  });
+
+  // Contract pin — featureService.js L85 calls llmEstimator.getFeatures(...) and Wave 1
+  // depends on this exact shape. Signature + return shape must not drift.
+  it('contract: exports and getFeatures return shape are unchanged', async () => {
+    llmClient.generateJson.mockResolvedValue(estimatesResponse([
+      { i: 0, bpm: 120, energy: 0.5, valence: 0.5, acousticness: 0.2, danceability: 0.6, loudness: -8, confidence: 0.5 },
+    ]));
+
+    expect(typeof adapter.supports).toBe('function');
+    expect(typeof adapter.getFeatures).toBe('function');
+    expect(adapter.CONFIDENCE_CAP).toBe(0.7);
+
+    const results = await adapter.getFeatures([yt('v1')]);
+    expect(Array.isArray(results)).toBe(true);
+    expect(Object.keys(results[0]).sort()).toEqual(['confidence', 'features', 'recordingKey', 'source', 'track']);
+    expect(results[0].source).toBe('llm');
   });
 
   it('malformed JSON from the model yields features:null for the batch — never throws', async () => {

@@ -4,9 +4,11 @@ const llmClient = require('../llmClient');
 const { clampFeatures, recordingKeyOf } = require('./featureProvider');
 
 // Engineered LLM fallback for tracks the measured-features API cannot serve
-// (YouTube-only recordings). Estimates are joined back by INDEX — never by a
-// title echo the model could hallucinate — clamped through the shared trust
-// boundary, and confidence is hard-capped below any measured value.
+// (YouTube-only recordings). The prompt carries ONLY the track's genre tags and a
+// numeric anchor table — never the title, artist or channel (user library data must
+// not egress to any third-party model). Estimates are joined back by INDEX (never by a
+// title echo the model could hallucinate), clamped through the shared trust boundary,
+// and confidence is hard-capped below any measured value.
 
 const CONFIDENCE_CAP = 0.7;
 // Clamped ≥1 — see reccoBeatsAdapter: a zero batch size is an OOM spin-loop.
@@ -43,11 +45,13 @@ function supports(track) {
 }
 
 function _buildPrompt(batch) {
+  // Genre tags ONLY — the title/artist/channel are deliberately withheld so no user
+  // library string reaches the model. A track with no tags is sent as "unknown".
   const list = batch
-    .map((t, i) => `${i}. "${t.title ?? t.name}" by ${t.artist ?? 'unknown artist'}${t.genres?.length ? ` [genres: ${t.genres.join(', ')}]` : ''}`)
+    .map((t, i) => `${i}. genres: ${t.genres?.length ? t.genres.join(', ') : 'unknown'}`)
     .join('\n');
 
-  return `You are a music audio-analysis estimator. Estimate audio features for each numbered track using your knowledge of the artist, title and genres. Interpolate from the anchor rows below; stay conservative when unsure and reflect that in a lower confidence.
+  return `You are a music audio-analysis estimator. Estimate audio features for each numbered track from its genre tags alone. Interpolate from the anchor rows below; stay conservative when the tags are sparse or unknown and reflect that in a lower confidence.
 
 ${GENRE_ANCHORS}
 
