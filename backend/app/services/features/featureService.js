@@ -7,14 +7,23 @@ const llmEstimator = require('./llmEstimatorAdapter');
 const repo = require('../../repositories/audioFeatureRepo');
 const { enqueue } = require('../../queues/queue');
 const { QUEUES } = require('../../queues/definitions');
-const { isSpotifyKey } = require('../../utils/spotifyContent');
+const { isSpotifyKey, isSpotifyContent } = require('../../utils/spotifyContent');
 
 // Spotify-ToS containment choke: Spotify Content must never land in the AudioFeature
 // store or the embedding queue (which self-enqueues off the store). Both hydrate() and
-// enqueueHydration() drop spotify: recordings here, so no measured-feature fetch, store
+// enqueueHydration() drop Spotify recordings here, so no measured-feature fetch, store
 // write, or EMBEDDING_BUILD job can ever be keyed to Spotify Content.
+//
+// The predicate is provider- AND spotifyId-aware (not just recordingKey-scheme) to match the
+// other four gates and the leak monitor: ReccoBeats.supports() keys off spotifyId, so a
+// malformed/mislabeled track (mbid recordingKey + provider:'spotify', or youtube recordingKey +
+// a bare spotifyId) MUST be dropped BEFORE the measured fetch — otherwise it would be measured
+// and stored with a live spotifyId that the leak monitor's own selector would then flag.
+function _isSpotify(p) {
+  return isSpotifyContent(p.track) || isSpotifyKey(p.recordingKey) || spotifyIdOf(p.track) != null;
+}
 function _dropSpotify(prepped, tag) {
-  const kept = prepped.filter(p => !isSpotifyKey(p.recordingKey));
+  const kept = prepped.filter(p => !_isSpotify(p));
   const excluded = prepped.length - kept.length;
   if (excluded > 0) console.info(`[featureService] ${tag} excluded ${excluded} spotify recording(s) (ToS containment)`);
   return kept;
@@ -104,8 +113,9 @@ async function hydrate(tracks = []) {
   }
 
   // Belt (Spotify-ToS): prepped is already spotify-free, but never let a mislabeled adapter
-  // result persist a spotify: key or seed a spotify-keyed EMBEDDING_BUILD job.
-  const storable = docs.filter(d => !isSpotifyKey(d.recordingKey));
+  // result persist a spotify: key OR a doc carrying a live spotifyId, nor seed a spotify-keyed
+  // EMBEDDING_BUILD job. Mirrors the leak monitor's row selector (recordingKey scheme + spotifyId).
+  const storable = docs.filter(d => !isSpotifyKey(d.recordingKey) && d.spotifyId == null);
   if (storable.length) {
     await repo.upsertMany(storable);
     // Enrichment (vectors + vibe tags) rides the embedding-build queue —

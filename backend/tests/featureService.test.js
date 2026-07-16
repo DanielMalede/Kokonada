@@ -65,6 +65,30 @@ describe('featureService.hydrate', () => {
     expect(summary.requested).toBe(0);
   });
 
+  // Invariant guards (replacing the deleted measured-tier coverage): the gate must hold even for a
+  // MALFORMED/MISLABELED track that a future producer could emit — provider- and spotifyId-aware,
+  // not just recordingKey-scheme. These prove the still-live ReccoBeats measured path can never be
+  // reached (and its spotifyId can never be stored) by a surviving Spotify-tagged input.
+  it('gate holds under a malformed track: mbid recordingKey but provider spotify (never fetched/stored)', async () => {
+    reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
+
+    const summary = await hydrate([{ recordingKey: 'mbid:x', provider: 'spotify', id: 'abc' }]);
+
+    expect(reccoBeats.getFeatures).not.toHaveBeenCalled();
+    expect(repo.upsertMany).not.toHaveBeenCalled();
+    expect(summary.requested).toBe(0);
+  });
+
+  it('gate holds under a mislabeled track: youtube recordingKey but a spotifyId (never fetched/stored)', async () => {
+    reccoBeats.getFeatures.mockImplementation(async (tracks) => tracks.map(t => apiHit(t)));
+
+    const summary = await hydrate([{ recordingKey: 'youtube:x', spotifyId: 'abc' }]);
+
+    expect(reccoBeats.getFeatures).not.toHaveBeenCalled();
+    expect(repo.upsertMany).not.toHaveBeenCalled();
+    expect(summary.requested).toBe(0);
+  });
+
   it('hydrates youtube-only tracks via the LLM estimator and stores them', async () => {
     llmEstimator.getFeatures.mockImplementation(async (tracks) => tracks.map(t => ytLlmHit(t)));
 
