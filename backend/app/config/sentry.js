@@ -1,5 +1,18 @@
 let Sentry = null;
 
+// Strip request query strings/URLs from every event before it leaves the process.
+// The SDK's express error handler auto-captures the request, so without this an
+// unhandled 500 on the webhook route would ship ?secret= (or an OAuth ?code=/?state=)
+// straight to Sentry. Never throws — telemetry must not break on a malformed event.
+// (compliance C2)
+function scrubEvent(event) {
+  if (!event || !event.request) return event;
+  const req = event.request;
+  if (typeof req.url === 'string') req.url = req.url.split('?')[0];
+  if ('query_string' in req) delete req.query_string;
+  return event;
+}
+
 function initSentry(app) {
   if (!process.env.SENTRY_DSN) {
     console.log('Sentry DSN not set — skipping error monitoring');
@@ -10,6 +23,8 @@ function initSentry(app) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    sendDefaultPii: false,   // never auto-attach cookies/headers/IP (compliance C2)
+    beforeSend: scrubEvent,  // drop ?secret=/?code= from captured request URLs
   });
   // Must be called after all routes are registered
   if (app) Sentry.setupExpressErrorHandler(app);
@@ -35,4 +50,4 @@ function captureException(err, context) {
   }
 }
 
-module.exports = { initSentry, getSentry, captureException };
+module.exports = { initSentry, getSentry, captureException, scrubEvent };
