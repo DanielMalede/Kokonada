@@ -290,7 +290,9 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
     return { heartRate: clientHeartRate, activity: state.latestActivity || 'unknown', source: 'client' };
   }
 
-  const profile = await MusicProfile.findOne({ userId });
+  // Resting-HR fallback: the baseline lives on the ENCRYPTED MedicalProfile (T3.3), not on
+  // MusicProfile (which no longer stores plaintext vitals). The getter decrypts on access.
+  const profile = await MedicalProfile.findOne({ userId });
   if (profile && isPhysiologicalHR(profile.restingHeartRate)) {
     return { heartRate: profile.restingHeartRate, activity: 'resting', source: 'resting' };
   }
@@ -629,12 +631,15 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           fetchTracks,
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
+        // Resting-HR baseline now comes from the ENCRYPTED MedicalProfile (T3.3), not the
+        // MusicProfile plaintext field (which was removed). Best-effort — a miss → null.
+        const medProfile = await MedicalProfile.findOne({ userId }).catch(() => null);
         aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
           biometric: {
             heartRate:  state.stableHR,
             activity:   state.latestActivity,
-            restingHR:  musicProfile.restingHeartRate,
+            restingHR:  medProfile?.restingHeartRate ?? null,
           },
           fetchTracks,
         }), AI_BUDGET_MS, 'adjustBiometricPlaylist');

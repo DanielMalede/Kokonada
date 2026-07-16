@@ -59,15 +59,10 @@ const musicProfileSchema = new mongoose.Schema({
     default: [],
   },
 
-  // Biometric baselines
-  restingHeartRate: { type: Number, default: null }, // bpm
-  hrZones: {
-    zone1: { min: Number, max: Number }, // easy
-    zone2: { min: Number, max: Number }, // fat burn
-    zone3: { min: Number, max: Number }, // aerobic
-    zone4: { min: Number, max: Number }, // anaerobic
-    zone5: { min: Number, max: Number }, // max
-  },
+  // Biometric baselines DELETED (T3.3): restingHeartRate + hrZones were plaintext
+  // special-category health data. They live encrypted on MedicalProfile — the single
+  // source of truth — and were never even written here. Readers now source resting HR
+  // from MedicalProfile (see sockets/biometricHandler.js, services/geminiEngine.js).
 
   lastAnalyzed: { type: Date, default: null },
 }, {
