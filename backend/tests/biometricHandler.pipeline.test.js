@@ -813,6 +813,80 @@ describe('YouTube-only discovery — corpus filtered to playable, no search.list
   });
 });
 
+// ── YouTube-only user — no playable provider (explicit, actionable failure) ────
+// Playback is Spotify-only (native App Remote; no client has a YouTube player). A
+// YouTube-only account (no Spotify token) resolves provider='youtube', so every
+// familiar library entry (youtube_music, uri:null) drops at the client contract in
+// toClientTracks (Spotify-URI reconstruction is gated on provider==='spotify') →
+// clientTracks is empty. The OLD behaviour surfaced the generic "try again" (or a raw
+// error message), which is misleading — retrying can NEVER help. These pin the fix:
+// a distinct NO_PLAYABLE_PROVIDER reason + a calm, actionable Connect-Spotify message,
+// while a genuine empty for a user WITH a playback engine keeps its existing handling.
+describe('YouTube-only user — no playable provider surfaces a clear, actionable message', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  it('MAIN PATH: an empty playlist (whole uri:null library dropped) emits NO_PLAYABLE_PROVIDER + a calm Connect-Spotify message, not a generic "try again"', async () => {
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    // Real-world familiar library: youtube_music entries stored WITHOUT a uri (the id is a
+    // YouTube video id). generateV2 returns them as `merged`; toClientTracks drops every one
+    // because provider==='youtube' → the Spotify-URI reconstruction never fires → empty.
+    const famNoUri = { id: 'yt-vid-1', provider: 'youtube_music', name: 'Familiar YT', artist: 'A' };
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar: [famNoUri], discovery: [], merged: [famNoUri],
+      telemetry: { stageMs: {} }, targets: { bpmCenter: 120 },
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 101 }));
+
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+    expect(errCall[1].reason).toBe('NO_PLAYABLE_PROVIDER');
+    // reqId MUST survive on this branch — both clients (mobile socketClient.ts, web useSocket.ts)
+    // gate on reqId matching before showing ANY error, so a dropped reqId here would silently
+    // swallow this exact message: the failure mode this fix exists to kill.
+    expect(errCall[1].reqId).toBe(101);
+    expect(errCall[1].message).toMatch(/spotify/i);        // names the actual fix
+    expect(errCall[1].message).not.toMatch(/try again/i);  // NOT the misleading generic retry copy
+  });
+
+  it('FALLBACK PATH (AI threw): the library fallback also dropping to empty still emits NO_PLAYABLE_PROVIDER, not a raw error message', async () => {
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    // The AI pipeline throws → recovery ladder. generateFallbackPlaylist yields library entries
+    // with no uri; under provider='youtube' they all drop → fallbackTracks empty → the raw-error
+    // emit. The default fallback fixture ([{id:'lib-1'},{id:'lib-2'}]) already drops here.
+    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 102 }));
+
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+    expect(errCall[1].reason).toBe('NO_PLAYABLE_PROVIDER');
+    expect(errCall[1].reqId).toBe(102);                       // reqId survives the AI-threw fallback branch too
+    expect(errCall[1].message).toMatch(/spotify/i);
+    expect(errCall[1].message).not.toMatch(/Gemini timeout/); // never leak the raw internal error
+  });
+
+  it('SPOTIFY USER: a genuine empty playlist (has a playback engine) keeps the EXISTING generic handling — no NO_PLAYABLE_PROVIDER reason', async () => {
+    // default beforeEach → SPOTIFY_USER (playback engine present); this is a legitimate no-tracks case.
+    orchestrator.generateV2.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [], telemetry: { stageMs: {} } });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 103 }));
+
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(errCall[1].reason).toBeUndefined();
+    expect(errCall[1].reqId).toBe(103);                       // the generic path must still carry reqId
+    expect(errCall[1].message).toEqual(expect.any(String));
+  });
+});
+
 // ── Error handling ────────────────────────────────────────────────────────────
 
 describe('error handling', () => {

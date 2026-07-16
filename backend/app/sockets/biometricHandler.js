@@ -142,6 +142,23 @@ function toClientTracks(list, provider, context) {
   return (Array.isArray(list) ? list : []).map((t) => toClientTrack(t, provider, context)).filter(Boolean);
 }
 
+// Playback is Spotify-only (native App Remote; NO client — web or mobile — has a YouTube player).
+// A YouTube-only account (no Spotify token) resolves provider='youtube', so every familiar library
+// entry (youtube_music, uri:null) drops in toClientTrack — the Spotify-URI reconstruction is gated
+// on provider==='spotify' — and the playlist comes back empty. Retrying can NEVER help, so an empty
+// result for such a user must NOT reuse the generic "try again" (nor leak a raw internal error):
+// build a distinct NO_PLAYABLE_PROVIDER error + a calm, on-brand, actionable message. A user WITH a
+// playback engine (Spotify connected) who hits a genuine no-tracks case keeps the generic message.
+const NO_PLAYABLE_PROVIDER_MESSAGE =
+  'Connect Spotify to start listening — your YouTube-based taste profile still works, '
+  + 'playback just needs a connected Spotify account.';
+function emptyPlaylistError(user, reqId, genericMessage) {
+  if (!resolvePlaybackProvider(user)) {
+    return { reqId, reason: 'NO_PLAYABLE_PROVIDER', message: NO_PLAYABLE_PROVIDER_MESSAGE };
+  }
+  return { reqId, message: genericMessage };
+}
+
 // A corpus discovery candidate is playable on the YouTube path only when it already carries a
 // native youtube: URI. The mbid corpus resolves rows to SPOTIFY URIs (or leaves them uri:null)
 // — a spotify: URI is truthy and would otherwise slip through toClientTrack and reach a YouTube
@@ -177,7 +194,7 @@ function emitToUser(socket, event, payload) {
   if (event === 'playlist_ready') {
     console.warn(`[gen] emit playlist_ready reqId=${payload?.reqId} tracks=${payload?.tracks?.length ?? 0} user=${uid}`);
   } else if (event === 'playlist_error') {
-    console.warn(`[gen] emit playlist_error reqId=${payload?.reqId} msg="${payload?.message ?? ''}" user=${uid}`);
+    console.warn(`[gen] emit playlist_error reqId=${payload?.reqId} reason=${payload?.reason ?? ''} msg="${payload?.message ?? ''}" user=${uid}`);
   }
   if (uid && socket.nsp && typeof socket.nsp.to === 'function') {
     socket.nsp.to(`user:${uid}`).emit(event, payload);
@@ -707,7 +724,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           fallback:  true,
         });
       } else {
-        emit('playlist_error', { message: err.message, reqId });
+        emit('playlist_error', emptyPlaylistError(user, reqId, err.message));
       }
       return;
     }
@@ -813,7 +830,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         + `library=${musicProfile.library?.length ?? 0} discoveryCandidates=${cachedDiscovery?.length ?? 0} `
         + `mixedFamiliar=${playlist?.familiar?.length ?? 0} mixedDiscovery=${playlist?.discovery?.length ?? 0} `
         + `seed_genres=${JSON.stringify(aiResult.params?.seed_genres)} exclude_genres=${JSON.stringify(aiResult.params?.exclude_genres)}`);
-      emit('playlist_error', { message: 'Could not build a playlist from the current sources — try again', reqId });
+      emit('playlist_error', emptyPlaylistError(user, reqId, 'Could not build a playlist from the current sources — try again'));
       return;
     }
 
