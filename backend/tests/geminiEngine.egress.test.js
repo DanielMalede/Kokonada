@@ -102,6 +102,36 @@ describe('outbound body — no special-category vitals (T0.1)', () => {
   });
 });
 
+// ── T0.2: raw free-text never leaves the process ──────────────────────────────
+
+describe('outbound body — no raw free-text (T0.2)', () => {
+  const NOTE = 'my name is Daniel Malede and my SSN is 123-45-6789, I want to go for a run';
+
+  it('the EMOTION request contains no substring of the raw note', async () => {
+    mockLLM();
+    await buildEmotionPlaylist({
+      musicProfile: SENTINEL_PROFILE, emotionTaps: [{ x: 0.45, y: -0.55 }], // calm
+      textPrompt: NOTE, fetchTracks: jest.fn().mockResolvedValue([]),
+    });
+    const body = outboundBody();
+    expect(body).not.toContain('Daniel');
+    expect(body).not.toContain('Malede');
+    expect(body).not.toContain('123-45-6789');
+    expect(body).not.toContain('SSN');
+    expect(body).not.toMatch(/user note/i);
+  });
+
+  it('still applies the derived movement cue deterministically (run → peak) server-side', async () => {
+    mockLLM();
+    const fetchTracks = jest.fn().mockResolvedValue([]);
+    const { params } = await buildEmotionPlaylist({
+      musicProfile: SENTINEL_PROFILE, emotionTaps: [{ x: 0.45, y: -0.55 }], // calm mood
+      textPrompt: 'going for a run', fetchTracks,
+    });
+    expect(params.tempo_category).toBe('peak');
+  });
+});
+
 // ── byLower case-map guard (inferArtistGenres must NOT be modified) ────────────
 
 describe('inferArtistGenres — byLower case-map guard', () => {

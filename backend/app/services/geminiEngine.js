@@ -6,7 +6,7 @@ const { withRetry }    = require('../utils/retry');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
-const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate } = require('./moodDescriptors');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, extractIntent } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -238,9 +238,18 @@ function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null,
   // Micro-genre seed shifting: a rotating subset of hyper-specific sub-genres.
   const allowedGenres = _microGenreSubset(musicProfile, seed).join(', ');
 
+  // Wave-0: the raw free-text note is NEVER interpolated. It is reduced here to a
+  // closed-vocabulary set of derived intent tags (extractIntent), so only canonical
+  // tokens — never the user's own words / PII — can enter the outbound request.
+  const intent = extractIntent(textPrompt);
+  const effectiveActivity = activity || intent.activity;
+  const intentLine = intent.keywords.length
+    ? `Derived listener intent (structured tags, not the user's words): ${intent.keywords.join(', ')}`
+    : '';
+
   // Only nudge the LLM to weigh the activity when one is present.
-  const contextDirective = activity
-    ? ` Also weigh the user's current activity ("${activity}") against the emotion: a winding-down activity (preparing for sleep, meditating) calls for calmer, lower-tempo, more acoustic music, while an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
+  const contextDirective = effectiveActivity
+    ? ` Also weigh the user's current activity ("${effectiveActivity}") against the emotion: a winding-down activity (preparing for sleep, meditating) calls for calmer, lower-tempo, more acoustic music, while an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
     : '';
 
   return `You are an expert musicologist.
@@ -254,8 +263,8 @@ User's musical taste profile (anonymised):
 
 Current emotional state — 2D coordinates from an emotion wheel (x = arousal, y = valence, range -1 to 1):
 ${JSON.stringify(emotionTaps)}
-${textPrompt ? `User note: "${textPrompt}"` : ''}
-${activity ? `Current activity: ${activity}` : ''}
+${intentLine}
+${effectiveActivity ? `Current activity: ${effectiveActivity}` : ''}
 
 Analyse the emotional coordinates in the context of the user's taste profile and determine the ideal musical parameters.${contextDirective} Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
 {
@@ -266,7 +275,7 @@ Analyse the emotional coordinates in the context of the user's taste profile and
   "seed_artists": <array of 0–3 artist names chosen ONLY from the user's known favourites — never invent names>,
   "seed_genres": <array of 1–3 genres chosen ONLY from this allowed list: ${allowedGenres}>,
   "mood_keywords": <array of 2–4 short search descriptors capturing the mood (e.g. "calm", "uplifting", "lo-fi", "late night") — these drive the actual track search>,
-  "tempo_category": <exactly one of "resting" | "active" | "peak" — the overall tempo/energy band that best fits this session. IMPORTANT: if the user note is present it OVERRIDES the mood when it implies movement (e.g. "going for a run" → "peak" even for a calm mood); otherwise infer it from the emotional coordinates>
+  "tempo_category": <exactly one of "resting" | "active" | "peak" — the overall tempo/energy band that best fits this session; infer it from the emotional coordinates and any derived intent tags above>
 }${_strictMoodLine(emotionTaps)}${_variationLine(seed)}`;
 }
 
@@ -344,12 +353,16 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
   // map to the audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here,
   // AFTER the LLM has returned, reusing the moodDescriptors band machinery.
   const bandedParams = applyBiometricBands(rawParams, biometricContext);
-  // Zero-tolerance enforcement: deterministically override (no custom intent) or
-  // merge (custom intent) the LLM picks with the strict mood descriptors so a stray
-  // off-vibe genre/keyword can never reach the Spotify search or the mixer. A
-  // selected activity counts as custom intent too, so it refines the strict mood
-  // list rather than being steamrolled by it.
-  const params = applyMoodFallback(bandedParams, emotionTaps, textPrompt || activity, musicProfile);
+  // Wave-0: the raw note is reduced to closed-vocabulary intent tags server-side (extractIntent);
+  // the RAW text never leaves the process. A non-empty derived intent (activity or keywords)
+  // counts as custom intent so the strict mood MERGES rather than overrides — reproducing the
+  // old free-text behaviour deterministically.
+  const intent = extractIntent(textPrompt);
+  const derivedIntent = [activity || intent.activity, ...intent.keywords].filter(Boolean).join(' ');
+  const params = applyMoodFallback(bandedParams, emotionTaps, derivedIntent, musicProfile);
+  // Deterministic movement cue: a "going for a run" note → peak, even for a calm mood —
+  // the override the raw note used to hand the LLM, now applied server-side.
+  if (intent.tempoCategory) params.tempo_category = intent.tempoCategory;
   return { params, tracks: await fetchTracks(params) };
 }
 

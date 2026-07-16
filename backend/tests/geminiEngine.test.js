@@ -187,9 +187,11 @@ describe('_buildEmotionPrompt — tempo_category', () => {
     TEMPO_CATEGORIES.forEach((c) => expect(prompt).toContain(c));
   });
 
-  it('tells the model the user note OVERRIDES the mood for tempo', () => {
+  it('never interpolates the raw note; the movement override is applied server-side', () => {
+    // The prompt carries only derived intent tags, not the raw sentence.
     const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, 'going for a run');
-    expect(prompt.toLowerCase()).toMatch(/override|takes precedence|overrides/);
+    expect(prompt).not.toContain('going for a run');
+    expect(prompt).not.toMatch(/user note/i);
   });
 });
 
@@ -224,14 +226,20 @@ describe('_buildEmotionPrompt', () => {
     expect(prompt).toContain('0.3');
   });
 
-  it('includes optional text prompt when provided', () => {
-    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, 'Need to focus on studying');
-    expect(prompt).toContain('Need to focus on studying');
+  it('NEVER embeds the raw free-text note; only closed-vocabulary derived tags (Wave-0 T0.2)', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, 'Need to focus on studying, my name is Bob');
+    expect(prompt).not.toContain('Need to focus on studying');
+    expect(prompt).not.toContain('Bob');
+    expect(prompt).not.toMatch(/user note/i);
+    // The derived intent tags DO appear (deterministic, closed-vocabulary).
+    expect(prompt).toContain('Derived listener intent');
+    expect(prompt).toContain('focus');
   });
 
-  it('omits user note section when textPrompt is null', () => {
+  it('omits the derived-intent line entirely when there is no note', () => {
     const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);
-    expect(prompt).not.toContain('User note: ""');
+    expect(prompt).not.toContain('User note');
+    expect(prompt).not.toContain('Derived listener intent');
   });
 
   it('does not expose user PII in the prompt', () => {
