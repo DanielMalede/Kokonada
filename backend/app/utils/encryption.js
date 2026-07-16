@@ -75,4 +75,18 @@ function decrypt(blob, parseJson = false, aad = null) {
   throw lastErr || new Error('Decryption failed');
 }
 
-module.exports = { encrypt, decrypt };
+/**
+ * Deterministic keyed blind index for an encrypted field. HMAC-SHA256 keyed by the primary
+ * encryption key, so the SAME value always maps to the SAME index (queryable) while an
+ * attacker without the key can't precompute it from the plaintext. Lets us look up a row by
+ * an encrypted value (e.g. garminUserId) WITHOUT decrypting every document. (T3.3)
+ * @param {string|null} value
+ * @returns {string|null} hex digest, or null for null/empty input
+ */
+function blindIndex(value) {
+  if (value == null || String(value) === '') return null;
+  const key = getKeys()[0];
+  return crypto.createHmac('sha256', key).update(String(value)).digest('hex');
+}
+
+module.exports = { encrypt, decrypt, blindIndex };
