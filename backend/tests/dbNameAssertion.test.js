@@ -38,4 +38,22 @@ describe('assertDbName (startup DB-name guard)', () => {
     delete process.env.MONGO_DB_NAME;
     expect(() => assertDbName('test')).not.toThrow();
   });
+
+  it('allows an explicit MONGO_DB_NAME=test opt-in in production (informed human override)', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.MONGO_DB_NAME = 'test';
+    expect(() => assertDbName('test')).not.toThrow();
+  });
+
+  it('still throws when connected to "test" but MONGO_DB_NAME expects a different name', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.MONGO_DB_NAME = 'kokonada';
+    expect(() => assertDbName('test')).toThrow(/does not match/i);
+  });
+
+  it('passes in production on a non-default db with no MONGO_DB_NAME expectation set', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.MONGO_DB_NAME;
+    expect(() => assertDbName('kokonada')).not.toThrow();
+  });
 });
