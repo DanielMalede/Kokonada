@@ -20,8 +20,8 @@ describe('field-level encryption at rest (audit F3)', () => {
 
       const raw = doc.toObject({ getters: false }).heartRate;
       expect(raw).not.toBe(72);
-      expect(raw).not.toBe('72');           // not plaintext at rest
-      expect(decrypt(raw)).toBe('72');      // genuinely encrypted
+      expect(raw).not.toBe('72');                   // not plaintext at rest
+      expect(decrypt(raw, false, OID)).toBe('72');  // genuinely encrypted, AAD-bound to owner (T3.3)
     });
 
     it('rejects an out-of-range heartRate (range preserved through encryption)', () => {
@@ -58,8 +58,8 @@ describe('field-level encryption at rest (audit F3)', () => {
 
       const raw = doc.toObject({ getters: false });
       expect(raw.contextPrompt).not.toContain('anxious');
-      expect(decrypt(raw.contextPrompt)).toBe('feeling anxious before exam');
-      expect(decrypt(raw.biometricSnapshot.heartRate)).toBe('95');
+      expect(decrypt(raw.contextPrompt, false, OID)).toBe('feeling anxious before exam');
+      expect(decrypt(raw.biometricSnapshot.heartRate, false, OID)).toBe('95');
     });
   });
 
@@ -73,7 +73,7 @@ describe('field-level encryption at rest (audit F3)', () => {
 
       const raw = doc.toObject({ getters: false });
       expect(raw.hrv).not.toBe(65);
-      expect(decrypt(raw.hrv)).toBe('65');
+      expect(decrypt(raw.hrv, false, OID)).toBe('65');
     });
   });
 });
