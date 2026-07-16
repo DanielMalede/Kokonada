@@ -7,6 +7,9 @@
 // test fails hard on the un-fixed code (users: 0) — no false-green.
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.NODE_ENV = 'test';
+// Wave 2's webhook fails closed (503) unless a secret is configured + presented.
+const WEBHOOK_SECRET = 'wave3-it-secret';
+process.env.GARMIN_WEBHOOK_SECRET = WEBHOOK_SECRET;
 
 // Keep the heavy socket chain out of the controller under test.
 jest.mock('../app/sockets', () => ({ getIo: () => null }));
@@ -50,7 +53,7 @@ describe('garminWebhook — resolve encrypted garminUserId via blind index (real
     const u = await connectGarmin('garmin-XYZ');
     const res = makeRes();
 
-    await garminWebhook({ query: {}, body: { dailies: [{ userId: 'garmin-XYZ', restingHeartRateInBeatsPerMinute: 52 }] } }, res, jest.fn());
+    await garminWebhook({ query: { secret: WEBHOOK_SECRET }, body: { dailies: [{ userId: 'garmin-XYZ', restingHeartRateInBeatsPerMinute: 52 }] } }, res, jest.fn());
 
     expect(garminIngest.ingestSummaries).toHaveBeenCalledTimes(1);
     expect(String(garminIngest.ingestSummaries.mock.calls[0][0])).toBe(String(u._id));
@@ -69,7 +72,7 @@ describe('garminWebhook — resolve encrypted garminUserId via blind index (real
     await User.updateOne({ _id: u._id }, { $set: { garminUserIdHmac: null } }); // simulate a row connected before the index existed
     const res = makeRes();
 
-    await garminWebhook({ query: {}, body: { dailies: [{ userId: 'garmin-OLD' }] } }, res, jest.fn());
+    await garminWebhook({ query: { secret: WEBHOOK_SECRET }, body: { dailies: [{ userId: 'garmin-OLD' }] } }, res, jest.fn());
 
     expect(String(garminIngest.ingestSummaries.mock.calls[0][0])).toBe(String(u._id));
     const healed = await User.findById(u._id);
@@ -80,7 +83,7 @@ describe('garminWebhook — resolve encrypted garminUserId via blind index (real
     await connectGarmin('garmin-XYZ');
     const res = makeRes();
 
-    await garminWebhook({ query: {}, body: { dailies: [{ userId: 'nobody-here' }] } }, res, jest.fn());
+    await garminWebhook({ query: { secret: WEBHOOK_SECRET }, body: { dailies: [{ userId: 'nobody-here' }] } }, res, jest.fn());
 
     expect(garminIngest.ingestSummaries).not.toHaveBeenCalled();
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ users: 0 }));
@@ -98,7 +101,7 @@ describe('garminWebhook — resolve encrypted garminUserId via blind index (real
     process.env.ENCRYPTION_KEY_PREVIOUS = OLD;
     try {
       const res = makeRes();
-      await garminWebhook({ query: {}, body: { dailies: [{ userId: 'garmin-ROT' }] } }, res, jest.fn());
+      await garminWebhook({ query: { secret: WEBHOOK_SECRET }, body: { dailies: [{ userId: 'garmin-ROT' }] } }, res, jest.fn());
 
       expect(String(garminIngest.ingestSummaries.mock.calls[0][0])).toBe(String(u._id)); // still resolved
       const healed = await User.findById(u._id);
