@@ -8,9 +8,10 @@ const BASE_API  = 'https://api.spotify.com/v1';
 // Least privilege: only scopes the code actually uses. NOTE: re-granting a new
 // scope requires each user to reconnect Spotify once — the affected endpoint
 // detects the 403 (insufficient_scope) and prompts the reconnect.
+// Dropped user-read-private / user-read-email: getProfile() only hits /me to verify the
+// token works and DISCARDS the result, so the user's email/subscription details are never
+// consumed — requesting those scopes would be over-asking with no functional use.
 const SCOPES = [
-  'user-read-private',
-  'user-read-email',
   'user-read-playback-state',
   'user-modify-playback-state',
   'user-read-recently-played',
@@ -196,26 +197,6 @@ async function getProfile(accessToken) {
     timeout: 5000,
   });
   return { spotifyId: data.id, displayName: data.display_name, email: data.email };
-}
-
-// Fetch user's top tracks audio features — used to build Musical DNA in Phase 3
-async function getTopTrackFeatures(accessToken, limit = 50) {
-  const { data: topData } = await axios.get(`${BASE_API}/me/top/tracks`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    params: { limit, time_range: 'medium_term' },
-    timeout: 8000,
-  });
-
-  const ids = topData.items.map(t => t.id).join(',');
-  if (!ids) return [];
-
-  const { data: featData } = await axios.get(`${BASE_API}/audio-features`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    params: { ids },
-    timeout: 8000,
-  });
-
-  return featData.audio_features.filter(Boolean);
 }
 
 // ── Listening-history endpoints (post-2024 profile foundation) ──────────────────
@@ -743,7 +724,7 @@ async function areTracksSaved(accessToken, ids) {
 }
 
 module.exports = {
-  getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile, getTopTrackFeatures,
+  getAuthUrl, exchangeCode, getValidToken, withFreshToken, getProfile,
   getTopTracks, getTopArtists, getRecentlyPlayed, getArtistsGenres,
   artistGenresAvailable, _resetArtistGenresCache, markDiscoveryUnavailable,
   paginateLikedSongs, paginatePlaylistTracks, batchAudioFeatures, getRecommendations,
