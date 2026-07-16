@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Disc3, Loader2 } from 'lucide-react';
 import type { AppDispatch } from '../store';
 import { setUser, setAuthStatus } from '../store/slices/authSlice';
-import { setToken } from '@/lib/api';
+import { setToken, sameOriginAuth } from '@/lib/api';
 
 declare const google: {
   accounts: {
@@ -57,7 +57,11 @@ export default function LoginPage() {
       if (!res.ok) {
         throw new Error(data?.error || `Sign-in failed (HTTP ${res.status}).`);
       }
-      if (data.token) setToken(data.token);
+      // B2 same-domain auth prep (T4): in same-origin mode the httpOnly cookie the
+      // login response just set is the ONLY session credential — never mirror it
+      // into JS-readable localStorage. Off by default (current cross-site topology
+      // still needs the bearer-token workaround; see lib/api.ts).
+      if (data.token && !sameOriginAuth()) setToken(data.token);
       dispatch(setUser(data.user ?? data));
       dispatch(setAuthStatus('authenticated'));
       // Skip onboarding for returning users: if a music source is already connected,
@@ -66,7 +70,7 @@ export default function LoginPage() {
       try {
         const statusRes = await fetch(`${BACKEND_URL}/api/integrations/status`, {
           credentials: 'include',
-          headers: data.token ? { Authorization: `Bearer ${data.token}` } : {},
+          headers: data.token && !sameOriginAuth() ? { Authorization: `Bearer ${data.token}` } : {},
         });
         if (statusRes.ok && (await statusRes.json())?.musicProvider) dest = '/app';
       } catch { /* status unavailable — fall back to onboarding */ }

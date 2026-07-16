@@ -4,7 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import { toast } from 'sonner';
 import type { AppDispatch } from '../store';
 import { store } from '../store';
-import { getToken } from '@/lib/api';
+import { getToken, sameOriginAuth } from '@/lib/api';
 import { setPlaylist, skipTrack as skipTrackAction, setIsOnline, setReconnectState, receivePlaylist, setPlaylistError } from '../store/slices/playerSlice';
 import {
   setBiometricAck,
@@ -74,7 +74,13 @@ export function reconnectSocketNow() {
 function initSocket(dispatch: AppDispatch): Socket {
   if (socket) return socket;
 
-  socket = io(BACKEND_URL, { withCredentials: true, autoConnect: true, auth: { token: getToken() } });
+  // B2 same-domain auth prep (T4): once the cookie is first-party (post domain
+  // migration), the handshake needs no bearer token at all — the backend already
+  // accepts the httpOnly session cookie as a fallback auth path (see
+  // backend/app/sockets/index.js). Defaults OFF, preserving today's cross-site
+  // bearer-token handshake unchanged.
+  const authPayload = sameOriginAuth() ? {} : { token: getToken() };
+  socket = io(BACKEND_URL, { withCredentials: true, autoConnect: true, auth: authPayload });
 
   socket.on('connect', () => {
     retryCount = 0;
