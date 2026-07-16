@@ -170,48 +170,6 @@ function _variationLine(seed) {
     : `\n\nVariation token: ${seed} — deliberately pick a FRESH, different selection of seed_genres, seed_artists and mood_keywords than you would for any other token, while staying within the strict vibe and the user's taste above.`;
 }
 
-// How many hyper-specific sub-genres to surface to the LLM per generation. A small
-// rotating window (vs the full footprint) steers Spotify search into a different
-// catalog sector each press.
-const MICRO_GENRE_COUNT = Number(process.env.MICRO_GENRE_COUNT) || 8;
-
-// Deterministic PRNG from a string seed (xfnv1a hash → mulberry32). Same seed →
-// same sequence (reproducible per request); different seeds → different rotation.
-function _seededRng(seedStr) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < seedStr.length; i++) {
-    h ^= seedStr.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return function next() {
-    h += 0x6d2b79f5;
-    let t = h;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// Micro-genre seed shifting: pick a seeded random subset of the user's HYPER-SPECIFIC
-// sub-genres (genreSet, e.g. "indie pop", "post-punk") instead of the broad parent
-// genres, so each press drives the Spotify algorithm into entirely separate catalog
-// sectors. Falls back to topGenres when there's no granular footprint, and returns
-// the whole list unchanged when it's already at/under the window (or no seed) — which
-// keeps the broad-genre behaviour for small profiles.
-function _microGenreSubset(musicProfile, seed) {
-  const granular = (musicProfile.genreSet && musicProfile.genreSet.length)
-    ? musicProfile.genreSet
-    : (musicProfile.topGenres || []);
-  if (seed == null || granular.length <= MICRO_GENRE_COUNT) return granular;
-  const rng = _seededRng(String(seed));
-  const arr = [...granular];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr.slice(0, MICRO_GENRE_COUNT);
-}
-
 // Strict-curator directive (zero-tolerance vibe). Resolved from the emotion taps so
 // the LLM is nudged to avoid off-vibe genres and lean into the mood's energy. The
 // post-LLM applyMoodFallback then ENFORCES this deterministically — the directive is
@@ -235,8 +193,11 @@ function _strictMoodLine(emotionTaps) {
  */
 function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null } = {}) {
   const { tempoBaseline, energy, valence, acousticness } = musicProfile;
-  // Micro-genre seed shifting: a rotating subset of hyper-specific sub-genres.
-  const allowedGenres = _microGenreSubset(musicProfile, seed).join(', ');
+  // Wave-0 (H-3): the allowed genres come from the resolved MOOD descriptor's on-vibe
+  // allow-list — NEVER the user's Spotify-derived genreSet/topGenres. Spotify Content must
+  // not reach the LLM (Spotify Developer Policy AI-ingestion ban).
+  const moodKey = resolveMoodKey(emotionTaps);
+  const allowedGenres = (moodKey ? MOOD_DESCRIPTORS[moodKey].allow_genres : []).join(', ');
 
   // Wave-0: the raw free-text note is NEVER interpolated. It is reduced here to a
   // closed-vocabulary set of derived intent tags (extractIntent), so only canonical

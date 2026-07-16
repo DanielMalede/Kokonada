@@ -132,6 +132,26 @@ describe('outbound body — no raw free-text (T0.2)', () => {
   });
 });
 
+// ── T0.3: Spotify Content (artist names / Spotify-derived genres) out of prompts ─
+
+describe('outbound body — no Spotify Content (T0.3)', () => {
+  it('the EMOTION request carries no Spotify-derived genre strings and no artist names', async () => {
+    mockLLM();
+    await buildEmotionPlaylist({
+      musicProfile: SENTINEL_PROFILE, emotionTaps: [{ x: 0.1, y: 0.95 }], // intense
+      fetchTracks: jest.fn().mockResolvedValue([]),
+    });
+    const body = outboundBody();
+    // The profile's Spotify-derived footprint sentinels never appear…
+    expect(body).not.toContain('SENTINEL_GENRE_TOP');
+    expect(body).not.toContain('SENTINEL_GENRE_SETX');
+    expect(body).not.toContain('SENTINEL_GENRE_SETY');
+    expect(body).not.toContain('SENTINEL_ARTIST_NAME');
+    // …but the mood descriptor allow-list genres DO (deterministic, first-party vocabulary).
+    expect(body).toContain('metal');
+  });
+});
+
 // ── byLower case-map guard (inferArtistGenres must NOT be modified) ────────────
 
 describe('inferArtistGenres — byLower case-map guard', () => {

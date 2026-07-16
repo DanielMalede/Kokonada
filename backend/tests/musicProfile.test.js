@@ -695,20 +695,36 @@ describe('buildProfile', () => {
     expect(savedSet().library.length).toBeGreaterThan(0);
   });
 
-  it('backfills genres via the LLM when Spotify returns none (moods need genres)', async () => {
-    // Spotify serves NO artist genres (the real prod situation) → genreSet would be empty.
+  it('NEVER sends Spotify artist names to the LLM genre backfill (Wave-0 H-3 caller gate)', async () => {
+    // Spotify serves NO artist genres → genreSet would be empty and the backfill would run,
+    // but Spotify Content must never reach the LLM (Spotify Developer Policy AI-ingestion ban).
     spotify.getTopArtists.mockResolvedValue([{ id: 'a1', name: 'Bonobo', genres: [] }]);
     spotify.getArtistsGenres.mockResolvedValue({});
-    geminiEngine.inferArtistGenres.mockResolvedValue({ Bonobo: ['downtempo', 'electronic'] });
+    geminiEngine.inferArtistGenres.mockResolvedValue({});
 
     await buildProfile('user123', makeMockUser({ hasSpotify: true }));
 
+    // Whether or not the backfill fires, it must receive NO Spotify-sourced artist names.
+    for (const call of geminiEngine.inferArtistGenres.mock.calls) {
+      const names = call[0] || [];
+      expect(names).not.toContain('Bonobo');
+      expect(names).not.toContain('Tycho');
+    }
+  });
+
+  it('still backfills genres for NON-Spotify (YouTube) library artists', async () => {
+    youtube.paginateLikedVideos.mockResolvedValue([
+      { id: 'v1', snippet: { title: 'Song', channelTitle: 'LofiArtist' } },
+    ]);
+    youtube.fetchVideoTopics.mockResolvedValue([]); // no topic genres → genreSet stays empty
+    geminiEngine.inferArtistGenres.mockResolvedValue({ LofiArtist: ['lo-fi'] });
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
+
     expect(geminiEngine.inferArtistGenres).toHaveBeenCalled();
-    const saved = savedSet();
-    // genreSet is populated from the LLM, and library tracks by that artist get tagged.
-    expect(saved.genreSet).toEqual(expect.arrayContaining(['downtempo', 'electronic']));
-    const bonoboTrack = saved.library.find((t) => t.artist === 'Bonobo');
-    expect(bonoboTrack.genres).toEqual(expect.arrayContaining(['downtempo', 'electronic']));
+    const allNames = geminiEngine.inferArtistGenres.mock.calls.flatMap((c) => c[0] || []);
+    expect(allNames).toContain('LofiArtist');           // YouTube artist IS eligible
+    expect(savedSet().genreSet).toEqual(expect.arrayContaining(['lo-fi']));
   });
 
   it('does NOT call the LLM backfill when Spotify already provided genres', async () => {

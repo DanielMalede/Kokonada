@@ -215,9 +215,13 @@ describe('_buildEmotionPrompt', () => {
     expect(_buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null)).not.toMatch(/variation/i);
   });
 
-  it('includes every top genre from the music profile', () => {
-    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);
-    MUSIC_PROFILE.topGenres.forEach(g => expect(prompt).toContain(g));
+  it('draws allowed genres from the resolved MOOD allow-list, not the Spotify profile (Wave-0 T0.3)', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null); // intense mood
+    expect(prompt).toContain('metal');       // intense allow-list genre
+    expect(prompt).toContain('hardcore');
+    // The user's Spotify-derived profile genres are NOT injected.
+    expect(prompt).not.toContain('electronic');
+    expect(prompt).not.toContain('indie');
   });
 
   it('includes emotion tap coordinates', () => {
@@ -247,11 +251,10 @@ describe('_buildEmotionPrompt', () => {
     expect(prompt).not.toMatch(/userId|email/i);
   });
 
-  it('explicitly constrains seed_genres to the user top genres list', () => {
-    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);
-    expect(prompt).toContain('electronic');
-    expect(prompt).toContain('indie');
-    expect(prompt).toContain('ambient');
+  it('constrains seed_genres to the mood allow-list, never the Spotify-derived profile', () => {
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null); // intense
+    expect(prompt).toContain('allowed list: metal');
+    expect(prompt).not.toContain('electronic');
   });
 
   it('injects a strict-curator directive naming the mood exclude genres (zero-tolerance)', () => {
@@ -310,44 +313,24 @@ describe('inferArtistGenres', () => {
   });
 });
 
-// ── Micro-genre seed shifting (drive Spotify into distinct catalog sectors) ────
+// ── Prompt variety (deterministic per-seed variation line) ────────────────────
+// Wave-0 removed the Spotify-genre micro-genre seed shifting; variety now comes from the
+// deterministic per-press variation token (and the ledger/MMR downstream).
 
-describe('micro-genre seed shifting', () => {
+describe('prompt variety', () => {
   const emotionTaps = [{ x: 0.4, y: 0.2 }];
-  // A rich granular footprint (hyper-specific sub-genres) the rotation samples from.
-  const RICH_PROFILE = {
-    topGenres: ['pop'],
-    genreSet: [
-      'indie pop', 'post-punk', 'dream pop', 'shoegaze', 'synthwave', 'darkwave',
-      'art punk', 'noise pop', 'jangle pop', 'coldwave', 'minimal synth', 'dark jazz',
-      'neo-psychedelia', 'slowcore', 'chamber pop', 'baroque pop',
-    ],
-    tempoBaseline: 120, energy: 0.6, valence: 0.5, acousticness: 0.3, restingHeartRate: 60,
-  };
-  const subset = (prompt) => RICH_PROFILE.genreSet.filter((g) => prompt.includes(g));
-
-  it('narrows the allowed genres to a SUBSET of the granular footprint (not all of it)', () => {
-    const picked = subset(_buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-A'));
-    expect(picked.length).toBeGreaterThan(0);
-    expect(picked.length).toBeLessThan(RICH_PROFILE.genreSet.length);
-  });
 
   it('is deterministic for a given seed', () => {
-    const a = _buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-X');
-    const b = _buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-X');
+    const a = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, 'seed-X');
+    const b = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, 'seed-X');
     expect(a).toEqual(b);
   });
 
-  it('rotates which sub-genres are surfaced across presses (distinct catalog sectors)', () => {
-    const seen = new Set();
-    const onePress = subset(_buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, 'seed-0')).length;
-    for (let i = 0; i < 12; i++) {
-      subset(_buildEmotionPrompt(RICH_PROFILE, emotionTaps, null, `seed-${i}`)).forEach((g) => seen.add(g));
-    }
-    // A fixed subset would only ever expose `onePress` sub-genres; rotation exceeds it.
-    expect(seen.size).toBeGreaterThan(onePress);
+  it('varies the prompt across presses via the variation token', () => {
+    const a = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, 'seed-0');
+    const b = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, 'seed-1');
+    expect(a).not.toEqual(b);
   });
-
 });
 
 // ── _buildBiometricPrompt ──────────────────────────────────────────────────────
