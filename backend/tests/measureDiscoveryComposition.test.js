@@ -267,6 +267,48 @@ describe('ARCHETYPES', () => {
   });
 });
 
+// ── band membership (the H1 hard-fail signal) ──────────────────────────────────
+describe('representativeBand', () => {
+  it('builds an energy floor/ceiling + bpm center/width around the target, clamped to [0,1]', () => {
+    const b = KOKO.representativeBand({ energy: 0.8, bpm: 142 });
+    expect(b.confidence).toBe(0.6);
+    expect(b.energyFloor).toBeCloseTo(0.65, 6);
+    expect(b.energyCeiling).toBeCloseTo(0.95, 6);
+    expect(b.bpmCenter).toBe(142);
+    expect(b.bpmWidth).toBe(20);
+    // energy clamps: near-1 ceiling saturates at 1, near-0 floor saturates at 0.
+    expect(KOKO.representativeBand({ energy: 0.95, bpm: 100 }).energyCeiling).toBe(1);
+    expect(KOKO.representativeBand({ energy: 0.05, bpm: 100 }).energyFloor).toBe(0);
+  });
+  it('omits a gate whose feature is missing/non-finite (no false band)', () => {
+    const b = KOKO.representativeBand({ valence: 0.5 });
+    expect('energyFloor' in b).toBe(false);
+    expect('bpmCenter' in b).toBe(false);
+  });
+});
+
+describe('bandMembership', () => {
+  // confidence:1 → tight, env-robust band; energies chosen well inside/outside the tolerance margin.
+  const band = { confidence: 1, energyFloor: 0.6, energyCeiling: 0.8 };
+  it('counts out-of-band served tracks via withinBand VERBATIM; featureless passes but is surfaced', () => {
+    const featureMap = new Map([
+      ['mbid:in', { energy: 0.7 }],   // within [0.6,0.8] → in band
+      ['mbid:out', { energy: 0.95 }], // above ceiling → OUT of band (the hard-fail admission)
+      // 'mbid:none' absent → featureless → withinBand passes, but counted featureless
+    ]);
+    const m = KOKO.bandMembership(['mbid:in', 'mbid:out', 'mbid:none'], featureMap, band);
+    expect(m.outOfBand).toBe(1);
+    expect(m.featureless).toBe(1);
+    expect(m.inBand).toBe(2);
+    expect(m.total).toBe(3);
+    expect(m.outOfBandRate).toBeCloseTo(1 / 3, 6);
+  });
+  it('empty served set → zero out-of-band, rate 0 (not a false clean signal beyond emptiness)', () => {
+    const m = KOKO.bandMembership([], new Map(), band);
+    expect(m).toEqual({ outOfBand: 0, featureless: 0, inBand: 0, total: 0, outOfBandRate: 0 });
+  });
+});
+
 // ── monkey-patch capture ──────────────────────────────────────────────────────
 describe('findCapturingCandidates', () => {
   it('captures the pre-MMR candidate array passed to mmr.select and restores select', async () => {
@@ -336,6 +378,17 @@ describe('measureArchetype', () => {
     expect(Number.isFinite(res.servedOffBpmDelta)).toBe(true);
     expect(Number.isFinite(on.servedOnEnergyDelta)).toBe(true);
     expect(Number.isFinite(on.servedOnBpmDelta)).toBe(true);
+
+    // Band membership (H1) + counts (M1): energetic band, all served tracks are in-band in the fixture,
+    // so ON admits no extra out-of-band tracks. runs:2 × k:3 = 6 served each side.
+    expect(res.band).toEqual(KOKO.representativeBand(arch.targetFeatures));
+    expect(res.servedOffCount).toBe(6);
+    expect(on.servedOnCount).toBe(6);
+    expect(res.servedOffOutOfBand).toBe(0);
+    expect(on.servedOnOutOfBand).toBe(0);
+    expect(on.onAdmitsExtraOutOfBand).toBe(false);
+    expect(res.servedOffFeatureless).toBe(0);
+    expect(Number.isFinite(res.servedOffEnergyN)).toBe(true);
 
     // OFF got queryGenres []; ON got the seed genres and saw the env weight set.
     const offCalls = calls.filter((c) => c.queryGenres.length === 0);

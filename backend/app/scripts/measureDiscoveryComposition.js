@@ -26,6 +26,18 @@
 //                                     candidate pool, delegating to the original, restored in finally.
 // No model.save/create/updateOne/bulkWrite, no queue enqueue, no reembed/backfill worker is invoked.
 //
+// MEASUREMENT FIDELITY (read the numbers as a CEILING, not a prod projection):
+//   • This calls find() with NO `targets` and never sets DISCOVERY_BAND_AWARE, so the in-find band
+//     post-filter never runs — the reported mbid share/lift is the rerank effect on the raw retrieved
+//     pool (no band filter, empty exclude, overfetch=6), an UPPER BOUND on what a band-aware, familiar-
+//     excluded prod feed would surface. If even this ceiling shows no lift, the seam is inert. (M3)
+//   • The band guardrail is therefore computed SEPARATELY as a per-track withinBand MEMBERSHIP count on
+//     the served set (servedOutOfBand), against a representative band derived from each archetype target
+//     (band width honors the live BAND_* env). It is the decision-grade signal for the band=HARD-FAIL
+//     gate: ON must not admit out-of-band tracks that OFF did not. The energy/bpm mean-deltas are kept
+//     as a directional cross-check only. Featureless served tracks pass withinBand (as in prod) and are
+//     counted separately (servedFeatureless) so a band-blind admission class stays visible. (H1, M2)
+//
 // The heavy lifting lives in small pure functions (below) so the unit tests need no live Mongo.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -34,6 +46,11 @@ const discoveryVectorService = require('../services/discovery/discoveryVectorSer
 const mmr = require('../services/selection/mmr');
 const { buildTargetVector } = require('../services/discovery/targetVector');
 const { MOOD_DESCRIPTORS } = require('../services/moodDescriptors');
+// withinBand VERBATIM — the same un-relaxable band predicate discoveryVectorService.js:138 applies.
+// Used here for a per-track band-MEMBERSHIP count on the served set (the resilience-audit H1 hard-fail
+// signal): a mean center-distance can average away a minority of out-of-band admissions; a membership
+// count cannot. Featureless tracks pass withinBand (as they do in prod) → reported separately (M2).
+const { withinBand } = require('../services/selection/biosonicBand');
 const AudioFeature = require('../models/AudioFeature');
 const TrackCatalog = require('../models/TrackCatalog');
 
@@ -107,6 +124,36 @@ function absDeltas(featureRows, target) {
   return { energyDelta: mean(eDeltas), bpmDelta: mean(bDeltas), energyN: eDeltas.length, bpmN: bDeltas.length };
 }
 
+// A representative, energy+tempo band around an archetype target for the membership check. The applied
+// window is tolerance-scaled by withinBand using the live BAND_* env, so running with prod BAND_* makes
+// this the prod band's tolerance. Pre-tolerance half-windows are explicit + tunable for transparency.
+const BAND_ENERGY_HALF = 0.15;
+const BAND_BPM_WIDTH = 20;
+const BAND_CONFIDENCE = 0.6;
+function representativeBand(features) {
+  const energy = Number(features.energy);
+  const bpm = Number(features.bpm);
+  const band = { confidence: BAND_CONFIDENCE };
+  if (Number.isFinite(energy)) { band.energyFloor = Math.max(0, energy - BAND_ENERGY_HALF); band.energyCeiling = Math.min(1, energy + BAND_ENERGY_HALF); }
+  if (Number.isFinite(bpm)) { band.bpmCenter = bpm; band.bpmWidth = BAND_BPM_WIDTH; }
+  return band;
+}
+
+// Per-track band-membership over a served set, using withinBand VERBATIM on the featuresOf-shaped row.
+// outOfBand = the H1 hard-fail count; featureless tracks pass (as in prod) and are surfaced separately (M2).
+function bandMembership(keys, featureMap, band) {
+  let outOfBand = 0;
+  let featureless = 0;
+  const list = keys || [];
+  for (const key of list) {
+    const f = featureMap.get(key) || null; // featureMap already holds the featuresOf projection (or absent → null)
+    if (!f) featureless++;
+    if (!withinBand({ features: f }, band)) outOfBand++;
+  }
+  const total = list.length;
+  return { outOfBand, featureless, inBand: total - outOfBand, total, outOfBandRate: total ? outOfBand / total : 0 };
+}
+
 // Reduce the read-only aggregate output into structured coverage numbers.
 function summarizePreflight(rows) {
   const get = (id) => (rows || []).find((r) => r._id === id) || { total: 0, withGenres: 0 };
@@ -170,9 +217,10 @@ async function loadFeatures(keys) {
   const uniq = [...new Set(keys || [])].filter((k) => typeof k === 'string' && k);
   if (!uniq.length) return map;
   const rows = await AudioFeature
-    .find({ recordingKey: { $in: uniq } }, { recordingKey: 1, energy: 1, bpm: 1, _id: 0 })
+    .find({ recordingKey: { $in: uniq } }, { recordingKey: 1, energy: 1, bpm: 1, valence: 1, acousticness: 1, danceability: 1, _id: 0 })
     .lean();
-  for (const r of rows) map.set(r.recordingKey, { energy: r.energy, bpm: r.bpm });
+  // featuresOf-shaped so withinBand judges membership on exactly the pipeline's projection (no drift).
+  for (const r of rows) map.set(r.recordingKey, { bpm: r.bpm, energy: r.energy, valence: r.valence, acousticness: r.acousticness, danceability: r.danceability });
   return map;
 }
 
@@ -263,12 +311,15 @@ async function measureArchetype(archetype, deps = DEFAULT_DEPS, opts = {}) {
     });
   }
 
-  // Band-proximity — hydrate every served key ONCE (OFF + all ON weights) read-only, then delta.
+  // Band-proximity + membership — hydrate every served key ONCE (OFF + all ON weights) read-only.
   const allKeys = [...new Set([...offServedKeys, ...onByWeight.flatMap((o) => o.onServedKeys)])];
   const featureMap = await loadFeat(allKeys);
+  const band = representativeBand(archetype.targetFeatures);
   const offDeltas = absDeltas(offServedKeys.map((key) => featureMap.get(key)), archetype.targetFeatures);
+  const offBand = bandMembership(offServedKeys, featureMap, band);
   const weightResults = onByWeight.map((o) => {
     const d = absDeltas(o.onServedKeys.map((key) => featureMap.get(key)), archetype.targetFeatures);
+    const onBand = bandMembership(o.onServedKeys, featureMap, band);
     return {
       weight: o.weight,
       servedOnMbidShare: o.servedOnMbidShare,
@@ -276,8 +327,16 @@ async function measureArchetype(archetype, deps = DEFAULT_DEPS, opts = {}) {
       jaccardHitRate: o.jaccardHitRate,
       jaccardPerRun: o.jaccardPerRun,
       preMmrMbidShare: o.preMmrMbidShare,
+      servedOnCount: o.onServedKeys.length,
       servedOnEnergyDelta: d.energyDelta,
       servedOnBpmDelta: d.bpmDelta,
+      servedOnEnergyN: d.energyN,
+      servedOnBpmN: d.bpmN,
+      servedOnOutOfBand: onBand.outOfBand,
+      servedOnOutOfBandRate: onBand.outOfBandRate,
+      servedOnFeatureless: onBand.featureless,
+      // H1 hard-fail directional: ON must not admit a HIGHER out-of-band rate than OFF.
+      onAdmitsExtraOutOfBand: onBand.outOfBandRate > offBand.outOfBandRate,
     };
   });
 
@@ -287,10 +346,17 @@ async function measureArchetype(archetype, deps = DEFAULT_DEPS, opts = {}) {
     mbidShare500: retrieval.share,
     mbidHits500: retrieval.mbid,
     retrievalTotal: retrieval.total,
+    band,
     servedOffMbidShare: mean(offRunShares),
     servedOffMbidPerRun: offRunShares,
+    servedOffCount: offServedKeys.length,
     servedOffEnergyDelta: offDeltas.energyDelta,
     servedOffBpmDelta: offDeltas.bpmDelta,
+    servedOffEnergyN: offDeltas.energyN,
+    servedOffBpmN: offDeltas.bpmN,
+    servedOffOutOfBand: offBand.outOfBand,
+    servedOffOutOfBandRate: offBand.outOfBandRate,
+    servedOffFeatureless: offBand.featureless,
     weights: weightResults,
   };
 }
@@ -314,9 +380,9 @@ async function runMeasurement(deps = DEFAULT_DEPS, options = {}, log = console.l
     archetypes.push(res);
 
     log(`[measure] archetype=${res.name} retrievalK=${res.retrievalK} mbidShare500=${f4(res.mbidShare500)} mbidHits=${res.mbidHits500} total=${res.retrievalTotal}`);
-    log(`[measure] archetype=${res.name} served=OFF k=${k} runs=${runs} servedOffMbidShare=${f4(res.servedOffMbidShare)} perRun=${perRun(res.servedOffMbidPerRun)} servedOffEnergyDelta=${f4(res.servedOffEnergyDelta)} servedOffBpmDelta=${f2(res.servedOffBpmDelta)}`);
+    log(`[measure] archetype=${res.name} served=OFF k=${k} runs=${runs} servedCount=${res.servedOffCount} servedOffMbidShare=${f4(res.servedOffMbidShare)} perRun=${perRun(res.servedOffMbidPerRun)} outOfBand=${res.servedOffOutOfBand} outOfBandRate=${f4(res.servedOffOutOfBandRate)} featureless=${res.servedOffFeatureless} energyDelta=${f4(res.servedOffEnergyDelta)}/n${res.servedOffEnergyN} bpmDelta=${f2(res.servedOffBpmDelta)}/n${res.servedOffBpmN}`);
     for (const ow of res.weights) {
-      log(`[measure] archetype=${res.name} served=ON weight=${ow.weight} k=${k} runs=${runs} servedOnMbidShare=${f4(ow.servedOnMbidShare)} perRun=${perRun(ow.servedOnMbidPerRun)} jaccardHitRate=${f4(ow.jaccardHitRate)} preMmrMbidShare=${f4(ow.preMmrMbidShare)} servedOnEnergyDelta=${f4(ow.servedOnEnergyDelta)} servedOnBpmDelta=${f2(ow.servedOnBpmDelta)}`);
+      log(`[measure] archetype=${res.name} served=ON weight=${ow.weight} k=${k} runs=${runs} servedCount=${ow.servedOnCount} servedOnMbidShare=${f4(ow.servedOnMbidShare)} perRun=${perRun(ow.servedOnMbidPerRun)} jaccardHitRate=${f4(ow.jaccardHitRate)} preMmrMbidShare=${f4(ow.preMmrMbidShare)} outOfBand=${ow.servedOnOutOfBand} outOfBandRate=${f4(ow.servedOnOutOfBandRate)} featureless=${ow.servedOnFeatureless} admitsExtraOOB=${ow.onAdmitsExtraOutOfBand} energyDelta=${f4(ow.servedOnEnergyDelta)}/n${ow.servedOnEnergyN} bpmDelta=${f2(ow.servedOnBpmDelta)}/n${ow.servedOnBpmN}`);
     }
   }
   return { preflight: pf, archetypes };
@@ -329,6 +395,8 @@ module.exports = {
   jaccardHitRate,
   mean,
   absDeltas,
+  representativeBand,
+  bandMembership,
   summarizePreflight,
   parseArgs,
   currentGenreWeight,
