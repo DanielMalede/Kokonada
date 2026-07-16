@@ -29,3 +29,13 @@ redis-data/
 
 # Root-level sibling RN companion app (regenerable). The in-repo mobile/KokonadaHealth/ IS tracked.
 /KokonadaHealth/
+
+# Large / generated ingestion artifacts — never commit corpus dumps or seeds
+*.tar.zst
+backend/wave1_seed_dump.ndjson
+
+# Local git worktrees cut alongside the repo
+.worktree-*/
+
+# Android signing keystores (never commit — even the debug one)
+**/debug.keystore

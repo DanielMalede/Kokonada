@@ -7,6 +7,18 @@ on:
     branches: [main]
 
 jobs:
+  secret-scan:
+    name: Security — gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so a secret in any commit is caught
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   backend:
     name: Backend — lint & test
     runs-on: ubuntu-latest
