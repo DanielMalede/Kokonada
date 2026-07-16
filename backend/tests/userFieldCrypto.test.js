@@ -6,10 +6,11 @@
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 const crypto = require('crypto');
-const { decrypt, blindIndex } = require('../app/utils/encryption');
+const { decrypt, blindIndex, blindIndexAll } = require('../app/utils/encryption');
 const User = require('../app/models/User');
 
 const base = { ssoProvider: 'google', ssoId: 'sso-1', email: 'a@b.c' };
+const hmacWith = (keyHex, v) => crypto.createHmac('sha256', Buffer.from(keyHex, 'hex')).update(v).digest('hex');
 
 describe('blindIndex (deterministic keyed HMAC for encrypted-field lookup)', () => {
   it('is deterministic for the same input', () => {
@@ -25,6 +26,34 @@ describe('blindIndex (deterministic keyed HMAC for encrypted-field lookup)', () 
   it('returns null for null/empty input', () => {
     expect(blindIndex(null)).toBeNull();
     expect(blindIndex('')).toBeNull();
+  });
+});
+
+describe('blindIndexAll (rotation-safe lookup — H2)', () => {
+  const OLD = 'a'.repeat(64);
+  const NEW = 'b'.repeat(64);
+  afterEach(() => { process.env.ENCRYPTION_KEY = 'a'.repeat(64); delete process.env.ENCRYPTION_KEY_PREVIOUS; });
+
+  it('returns the primary-key index first, then every rotation (previous) key index', () => {
+    process.env.ENCRYPTION_KEY = NEW;
+    process.env.ENCRYPTION_KEY_PREVIOUS = OLD;
+    const all = blindIndexAll('garmin-abc');
+    expect(all[0]).toBe(blindIndex('garmin-abc'));      // current key first (write path)
+    expect(all).toContain(hmacWith(OLD, 'garmin-abc')); // previous key still resolvable
+    expect(all).toHaveLength(2);
+  });
+
+  it('lets a value indexed under the OLD key still be found after rotation (no reindex outage)', () => {
+    process.env.ENCRYPTION_KEY = OLD;
+    const oldIdx = blindIndex('garmin-abc'); // written under the old key
+    process.env.ENCRYPTION_KEY = NEW;
+    process.env.ENCRYPTION_KEY_PREVIOUS = OLD;
+    expect(blindIndexAll('garmin-abc')).toContain(oldIdx);
+  });
+
+  it('returns [] for null/empty input', () => {
+    expect(blindIndexAll(null)).toEqual([]);
+    expect(blindIndexAll('')).toEqual([]);
   });
 });
 

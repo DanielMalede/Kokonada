@@ -87,10 +87,10 @@ userSchema.methods.syncGarminIndex = function () {
 };
 
 // Backfill-on-write: keep garminUserIdHmac in lockstep with garminUserId on every save that
-// touches it, so the webhook lookup never goes stale. (T3.3)
-userSchema.pre('save', function (next) {
+// touches it, so the webhook lookup never goes stale. Synchronous hook (no next) — the
+// modern Mongoose style, and the next-callback form isn't invoked with a callback here. (T3.3)
+userSchema.pre('save', function () {
   if (this.isModified('garminUserId')) this.syncGarminIndex();
-  next();
 });
 
 // Helpers for encrypting/decrypting token objects on the document

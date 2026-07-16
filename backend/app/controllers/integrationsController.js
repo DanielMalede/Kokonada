@@ -7,6 +7,8 @@ const garmin      = require('../services/wearable/garmin');
 const appleHealth = require('../services/wearable/appleHealth');
 const healthStore = require('../services/wearable/healthStore');
 const garminIngest = require('../services/wearable/garminIngest');
+// garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
+const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
 const { persistMetrics } = require('../services/wearable/metricStore');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
@@ -567,7 +569,7 @@ exports.garminWebhook = async (req, res, next) => {
 
     let users = 0;
     for (const [gid, items] of byGarminUser) {
-      const user = await User.findOne({ garminUserId: gid, deletedAt: null }).select('_id');
+      const user = await resolveGarminUser(gid); // garminUserId is encrypted → resolve via blind index (T3.3)
       if (!user) continue;
       await garminIngest.ingestSummaries(user._id, items);
       users += 1;

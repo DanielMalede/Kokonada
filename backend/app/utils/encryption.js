@@ -89,4 +89,18 @@ function blindIndex(value) {
   return crypto.createHmac('sha256', key).update(String(value)).digest('hex');
 }
 
-module.exports = { encrypt, decrypt, blindIndex };
+/**
+ * Rotation-safe LOOKUP indexes: the blind index under the primary key (first) AND under every
+ * configured rotation key (ENCRYPTION_KEY_PREVIOUS). A value indexed before a key rotation stays
+ * resolvable via `{ $in: blindIndexAll(v) }` with no reindex outage — the write path
+ * (blindIndex) still uses the current key, so rows matched under an old key self-heal on next
+ * save. (H2)
+ * @param {string|null} value
+ * @returns {string[]} hex digests (current key first), or [] for null/empty input
+ */
+function blindIndexAll(value) {
+  if (value == null || String(value) === '') return [];
+  return getKeys().map((key) => crypto.createHmac('sha256', key).update(String(value)).digest('hex'));
+}
+
+module.exports = { encrypt, decrypt, blindIndex, blindIndexAll };
