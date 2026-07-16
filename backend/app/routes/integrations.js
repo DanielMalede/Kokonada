@@ -16,6 +16,8 @@ const {
   wearableStatus,
   issueWatchToken, revokeWatchToken, watchHrIngest, watchStatus,
 } = require('../controllers/integrationsController');
+// Per-provider wearable erasure lives in a SEPARATE controller (ownership ruling). (T3.2)
+const { deleteWearableProvider } = require('../controllers/wearableErasureController');
 
 // Public OAuth callbacks. The browser arrives here from the provider as a
 // top-level navigation carrying NO cookie/Bearer/ct, so these MUST sit ABOVE
@@ -76,6 +78,10 @@ router.post('/suunto/webhook',       suuntoWebhook);
 
 // Unified wearable status
 router.get('/wearable/status',       wearableStatus);
+
+// Per-provider disconnect + GDPR erasure (clears the credential AND purges that provider's
+// biometric/medical data). DELETE-only, so it never shadows GET /wearable/status. (T3.2)
+router.delete('/wearable/:provider', deleteWearableProvider);
 
 // Garmin watch endpoints
 router.post('/watch/token',   issueWatchToken);
