@@ -727,6 +727,29 @@ describe('buildProfile', () => {
     expect(savedSet().genreSet).toEqual(expect.arrayContaining(['lo-fi']));
   });
 
+  it('backfill gate is an ALLOWLIST — a provider-less / unknown-provider track is excluded (M3)', async () => {
+    youtube.paginateLikedVideos.mockResolvedValue([
+      { id: 'v1', snippet: { title: 'Song', channelTitle: 'YtArtist' } },
+    ]);
+    youtube.fetchVideoTopics.mockResolvedValue([]);
+    // The classifier yields one allowlisted (youtube_music) track and one mis-tagged
+    // provider-less track — the latter's artist name must NOT be sent to the LLM.
+    musicClassifier.classifyTracks.mockResolvedValueOnce({
+      music: [
+        { id: 'v1', provider: 'youtube_music', name: 'Song', artist: 'YtArtist', genres: [] },
+        { id: 'x1', provider: undefined,       name: 'Song', artist: 'GhostArtist', genres: [] },
+      ],
+      nonMusic: [], unclassified: [],
+    });
+    geminiEngine.inferArtistGenres.mockResolvedValue({});
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
+
+    const allNames = geminiEngine.inferArtistGenres.mock.calls.flatMap((c) => c[0] || []);
+    expect(allNames).toContain('YtArtist');        // allowlisted provider
+    expect(allNames).not.toContain('GhostArtist'); // provider-less → excluded (fail-closed)
+  });
+
   it('does NOT call the LLM backfill when Spotify already provided genres', async () => {
     // Default beforeEach gives Bonobo genres via getTopArtists → no backfill needed.
     await buildProfile('user123', makeMockUser({ hasSpotify: true }));
