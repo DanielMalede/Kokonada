@@ -132,6 +132,11 @@ async function start() {
       .then((r) => console.log(`[reclassify] repeatable scheduled: ${JSON.stringify(r)}`))
       .catch((e) => console.error('[reclassify] schedule failed:', e.message));
 
+    // Bounded retention: redact aged PlaylistSession sensitive fields daily (T3.1).
+    scheduleRepeatable(QUEUES.SESSION_TRIM, process.env.SESSION_TRIM_CRON || '30 3 * * *', {})
+      .then((r) => console.log(`[sessionTrim] repeatable scheduled: ${JSON.stringify(r)}`))
+      .catch((e) => console.error('[sessionTrim] schedule failed:', e.message));
+
     // Global seed ingestion — DARK by default (GLOBAL_SEED_INGEST_ENABLED). Grows the
     // provider-agnostic CC0 discovery corpus from AcousticBrainz records on a daily cron.
     if (process.env.GLOBAL_SEED_INGEST_ENABLED === 'true') {
