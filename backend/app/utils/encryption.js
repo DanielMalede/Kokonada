@@ -103,4 +103,19 @@ function blindIndexAll(value) {
   return getKeys().map((key) => crypto.createHmac('sha256', key).update(String(value)).digest('hex'));
 }
 
-module.exports = { encrypt, decrypt, blindIndex, blindIndexAll };
+/**
+ * Structural check: is `blob` shaped like one of OUR ciphertexts (base64 of iv + authTag + >=1
+ * ciphertext byte)? This is about FORMAT, not authenticity — a tampered blob still returns true.
+ * Lets a caller tell "well-formed blob that failed to decrypt" (real tamper/wrong-key/AAD alarm)
+ * apart from "not our ciphertext at all" (genuine legacy plaintext). (M1)
+ * @param {*} blob
+ * @returns {boolean}
+ */
+function isCiphertextFormat(blob) {
+  if (typeof blob !== 'string' || blob.length === 0) return false;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(blob)) return false; // not even base64 → plaintext
+  const buf = Buffer.from(blob, 'base64');
+  return buf.length >= IV_LENGTH + AUTH_TAG_LENGTH + 1;
+}
+
+module.exports = { encrypt, decrypt, blindIndex, blindIndexAll, isCiphertextFormat };

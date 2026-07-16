@@ -61,3 +61,40 @@ describe('encrypted field AAD binding (T3.3)', () => {
     expect(good.validateSync()).toBeUndefined();
   });
 });
+
+describe('decrypt failure distinguishes tampering from legacy plaintext (M1)', () => {
+  let alarmSpy;
+  beforeEach(() => { alarmSpy = jest.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => alarmSpy.mockRestore());
+
+  const alarmText = () => alarmSpy.mock.calls.flat().map(String).join(' ');
+
+  it('a row-swapped AAD-bound ciphertext (wrong owner) reads as null + alarm, never raw/NaN', () => {
+    const bound = encrypt('72', OID);                 // bound to OID
+    const doc = BiometricLog.hydrate({ _id: OID, userId: OTHER, heartRate: bound, source: 'garmin', recordedAt: new Date() });
+    expect(doc.heartRate).toBeNull();                 // not the ciphertext, not NaN
+    expect(alarmSpy).toHaveBeenCalled();              // security alarm raised
+    expect(alarmText()).not.toContain('72');          // never the plaintext value
+  });
+
+  it('a tampered ciphertext reads as null + alarm', () => {
+    const buf = Buffer.from(encrypt('98', OID), 'base64');
+    buf[20] ^= 0xff;                                  // corrupt the auth tag
+    const doc = MedicalProfile.hydrate({ _id: OID, userId: OID, hrv: buf.toString('base64') });
+    expect(doc.hrv).toBeNull();
+    expect(alarmSpy).toHaveBeenCalled();
+  });
+
+  it('genuine legacy plaintext still reads through with NO alarm', () => {
+    const doc = MedicalProfile.hydrate({ _id: OID, userId: OID, restingHeartRate: '58' });
+    expect(doc.restingHeartRate).toBe(58);
+    expect(alarmSpy).not.toHaveBeenCalled();
+  });
+
+  it('a legacy no-AAD ciphertext on the correct owner still decrypts, NO alarm', () => {
+    const legacy = encrypt('61'); // no AAD (pre-binding)
+    const doc = MedicalProfile.hydrate({ _id: OID, userId: OID, restingHeartRate: legacy });
+    expect(doc.restingHeartRate).toBe(61);
+    expect(alarmSpy).not.toHaveBeenCalled();
+  });
+});

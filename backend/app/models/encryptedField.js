@@ -30,7 +30,7 @@
 //  - Schemas using these fields should set { toJSON: { getters: true },
 //    toObject: { getters: true } } so any serialization decrypts.
 
-const { encrypt, decrypt } = require('../utils/encryption');
+const { encrypt, decrypt, isCiphertextFormat } = require('../utils/encryption');
 
 // The owning userId (string) for AAD, or null when unknown. Subdocuments climb to the
 // owner document via ownerDocument(); top-level documents expose userId directly.
@@ -44,14 +44,43 @@ function _ownerAad(doc) {
   return uid == null ? null : String(uid);
 }
 
-// Read path: try the AAD-bound decrypt (new writes), fall back to no-AAD (legacy). Throws
-// only when neither works (the caller treats a throw as legacy plaintext).
+// Raw read: try the AAD-bound decrypt (new writes), fall back to no-AAD (legacy). Throws only
+// when neither works.
 function _decryptField(doc, v) {
   const aad = _ownerAad(doc);
   if (aad != null) {
     try { return decrypt(v, false, aad); } catch { /* legacy no-AAD ciphertext → try below */ }
   }
   return decrypt(v);
+}
+
+// A decrypt that failed on a value that IS our ciphertext format is a real security event —
+// tamper, wrong key, or an AAD owner-mismatch (row-swap). Log an alarm (userId + reason only,
+// NEVER the value) and signal the caller to yield null rather than leak raw ciphertext / NaN.
+function _alarm(doc) {
+  const owner = _ownerAad(doc);
+  console.error(
+    `[crypto-alarm] encrypted field failed authentication (tamper / wrong-key / AAD owner-mismatch) owner=${owner ?? 'unknown'}`,
+  );
+}
+
+// Read a possibly-encrypted STRING. Genuine legacy plaintext (not our format) passes through; a
+// well-formed-but-unauthenticated blob raises an alarm and reads as null. (M1)
+function _readString(doc, v) {
+  try { return _decryptField(doc, v); }
+  catch {
+    if (isCiphertextFormat(v)) { _alarm(doc); return null; }
+    return v; // genuine legacy plaintext
+  }
+}
+
+// Read a possibly-encrypted NUMBER, with the same tamper-vs-legacy discrimination. (M1)
+function _readNumber(doc, v) {
+  try { return Number(_decryptField(doc, v)); }
+  catch {
+    if (isCiphertextFormat(v)) { _alarm(doc); return null; }
+    return Number(v); // genuine legacy plaintext
+  }
 }
 
 // Write path: bind to the owner when known, else write unbound (an update-operator context
@@ -65,10 +94,7 @@ function encryptedString(opts = {}) {
   const field = {
     type: String,
     set(v) { return v == null ? v : _encryptField(this, v); },
-    get(v) {
-      if (v == null) return v;
-      try { return _decryptField(this, v); } catch { return v; } // legacy plaintext
-    },
+    get(v) { return v == null ? v : _readString(this, v); },
   };
   if (opts.required) field.required = true;
   if (opts.default !== undefined) field.default = opts.default;
@@ -79,10 +105,7 @@ function encryptedNumber(opts = {}) {
   const field = {
     type: String,
     set(v) { return v == null ? v : _encryptField(this, v); },
-    get(v) {
-      if (v == null) return v;
-      try { return Number(_decryptField(this, v)); } catch { return Number(v); } // legacy plaintext
-    },
+    get(v) { return v == null ? v : _readNumber(this, v); },
   };
   if (opts.required) field.required = true;
   if (opts.default !== undefined) field.default = opts.default;
@@ -91,8 +114,11 @@ function encryptedNumber(opts = {}) {
     field.validate = {
       validator(v) {
         if (v == null) return true;
+        // A tampered/unauthenticated blob yields NaN → fails validation (never saved); genuine
+        // legacy plaintext parses through.
         let n;
-        try { n = Number(_decryptField(this, v)); } catch { n = Number(v); }
+        try { n = Number(_decryptField(this, v)); }
+        catch { n = isCiphertextFormat(v) ? NaN : Number(v); }
         if (Number.isNaN(n)) return false;
         if (opts.min != null && n < opts.min) return false;
         if (opts.max != null && n > opts.max) return false;
