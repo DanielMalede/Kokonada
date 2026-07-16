@@ -46,7 +46,7 @@ function makeFakes() {
   const fakeDiscovery = {
     find: async (opts) => {
       const { queryGenres = [], k = 30 } = opts;
-      calls.push({ queryGenres: [...queryGenres], envWeight: process.env.DISCOVERY_GENRE_WEIGHT });
+      calls.push({ queryGenres: [...queryGenres], envWeight: process.env.DISCOVERY_GENRE_WEIGHT, targets: opts.targets, envBandAware: process.env.DISCOVERY_BAND_AWARE });
       const qset = new Set(queryGenres.map((g) => g.toLowerCase()));
       const scored = makeFakePool().map((c) => ({
         track: c.track,
@@ -234,6 +234,22 @@ describe('withGenreWeight', () => {
   });
 });
 
+describe('withBandAware', () => {
+  afterEach(() => { delete process.env.DISCOVERY_BAND_AWARE; });
+  it('forces DISCOVERY_BAND_AWARE=true during fn and deletes it after when previously unset', async () => {
+    delete process.env.DISCOVERY_BAND_AWARE;
+    let during;
+    await KOKO.withBandAware(async () => { during = process.env.DISCOVERY_BAND_AWARE; });
+    expect(during).toBe('true');
+    expect('DISCOVERY_BAND_AWARE' in process.env).toBe(false);
+  });
+  it('restores a prior value even if fn throws', async () => {
+    process.env.DISCOVERY_BAND_AWARE = 'false';
+    await expect(KOKO.withBandAware(async () => { throw new Error('x'); })).rejects.toThrow('x');
+    expect(process.env.DISCOVERY_BAND_AWARE).toBe('false');
+  });
+});
+
 describe('descriptorFeatures', () => {
   it('bpm=round(70+energy*90), acousticness=clamp(1-energy), passes valence', () => {
     const d = KOKO.descriptorFeatures({ energy_floor: 0.8, valence_hint: 0.75 });
@@ -391,15 +407,32 @@ describe('measureArchetype', () => {
     expect(Number.isFinite(res.servedOffEnergyN)).toBe(true);
 
     // OFF got queryGenres []; ON got the seed genres and saw the env weight set.
+    // runs:2, 1 weight → each side runs twice for the ceiling AND twice for the band-aware pass = 4.
     const offCalls = calls.filter((c) => c.queryGenres.length === 0);
     const onCalls = calls.filter((c) => c.queryGenres.length > 0);
-    expect(offCalls).toHaveLength(2);
-    expect(onCalls).toHaveLength(2);
+    expect(offCalls).toHaveLength(4);
+    expect(onCalls).toHaveLength(4);
     expect(onCalls.every((c) => c.envWeight === '0.15')).toBe(true);
     expect(onCalls.every((c) => JSON.stringify(c.queryGenres) === JSON.stringify(arch.seedGenres))).toBe(true);
 
-    // env + monkey-patch fully restored
+    // Ceiling calls pass no targets and are NOT band-aware; band-aware calls carry the band + env flag.
+    const ceilingCalls = calls.filter((c) => !c.targets);
+    const bandAwareCalls = calls.filter((c) => c.targets);
+    expect(ceilingCalls).toHaveLength(4);   // ceiling OFF(2) + ceiling ON(2)
+    expect(bandAwareCalls).toHaveLength(4); // band-aware OFF(2) + band-aware ON(2)
+    expect(ceilingCalls.every((c) => c.envBandAware !== 'true')).toBe(true);
+    expect(bandAwareCalls.every((c) => c.envBandAware === 'true')).toBe(true);
+    expect(bandAwareCalls.every((c) => c.targets === res.band && Number.isFinite(c.targets.energyFloor))).toBe(true);
+
+    // Faithful band-aware results present (fake ignores targets → mirrors ceiling shares 1/3 → 2/3).
+    expect(res.bandAware.weights).toHaveLength(1);
+    expect(res.bandAware.weights[0].weight).toBe(0.15);
+    expect(res.bandAware.servedOffMbidShare).toBeCloseTo(1 / 3, 6);
+    expect(res.bandAware.weights[0].servedOnMbidShare).toBeCloseTo(2 / 3, 6);
+
+    // env + monkey-patch fully restored (both flags)
     expect('DISCOVERY_GENRE_WEIGHT' in process.env).toBe(false);
+    expect('DISCOVERY_BAND_AWARE' in process.env).toBe(false);
     expect(deps.mmr.select).toBe(origSelect);
   });
 });
@@ -416,6 +449,8 @@ describe('runMeasurement', () => {
     expect(lines.some((l) => l.startsWith('[measure] preflight'))).toBe(true);
     expect(lines.some((l) => l.includes('served=OFF'))).toBe(true);
     expect(lines.some((l) => l.includes('served=ON') && l.includes('weight=0.15'))).toBe(true);
+    expect(lines.some((l) => l.includes('bandAware=OFF'))).toBe(true);
+    expect(lines.some((l) => l.includes('bandAware=ON') && l.includes('weight=0.15'))).toBe(true);
     expect(lines.every((l) => l.startsWith('[measure]'))).toBe(true);
   });
 });

@@ -208,6 +208,24 @@ async function withGenreWeight(weight, fn) {
   }
 }
 
+// Force DISCOVERY_BAND_AWARE=true for the duration of fn (the FAITHFUL prod path). With a usable band
+// passed as targets, find() applies withinBand BEFORE the genre rerank → the seam cannot admit out-of-band
+// tracks (band=HARD-FAIL satisfied by construction). NOTE the one non-read side effect in this script,
+// gated to this pass: find()'s band branch hydrates features via audioFeatureRepo.getMany, which
+// read-through caches into Redis (NX) — a benign, idempotent cache-warm of data already in Mongo,
+// identical to normal discovery traffic (no source mutation, no overwrite).
+async function withBandAware(fn) {
+  const had = Object.prototype.hasOwnProperty.call(process.env, 'DISCOVERY_BAND_AWARE');
+  const prev = process.env.DISCOVERY_BAND_AWARE;
+  process.env.DISCOVERY_BAND_AWARE = 'true';
+  try {
+    return await fn();
+  } finally {
+    if (had) process.env.DISCOVERY_BAND_AWARE = prev;
+    else delete process.env.DISCOVERY_BAND_AWARE;
+  }
+}
+
 // ── read-only DB access ─────────────────────────────────────────────────────────
 
 // Band-proximity feature hydration that DELIBERATELY bypasses audioFeatureRepo.getMany (which
@@ -311,10 +329,32 @@ async function measureArchetype(archetype, deps = DEFAULT_DEPS, opts = {}) {
     });
   }
 
+  const band = representativeBand(archetype.targetFeatures);
+
+  // ── FAITHFUL prod path: band-AWARE M_served (targets=band + DISCOVERY_BAND_AWARE=true). find() runs
+  // withinBand BEFORE the genre rerank, with its own deeper overfetch. THIS is the number that decides
+  // gate #4; the non-band-aware M_served above is the ceiling. (Benign Redis cache-warm — see withBandAware.)
+  const baFindOpts = { ...baseFindOpts, targets: band };
+  const baOffShares = [];
+  for (let r = 0; r < runs; r++) {
+    const { served } = await withBandAware(() =>
+      findCapturingCandidates(discovery, mmrModule, { ...baFindOpts, queryGenres: [] }));
+    baOffShares.push(bucketShare(served.map((t) => t.recordingKey)).share);
+  }
+  const baOnByWeight = [];
+  for (const w of weights) {
+    const shares = [];
+    for (let r = 0; r < runs; r++) {
+      const { served } = await withBandAware(() => withGenreWeight(w, () =>
+        findCapturingCandidates(discovery, mmrModule, { ...baFindOpts, queryGenres: archetype.seedGenres })));
+      shares.push(bucketShare(served.map((t) => t.recordingKey)).share);
+    }
+    baOnByWeight.push({ weight: w, servedOnMbidShare: mean(shares), servedOnMbidPerRun: shares });
+  }
+
   // Band-proximity + membership — hydrate every served key ONCE (OFF + all ON weights) read-only.
   const allKeys = [...new Set([...offServedKeys, ...onByWeight.flatMap((o) => o.onServedKeys)])];
   const featureMap = await loadFeat(allKeys);
-  const band = representativeBand(archetype.targetFeatures);
   const offDeltas = absDeltas(offServedKeys.map((key) => featureMap.get(key)), archetype.targetFeatures);
   const offBand = bandMembership(offServedKeys, featureMap, band);
   const weightResults = onByWeight.map((o) => {
@@ -358,6 +398,11 @@ async function measureArchetype(archetype, deps = DEFAULT_DEPS, opts = {}) {
     servedOffOutOfBandRate: offBand.outOfBandRate,
     servedOffFeatureless: offBand.featureless,
     weights: weightResults,
+    bandAware: {
+      servedOffMbidShare: mean(baOffShares),
+      servedOffMbidPerRun: baOffShares,
+      weights: baOnByWeight,
+    },
   };
 }
 
@@ -384,6 +429,12 @@ async function runMeasurement(deps = DEFAULT_DEPS, options = {}, log = console.l
     for (const ow of res.weights) {
       log(`[measure] archetype=${res.name} served=ON weight=${ow.weight} k=${k} runs=${runs} servedCount=${ow.servedOnCount} servedOnMbidShare=${f4(ow.servedOnMbidShare)} perRun=${perRun(ow.servedOnMbidPerRun)} jaccardHitRate=${f4(ow.jaccardHitRate)} preMmrMbidShare=${f4(ow.preMmrMbidShare)} outOfBand=${ow.servedOnOutOfBand} outOfBandRate=${f4(ow.servedOnOutOfBandRate)} featureless=${ow.servedOnFeatureless} admitsExtraOOB=${ow.onAdmitsExtraOutOfBand} energyDelta=${f4(ow.servedOnEnergyDelta)}/n${ow.servedOnEnergyN} bpmDelta=${f2(ow.servedOnBpmDelta)}/n${ow.servedOnBpmN}`);
     }
+    // FAITHFUL prod path (band-aware): the decision numbers for gate #4.
+    const ba = res.bandAware;
+    log(`[measure] archetype=${res.name} bandAware=OFF k=${k} runs=${runs} servedOffMbidShare=${f4(ba.servedOffMbidShare)} perRun=${perRun(ba.servedOffMbidPerRun)}`);
+    for (const bw of ba.weights) {
+      log(`[measure] archetype=${res.name} bandAware=ON weight=${bw.weight} k=${k} runs=${runs} servedOnMbidShare=${f4(bw.servedOnMbidShare)} perRun=${perRun(bw.servedOnMbidPerRun)}`);
+    }
   }
   return { preflight: pf, archetypes };
 }
@@ -401,6 +452,7 @@ module.exports = {
   parseArgs,
   currentGenreWeight,
   withGenreWeight,
+  withBandAware,
   loadFeatures,
   genreCoveragePreflight,
   findCapturingCandidates,
