@@ -11,6 +11,8 @@ const { persistMetrics } = require('../services/wearable/metricStore');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
+const ServeEvent  = require('../models/ServeEvent');
+const { purgeUserKeys } = require('../utils/userRedisPurge');
 const { buildProfile } = require('../services/musicProfileService');
 const { invalidateUserPools } = require('../services/selection/candidatePool');
 const featureService = require('../services/features/featureService');
@@ -146,13 +148,23 @@ exports.spotifyCallback = async (req, res) => {
 // DELETE /api/integrations/spotify/disconnect
 exports.spotifyDisconnect = async (req, res, next) => {
   try {
+    const userId = req.user._id;
     req.user.musicProvider = null;
     req.user.spotifyToken = null;
     req.user.spotifyScopes = '';
     await req.user.save();
-    // Data-handling (Spotify Developer Policy): don't retain Spotify-derived content
-    // after the user disconnects. Drop the cached taste profile (rebuilt on reconnect).
-    await MusicProfile.deleteOne({ userId: req.user._id });
+    // Data-handling (Spotify Developer Policy): don't retain Spotify-derived content after
+    // the user disconnects. Drop the cached taste profile (rebuilt on reconnect), the
+    // personalized serve history (ServeEvent = which Spotify recordings were surfaced to
+    // this user, when), and all user-scoped Redis state (candidate pools, serve-ledger
+    // windows, encrypted baseline). Global cross-user corpus/embedding/feature caches are
+    // eliminated separately by the one-time Spotify purge (scripts/purgeSpotifyCorpus.js),
+    // not per-user erasure.
+    await Promise.all([
+      MusicProfile.deleteOne({ userId }),
+      ServeEvent.deleteMany({ userId }),
+    ]);
+    await purgeUserKeys(userId);
     res.json({ message: 'Spotify disconnected' });
   } catch (err) {
     next(err);
