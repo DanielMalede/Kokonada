@@ -9,11 +9,6 @@ delete process.env.GEMINI_API_KEY;
 jest.mock('axios');
 const axios = require('axios');
 
-// The Gemini SDK stays importable even though the removed provider path never calls it.
-jest.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: jest.fn(() => ({ getGenerativeModel: jest.fn() })),
-}));
-
 const {
   buildEmotionPlaylist,
   adjustBiometricPlaylist,
