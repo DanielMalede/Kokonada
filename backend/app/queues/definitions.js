@@ -16,6 +16,9 @@ const QUEUES = Object.freeze({
   // Periodically redacts the encrypted sensitive fields (contextPrompt, biometric HR snapshot)
   // on aged PlaylistSessions, keeping the non-sensitive history feed (T3.1 bounded retention).
   SESSION_TRIM: 'session-trim',
+  // Enforces the YouTube 30-day data-retention ToS: refreshes connected users' library rows,
+  // purges disconnected/stale youtube_music rows (Spotify + mbid corpus untouched). (T3.5)
+  YOUTUBE_RETENTION: 'youtube-retention',
 });
 
 const QUEUE_NAMES = new Set(Object.values(QUEUES));

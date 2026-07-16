@@ -137,6 +137,11 @@ async function start() {
       .then((r) => console.log(`[sessionTrim] repeatable scheduled: ${JSON.stringify(r)}`))
       .catch((e) => console.error('[sessionTrim] schedule failed:', e.message));
 
+    // YouTube 30-day ToS retention: refresh connected / purge stale youtube_music data (T3.5).
+    scheduleRepeatable(QUEUES.YOUTUBE_RETENTION, process.env.YOUTUBE_RETENTION_CRON || '0 4 * * *', {})
+      .then((r) => console.log(`[youtubeRetention] repeatable scheduled: ${JSON.stringify(r)}`))
+      .catch((e) => console.error('[youtubeRetention] schedule failed:', e.message));
+
     // Global seed ingestion — DARK by default (GLOBAL_SEED_INGEST_ENABLED). Grows the
     // provider-agnostic CC0 discovery corpus from AcousticBrainz records on a daily cron.
     if (process.env.GLOBAL_SEED_INGEST_ENABLED === 'true') {
