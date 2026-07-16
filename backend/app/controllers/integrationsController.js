@@ -17,6 +17,7 @@ const featureService = require('../services/features/featureService');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
 const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = require('../utils/providerSelect');
 const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
+const timingSafe = require('../utils/timingSafeEqual');
 const { revoke, isRevoked } = require('../utils/tokenDenylist');
 const { getRedis } = require('../config/redis');
 
@@ -526,9 +527,28 @@ exports.garminDisconnect = async (req, res, next) => {
 // per-request auth header from Garmin, so the route is guarded by an unguessable
 // secret (GARMIN_WEBHOOK_SECRET) and we only ingest summaries whose Garmin userId
 // maps to a known user. Summaries are grouped per user, then handed to garminIngest.
+//
+// Auth is FAIL-CLOSED and UNCONDITIONAL: an unset secret always rejects (503),
+// never gated on NODE_ENV (Railway may not set it, and a fail-open there would be
+// catastrophic — local dev MUST set GARMIN_WEBHOOK_SECRET). Garmin cannot attach
+// custom headers to its push POSTs, so the ?secret= query param is the PERMANENT
+// live transport; the x-garmin-webhook-secret header is optional hardening for a
+// trusted reverse proxy, and an absent OR empty header falls through to the query
+// so a stray proxy header can't block real Garmin traffic. Comparison is constant
+// time (timingSafeEqualStr — SHA-256 digest + timingSafeEqual) and summary.userId
+// is validated as a string before any DB lookup so a NoSQL operator ({"$gt":""})
+// can't poison another user's biometrics. (audit T2.1 / F1 / F2 / F3 / compliance C1)
 exports.garminWebhook = async (req, res, next) => {
   try {
-    if (process.env.GARMIN_WEBHOOK_SECRET && req.query.secret !== process.env.GARMIN_WEBHOOK_SECRET) {
+    const configured = process.env.GARMIN_WEBHOOK_SECRET;
+    if (!configured) {
+      return res.status(503).json({ error: 'garmin webhook not configured' });
+    }
+    const headerSecret = req.headers?.['x-garmin-webhook-secret'];
+    const provided = (headerSecret == null || headerSecret === '')
+      ? req.query?.secret
+      : headerSecret;
+    if (!timingSafe.timingSafeEqualStr(typeof provided === 'string' ? provided : '', configured)) {
       return res.status(401).json({ error: 'unauthorized' });
     }
 
@@ -537,7 +557,9 @@ exports.garminWebhook = async (req, res, next) => {
       if (!Array.isArray(list)) continue;
       for (const summary of list) {
         const gid = summary?.userId;
-        if (!gid) continue;
+        // Only a plain string is a valid Garmin userId — reject objects/operators
+        // ({"$gt":""}) before they can reach User.findOne. (audit T2.1d)
+        if (typeof gid !== 'string' || !gid) continue;
         if (!byGarminUser.has(gid)) byGarminUser.set(gid, []);
         byGarminUser.get(gid).push({ type, summary });
       }

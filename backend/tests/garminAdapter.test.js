@@ -94,3 +94,38 @@ describe('normalizeGarminSummaries — robustness', () => {
     expect(out).toEqual([{ metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' }]);
   });
 });
+
+describe('normalizeGarminSummaries — physiological range bounds (audit T2.2)', () => {
+  it('drops out-of-range heart-rate samples but keeps in-range ones', () => {
+    const out = normalizeGarminSummaries('dailies', {
+      startTimeInSeconds: START,
+      timeOffsetHeartRateSamples: { '0': 300, '60': 61 }, // 300 bpm is physiologically impossible
+    });
+    expect(out).toEqual([{ metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' }]);
+  });
+
+  it('drops an impossible resting HR (> 260)', () => {
+    const out = normalizeGarminSummaries('dailies', { startTimeInSeconds: START, restingHeartRateInBeatsPerMinute: 500 });
+    expect(out).toEqual([]);
+  });
+
+  it('drops an out-of-range SpO2 (< 50%)', () => {
+    const out = normalizeGarminSummaries('pulseox', { startTimeInSeconds: START, timeOffsetSpo2Values: { '0': 40 } });
+    expect(out).toEqual([]);
+  });
+
+  it('drops an out-of-range HRV (> 500 ms)', () => {
+    const out = normalizeGarminSummaries('hrv', { startTimeInSeconds: START, lastNightAvg: 600 });
+    expect(out).toEqual([]);
+  });
+
+  it('logs a count of the dropped out-of-range values', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      normalizeGarminSummaries('dailies', { startTimeInSeconds: START, timeOffsetHeartRateSamples: { '0': 300, '60': 400 } });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropped 2'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

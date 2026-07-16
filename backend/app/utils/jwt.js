@@ -51,12 +51,17 @@ function signOauthState(userId, provider, extra = {}) {
   });
 }
 
+// Pin the accepted algorithm to HS256 (the only algorithm we sign with). Without
+// this, jsonwebtoken accepts any HMAC-family token the secret can validate, opening
+// the door to algorithm-substitution attacks. (audit T2.3)
+const VERIFY_OPTS = { algorithms: ['HS256'] };
+
 function verifyOauthState(token) {
-  return jwt.verify(token, process.env.JWT_SECRET);
+  return jwt.verify(token, process.env.JWT_SECRET, VERIFY_OPTS);
 }
 
 function verifyToken(token) {
-  return jwt.verify(token, process.env.JWT_SECRET);
+  return jwt.verify(token, process.env.JWT_SECRET, VERIFY_OPTS);
 }
 
 function setAuthCookie(res, token) {

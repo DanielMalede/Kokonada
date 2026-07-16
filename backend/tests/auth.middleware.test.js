@@ -207,7 +207,52 @@ describe('auth middleware', () => {
       const ct = signConnectToken('ct-user');
       mockSelect.mockResolvedValue(fakeUser);
 
-      const req  = { cookies: {}, headers: {}, query: { ct } };
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/garmin/connect' };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(req.user).toBe(fakeUser);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('rejects a valid ?ct= presented on a NON-connect route (scope) with 401 and no DB lookup', async () => {
+      const ct = signConnectToken('ct-user');
+
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/spotify/token' };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid token scope' });
+      expect(mockFindById).not.toHaveBeenCalled();
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('accepts a ?ct= on a connect path with a TRAILING SLASH (Express routes it) [F6]', async () => {
+      const ct = signConnectToken('ct-user');
+      mockSelect.mockResolvedValue(fakeUser);
+
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/spotify/connect/' };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(req.user).toBe(fakeUser);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('accepts a ?ct= on a MIXED-CASE connect path (Express is case-insensitive) [F6]', async () => {
+      const ct = signConnectToken('ct-user');
+      mockSelect.mockResolvedValue(fakeUser);
+
+      const req  = { cookies: {}, headers: {}, query: { ct }, path: '/api/integrations/Spotify/Connect' };
       const res  = buildRes();
       const next = jest.fn();
 
@@ -226,7 +271,7 @@ describe('auth middleware', () => {
       const staleCookie = signToken({ userId: 'stale-browser-user' });
       mockSelect.mockResolvedValue(fakeUser);
 
-      const req  = { cookies: { [COOKIE_NAME]: staleCookie }, headers: {}, query: { ct } };
+      const req  = { cookies: { [COOKIE_NAME]: staleCookie }, headers: {}, query: { ct }, path: '/api/integrations/spotify/connect' };
       const res  = buildRes();
       const next = jest.fn();
 
@@ -241,7 +286,7 @@ describe('auth middleware', () => {
     it('rejects a normal session token presented as ?ct= (wrong purpose)', async () => {
       const sessionTok = signToken({ userId: 'ct-user' });
 
-      const req  = { cookies: {}, headers: {}, query: { ct: sessionTok } };
+      const req  = { cookies: {}, headers: {}, query: { ct: sessionTok }, path: '/api/integrations/spotify/connect' };
       const res  = buildRes();
       const next = jest.fn();
 

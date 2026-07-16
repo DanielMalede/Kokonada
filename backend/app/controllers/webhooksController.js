@@ -1,15 +1,9 @@
 'use strict';
 
-const crypto = require('crypto');
 const { applyRevenueCatEvent } = require('../services/entitlements/entitlements');
-
-// Compare via digests so length differences can't leak through timingSafeEqual's
-// equal-length requirement.
-function timingSafeEqualStr(a, b) {
-  const ha = crypto.createHash('sha256').update(String(a)).digest();
-  const hb = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(ha, hb);
-}
+// Shared constant-time compare (digest-based) — one implementation for every
+// webhook secret check. (audit T2.1)
+const { timingSafeEqualStr } = require('../utils/timingSafeEqual');
 
 // POST /api/webhooks/revenuecat — server-to-server billing events.
 // RevenueCat is configured to send `Authorization: Bearer <REVENUECAT_WEBHOOK_SECRET>`.

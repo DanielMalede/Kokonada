@@ -1,3 +1,7 @@
+# DEV-ONLY local stack. Ports are bound to 127.0.0.1 so Mongo/Redis are never
+# reachable from the host's external interfaces, and credentials come from the
+# local environment (.env / .env.local) — never hardcoded here. This file is not
+# used in production (Railway runs the managed datastores). (audit T2.5)
 version: '3.9'
 
 services:
@@ -6,11 +10,13 @@ services:
     container_name: kokonada-mongo
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"   # loopback only — never 0.0.0.0
     volumes:
       - mongo-data:/data/db
     environment:
       MONGO_INITDB_DATABASE: kokonada
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set MONGO_ROOT_USER in your local .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in your local .env}
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -22,12 +28,14 @@ services:
     container_name: kokonada-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"   # loopback only — never 0.0.0.0
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in your local .env}
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5

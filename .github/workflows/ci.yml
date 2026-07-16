@@ -7,6 +7,20 @@ on:
     branches: [main]
 
 jobs:
+  secret-scan:
+    name: Security — gitleaks secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # On push/PR gitleaks-action scans only THIS event's commit range — not the
+          # whole repo. The full-history sweep runs weekly in secret-scan-history.yml.
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   backend:
     name: Backend — lint & test
     runs-on: ubuntu-latest

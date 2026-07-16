@@ -176,11 +176,35 @@ function normalizeHealthStoreSamples(platform, samples) {
 const SECONDS = (s) => new Date(s * 1000);
 const isPos = (v) => Number.isFinite(v) && v > 0;
 
-// Emit one canonical record per entry of a Garmin {offsetSeconds: value} map.
-function fromOffsetMap(map, startSec, metric, unit, out) {
+// Physiological plausibility bounds per canonical metric. Out-of-range values are
+// DROPPED (never clamped — a clamp would fabricate a reading the wearer never had)
+// and counted, so a burst of corrupt or hostile data is visible in the logs rather
+// than silently poisoning the medical profile. Sleep-stage durations are in MINUTES
+// (0–16 h). A metric with no entry here is unbounded and passes through. (audit T2.2)
+const RANGES = {
+  heartRate:        [20, 260],
+  restingHeartRate: [20, 260],
+  hrv:              [0, 500],
+  spO2:             [50, 100],
+  respirationRate:  [4, 60],
+  bodyBattery:      [0, 100],
+  sleepDeep:        [0, 960],
+  sleepLight:       [0, 960],
+  sleepRem:         [0, 960],
+};
+
+function inRange(metric, value) {
+  const r = RANGES[metric];
+  return !r || (value >= r[0] && value <= r[1]);
+}
+
+// Emit one canonical record per entry of a Garmin {offsetSeconds: value} map,
+// dropping (and counting via `drop`) physiologically implausible values.
+function fromOffsetMap(map, startSec, metric, unit, out, drop) {
   for (const [offset, raw] of Object.entries(map || {})) {
     const value = Number(raw);
     if (!isPos(value)) continue;
+    if (!inRange(metric, value)) { drop.count += 1; continue; }
     out.push({ metric, value, unit, recordedAt: SECONDS(startSec + Number(offset)), source: 'garmin' });
   }
 }
@@ -196,38 +220,46 @@ function normalizeGarminSummaries(type, s) {
   const start = s.startTimeInSeconds;
   const at = SECONDS(start);
   const out = [];
+  const drop = { count: 0 };
+  // Push a single-value metric, dropping (and counting) an out-of-range reading.
+  const add = (metric, value, unit) => {
+    if (!inRange(metric, value)) { drop.count += 1; return; }
+    out.push({ metric, value, unit, recordedAt: at, source: 'garmin' });
+  };
 
   switch (type) {
     case 'sleeps': {
-      const push = (metric, secs) => { const m = Math.round(Number(secs) / 60); if (isPos(m)) out.push({ metric, value: m, unit: 'min', recordedAt: at, source: 'garmin' }); };
+      const push = (metric, secs) => { const m = Math.round(Number(secs) / 60); if (isPos(m)) add(metric, m, 'min'); };
       push('sleepDeep', s.deepSleepDurationInSeconds);
       push('sleepLight', s.lightSleepDurationInSeconds);
       push('sleepRem', s.remSleepInSeconds ?? s.remSleepDurationInSeconds);
       break;
     }
     case 'dailies': {
-      if (isPos(Number(s.restingHeartRateInBeatsPerMinute))) {
-        out.push({ metric: 'restingHeartRate', value: Number(s.restingHeartRateInBeatsPerMinute), unit: 'bpm', recordedAt: at, source: 'garmin' });
-      }
-      fromOffsetMap(s.timeOffsetHeartRateSamples, start, 'heartRate', 'bpm', out);
+      const rhr = Number(s.restingHeartRateInBeatsPerMinute);
+      if (isPos(rhr)) add('restingHeartRate', rhr, 'bpm');
+      fromOffsetMap(s.timeOffsetHeartRateSamples, start, 'heartRate', 'bpm', out, drop);
       break;
     }
     case 'hrv': {
       const v = Number(s.lastNightAvg);
-      if (isPos(v)) out.push({ metric: 'hrv', value: v, unit: 'ms', recordedAt: at, source: 'garmin' });
+      if (isPos(v)) add('hrv', v, 'ms');
       break;
     }
     case 'respiration':
-      fromOffsetMap(s.timeOffsetEpochToBreaths, start, 'respirationRate', 'brpm', out);
+      fromOffsetMap(s.timeOffsetEpochToBreaths, start, 'respirationRate', 'brpm', out, drop);
       break;
     case 'pulseox':
-      fromOffsetMap(s.timeOffsetSpo2Values, start, 'spO2', '%', out);
+      fromOffsetMap(s.timeOffsetSpo2Values, start, 'spO2', '%', out, drop);
       break;
     case 'stressDetails':
-      fromOffsetMap(s.timeOffsetBodyBatteryValues, start, 'bodyBattery', 'score', out);
+      fromOffsetMap(s.timeOffsetBodyBatteryValues, start, 'bodyBattery', 'score', out, drop);
       break;
     default:
       return []; // unhandled type — skip (Garmin pushes many types)
+  }
+  if (drop.count > 0) {
+    console.warn(`[garmin] dropped ${drop.count} out-of-range ${type} value(s)`);
   }
   return out;
 }
