@@ -563,7 +563,12 @@ async function buildProfile(userId, user, onProgress = () => {}) {
   // path — then tag the library and re-derive the genre signals. Fails open.
   if (genreSet.length === 0 && library.length > 0) {
     report(72, 'Tagging genres with AI');
-    const names     = [...new Set(library.map(t => t.artist).filter(Boolean))];
+    // Wave-0 (H-3): Spotify Content must never reach the LLM (Spotify Developer Policy
+    // AI-ingestion ban). ALLOWLIST — only KNOWN non-Spotify providers are eligible, so a
+    // provider-less / mis-tagged track fails CLOSED (its artist name is never sent) rather
+    // than slipping through a denylist.
+    const LLM_BACKFILL_PROVIDERS = new Set(['youtube_music']);
+    const names     = [...new Set(library.filter(t => LLM_BACKFILL_PROVIDERS.has(t.provider)).map(t => t.artist).filter(Boolean))];
     const llmGenres = await inferArtistGenres(names);
     if (Object.keys(llmGenres).length > 0) {
       for (const t of library) {

@@ -76,6 +76,31 @@ describe('runWorker (worker entrypoint)', () => {
     }
   });
 
+  it('in production without a vetted LLM provider: fires the fatal hook and never connects Mongo', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const savedNode = process.env.NODE_ENV;
+    const savedLlm  = process.env.LLM_API_KEY;
+    const savedGroq = process.env.GROQ_API_KEY;
+    process.env.NODE_ENV = 'production';
+    delete process.env.LLM_API_KEY;
+    delete process.env.GROQ_API_KEY;
+    const connectDB = jest.fn().mockResolvedValue();
+    const startWorkers = jest.fn().mockReturnValue([]);
+    const onFatal = jest.fn();
+    const logger = silentLogger();
+    try {
+      await runWorker({ connectDB, startWorkers, onFatal, logger });
+      expect(onFatal).toHaveBeenCalledWith(1);
+      expect(connectDB).not.toHaveBeenCalled();
+      expect(startWorkers).not.toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/vetted LLM provider/i));
+    } finally {
+      process.env.NODE_ENV = savedNode;
+      if (savedLlm  === undefined) delete process.env.LLM_API_KEY; else process.env.LLM_API_KEY = savedLlm;
+      if (savedGroq === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = savedGroq;
+    }
+  });
+
   it('without REDIS_URL: fires the fatal hook and does NOT connect Mongo or start workers', async () => {
     delete process.env.REDIS_URL;
     const connectDB = jest.fn().mockResolvedValue();

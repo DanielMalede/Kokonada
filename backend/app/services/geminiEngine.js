@@ -3,10 +3,9 @@
 const crypto           = require('crypto');
 const axios            = require('axios');
 const { withRetry }    = require('../utils/retry');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
-const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback } = require('./moodDescriptors');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -19,75 +18,55 @@ const REQUIRED_FIELDS = [
 // sit in this band; an invalid/missing value is filled deterministically downstream.
 const TEMPO_CATEGORIES = ['resting', 'active', 'peak'];
 
-const GEMINI_TIMEOUT_MS = 5_000;
+const LLM_TIMEOUT_MS = 5_000;
 
-function _withTimeout(ms, promise) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Gemini timeout after ${ms}ms`)), ms);
-  });
-  // Clear the timer once the race settles so a resolved call never leaves a dangling
-  // handle alive for `ms` (leaks the event loop; trips Jest's open-handle warning).
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-function getModel() {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  // gemini-1.5-flash was retired by Google (v1beta generateContent now 404s it).
-  // gemini-2.0-flash is the current fast/cheap GA model — ideal for this small,
-  // latency-sensitive JSON task (see GEMINI_TIMEOUT_MS). Override via GEMINI_MODEL.
-  return genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
-}
-
-// Provider-agnostic generation. If an OpenAI-compatible key is set (LLM_API_KEY,
-// e.g. a free Groq key — no credit card needed), call that endpoint; otherwise
-// fall back to the Gemini SDK. This lets the app run on a free provider when a
-// Google account has no Gemini quota (free_tier limit: 0). Returns the raw text.
-async function _generate(prompt, { model: modelOverride = null, timeoutMs = GEMINI_TIMEOUT_MS } = {}) {
+// Generation against the VETTED OpenAI-compatible provider (Groq via LLM_API_KEY).
+// Wave-0 egress containment: the old silent fallback to Google Gemini's free tier —
+// training-eligible, no Zero-Data-Retention — is REMOVED. With no vetted key configured
+// we throw, so the caller degrades to the deterministic mood/BPM path (applyMoodFallback)
+// rather than ever reaching an unvetted endpoint. Returns the raw text.
+async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_TIMEOUT_MS } = {}) {
   const llmKey = process.env.LLM_API_KEY || process.env.GROQ_API_KEY;
-  if (llmKey) {
-    const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
-    // 8b-instant is Groq's most stable always-on model and is plenty for this
-    // small structured-JSON task. Providers rotate larger models, so default to
-    // the safe one; override with LLM_MODEL globally, or per-call (the Tempo Critic
-    // passes a bigger model whose world-knowledge judges niche tracks' real tempo).
-    const model   = modelOverride || process.env.LLM_MODEL || 'llama-3.1-8b-instant';
-    // Groq's free tier caps tokens-per-minute (6000 TPM). Under load, generation 429s and —
-    // without a retry — the whole playlist silently collapses to the static fallback (the
-    // "tracks=10, ignores the activity" symptom). withRetry rides out the 429 honoring
-    // Retry-After; 4xx/5xx and timeouts still fail fast to the caller's fallback.
-    const maxRetries = (() => { const n = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10); return Number.isFinite(n) && n >= 0 ? n : 3; })();
-    try {
-      const { data } = await withRetry(() => axios.post(
-        `${baseUrl}/chat/completions`,
-        {
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-          // The prompts already demand strict JSON; json_object mode guarantees it.
-          response_format: { type: 'json_object' },
-        },
-        {
-          headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
-          timeout: timeoutMs,
-        },
-      ), maxRetries);
-      return data.choices?.[0]?.message?.content ?? '';
-    } catch (err) {
-      // Surface the provider's real reason (e.g. a decommissioned model) instead
-      // of axios's opaque "Request failed with status code 404".
-      const apiMsg = err.response?.data?.error?.message || err.message;
-      console.error('[llm] request failed', { status: err.response?.status, model, error: apiMsg });
-      // Report LLM outages/timeouts (previously only console-logged) so a provider going
-      // down — which silently degrades every playlist to the static fallback — is visible.
-      captureException(err, { scope: 'llm', model, status: err.response?.status, apiMsg });
-      throw new Error(`LLM request failed (${model}): ${apiMsg}`);
-    }
+  if (!llmKey) {
+    throw new Error('No vetted LLM provider configured (set LLM_API_KEY) — refusing to call an unvetted endpoint');
   }
-
-  const model  = getModel();
-  const result = await _withTimeout(timeoutMs, model.generateContent(prompt));
-  return result.response.text();
+  const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
+  // 8b-instant is Groq's most stable always-on model and is plenty for this
+  // small structured-JSON task. Providers rotate larger models, so default to
+  // the safe one; override with LLM_MODEL globally, or per-call (the Tempo Critic
+  // passes a bigger model whose world-knowledge judges niche tracks' real tempo).
+  const model   = modelOverride || process.env.LLM_MODEL || 'llama-3.1-8b-instant';
+  // Groq's free tier caps tokens-per-minute (6000 TPM). Under load, generation 429s and —
+  // without a retry — the whole playlist silently collapses to the static fallback (the
+  // "tracks=10, ignores the activity" symptom). withRetry rides out the 429 honoring
+  // Retry-After; 4xx/5xx and timeouts still fail fast to the caller's fallback.
+  const maxRetries = (() => { const n = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10); return Number.isFinite(n) && n >= 0 ? n : 3; })();
+  try {
+    const { data } = await withRetry(() => axios.post(
+      `${baseUrl}/chat/completions`,
+      {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        // The prompts already demand strict JSON; json_object mode guarantees it.
+        response_format: { type: 'json_object' },
+      },
+      {
+        headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
+        timeout: timeoutMs,
+      },
+    ), maxRetries);
+    return data.choices?.[0]?.message?.content ?? '';
+  } catch (err) {
+    // Surface the provider's real reason (e.g. a decommissioned model) instead
+    // of axios's opaque "Request failed with status code 404".
+    const apiMsg = err.response?.data?.error?.message || err.message;
+    console.error('[llm] request failed', { status: err.response?.status, model, error: apiMsg });
+    // Report LLM outages/timeouts (previously only console-logged) so a provider going
+    // down — which silently degrades every playlist to the static fallback — is visible.
+    captureException(err, { scope: 'llm', model, status: err.response?.status, apiMsg });
+    throw new Error(`LLM request failed (${model}): ${apiMsg}`);
+  }
 }
 
 // ── Response validation ────────────────────────────────────────────────────────
@@ -170,48 +149,6 @@ function _variationLine(seed) {
     : `\n\nVariation token: ${seed} — deliberately pick a FRESH, different selection of seed_genres, seed_artists and mood_keywords than you would for any other token, while staying within the strict vibe and the user's taste above.`;
 }
 
-// How many hyper-specific sub-genres to surface to the LLM per generation. A small
-// rotating window (vs the full footprint) steers Spotify search into a different
-// catalog sector each press.
-const MICRO_GENRE_COUNT = Number(process.env.MICRO_GENRE_COUNT) || 8;
-
-// Deterministic PRNG from a string seed (xfnv1a hash → mulberry32). Same seed →
-// same sequence (reproducible per request); different seeds → different rotation.
-function _seededRng(seedStr) {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < seedStr.length; i++) {
-    h ^= seedStr.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return function next() {
-    h += 0x6d2b79f5;
-    let t = h;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// Micro-genre seed shifting: pick a seeded random subset of the user's HYPER-SPECIFIC
-// sub-genres (genreSet, e.g. "indie pop", "post-punk") instead of the broad parent
-// genres, so each press drives the Spotify algorithm into entirely separate catalog
-// sectors. Falls back to topGenres when there's no granular footprint, and returns
-// the whole list unchanged when it's already at/under the window (or no seed) — which
-// keeps the broad-genre behaviour for small profiles.
-function _microGenreSubset(musicProfile, seed) {
-  const granular = (musicProfile.genreSet && musicProfile.genreSet.length)
-    ? musicProfile.genreSet
-    : (musicProfile.topGenres || []);
-  if (seed == null || granular.length <= MICRO_GENRE_COUNT) return granular;
-  const rng = _seededRng(String(seed));
-  const arr = [...granular];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr.slice(0, MICRO_GENRE_COUNT);
-}
-
 // Strict-curator directive (zero-tolerance vibe). Resolved from the emotion taps so
 // the LLM is nudged to avoid off-vibe genres and lean into the mood's energy. The
 // post-LLM applyMoodFallback then ENFORCES this deterministically — the directive is
@@ -225,52 +162,39 @@ function _strictMoodLine(emotionTaps) {
 
 // ── Prompt builders ────────────────────────────────────────────────────────────
 
-// Format the anonymised last-24h biometric snapshot (built in biometricHandler's
-// resolveBiometricContext) into a single human-readable prompt line. Only the
-// fields actually present are listed, so a sparse profile yields a short line.
-function _formatBiometric(ctx) {
-  if (!ctx) return '';
-  const parts = [];
-  if (ctx.stateLabel) parts.push(`physiological state "${ctx.stateLabel}"`);
-  if (ctx.heartRate != null && ctx.restingHeartRate != null) {
-    parts.push(`current HR ${ctx.heartRate} bpm vs resting ${ctx.restingHeartRate} bpm`
-      + (ctx.hrRatio != null ? ` (${ctx.hrRatio}× resting)` : ''));
-  } else if (ctx.restingHeartRate != null) {
-    parts.push(`resting HR ${ctx.restingHeartRate} bpm`);
-  }
-  if (ctx.hrv != null)            parts.push(`HRV ${ctx.hrv} ms`);
-  if (ctx.bodyBattery != null)    parts.push(`body battery ${ctx.bodyBattery}/100`);
-  if (ctx.dailyReadiness != null) parts.push(`readiness ${ctx.dailyReadiness}/100`);
-  if (ctx.spO2 != null)           parts.push(`SpO2 ${ctx.spO2}%`);
-  if (ctx.sleep) {
-    const { deep, light, rem } = ctx.sleep;
-    const seg = [
-      deep  != null ? `${deep}m deep`   : null,
-      light != null ? `${light}m light` : null,
-      rem   != null ? `${rem}m REM`     : null,
-    ].filter(Boolean).join(', ');
-    if (seg) parts.push(`last sleep ${seg}`);
-  }
-  return parts.join('; ');
-}
-
 /**
- * Builds the deep contextual prompt for the emotion-driven pipeline.
- * No PII is included — only anonymised taste signals, emotion coordinates, the
- * user's selected activity, and an aggregated last-24h biometric snapshot.
+ * Builds the contextual prompt for the emotion-driven pipeline.
+ * Wave-0 egress containment: NO PII and NO special-category vitals. The prompt carries
+ * ONLY anonymised abstract signals — emotion coordinates, the user's selected activity,
+ * and closed-vocabulary derived-intent tags. Numeric vitals (HR/HRV/SpO2/sleep/…) never
+ * appear here; they steer the audio targets deterministically AFTER the LLM returns
+ * (buildEmotionPlaylist → applyBiometricBands).
  */
-function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null, biometricContext = null } = {}) {
+function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null } = {}) {
   const { tempoBaseline, energy, valence, acousticness } = musicProfile;
-  // Micro-genre seed shifting: a rotating subset of hyper-specific sub-genres.
-  const allowedGenres = _microGenreSubset(musicProfile, seed).join(', ');
-  const bio = _formatBiometric(biometricContext);
+  // Wave-0 (H-3): the allowed genres come from the resolved MOOD descriptor's on-vibe
+  // allow-list — NEVER the user's Spotify-derived genreSet/topGenres. Spotify Content must
+  // not reach the LLM (Spotify Developer Policy AI-ingestion ban).
+  const moodKey = resolveMoodKey(emotionTaps);
+  const allowedGenres = (moodKey ? MOOD_DESCRIPTORS[moodKey].allow_genres : []).join(', ');
 
-  // Only nudge the LLM to weigh activity/biometrics when at least one is present.
-  const contextDirective = (activity || bio)
-    ? ` Also weigh the user's current activity${activity ? ` ("${activity}")` : ''}${bio ? ' and recent biometric state' : ''} against the emotion: low HRV, low body battery, poor sleep or a winding-down activity (preparing for sleep, meditating) call for calmer, lower-BPM, more acoustic music, while high readiness with an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
+  // Wave-0: the raw free-text note is NEVER interpolated. It is reduced here to a
+  // closed-vocabulary set of derived intent tags (extractIntent), so only canonical
+  // tokens — never the user's own words / PII — can enter the outbound request.
+  const intent = extractIntent(textPrompt);
+  // H1: the client-supplied activity CHIP is validated against the preset enum before it
+  // can enter the prompt; the server-derived intent activity is already closed-vocabulary.
+  const effectiveActivity = normalizeActivity(activity) || intent.activity;
+  const intentLine = intent.keywords.length
+    ? `Derived listener intent (structured tags, not the user's words): ${intent.keywords.join(', ')}`
     : '';
 
-  return `You are an expert musicologist and biometrics analyst.
+  // Only nudge the LLM to weigh the activity when one is present.
+  const contextDirective = effectiveActivity
+    ? ` Also weigh the user's current activity ("${effectiveActivity}") against the emotion: a winding-down activity (preparing for sleep, meditating) calls for calmer, lower-tempo, more acoustic music, while an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
+    : '';
+
+  return `You are an expert musicologist.
 
 User's musical taste profile (anonymised):
 - Top genres (ordered by preference): ${allowedGenres}
@@ -280,10 +204,9 @@ User's musical taste profile (anonymised):
 - Baseline acousticness: ${acousticness ?? 'unknown'}
 
 Current emotional state — 2D coordinates from an emotion wheel (x = arousal, y = valence, range -1 to 1):
-${JSON.stringify(emotionTaps)}
-${textPrompt ? `User note: "${textPrompt}"` : ''}
-${activity ? `Current activity: ${activity}` : ''}
-${bio ? `Last-24h biometric snapshot: ${bio}.` : ''}
+${JSON.stringify((emotionTaps || []).map((t) => ({ x: Number(t?.x), y: Number(t?.y) })))}
+${intentLine}
+${effectiveActivity ? `Current activity: ${effectiveActivity}` : ''}
 
 Analyse the emotional coordinates in the context of the user's taste profile and determine the ideal musical parameters.${contextDirective} Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
 {
@@ -294,52 +217,50 @@ Analyse the emotional coordinates in the context of the user's taste profile and
   "seed_artists": <array of 0–3 artist names chosen ONLY from the user's known favourites — never invent names>,
   "seed_genres": <array of 1–3 genres chosen ONLY from this allowed list: ${allowedGenres}>,
   "mood_keywords": <array of 2–4 short search descriptors capturing the mood (e.g. "calm", "uplifting", "lo-fi", "late night") — these drive the actual track search>,
-  "tempo_category": <exactly one of "resting" | "active" | "peak" — the overall tempo/energy band that best fits this session. IMPORTANT: if the user note is present it OVERRIDES the mood when it implies movement (e.g. "going for a run" → "peak" even for a calm mood); otherwise infer it from the emotional coordinates>
+  "tempo_category": <exactly one of "resting" | "active" | "peak" — the overall tempo/energy band that best fits this session; infer it from the emotional coordinates and any derived intent tags above>
 }${_strictMoodLine(emotionTaps)}${_variationLine(seed)}`;
 }
 
 /**
  * Builds the lightweight prompt for the biometric-driven pipeline.
- * Focuses on BPM and energy adjustment without a full mood overhaul.
+ * Wave-0 egress containment: the numeric heart rate and resting HR NEVER appear in the
+ * prompt — only the COARSE physiological intensity band (derived server-side from HR).
+ * The exact target BPM/energy is mapped from the HR deterministically AFTER the LLM
+ * returns (adjustBiometricPlaylist → applyBiometricBands).
  */
 function _buildBiometricPrompt(musicProfile, biometric, seed = null) {
-  const { tempoBaseline, restingHeartRate } = musicProfile;
-  const { heartRate, activity } = biometric;
-  // Micro-genre seed shifting: a rotating subset of hyper-specific sub-genres.
-  const allowedGenres = _microGenreSubset(musicProfile, seed).join(', ');
+  const { heartRate } = biometric;
+  // H1: normalize the activity to the known preset enum before it enters the prompt.
+  const activity = normalizeActivity(biometric.activity);
+  const band = bandFromHeartRate(heartRate) || 'active';
 
-  return `You are a biometrics analyst optimising music parameters to match a user's physiological state.
+  return `You are a music curator matching a listener's physiological intensity.
 
-User's musical profile (anonymised):
-- Top genres: ${allowedGenres}
-- Baseline tempo: ${tempoBaseline ?? 'unknown'} BPM
-- Resting heart rate: ${restingHeartRate ?? 'unknown'} bpm
+Session context (anonymised — no vitals, no identifiers):
+- Physiological intensity band: ${band}
+${activity ? `- Current activity: ${activity}` : ''}
 
-Current biometrics:
-- Heart rate: ${heartRate} bpm
-- Activity: ${activity}
-
-Adjust tempo and energy to match the physiological state while preserving the user's genre preferences. Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
+Choose musical parameters that match a "${band}" intensity. Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
 {
   "target_bpm": <number>,
   "target_energy": <number 0–1>,
   "target_valence": <number 0–1>,
   "target_acousticness": <number 0–1>,
   "seed_artists": [],
-  "seed_genres": <array of 1–2 genres chosen ONLY from: ${allowedGenres}>,
-  "mood_keywords": <array of 2–4 short search descriptors matching the energy of this physiological state>
+  "seed_genres": <array of 1–2 genres matching a "${band}" intensity>,
+  "mood_keywords": <array of 2–4 short search descriptors matching this intensity>
 }${_variationLine(seed)}`;
 }
 
 // ── Gemini call ────────────────────────────────────────────────────────────────
 
-// DATA EGRESS NOTE (audit F16): prompts are sent to Google Gemini, a third-party
-// sub-processor — document it in the privacy policy / DPA. Prompts are anonymised
-// (no name/email/userId; only taste signals, emotion coords, HR, and the user's
-// free-text note). The Redis cache key is md5(prompt) and the cached VALUE is only
-// the derived AI params (target_bpm, etc.) — raw biometrics are never stored in the
-// cache, and the md5 key is not reversible to the heart rate.
-async function _callGemini(prompt) {
+// DATA EGRESS NOTE (audit F16): prompts are sent to the VETTED provider (Groq) — list it
+// as a sub-processor in the privacy policy / DPA. Wave-0 egress containment: prompts carry
+// NO name/email/userId, NO special-category vitals, NO raw free-text, and NO Spotify Content
+// — only abstract emotion coords, activity, closed-vocabulary intent tags, and mood-descriptor
+// genres. The Redis cache key is md5(prompt) and the cached VALUE is only the derived AI
+// params (target_bpm, etc.); the md5 key is not reversible.
+async function _callLlm(prompt) {
   const redis = getRedis();
   let cacheKey = null;
 
@@ -370,14 +291,22 @@ async function _callGemini(prompt) {
  * @returns {Promise<{ params, tracks }>}
  */
 async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, activity = null, biometricContext = null, fetchTracks, seed = null }) {
-  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed, { activity, biometricContext });
-  const rawParams = await _callGemini(prompt);
-  // Zero-tolerance enforcement: deterministically override (no custom intent) or
-  // merge (custom intent) the LLM picks with the strict mood descriptors so a stray
-  // off-vibe genre/keyword can never reach the Spotify search or the mixer. A
-  // selected activity counts as custom intent too, so it refines the strict mood
-  // list rather than being steamrolled by it.
-  const params = applyMoodFallback(rawParams, emotionTaps, textPrompt || activity, musicProfile);
+  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed, { activity });
+  const rawParams = await _callLlm(prompt);
+  // Wave-0 two-stage split: the decrypted vitals never crossed the LLM boundary — they
+  // map to the audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here,
+  // AFTER the LLM has returned, reusing the moodDescriptors band machinery.
+  const bandedParams = applyBiometricBands(rawParams, biometricContext);
+  // Wave-0: the raw note is reduced to closed-vocabulary intent tags server-side (extractIntent);
+  // the RAW text never leaves the process. A non-empty derived intent (activity or keywords)
+  // counts as custom intent so the strict mood MERGES rather than overrides — reproducing the
+  // old free-text behaviour deterministically.
+  const intent = extractIntent(textPrompt);
+  const derivedIntent = [activity || intent.activity, ...intent.keywords].filter(Boolean).join(' ');
+  const params = applyMoodFallback(bandedParams, emotionTaps, derivedIntent, musicProfile);
+  // Deterministic movement cue: a "going for a run" note → peak, even for a calm mood —
+  // the override the raw note used to hand the LLM, now applied server-side.
+  if (intent.tempoCategory) params.tempo_category = intent.tempoCategory;
   return { params, tracks: await fetchTracks(params) };
 }
 
@@ -390,7 +319,11 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
  */
 async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, seed = null }) {
   const prompt = _buildBiometricPrompt(musicProfile, biometric, seed);
-  const params = await _callGemini(prompt);
+  const rawParams = await _callLlm(prompt);
+  // Wave-0 two-stage split: the numeric HR never crossed the LLM boundary — map it to the
+  // audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here, after the
+  // LLM returns, reusing the moodDescriptors band machinery.
+  const params = applyBiometricBands(rawParams, { heartRate: biometric.heartRate });
   // Robustness: an empty genre seed makes Spotify discovery early-return [] — backfill
   // from the user's top genres so the heart-rate branch always has something to search.
   if (!Array.isArray(params.seed_genres) || params.seed_genres.length === 0) {

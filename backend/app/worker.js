@@ -66,6 +66,16 @@ async function runWorker({
     return onFatal(1);
   }
 
+  // Wave-0 egress containment: the worker decrypts biometrics and can enqueue LLM work, so it
+  // must also refuse to boot in production without a vetted provider — fail-fast parity with
+  // app/index.js, never a silent fall-through toward an unvetted endpoint.
+  try {
+    require('./config/llmProvider').assertVettedLlmProvider();
+  } catch (err) {
+    logger.error(`[worker] FATAL: ${err.message} Exiting non-zero.`);
+    return onFatal(1);
+  }
+
   await connect();
 
   const workers = start();
