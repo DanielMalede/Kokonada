@@ -45,6 +45,11 @@ const FRONTEND_URL = process.env.FRONTEND_URL;
 if (!FRONTEND_URL && process.env.NODE_ENV === 'production') {
   throw new Error('FRONTEND_URL must be set in production — refusing to start with unsafe CORS');
 }
+
+// A vetted LLM provider (Groq LLM_API_KEY) is mandatory in production — we refuse to
+// start rather than silently degrade to an unvetted, training-eligible endpoint with
+// special-category signals. (Wave-0 egress containment)
+require('./config/llmProvider').assertVettedLlmProvider();
 app.use(cors({
   origin: FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
