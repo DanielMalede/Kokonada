@@ -16,11 +16,12 @@ One screen at a time, in this order; each screen = its own branch + PR off fresh
 | :--- | :--- | :--- |
 | ✅ | Auth (§3) | SHIPPED — #108, recovered to main via #120 |
 | ✅ | Now Playing (§7) | SHIPPED — #121 redesign · #122 art/receipts payload · #124 SDK cover |
-| **1 — NEXT** | FTUE / Onboarding (§2) + Splash (§1) | ready to start |
-| 2 | Connect Services (§4) | queued |
+| ✅ | FTUE / Onboarding (§2) + Splash (§1) | SHIPPED — #141 |
+| **2 — NEXT** | Connect Services (§4) | ready to start |
 | 3 | Generate — HERO (§5) + Genesis overlay (§6) | queued |
 | 4 | History (§9) | queued |
 | 5 | Profile / Privacy Vault (§10) | queued — must absorb the web `WatchTokenCard` (mint/copy/revoke `whr_` token UI); this unblocks the web sunset (Wave 2.5) |
+| 5.5 | Health-Data Consent — Art.9 gate (§11) | ready — backend contract landed (`feat/ws5-consent-backend`, 2026-07-16 audit finding H-9); build alongside § 10 (shared trust surface + withdrawal echo) |
 | 6 | Tab bar + system states (§0) | queued |
 | 7 | Pulse (§8) | **HELD** on issue #90 (orphaned HC medical-profile ingestion) — build last, once #90 closes |
 | 8 | Brand identity | icon · wordmark · bootsplash · motion signature — final PR |
@@ -74,7 +75,7 @@ One screen at a time, in this order; each screen = its own branch + PR off fresh
 - **Layout:** two grouped cards (Music · Wearable/Health), each with connect state + "why we ask" accordion; prominent "Try with mood only" secondary path.
 - **Components:** integration rows (consistent status + action), "why" accordion, mood-only CTA.
 - **States:** none connected · music connected · wearable connected · skipped (mood-only).
-- **Interactions:** tap Connect → OAuth (Pause & Guide portal where needed); expand "why"; choose mood-only.
+- **Interactions:** tap Connect → OAuth (Pause & Guide portal where needed); expand "why"; choose mood-only. The wearable/health path routes through **§ 11 (Art.9 consent)** before the OS Health Connect sheet.
 - **Data:** integration/connection status; OAuth scopes (least-privilege).
 - **Design notes:** the Privacy-Vault tone starts here — explain *why* before requesting health access; never force the double gate.
 
@@ -133,9 +134,18 @@ One screen at a time, in this order; each screen = its own branch + PR off fresh
 - **Layout:** header (name/avatar/email) → Integrations (Spotify · YouTube Music · Wearable · Health data — consistent status + action) → Health-data "Vault" panel (sync, permissions, what we read/why) → Log out → Delete account.
 - **Components:** `ProfileScreen`, integration rows, Health-Connect sync + native permission trigger, GDPR delete flow.
 - **States:** each integration connected/disconnected/needs-reconnect; health granted/denied (→ native permission sheet, never OS-settings); delete confirm.
-- **Interactions:** connect/reconnect (Pause & Guide portals); Sync → native HC permission sheet if missing; logout (full teardown incl. Spotify pause + wipe); delete (server-first cascade + local wipe).
-- **Data:** integration status, `AuthSession`, `/api/auth/account` (delete), Health-Connect permissions.
-- **Design notes:** the "Vault" tone — impenetrable, premium, trust-first; consistent rows (fixes the current YouTube inconsistency); destructive actions clearly separated.
+- **Interactions:** connect/reconnect (Pause & Guide portals); Sync → native HC permission sheet if missing (routes through **§ 11** first if consent isn't current); logout (full teardown incl. Spotify pause + wipe); delete (server-first cascade + local wipe); "Withdraw health-data consent" → two-step confirm (neutral tone, not the delete-account danger styling) → `POST /api/consent/withdraw`.
+- **Data:** integration status, `AuthSession`, `/api/auth/account` (delete), Health-Connect permissions, `/api/consent/status` + `/api/consent/withdraw`.
+- **Design notes:** the "Vault" tone — impenetrable, premium, trust-first; consistent rows (fixes the current YouTube inconsistency); destructive actions clearly separated. The withdrawal panel echoes **§ 11**'s section headings and body rhythm so the two read as one continuous trust surface.
+
+## 11. Health-Data Consent — the Art.9 gate (just-in-time interstitial)
+- **Purpose:** capture explicit, informed, versioned **GDPR Art.9** consent for processing special-category health/biometric data — the lawful basis an OS/OAuth permission grant alone does **not** provide (2026-07-16 compliance audit, finding H-9). Shown **only** the instant a user chooses to connect health/a wearable, **immediately before** the OS Health Connect sheet — never a login wall. Mood-only users never see it. The sanctuary explaining itself honestly, not a permission trap. Reached from **§ 4** and **§ 10**; not a tab. Build queue position **5.5**, alongside § 10 (shared trust surface + withdrawal echo).
+- **Layout (vertical):** a serious, legible sheet on a **static** surface (`surface.base`) — no hero, no reactive aura. Top: a single calm brand mark + one title + one plain-language subtitle. Middle: a **real, scrollable** consent document (native scroll view, selectable live text — never an image) of short, headed sections. Bottom: a **persistent, non-scrolling action bar** carrying two equal-weight choices (Decline · Agree), always visible and tappable regardless of scroll position. A quiet, static shield/lock glyph in `accent.glow` is the only ornament.
+- **Components:** `ConsentSheet` (route/modal), `ConsentDocument` (scrollable, section-landmarked text), `ConsentSectionCard` (`surface.raised`, `radius.lg`, `elevation.e1`, hairline dividers), a visible scroll affordance, a fixed `ConsentActionBar` with equal-measure `AcceptButton` + `DeclineButton`.
+- **States:** `checking` (`GET /api/consent/status`) · short-circuit (already current → skip straight to the OS sheet) · `consent_required` (first time) · `consent_stale` (granted at an older version → re-confirm) · `submitting_grant` · `submit_error`/`offline` (blocks — never opens the OS sheet) · `granted_ack` (server-confirmed → hands off to the OS sheet) · `declined` (returns to caller, no penalty, no re-prompt loop).
+- **Interactions:** open on health/wearable intent → check status → present or short-circuit. **Agree** → `POST /api/consent` → await the 201 canonical echo → only then call `requestHealthPermissions()`. **Decline** → dismiss, mood-only path intact. Re-reads status on focus/resume so a withdrawal made elsewhere (§ 10) is reflected immediately.
+- **Data:** `GET /api/consent/status?purpose=health_biometric_processing` → `{granted, currentVersion, staleVersion}`; `POST /api/consent` `{purpose:'health_biometric_processing', dataCategories:[…]}`; `POST /api/consent/withdraw` `{purpose}` (§ 10). `dataCategories` canonical identifiers: `['heart_rate','hrv','sleep','resting_heart_rate','spo2','respiratory_rate','historical_access_182d','background_access']` — must mirror the on-screen data list exactly. `CURRENT_CONSENT_VERSION = 1` is the cross-package staleness contract.
+- **Design notes:** calm/premium here means **legible and serious**, the inverse of Genesis (§ 6) — the bio-aura **recedes entirely** and the CTA does **not** re-tint to the current emotion (the one app-wide exception: a legal choice is never emotionally nudged). Decline is exactly as easy as Accept — equal size/position/contrast, no pre-checked state, no scroll-gating, no confirmshaming; its border must clear WCAG 2.2 1.4.11 (3:1) using `content.tertiary`/`accent.glow`, never the decorative `hairline` token. A failed/unconfirmed grant blocks the OS sheet — the one place "the music never stops" yields to legal integrity. Recommend pre-checking Health Connect device availability before showing this screen, so no one consents to something their device can't deliver.
 
 ---
 
