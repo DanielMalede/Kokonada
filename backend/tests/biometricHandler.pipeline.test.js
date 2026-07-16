@@ -732,6 +732,82 @@ describe('provider selection', () => {
   });
 });
 
+// ── YouTube-only discovery: corpus-sourced, filtered to actually-playable, never search.list ──
+// The per-generation YouTube search.list call (100 quota units) is retired: a YouTube-only user's
+// discovery candidates come from the provider-agnostic mbid vector corpus. That corpus resolves
+// mbid rows to SPOTIFY URIs only (no YouTube serve-time resolver by design), so for a YouTube user
+// the branch must keep ONLY candidates already playable on YouTube (a youtube: URI) — a spotify:
+// URI is truthy and would otherwise be delivered as an unplayable queue entry, and a uri:null row
+// would inflate discovery counts. These tests exercise the REAL delivery hop (fetchTracks →
+// generateV2 passthrough → toClientTracks → emit), not a hardcoded playlist.
+describe('YouTube-only discovery — corpus filtered to playable, no search.list', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+  const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
+  // Captured at collection time (factory defaults) — global beforeEach never re-establishes
+  // generateV2/vectorDiscoveryFetch implementations, so restore them so this block's passthrough
+  // overrides don't leak into later tests.
+  const DEFAULT_GEN_V2  = orchestrator.generateV2.getMockImplementation();
+  const DEFAULT_VDF     = vectorDiscoveryFetch.getMockImplementation();
+
+  const candNull    = { id: 'c-null', uri: null,               recordingKey: 'mbid:null', title: 'Unresolved', artist: 'A', isDiscovery: true };
+  const candSpotify = { id: 'c-spot', uri: 'spotify:track:s1', recordingKey: 'mbid:spot', title: 'Spotify Only', artist: 'A', isDiscovery: true };
+  const candYoutube = { id: 'c-yt',   uri: 'youtube:yt1',      recordingKey: 'youtube:yt1', title: 'Playable', artist: 'A', isDiscovery: true };
+
+  beforeEach(() => {
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    // Un-mock the AI hop: forward the REAL fetchTracks closure output as the discovery set.
+    geminiEngine.adjustBiometricPlaylist.mockImplementation(async ({ fetchTracks }) => ({
+      params: AI_PARAMS,
+      tracks: await fetchTracks(AI_PARAMS),
+    }));
+  });
+
+  afterEach(() => {
+    orchestrator.generateV2.mockImplementation(DEFAULT_GEN_V2);
+    vectorDiscoveryFetch.mockImplementation(DEFAULT_VDF);
+  });
+
+  it('delivers ONLY the youtube: candidate — uri:null and spotify: URIs are filtered before delivery/telemetry', async () => {
+    vectorDiscoveryFetch.mockResolvedValue([candNull, candSpotify, candYoutube]);
+    // Passthrough merge so the surviving discovery reaches the client contract unchanged.
+    orchestrator.generateV2.mockImplementation(async ({ discoveryTracks }) => {
+      const d = Array.isArray(discoveryTracks) ? discoveryTracks : [];
+      return { familiar: [], discovery: d, merged: [...d], telemetry: { poolSize: d.length, afterFilters: d.length, relaxLevel: 0, stageMs: { total: 5 } }, targets: { bpmCenter: 120 } };
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+    expect(ready[1].tracks).toHaveLength(1);
+    expect(ready[1].tracks[0].uri).toBe('youtube:yt1');
+    expect(ready[1].tracks.some(t => String(t.uri).startsWith('spotify:'))).toBe(false);
+    // Telemetry reflects the FILTERED count (1 of 3), not the raw corpus size.
+    expect(warnSpy.mock.calls.flat().join(' ')).toMatch(/youtubePlayable=1\/3/);
+    expect(youtube.searchRecommendations).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('graceful degradation: empty discovery + deliverable library ⇒ playlist_ready (familiar-only), never playlist_error', async () => {
+    vectorDiscoveryFetch.mockResolvedValue([]); // corpus yields nothing playable
+    const famYt = { id: 'lib-yt-1', uri: 'youtube:libyt1', name: 'Familiar YT', artist: 'A', provider: 'youtube_music' };
+    orchestrator.generateV2.mockImplementation(async ({ discoveryTracks }) => {
+      const d = Array.isArray(discoveryTracks) ? discoveryTracks : [];
+      return { familiar: [famYt], discovery: d, merged: [famYt, ...d], telemetry: { poolSize: 1, afterFilters: 1, relaxLevel: 0, stageMs: { total: 5 } }, targets: { bpmCenter: 120 } };
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({ discovery: 0 }));
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+});
+
 // ── Error handling ────────────────────────────────────────────────────────────
 
 describe('error handling', () => {

@@ -278,30 +278,10 @@ async function fetchVideoTopics(accessToken, videoIds, { cap = 250 } = {}) {
   return out;
 }
 
-/**
- * Searches YouTube Music for tracks matching AI-computed targets.
- * YouTube has no audio-features API so we build a keyword query from
- * genre + energy mood descriptor.
- *
- * @param {string} accessToken
- * @param {{ seed_genres, target_energy, limit? }} params
- * @returns {Promise<YouTubeVideo[]>}
- */
-async function searchRecommendations(accessToken, { seed_genres, target_energy, limit = 10 }) {
-  const energy   = target_energy ?? 0.5;
-  const moodWord = energy > 0.7 ? 'energetic' : energy < 0.35 ? 'calm' : '';
-  const genres   = (seed_genres || []).slice(0, 3).join(' ');
-  const query    = [moodWord, genres, 'music'].filter(Boolean).join(' ');
-
-  const { data } = await withRetry(() =>
-    axios.get(`${BASE_API}/search`, {
-      headers: authHeader(accessToken),
-      params:  { part: 'snippet', q: query, type: 'video', videoCategoryId: '10', maxResults: limit },
-      timeout: 8_000,
-    })
-  );
-  return data.items ?? [];
-}
+// Per-generation YouTube search.list (100 quota units/call) is retired: discovery candidates
+// now come from the provider-agnostic mbid vector corpus (discoveryVectorService), so the
+// generation path spends zero YouTube Data API quota. YouTube API usage narrows to first-party
+// taste import (the user's own library/history) via the pagination helpers above.
 
 // Exchange a code obtained via the GIS popup flow (client-side initCodeClient).
 // Google requires redirect_uri='postmessage' for codes issued through the popup
@@ -346,5 +326,4 @@ module.exports = {
   exchangeCode, exchangeCodeFromGIS,
   getValidToken, getChannel, getLikedVideos,
   paginateLikedVideos, paginatePlaylistItems, paginateSubscriptions, fetchVideoTopics,
-  searchRecommendations,
 };

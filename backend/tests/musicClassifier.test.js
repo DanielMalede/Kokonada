@@ -106,23 +106,31 @@ describe('classifyTracks — 3-way partition', () => {
     expect(out.unclassified).toEqual([]);
   });
 
-  it('sends metadata-backed but still-ambiguous tracks to Groq and honors its non_music verdict', async () => {
-    llmClient.generateJson.mockResolvedValue(JSON.stringify({ non_music: [0] }));
+  it('pools metadata-backed but still-ambiguous tracks to unclassified and NEVER calls any LLM', async () => {
     const out = await classifyTracks(
       [ytt('a1', 'weird title', 'u'), ytt('a2', 'another weird', 'u')],
       { useLLM: true, metaById: { a1: { categoryId: '24' }, a2: { categoryId: '24' } } },
     );
-    expect(llmClient.generateJson).toHaveBeenCalledTimes(1);
-    expect(out.nonMusic.map(t => t.id)).toEqual(['a1']);
-    expect(out.music.map(t => t.id)).toEqual(['a2']);
-    expect(out.unclassified).toEqual([]);
+    expect(llmClient.generateJson).not.toHaveBeenCalled();
+    expect(out.unclassified.map(t => t.id).sort()).toEqual(['a1', 'a2']);
+    expect(out.nonMusic).toEqual([]);
+    expect(out.music).toEqual([]);
   });
 
-  it('a Groq outage sends metadata-backed ambiguous tracks to unclassified, never nonMusic', async () => {
-    llmClient.generateJson.mockRejectedValue(new Error('429 rate limited'));
-    const out = await classifyTracks([ytt('a1', 'weird', 'u')], { useLLM: true, metaById: { a1: { categoryId: '24' } } });
-    expect(out.unclassified.map(t => t.id)).toEqual(['a1']);
-    expect(out.nonMusic).toEqual([]);
+  // LLM-egress boundary guard: a video title / channel name must NEVER leave the process
+  // in an outbound LLM request. Deterministic-only classification means the classifier makes
+  // zero LLM calls, so the sentinel title/channel can never reach any prompt body.
+  it('egress guard: no video title / channel string ever reaches the LLM client', async () => {
+    const SENTINEL_TITLE   = 'ZZ_SENTINEL_TITLE_9931';
+    const SENTINEL_CHANNEL = 'ZZ_SENTINEL_CHANNEL_9931';
+    await classifyTracks(
+      [ytt('a1', SENTINEL_TITLE, SENTINEL_CHANNEL)],
+      { useLLM: true, metaById: { a1: { categoryId: '24' } } },
+    );
+    expect(llmClient.generateJson).not.toHaveBeenCalled();
+    const outbound = JSON.stringify(llmClient.generateJson.mock.calls);
+    expect(outbound).not.toContain(SENTINEL_TITLE);
+    expect(outbound).not.toContain(SENTINEL_CHANNEL);
   });
 
   it('skips videos.list when metaById is supplied (ingest reuses already-fetched meta)', async () => {
@@ -148,5 +156,25 @@ describe('classifyTracks — 3-way partition', () => {
     expect(out.unclassified.map(t => t.id)).toEqual(['a1']);
     expect(out.nonMusic).toEqual([]);
     expect(llmClient.generateJson).not.toHaveBeenCalled(); // no metadata → not sent to Groq
+  });
+});
+
+// Structural egress guard (behavioural asserts alone are tautological once the module stops
+// importing llmClient — a jest mock that is never wired can never be "called"). Read the module
+// SOURCE and require graph so a regression that re-adds ANY LLM reference — via a different import
+// path or helper — actually fails this test.
+describe('structural guard — the classifier source references no LLM client', () => {
+  const fs   = require('fs');
+  const path = require('path');
+  const src  = fs.readFileSync(path.join(__dirname, '../app/services/musicClassifier.js'), 'utf8');
+
+  it('has no llmClient / generateJson reference anywhere in its source', () => {
+    expect(src).not.toMatch(/llmClient/);
+    expect(src).not.toMatch(/generateJson/);
+  });
+
+  it('requires no LLM client module (no llm/groq/gemini import)', () => {
+    const requires = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(m => m[1]);
+    expect(requires.some(r => /llm|groq|gemini/i.test(r))).toBe(false);
   });
 });
