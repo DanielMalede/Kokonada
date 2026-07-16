@@ -1,11 +1,11 @@
 'use strict';
 
 // Music-vs-non-music classification for YouTube-sourced library tracks. A deterministic
-// verdict from cheap signals (category / topicDetails / channel / title lexicon) ONLY — no
-// LLM ever sees a video title, channel or artist string (user library data must not egress
-// to any third-party model). The ambiguous residue is pooled as `unclassified` and revisited
-// later, never guessed by an LLM. Spotify tracks come from a music catalog and are never
-// classified. See docs/superpowers/specs/2026-07-07-music-classification-purge-design.md.
+// verdict from cheap signals (category / topicDetails / channel / title lexicon) ONLY — this
+// module makes no LLM call at all, so no video title, channel or artist string reaches a model
+// from here. The ambiguous residue is pooled as `unclassified` and revisited later, never
+// guessed by an LLM. Spotify tracks come from a music catalog and are never classified. See
+// docs/superpowers/specs/2026-07-07-music-classification-purge-design.md.
 
 const youtube = require('./youtube');
 

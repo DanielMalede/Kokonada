@@ -158,3 +158,23 @@ describe('classifyTracks — 3-way partition', () => {
     expect(llmClient.generateJson).not.toHaveBeenCalled(); // no metadata → not sent to Groq
   });
 });
+
+// Structural egress guard (behavioural asserts alone are tautological once the module stops
+// importing llmClient — a jest mock that is never wired can never be "called"). Read the module
+// SOURCE and require graph so a regression that re-adds ANY LLM reference — via a different import
+// path or helper — actually fails this test.
+describe('structural guard — the classifier source references no LLM client', () => {
+  const fs   = require('fs');
+  const path = require('path');
+  const src  = fs.readFileSync(path.join(__dirname, '../app/services/musicClassifier.js'), 'utf8');
+
+  it('has no llmClient / generateJson reference anywhere in its source', () => {
+    expect(src).not.toMatch(/llmClient/);
+    expect(src).not.toMatch(/generateJson/);
+  });
+
+  it('requires no LLM client module (no llm/groq/gemini import)', () => {
+    const requires = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(m => m[1]);
+    expect(requires.some(r => /llm|groq|gemini/i.test(r))).toBe(false);
+  });
+});
