@@ -6,7 +6,7 @@ const { withRetry }    = require('../utils/retry');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
-const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback } = require('./moodDescriptors');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -225,52 +225,25 @@ function _strictMoodLine(emotionTaps) {
 
 // ── Prompt builders ────────────────────────────────────────────────────────────
 
-// Format the anonymised last-24h biometric snapshot (built in biometricHandler's
-// resolveBiometricContext) into a single human-readable prompt line. Only the
-// fields actually present are listed, so a sparse profile yields a short line.
-function _formatBiometric(ctx) {
-  if (!ctx) return '';
-  const parts = [];
-  if (ctx.stateLabel) parts.push(`physiological state "${ctx.stateLabel}"`);
-  if (ctx.heartRate != null && ctx.restingHeartRate != null) {
-    parts.push(`current HR ${ctx.heartRate} bpm vs resting ${ctx.restingHeartRate} bpm`
-      + (ctx.hrRatio != null ? ` (${ctx.hrRatio}× resting)` : ''));
-  } else if (ctx.restingHeartRate != null) {
-    parts.push(`resting HR ${ctx.restingHeartRate} bpm`);
-  }
-  if (ctx.hrv != null)            parts.push(`HRV ${ctx.hrv} ms`);
-  if (ctx.bodyBattery != null)    parts.push(`body battery ${ctx.bodyBattery}/100`);
-  if (ctx.dailyReadiness != null) parts.push(`readiness ${ctx.dailyReadiness}/100`);
-  if (ctx.spO2 != null)           parts.push(`SpO2 ${ctx.spO2}%`);
-  if (ctx.sleep) {
-    const { deep, light, rem } = ctx.sleep;
-    const seg = [
-      deep  != null ? `${deep}m deep`   : null,
-      light != null ? `${light}m light` : null,
-      rem   != null ? `${rem}m REM`     : null,
-    ].filter(Boolean).join(', ');
-    if (seg) parts.push(`last sleep ${seg}`);
-  }
-  return parts.join('; ');
-}
-
 /**
- * Builds the deep contextual prompt for the emotion-driven pipeline.
- * No PII is included — only anonymised taste signals, emotion coordinates, the
- * user's selected activity, and an aggregated last-24h biometric snapshot.
+ * Builds the contextual prompt for the emotion-driven pipeline.
+ * Wave-0 egress containment: NO PII and NO special-category vitals. The prompt carries
+ * ONLY anonymised abstract signals — emotion coordinates, the user's selected activity,
+ * and closed-vocabulary derived-intent tags. Numeric vitals (HR/HRV/SpO2/sleep/…) never
+ * appear here; they steer the audio targets deterministically AFTER the LLM returns
+ * (buildEmotionPlaylist → applyBiometricBands).
  */
-function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null, biometricContext = null } = {}) {
+function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null } = {}) {
   const { tempoBaseline, energy, valence, acousticness } = musicProfile;
   // Micro-genre seed shifting: a rotating subset of hyper-specific sub-genres.
   const allowedGenres = _microGenreSubset(musicProfile, seed).join(', ');
-  const bio = _formatBiometric(biometricContext);
 
-  // Only nudge the LLM to weigh activity/biometrics when at least one is present.
-  const contextDirective = (activity || bio)
-    ? ` Also weigh the user's current activity${activity ? ` ("${activity}")` : ''}${bio ? ' and recent biometric state' : ''} against the emotion: low HRV, low body battery, poor sleep or a winding-down activity (preparing for sleep, meditating) call for calmer, lower-BPM, more acoustic music, while high readiness with an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
+  // Only nudge the LLM to weigh the activity when one is present.
+  const contextDirective = activity
+    ? ` Also weigh the user's current activity ("${activity}") against the emotion: a winding-down activity (preparing for sleep, meditating) calls for calmer, lower-tempo, more acoustic music, while an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
     : '';
 
-  return `You are an expert musicologist and biometrics analyst.
+  return `You are an expert musicologist.
 
 User's musical taste profile (anonymised):
 - Top genres (ordered by preference): ${allowedGenres}
@@ -283,7 +256,6 @@ Current emotional state — 2D coordinates from an emotion wheel (x = arousal, y
 ${JSON.stringify(emotionTaps)}
 ${textPrompt ? `User note: "${textPrompt}"` : ''}
 ${activity ? `Current activity: ${activity}` : ''}
-${bio ? `Last-24h biometric snapshot: ${bio}.` : ''}
 
 Analyse the emotional coordinates in the context of the user's taste profile and determine the ideal musical parameters.${contextDirective} Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
 {
@@ -300,34 +272,30 @@ Analyse the emotional coordinates in the context of the user's taste profile and
 
 /**
  * Builds the lightweight prompt for the biometric-driven pipeline.
- * Focuses on BPM and energy adjustment without a full mood overhaul.
+ * Wave-0 egress containment: the numeric heart rate and resting HR NEVER appear in the
+ * prompt — only the COARSE physiological intensity band (derived server-side from HR).
+ * The exact target BPM/energy is mapped from the HR deterministically AFTER the LLM
+ * returns (adjustBiometricPlaylist → applyBiometricBands).
  */
 function _buildBiometricPrompt(musicProfile, biometric, seed = null) {
-  const { tempoBaseline, restingHeartRate } = musicProfile;
   const { heartRate, activity } = biometric;
-  // Micro-genre seed shifting: a rotating subset of hyper-specific sub-genres.
-  const allowedGenres = _microGenreSubset(musicProfile, seed).join(', ');
+  const band = bandFromHeartRate(heartRate) || 'active';
 
-  return `You are a biometrics analyst optimising music parameters to match a user's physiological state.
+  return `You are a music curator matching a listener's physiological intensity.
 
-User's musical profile (anonymised):
-- Top genres: ${allowedGenres}
-- Baseline tempo: ${tempoBaseline ?? 'unknown'} BPM
-- Resting heart rate: ${restingHeartRate ?? 'unknown'} bpm
+Session context (anonymised — no vitals, no identifiers):
+- Physiological intensity band: ${band}
+${activity ? `- Current activity: ${activity}` : ''}
 
-Current biometrics:
-- Heart rate: ${heartRate} bpm
-- Activity: ${activity}
-
-Adjust tempo and energy to match the physiological state while preserving the user's genre preferences. Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
+Choose musical parameters that match a "${band}" intensity. Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
 {
   "target_bpm": <number>,
   "target_energy": <number 0–1>,
   "target_valence": <number 0–1>,
   "target_acousticness": <number 0–1>,
   "seed_artists": [],
-  "seed_genres": <array of 1–2 genres chosen ONLY from: ${allowedGenres}>,
-  "mood_keywords": <array of 2–4 short search descriptors matching the energy of this physiological state>
+  "seed_genres": <array of 1–2 genres matching a "${band}" intensity>,
+  "mood_keywords": <array of 2–4 short search descriptors matching this intensity>
 }${_variationLine(seed)}`;
 }
 
@@ -370,14 +338,18 @@ async function _callGemini(prompt) {
  * @returns {Promise<{ params, tracks }>}
  */
 async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, activity = null, biometricContext = null, fetchTracks, seed = null }) {
-  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed, { activity, biometricContext });
+  const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed, { activity });
   const rawParams = await _callGemini(prompt);
+  // Wave-0 two-stage split: the decrypted vitals never crossed the LLM boundary — they
+  // map to the audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here,
+  // AFTER the LLM has returned, reusing the moodDescriptors band machinery.
+  const bandedParams = applyBiometricBands(rawParams, biometricContext);
   // Zero-tolerance enforcement: deterministically override (no custom intent) or
   // merge (custom intent) the LLM picks with the strict mood descriptors so a stray
   // off-vibe genre/keyword can never reach the Spotify search or the mixer. A
   // selected activity counts as custom intent too, so it refines the strict mood
   // list rather than being steamrolled by it.
-  const params = applyMoodFallback(rawParams, emotionTaps, textPrompt || activity, musicProfile);
+  const params = applyMoodFallback(bandedParams, emotionTaps, textPrompt || activity, musicProfile);
   return { params, tracks: await fetchTracks(params) };
 }
 
@@ -390,7 +362,11 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
  */
 async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, seed = null }) {
   const prompt = _buildBiometricPrompt(musicProfile, biometric, seed);
-  const params = await _callGemini(prompt);
+  const rawParams = await _callGemini(prompt);
+  // Wave-0 two-stage split: the numeric HR never crossed the LLM boundary — map it to the
+  // audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here, after the
+  // LLM returns, reusing the moodDescriptors band machinery.
+  const params = applyBiometricBands(rawParams, { heartRate: biometric.heartRate });
   // Robustness: an empty genre seed makes Spotify discovery early-return [] — backfill
   // from the user's top genres so the heart-rate branch always has something to search.
   if (!Array.isArray(params.seed_genres) || params.seed_genres.length === 0) {

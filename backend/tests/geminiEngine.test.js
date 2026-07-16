@@ -265,38 +265,13 @@ describe('_buildEmotionPrompt', () => {
     expect(prompt).not.toContain('Current activity:');
   });
 
-  it('includes a last-24h biometric snapshot when provided', () => {
-    const biometricContext = {
-      stateLabel: 'High-Stress / Pre-Panic',
-      heartRate: 92, restingHeartRate: 60, hrRatio: 1.53,
-      hrv: 18, bodyBattery: 30, dailyReadiness: 40, spO2: 97,
-      sleep: { deep: 40, light: 200, rem: 60 },
-    };
-    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, null, { biometricContext });
-    expect(prompt).toContain('Last-24h biometric snapshot:');
-    expect(prompt).toContain('High-Stress / Pre-Panic');
-    expect(prompt).toContain('HRV 18 ms');
-    expect(prompt).toContain('body battery 30/100');
-    expect(prompt).toContain('40m deep');
-  });
-
-  it('omits the biometric snapshot when no context is provided', () => {
-    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null);
+  it('NEVER renders a biometric snapshot or vitals into the prompt (Wave-0 egress containment)', () => {
+    // The emotion prompt no longer accepts a biometricContext — vitals steer targets
+    // deterministically AFTER the LLM (applyBiometricBands), so they never appear here.
+    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, null, {});
     expect(prompt).not.toContain('Last-24h biometric snapshot:');
-  });
-
-  it('only lists biometric fields that are present (sparse profile)', () => {
-    const biometricContext = {
-      stateLabel: 'Neutral', heartRate: null, restingHeartRate: 58, hrRatio: null,
-      hrv: null, bodyBattery: 72, dailyReadiness: null, spO2: null, sleep: null,
-    };
-    const prompt = _buildEmotionPrompt(MUSIC_PROFILE, emotionTaps, null, null, { biometricContext });
-    expect(prompt).toContain('resting HR 58 bpm');
-    expect(prompt).toContain('body battery 72/100');
-    // The snapshot must omit the absent fields — match the formatted "HRV <n> ms"
-    // token, not the directive sentence which mentions "low HRV" as an example.
-    expect(prompt).not.toMatch(/HRV \d/);
-    expect(prompt).not.toContain('last sleep');
+    expect(prompt).not.toMatch(/HRV|SpO2|body battery|readiness|resting HR|physiological state/i);
+    expect(prompt).not.toMatch(/last sleep|\d+m deep/);
   });
 });
 
@@ -365,11 +340,6 @@ describe('micro-genre seed shifting', () => {
     expect(seen.size).toBeGreaterThan(onePress);
   });
 
-  it('the biometric (HR) prompt also rotates the micro-genre subset', () => {
-    const picked = subset(_buildBiometricPrompt(RICH_PROFILE, { heartRate: 150, activity: 'running' }, 'seed-A'));
-    expect(picked.length).toBeGreaterThan(0);
-    expect(picked.length).toBeLessThan(RICH_PROFILE.genreSet.length);
-  });
 });
 
 // ── _buildBiometricPrompt ──────────────────────────────────────────────────────
@@ -377,9 +347,16 @@ describe('micro-genre seed shifting', () => {
 describe('_buildBiometricPrompt', () => {
   const biometric = { heartRate: 155, activity: 'running' };
 
-  it('includes the current heart rate', () => {
+  it('NEVER includes the numeric heart rate or resting HR (Wave-0 egress containment)', () => {
     const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
-    expect(prompt).toContain('155');
+    expect(prompt).not.toContain('155');                 // current HR must not leak
+    expect(prompt).not.toContain('65');                  // resting HR must not leak
+    expect(prompt).not.toMatch(/heart rate|resting/i);
+  });
+
+  it('carries the coarse physiological band instead of raw vitals', () => {
+    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
+    expect(prompt.toLowerCase()).toContain('intensity band: peak'); // 155 bpm → peak band
   });
 
   it('includes the current activity', () => {
@@ -387,17 +364,12 @@ describe('_buildBiometricPrompt', () => {
     expect(prompt).toContain('running');
   });
 
-  it('includes resting heart rate for physiological context', () => {
-    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
-    expect(prompt).toContain('65');
-  });
-
   it('does not expose user PII', () => {
     const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
     expect(prompt).not.toMatch(/userId|email/i);
   });
 
-  it('instructs Gemini to focus on BPM, energy and acoustics adjustments', () => {
+  it('instructs the model to return BPM, energy and acoustics parameters', () => {
     const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
     expect(prompt.toLowerCase()).toMatch(/bpm|tempo|energy/);
   });
@@ -570,20 +542,24 @@ describe('adjustBiometricPlaylist (Spotify provider)', () => {
     mockGenerateContent.mockClear();
   });
 
-  it('calls fetchTracks with biometric-adjusted parameters', async () => {
+  it('applies the deterministic HR band to the params fed to search (no raw HR to the LLM)', async () => {
     makeGeminiResponse(VALID_AI_PARAMS);
     await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch });
-    expect(spotifyFetch).toHaveBeenCalledWith(VALID_AI_PARAMS);
+    const passed = spotifyFetch.mock.calls[0][0];
+    // 155 bpm → peak band → target_bpm blended up from the LLM's 128 (deterministic).
+    expect(passed.target_bpm).toBe(140);
+    expect(passed.target_energy).toBeCloseTo(0.875, 5);
+    expect(passed.seed_genres.length).toBeGreaterThan(0);
   });
 
-  it('returns both params and tracks', async () => {
+  it('returns banded params and tracks', async () => {
     makeGeminiResponse(VALID_AI_PARAMS);
     const result = await adjustBiometricPlaylist({
       musicProfile: MUSIC_PROFILE,
       biometric,
       fetchTracks: spotifyFetch,
     });
-    expect(result.params).toEqual(VALID_AI_PARAMS);
+    expect(result.params.target_bpm).toBe(140);
     expect(result.tracks).toEqual(spotifyTracks);
   });
 
@@ -623,10 +599,13 @@ describe('adjustBiometricPlaylist (YouTube Music provider)', () => {
     mockGenerateContent.mockClear();
   });
 
-  it('calls YouTube fetchTracks with biometric-adjusted parameters', async () => {
+  it('applies the deterministic HR band to the YouTube params (60 bpm → resting band)', async () => {
     makeGeminiResponse(VALID_AI_PARAMS);
     await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: youtubeFetch });
-    expect(youtubeFetch).toHaveBeenCalledWith(VALID_AI_PARAMS);
+    const passed = youtubeFetch.mock.calls[0][0];
+    // 60 bpm → resting band → target_bpm blended down from the LLM's 128 (deterministic).
+    expect(passed.target_bpm).toBe(108);
+    expect(passed.seed_genres.length).toBeGreaterThan(0);
   });
 
   it('returns YouTube tracks in the result', async () => {

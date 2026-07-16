@@ -250,6 +250,120 @@ function moodCoords(moodKey) {
   return { energy: 0.5, valence: 0.5 };
 }
 
+// ── Wave-0 egress containment: server-side vitals → target bands ──────────────
+// Special-category vitals (HR/HRV/SpO2/body-battery/readiness/sleep) are decrypted in
+// worker scope and mapped to a COARSE physiological band + audio targets DETERMINISTICALLY
+// — they never cross the LLM boundary. Reuses computeStateVector's deterministic label
+// (already carried on the biometric context) with an HR-ratio / absolute-HR fallback.
+
+// The deterministic state label (from medicalProfileService.computeStateVector) → coarse
+// tempo band. High-stress/exhaustion de-escalate to a calmer band; exertion pushes to peak.
+const _STATE_TO_BAND = {
+  'High-Stress / Pre-Panic':           'resting',
+  'Peak Athletic Performance':         'peak',
+  'Intense Workout':                   'peak',
+  'Active Recovery':                   'active',
+  'Morning Activation':                'active',
+  'Exhausted Commute':                 'resting',
+  'Screen-Off / Background Listening': 'resting',
+  'Deep Focus / Flow State':           'active',
+  'Resting / Meditative':              'resting',
+};
+
+/**
+ * Coarse physiological band ('resting' | 'active' | 'peak') from a biometric context,
+ * or null when there is no usable signal. Prefers the deterministic state label, then
+ * the HR ratio, then absolute HR. NEVER sent to the LLM — steers targets server-side only.
+ */
+function biometricBand(ctx) {
+  if (!ctx) return null;
+  const byLabel = _STATE_TO_BAND[ctx.stateLabel];
+  if (byLabel) return byLabel;
+  if (Number.isFinite(ctx.hrRatio)) {
+    if (ctx.hrRatio >= 1.4) return 'peak';
+    if (ctx.hrRatio <= 1.1) return 'resting';
+    return 'active';
+  }
+  return bandFromHeartRate(ctx.heartRate);
+}
+
+const _clamp01  = (v) => Math.max(0, Math.min(1, v));
+const _clampBpm = (v) => Math.max(30, Math.min(250, Math.round(v)));
+
+/**
+ * Deterministic post-LLM modulation: blend the LLM's audio targets toward the
+ * physiological band the vitals imply. Returns the params unchanged when there is no
+ * usable biometric signal. Never mutates the input.
+ */
+function applyBiometricBands(params, ctx) {
+  const band = biometricBand(ctx);
+  if (!band) return params;
+  const bandEnergy = _BIO_BAND_ENERGY[band];        // resting .2 / active .6 / peak .9
+  const bandBpm    = 70 + bandEnergy * 90;          // ~88 / 124 / 151 (mirrors _descriptorTargets)
+  const out = { ...params };
+  if (Number.isFinite(params.target_bpm))
+    out.target_bpm = _clampBpm(0.5 * params.target_bpm + 0.5 * bandBpm);
+  if (Number.isFinite(params.target_energy))
+    out.target_energy = _clamp01(0.5 * params.target_energy + 0.5 * bandEnergy);
+  if (Number.isFinite(params.target_acousticness))
+    out.target_acousticness = _clamp01(0.5 * params.target_acousticness + 0.5 * (1 - bandEnergy));
+  if (Number.isFinite(params.target_valence))
+    out.target_valence = _clamp01(0.8 * params.target_valence + 0.2 * 0.5); // band implies energy, not pleasantness
+  return out;
+}
+
+// ── Wave-0 egress containment: free-text note → structured intent (T0.2) ──────
+// Deterministic, zero-LLM, CLOSED-VOCABULARY extraction. Only canonical tags already
+// in our lexicon are emitted, so arbitrary user text (or PII) can never leak through.
+
+const _ACTIVITY_LEXICON = [
+  { words: ['run', 'running', 'jog', 'jogging', 'sprint', 'cardio', '5k', '10k', 'marathon'], phrases: [],                             activity: 'running',  tempo: 'peak' },
+  { words: ['gym', 'workout', 'lifting', 'weights', 'hiit', 'training'],                       phrases: ['work out'],                    activity: 'workout',  tempo: 'peak' },
+  { words: ['dance', 'dancing', 'party', 'clubbing'],                                          phrases: [],                             activity: 'party',    tempo: 'peak' },
+  { words: ['walk', 'walking', 'stroll', 'hike', 'hiking'],                                    phrases: [],                             activity: 'walking',  tempo: 'active' },
+  { words: ['commute', 'commuting', 'driving', 'drive'],                                       phrases: ['on the train'],                activity: 'commute',  tempo: 'active' },
+  { words: ['study', 'studying', 'focus', 'focusing', 'work', 'working', 'coding', 'reading'], phrases: ['deep work'],                   activity: 'focus',    tempo: 'active' },
+  { words: ['sleep', 'sleeping', 'bedtime', 'bed'],                                            phrases: ['wind down', 'winding down', 'before bed'], activity: 'sleep', tempo: 'resting' },
+  { words: ['meditate', 'meditating', 'meditation', 'yoga', 'breathe', 'breathing', 'relax', 'relaxing', 'unwind'], phrases: [],         activity: 'relaxing', tempo: 'resting' },
+];
+
+// Free-text synonyms → our OWN canonical mood tags (never the user's words).
+const _VIBE_LEXICON = {
+  calm: 'calm', calming: 'calm', peaceful: 'calm',
+  chill: 'mellow', chilled: 'mellow', mellow: 'mellow',
+  relax: 'relaxing', relaxing: 'relaxing', soothing: 'soothing',
+  sad: 'melancholy', melancholy: 'melancholy', blue: 'melancholy',
+  happy: 'uplifting', joyful: 'uplifting', uplifting: 'uplifting', upbeat: 'upbeat',
+  energetic: 'energetic', energy: 'energetic', pumped: 'energetic', hype: 'high-energy',
+  intense: 'aggressive', aggressive: 'aggressive', angry: 'aggressive', heavy: 'heavy',
+  focus: 'focus', focused: 'focus', concentrate: 'concentration',
+  bright: 'bright', hopeful: 'hopeful', driving: 'driving',
+};
+
+function extractIntent(text) {
+  const out = { keywords: [], activity: null, tempoCategory: null };
+  if (typeof text !== 'string' || !text.trim()) return out;
+  const lower = text.toLowerCase();
+  const words = new Set(lower.split(/[^a-z0-9]+/).filter(Boolean));
+
+  for (const a of _ACTIVITY_LEXICON) {
+    const hit = a.words.some((w) => words.has(w)) || a.phrases.some((p) => lower.includes(p));
+    if (hit) { out.activity = a.activity; out.tempoCategory = a.tempo; break; }
+  }
+
+  const kw = new Set();
+  // Descriptor keywords present verbatim (already canonical).
+  for (const key of Object.keys(MOOD_DESCRIPTORS)) {
+    for (const k of MOOD_DESCRIPTORS[key].mood_keywords) {
+      if (k.includes(' ') ? lower.includes(k) : words.has(k)) kw.add(k);
+    }
+  }
+  // Synonym → canonical mapping.
+  for (const [syn, canon] of Object.entries(_VIBE_LEXICON)) if (words.has(syn)) kw.add(canon);
+  out.keywords = [...kw];
+  return out;
+}
+
 module.exports = {
   MOODS,
   MOOD_DESCRIPTORS,
@@ -260,4 +374,7 @@ module.exports = {
   bandFromHeartRate,
   syntheticBioMoodKey,
   moodCoords,
+  biometricBand,
+  applyBiometricBands,
+  extractIntent,
 };
