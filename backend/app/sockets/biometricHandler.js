@@ -141,6 +141,15 @@ function toClientTracks(list, provider, context) {
   return (Array.isArray(list) ? list : []).map((t) => toClientTrack(t, provider, context)).filter(Boolean);
 }
 
+// A corpus discovery candidate is playable on the YouTube path only when it already carries a
+// native youtube: URI. The mbid corpus resolves rows to SPOTIFY URIs (or leaves them uri:null)
+// — a spotify: URI is truthy and would otherwise slip through toClientTrack and reach a YouTube
+// user as an UNPLAYABLE queue entry, while a uri:null (unresolved mbid) row would inflate the
+// discovery count before being dropped downstream. Both are excluded here, before telemetry.
+function isYoutubePlayable(t) {
+  return typeof t?.uri === 'string' && t.uri.startsWith('youtube:');
+}
+
 // Bound an external generation step (LLM + Spotify discovery) with a soft budget WELL under
 // the 30s wall-clock. A hung call — a Spotify 429 Retry-After storm across discovery searches,
 // or a stalled LLM — would otherwise block to the wall-clock, which VOIDS the whole run into a
@@ -570,12 +579,25 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           return onTaste;
         };
       } else {
-        // YouTube-as-data, no Spotify playback: keep the OAuth token warm for first-party
-        // taste import, but discovery no longer burns a per-generation search.list (100 quota
-        // units). Candidates come from the SAME provider-agnostic mbid vector corpus the
-        // Spotify path uses — never a live YouTube search.
+        // YouTube-as-data, no Spotify playback: keep the OAuth token warm for first-party taste
+        // import, but discovery no longer burns a per-generation search.list (100 quota units).
+        // Candidates come from the SAME provider-agnostic mbid vector corpus the Spotify path uses.
+        //
+        // INTERIM (no YouTube serve-time resolver, by design): that corpus resolves mbid rows to
+        // SPOTIFY URIs only, so for a YouTube-only user we keep ONLY candidates already playable on
+        // YouTube (a youtube: URI) — filtered HERE so uri:null and spotify: rows never inflate the
+        // discovery count nor reach the client as an unplayable entry. Today that is typically 0 →
+        // the familiar ladder fills the playlist (never an error). A YouTube serve-time resolver is
+        // a deliberate FUTURE product decision (it would re-introduce the search.list quota burn +
+        // the substitute-service ToS exposure this wave removes).
         await youtube.getValidToken(user);
-        fetchTracks = (params) => vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
+        fetchTracks = async (params) => {
+          const raw = await vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
+          const list = Array.isArray(raw) ? raw : [];
+          const playable = list.filter(isYoutubePlayable);
+          console.warn(`[discovery] youtubePlayable=${playable.length}/${list.length} reqId=${reqId}`);
+          return playable;
+        };
       }
     } catch (err) {
       emit('playlist_error', { message: `Token refresh failed: ${err.message}`, reqId });
