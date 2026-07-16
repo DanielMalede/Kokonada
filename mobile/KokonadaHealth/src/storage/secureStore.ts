@@ -69,7 +69,24 @@ export class SecureStore {
     }
   }
 
-  // Logout / erasure: wipe everything so no session or intent survives a user switch.
+  // Scoped erase: delete every key whose name begins with `prefix`. This is the surgical
+  // alternative to clearAll — logout wipes ALL cold intent (the `cold.` namespace, every
+  // user) so no committed intent survives a user switch, WITHOUT nuking device-level
+  // preferences that share this one encrypted instance (e.g. koko.onboarding.seen,
+  // koko.liveMode). Fail-soft: a throwing enumeration or delete degrades to a no-op.
+  removeByPrefix(prefix: string): void {
+    try {
+      for (const key of this.backend.getAllKeys()) {
+        if (key.startsWith(prefix)) this.backend.delete(key);
+      }
+    } catch {
+      /* best-effort — a failing wipe must never throw into logout teardown */
+    }
+  }
+
+  // Full erasure of the entire encrypted instance. Use with care — it also removes
+  // device preferences (onboarding-seen, live-mode); prefer removeByPrefix for a
+  // scoped, account-safe wipe.
   clearAll(): void {
     try {
       this.backend.clearAll();

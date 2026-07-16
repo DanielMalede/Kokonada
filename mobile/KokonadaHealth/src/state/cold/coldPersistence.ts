@@ -17,12 +17,17 @@ export interface ColdPersistenceDeps {
   throttleMs?: number;
 }
 
+// All cold-lane keys live under this prefix. Logout wipes the whole prefix (every
+// user's namespace) but nothing outside it — so device preferences that share the
+// encrypted instance (koko.onboarding.seen, koko.liveMode) are spared.
+const COLD_PREFIX = 'cold.';
+
 // Persisted keys are namespaced by userId. On a shared device this is the wall
 // that stops user A's committed intent from rehydrating into user B's session:
 // each user reads only their own namespace, and a login with no stored namespace
 // rehydrates a clean slate.
 function keyFor(userId: string): string {
-  return `cold.emotion.${userId}`;
+  return `${COLD_PREFIX}emotion.${userId}`;
 }
 
 export class ColdPersistence {
@@ -75,12 +80,16 @@ export class ColdPersistence {
     this.deps.store.dispatch(hydrate(deserializeForPersist(raw)));
   }
 
-  // Logout: wipe all persisted state and reset in-memory intent. Detach the writer
-  // FIRST — otherwise the reset dispatch re-fires the subscriber and re-persists an
-  // empty namespaced key, so "zero bytes after logout" would silently not hold.
+  // Logout: wipe ALL cold intent (every user's `cold.` namespace — no committed intent
+  // survives a user switch) and reset in-memory intent. It is a SCOPED erase, NOT a full
+  // clearAll: device preferences that share the encrypted instance (koko.onboarding.seen,
+  // koko.liveMode) are outside the blast radius and persist across logout AND account
+  // delete — FTUE-seen is a per-device flag, not per-account. Detach the writer FIRST —
+  // otherwise the reset dispatch re-fires the subscriber and re-persists an empty
+  // namespaced key, so "zero cold bytes after logout" would silently not hold.
   wipe(): void {
     this.detach();
-    this.deps.secure.clearAll();
+    this.deps.secure.removeByPrefix(COLD_PREFIX);
     this.deps.store.dispatch(resetEmotion());
   }
 }
