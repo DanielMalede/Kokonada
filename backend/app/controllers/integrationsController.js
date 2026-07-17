@@ -787,7 +787,9 @@ exports.getIntegrationsStatus = async (req, res, next) => {
 // Force-hydrate the caller's library synchronously (bypasses the async feature-hydration
 // queue) and return the provider breakdown — a diagnose-and-fix for an empty AudioFeature
 // store (the "same playlist" root cause: no features → the scorer can't differentiate
-// mood/HR). ReccoBeats measures spotify:<id>; the Groq LLM estimator covers youtube:<id>.
+// mood/HR). ReccoBeats measures spotify:<id>; both spotify: and youtube_music: are dropped
+// before persistence (third-party-ToS containment, featureService.js) — only mbid: (CC0)
+// features land in AudioFeature, so a connected user's own youtube: tracks stay featureless.
 exports.hydrateLibrary = async (req, res, next) => {
   try {
     const userId = req.user._id;

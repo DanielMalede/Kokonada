@@ -561,7 +561,7 @@ describe('buildProfile', () => {
     await expect(buildProfile('user123', makeMockUser({ hasSpotify: true }))).resolves.toBeDefined();
   });
 
-  it('excludes spotify tracks from corpus ingest — only non-spotify rows reach ingestLibrary (Spotify-ToS containment)', async () => {
+  it('excludes BOTH spotify and youtube_music from corpus ingest — a mixed library seeds neither provider (ToS containment)', async () => {
     youtube.paginateLikedVideos.mockResolvedValue([
       { id: 'yt1', snippet: { title: 'YT Song', channelTitle: 'Some Artist - Topic' } },
     ]);
@@ -570,9 +570,9 @@ describe('buildProfile', () => {
 
     expect(corpusIngest.ingestLibrary).toHaveBeenCalledTimes(1);
     const [ingested] = corpusIngest.ingestLibrary.mock.calls[0];
-    expect(ingested.length).toBeGreaterThan(0);
-    expect(ingested.every(t => t.provider !== 'spotify')).toBe(true);
-    expect(ingested.some(t => t.provider === 'youtube_music')).toBe(true);
+    // the pre-filter library carried both a spotify and a youtube_music track; neither reaches the corpus
+    expect(ingested.some(t => t.provider === 'spotify')).toBe(false);
+    expect(ingested.some(t => t.provider === 'youtube_music')).toBe(false);
   });
 
   it('a spotify-only library ingests zero rows into the corpus (Spotify-ToS containment)', async () => {
@@ -581,6 +581,18 @@ describe('buildProfile', () => {
     expect(corpusIngest.ingestLibrary).toHaveBeenCalledTimes(1);
     const [ingested] = corpusIngest.ingestLibrary.mock.calls[0];
     expect(ingested).toEqual([]);
+  });
+
+  it('a youtube_music-only library ingests zero rows into the corpus (YouTube-ToS containment)', async () => {
+    youtube.paginateLikedVideos.mockResolvedValue([
+      { id: 'yt1', snippet: { title: 'YT Song', channelTitle: 'Some Artist - Topic' } },
+    ]);
+
+    await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
+
+    expect(corpusIngest.ingestLibrary).toHaveBeenCalledTimes(1);
+    const [ingested] = corpusIngest.ingestLibrary.mock.calls[0];
+    expect(ingested).toEqual([]); // the youtube_music library track is excluded (ToS containment)
   });
 
   it('builds from listening history (top/saved/recent) without calling audio-features', async () => {

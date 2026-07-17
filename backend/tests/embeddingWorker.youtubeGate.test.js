@@ -11,26 +11,26 @@ const featureRepo = require('../app/repositories/audioFeatureRepo');
 const vectorIndex = require('../app/services/vector/vectorIndex');
 const worker = require('../app/workers/embedding.worker');
 
-describe('embedding.worker — Spotify-ToS containment (defense-in-depth)', () => {
+describe('embedding.worker — YouTube-ToS containment (defense-in-depth)', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('skips a spotify: recordingKey even if it slips through upstream — embeds only non-spotify', async () => {
+  it('skips a youtube: recordingKey even if it slips through upstream — embeds only mbid', async () => {
     featureRepo.getMany.mockResolvedValue(new Map([
-      ['spotify:x', { canonicalKey: 'c1', bpm: 120 }],
+      ['youtube:x', { canonicalKey: 'c1', bpm: 120 }],
       ['mbid:y', { canonicalKey: 'c2', bpm: 90 }],
     ]));
 
-    const out = await worker.process({ data: { recordingKeys: ['spotify:x', 'mbid:y'] } });
+    const out = await worker.process({ data: { recordingKeys: ['youtube:x', 'mbid:y'] } });
 
     expect(out.embedded).toBe(1);
     const upserted = vectorIndex.upsertMany.mock.calls[0][0];
     expect(upserted.map(d => d.recordingKey)).toEqual(['mbid:y']);
   });
 
-  it('a spotify-only batch upserts nothing', async () => {
-    featureRepo.getMany.mockResolvedValue(new Map([['spotify:x', { canonicalKey: 'c1', bpm: 120 }]]));
+  it('a youtube-only batch upserts nothing', async () => {
+    featureRepo.getMany.mockResolvedValue(new Map([['youtube:x', { canonicalKey: 'c1', bpm: 120 }]]));
 
-    const out = await worker.process({ data: { recordingKeys: ['spotify:x'] } });
+    const out = await worker.process({ data: { recordingKeys: ['youtube:x'] } });
 
     expect(out.embedded).toBe(0);
     expect(vectorIndex.upsertMany).not.toHaveBeenCalled();

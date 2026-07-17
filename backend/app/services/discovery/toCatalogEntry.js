@@ -4,6 +4,7 @@
 const { recordingKeyOf } = require('../features/featureProvider');
 const trackIdentity = require('../identity/trackIdentity');
 const { isSpotifyContent } = require('../../utils/spotifyContent');
+const { isYoutubeContent } = require('../../utils/youtubeContent');
 
 // Normalize a raw library track (shape { id, provider, name, uri, canonicalKey, genres, artist })
 // into a discovery-catalog entry. Pure, no I/O. Returns a catalog-shaped object or null so callers
@@ -20,10 +21,13 @@ function toCatalogEntry(track) {
   const recordingKey = recordingKeyOf(track); // honors a pre-set recordingKey, else derives (youtube_music → youtube:<id>)
   if (!recordingKey) return null;
 
-  // Spotify-ToS containment: Spotify Content must never be catalogued into the discovery
-  // corpus. Gate on the derived recordingKey/uri/provider so a spotify: track is dropped
-  // (null) at the single normalization choke every corpus caller flows through.
-  if (isSpotifyContent({ ...track, recordingKey })) return null;
+  // Third-party-ToS containment: neither Spotify nor YouTube Content may be catalogued into
+  // the cross-user discovery corpus (Spotify Developer Terms + YouTube API Services Terms both
+  // forbid an independent persistent database of their API data). Gate on the derived
+  // recordingKey/uri/provider so a spotify: OR youtube: track is dropped (null) at the single
+  // normalization choke every corpus caller flows through — leaving only CC0 mbid: content.
+  const gated = { ...track, recordingKey };
+  if (isSpotifyContent(gated) || isYoutubeContent(gated)) return null;
 
   return {
     recordingKey,

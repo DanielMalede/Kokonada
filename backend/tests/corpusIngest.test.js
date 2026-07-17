@@ -16,34 +16,35 @@ describe('corpusIngest.ingestLibrary', () => {
 
   it('catalogs + enqueues an embedding-build job for tracks with a recordingKey', async () => {
     const res = await corpusIngest.ingestLibrary([
-      { recordingKey: 'youtube:t1', canonicalKey: 'c1', uri: 'https://youtu.be/t1', title: 'B', artist: 'A', genres: ['rock'] },
+      { recordingKey: 'mbid:t1', canonicalKey: 'c1', uri: null, title: 'B', artist: 'A', genres: ['rock'] },
     ]);
     expect(res.catalogued).toBe(1);
     expect(trackCatalogRepo.upsertMany).toHaveBeenCalledTimes(1);
-    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['youtube:t1'], genresByKey: { 'youtube:t1': ['rock'] } });
+    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['mbid:t1'], genresByKey: { 'mbid:t1': ['rock'] } });
   });
 
   it('skips keys already embedded in the corpus — enqueues only the new one', async () => {
-    vectorIndex.getMany.mockResolvedValueOnce(new Map([['youtube:t1', [0.1]]]));
+    vectorIndex.getMany.mockResolvedValueOnce(new Map([['mbid:t1', [0.1]]]));
     const res = await corpusIngest.ingestLibrary([
-      { recordingKey: 'youtube:t1', genres: ['rock'] },
-      { recordingKey: 'youtube:t2', genres: ['indie'] },
+      { recordingKey: 'mbid:t1', genres: ['rock'] },
+      { recordingKey: 'mbid:t2', genres: ['indie'] },
     ]);
     expect(res).toMatchObject({ catalogued: 2, enqueued: 1 });
     expect(trackCatalogRepo.upsertMany).toHaveBeenCalledTimes(1); // both still catalogued
-    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['youtube:t2'], genresByKey: { 'youtube:t2': ['indie'] } });
+    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['mbid:t2'], genresByKey: { 'mbid:t2': ['indie'] } });
   });
 
-  it('drops spotify tracks — zero spotify rows reach upsert/embed; youtube passes (Spotify-ToS containment)', async () => {
+  it('drops spotify AND youtube tracks — only mbid rows reach upsert/embed (third-party-ToS containment)', async () => {
     const res = await corpusIngest.ingestLibrary([
       { id: 'sp', provider: 'spotify', uri: 'spotify:track:sp', title: 'S', genres: ['rock'] },
       { recordingKey: 'spotify:pre', uri: 'spotify:track:pre', genres: ['pop'] },
       { id: 'yt', provider: 'youtube_music', name: 'Y', genres: ['jazz'] },
+      { recordingKey: 'mbid:keep', genres: ['ambient'] },
     ]);
     expect(res).toMatchObject({ catalogued: 1, enqueued: 1 });
     const catalogued = trackCatalogRepo.upsertMany.mock.calls[0][0];
-    expect(catalogued.map(e => e.recordingKey)).toEqual(['youtube:yt']);
-    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['youtube:yt'], genresByKey: { 'youtube:yt': ['jazz'] } });
+    expect(catalogued.map(e => e.recordingKey)).toEqual(['mbid:keep']);
+    expect(enqueue).toHaveBeenCalledWith(QUEUES.EMBEDDING_BUILD, { recordingKeys: ['mbid:keep'], genresByKey: { 'mbid:keep': ['ambient'] } });
   });
 
   it('never throws — a repo failure is swallowed', async () => {
@@ -85,10 +86,10 @@ describe('corpusIngest.backfillLibrary', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 
   it('catalogs + enqueues embedding AND ensures AudioFeatures via hydration', async () => {
-    const res = await corpusIngest.backfillLibrary([{ recordingKey: 'youtube:t1', genres: ['rock'] }]);
+    const res = await corpusIngest.backfillLibrary([{ recordingKey: 'mbid:t1', genres: ['rock'] }]);
     expect(res.catalogued).toBe(1);
     expect(trackCatalogRepo.upsertMany).toHaveBeenCalledTimes(1);
-    expect(featureService.enqueueHydration).toHaveBeenCalledWith([{ recordingKey: 'youtube:t1', genres: ['rock'] }]);
+    expect(featureService.enqueueHydration).toHaveBeenCalledWith([{ recordingKey: 'mbid:t1', genres: ['rock'] }]);
   });
 
   it('a hydration failure does not break the catalog+embed path', async () => {

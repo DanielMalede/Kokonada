@@ -602,14 +602,17 @@ async function buildProfile(userId, user, onProgress = () => {}) {
   // Dark launch: queue audio-feature hydration for the freshly built library.
   // Fire-and-forget — profile building never waits on (or fails with) the store.
   featureService.enqueueHydration(library).catch(() => {});
-  // Spotify-ToS containment (defense-in-depth): the discovery corpus is a persistent,
-  // cross-user cache, so Spotify Content must never be seeded into it. Strip spotify rows
-  // before ingest — the catalog choke (toCatalogEntry) drops them too, but filtering here
-  // keeps the corpus caller honest and the excluded count auditable.
-  const corpusLibrary = library.filter(t => t.provider !== 'spotify');
-  const excludedSpotify = library.length - corpusLibrary.length;
-  if (excludedSpotify > 0) console.info(`[musicProfile] corpus ingest excluded ${excludedSpotify} spotify track(s) (ToS containment)`);
-  corpusIngest.ingestLibrary(corpusLibrary).catch(() => {}); // grow the discovery corpus
+  // Third-party-ToS containment (defense-in-depth): the discovery corpus is a persistent,
+  // cross-user cache, so neither Spotify nor YouTube Content may be seeded into it (Spotify
+  // Developer Terms + YouTube API Services Terms both forbid an independent persistent database
+  // of their API data). Strip spotify + youtube_music rows before ingest — the catalog choke
+  // (toCatalogEntry) drops them too, but filtering here keeps the corpus caller honest and the
+  // excluded counts auditable. Only CC0 mbid: content survives into the shared corpus.
+  const corpusLibrary  = library.filter(t => t.provider !== 'spotify' && t.provider !== 'youtube_music');
+  const excludedSpotify = library.filter(t => t.provider === 'spotify').length;
+  const excludedYoutube = library.filter(t => t.provider === 'youtube_music').length;
+  if (excludedSpotify > 0 || excludedYoutube > 0) console.info(`[musicProfile] corpus ingest excluded ${excludedSpotify} spotify + ${excludedYoutube} youtube_music track(s) (ToS containment)`);
+  corpusIngest.ingestLibrary(corpusLibrary).catch(() => {}); // grow the discovery corpus (CC0 mbid: only)
 
   return profile;
 }

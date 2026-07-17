@@ -116,6 +116,19 @@ app.get('/health/spotify-leak', async (req, res) => {
   }
 });
 
+// Standing YouTube-ToS leak monitor: non-destructive count of any youtube:-keyed rows still in the
+// global caches. Must read zero post-containment/purge; returns 503 (so an uptime check alerts)
+// when a leak is present. Same short-TTL cached, off-hot-path shape as /health/spotify-leak.
+app.get('/health/youtube-leak', async (req, res) => {
+  try {
+    const { checkYoutubeLeakCached, defaultCollections } = require('./services/monitoring/youtubeLeakMonitor');
+    const result = await checkYoutubeLeakCached({ collections: defaultCollections() });
+    res.status(result.ok ? 200 : 503).json(result);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
