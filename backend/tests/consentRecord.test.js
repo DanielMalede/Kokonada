@@ -102,4 +102,38 @@ describe('ConsentRecord.latestFor', () => {
     await grant(userA);
     expect(await ConsentRecord.latestFor(userB, PURPOSE)).toBeNull();
   });
+
+  // resilience-audit finding: ObjectIds are monotonic only WITHIN a single process — across
+  // Railway replicas, two same-millisecond writes can sort either way on _id, so a same-createdAt
+  // grant/withdraw pair could resolve to the grant even though the withdrawal is what really
+  // happened (or happened-adjacently). Fail CLOSED on a tie: prefer withdrawn.
+  it('on a createdAt TIE, prefers withdrawn even when the granted row has the numerically LARGER _id', async () => {
+    const userId = new mongoose.Types.ObjectId();
+    const withdrawnRow = await withdraw(userId);           // generated first → smaller _id
+    const grantedRow = await grant(userId);                 // generated after → larger _id (would win a naive {_id:-1} tie-break)
+    expect(String(grantedRow._id) > String(withdrawnRow._id) ||
+      grantedRow._id.getTimestamp() >= withdrawnRow._id.getTimestamp()).toBeTruthy(); // sanity: not accidentally the smaller one
+
+    // Force an identical createdAt on both — the real-world race this guards against (two
+    // replicas writing in the same millisecond). Mongoose's `timestamps:true` plugin silently
+    // strips `createdAt` from a `$set` on update QUERIES to protect its immutability, so a
+    // Mongoose-level updateOne can't construct this fixture — go around it via the raw driver
+    // collection, which also more faithfully simulates the real race (it happens below Mongoose).
+    const tiedAt = new Date('2026-07-17T12:00:00.000Z');
+    await ConsentRecord.collection.updateOne({ _id: withdrawnRow._id }, { $set: { createdAt: tiedAt } });
+    await ConsentRecord.collection.updateOne({ _id: grantedRow._id }, { $set: { createdAt: tiedAt } });
+
+    const latest = await ConsentRecord.latestFor(userId, PURPOSE);
+    expect(latest.status).toBe('withdrawn');
+  });
+
+  it('no tie → still returns the genuinely later row regardless of status (normal path unaffected)', async () => {
+    const userId = new mongoose.Types.ObjectId();
+    await withdraw(userId);
+    await new Promise((r) => setTimeout(r, 5));
+    const later = await grant(userId);
+    const latest = await ConsentRecord.latestFor(userId, PURPOSE);
+    expect(String(latest._id)).toBe(String(later._id));
+    expect(latest.status).toBe('granted');
+  });
 });

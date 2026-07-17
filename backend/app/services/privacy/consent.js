@@ -13,10 +13,26 @@ const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('./wearableErasure
 // consent copy / dataCategories it stands for — whenever the terms materially change.
 const CURRENT_CONSENT_VERSION = 1;
 
+// The one purpose enum value in use today (ConsentRecord.js schema). Exported so every call
+// site (routes/integrations.js's requireConsent mounts, watchHrIngest's inline gate, the mobile
+// CONSENT_PURPOSE contract) shares ONE literal instead of drifting copies.
+const HEALTH_CONSENT_PURPOSE = 'health_biometric_processing';
+
 // Records a granted consent at the current version. `dataCategories` is the special-category
 // data the user agreed to; kept as sent so the record reflects exactly what was shown.
-async function recordConsent(userId, { purpose, dataCategories, appVersion, locale } = {}) {
-  return ConsentRecord.create({
+//
+// `clientVersion` (resilience-audit finding) is the contract version the CLIENT's own consent
+// copy/dataCategories were built against — optional for back-compat (an older client that
+// doesn't send it is recorded as before), but when present it MUST equal CURRENT_CONSENT_VERSION.
+// Without this check, a server-only version bump would let an un-updated app's grant silently
+// record as "current" even though the user was shown the OLD terms — the exact gap this closes.
+// A mismatch in EITHER direction (client behind OR client ahead, e.g. a server rollback behind a
+// newer client) is rejected — never silently trusted — and no row is written.
+async function recordConsent(userId, { purpose, dataCategories, appVersion, locale, clientVersion } = {}) {
+  if (clientVersion !== undefined && clientVersion !== CURRENT_CONSENT_VERSION) {
+    return { ok: false, reason: 'stale_client', currentVersion: CURRENT_CONSENT_VERSION };
+  }
+  const record = await ConsentRecord.create({
     userId,
     purpose,
     consentVersion: CURRENT_CONSENT_VERSION,
@@ -26,6 +42,7 @@ async function recordConsent(userId, { purpose, dataCategories, appVersion, loca
     appVersion,
     locale,
   });
+  return { ok: true, record };
 }
 
 // Records a withdrawal AND erases the wearable footprint. JUDGMENT CALL: a consent "purpose"
@@ -83,4 +100,4 @@ async function getConsentStatus(userId, purpose) {
   };
 }
 
-module.exports = { CURRENT_CONSENT_VERSION, recordConsent, withdrawConsent, getConsentStatus };
+module.exports = { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE, recordConsent, withdrawConsent, getConsentStatus };

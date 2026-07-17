@@ -4,6 +4,7 @@ import {
   withdrawConsent,
   CONSENT_PURPOSE,
   CONSENT_DATA_CATEGORIES,
+  CONSENT_SCREEN_VERSION,
 } from '../consentApi';
 
 jest.mock('../../net/apiClient', () => ({ apiGet: jest.fn(), apiPost: jest.fn() }));
@@ -40,14 +41,24 @@ describe('consentApi', () => {
     expect(path).toContain('purpose=health_biometric_processing');
   });
 
-  it('grantConsent POSTs /api/consent with the purpose AND the exact data categories being shown', async () => {
+  it('grantConsent POSTs /api/consent with the purpose, the exact data categories being shown, and the client contract version', async () => {
     await grantConsent();
     const [path, body] = (apiPost as jest.Mock).mock.calls[0];
     expect(path).toBe('/api/consent');
     expect(body).toEqual({
       purpose: 'health_biometric_processing',
       dataCategories: [...CONSENT_DATA_CATEGORIES],
+      clientVersion: CONSENT_SCREEN_VERSION,
     });
+  });
+
+  // resilience-audit finding: without a client contract version, a server-only version bump lets
+  // an un-updated app's grant silently record as "current" though it showed the OLD terms. The
+  // backend rejects a mismatch (409); the store's existing !ok → submit_error path already fails
+  // closed on that response, so no store change was needed — only sending the version was missing.
+  it('CONSENT_SCREEN_VERSION is a positive integer (the client half of the cross-package version contract)', () => {
+    expect(Number.isInteger(CONSENT_SCREEN_VERSION)).toBe(true);
+    expect(CONSENT_SCREEN_VERSION).toBeGreaterThanOrEqual(1);
   });
 
   it('withdrawConsent POSTs /api/consent/withdraw with only the purpose', async () => {

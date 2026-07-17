@@ -37,13 +37,24 @@ const consentRecordSchema = new mongoose.Schema({
   timestamps: true, // createdAt orders the append-only history so "latest" is deterministic
 });
 
-// The consent-status read path: newest row for a user+purpose. Ordered by createdAt (with _id
-// as a same-millisecond tie-break, since ObjectIds are monotonic per insert) so a rapid
-// grant→withdraw→re-grant always resolves to the true latest row.
+// The consent-status read path: newest row for a user+purpose. ObjectIds are monotonic only
+// WITHIN a single process — across replicas (Railway can run more than one), two same-
+// millisecond writes can sort either way on _id, so an _id tie-break alone is not reliable
+// (resilience-audit finding). Instead: fetch the top-2 by createdAt; if they're genuinely
+// tied on createdAt, fail CLOSED and prefer 'withdrawn' over 'granted' regardless of _id order
+// — a rare same-millisecond race must never read as consented when a withdrawal also landed.
 consentRecordSchema.index({ userId: 1, purpose: 1, consentVersion: 1 });
 
-consentRecordSchema.statics.latestFor = function (userId, purpose) {
-  return this.findOne({ userId, purpose }).sort({ createdAt: -1, _id: -1 }).exec();
+consentRecordSchema.statics.latestFor = async function (userId, purpose) {
+  const top2 = await this.find({ userId, purpose }).sort({ createdAt: -1 }).limit(2).exec();
+  if (!top2.length) return null;
+  const [first, second] = top2;
+  const tied = second && first.createdAt.getTime() === second.createdAt.getTime();
+  if (tied) {
+    const withdrawn = top2.find((r) => r.status === 'withdrawn');
+    if (withdrawn) return withdrawn;
+  }
+  return first;
 };
 
 module.exports = mongoose.model('ConsentRecord', consentRecordSchema);

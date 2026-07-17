@@ -36,7 +36,7 @@ describe('CURRENT_CONSENT_VERSION', () => {
 
 describe('recordConsent', () => {
   it('writes a GRANTED row at the current version with the requested data categories', async () => {
-    await consent.recordConsent(USER, { purpose: PURPOSE, dataCategories: ['heart_rate', 'hrv'] });
+    const result = await consent.recordConsent(USER, { purpose: PURPOSE, dataCategories: ['heart_rate', 'hrv'] });
     expect(ConsentRecord.create).toHaveBeenCalledWith(expect.objectContaining({
       userId: USER,
       purpose: PURPOSE,
@@ -45,6 +45,41 @@ describe('recordConsent', () => {
       dataCategories: ['heart_rate', 'hrv'],
       grantedAt: expect.any(Date),
     }));
+    expect(result.ok).toBe(true);
+  });
+
+  it('no clientVersion sent (back-compat) → records as before, no mismatch check', async () => {
+    const result = await consent.recordConsent(USER, { purpose: PURPOSE, dataCategories: [] });
+    expect(ConsentRecord.create).toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+  });
+
+  it('clientVersion matches CURRENT_CONSENT_VERSION → records normally', async () => {
+    const result = await consent.recordConsent(USER, {
+      purpose: PURPOSE, dataCategories: [], clientVersion: consent.CURRENT_CONSENT_VERSION,
+    });
+    expect(ConsentRecord.create).toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+  });
+
+  // resilience-audit finding: a server-only CURRENT_CONSENT_VERSION bump makes an un-updated
+  // app's grant silently record as "current" even though it displayed the OLD terms/categories.
+  // The client must declare which contract version its copy represents; a mismatch is rejected
+  // — the row is never written — rather than recorded as a false "current" consent.
+  it('clientVersion OLDER than CURRENT_CONSENT_VERSION → REJECTED, no row written', async () => {
+    const result = await consent.recordConsent(USER, {
+      purpose: PURPOSE, dataCategories: [], clientVersion: consent.CURRENT_CONSENT_VERSION - 1,
+    });
+    expect(result).toEqual({ ok: false, reason: 'stale_client', currentVersion: consent.CURRENT_CONSENT_VERSION });
+    expect(ConsentRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('clientVersion NEWER than CURRENT_CONSENT_VERSION (server behind a rolled-back client) → also rejected, not silently trusted', async () => {
+    const result = await consent.recordConsent(USER, {
+      purpose: PURPOSE, dataCategories: [], clientVersion: consent.CURRENT_CONSENT_VERSION + 1,
+    });
+    expect(result.ok).toBe(false);
+    expect(ConsentRecord.create).not.toHaveBeenCalled();
   });
 });
 

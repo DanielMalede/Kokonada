@@ -53,11 +53,11 @@ for this declaration. <!-- verified: mobile/KokonadaHealth/src/health/permission
 **Separate live-HR lane (not Health Connect, flag honestly if asked):** the app also reads
 live heart rate over Bluetooth LE from a paired Garmin "Broadcast Heart Rate" device
 (`BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`, not a Health Connect scope), including a periodic
-foreground/background HTTP push from the watch companion. This is a known, disclosed gap in
-the GDPR Art.9 consent gate as of this writing — see `docs/PRIVACY_DECLARATIONS.md`'s
-"Known coverage gap" note — and should be closed (or its Play declaration implications
-reassessed) before this app is submitted with a "background read: none" answer if the BLE/
-watch lane remains active in the background at that time.
+foreground/background HTTP push from the watch companion. This lane is now **also** gated
+behind the same GDPR Art.9 consent record as the Health Connect paths (server-side, on the
+device token's resolved user) — H-9 is fully closed, see `docs/PRIVACY_DECLARATIONS.md`'s
+GDPR Art.9 section. It remains outside the scope of *this* Health Connect declaration (it is
+not a Health Connect permission), but is consent-gated identically.
 
 ## 3. Special permission — `READ_HEALTH_DATA_HISTORY` (historic / >30-day reads)
 

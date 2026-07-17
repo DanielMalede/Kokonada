@@ -6,12 +6,16 @@
 
 const { recordConsent, withdrawConsent, getConsentStatus } = require('../services/privacy/consent');
 
-// POST /api/consent  — body { purpose, dataCategories }
+// POST /api/consent  — body { purpose, dataCategories, clientVersion }
+// clientVersion (resilience-audit finding) is the contract version the CALLER's consent copy/
+// categories were built against; optional for back-compat, but a mismatch is rejected (409)
+// before anything is recorded — see services/privacy/consent.recordConsent.
 exports.grantConsent = async (req, res, next) => {
   try {
-    const { purpose, dataCategories } = req.body || {};
+    const { purpose, dataCategories, clientVersion } = req.body || {};
     if (!purpose) return res.status(400).json({ error: 'purpose is required' });
-    await recordConsent(req.user._id, { purpose, dataCategories });
+    const result = await recordConsent(req.user._id, { purpose, dataCategories, clientVersion });
+    if (!result.ok) return res.status(409).json({ error: result.reason, currentVersion: result.currentVersion });
     // Echo the fresh, canonical status so the client confirms the new state in one round trip.
     res.status(201).json(await getConsentStatus(req.user._id, purpose));
   } catch (err) { next(err); }

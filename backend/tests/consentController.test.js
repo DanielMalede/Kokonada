@@ -8,7 +8,7 @@ process.env.NODE_ENV   = 'test';
 process.env.JWT_SECRET = 'test-jwt-secret-for-tests-only';
 
 jest.mock('../app/services/privacy/consent', () => ({
-  recordConsent:    jest.fn().mockResolvedValue({ _id: 'c1' }),
+  recordConsent:    jest.fn().mockResolvedValue({ ok: true, record: { _id: 'c1' } }),
   withdrawConsent:  jest.fn().mockResolvedValue({ _id: 'c2' }),
   getConsentStatus: jest.fn(),
   CURRENT_CONSENT_VERSION: 1,
@@ -65,6 +65,24 @@ describe('POST /api/consent (grant)', () => {
     const res = await request(app).post('/api/consent').send({ purpose: PURPOSE });
     expect(res.status).toBe(401);
     expect(consentService.recordConsent).not.toHaveBeenCalled();
+  });
+
+  it('passes clientVersion through to the service when the client sends one', async () => {
+    await request(app).post('/api/consent').set(...bearer()).send({ purpose: PURPOSE, clientVersion: 1 });
+    expect(consentService.recordConsent).toHaveBeenCalledWith('u1', expect.objectContaining({ clientVersion: 1 }));
+  });
+
+  // resilience-audit finding: a stale/mismatched client contract version must be rejected at the
+  // HTTP layer with a distinguishable status, not recorded as a false "current" grant.
+  it('service rejects a stale/mismatched clientVersion → 409, no status echo (nothing was recorded)', async () => {
+    consentService.recordConsent.mockResolvedValueOnce({ ok: false, reason: 'stale_client', currentVersion: 2 });
+    const res = await request(app)
+      .post('/api/consent')
+      .set(...bearer())
+      .send({ purpose: PURPOSE, clientVersion: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'stale_client', currentVersion: 2 });
+    expect(consentService.getConsentStatus).not.toHaveBeenCalled();
   });
 });
 

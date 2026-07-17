@@ -21,8 +21,10 @@ const {
 const { deleteWearableProvider } = require('../controllers/wearableErasureController');
 // Server-side Art.9 consent hard gate for special-category ingestion (audit H-9). (WS5)
 const requireConsent = require('../middleware/requireConsent');
-
-const HEALTH_CONSENT = 'health_biometric_processing';
+// Shared literal (services/privacy/consent.js) — watchHrIngest's inline gate uses the SAME
+// constant so the purpose string can never drift between the session-authed and device-token-
+// authed ingestion paths.
+const { HEALTH_CONSENT_PURPOSE: HEALTH_CONSENT } = require('../services/privacy/consent');
 
 // Public OAuth callbacks. The browser arrives here from the provider as a
 // top-level navigation carrying NO cookie/Bearer/ct, so these MUST sit ABOVE
@@ -36,17 +38,14 @@ router.get('/garmin/callback',   garminCallback);
 router.post('/garmin/webhook',   garminWebhook); // Garmin Health API server-to-server push
 
 // Watch HR stream (PUBLIC — authenticated by the opaque device token, not the
-// session cookie; same placement rationale as the webhooks above).
-// TODO(H-9, KNOWN GAP — resilience-audit 2026-07-17): watch/hr is left UNGATED by requireConsent
-// because it authenticates via device token (no session req.user), not because it is inactive —
-// it IS live and reachable: prodBootstrap auto-arms startLiveHr for any logged-in user with a BLE
-// HR source or a granted Health Connect permission, streaming to this route with zero consent
-// check. handleBiometricReading's immediate-mode path does not durably persist (no BiometricLog/
-// MedicalProfile write here), and a withdrawn user's watchToken is cleared (401s further pushes),
-// but a pre-WS-5 grantee with no ConsentRecord streams unconsented today. H-9 is NOT fully closed
-// until this lane is gated (device token → userId → getConsentStatus) — tracked as a deliberate
-// follow-up, not yet scheduled. garmin/webhook remains a genuinely separate case: it needs Garmin
-// Health API production approval before it is reachable at all.
+// session cookie; same placement rationale as the webhooks above). NOT gated by the
+// requireConsent MIDDLEWARE here (it needs a session req.user, which this route has none of) —
+// instead, watchHrIngest itself checks Art.9 consent inline on the already-resolved
+// token→user._id, BEFORE any body validation or socket delivery (resilience-audit follow-up,
+// 2026-07-17). H-9 is fully closed: see integrationsController.js watchHrIngest + the "Art.9
+// consent gate" tests in backend/tests/watchIntegration.test.js. garmin/webhook remains a
+// genuinely separate case: it needs Garmin Health API production approval before it is
+// reachable at all, so it carries no live gap today.
 router.post('/watch/hr', watchLimiter, watchHrIngest);
 
 // Watch pairing-code exchange (PUBLIC — the watch has no session; it presents the

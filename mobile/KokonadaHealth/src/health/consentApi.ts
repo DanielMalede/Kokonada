@@ -28,6 +28,14 @@ export const CONSENT_DATA_CATEGORIES = [
   'historical_access_182d',
 ] as const;
 
+// The contract version THIS BUILD's consent copy/CONSENT_DATA_CATEGORIES represent — sent on
+// every grant so the server can reject a mismatch (resilience-audit finding). Without this, a
+// server-only CURRENT_CONSENT_VERSION bump would let an un-updated app's grant silently record
+// as "current" even though the user was shown the OLD terms. Bump this — in lockstep with a real
+// copy/category change here — whenever the backend's CURRENT_CONSENT_VERSION bumps; keeping the
+// two in sync is a manual, reviewed step (there is no single shared source across the repo split).
+export const CONSENT_SCREEN_VERSION = 1;
+
 // The status the server gate and the client both consume. staleVersion = granted, but at an
 // older contract version → the client must re-prompt before the OS health sheet.
 export interface ConsentStatus {
@@ -67,6 +75,7 @@ export async function grantConsent(): Promise<ApiResult<ConsentStatus>> {
   return guardShape(await apiPost<ConsentStatus>('/api/consent', {
     purpose: CONSENT_PURPOSE,
     dataCategories: [...CONSENT_DATA_CATEGORIES],
+    clientVersion: CONSENT_SCREEN_VERSION,
   }));
 }
 

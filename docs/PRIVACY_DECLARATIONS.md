@@ -18,10 +18,10 @@
 > (3) **Sign in with Apple is client-side shipped** (native `AppleButton`, HIG-exact) —
 > portal provisioning (Apple Developer capability + certificate) and on-device iOS
 > verification are still a pending human action (Windows dev box cannot build/verify iOS);
-> (4) the **GDPR Art.9 consent gate** (`ConsentRecord`, `requireConsent` middleware) now
-> hard-gates the batch-sync special-category ingestion paths — see that section for the one
-> lane it does **not** yet cover; (5) Groq sub-processor, retention windows, and the
-> export/erasure rights below are current.
+> (4) the **GDPR Art.9 consent gate** (`ConsentRecord`, `requireConsent` middleware + an inline
+> gate on the device-token-authed live-HR lane) now hard-gates **every** user-facing
+> special-category ingestion path — H-9 is fully closed; (5) Groq sub-processor, retention
+> windows, and the export/erasure rights below are current.
 >
 > **Egress summary (verify before every store submission):** outbound LLM prompts carry
 > **no raw biometric values, no raw free-text, no account identifiers (name/email/userId),
@@ -128,17 +128,15 @@ Kokonada uses the following processors. None is an advertiser; none receives raw
 
 - OS/OAuth read grants alone are **not** lawful Art.9 consent. A dedicated, versioned, explicit consent record is captured and enforced server-side: special-category ingestion endpoints are hard-gated by `requireConsent('health_biometric_processing')`, and a stale/absent/withdrawn consent blocks ingestion. <!-- verified: backend/app/routes/integrations.js:21-24,79,83; backend/app/models/ConsentRecord.js:5-12,45-47 -->
 - A user-facing **consent screen** presents purpose, data types, retention, sub-processors, and the withdrawal path, and writes the versioned `ConsentRecord` — shown just-in-time immediately before the OS Health Connect permission prompt (`docs/SCREENS.md` §11). Withdrawal is a new append-only `withdrawn` row, revokes future ingestion, and erases the wearable data footprint.
-- **Known coverage gap — H-9 is NOT fully closed (flag before store submission):** two special-category ingestion paths remain ungated because they authenticate via a device token / webhook secret, not a session `req.user`. These are NOT equivalent risk:
-  - **`POST /integrations/watch/hr` — LIVE and REACHABLE today, not merely "not yet user-facing."** App bootstrap auto-arms live BLE heart-rate streaming for any logged-in user with a BLE HR source or a granted Health Connect permission, sending samples to this route with **zero consent check**. A pre-consent-gate user (anyone who granted Health Connect before this feature shipped) continues streaming unconsented special-category data. Mitigating: the immediate-mode handler does not durably persist to `BiometricLog`/`MedicalProfile` (transient in-socket processing only), and withdrawal clears the watch token (401s further pushes) — but this is a real, disclosed, unresolved gap, not a theoretical one. <!-- verified: mobile/KokonadaHealth/src/prodBootstrap.ts:68; backend/app/routes/integrations.js:37-49 -->
-  - **`POST /integrations/garmin/webhook` — genuinely not yet reachable**, pending Garmin Health API production approval (separate Pause & Guide human gate); low risk today.
-  - **Must-fix before claiming H-9 resolved:** gate `/watch/hr` (map its device token → user → `getConsentStatus`) before store submission or before this coverage gap is represented as closed in any store declaration.
+- **H-9 is now fully closed across every user-facing ingestion path.** All three special-category ingestion routes are consent-gated: `/apple/push` and `/health/batch` via the session-authed `requireConsent` middleware; `POST /integrations/watch/hr` (the device-token-authed live BLE heart-rate lane — previously the one gap, since it has no session `req.user`) via an inline check on the same `getConsentStatus` service against its already-resolved token→user lookup, running BEFORE any body validation or socket delivery. <!-- verified: backend/app/controllers/integrationsController.js watchHrIngest (getConsentStatus gate, resilience-audit follow-up); backend/tests/watchIntegration.test.js "Art.9 consent gate" (5 tests) --> `POST /integrations/garmin/webhook` remains genuinely not yet reachable, pending Garmin Health API production approval (separate Pause & Guide human gate) — not a live gap, since no traffic flows there today.
+- **Cross-package version integrity:** the mobile client declares which contract version (`CONSENT_SCREEN_VERSION`) its consent copy/data-categories represent on every grant; the server rejects (409 `stale_client`) a mismatch rather than silently recording an un-updated app's grant as "current." This closes a residual gap where a server-only `CURRENT_CONSENT_VERSION` bump could otherwise let an old app's grant read as consented to terms it never displayed. <!-- verified: backend/app/services/privacy/consent.js recordConsent clientVersion check; mobile/KokonadaHealth/src/health/consentApi.ts CONSENT_SCREEN_VERSION -->
 
 ## Cross-store consistency checklist (for Wave 3)
 - [ ] Privacy policy URL live and listing Groq as a sub-processor + the Groq DPA/ZDR executed.
 - [ ] Account-deletion URL/flow documented for both stores (in-app `DELETE /api/auth/account` + web).
 - [ ] Self-service data-export flow (`GET /api/auth/account/export`) reflected in both stores' "can request data" answers.
 - [ ] **Sign in with Apple** — client UI shipped; complete the Apple Developer Portal capability/cert provisioning + on-device iOS QA before iOS submission.
-- [ ] **`/watch/hr` gated by Art.9 consent** before claiming H-9 fully resolved (see above) — currently open.
+- [x] **`/watch/hr` gated by Art.9 consent** — H-9 fully resolved across every user-facing ingestion path (see above).
 - [ ] Play **Health apps declaration form** filed (`docs/store/play-health-connect-declaration.md`); history-read justification submitted.
 - [ ] Health-data-use disclosure copy matches this inventory **verbatim** across: Apple Health label, Health Connect declaration, in-app `PermissionsRationaleActivity`, and the consent screen (single source of truth).
 - [ ] "No third-party sharing / no ads / no tracking" asserted identically on both stores (conditional on the Groq DPA/ZDR standing condition).

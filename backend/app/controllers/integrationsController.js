@@ -23,6 +23,8 @@ const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = 
 const { signConnectToken, signOauthState, verifyOauthState } = require('../utils/jwt');
 const timingSafe = require('../utils/timingSafeEqual');
 const { revoke, isRevoked } = require('../utils/tokenDenylist');
+// Art.9 consent gate for the device-token-authed watch/hr path (audit H-9 follow-up).
+const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
 const { getRedis } = require('../config/redis');
 
 // All callbacks land the user back in the app. On failure we redirect with a
@@ -792,6 +794,15 @@ exports.watchHrIngest = async (req, res, next) => {
     const hash = sha256Hex(header.slice(7));
     const user = await User.findOne({ 'watchToken.hash': hash, deletedAt: null }).select('_id');
     if (!user) return res.status(401).json({ error: 'Invalid watch token' });
+
+    // Art.9 consent hard gate (audit H-9 follow-up, resilience-audit finding): this route
+    // authenticates by device token, so it has no req.user for the session-authed requireConsent
+    // middleware to key on — checked inline instead, on the SAME already-resolved user._id,
+    // against the SAME consent service every other special-category ingestion path uses. Runs
+    // BEFORE any body validation/processing (fail fast, no partial work on an unconsented user).
+    const consentStatus = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
+    if (!consentStatus.granted) return res.status(403).json({ error: 'consent_required' });
+    if (consentStatus.staleVersion) return res.status(403).json({ error: 'consent_stale' });
 
     const { heartRate, activityType, ts } = req.body || {};
     if (!Number.isFinite(heartRate) || heartRate < 30 || heartRate > 230) {
