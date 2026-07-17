@@ -1,23 +1,46 @@
 import React, { useMemo } from 'react';
-import { Canvas, Circle, Blur, Group } from '@shopify/react-native-skia';
+import { View } from 'react-native';
 import { deriveAuraUniforms } from './auraUniforms';
+import { breathMsForArousal, arousalFromHr, hrGlowColor } from './auraBreath';
+import { BreathingGlow } from './BreathingGlow';
 
-// The bio-aura: a soft Skia glow behind the wheel whose hue and intensity breathe
-// with live HR. All the math lives in the pure, unit-tested deriveAuraUniforms /
-// advancePulsePhase; this component is the thin Skia surface. The pulse phase is
-// driven on-device by a Reanimated clock feeding advancePulsePhase (frame-rate
-// independent). Verified on-device — the derivation is unit-tested.
-export function BioAura({ hr, size }: { hr: number | null; size: number }) {
+// The bio-aura: a soft Skia glow behind the wheel that BREATHES with live HR. The pure,
+// unit-tested deriveAuraUniforms still owns HR hue/intensity; auraBreath shapes the visible
+// period (REGULATOR ETHIC — slower + deeper as arousal rises) and the never-alarming-red colour.
+// When taps exist the composition boundary hands an `accentColor` (emotionAccent ink) which is
+// composited ADDITIVELY as a second breathing bloom — conscious intent tints the read while HR
+// keeps driving intensity + breath. The pure derivation is never fed emotion (Fork 2A).
+//   accentColor — emotionAccent[q].ink, present only when the user has placed ≥1 tap
+//   reduced     — OS reduce-motion → both glows STILL at a fixed dim opacity (no breath loop)
+export function BioAura({
+  hr,
+  size,
+  accentColor,
+  reduced = false,
+}: {
+  hr: number | null;
+  size: number;
+  accentColor?: string;
+  reduced?: boolean;
+}) {
   const u = useMemo(() => deriveAuraUniforms(hr), [hr]);
-  const r = size / 2;
-  const color = `hsl(${Math.round(u.hue)}, 80%, 55%)`;
+  const breathMs = useMemo(() => breathMsForArousal(arousalFromHr(hr)), [hr]);
+  const color = useMemo(() => hrGlowColor(hr), [hr]);
+
+  // Outer opacity = the HR-driven intensity (deriveAuraUniforms clamps it finite): the glow is
+  // subtle at rest and brightens with arousal, exactly as the aura did before.
   return (
-    <Canvas style={{ width: size, height: size }} pointerEvents="none">
-      <Group opacity={u.intensity}>
-        <Circle cx={r} cy={r} r={r * 0.8} color={color}>
-          <Blur blur={r * 0.25} />
-        </Circle>
-      </Group>
-    </Canvas>
+    <View
+      testID="bio-aura"
+      pointerEvents="none"
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+      style={{ width: size, height: size, opacity: u.intensity }}
+    >
+      <BreathingGlow color={color} reduced={reduced} breathMs={breathMs} size={size} />
+      {accentColor ? (
+        <BreathingGlow color={accentColor} reduced={reduced} breathMs={breathMs} size={size} />
+      ) : null}
+    </View>
   );
 }
