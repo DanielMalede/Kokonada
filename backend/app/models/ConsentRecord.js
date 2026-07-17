@@ -21,7 +21,7 @@ const consentRecordSchema = new mongoose.Schema({
   // Bumped in services/privacy/consent.js (CURRENT_CONSENT_VERSION) whenever the consent text /
   // data categories materially change — a row at an older version reads as stale (re-prompt).
   consentVersion: { type: Number, required: true },
-  // The special-category data categories the user consented to (e.g. heart_rate, hrv, spo2).
+  // The special-category data categories the user consented to (e.g. heart_rate, hrv, sleep).
   dataCategories: { type: [String], default: [] },
   status: {
     type: String,

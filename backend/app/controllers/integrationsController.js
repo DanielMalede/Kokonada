@@ -622,9 +622,11 @@ exports.appleHealthPush = async (req, res, next) => {
 // POST /api/integrations/health/batch  (auth required — JWT)
 // The React Native companion app reads Garmin-synced data from the on-device OS
 // health store and pushes batches of multi-metric samples here for the medical
-// profile. heartRate lands in BiometricLog; resting HR / HRV / respiration / SpO2
-// are aggregated onto the user's MedicalProfile. Used for both the initial
-// backfill and the ongoing background delta sync.
+// profile. heartRate lands in BiometricLog; resting HR / HRV / sleep stages are
+// aggregated onto the user's MedicalProfile. Used for both the initial backfill and
+// the ongoing background delta sync. (Health Connect on this client no longer reads
+// SpO2/respiration — PR #152 scope-minimized those to their real, non-zero readers;
+// those categories now arrive only via the Garmin server-to-server lane.)
 exports.healthBatchIngest = async (req, res, next) => {
   // Always-on receipt log (#90): pairs with the mobile [koko] healthSync logs so ONE Sync
   // shows the full path — did the batch reach the server, and did it persist? The device
