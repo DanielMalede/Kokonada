@@ -83,16 +83,19 @@ export function OfflineBanner({ status, onRetry }: OfflineBannerProps) {
     }
   }, [phase]);
 
-  // Appear fade (opacity only → no layout shift). Reduced motion snaps to 1.
+  // Appear fade (opacity only → no layout shift). Reduced motion snaps to 1. Keyed on the VISIBLE
+  // edge, not on `phase`: a copy switch between two visible states (offline↔connecting) must NOT
+  // re-run the fade — that would blink the banner. It fades once on appear and holds.
+  const visible = phase !== 'hidden';
   const entry = useRef(new Animated.Value(reduced ? 1 : 0)).current;
   useEffect(() => {
-    if (phase === 'hidden') return;
+    if (!visible) return;
     if (reduced) { entry.setValue(1); return; }
     entry.setValue(0);
     const anim = Animated.timing(entry, { toValue: 1, duration: duration.base, easing: ENTER_BEZIER, useNativeDriver: true });
     anim.start();
     return () => anim.stop();
-  }, [phase, reduced, duration.base, entry]);
+  }, [visible, reduced, duration.base, entry]);
 
   // The supportive dot: static tertiary while offline, breathing accent while connecting, steady
   // accent on the "Back online" confirm. accent.glow (not state.success) is the confirm hue because

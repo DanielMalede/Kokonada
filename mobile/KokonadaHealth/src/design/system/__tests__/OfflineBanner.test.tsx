@@ -8,6 +8,7 @@ jest.mock('../../theme', () => ({ useTheme: jest.fn(), useMotion: jest.fn() }));
 import { OfflineBanner, OFFLINE_GRACE_MS, BACK_ONLINE_HOLD_MS } from '../OfflineBanner';
 import { useTheme, useMotion } from '../../theme';
 import { colors, motion } from '../../tokens';
+import { contrastRatio, AA_LARGE } from '../../contrast';
 
 const DARK = colors.dark;
 
@@ -169,5 +170,39 @@ describe('OfflineBanner — the music never stops', () => {
     expect(copy(tree).toLowerCase()).toContain('reconnect');
     await ReactTestRenderer.act(async () => { tree.unmount(); });
     loopSpy.mockRestore();
+  });
+
+  it('visible→visible switch (offline→connecting) swaps copy instantly with NO re-fade or announce spam', async () => {
+    // The entry fade is the ONLY Animated.timing at duration.base; the dot pulse runs at breath/2,
+    // so counting base-duration timings isolates the appear fade from the dot's breath.
+    const timingSpy = jest.spyOn(Animated, 'timing');
+    const entryFades = () => timingSpy.mock.calls.filter((call) => (call[1] as any)?.duration === motion.duration.base).length;
+    const tree = await render(<OfflineBanner status="disconnected" />);
+    await advance(OFFLINE_GRACE_MS);
+    expect(entryFades()).toBe(1); // faded in once on appear
+    const announcedSoFar = (AccessibilityInfo.announceForAccessibility as jest.Mock).mock.calls.length;
+
+    await setStatus(tree, 'connecting'); // already visible → no grace, no re-fade
+    expect(copy(tree).toLowerCase()).toContain('reconnect');      // copy switched immediately
+    expect(entryFades()).toBe(1);                                 // NOT re-animated — no blink
+    expect((AccessibilityInfo.announceForAccessibility as jest.Mock).mock.calls.length).toBe(announcedSoFar); // no announce spam
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+    timingSpy.mockRestore();
+  });
+});
+
+describe('OfflineBanner — supportive-dot ≥3:1 non-text contrast on surface.overlay (both themes)', () => {
+  // Locks deviation #2: the confirm/connecting dot (accent.glow) and the offline dot (content.tertiary)
+  // must clear the 3:1 graphic floor on the banner's overlay surface. accent.glow sits at only ~0.63
+  // headroom in light, so this executable pin — not a comment — guards it against token drift.
+  it('accent.glow (connecting + confirm dot) passes 3:1 on surface.overlay in both themes', () => {
+    for (const t of [colors.dark, colors.light]) {
+      expect(contrastRatio(t.accent.glow, t.surface.overlay)).toBeGreaterThanOrEqual(AA_LARGE);
+    }
+  });
+  it('content.tertiary (offline dot) passes 3:1 on surface.overlay in both themes', () => {
+    for (const t of [colors.dark, colors.light]) {
+      expect(contrastRatio(t.content.tertiary, t.surface.overlay)).toBeGreaterThanOrEqual(AA_LARGE);
+    }
   });
 });
