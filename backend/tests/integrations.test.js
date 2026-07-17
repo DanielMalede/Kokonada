@@ -360,6 +360,81 @@ describe('YouTube OAuth flow', () => {
     expect(user.save).toHaveBeenCalled();
   });
 
+  it('youtubeConnect threads returnTo=app into the signed state (cv preserved) for a mobile connect', () => {
+    youtube.getAuthUrl.mockReturnValue('https://accounts.google.com/o/oauth2/auth');
+
+    ctrl.youtubeConnect({ user: buildUser(), query: { returnTo: 'app' } }, buildRes());
+
+    const decoded = verifyOauthState(youtube.getAuthUrl.mock.calls[0][0]);
+    expect(decoded.returnTo).toBe('app');
+    expect(decoded.cv).toBe('test-cv'); // PKCE verifier not clobbered by the returnTo merge
+  });
+
+  it('youtubeConnect leaves returnTo unset for a web connect (default), cv preserved', () => {
+    youtube.getAuthUrl.mockReturnValue('https://accounts.google.com/o/oauth2/auth');
+
+    ctrl.youtubeConnect({ user: buildUser() }, buildRes());
+
+    const decoded = verifyOauthState(youtube.getAuthUrl.mock.calls[0][0]);
+    expect(decoded.returnTo).toBeUndefined();
+    expect(decoded.cv).toBe('test-cv');
+  });
+
+  it('youtubeConnect deep-links youtube_unconfigured back into the app when returnTo=app', () => {
+    youtube.isConfigured.mockReturnValue(false);
+
+    const res = buildRes();
+    ctrl.youtubeConnect({ user: buildUser(), query: { returnTo: 'app' } }, res);
+
+    expect(youtube.getAuthUrl).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=youtube_unconfigured');
+  });
+
+  it('youtubeCallback deep-links back into the native app on success when the state carried returnTo=app', async () => {
+    youtube.exchangeCode.mockResolvedValue({ accessToken: 'ytat', refreshToken: 'ytrt', expiresAt: Date.now() + 3600000 });
+    youtube.getChannel.mockResolvedValue({ channelId: 'UCxyz', displayName: 'My Channel' });
+    User.findById.mockResolvedValue(buildUser());
+
+    const state = signOauthState('user-123', 'youtube', { returnTo: 'app', cv: 'test-cv' });
+    const res   = buildRes();
+    await ctrl.youtubeCallback({ query: { code: 'yt-code', state }, cookies: {} }, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=youtube');
+  });
+
+  it('youtubeCallback deep-links an error back into the native app when returnTo=app', async () => {
+    const state = signOauthState('user-123', 'youtube', { returnTo: 'app', cv: 'test-cv' });
+    const res   = buildRes();
+    await ctrl.youtubeCallback({ query: { error: 'access_denied', state }, cookies: {} }, res);
+
+    expect(youtube.exchangeCode).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=youtube_access_denied');
+  });
+
+  it('youtubeCallback fails closed to the website on a tampered state (no deep link)', async () => {
+    const res = buildRes();
+    await ctrl.youtubeCallback({ query: { code: 'c', state: 'bad' }, cookies: {} }, res);
+
+    const url = res.redirect.mock.calls[0][0];
+    expect(url).not.toMatch(/^kokonada:\/\//);
+    expect(url).toContain('/integrations?error=youtube_state');
+  });
+
+  it('youtubeCallback still runs the full token exchange + save on the mobile success path', async () => {
+    youtube.exchangeCode.mockResolvedValue({ accessToken: 'ytat', refreshToken: 'ytrt', expiresAt: Date.now() + 3600000 });
+    youtube.getChannel.mockResolvedValue({ channelId: 'UCxyz', displayName: 'My Channel' });
+    const user = buildUser();
+    User.findById.mockResolvedValue(user);
+
+    const state = signOauthState('user-123', 'youtube', { returnTo: 'app', cv: 'test-cv' });
+    await ctrl.youtubeCallback({ query: { code: 'yt-code', state }, cookies: {} }, buildRes());
+
+    expect(youtube.exchangeCode).toHaveBeenCalledWith('yt-code', 'test-cv'); // PKCE verifier from the signed state
+    expect(youtube.getChannel).toHaveBeenCalledWith('ytat');
+    expect(user.setToken).toHaveBeenCalledWith('youtubeMusicToken', expect.objectContaining({ accessToken: 'ytat' }));
+    expect(user.save).toHaveBeenCalled();
+  });
+
   it('youtubeDisconnect re-loads the full user, nulls token, and saves', async () => {
     // auth() strips token blobs, so the handler re-loads via User.findById.
     const user = buildUser({ youtubeMusicToken: { blob: 'enc' } });

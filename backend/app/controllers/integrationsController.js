@@ -306,24 +306,31 @@ exports.getSpotifyTracksSaved = async (req, res, next) => {
 exports.youtubeConnect = (req, res) => {
   if (!youtube.isConfigured()) {
     console.error('[youtube] connect blocked: set YOUTUBE_REDIRECT_URI and a YOUTUBE_/GOOGLE_ client id+secret');
-    return fail(res, 'youtube_unconfigured');
+    // No state exists yet, so read the return target straight off the raw query param.
+    return failTo(res, req.query?.returnTo === 'app' ? 'app' : 'web', 'youtube_unconfigured');
   }
   const { codeVerifier, codeChallenge } = youtube.generatePKCE();
   // Store the PKCE verifier inside the signed state so the public callback can
   // retrieve it without any server-side session. The JWT signature prevents tampering.
-  const state = signOauthState(req.user._id.toString(), 'youtube', { cv: codeVerifier });
+  // returnTo=app (mobile) rides alongside so the callback deep-links back into the native
+  // app instead of the website. Whitelisted to 'app' — nothing else is honored.
+  const extra = { cv: codeVerifier };
+  if (req.query?.returnTo === 'app') extra.returnTo = 'app';
+  const state = signOauthState(req.user._id.toString(), 'youtube', extra);
   res.redirect(youtube.getAuthUrl(state, codeChallenge));
 };
 
 // GET /api/integrations/youtube/callback  (PUBLIC — no auth middleware)
 exports.youtubeCallback = async (req, res) => {
+  const { code, state, error } = req.query;
+  // Learn the return target (native app vs website) from the signed state so BOTH success and
+  // every failure land back where the user started. Best-effort — falls back to the website.
+  const target = _returnTarget(state);
   try {
-    const { code, state, error } = req.query;
-
-    if (error) return fail(res, `youtube_${error}`);
+    if (error) return failTo(res, target, `youtube_${error}`);
 
     const recovered = await userFromOauthState(state, 'youtube');
-    if (!recovered) return fail(res, 'youtube_state');
+    if (!recovered) return failTo(res, target, 'youtube_state');
     const { user, payload } = recovered;
 
     const tokens  = await youtube.exchangeCode(code, payload.cv);
@@ -343,8 +350,8 @@ exports.youtubeCallback = async (req, res) => {
       }
     });
 
-    // Redirect to frontend integrations page so the web app can hydrate state
-    frontendRedirect(res, 'music=youtube');
+    // Land the user back where they started: the native app (mobile) or the website.
+    oauthRedirect(res, target, 'music=youtube');
   } catch (err) {
     console.error('[YouTube Callback Catch]', {
       status:  err?.response?.status,
@@ -352,7 +359,7 @@ exports.youtubeCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'youtube_failed');
+    return failTo(res, target, 'youtube_failed');
   }
 };
 
