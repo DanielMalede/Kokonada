@@ -75,6 +75,16 @@ describe('useCalmPulse — the shared breath engine', () => {
     expect(fakeLoop.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('DISPOSES the loop when reduced flips ON mid-life (not only on unmount) — no orphaned breath', async () => {
+    const tree = await render(<Probe reduced={false} periodMs={4200} curve={CURVE} sink={() => {}} />);
+    expect(fakeLoop.start).toHaveBeenCalledTimes(1);
+    expect(fakeLoop.stop).not.toHaveBeenCalled();
+    // flip to reduced while still mounted → the running loop must be torn down immediately
+    await ReactTestRenderer.act(async () => { tree.update(<Probe reduced periodMs={4200} curve={CURVE} sink={() => {}} />); });
+    expect(fakeLoop.stop).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('honours a different still value (curve is the single source of the rest/peak/still frames)', async () => {
     let val: unknown;
     const curve: CalmPulseCurve = { rest: 0.2, peak: 0.9, still: 0.55 };
