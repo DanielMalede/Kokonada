@@ -7,6 +7,7 @@ import { screenToCircumplex, circumplexToScreen, isOnWheel, type WheelLayout } f
 import { hitsMostRecentDot } from './wheelInteraction';
 import { useTheme } from '../../design/theme';
 import { emotionAccentFor } from '../../design/emotionAccent';
+import { elevation } from '../../design/tokens';
 import type { Tap } from '../../state/cold/emotionSlice';
 
 // Dot geometry (fractions of the wheel radius): the painted node is small, but the tap target
@@ -75,6 +76,7 @@ export function RadialWheel({
       accessibilityLabel={a11yLabel}
       accessibilityActions={[{ name: 'undo', label: 'Undo last' }, { name: 'clear', label: 'Clear' }]}
       onAccessibilityAction={onAction}
+      style={[elevation.e1, { width: size, height: size, borderRadius: r }]} // floating-lens shadow
     >
       <GestureDetector gesture={tap}>
         <Canvas style={{ width: size, height: size }}>
