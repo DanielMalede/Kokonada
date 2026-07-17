@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/theme';
 import { space, radius, type as typography } from '../../design/tokens';
 import type { ConnectState } from './connectStore';
@@ -11,7 +12,10 @@ import type { StoreApi } from 'zustand/vanilla';
 //     legitimate choice — a filled brand CTA here would nudge users PAST connecting). Sub-copy
 //     reminds them Profile can add a wearable later.
 //   • resolved     → a single filled "Continue" (the positive confirm treatment); no re-nag.
-// Tokens only, fixed brand accent (accent.glow / accent.glowInk) — never the reactive emotionAccent.
+// Tokens only, fixed brand accent — never the reactive emotionAccent. The outline LABEL is
+// content.primary (AA-normal on base, both themes); accent.glow rides only on the 1.5px ring
+// (a 1.4.11 boundary that clears ≥3:1) — accent.glow-as-label failed AA-normal in the light theme.
+// The bar clears the gesture-nav home indicator via the bottom safe-area inset.
 
 type ConnectStore = StoreApi<ConnectState>;
 
@@ -36,11 +40,14 @@ export interface MoodOnlyBarProps {
 
 export function MoodOnlyBar({ connect, onMoodOnly, onContinue }: MoodOnlyBarProps) {
   const { c } = useTheme();
+  const insets = useSafeAreaInsets();
   const { resolved } = useConnectSnapshot(connect);
+  // Pin above the gesture-nav home indicator (mirrors OnboardingScreen's bottom chrome).
+  const barStyle = { backgroundColor: c.surface.base, borderTopColor: c.surface.hairline, paddingBottom: insets.bottom + space.xl };
 
   if (resolved) {
     return (
-      <View style={[styles.bar, { backgroundColor: c.surface.base, borderTopColor: c.surface.hairline }]}>
+      <View testID="mood-only-bar" style={[styles.bar, barStyle]}>
         <Pressable
           onPress={onContinue}
           accessibilityRole="button"
@@ -54,14 +61,14 @@ export function MoodOnlyBar({ connect, onMoodOnly, onContinue }: MoodOnlyBarProp
   }
 
   return (
-    <View style={[styles.bar, { backgroundColor: c.surface.base, borderTopColor: c.surface.hairline }]}>
+    <View testID="mood-only-bar" style={[styles.bar, barStyle]}>
       <Pressable
         onPress={onMoodOnly}
         accessibilityRole="button"
         accessibilityLabel="continue-mood-only"
         style={[styles.button, styles.outline, { borderColor: c.accent.glow }]}
       >
-        <Text style={[styles.label, { color: c.accent.glow }]}>Continue with mood only</Text>
+        <Text style={[styles.label, { color: c.content.primary }]}>Continue with mood only</Text>
       </Pressable>
       <Text style={[styles.subtext, { color: c.content.tertiary }]}>
         You can connect a wearable anytime in Profile.
@@ -71,7 +78,7 @@ export function MoodOnlyBar({ connect, onMoodOnly, onContinue }: MoodOnlyBarProp
 }
 
 const styles = StyleSheet.create({
-  bar: { paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: space.xl, borderTopWidth: StyleSheet.hairlineWidth },
+  bar: { paddingHorizontal: space.xl, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth },
   button: { width: '100%', paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   outline: { backgroundColor: 'transparent' },
   label: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
