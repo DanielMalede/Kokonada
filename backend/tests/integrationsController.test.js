@@ -47,6 +47,12 @@ jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
 }));
+// Art.9 consent service — the Garmin callback now gates its 6-month backfill on a current grant.
+// Default to granted so existing callback tests are unaffected; the gate test overrides it.
+jest.mock('../app/services/privacy/consent', () => ({
+  getConsentStatus:       jest.fn().mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false }),
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
+}));
 
 // ── The module under test ─────────────────────────────────────────────────────
 jest.mock('../app/services/musicProfileService', () => ({
@@ -64,6 +70,7 @@ const ServeEvent         = require('../app/models/ServeEvent');
 const { purgeUserKeys }  = require('../app/utils/userRedisPurge');
 const candidatePool      = require('../app/services/selection/candidatePool');
 const { signOauthState } = require('../app/utils/jwt');
+const { getConsentStatus } = require('../app/services/privacy/consent');
 const ctrl               = require('../app/controllers/integrationsController');
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -333,12 +340,27 @@ describe('integrationsController — buildProfile wiring', () => {
       const res = buildRes();
 
       await ctrl.garminCallback({ query: { code: 'auth-code', state: validState() }, cookies: {} }, res);
+      await nextTick(); // drain the fire-and-forget backfill setImmediate so it can't leak into the next test
 
       expect(garmin.exchangeCode).toHaveBeenCalledWith('auth-code', 'verifier');
       expect(garmin.getUserId).toHaveBeenCalledWith('gat');
       expect(user.garminUserId).toBe('garmin-99');
       expect(user.setToken).toHaveBeenCalledWith('wearableToken', expect.objectContaining({ accessToken: 'gat', garminUserId: 'garmin-99' }));
       expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('biometric=garmin'));
+    });
+
+    it('skips the 6-month backfill when the user has no current Art.9 consent (still connects)', async () => {
+      garmin.exchangeCode.mockResolvedValue({ accessToken: 'gat', refreshToken: 'grt', expiresAt: Date.now() + 3600000 });
+      garmin.getUserId.mockResolvedValue({ garminUserId: 'garmin-99' });
+      getConsentStatus.mockResolvedValueOnce({ granted: false, currentVersion: 1, staleVersion: false });
+      User.findById.mockResolvedValue(buildUser());
+      const res = buildRes();
+
+      await ctrl.garminCallback({ query: { code: 'auth-code', state: validState() }, cookies: {} }, res);
+      await nextTick(); // let any (wrongly) scheduled setImmediate backfill run
+
+      expect(garmin.requestSixMonthBackfill).not.toHaveBeenCalled(); // never asks Garmin to push history
+      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('biometric=garmin')); // connection still succeeds
     });
 
     it('redirects with error=garmin_state on a tampered/missing state', async () => {
