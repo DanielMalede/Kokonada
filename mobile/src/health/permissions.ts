@@ -1,3 +1,10 @@
+// ⚠️ DEPRECATED / UNUSED — do NOT copy from this file.
+// This is an early standalone prototype under `mobile/src/**`; nothing imports it. The LIVE
+// app is `mobile/KokonadaHealth/` and the authoritative Health Connect scope set lives in
+// `mobile/KokonadaHealth/src/health/permissions.ts` (SCOPE-MINIMIZED — HR/HRV/sleep/resting HR
+// + ReadHealthDataHistory only). The record types below are STALE: they still list
+// OxygenSaturation, RespiratoryRate and BackgroundAccessPermission, which the shipped app no
+// longer requests. Follow the live file, never this one, when configuring permissions.
 import type { Permission } from 'react-native-health-connect';
 
 // Health Connect record types we read for the medical profile.

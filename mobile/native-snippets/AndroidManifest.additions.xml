@@ -6,17 +6,16 @@
 <!-- ① <uses-permission> entries: put these directly under <manifest>, above <application>. -->
 <uses-permission android:name="android.permission.INTERNET" />
 
-<!-- Data we read for the medical profile -->
+<!-- Data we read for the medical profile (SCOPE-MINIMIZED — only types with a real reader:
+     HR / HRV / sleep / resting HR. SpO2 & respiratory rate are NOT read via Health Connect). -->
 <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
 <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
 <uses-permission android:name="android.permission.health.READ_SLEEP" />
 <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
-<uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
-<uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
 
-<!-- ★ The two permissions that make the 6-month backfill possible -->
-<uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />        <!-- read >30 days -->
-<uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />  <!-- background delta sync -->
+<!-- ★ History (>30 days) needed for the ~6-month backfill. No background read: every read is
+     foreground, so READ_HEALTH_DATA_IN_BACKGROUND is intentionally NOT requested. -->
+<uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
 
 <!-- ★ Live heart-rate over BLE (Garmin "Broadcast Heart Rate" → standard HR Service 0x180D).
      Android 12+ (API 31) uses the new runtime BLE permissions; neverForLocation tells the OS

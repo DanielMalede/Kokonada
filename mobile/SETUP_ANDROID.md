@@ -90,7 +90,8 @@ Health Connect deep-links to it).
 ### 4d. `AndroidManifest.xml`
 Merge `native-snippets/AndroidManifest.additions.xml` into
 `android/app/src/main/AndroidManifest.xml` — it adds the health `<uses-permission>` entries
-(incl. **`READ_HEALTH_DATA_HISTORY`** for >30-day reads and **`READ_HEALTH_DATA_IN_BACKGROUND`**),
+(the scope-minimized set: HR / HRV / sleep / resting HR, plus **`READ_HEALTH_DATA_HISTORY`**
+for >30-day reads; **no** SpO2/respiratory/background scopes — they have no reader),
 the rationale `intent-filter` on `MainActivity`, the `PermissionsRationaleActivity`, and the
 Android-14 `activity-alias`.
 
