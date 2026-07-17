@@ -55,8 +55,8 @@ describe('connect providers registry', () => {
     // provider carries a connectUrl/oauth field that a row could mistakenly wire.
     for (const p of providersByKind('music')) {
       expect(p.state).not.toBe('enabled');
-      expect(p as Record<string, unknown>).not.toHaveProperty('connectUrl');
-      expect(p as Record<string, unknown>).not.toHaveProperty('oauth');
+      expect(p as unknown as Record<string, unknown>).not.toHaveProperty('connectUrl');
+      expect(p as unknown as Record<string, unknown>).not.toHaveProperty('oauth');
     }
   });
 
