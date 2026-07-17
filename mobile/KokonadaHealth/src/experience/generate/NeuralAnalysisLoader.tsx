@@ -4,6 +4,7 @@ import { useSharedValue, useDerivedValue, withSpring, type SharedValue } from 'r
 import { fibonacciSphere, nearestEdges, projectNode, heat, clamp01 } from './neuralLoaderMath';
 import { emotionAnchors } from '../../design/tokens';
 import { parseHex } from '../../design/contrast';
+import { useTheme } from '../../design/theme';
 
 // GENESIS Neural-Analysis Loader — a translucent, reticulated pearl (a living 3D neural net)
 // inside a living harmonic bloom, on the Skia UI/GPU thread so generation latency never janks it.
@@ -31,7 +32,19 @@ const BLOOM_IN = `rgba(${CALM.r},${CALM.g},${CALM.b},0.16)`;
 const BLOOM_OUT = `rgba(${CALM.r},${CALM.g},${CALM.b},0)`;
 const BLOOM_GLASS = `rgba(${CALM.r},${CALM.g},${CALM.b},0.06)`; // the iridescent glass's cyan stop
 
+const rgba = (hex: string, a: number) => { const { r, g, b } = parseHex(hex); return `rgba(${r},${g},${b},${a})`; };
+
 export function NeuralAnalysisLoader({ active, engagement, size = 260, reduced = false }: Props) {
+  const { name, c } = useTheme();
+  // Theme-aware pearl (A4b): on the abyss the glass/specular are white-emitting; on porcelain they
+  // deepen (token slate + accent stops) so the translucent pearl reads with depth instead of
+  // washing out. Derived from tokens — never a hardcoded hue.
+  const glassStops = name === 'light'
+    ? [rgba(c.content.primary, 0.12), rgba(c.accent.bloom, 0.30), rgba(c.accent.glow, 0.20)]
+    : ['rgba(255,255,255,0.34)', rgba(c.accent.bloom, 0.20), BLOOM_GLASS];
+  const specularStops = name === 'light'
+    ? [rgba(c.content.primary, 0.16), rgba(c.content.primary, 0)]
+    : ['rgba(255,255,255,0.5)', 'rgba(255,255,255,0)'];
   const clock = useClock(); // ms since mount, ticks every frame on the UI thread
   const intensity = useSharedValue(0);
 
@@ -145,7 +158,7 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260, reduced =
         <RadialGradient
           c={vec(cx - baseR * 0.26, cy - baseR * 0.3)}
           r={baseR * 1.3}
-          colors={['rgba(255,255,255,0.34)', 'rgba(183,155,255,0.20)', BLOOM_GLASS]}
+          colors={glassStops}
         />
       </Circle>
 
@@ -162,7 +175,7 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260, reduced =
         <RadialGradient
           c={vec(cx - baseR * 0.26, cy - baseR * 0.3)}
           r={baseR * 0.4}
-          colors={['rgba(255,255,255,0.5)', 'rgba(255,255,255,0)']}
+          colors={specularStops}
         />
       </Circle>
     </Canvas>
