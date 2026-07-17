@@ -4,10 +4,12 @@ import { motion } from '../design/tokens';
 import { startApp as prodStartApp } from '../prodBootstrap';
 import { currentUserStore } from '../auth/currentUser';
 import { onboardingStore } from '../onboarding/onboardingStore';
+import { connectStore } from '../experience/connect/connectStore';
 import { resolvePostSplashRoute } from './routeMachine';
 import { SplashScreen } from '../splash/SplashScreen';
 import { OnboardingScreen } from '../onboarding/OnboardingScreen';
 import { SignInScreen } from '../auth/SignInScreen';
+import { ConnectServicesScreen } from '../experience/connect/ConnectServicesScreen';
 import { AppLifecycle } from '../experience/playback/AppLifecycle';
 import RootNavigator from './RootNavigator';
 
@@ -41,6 +43,7 @@ export function AppFlow({
   const [phase, setPhase] = useState<'splash' | 'resolved'>('splash');
   const [hasUser, setHasUser] = useState(() => !!currentUserStore.getState().user);
   const [seen, setSeen] = useState(() => onboardingStore.getState().seen);
+  const [connectResolved, setConnectResolved] = useState(() => connectStore.getState().resolved);
 
   useEffect(() => {
     let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -57,14 +60,16 @@ export function AppFlow({
       dwell = setTimeout(() => setPhase('resolved'), dwellMs); // hold one inhale, then route
     });
 
-    // Reactive facts: identity (login/logout/recovery) and the one-shot FTUE flag.
+    // Reactive facts: identity (login/logout/recovery), the one-shot FTUE flag, and the §4
+    // Connect gate (resolved by mood-only or a wearable connect; hydrated per-account at bootstrap).
     const unUser = currentUserStore.subscribe((s) => setHasUser(!!s.user));
     const unSeen = onboardingStore.subscribe((s) => setSeen(s.seen));
-    return () => { clearTimeout(deadline); clearTimeout(dwell); unUser(); unSeen(); };
+    const unConnect = connectStore.subscribe((s) => setConnectResolved(s.resolved));
+    return () => { clearTimeout(deadline); clearTimeout(dwell); unUser(); unSeen(); unConnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const route = phase === 'splash' ? 'splash' : resolvePostSplashRoute(hasUser, seen);
+  const route = phase === 'splash' ? 'splash' : resolvePostSplashRoute(hasUser, seen, connectResolved);
 
   switch (route) {
     case 'splash':
@@ -73,6 +78,8 @@ export function AppFlow({
       return <OnboardingScreen />;
     case 'signin':
       return <SignInScreen />;
+    case 'connect':
+      return <ConnectServicesScreen />;
     case 'app':
     default:
       return (

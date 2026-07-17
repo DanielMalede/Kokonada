@@ -12,6 +12,7 @@ import { setColdPersistence } from './state/cold/coldPersistenceHolder';
 import { createSecureStore } from './storage/secureStoreFactory';
 import { bindLiveModeKV } from './experience/generate/liveModeStore';
 import { bindOnboardingKV } from './onboarding/onboardingStore';
+import { bindConnectKV } from './experience/connect/connectStore';
 import type { SecureStore } from './storage/secureStore';
 
 // Production ignition. Composes the tested `bootstrapApp` sequence with the real
@@ -60,6 +61,14 @@ export async function startApp(): Promise<void> {
     /* degrade to signed-out */
   }
 
+  // §4: hydrate the Connect gate for THIS account (per-userId keys) AFTER /me recovery, so the
+  // splash resolves straight to the app for an already-resolved returning user (no connect flash),
+  // and to Connect Services for a fresh/unresolved one. Runs before the dwell (startApp is awaited).
+  if (s) {
+    const connectKv = { getString: (k: string) => s.getItem(k) ?? undefined, set: (k: string, v: string) => { s.setItem(k, v); } };
+    bindConnectKV(connectKv, getCurrentUserId);
+  }
+
   await bootstrapApp({
     bootstrapSession: async () => authSession.getAccessToken() !== null,
     getUserId: getCurrentUserId,
@@ -86,6 +95,12 @@ export async function onSignedIn(): Promise<void> {
       const cp = makeColdPersistence();
       cp.rehydrate();
       cp.attach();
+      // §4: hydrate the Connect gate for the freshly-signed-in account — a returning account that
+      // already resolved on this device skips Connect Services; a new one sees it.
+      if (secureStore) {
+        const store = secureStore;
+        bindConnectKV({ getString: (k: string) => store.getItem(k) ?? undefined, set: (k: string, v: string) => { store.setItem(k, v); } }, getCurrentUserId);
+      }
     }
   } catch {
     /* best-effort */
