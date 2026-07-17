@@ -3,7 +3,15 @@
 // a single NaN in a Skia transform blanks or crashes the whole canvas (the BioAura
 // §B.2 precedent). Deterministic and unit-tested; the component is a thin surface.
 
+import { emotionAnchors } from '../../design/tokens';
+import { parseHex } from '../../design/contrast';
+
 export type RGB = [number, number, number];
+
+function anchorRgb(hex: string): RGB {
+  const { r, g, b } = parseHex(hex);
+  return [r, g, b];
+}
 
 export interface Node3 {
   x: number;
@@ -19,10 +27,12 @@ export interface Projected {
   phase: number;
 }
 
-// Engagement heat ramp anchors — cyan (calm) → coral → red (peak). Exported for tests.
-export const CYAN: RGB = [158, 232, 255];
-const CORAL: RGB = [255, 148, 120];
-export const RED: RGB = [255, 58, 62];
+// Engagement heat ramp anchors — cyan (calm) → coral → red (peak) — sourced from the design
+// tokens (emotionAnchors calm/coral/peak) so the loader's colour tracks the palette with zero
+// drift. Exported for tests. (parseHex on a static token literal cannot throw.)
+export const CYAN: RGB = anchorRgb(emotionAnchors.calm);  // #31E1C4
+export const CORAL: RGB = anchorRgb(emotionAnchors.coral); // #FF8A73
+export const RED: RGB = anchorRgb(emotionAnchors.peak);   // #FF5A5A
 
 const TWO_PI = Math.PI * 2;
 

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo } from 'react';
 import { Canvas, Group, Circle, Path, Blur, RadialGradient, Skia, useClock, vec } from '@shopify/react-native-skia';
 import { useSharedValue, useDerivedValue, withSpring, type SharedValue } from 'react-native-reanimated';
 import { fibonacciSphere, nearestEdges, projectNode, heat, clamp01 } from './neuralLoaderMath';
+import { emotionAnchors } from '../../design/tokens';
+import { parseHex } from '../../design/contrast';
 
 // GENESIS Neural-Analysis Loader — a translucent, reticulated pearl (a living 3D neural net)
 // inside a living harmonic bloom, on the Skia UI/GPU thread so generation latency never janks it.
@@ -14,19 +16,30 @@ interface Props {
   active: boolean;
   engagement: SharedValue<number>;
   size?: number;
+  // OS reduce-motion → a STILL pearl at a single fixed phase (no clock-driven tumble/breath, no
+  // spring). The Genesis field must honour useMotion().reduced (the loader always animated before).
+  reduced?: boolean;
 }
 
 const NODE_COUNT = 44;
 const TAU = Math.PI * 2;
+// The frozen phase a reduced-motion render sits at — a calm, non-degenerate pose for the pearl.
+const REDUCED_PHASE = 0.6;
+// Ambient bloom colour, token-sourced from emotionAnchors.calm (no hardcoded cyan drift).
+const CALM = parseHex(emotionAnchors.calm);
+const BLOOM_IN = `rgba(${CALM.r},${CALM.g},${CALM.b},0.16)`;
+const BLOOM_OUT = `rgba(${CALM.r},${CALM.g},${CALM.b},0)`;
+const BLOOM_GLASS = `rgba(${CALM.r},${CALM.g},${CALM.b},0.06)`; // the iridescent glass's cyan stop
 
-export function NeuralAnalysisLoader({ active, engagement, size = 260 }: Props) {
+export function NeuralAnalysisLoader({ active, engagement, size = 260, reduced = false }: Props) {
   const clock = useClock(); // ms since mount, ticks every frame on the UI thread
   const intensity = useSharedValue(0);
 
   useEffect(() => {
-    // Underdamped spring → the pearl inflates with a subtle overshoot on entry, exhales on exit.
-    intensity.value = withSpring(active ? 1 : 0, { damping: 13, stiffness: 78, mass: 0.7 });
-  }, [active, intensity]);
+    // reduced → jump straight to the target (no overshoot). Otherwise an underdamped spring → the
+    // pearl inflates with a subtle overshoot on entry, exhales on exit.
+    intensity.value = reduced ? (active ? 1 : 0) : withSpring(active ? 1 : 0, { damping: 13, stiffness: 78, mass: 0.7 });
+  }, [active, intensity, reduced]);
 
   // Geometry precomputed once on the JS thread (pure data — no worklet needed).
   const sphere = useMemo(() => fibonacciSphere(NODE_COUNT), []);
@@ -40,9 +53,9 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260 }: Props) 
   // ── Derived per-frame scalars (UI thread) ──────────────────────────────────
   const pr = useDerivedValue(() => {
     'worklet';
-    const t = clock.value / 1000;
+    const t = reduced ? REDUCED_PHASE : clock.value / 1000;
     const I = clamp01(intensity.value);
-    const breath = Math.sin(t * (0.8 + 1.4 * I)) * 0.5 + 0.5; // alive even at rest
+    const breath = Math.sin(t * (0.8 + 1.4 * I)) * 0.5 + 0.5; // alive even at rest (frozen when reduced)
     return baseR * (1 + (breath - 0.5) * (0.05 + 0.08 * I));
   });
   const netColor = useDerivedValue(() => {
@@ -62,7 +75,7 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260 }: Props) 
   // ── Reticulated net — 3D tumble projected to two Skia paths ─────────────────
   const edgesPath = useDerivedValue(() => {
     'worklet';
-    const t = clock.value / 1000;
+    const t = reduced ? REDUCED_PHASE : clock.value / 1000;
     const I = clamp01(intensity.value);
     const ry = t * (0.25 + 0.45 * I);
     const rx = Math.sin(t * 0.3) * 0.35; // gentle tumble
@@ -78,7 +91,7 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260 }: Props) 
   });
   const nodesPath = useDerivedValue(() => {
     'worklet';
-    const t = clock.value / 1000;
+    const t = reduced ? REDUCED_PHASE : clock.value / 1000;
     const I = clamp01(intensity.value);
     const ry = t * (0.25 + 0.45 * I);
     const rx = Math.sin(t * 0.3) * 0.35;
@@ -96,7 +109,7 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260 }: Props) 
   // ── Living harmonic bloom behind — undulating rose strands ──────────────────
   const bloomPath = useDerivedValue(() => {
     'worklet';
-    const t = clock.value / 1000;
+    const t = reduced ? REDUCED_PHASE : clock.value / 1000;
     const I = clamp01(intensity.value);
     const strands = 4 + Math.round(5 * I);
     const p = Skia.Path.Make();
@@ -120,7 +133,7 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260 }: Props) 
     <Canvas style={{ width: size, height: size }} pointerEvents="none">
       {/* aura */}
       <Circle cx={cx} cy={cy} r={auraR} opacity={netOpacity}>
-        <RadialGradient c={vec(cx, cy)} r={size} colors={['rgba(158,232,255,0.16)', 'rgba(158,232,255,0)']} />
+        <RadialGradient c={vec(cx, cy)} r={size} colors={[BLOOM_IN, BLOOM_OUT]} />
         <Blur blur={size * 0.06} />
       </Circle>
 
@@ -132,7 +145,7 @@ export function NeuralAnalysisLoader({ active, engagement, size = 260 }: Props) 
         <RadialGradient
           c={vec(cx - baseR * 0.26, cy - baseR * 0.3)}
           r={baseR * 1.3}
-          colors={['rgba(255,255,255,0.34)', 'rgba(183,155,255,0.20)', 'rgba(158,232,255,0.06)']}
+          colors={['rgba(255,255,255,0.34)', 'rgba(183,155,255,0.20)', BLOOM_GLASS]}
         />
       </Circle>
 

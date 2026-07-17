@@ -5,8 +5,23 @@ import {
   heat,
   clamp01,
   CYAN,
+  CORAL,
   RED,
 } from '../neuralLoaderMath';
+import { emotionAnchors } from '../../../design/tokens';
+import { parseHex } from '../../../design/contrast';
+
+// The engagement heat ramp must SPEAK THE TOKEN PALETTE (no drift): cyan→coral→red is the
+// emotionAnchors calm→coral→peak triad, not a hand-picked approximation. If a token shifts, the
+// loader's colour follows — these pins fail on any divergence.
+describe('heat ramp anchors are the emotionAnchors tokens (no palette drift)', () => {
+  const rgb = (hex: string) => { const { r, g, b } = parseHex(hex); return [r, g, b]; };
+  it('CYAN = emotionAnchors.calm, CORAL = emotionAnchors.coral, RED = emotionAnchors.peak', () => {
+    expect(CYAN).toEqual(rgb(emotionAnchors.calm));   // #31E1C4
+    expect(CORAL).toEqual(rgb(emotionAnchors.coral)); // #FF8A73
+    expect(RED).toEqual(rgb(emotionAnchors.peak));    // #FF5A5A
+  });
+});
 
 describe('fibonacciSphere', () => {
   it('returns n points, each on the unit sphere', () => {
