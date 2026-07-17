@@ -8,9 +8,11 @@
 > export/erasure endpoints, and the sub-processor posture. Ground truth for the security
 > posture: [ADR 0005 — zero-knowledge biometrics](adr/0005-zero-knowledge-biometrics.md).
 >
-> **What changed in this reconciliation:** (1) SpO₂ and respiratory rate are **no longer
-> collected** — their Health Connect scopes had no reader and were removed (scope
-> minimization); (2) the background-read scope was removed (all reads are foreground);
+> **What changed in this reconciliation:** (1) SpO₂ and respiratory rate are **no longer read
+> via Android Health Connect** — those scopes had no reader and were removed (scope
+> minimization); they may **still** be ingested from Garmin pulseox/respiration and Apple
+> Health and are stored encrypted on `MedicalProfile` (NOT a claim of zero collection);
+> (2) the background-read scope was removed (all reads are foreground);
 > (3) added the **Groq sub-processor** disclosure (anonymized taste/mood signals only — **no
 > biometrics** reach any LLM, per ADR 0005); (4) added **retention windows**; (5) added the
 > **data-export** right; (6) noted Garmin **deregistration** on disconnect.
@@ -23,25 +25,26 @@
 | Name / avatar | `User.displayName`, `avatarUrl` | Profile display | Optional; Apple sends name only on first grant. |
 | SSO identifier | `User.ssoProvider`+`ssoId`, `Identity` | Authentication | Account keyed by (provider, ssoId); **not** auto-linked across providers by email. |
 | 3rd-party OAuth tokens (Spotify, YouTube Music, wearable) | `User.spotifyToken` / `youtubeMusicToken` / `wearableToken` | Music sourcing + biometrics ingest | **AES-256-GCM encrypted at rest** (`encryptedTokenSchema`). |
-| Health & fitness (HR, HRV, sleep, resting HR) | `BiometricLog`, `MedicalProfile` | Core feature: biometric-adaptive playlist generation | Field-level encrypted per ADR 0005; ingested from Garmin / Health Connect / watch. **Never** sent to any LLM/AI. SpO₂ & respiratory rate are **not** collected. |
+| Health & fitness (HR, HRV, sleep, resting HR, SpO₂, respiration) | `BiometricLog`, `MedicalProfile` | Core feature: biometric-adaptive playlist generation | Field-level encrypted per ADR 0005; ingested from Garmin / Health Connect / watch. **Never** sent to any LLM/AI. SpO₂ & respiration are no longer read via **Android Health Connect** but may still arrive from **Garmin** pulseox/respiration and **Apple Health** (persisted encrypted on `MedicalProfile.spO2` / `.respirationRate`). |
 | Music profile & listening-derived taste | `MusicProfile` | Personalised generation | Derived from the user's own Spotify/YouTube history. |
 | Playlist history & serve events | `PlaylistSession`, `ServeEvent`, `UnclassifiedTrack` | History screen, anti-repetition | User-scoped. |
 | Push tokens | `User.pushTokens` | Notifications (mobile) | Per device (ios/android/web). |
 | Watch device token (hash) | `User.watchToken.hash` | Sideloaded watch HR streaming | Only a hash is stored; the `whr_` secret is shown once, never persisted in clear. |
 | Entitlement tier | `User.entitlements` | Free-tier state (RevenueCat) | App is 100% free ([ADR 0001](adr/0001-100-percent-free-app.md)); no purchase/financial data collected. |
 
-**Not collected:** precise location, contacts, browsing history, advertising identifiers, financial/payment info, SpO₂, respiratory rate. **No third-party advertising or analytics SDKs; no data sold or shared for ads.**
+**Not collected:** precise location, contacts, browsing history, advertising identifiers, financial/payment info. **No third-party advertising or analytics SDKs; no data sold or shared for ads.**
 
 ## Sub-processors & AI
 
 | Sub-processor | What it receives | What it NEVER receives |
 | :--- | :--- | :--- |
-| **Groq** (LLM inference for mood/taste reasoning during generation) | **Anonymized** taste/mood signals only — genre/mood descriptors and derived generation parameters, keyed by `md5(prompt)`. | **No biometrics** (HR/HRV/sleep/resting HR), **no** raw identity, **no** account email. |
+| **Groq** (LLM inference for mood/taste reasoning during generation) | **Anonymized** taste/mood signals — genre/mood descriptors and derived generation parameters, keyed by `md5(prompt)`; plus **YouTube-sourced artist names** for one-time genre backfill (see below). | **No biometrics** (HR/HRV/sleep/resting HR/SpO₂/respiration), **no Spotify content**, **no** raw identity, **no** account email. |
 | Music providers (**Spotify**, **YouTube Music**) | The user's OAuth token, used **at the user's direction** to read their own library/taste and source playback — nothing more. | Not transferred to any other party for that party's own use. |
 | Wearable providers (**Garmin**, Health Connect, Suunto) | OAuth/webhook plumbing to ingest the user's own biometrics. | — |
 
 - **Biometrics are never shipped to any LLM or external AI**, never logged, and decrypted only in worker scope ([ADR 0005](adr/0005-zero-knowledge-biometrics.md); audit F3/F16). The Groq cache stores only `md5(prompt)` + derived params — never vitals.
 - Raw HR/HRV/sleep are **AES-256-GCM field-encrypted at rest**; the serve ledger stores only **coarse bands**, never raw vitals.
+- **Music-content policy (Wave 0 H-3):** Spotify content is **never** sent to any LLM (Spotify Developer Policy AI-ingestion ban). When a profile has no usable genres, **YouTube-sourced artist names only** are sent to Groq once at profile-build time for genre backfill (`inferArtistGenres`) — an explicit allowlist (`youtube_music`) that fails **closed** (a provider-less/mis-tagged track's artist is never sent). No track audio/content and no biometrics are involved.
 
 ## Retention
 
@@ -64,7 +67,7 @@
 - **Data Used to Track You:** *None.* (No ad networks, no cross-app tracking, no IDFA.)
 - **Data Linked to You** (identifiable, used for **App Functionality** only — not tracking, not advertising):
   - Contact Info → **Email Address** (account).
-  - Health & Fitness → **Health** (HR/HRV/sleep) and **Fitness** (activity/resting HR) — core feature. (SpO₂/respiratory are not collected.)
+  - Health & Fitness → **Health** (HR/HRV/sleep, and SpO₂/respiration when supplied by Garmin/Apple Health) and **Fitness** (activity/resting HR) — core feature.
   - User Content → **Other User Content** (music/taste profile, playlist history).
   - Identifiers → **User ID** (SSO subject).
   - Usage Data → **Product Interaction** (generation/serve events, for anti-repetition + history).
