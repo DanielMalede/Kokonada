@@ -15,6 +15,7 @@ jest.mock('../../prodBootstrap', () => ({ startApp: jest.fn().mockResolvedValue(
 jest.mock('../../splash/SplashScreen', () => ({ SplashScreen: marker('route-splash') }));
 jest.mock('../../onboarding/OnboardingScreen', () => ({ OnboardingScreen: marker('route-onboarding') }));
 jest.mock('../../auth/SignInScreen', () => ({ SignInScreen: marker('route-signin') }));
+jest.mock('../../experience/connect/ConnectServicesScreen', () => ({ ConnectServicesScreen: marker('route-connect') }));
 jest.mock('../RootNavigator', () => ({ __esModule: true, default: marker('route-app') }));
 jest.mock('../../experience/playback/AppLifecycle', () => ({ AppLifecycle: () => null }));
 
@@ -23,6 +24,7 @@ import { AppFlow, SPLASH_DWELL_MS } from '../AppFlow';
 import { motion } from '../../design/tokens';
 import { currentUserStore } from '../../auth/currentUser';
 import { onboardingStore } from '../../onboarding/onboardingStore';
+import { connectStore } from '../../experience/connect/connectStore';
 
 const USER = { id: 'u1', displayName: 'Dan', email: 'd@x.io' };
 const has = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
@@ -51,6 +53,7 @@ beforeEach(() => {
   (BootSplash.hide as jest.Mock).mockResolvedValue(undefined);
   currentUserStore.setState({ user: null });
   onboardingStore.setState({ seen: false });
+  connectStore.setState({ resolved: false, moodOnly: false });
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -84,22 +87,63 @@ describe('AppFlow — 4-state route machine', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('a recovered session (user present) resolves to the app', async () => {
+  it('a recovered AND resolved session (user present, connect done) resolves to the app', async () => {
+    currentUserStore.setState({ user: USER });
+    connectStore.setState({ resolved: true });
+    const tree = await renderResolved();
+    expect(has(tree, 'route-app')).toBe(true);
+    expect(has(tree, 'route-connect')).toBe(false);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('a signed-in but UNRESOLVED session lands on Connect Services (§4), not the app', async () => {
+    currentUserStore.setState({ user: USER }); // connectStore stays unresolved (beforeEach)
+    const tree = await renderResolved();
+    expect(has(tree, 'route-connect')).toBe(true);
+    expect(has(tree, 'route-app')).toBe(false);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('resolving Connect (markResolved) flips the route connect → app', async () => {
     currentUserStore.setState({ user: USER });
     const tree = await renderResolved();
+    expect(has(tree, 'route-connect')).toBe(true);
+    await ReactTestRenderer.act(async () => { connectStore.getState().markResolved(); });
+    expect(has(tree, 'route-app')).toBe(true);
+    expect(has(tree, 'route-connect')).toBe(false);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('choosing mood-only (setMoodOnly) also flips the route connect → app', async () => {
+    currentUserStore.setState({ user: USER });
+    const tree = await renderResolved();
+    expect(has(tree, 'route-connect')).toBe(true);
+    await ReactTestRenderer.act(async () => { connectStore.getState().setMoodOnly(); });
     expect(has(tree, 'route-app')).toBe(true);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('REGRESSION: logout returns to SIGNIN, never back to onboarding', async () => {
+  it('REGRESSION: logout returns to SIGNIN, never onboarding OR the post-auth connect screen', async () => {
     onboardingStore.setState({ seen: true });
     currentUserStore.setState({ user: USER });
+    connectStore.setState({ resolved: true });
     const tree = await renderResolved();
     expect(has(tree, 'route-app')).toBe(true);
-    // user logs out
+    // user logs out — connectResolved is inert without a user
     await ReactTestRenderer.act(async () => { currentUserStore.getState().clear(); });
     expect(has(tree, 'route-signin')).toBe(true);
     expect(has(tree, 'route-onboarding')).toBe(false);
+    expect(has(tree, 'route-connect')).toBe(false);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('a recovered+resolved session renders the app with NO connect flash (resolved read before the dwell)', async () => {
+    currentUserStore.setState({ user: USER });
+    connectStore.setState({ resolved: true }); // as if bindConnectKV hydrated it before the dwell
+    const tree = await renderResolved();
+    // The dwell resolves straight to app — connect is never rendered.
+    expect(has(tree, 'route-app')).toBe(true);
+    expect(has(tree, 'route-connect')).toBe(false);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
@@ -112,11 +156,16 @@ describe('AppFlow — 4-state route machine', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('signing in from signin advances to the app', async () => {
+  it('signing in from signin advances to Connect Services (§4) first, then the app once resolved', async () => {
     onboardingStore.setState({ seen: true });
     const tree = await renderResolved();
     expect(has(tree, 'route-signin')).toBe(true);
+    // Fresh sign-in — connect is not yet resolved for this account, so setup shows first.
     await ReactTestRenderer.act(async () => { currentUserStore.getState().setUser(USER); });
+    expect(has(tree, 'route-connect')).toBe(true);
+    expect(has(tree, 'route-app')).toBe(false);
+    // …and completing (or escaping) Connect advances to the app.
+    await ReactTestRenderer.act(async () => { connectStore.getState().setMoodOnly(); });
     expect(has(tree, 'route-app')).toBe(true);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
