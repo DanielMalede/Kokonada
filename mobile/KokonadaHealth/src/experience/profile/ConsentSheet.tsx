@@ -22,6 +22,11 @@ const DATA_TYPE_LABELS: Record<(typeof CONSENT_DATA_CATEGORIES)[number], string>
   sleep: 'Sleep sessions',
   resting_heart_rate: 'Resting heart rate',
   historical_access_182d: 'Historical readings (up to ~6 months back)',
+  // Garmin server-to-server lane only — each names its source so a Health-Connect-only user is
+  // never told we read something their phone doesn't share.
+  spo2: 'Blood oxygen (SpO₂) — from a connected Garmin device',
+  respiratory_rate: 'Respiration rate — from a connected Garmin device',
+  body_battery: 'Body Battery — from a connected Garmin device',
 };
 
 interface Section { heading: string; body: string; }

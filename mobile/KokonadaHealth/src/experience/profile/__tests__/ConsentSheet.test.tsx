@@ -217,22 +217,28 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
-    it('lists every locked data category the app is asking to read', async () => {
+    it('lists every locked data category across wearable lanes (HC scope-min + Garmin-sourced shape)', async () => {
       const store = build();
       store.getState().hydrate(status({ granted: false }));
       const tree = await render(<ConsentSheet store={store} onProceed={jest.fn()} onDecline={jest.fn()} />);
       const all = texts(tree.toJSON()).join(' ').toLowerCase();
-      // The copy must enumerate exactly the categories being sent to the backend — scope-
-      // minimized to the REAL Health Connect request set (PR #152 T3): no SpO2/respiratory/
-      // background, since those scopes were removed for having zero readers.
-      expect(CONSENT_DATA_CATEGORIES.length).toBe(5);
+      // The copy must enumerate exactly the categories sent to the backend — the UNION across
+      // wearable lanes. Health Connect stays scope-minimized (PR #152 T3); the Garmin server-to-
+      // server lane's SpO2/respiration/Body Battery are disclosed too (labelled as Garmin-sourced)
+      // so the umbrella consent covers them before that backend-gated lane goes live.
+      expect(CONSENT_DATA_CATEGORIES.length).toBe(8);
+      // Health Connect lane:
       expect(all).toContain('heart rate');
       expect(all).toContain('hrv');
       expect(all).toContain('sleep');
       expect(all).toContain('resting heart rate');
       expect(all).toMatch(/6 month|historical/);
-      expect(all).not.toMatch(/spo|blood oxygen/);
-      expect(all).not.toContain('respiratory');
+      // Garmin server-to-server lane (provider-specific, disclosed ahead of go-live):
+      expect(all).toMatch(/spo|blood oxygen/);
+      expect(all).toContain('respiration');
+      expect(all).toContain('body battery');
+      expect(all).toContain('garmin'); // each Garmin-only category names its source — never over-claiming for a Health-Connect-only user
+      // background_access is still NOT disclosed — no lane reads it.
       expect(all).not.toContain('background');
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });

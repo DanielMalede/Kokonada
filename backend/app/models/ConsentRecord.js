@@ -21,7 +21,11 @@ const consentRecordSchema = new mongoose.Schema({
   // Bumped in services/privacy/consent.js (CURRENT_CONSENT_VERSION) whenever the consent text /
   // data categories materially change — a row at an older version reads as stale (re-prompt).
   consentVersion: { type: Number, required: true },
-  // The special-category data categories the user consented to (e.g. heart_rate, hrv, sleep).
+  // The special-category data categories the user consented to — the provider-specific union across
+  // wearable lanes: Health Connect (heart_rate, hrv, sleep, resting_heart_rate, historical) plus the
+  // Garmin server-to-server lane (spo2, respiratory_rate, body_battery). mobile consentApi.ts
+  // CONSENT_DATA_CATEGORIES is the authoritative list; kept as the client sent it so the record
+  // reflects exactly what was shown.
   dataCategories: { type: [String], default: [] },
   status: {
     type: String,

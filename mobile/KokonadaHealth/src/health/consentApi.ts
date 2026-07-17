@@ -11,21 +11,37 @@ import { apiGet, apiPost, type ApiResult } from '../net/apiClient';
 //   currentVersion ← services/privacy/consent.js CURRENT_CONSENT_VERSION
 export const CONSENT_PURPOSE = 'health_biometric_processing' as const;
 
-// The special-category categories the user is agreeing to. LOCKED to the backend's canonical
-// list — the consent-document copy (ConsentSheet) MUST enumerate exactly these, so the record
-// reflects precisely what was shown. Do not invent alternatives; a change here is a versioned,
-// reviewed change that bumps CURRENT_CONSENT_VERSION server-side.
-//
-// Scope-minimized to match the REAL Health Connect request set (permissions.ts /
-// AndroidManifest.xml, PR #152 T3): spo2, respiratory_rate, and background_access were dropped
-// because those scopes had zero readers anywhere in the app and were removed from the actual
-// OS permission request. The consent copy must never ask for more than the app truly reads.
-export const CONSENT_DATA_CATEGORIES = [
+// The special-category categories the user is agreeing to, kept PROVIDER-SPECIFIC so the umbrella
+// consent (one purpose: health_biometric_processing) is honest about BOTH wearable lanes. The
+// consent-document copy (ConsentSheet) enumerates exactly the union, so the record reflects
+// precisely what was shown. Do not invent alternatives; a change here is a versioned, reviewed
+// change that bumps CURRENT_CONSENT_VERSION server-side (see CONSENT_SCREEN_VERSION note below).
+
+// Health Connect lane — scope-minimized to the REAL OS request set (permissions.ts /
+// AndroidManifest.xml, PR #152 T3): spo2, respiratory_rate and background_access were dropped
+// because those scopes had zero readers on this client. The mobile OS ask must never be broader
+// than this list.
+export const HEALTH_CONNECT_DATA_CATEGORIES = [
   'heart_rate',
   'hrv',
   'sleep',
   'resting_heart_rate',
   'historical_access_182d',
+] as const;
+
+// Garmin server-to-server lane — Garmin's Health API additionally reports these special-category
+// types (backend services/wearable/adapter.js normalizeGarminSummaries). Health Connect on this
+// client does NOT read them, so they are disclosed here as provider-specific (labelled as
+// Garmin-sourced in the ConsentSheet) — the umbrella consent must cover them before that lane goes
+// live. The backend already GATES the Garmin webhook/backfill on this same grant; go-live of that
+// lane (GARMIN_WEBHOOK_SECRET + Garmin production approval) MUST bump CONSENT_SCREEN_VERSION and
+// the server's CURRENT_CONSENT_VERSION in lockstep so existing grants re-consent to these.
+export const GARMIN_ONLY_DATA_CATEGORIES = ['spo2', 'respiratory_rate', 'body_battery'] as const;
+
+// Full disclosure = the union across every wearable lane. grantConsent sends exactly this.
+export const CONSENT_DATA_CATEGORIES = [
+  ...HEALTH_CONNECT_DATA_CATEGORIES,
+  ...GARMIN_ONLY_DATA_CATEGORIES,
 ] as const;
 
 // The contract version THIS BUILD's consent copy/CONSENT_DATA_CATEGORIES represent — sent on
