@@ -127,7 +127,9 @@ export function OfflineBanner({ status, onRetry }: OfflineBannerProps) {
 }
 
 const styles = StyleSheet.create({
-  // radius.none, edge-to-edge — a floating pill would read as a toast/alert (the opposite of calm).
+  // Edge-to-edge, no rounding — a floating pill would read as a toast/alert (the opposite of calm).
+  // The radius scale has no `none` member, so square edges are expressed by omitting borderRadius
+  // (the default 0) rather than inventing a token or a magic number.
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -135,7 +137,6 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingVertical: space.md,
     paddingHorizontal: space.lg,
-    borderRadius: radius.none,
   },
   dot: { width: space.sm, height: space.sm, borderRadius: radius.pill },
   message: { flex: 1, fontSize: typography.size.callout, fontWeight: typography.weight.medium },
