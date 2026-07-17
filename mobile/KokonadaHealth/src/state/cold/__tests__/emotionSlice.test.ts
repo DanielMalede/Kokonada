@@ -4,7 +4,7 @@
 // the persisted blob, and a tampered/old blob can never inject extra fields.
 
 import reducer, {
-  addTap, setActivity, setTextPrompt, hydrate, resetEmotion,
+  addTap, setActivity, setTextPrompt, hydrate, resetEmotion, undoTap, clearTaps,
   serializeForPersist, deserializeForPersist,
   type EmotionState,
 } from '../emotionSlice';
@@ -45,6 +45,69 @@ describe('emotionSlice — committed intent', () => {
     s = reducer(s, setActivity('working'));
     s = reducer(s, setTextPrompt('focus'));
     expect(reducer(s, resetEmotion())).toEqual(initial);
+  });
+});
+
+describe('emotionSlice — undoTap / clearTaps (§5 quiet, forgiving remove — never resetEmotion)', () => {
+  it('undoTap pops the most-recent tap only', () => {
+    let s = initial;
+    for (const x of [0.1, 0.2, 0.3]) s = reducer(s, addTap({ x, y: 0 }));
+    s = reducer(s, undoTap());
+    expect(s.taps).toEqual([{ x: 0.1, y: 0 }, { x: 0.2, y: 0 }]); // 0.3 removed
+  });
+
+  it('undoTap on an empty tap list is a no-op (never underflows)', () => {
+    const s = reducer(initial, undoTap());
+    expect(s.taps).toEqual([]);
+    expect(s).toEqual(initial);
+  });
+
+  it('three addTap then two undoTap leaves only the first', () => {
+    let s = initial;
+    for (const x of [0.1, 0.2, 0.3]) s = reducer(s, addTap({ x, y: 0 }));
+    s = reducer(s, undoTap());
+    s = reducer(s, undoTap());
+    expect(s.taps).toEqual([{ x: 0.1, y: 0 }]);
+  });
+
+  it('undoTap preserves the activity and the text prompt (it is NOT resetEmotion)', () => {
+    let s = reducer(initial, setActivity('running'));
+    s = reducer(s, setTextPrompt('rainy'));
+    s = reducer(s, addTap({ x: 0.4, y: 0.4 }));
+    s = reducer(s, undoTap());
+    expect(s.taps).toEqual([]);
+    expect(s.activity).toBe('running');
+    expect(s.textPrompt).toBe('rainy');
+  });
+
+  it('clearTaps empties ONLY the taps, preserving activity and prompt (≠ resetEmotion)', () => {
+    let s = initial;
+    for (const x of [0.1, 0.2, 0.3]) s = reducer(s, addTap({ x, y: 0 }));
+    s = reducer(s, setActivity('focus'));
+    s = reducer(s, setTextPrompt('deep work'));
+    const cleared = reducer(s, clearTaps());
+    expect(cleared).toEqual({ taps: [], activity: 'focus', textPrompt: 'deep work' });
+    // and it is distinct from resetEmotion, which wipes activity + prompt too (logout/rehydrate)
+    expect(reducer(s, resetEmotion())).toEqual({ taps: [], activity: null, textPrompt: '' });
+  });
+
+  it('undoTap / clearTaps can only SHRINK the ≤3-tap buffer — never grow it past the cap', () => {
+    let s = initial;
+    for (const x of [0.1, 0.2, 0.3, 0.4]) s = reducer(s, addTap({ x, y: 0 }));
+    expect(s.taps).toHaveLength(3);
+    s = reducer(s, undoTap());
+    expect(s.taps).toHaveLength(2);
+    s = reducer(s, clearTaps());
+    expect(s.taps).toHaveLength(0);
+  });
+
+  it('undoTap returns a fresh taps array (aliasing-safe — no shared mutable reference)', () => {
+    let s = initial;
+    for (const x of [0.1, 0.2]) s = reducer(s, addTap({ x, y: 0 }));
+    const before = s.taps;
+    const after = reducer(s, undoTap()).taps;
+    expect(after).not.toBe(before);      // new reference
+    expect(before).toHaveLength(2);      // prior snapshot untouched
   });
 });
 

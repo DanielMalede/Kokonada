@@ -28,6 +28,17 @@ const emotionSlice = createSlice({
       state.taps.push(action.payload);
       if (state.taps.length > MAX_TAPS) state.taps = state.taps.slice(-MAX_TAPS);
     },
+    // §5 quiet remove: pop the most-recent tap (undo). No-op on an empty buffer so it can
+    // only ever SHRINK the ≤3-tap ring — never a setTaps that could exceed the contract cap.
+    undoTap(state) {
+      if (state.taps.length > 0) state.taps.pop();
+    },
+    // §5 forgiving clear: empty the taps ONLY. Deliberately NOT resetEmotion — activity and
+    // the free-text prompt are committed intent that a "clear the dots" gesture must preserve
+    // (resetEmotion wipes all three and is reserved for logout / rehydrate).
+    clearTaps(state) {
+      state.taps = [];
+    },
     setActivity(state, action: PayloadAction<string | null>) {
       state.activity = action.payload;
     },
@@ -45,7 +56,7 @@ const emotionSlice = createSlice({
   },
 });
 
-export const { addTap, setActivity, setTextPrompt, hydrate, resetEmotion } = emotionSlice.actions;
+export const { addTap, undoTap, clearTaps, setActivity, setTextPrompt, hydrate, resetEmotion } = emotionSlice.actions;
 export default emotionSlice.reducer;
 
 // ── Persist transform: a HARD allowlist ──────────────────────────────────────
