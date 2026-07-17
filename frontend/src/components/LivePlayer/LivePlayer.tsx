@@ -33,8 +33,11 @@ export default function LivePlayer() {
           <p className="text-white font-semibold text-sm truncate">{track.title}</p>
           <p className="text-gray-400 text-xs truncate">{track.artist}</p>
           {/* Spotify Design Guidelines: mark + link back required on every surface
-              showing Spotify metadata during playback. No-ops for non-Spotify tracks. */}
-          <SpotifyAttribution uri={track.uri} compact className="mt-1 text-gray-400 hover:text-white" />
+              showing Spotify metadata during playback. No-ops for non-Spotify tracks.
+              This card's background is a fixed dark navy (not theme-aware), so the mark
+              is pinned to solid white — Spotify's guideline for dark backgrounds — with
+              no gray tint and no hover-only recolor (design review REVISE). */}
+          <SpotifyAttribution uri={track.uri} compact className="mt-1 text-white" />
         </div>
         <div className="flex gap-2 shrink-0">
           <button

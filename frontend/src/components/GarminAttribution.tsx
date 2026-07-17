@@ -23,7 +23,10 @@ export default function GarminAttribution({ className }: { className?: string })
 
   return (
     <span
-      className={cn('inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground', className)}
+      // text-xs (not an arbitrary bracket value): the same caption treatment
+      // SpotifyAttribution's own "Listen on Spotify" label uses, so the two
+      // provider attributions read as one consistent visual language.
+      className={cn('inline-flex items-center gap-1 text-xs font-medium text-muted-foreground', className)}
     >
       Powered by Garmin
     </span>

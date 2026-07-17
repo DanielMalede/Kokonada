@@ -9,6 +9,8 @@ import PageHeader from '@/components/PageHeader';
 import EmptyState from '@/components/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import SpotifyAttribution from '@/components/SpotifyAttribution';
+import GarminAttribution from '@/components/GarminAttribution';
 
 export default function PlaylistDetailPage() {
   const { id } = useParams();
@@ -70,6 +72,16 @@ export default function PlaylistDetailPage() {
         <Badge variant="secondary">{session.mode === 'live' ? 'Streamed live' : 'Saved to library'}</Badge>
       </div>
 
+      {/* Garmin API Brand Guidelines: required on every screen/subscreen showing
+          Garmin-sourced HR — including this saved-session detail view. Own line (not
+          inside the Badge row above) so it reads as a deliberate attribution, not a
+          stray fragment among pills. No-ops for non-Garmin sources. */}
+      {session.heartRate !== null && (
+        <div className="mb-5">
+          <GarminAttribution />
+        </div>
+      )}
+
       {session.textPrompt && (
         <p className="mb-5 rounded-xl bg-muted/60 px-4 py-3 text-sm italic text-muted-foreground">
           “{session.textPrompt}”
@@ -89,6 +101,10 @@ export default function PlaylistDetailPage() {
             <span className="w-5 shrink-0 text-center font-mono text-xs text-muted-foreground">{i + 1}</span>
             <span className="min-w-0 flex-1 truncate text-sm text-foreground">{t.title}</span>
             <span className="shrink-0 truncate text-xs text-muted-foreground">{t.artist}</span>
+            {/* Compliance: any surface showing Spotify metadata must link back to the
+                content — this saved-session tracklist included. No-op for non-Spotify
+                rows (gated in the component). */}
+            <SpotifyAttribution uri={t.uri} compact />
           </li>
         ))}
       </ul>

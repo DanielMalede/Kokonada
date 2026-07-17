@@ -31,7 +31,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://accounts.google.com https://www.gstatic.com https://appleid.cdn-apple.com https://sdk.scdn.co 'nonce-Abxi3QqWB0kTkJ0+55Qi1w==' 'strict-dynamic'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; img-src 'self' data: https://i.scdn.co https://lh3.googleusercontent.com; font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com https://api.fontshare.com; connect-src 'self' https://kokonada-backend-production.up.railway.app wss://kokonada-backend-production.up.railway.app https://api.spotify.com wss://dealer.spotify.com; frame-src https://accounts.google.com https://appleid.apple.com https://sdk.scdn.co; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+          "value": "default-src 'self'; script-src 'self' https://accounts.google.com https://www.gstatic.com https://appleid.cdn-apple.com https://sdk.scdn.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com; img-src 'self' data: https://*.scdn.co https://*.spotifycdn.com https://lh3.googleusercontent.com; font-src 'self' data: https://fonts.gstatic.com https://cdn.fontshare.com https://api.fontshare.com; connect-src 'self' https://kokonada-backend-production.up.railway.app wss://kokonada-backend-production.up.railway.app https://api.spotify.com wss://dealer.spotify.com https://accounts.google.com https://www.googleapis.com https://appleid.apple.com; frame-src https://accounts.google.com https://appleid.apple.com https://sdk.scdn.co; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
         }
       ]
     }

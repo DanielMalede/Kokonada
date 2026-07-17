@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "gen:icons": "node scripts/generate-icons.mjs",
-    "prebuild": "node scripts/rotate-csp-nonce.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

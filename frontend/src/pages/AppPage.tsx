@@ -13,6 +13,7 @@ import { saveSession, makeSessionId } from '@/lib/history';
 import MoodChips from '@/components/MoodChips';
 import ActivityChips from '@/components/ActivityChips';
 import HRZoneBar from '@/components/HRZoneBar';
+import SpotifyAttribution from '@/components/SpotifyAttribution';
 import OfflineBanner from '@/components/OfflineBanner';
 import GeneratingOverlay from '@/components/GeneratingOverlay';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -242,17 +243,21 @@ export default function AppPage() {
             ) : (
               <ul className="flex flex-col gap-1">
                 {upNext.map((t) => (
-                  <li key={t.id}>
+                  <li key={t.id} className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => navigate('/now-playing')}
                       aria-label={`Open player — ${t.title} by ${t.artist}`}
-                      className="flex w-full items-center gap-3 rounded-md py-1.5 text-left transition-colors hover:bg-muted"
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-md py-1.5 text-left transition-colors hover:bg-muted"
                     >
                       <span className="size-1.5 shrink-0 rounded-full bg-primary/60" />
                       <span className="min-w-0 flex-1 truncate text-sm text-foreground">{t.title}</span>
                       <span className="shrink-0 truncate text-xs text-muted-foreground">{t.artist}</span>
                     </button>
+                    {/* Compliance: any surface showing Spotify metadata must link back to
+                        the content. Sibling of the row button (an <a> can't nest inside a
+                        <button>). No-op for non-Spotify rows (gated in the component). */}
+                    <SpotifyAttribution uri={t.uri} compact className="mr-1 shrink-0" />
                   </li>
                 ))}
                 <li>

@@ -56,4 +56,32 @@ describe('SpotifyAttribution', () => {
     link.dispatchEvent(evt);
     expect(stopSpy).toHaveBeenCalled();
   });
+
+  // Design review (Wave 5 REVISE): Spotify's Design Guidelines permit only the green,
+  // full-black, or full-white colorways — a muted/hover-tinted gray is a non-compliant
+  // recolor, and the mark must already read correctly at rest (no hover-only fix).
+  it('renders in an approved monochrome colorway (theme foreground) with no muted/hover recolor', () => {
+    render(<SpotifyAttribution uri="spotify:track:4uLU6hMCjMI75M1A2tKUQC" />);
+    const link = screen.getByRole('link');
+    expect(link).toHaveClass('text-foreground');
+    expect(link.className).not.toMatch(/muted-foreground/);
+    expect(link.className).not.toMatch(/hover:text-/);
+  });
+
+  // Design review + compliance (Wave 5 REVISE / NEEDS CHANGE): compact rows must use the
+  // icon-only mark (Spotify's icon minimum ~21px) instead of squeezing the illegible full
+  // wordmark below the ~70px full-lockup minimum.
+  it('compact mode renders the icon-only mark (not the full wordmark svg) at a compliant size', () => {
+    render(<SpotifyAttribution uri="spotify:track:4uLU6hMCjMI75M1A2tKUQC" compact />);
+    const mark = screen.getByRole('img', { name: /spotify/i });
+    expect(mark).toHaveAttribute('viewBox', '0 0 344 340');
+    expect(mark).toHaveClass('h-6');
+  });
+
+  it('non-compact mode renders the full icon+wordmark lockup sized above the ~70px minimum', () => {
+    render(<SpotifyAttribution uri="spotify:track:4uLU6hMCjMI75M1A2tKUQC" />);
+    const mark = screen.getByRole('img', { name: /spotify/i });
+    expect(mark).toHaveAttribute('viewBox', '0 0 1134 340');
+    expect(mark).toHaveClass('h-6');
+  });
 });
