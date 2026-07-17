@@ -31,6 +31,14 @@ import type { StoreApi } from 'zustand/vanilla';
 // choices (cards) stay the focus. Named fraction, not a magic number.
 const HEADER_GLOW_FRACTION = 0.42;
 
+// Screen-level subtitles by connect state. NOTE (intentional, do not "fix"): the design's
+// "wearable connected" / "mood-only" states specced a gentle header-aura bloom-then-settle
+// confirmation dwell. On FIRST RUN that beat is deliberately NOT surfaced — resolving the gate
+// (markResolved/setMoodOnly) immediately advances the route to the app (the calmer, no-extra-tap
+// choice we adopted), so the screen unmounts before a bloom could linger. These resolved-state
+// subtitles/bar copy are kept as pure store-driven derivations so they render correctly for any
+// FUTURE re-entry into this screen (e.g. from Profile) — they are not dead code, and the missing
+// first-run bloom is a choice, not a gap.
 const DEFAULT_SUBTITLE =
   'Connect what you have — or start with just your mood. You can change any of this later.';
 const MOOD_ONLY_SUBTITLE = "You're in mood-only mode — that's a great place to start.";
