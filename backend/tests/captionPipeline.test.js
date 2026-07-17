@@ -53,6 +53,11 @@ jest.mock('../app/services/discovery/discoveryFetch', () => ({
 jest.mock('../app/repositories/shadowBufferRepo', () => ({
   getBuffer: jest.fn().mockResolvedValue(null), setBuffer: jest.fn().mockResolvedValue(true),
 }));
+// A playback-capable (Spotify) user reaches the D-1 session-context attach; stub it so the seam
+// under test (features→caption→receipt) never touches the real Spotify session-playlist API.
+jest.mock('../app/services/spotifySessionPlaylist', () => ({
+  writeSessionPlaylist: jest.fn().mockResolvedValue({ contextUri: 'spotify:playlist:session-test' }),
+}));
 
 // Selection-pipeline data layer (the REAL pipeline runs on top of these).
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(() => null), createConnection: jest.fn() }));
@@ -92,10 +97,15 @@ const { generateAndEmitPlaylist } = require('../app/sockets/biometricHandler');
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────────
 
-// A YouTube-only user: provider resolves to 'youtube' (no Spotify translate step, so the
-// crafted tracks pass straight through toClientTracks unchanged).
-const YOUTUBE_USER = {
-  _id: 'user-123', spotifyToken: null, youtubeMusicToken: { blob: 'encrypted-youtube' },
+// A playback-capable (Spotify) user — the ONLY vehicle that reaches the discovery-caption
+// pipeline in real semantics. A YouTube-only account (no Spotify sink) now short-circuits
+// BEFORE the LLM + discovery (its corpus resolves to spotify: URIs only, #151), so it can
+// never carry a discovery candidate here. The crafted discovery tracks carry their native
+// youtube: recordingKey (matches the AudioFeature doc) resolved to a spotify: playback URI,
+// so the cross-platform step is a native passthrough (no Spotify search) and toClientTracks
+// keeps them unchanged.
+const SPOTIFY_USER = {
+  _id: 'user-123', spotifyToken: { blob: 'encrypted-spotify' }, youtubeMusicToken: null,
   getToken: jest.fn(), save: jest.fn().mockResolvedValue(true),
 };
 
@@ -103,17 +113,17 @@ const AI_PARAMS = { target_bpm: 96, target_energy: 0.4, target_valence: 0.3, see
 
 // One familiar library track (never captioned) …
 const LIBRARY = [
-  { id: 'fam1', provider: 'youtube_music', name: 'Familiar 1', artist: 'Fam Artist', genres: ['pop'], affinity: 10, uri: 'yt:fam1' },
+  { id: 'fam1', provider: 'spotify', name: 'Familiar 1', artist: 'Fam Artist', genres: ['pop'], affinity: 10, uri: 'spotify:track:fam1' },
 ];
 // … and two discovery candidates as buildEmotionPlaylist would emit them: recordingKey +
 // title/artist, but crucially NO `features` (the real pipeline attaches those, or not).
 const DISCO_FEATURED = {
-  id: 'disco1', provider: 'youtube_music', recordingKey: 'youtube:disco1',
-  title: 'Disco One', name: 'Disco One', artist: 'Disco Artist', genres: ['pop'], uri: 'yt:disco1',
+  id: 'disco1', provider: 'spotify', recordingKey: 'youtube:disco1',
+  title: 'Disco One', name: 'Disco One', artist: 'Disco Artist', genres: ['pop'], uri: 'spotify:track:disco1',
 };
 const DISCO_FEATURELESS = {
-  id: 'disco2', provider: 'youtube_music', recordingKey: 'youtube:disco2',
-  title: 'Disco Two', name: 'Disco Two', artist: 'Disco Artist Two', genres: ['pop'], uri: 'yt:disco2',
+  id: 'disco2', provider: 'spotify', recordingKey: 'youtube:disco2',
+  title: 'Disco Two', name: 'Disco Two', artist: 'Disco Artist Two', genres: ['pop'], uri: 'spotify:track:disco2',
 };
 
 // The AudioFeature doc the mocked repo returns for disco1 ONLY — disco2 stays featureless.
@@ -140,14 +150,14 @@ function makeState(overrides = {}) {
 let warnSpy;
 beforeEach(() => {
   jest.clearAllMocks();
-  User.findById.mockResolvedValue(YOUTUBE_USER);
+  User.findById.mockResolvedValue(SPOTIFY_USER);
   MusicProfile.findOne.mockReturnValue(musicProfileQuery({
     userId: 'user-123', restingHeartRate: 60, library: LIBRARY, lastAnalyzed: new Date('2026-07-01'),
     topGenres: ['pop'], genreSet: ['pop'], knownArtistIds: [],
   }));
   MedicalProfile.findOne.mockResolvedValue(null);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
-  youtube.getValidToken.mockResolvedValue('yt-access-token');
+  spotify.getValidToken.mockResolvedValue('spotify-access-token');
   // buildEmotionPlaylist is the source of the discovery candidates fed into the REAL pipeline.
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: [DISCO_FEATURED, DISCO_FEATURELESS] });
   // The REAL pipeline attaches features from THIS repo — disco1 has a doc, disco2 does not.

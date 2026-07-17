@@ -535,7 +535,8 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // profile's genres/artists still steer that Spotify discovery, and every track is
     // natively playable on the Web Playback SDK. A YouTube-only user (no Spotify) falls
     // back to YouTube sourcing. This supersedes the old resolveMusicProvider desync.
-    const provider = resolvePlaybackProvider(user) || resolveMusicProvider(user);
+    const playbackProvider = resolvePlaybackProvider(user);
+    const provider = playbackProvider || resolveMusicProvider(user);
     if (!provider) {
       emit('playlist_error', { message: 'No music provider connected', reqId });
       return;
@@ -624,6 +625,53 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     }
 
     log(`[generate] start trigger=${trigger} hr=${state.stableHR} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
+
+    // ── Structural dead-end short-circuit: no playback sink ⇒ skip the LLM + vector ──
+    // A user with NO playback provider (resolvePlaybackProvider falsy — a YouTube-only
+    // account, since Spotify is the only playback engine) can NEVER receive a playable
+    // DISCOVERY track: the shared corpus has NO youtube: rows (removed for ToS containment,
+    // #151), and serve-time Spotify resolution is ephemeral/per-user and is never written
+    // back onto the anonymous cross-user catalog (#155) — so a corpus row can never carry a
+    // youtube: URI, and the isYoutubePlayable gate (#143/#150) filters discovery to EMPTY by
+    // construction. Even an unfiltered candidate would be dropped at toClientTracks (no Spotify sink).
+    // Running the Groq LLM generation + the vector-index query first is therefore pure
+    // wasted spend on a request that is 100% guaranteed to reach NO_PLAYABLE_PROVIDER.
+    // Skip BOTH and build familiar-only — the SAME selection pipeline (generateV2) with
+    // ZERO discovery input, which invokes neither the LLM nor vectorDiscoveryFetch; if
+    // nothing is playable there either, emit the exact NO_PLAYABLE_PROVIDER result #150
+    // already built (unchanged in content/reason/reqId). This is ORTHOGONAL to a Spotify
+    // user whose discovery pool is empty for an unrelated reason: playbackProvider is
+    // truthy for them, so they keep the full LLM/vector path + generic empty handling below.
+    if (!playbackProvider) {
+      let familiarTracks = [];
+      try {
+        const familiarPlaylist = await orchestrator.generateV2({
+          userId, musicProfile, moodKey, provider,
+          aiParams: {},
+          discoveryTracks: [],
+          live: { heartRate: state.stableHR, activity: effectiveActivity },
+          targets: bandTargets,
+          crossPlatform: false, // no Spotify sink to translate onto
+        });
+        familiarTracks = toClientTracks(familiarPlaylist?.merged, provider, { trigger, params: {} });
+      } catch (e) {
+        log(`[generate] no-playback familiar-only build failed: ${e.message}`);
+      }
+      if (familiarTracks.length > 0) {
+        log(`[generate] no playback provider → familiar-only tracks=${familiarTracks.length} reqId=${reqId}`);
+        emit('playlist_ready', {
+          trigger, mode, reqId,
+          tracks:    familiarTracks,
+          familiar:  familiarTracks.length,
+          discovery: 0,
+          fallback:  true,
+        });
+      } else {
+        console.warn(`[generate] no playback provider + no playable familiar → NO_PLAYABLE_PROVIDER (skipped LLM+vector) reqId=${reqId}`);
+        emit('playlist_error', emptyPlaylistError(user, reqId, 'Could not build a playlist from the current sources — try again'));
+      }
+      return;
+    }
 
     // (Variation seeds + sort-axis rotation are gone: the LLM prompt cache is now
     // deterministic per context, and variance comes from the ledger + MMR.)
