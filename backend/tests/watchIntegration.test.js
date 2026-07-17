@@ -11,10 +11,19 @@ jest.mock('../app/sockets/biometricHandler', () => ({
   generateAndEmitPlaylist: jest.fn(),
 }));
 jest.mock('../app/models/User');
+// resilience-audit follow-up: watchHrIngest is the LIVE, reachable special-category path the
+// H-9 consent gate did not originally cover (device-token auth, no req.user). Mock the same
+// service the session-authed requireConsent middleware reads, so both paths share ONE source
+// of truth and can never drift.
+jest.mock('../app/services/privacy/consent', () => ({
+  getConsentStatus: jest.fn(),
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
+}));
 
 const User = require('../app/models/User');
 const { getIo } = require('../app/sockets');
 const { handleBiometricReading } = require('../app/sockets/biometricHandler');
+const { getConsentStatus } = require('../app/services/privacy/consent');
 const {
   issueWatchToken, revokeWatchToken, watchHrIngest,
   createWatchPairing, exchangeWatchPairing,
@@ -133,6 +142,9 @@ describe('watchHrIngest', () => {
   beforeEach(() => {
     User.findOne = jest.fn();
     User.updateOne = jest.fn().mockResolvedValue({});
+    // Default every pre-existing test to a current, granted consent so the new gate is
+    // transparent to them — only the dedicated consent-gate tests below override this.
+    getConsentStatus.mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false });
   });
 
   it('202 on valid token + connected socket; calls handleBiometricReading immediate', async () => {
@@ -459,6 +471,82 @@ describe('watchHrIngest', () => {
 
     // next must NOT have been called — fire-and-forget swallows the error
     expect(next).not.toHaveBeenCalled();
+  });
+
+  // ── Art.9 consent gate (resilience-audit follow-up: watch/hr was the one LIVE, reachable
+  // special-category path H-9 didn't originally cover — device-token auth has no req.user for
+  // the session-authed requireConsent middleware to key on, so the gate is inlined here on the
+  // ALREADY-resolved user._id from the token lookup). ──────────────────────────────────────────
+  describe('Art.9 consent gate', () => {
+    it('no consent record → 403 consent_required; no socket delivery, no lastSeenAt touch', async () => {
+      const userId = 'u_noconsent';
+      User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+      getConsentStatus.mockResolvedValue({ granted: false, currentVersion: 1, staleVersion: false });
+      const { io } = makeIo(userId);
+      getIo.mockReturnValue(io);
+      const res = makeRes();
+
+      await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toEqual({ error: 'consent_required' });
+      expect(getConsentStatus).toHaveBeenCalledWith(userId, 'health_biometric_processing');
+      expect(handleBiometricReading).not.toHaveBeenCalled();
+      expect(User.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('granted but stale (a past version-bump re-prompt) → 403 consent_stale; no delivery', async () => {
+      const userId = 'u_stale';
+      User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+      getConsentStatus.mockResolvedValue({ granted: true, currentVersion: 2, staleVersion: true });
+      const { io } = makeIo(userId);
+      getIo.mockReturnValue(io);
+      const res = makeRes();
+
+      await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toEqual({ error: 'consent_stale' });
+      expect(handleBiometricReading).not.toHaveBeenCalled();
+      expect(User.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('current granted consent → passes through unchanged (existing 202 behavior)', async () => {
+      const userId = 'u_consented';
+      User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+      // beforeEach already defaults to granted+current; asserted explicitly here for clarity.
+      getConsentStatus.mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false });
+      const { io, socket } = makeIo(userId);
+      getIo.mockReturnValue(io);
+      const res = makeRes();
+
+      await watchHrIngest(reqWith('whr_tok', { heartRate: 100 }), res, next);
+
+      expect(res.statusCode).toBe(202);
+      expect(handleBiometricReading).toHaveBeenCalledWith(socket, 'garmin', expect.any(Object), { immediate: true });
+    });
+
+    it('the consent check runs BEFORE heartRate validation and body processing (fail fast)', async () => {
+      const userId = 'u_noconsent2';
+      User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
+      getConsentStatus.mockResolvedValue({ granted: false, currentVersion: 1, staleVersion: false });
+      const res = makeRes();
+
+      // A malformed heartRate would normally 400 — the consent gate must still win at 403,
+      // proving it runs first rather than after validation happens to also reject.
+      await watchHrIngest(reqWith('whr_tok', { heartRate: 'garbage' }), res, next);
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body).toEqual({ error: 'consent_required' });
+    });
+
+    it('an invalid/missing token still 401s BEFORE any consent check (no user to check consent for)', async () => {
+      getConsentStatus.mockClear();
+      const res = makeRes();
+      await watchHrIngest(reqWith(null, { heartRate: 100 }), res, next);
+      expect(res.statusCode).toBe(401);
+      expect(getConsentStatus).not.toHaveBeenCalled();
+    });
   });
 });
 

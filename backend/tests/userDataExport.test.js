@@ -16,6 +16,7 @@ const ServeEvent      = require('../app/models/ServeEvent');
 const Identity        = require('../app/models/Identity');
 const RefreshToken    = require('../app/models/RefreshToken');
 const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
+const ConsentRecord   = require('../app/models/ConsentRecord');
 const User            = require('../app/models/User');
 const { exportUserData } = require('../app/services/privacy/userDataExport');
 
@@ -38,6 +39,7 @@ beforeEach(() => {
   stubFind(Identity, [new Identity({ userId: OID, provider: 'password', providerUserId: 'e@x.c', passwordHash: 'argon2-secret' })]);
   stubFind(RefreshToken, [new RefreshToken({ userId: OID, tokenHash: 'sha256-secret', familyId: 'fam-1', expiresAt: new Date() })]);
   stubFind(UnclassifiedTrack, []);
+  stubFind(ConsentRecord, [new ConsentRecord({ userId: OID, purpose: 'health_biometric_processing', consentVersion: 1, status: 'granted', grantedAt: new Date() })]);
   jest.spyOn(User, 'findById').mockResolvedValue(new User({
     ssoProvider: 'google', ssoId: 's', email: 'me@x.c', garminUserId: 'garmin-1',
     pushTokens: [{ token: 'fcm-secret', platform: 'android' }], spotifyToken: { blob: 'oauth-secret' },
@@ -49,7 +51,7 @@ afterEach(() => jest.restoreAllMocks());
 describe('exportUserData', () => {
   it('scopes every collection query to the subject userId (never another user)', async () => {
     await exportUserData(OID);
-    for (const model of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack]) {
+    for (const model of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
       expect(model.find).toHaveBeenCalledWith({ userId: OID });
     }
     expect(User.findById).toHaveBeenCalledWith(OID);
@@ -81,7 +83,7 @@ describe('exportUserData', () => {
   it('reuses the full account-erasure collection list (completeness)', async () => {
     const out = await exportUserData(OID);
     expect(Object.keys(out.collections).sort()).toEqual([
-      'biometriclogs', 'identities', 'medicalprofiles', 'musicprofiles',
+      'biometriclogs', 'consentrecords', 'identities', 'medicalprofiles', 'musicprofiles',
       'playlistsessions', 'refreshtokens', 'serveevents', 'unclassifiedtracks',
     ].sort());
   });

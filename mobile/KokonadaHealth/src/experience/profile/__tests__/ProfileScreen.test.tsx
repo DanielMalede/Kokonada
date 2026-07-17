@@ -21,11 +21,31 @@ jest.mock('../profileServices', () => ({
   },
 }));
 
-import { Linking } from 'react-native';
+// WS-5 (Art.9 consent) native + network seams. The real consentStore/ConsentSheet run against
+// these fakes so the ProfileScreen gate wiring is tested against real component behaviour.
+jest.mock('../../../health/consentApi', () => ({
+  fetchConsentStatus: jest.fn(),
+  grantConsent: jest.fn(),
+  withdrawConsent: jest.fn(),
+  CONSENT_PURPOSE: 'health_biometric_processing',
+  CONSENT_DATA_CATEGORIES: ['heart_rate', 'hrv', 'sleep', 'resting_heart_rate', 'spo2', 'respiratory_rate', 'historical_access_182d', 'background_access'],
+}));
+jest.mock('../../../health/healthConnect', () => ({
+  requestHealthPermissions: jest.fn(),
+  openHealthConnectSettings: jest.fn(),
+  openHealthConnectInStore: jest.fn(),
+  checkAvailability: jest.fn(),
+}));
+jest.mock('../../../health/healthSync', () => ({ syncMedicalProfile: jest.fn() }));
+
+import { Linking, Alert } from 'react-native';
 import { ProfileScreen } from '../ProfileScreen';
 import { profileController } from '../profileServices';
 import { playerStatusStore } from '../../player/playerStatusStore';
 import { warmStore } from '../../../state/store';
+import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../../health/consentApi';
+import { requestHealthPermissions, checkAvailability } from '../../../health/healthConnect';
+import { syncMedicalProfile } from '../../../health/healthSync';
 
 const loadProfile = profileController.loadProfile as jest.Mock;
 const logout = profileController.logout as jest.Mock;
@@ -53,12 +73,21 @@ async function render() {
   return tree;
 }
 
+const flush = async () => { await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); }); };
+const status = (over: Record<string, unknown> = {}) => ({ ok: true, data: { granted: false, currentVersion: 1, staleVersion: false, ...over } });
+
 beforeEach(() => {
   jest.clearAllMocks();
   loadProfile.mockResolvedValue({
     me: { id: 'u1', displayName: 'Dan Malede', email: 'd@x.io', wearableProvider: null },
     integrations: { spotifyConnected: false },
   });
+  (fetchConsentStatus as jest.Mock).mockResolvedValue(status());
+  (grantConsent as jest.Mock).mockResolvedValue(status({ granted: true }));
+  (withdrawConsent as jest.Mock).mockResolvedValue(status({ granted: false }));
+  (checkAvailability as jest.Mock).mockResolvedValue('available');
+  (requestHealthPermissions as jest.Mock).mockResolvedValue([]);
+  (syncMedicalProfile as jest.Mock).mockResolvedValue({ synced: false, reason: 'no-data' });
 });
 
 describe('ProfileScreen', () => {
@@ -172,6 +201,94 @@ describe('ProfileScreen', () => {
     expect(url).toContain('returnTo=app'); // same deep-link-back flow as first connect
 
     openURL.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── WS-5 (audit H-9): the Art.9 consent gate wiring (T8) ─────────────────────────────────
+  const consentNodes = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
+    tree.root.findAll((n) => n.props.testID === id && n.parent?.props?.testID !== id);
+
+  it('T8: an already-consented Sync proceeds straight to the OS flow — the wall is never shown', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    (requestHealthPermissions as jest.Mock).mockResolvedValue([{ recordType: 'HeartRate', accessType: 'read' }]);
+    (syncMedicalProfile as jest.Mock).mockResolvedValue({ synced: true, counts: { heartRate: 3, hrv: 0, sleep: 0, restingHeartRate: 0 } });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'sync-health').props.onPress(); });
+    await flush();
+    expect(consentNodes(tree, 'consent-title')).toHaveLength(0); // short-circuit — no wall
+    expect(requestHealthPermissions).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('T8: a not-yet-consented Sync shows the wall and does NOT open the OS sheet until consent is granted', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: false }));
+    (grantConsent as jest.Mock).mockResolvedValue(status({ granted: true }));
+    (requestHealthPermissions as jest.Mock).mockResolvedValue([{ recordType: 'HeartRate', accessType: 'read' }]);
+    (syncMedicalProfile as jest.Mock).mockResolvedValue({ synced: true, counts: { heartRate: 1, hrv: 0, sleep: 0, restingHeartRate: 0 } });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'sync-health').props.onPress(); });
+    await flush();
+    // The wall is up and the OS permission sheet has NOT been requested.
+    expect(consentNodes(tree, 'consent-document').length).toBeGreaterThan(0);
+    expect(requestHealthPermissions).not.toHaveBeenCalled();
+    // Agree → grant → granted_ack → onProceed → NOW the OS sheet runs.
+    const agree = consentNodes(tree, 'consent-agree')[0];
+    await ReactTestRenderer.act(async () => { agree.props.onPress(); });
+    await flush();
+    await flush();
+    expect(requestHealthPermissions).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('T8: when Health Connect is unavailable, routes to the install path — no wall, no OS sheet', async () => {
+    (checkAvailability as jest.Mock).mockResolvedValue('install-required');
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'sync-health').props.onPress(); });
+    await flush();
+    expect(consentNodes(tree, 'consent-title')).toHaveLength(0);
+    expect(requestHealthPermissions).not.toHaveBeenCalled();
+    expect(String(alertSpy.mock.calls[0]?.[0])).toMatch(/health connect/i);
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── WS-5 (audit H-9): withdrawal UI (T9) ─────────────────────────────────────────────────
+  it('T9: offers Withdraw only when consent is granted; a two-step confirm calls the endpoint then reflects ungranted', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    (withdrawConsent as jest.Mock).mockResolvedValue(status({ granted: false }));
+    const tree = await render();
+    expect(byLabel(tree, 'withdraw-consent')).toBeTruthy();
+    expect(withdrawConsent).not.toHaveBeenCalled();
+    // First tap only opens the confirm — no server call yet (two-step).
+    await ReactTestRenderer.act(async () => { byLabel(tree, 'withdraw-consent').props.onPress(); });
+    expect(withdrawConsent).not.toHaveBeenCalled();
+    // Confirm actually withdraws.
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'withdraw-confirm').props.onPress(); });
+    await flush();
+    expect(withdrawConsent).toHaveBeenCalledTimes(1);
+    // Local UI now reflects ungranted → the action is gone.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent')).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('T9: hides the Withdraw action when consent is not granted', async () => {
+    const tree = await render(); // beforeEach default: granted:false
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent')).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('T9: the withdraw confirm uses a neutral tone, not the account-deletion danger red', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { byLabel(tree, 'withdraw-consent').props.onPress(); });
+    const confirm = byLabel(tree, 'withdraw-confirm');
+    const s = Array.isArray(confirm.props.style) ? Object.assign({}, ...confirm.props.style.filter(Boolean)) : confirm.props.style;
+    expect(s.backgroundColor).not.toBe('#ff5a5a');
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

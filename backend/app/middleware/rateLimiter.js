@@ -78,4 +78,17 @@ exports.watchPairingLimiter = rateLimit({
   message: { error: 'Too many pairing attempts — please try again' },
 });
 
+// Consent grant/withdraw writes (audit H-9) — sensitive, auth-adjacent, and genuinely rare
+// (a user consents/withdraws a handful of times, ever). Per-USER keyed like playbackFailedLimiter
+// (testers share carrier NAT, so IP keying would collapse them into one bucket); the cap is well
+// above any legitimate rate while still bounding a looping/abusive client.
+exports.consentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user?._id ? String(req.user._id) : ipKeyGenerator(req.ip)),
+  message: { error: 'Too many consent updates — please try again later' },
+});
+
 exports._isWatchIngest = isWatchIngest;

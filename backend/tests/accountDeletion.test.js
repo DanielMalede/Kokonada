@@ -15,6 +15,7 @@ jest.mock('../app/models/ServeEvent',      () => ({ deleteMany: jest.fn().mockRe
 jest.mock('../app/models/Identity',        () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/RefreshToken',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 2 }) }));
 jest.mock('../app/models/UnclassifiedTrack', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 4 }) }));
+jest.mock('../app/models/ConsentRecord',   () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 3 }) }));
 jest.mock('../app/utils/userRedisPurge',   () => ({ purgeUserKeys: jest.fn().mockResolvedValue(3) }));
 const mockDisconnectSockets = jest.fn();
 jest.mock('../app/sockets/index', () => ({

@@ -14,6 +14,7 @@ const ServeEvent = require('../../models/ServeEvent');
 const Identity = require('../../models/Identity');
 const RefreshToken = require('../../models/RefreshToken');
 const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
+const ConsentRecord = require('../../models/ConsentRecord');
 const { purgeUserKeys } = require('../../utils/userRedisPurge');
 
 // Deliberately NOT erased: AudioFeature (audiofeatures), TrackEmbedding (trackembeddings)
@@ -39,6 +40,10 @@ async function eraseUserChildData(userId) {
     Identity.deleteMany({ userId }),
     RefreshToken.deleteMany({ userId }),
     UnclassifiedTrack.deleteMany({ userId }),
+    // Art.9 consent history is fully erased with the account (audit H-9, decision 3: no
+    // anonymized retention ledger). Its lockstep with userDataExport.js's COLLECTIONS and
+    // scripts/gdpr-delete.js is enforced by the shadow.qa4.crypto completeness guard.
+    ConsentRecord.deleteMany({ userId }),
   ]);
   await purgeUserKeys(userId);
 }

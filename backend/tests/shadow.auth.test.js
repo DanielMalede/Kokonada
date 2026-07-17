@@ -125,7 +125,7 @@ jest.mock('../app/models/RefreshToken', () => {
 });
 
 // Child collections for the GDPR sweep — arrays with real userId filtering.
-for (const model of ['BiometricLog', 'MedicalProfile', 'MusicProfile', 'PlaylistSession', 'ServeEvent', 'UnclassifiedTrack']) {
+for (const model of ['BiometricLog', 'MedicalProfile', 'MusicProfile', 'PlaylistSession', 'ServeEvent', 'UnclassifiedTrack', 'ConsentRecord']) {
   jest.mock(`../app/models/${model}`, () => {
     const store = [];
     return {
