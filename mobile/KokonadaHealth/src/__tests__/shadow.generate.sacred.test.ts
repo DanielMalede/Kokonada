@@ -46,6 +46,10 @@ describe('SACRED — undo/clear/re-tap never perturb the emotion→socket payloa
     const { client, created } = build(store);
     client.connect();
     const sock = created[0];
+    // Snapshot the emit counts RIGHT AFTER connect (one emotion_update was pushed on connect),
+    // so the no-per-tap-emit assertion is real — not trivially true against a just-wiped buffer.
+    const emotionEmitsAtConnect = sock.clientEmits('emotion_update').length;
+    const requestEmitsAtConnect = sock.clientEmits('request_playlist').length;
 
     // The full §5 dance — every step is local cold-state only.
     store.dispatch(addTap({ x: 0.1, y: 0.1 }));
@@ -59,10 +63,10 @@ describe('SACRED — undo/clear/re-tap never perturb the emotion→socket payloa
     store.dispatch(setTextPrompt('rainy'));
 
     // NOT ONE emit was produced by any tap/undo/clear — the wire is silent until a request.
-    sock.emitted.length = 0;
-    expect(sock.clientEmits('emotion_update')).toHaveLength(0);
-    expect(sock.clientEmits('request_playlist')).toHaveLength(0);
+    expect(sock.clientEmits('emotion_update').length).toBe(emotionEmitsAtConnect);
+    expect(sock.clientEmits('request_playlist').length).toBe(requestEmitsAtConnect);
 
+    sock.emitted.length = 0; // now isolate the request's own emits for the order/shape checks
     const reqId = client.requestPlaylist();
 
     // emotion_update THEN request_playlist, in order, byte-for-byte.

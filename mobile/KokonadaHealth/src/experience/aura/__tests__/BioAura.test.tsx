@@ -45,7 +45,7 @@ describe('auraBreath — REGULATOR ETHIC (breath slows + deepens as arousal rise
     const resting = breathMsForArousal(arousalFromHr(null));
     const racing = breathMsForArousal(arousalFromHr(190));
     expect(racing).toBeGreaterThan(resting); // FAIL condition if it ever inverts
-    expect(arousalFromHr(null)).toBeLessThan(0.1); // resting sits at the fast floor
+    expect(arousalFromHr(null)).toBe(0); // no signal = arousal 0 exactly (RESTING glow never leaks in as arousal)
     expect(arousalFromHr(190)).toBeGreaterThan(0.9);
   });
 });
