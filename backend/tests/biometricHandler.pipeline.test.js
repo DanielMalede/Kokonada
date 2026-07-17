@@ -93,6 +93,15 @@ jest.mock('../app/repositories/shadowBufferRepo', () => ({
   setBuffer: jest.fn().mockResolvedValue(true),
 }));
 
+// Error monitor — mocked so a test can assert a swallowed generateV2 failure is reported (captured),
+// not silently dropped. The real captureException is a no-op without a DSN, so this changes no behavior.
+jest.mock('../app/config/sentry', () => ({
+  initSentry:       jest.fn(),
+  getSentry:        jest.fn(() => null),
+  captureException: jest.fn(),
+  scrubEvent:       jest.fn((e) => e),
+}));
+
 // Cross-platform translation (serve-time Spotify playback resolution). ONLY translateToSpotify is
 // mocked so a test can drive a youtube→spotify resolution deterministically; the pure helpers
 // (cleanYouTubeArtist / parseYouTubeTitle) stay REAL because trackIdentity.canonicalKey depends on
@@ -1020,6 +1029,57 @@ describe('generateAndEmitPlaylist — no-playback short-circuit (skip wasted LLM
     await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 204 }));
 
     expect(vectorDiscoveryFetch).toHaveBeenCalled();
+  });
+
+  // GUARD 3 — side-effect parity. When the short-circuit actually DELIVERS a playlist_ready (a
+  // deliverable familiar row survives toClientTracks — e.g. a legacy Spotify library entry left on
+  // a since-disconnected account, which carries a real spotify: uri), the served tracks MUST record
+  // the SAME session/ledger/hydration side effects the normal playlist_ready path records, or
+  // anti-repetition + history silently diverge for this user class (they did NOT before this fix).
+  it('GUARD 3: a delivered short-circuit playlist records the SAME serve side-effects as the normal path (session, ledger, hydration)', async () => {
+    const serveLedger  = require('../app/services/ledger/serveLedger');
+    const featureService = require('../app/services/features/featureService');
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    // A deliverable familiar entry (legacy Spotify row with a real uri) that survives toClientTracks.
+    const famDeliverable = { id: 'legacy-1', uri: 'spotify:track:legacy1', name: 'Legacy', artist: 'A', canonicalKey: 'at:a|legacy' };
+    orchestrator.generateV2.mockResolvedValue({
+      familiar: [famDeliverable], discovery: [], merged: [famDeliverable],
+      telemetry: { stageMs: {} }, targets: { bpmCenter: 120 },
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 205 }));
+
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    // The served tracks are recorded — exactly as the normal playlist_ready path does.
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+    expect(PlaylistSession.create).toHaveBeenCalledTimes(1);
+    expect(featureService.enqueueHydration).toHaveBeenCalledWith([famDeliverable]);
+  });
+
+  // GUARD 4 — observability. A systemic generateV2 failure for no-playback users must NOT masquerade
+  // as a plain empty playlist with zero signal: it is always-on warned AND captured (the file's
+  // standard), while the user still gets the honest NO_PLAYABLE_PROVIDER (never a raw error / crash).
+  it('GUARD 4: a generateV2 failure in the short-circuit is OBSERVABLE (warn + captureException), not silently swallowed', async () => {
+    const { captureException } = require('../app/config/sentry');
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    orchestrator.generateV2.mockRejectedValue(new Error('selection pipeline boom'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 206 }));
+
+    // Always-on warn (NOT a DEBUG-gated log) + Sentry capture.
+    expect(warnSpy.mock.calls.flat().join(' ')).toMatch(/no-playback familiar-only build failed/);
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ scope: 'generate.noPlayback' }));
+    warnSpy.mockRestore();
+    // …and the user still gets the honest NO_PLAYABLE_PROVIDER (no raw error leaked, no crash).
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(errCall[1].reason).toBe('NO_PLAYABLE_PROVIDER');
   });
 });
 
