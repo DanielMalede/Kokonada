@@ -118,6 +118,24 @@ describe('signInWithApple — Guideline 4.8 privacy-forward login (mobile sessio
     await expect(signInWithApple()).rejects.toThrow('bad apple token');
     expect(authSession.setSession).not.toHaveBeenCalled();
   });
+
+  it('treats a user CANCEL as a benign no-op — resolves null, no throw, no session, no network', async () => {
+    (globalThis as any).fetch = jest.fn();
+    (appleAuth.performRequest as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('The user canceled the authorization attempt.'), { code: appleAuth.Error.CANCELED }),
+    );
+    await expect(signInWithApple()).resolves.toBeNull();
+    expect(authSession.setSession).not.toHaveBeenCalled();
+    expect((globalThis as any).fetch).not.toHaveBeenCalled();
+  });
+
+  it('maps a non-cancel ASAuthorization error to a friendly message', async () => {
+    (appleAuth.performRequest as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('ASAuthorizationError 1004'), { code: appleAuth.Error.FAILED }),
+    );
+    await expect(signInWithApple()).rejects.toThrow(/apple sign-in/i);
+    expect(authSession.setSession).not.toHaveBeenCalled();
+  });
 });
 
 describe('signOut / isLoggedIn — routed through AuthSession', () => {

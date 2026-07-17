@@ -116,6 +116,8 @@ jest.mock('@invertase/react-native-apple-authentication', () => {
     performRequest: jest.fn(),
     Operation: { LOGIN: 1, REFRESH: 2, LOGOUT: 3, IMPLICIT: 0 },
     Scope: { EMAIL: 0, FULL_NAME: 1 },
+    // ASAuthorizationError codes (string values, mirrors the real AppleError enum).
+    Error: { UNKNOWN: '1000', CANCELED: '1001', INVALID_RESPONSE: '1002', NOT_HANDLED: '1003', FAILED: '1004' },
   };
   const AppleButton = (props) => React.createElement('AppleButton', props, props.children ?? null);
   AppleButton.Type = { SIGN_IN: 'SignIn', CONTINUE: 'Continue', SIGN_UP: 'SignUp', DEFAULT: 'SignIn' };
