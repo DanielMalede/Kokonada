@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, Alert, Linking, AppState } from 'react-native';
+import { View, Text, Pressable, ScrollView, Alert, Linking, AppState, Modal } from 'react-native';
 import { profileController } from './profileServices';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { warmStore } from '../../state/store';
 import { BACKEND_URL } from '../../health/config';
-import { requestHealthPermissions, openHealthConnectSettings } from '../../health/healthConnect';
+import { requestHealthPermissions, openHealthConnectSettings, checkAvailability, openHealthConnectInStore } from '../../health/healthConnect';
 import { syncMedicalProfile, type SyncCounts } from '../../health/healthSync';
+import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../health/consentApi';
+import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
+import { ConsentSheet } from './ConsentSheet';
 import type { ProfileSnapshot } from './profileController';
 
 // The 5th tab: identity, integration status (Spotify via the live player state +
@@ -73,10 +76,16 @@ export function ProfileScreen() {
   const [busy, setBusy] = useState(false);
   const [ytBusy, setYtBusy] = useState(false);
   const [hcBusy, setHcBusy] = useState(false);
+  // GDPR Art.9 consent (audit H-9). `consentGranted` drives the Withdraw action's visibility; a
+  // non-null `consentStore` means the consent wall is presented (just-in-time, before the OS sheet).
+  const [consentGranted, setConsentGranted] = useState(false);
+  const [consentStore, setConsentStore] = useState<ConsentFlowStore | null>(null);
+  const [withdrawConfirm, setWithdrawConfirm] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    const reload = () => { void profileController.loadProfile().then((s) => { if (mounted) setSnap(s); }); };
+    const refreshConsent = () => { void fetchConsentStatus().then((res) => { if (mounted && res.ok) setConsentGranted(res.data.granted); }); };
+    const reload = () => { void profileController.loadProfile().then((s) => { if (mounted) setSnap(s); }); refreshConsent(); };
     reload();
     const offPlayer = playerStatusStore.subscribe((s) => { if (mounted) setSpotify(s.status); });
     const offWarm = warmStore.subscribe((s) => { if (mounted) setWearable(s.biometricSource); });
@@ -113,15 +122,14 @@ export function ProfileScreen() {
     }
   };
 
-  // D-4a: the reachable entry point for the (previously orphaned) Health Connect →
-  // MedicalProfile ingestion. One-tap permission sheet; if Android's deny-throttle
-  // suppresses the sheet (request resolves with no grants), deep-link straight into
-  // Health Connect's permission screen. Per-type counts make the result diagnosable.
+  // D-4a: the Health Connect → MedicalProfile ingestion. One-tap permission sheet; if Android's
+  // deny-throttle suppresses the sheet (request resolves with no grants), deep-link straight into
+  // Health Connect's permission screen. Per-type counts make the result diagnosable. UNCHANGED —
+  // but now only reachable AFTER the Art.9 consent gate (onSyncHealth) confirms a current grant.
   const countsLine = (c?: SyncCounts) => c
     ? `${c.heartRate} heart-rate · ${c.hrv} HRV · ${c.sleep} sleep · ${c.restingHeartRate} resting-HR`
     : '';
-  const onSyncHealth = async () => {
-    setHcBusy(true);
+  const runHealthSync = async () => {
     try {
       const granted = await requestHealthPermissions();
       if (!granted || granted.length === 0) {
@@ -150,8 +158,62 @@ export function ProfileScreen() {
       }
     } catch {
       Alert.alert('Health Connect unavailable', 'Install/update Health Connect from the Play Store and try again.');
+    }
+  };
+
+  // T8 — the GDPR Art.9 consent gate in front of the OS health sheet. (1) Pre-check Health Connect
+  // is actually available (the designer's flow-ordering fix: never wall for a device that can't
+  // deliver — route to install instead). (2) Read the consent status: a CURRENT grant short-circuits
+  // straight to the sync (invisible for an already-consented user); otherwise present the consent
+  // wall, seeded with the status just read so it does not re-fetch. The OS sheet is reached only via
+  // the wall's onProceed (below) — never optimistically here.
+  const onSyncHealth = async () => {
+    setHcBusy(true);
+    try {
+      const avail = await checkAvailability();
+      if (avail !== 'available') {
+        Alert.alert(
+          'Health Connect needed',
+          'Install or update Health Connect from the Play Store, then try again.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Play Store', onPress: () => openHealthConnectInStore() },
+          ],
+        );
+        return;
+      }
+      const status = await fetchConsentStatus();
+      if (status.ok && status.data.granted && !status.data.staleVersion) {
+        await runHealthSync(); // invisible short-circuit for an already-consented user
+        return;
+      }
+      const store = createConsentFlow({ fetchStatus: fetchConsentStatus, grant: grantConsent });
+      if (status.ok) store.getState().hydrate(status.data); // seed → no redundant round trip
+      setConsentStore(store);
     } finally {
       setHcBusy(false);
+    }
+  };
+
+  // Reached ONLY on a server-acked current grant (the ConsentSheet fires this on ready | granted_ack).
+  // Dismiss the wall, mark granted (enables Withdraw), then run the unchanged sync.
+  const onConsentProceed = async () => {
+    setConsentStore(null);
+    setConsentGranted(true);
+    setHcBusy(true);
+    try { await runHealthSync(); } finally { setHcBusy(false); }
+  };
+
+  // T9 — withdraw consent. Two-step (see the confirm panel); erases the wearable footprint
+  // server-side and flips the local granted flag so the Withdraw action disappears.
+  const onWithdrawConsent = async () => {
+    setBusy(true);
+    try {
+      const res = await withdrawConsent();
+      if (res.ok) { setConsentGranted(false); setWithdrawConfirm(false); }
+      else Alert.alert('Could not withdraw consent', 'Please try again when you have a connection.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -177,6 +239,7 @@ export function ProfileScreen() {
   const integ = snap.integrations;
 
   return (
+    <>
     <ScrollView contentContainerStyle={{ padding: 24, gap: 20 }}>
       <View style={{ gap: 4 }}>
         <Text style={{ fontSize: 24, fontWeight: '700' }}>{me?.displayName ?? '—'}</Text>
@@ -195,6 +258,33 @@ export function ProfileScreen() {
             <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{hcBusy ? 'Syncing…' : 'Sync'}</Text>
           </Pressable>
         </View>
+
+        {/* T9 — Withdraw health-data consent (audit H-9). Shown only when a grant is on file.
+            Two-step confirm modelled on the delete flow but NEUTRAL/informational, never danger-red:
+            withdrawal is a right, not a punishment. */}
+        {consentGranted ? (
+          !withdrawConfirm ? (
+            <Pressable onPress={() => setWithdrawConfirm(true)} disabled={busy} accessibilityRole="button" accessibilityLabel="withdraw-consent"
+              style={{ paddingVertical: 10 }}>
+              <Text style={{ fontSize: 13, color: '#4f8cff' }}>Withdraw health-data consent</Text>
+            </Pressable>
+          ) : (
+            <View style={{ gap: 10, padding: 16, borderRadius: 12, backgroundColor: 'rgba(79,140,255,0.08)' }}>
+              <Text style={{ fontWeight: '600' }}>Withdraw consent to health-data processing?</Text>
+              <Text style={{ fontSize: 13, opacity: 0.7 }}>This erases the health data held across your connected wearables and stops biometric personalisation. You can turn it back on anytime.</Text>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <Pressable onPress={() => setWithdrawConfirm(false)} disabled={busy} accessibilityRole="button" accessibilityLabel="withdraw-cancel"
+                  style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: '#ccc' }}>
+                  <Text>Cancel</Text>
+                </Pressable>
+                <Pressable onPress={onWithdrawConsent} disabled={busy} accessibilityRole="button" accessibilityLabel="withdraw-confirm"
+                  style={{ flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 10, backgroundColor: '#4f8cff', opacity: busy ? 0.6 : 1 }}>
+                  <Text style={{ color: '#fff', fontWeight: '600' }}>Withdraw</Text>
+                </Pressable>
+              </View>
+            </View>
+          )
+        ) : null}
       </View>
 
       <Pressable onPress={onLogout} disabled={busy} accessibilityRole="button" accessibilityLabel="log-out"
@@ -222,5 +312,14 @@ export function ProfileScreen() {
         </View>
       )}
     </ScrollView>
+
+    {/* T7/T8 — the Art.9 consent wall, presented just-in-time before the OS health sheet. Reaching
+        the OS sheet (onProceed) requires a server-acked current grant; Decline/back just dismisses. */}
+    {consentStore ? (
+      <Modal visible transparent statusBarTranslucent animationType="slide" onRequestClose={() => setConsentStore(null)}>
+        <ConsentSheet store={consentStore} onProceed={onConsentProceed} onDecline={() => setConsentStore(null)} />
+      </Modal>
+    ) : null}
+    </>
   );
 }
