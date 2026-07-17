@@ -37,9 +37,16 @@ router.post('/garmin/webhook',   garminWebhook); // Garmin Health API server-to-
 
 // Watch HR stream (PUBLIC — authenticated by the opaque device token, not the
 // session cookie; same placement rationale as the webhooks above).
-// TODO(H-9): watch/hr and garmin/webhook are INTENTIONALLY left UNGATED by requireConsent for
-// now — they authenticate device-token/webhook-secret (no session req.user) and are separate
-// flows not yet user-facing/approved for the consent gate. Gate them when they become so.
+// TODO(H-9, KNOWN GAP — resilience-audit 2026-07-17): watch/hr is left UNGATED by requireConsent
+// because it authenticates via device token (no session req.user), not because it is inactive —
+// it IS live and reachable: prodBootstrap auto-arms startLiveHr for any logged-in user with a BLE
+// HR source or a granted Health Connect permission, streaming to this route with zero consent
+// check. handleBiometricReading's immediate-mode path does not durably persist (no BiometricLog/
+// MedicalProfile write here), and a withdrawn user's watchToken is cleared (401s further pushes),
+// but a pre-WS-5 grantee with no ConsentRecord streams unconsented today. H-9 is NOT fully closed
+// until this lane is gated (device token → userId → getConsentStatus) — tracked as a deliberate
+// follow-up, not yet scheduled. garmin/webhook remains a genuinely separate case: it needs Garmin
+// Health API production approval before it is reachable at all.
 router.post('/watch/hr', watchLimiter, watchHrIngest);
 
 // Watch pairing-code exchange (PUBLIC — the watch has no session; it presents the

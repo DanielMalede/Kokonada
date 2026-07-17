@@ -105,4 +105,26 @@ describe('withdrawConsent', () => {
     expect(ConsentRecord.create).toHaveBeenCalled();
     expect(eraseWearableProvider).not.toHaveBeenCalled();
   });
+
+  it('a mid-loop erasure failure does NOT abort erasure of the remaining providers (resilience-audit finding)', async () => {
+    const user = { _id: USER, save: jest.fn() };
+    User.findById.mockResolvedValue(user);
+    // Second provider throws; the withdrawal row was already written before the loop runs, and the
+    // remaining providers must still be attempted rather than the loop aborting on the first failure.
+    eraseWearableProvider
+      .mockResolvedValueOnce({ biometricLogs: 0, medicalProfiles: 0 })
+      .mockRejectedValueOnce(new Error('mongo timeout'))
+      .mockResolvedValueOnce({ biometricLogs: 0, medicalProfiles: 0 })
+      .mockResolvedValueOnce({ biometricLogs: 0, medicalProfiles: 0 });
+
+    const result = await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(eraseWearableProvider).toHaveBeenCalledTimes(WEARABLE_PROVIDERS.length);
+    for (const provider of WEARABLE_PROVIDERS) {
+      expect(eraseWearableProvider).toHaveBeenCalledWith(user, provider);
+    }
+    // The failure is surfaced (not silently swallowed) so an operator can see incomplete erasure,
+    // but withdrawConsent itself does not throw — the consent withdrawal already succeeded.
+    expect(result.erasureFailures).toEqual([WEARABLE_PROVIDERS[1]]);
+  });
 });

@@ -34,24 +34,42 @@ export interface ConsentStatus {
   staleVersion: boolean;
 }
 
+// resilience-audit finding: apiClient's `res.json() as T` cast has no runtime shape check. A
+// malformed 200 missing `staleVersion` would otherwise evaluate `granted && !undefined === true`
+// — a false "current grant" that could open the OS Health Connect sheet. This gate is the ONE
+// place a ConsentStatus enters the app, so validate the shape here rather than in every caller;
+// an unshaped payload fails closed (ok:false), which the store already treats as submit_error.
+function isConsentStatus(v: unknown): v is ConsentStatus {
+  if (!v || typeof v !== 'object') return false;
+  const s = v as Record<string, unknown>;
+  return typeof s.granted === 'boolean' && typeof s.currentVersion === 'number' && typeof s.staleVersion === 'boolean';
+}
+
+function guardShape(res: ApiResult<ConsentStatus>): ApiResult<ConsentStatus> {
+  if (res.ok && !isConsentStatus(res.data)) {
+    return { ok: false, error: 'malformed_consent_status' };
+  }
+  return res;
+}
+
 // GET /api/consent/status?purpose=health_biometric_processing
-export function fetchConsentStatus(): Promise<ApiResult<ConsentStatus>> {
+export async function fetchConsentStatus(): Promise<ApiResult<ConsentStatus>> {
   const params = new URLSearchParams({ purpose: CONSENT_PURPOSE });
-  return apiGet<ConsentStatus>(`/api/consent/status?${params.toString()}`);
+  return guardShape(await apiGet<ConsentStatus>(`/api/consent/status?${params.toString()}`));
 }
 
 // POST /api/consent — records a granted consent at the current version. Sends the exact
 // dataCategories the ConsentSheet displayed. The 201 echoes the fresh canonical status, so the
 // caller confirms the new state in ONE round trip (no follow-up GET needed).
-export function grantConsent(): Promise<ApiResult<ConsentStatus>> {
-  return apiPost<ConsentStatus>('/api/consent', {
+export async function grantConsent(): Promise<ApiResult<ConsentStatus>> {
+  return guardShape(await apiPost<ConsentStatus>('/api/consent', {
     purpose: CONSENT_PURPOSE,
     dataCategories: [...CONSENT_DATA_CATEGORIES],
-  });
+  }));
 }
 
 // POST /api/consent/withdraw — withdraws consent AND (server-side) erases the wearable footprint.
 // Echoes the fresh status (granted:false) so the UI reflects the ungranted state immediately.
-export function withdrawConsent(): Promise<ApiResult<ConsentStatus>> {
-  return apiPost<ConsentStatus>('/api/consent/withdraw', { purpose: CONSENT_PURPOSE });
+export async function withdrawConsent(): Promise<ApiResult<ConsentStatus>> {
+  return guardShape(await apiPost<ConsentStatus>('/api/consent/withdraw', { purpose: CONSENT_PURPOSE }));
 }

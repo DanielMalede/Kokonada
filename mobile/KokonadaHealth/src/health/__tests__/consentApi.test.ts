@@ -60,4 +60,33 @@ describe('consentApi', () => {
     (apiGet as jest.Mock).mockResolvedValue({ ok: false, status: 401, error: 'unauthorized' });
     await expect(fetchConsentStatus()).resolves.toEqual({ ok: false, status: 401, error: 'unauthorized' });
   });
+
+  // resilience-audit finding: apiClient's res.json() as T cast has no runtime shape check, so a
+  // malformed 200 (e.g. missing staleVersion) would otherwise read as `granted && !undefined ===
+  // true` — a false "current grant" that could open the OS sheet. Fail closed instead.
+  describe('malformed-response guard (fail closed, never trust an unshaped 200)', () => {
+    it('fetchConsentStatus: an ok:true body missing staleVersion is rejected, not trusted as granted', async () => {
+      (apiGet as jest.Mock).mockResolvedValue({ ok: true, data: { granted: true, currentVersion: 1 } });
+      const res = await fetchConsentStatus();
+      expect(res.ok).toBe(false);
+    });
+
+    it('fetchConsentStatus: granted as a non-boolean is rejected', async () => {
+      (apiGet as jest.Mock).mockResolvedValue({ ok: true, data: { granted: 'yes', currentVersion: 1, staleVersion: false } });
+      const res = await fetchConsentStatus();
+      expect(res.ok).toBe(false);
+    });
+
+    it('grantConsent: a malformed 201 echo is rejected, never treated as granted_ack', async () => {
+      (apiPost as jest.Mock).mockResolvedValue({ ok: true, data: { granted: true } });
+      const res = await grantConsent();
+      expect(res.ok).toBe(false);
+    });
+
+    it('a well-shaped response still passes through unchanged', async () => {
+      const good = { ok: true as const, data: { granted: true, currentVersion: 1, staleVersion: false } };
+      (apiGet as jest.Mock).mockResolvedValue(good);
+      await expect(fetchConsentStatus()).resolves.toEqual(good);
+    });
+  });
 });

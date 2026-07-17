@@ -45,14 +45,29 @@ async function withdrawConsent(userId, purpose) {
     withdrawnAt: new Date(),
   });
 
+  // The withdrawal row is written FIRST and stands regardless of what follows — consent is
+  // revoked (the server gate re-checks the record, not erasure completeness) even if an
+  // erasure attempt below fails. Each provider is isolated so a mid-loop throw (e.g. a
+  // transient Mongo timeout) does not abort erasure of the REMAINING providers (resilience-
+  // audit finding: a bare sequential loop would silently leave residual data on providers
+  // after the one that threw). Failures are collected, not swallowed, so an operator can see
+  // an incomplete erasure and retry — they do not fail withdrawConsent itself.
+  const erasureFailures = [];
   const user = await User.findById(userId);
   if (user) {
     for (const provider of WEARABLE_PROVIDERS) {
-      await eraseWearableProvider(user, provider);
+      try {
+        await eraseWearableProvider(user, provider);
+      } catch {
+        erasureFailures.push(provider);
+      }
     }
   }
 
-  return record;
+  // Explicit shape (not a spread of the Mongoose document — `create()` returns a real Document
+  // whose getters/virtuals don't survive `{...record}`; no current caller reads the return
+  // value beyond `record`/`erasureFailures`, but keep the contract unambiguous for the next one).
+  return { record, erasureFailures };
 }
 
 // The read the server gate and the client both consume. staleVersion means the user IS granted
