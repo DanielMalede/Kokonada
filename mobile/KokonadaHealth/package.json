@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@invertase/react-native-apple-authentication": "^2.4.0",
     "@kokonada/spotify-remote": "file:./modules/spotify-remote",
     "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-native/new-app-screen": "0.86.0",

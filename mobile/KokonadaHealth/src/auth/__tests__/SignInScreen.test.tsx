@@ -1,19 +1,20 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 jest.setTimeout(20000); // cold-require headroom for CI (same rationale as ProfileScreen, #84)
 
-jest.mock('../auth', () => ({ signInWithGoogle: jest.fn() }));
+jest.mock('../auth', () => ({ signInWithGoogle: jest.fn(), signInWithApple: jest.fn() }));
 jest.mock('../currentUser', () => ({ currentUserStore: { getState: () => ({ setUser: jest.fn() }) } }));
 jest.mock('../../prodBootstrap', () => ({ onSignedIn: jest.fn().mockResolvedValue(undefined) }));
 
 import { SignInScreen } from '../SignInScreen';
-import { signInWithGoogle } from '../auth';
+import { signInWithGoogle, signInWithApple } from '../auth';
 import { currentUserStore } from '../currentUser';
 import { onSignedIn } from '../../prodBootstrap';
 
 const signIn = signInWithGoogle as jest.Mock;
+const signInApple = signInWithApple as jest.Mock;
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -72,6 +73,34 @@ describe('SignInScreen (Wave 2.8 reskin — logic contract preserved)', () => {
     (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
     const tree = await render();
     expect(texts(tree.toJSON()).join(' ')).toContain('Kokonada');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('SignInScreen — Sign in with Apple (App Store Guideline 4.8, iOS)', () => {
+  const originalOS = Platform.OS;
+  afterAll(() => { (Platform as any).OS = originalOS; });
+
+  it('renders the official Apple button on iOS and drives signInWithApple → setUser → onSignedIn', async () => {
+    (Platform as any).OS = 'ios';
+    const setUser = jest.fn();
+    (currentUserStore.getState as any) = () => ({ setUser });
+    signInApple.mockResolvedValue({ id: 'u2', displayName: '', email: 'relay@privaterelay.appleid.com' });
+    const tree = await render();
+    const btn = tree.root.findAll((n) => n.props.testID === 'apple-signin-button')[0];
+    expect(btn).toBeTruthy();
+    await ReactTestRenderer.act(async () => { await btn.props.onPress(); });
+    expect(signInApple).toHaveBeenCalledTimes(1);
+    expect(setUser).toHaveBeenCalledWith({ id: 'u2', displayName: '', email: 'relay@privaterelay.appleid.com' });
+    expect(onSignedIn).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('does NOT render the Apple button on Android (4.8 applies on iOS only; Google still offered)', async () => {
+    (Platform as any).OS = 'android';
+    const tree = await render();
+    expect(tree.root.findAll((n) => n.props.testID === 'apple-signin-button').length).toBe(0);
+    expect(byLabel(tree, 'Continue with Google')).toBeTruthy();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
