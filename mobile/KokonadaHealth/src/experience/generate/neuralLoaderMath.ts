@@ -113,15 +113,15 @@ export function projectNode(node: Node3, ry: number, rx: number): Projected {
   };
 }
 
-// Engagement → colour. Two-stop ramp so it stays vivid (a direct cyan→red RGB lerp
-// muddies through grey): cyan → coral for the first half, coral → red for the second.
+// Engagement → colour. Ramps cyan → coral and is CAPPED there — it never reaches the peak RED
+// (never-alarming-red ethic, matching the aura's hrGlowColor). RED is retained as the token
+// triad's hot anchor but is deliberately unused by the ramp.
 export function heat(e: number): RGB {
   'worklet';
   const t = clamp01(e);
-  const [from, to, f] = t < 0.5 ? [CYAN, CORAL, t / 0.5] : [CORAL, RED, (t - 0.5) / 0.5];
   return [
-    Math.round(from[0] + (to[0] - from[0]) * f),
-    Math.round(from[1] + (to[1] - from[1]) * f),
-    Math.round(from[2] + (to[2] - from[2]) * f),
+    Math.round(CYAN[0] + (CORAL[0] - CYAN[0]) * t),
+    Math.round(CYAN[1] + (CORAL[1] - CYAN[1]) * t),
+    Math.round(CYAN[2] + (CORAL[2] - CYAN[2]) * t),
   ];
 }

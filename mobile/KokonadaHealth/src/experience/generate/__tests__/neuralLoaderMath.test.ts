@@ -110,21 +110,22 @@ describe('projectNode', () => {
   });
 });
 
-describe('heat (engagement colour ramp: cyan → coral → red)', () => {
-  it('anchors cyan at 0 and red at 1', () => {
+describe('heat (engagement colour ramp: cyan → coral, CAPPED — never peak red)', () => {
+  it('anchors cyan at 0 and CORAL at 1 — the hot end is capped at coral (never-alarming-red ethic)', () => {
     expect(heat(0)).toEqual(CYAN);
-    expect(heat(1)).toEqual(RED);
+    expect(heat(1)).toEqual(CORAL);
+    expect(heat(1)).not.toEqual(RED); // matches the aura's hrGlowColor cap
   });
 
   it('is warm (more red than blue) at peak and cool (more blue than red) at rest', () => {
     const cool = heat(0), hot = heat(1);
     expect(cool[2]).toBeGreaterThan(cool[0]); // blue > red when calm
-    expect(hot[0]).toBeGreaterThan(hot[2]);   // red > blue at peak
+    expect(hot[0]).toBeGreaterThan(hot[2]);   // red > blue at the (coral) hot end
   });
 
   it('clamps out-of-range and NaN engagement to the endpoints/finite RGB', () => {
     expect(heat(-5)).toEqual(CYAN);
-    expect(heat(9)).toEqual(RED);
+    expect(heat(9)).toEqual(CORAL); // hot end capped at coral
     for (const c of heat(NaN)) expect(Number.isFinite(c)).toBe(true);
   });
 
