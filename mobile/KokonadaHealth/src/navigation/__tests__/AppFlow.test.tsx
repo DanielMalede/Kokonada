@@ -15,7 +15,15 @@ jest.mock('../../prodBootstrap', () => ({ startApp: jest.fn().mockResolvedValue(
 jest.mock('../../splash/SplashScreen', () => ({ SplashScreen: marker('route-splash') }));
 jest.mock('../../onboarding/OnboardingScreen', () => ({ OnboardingScreen: marker('route-onboarding') }));
 jest.mock('../../auth/SignInScreen', () => ({ SignInScreen: marker('route-signin') }));
-jest.mock('../../experience/connect/ConnectServicesScreen', () => ({ ConnectServicesScreen: marker('route-connect') }));
+// A render-COUNTING mock (not a plain marker) so a test can assert the connect screen is NEVER
+// rendered on the sacred boot path — proving the gate hydrates BEFORE the splash dwell resolves.
+// It wraps the same `marker` the other routes use (a direct React reference isn't allowed in a
+// jest.mock factory; only the `marker` helper and mock-prefixed vars are).
+let mockConnectRenders = 0;
+jest.mock('../../experience/connect/ConnectServicesScreen', () => {
+  const render = marker('route-connect');
+  return { ConnectServicesScreen: () => { mockConnectRenders += 1; return render(); } };
+});
 jest.mock('../RootNavigator', () => ({ __esModule: true, default: marker('route-app') }));
 jest.mock('../../experience/playback/AppLifecycle', () => ({ AppLifecycle: () => null }));
 
@@ -54,6 +62,7 @@ beforeEach(() => {
   currentUserStore.setState({ user: null });
   onboardingStore.setState({ seen: false });
   connectStore.setState({ resolved: false, moodOnly: false });
+  mockConnectRenders = 0;
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -144,6 +153,25 @@ describe('AppFlow — 4-state route machine', () => {
     // The dwell resolves straight to app — connect is never rendered.
     expect(has(tree, 'route-app')).toBe(true);
     expect(has(tree, 'route-connect')).toBe(false);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('H2 no-flash: hydrating the gate DURING startup (bind-before-dwell) resolves to app, connect NEVER renders', async () => {
+    onboardingStore.setState({ seen: true });
+    // The real boot path hydrates identity + the connect gate INSIDE startApp — across its awaits,
+    // AFTER AppFlow has attached its store subscriptions — and the dwell is raced against startApp,
+    // so both facts land before phase flips to 'resolved'. Yield a microtask first to model that
+    // ordering (a synchronous set would fire before AppFlow subscribes, unlike the real async boot).
+    const start = jest.fn(async () => {
+      await Promise.resolve();
+      currentUserStore.getState().setUser(USER);
+      connectStore.getState().markResolved();
+    });
+    const tree = await renderResolved({ start });
+    expect(has(tree, 'route-app')).toBe(true);
+    expect(has(tree, 'route-connect')).toBe(false);
+    // The counting mock proves it: the connect screen was rendered ZERO times on the boot path.
+    expect(mockConnectRenders).toBe(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
