@@ -2,7 +2,7 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ConnectServicesScreen } from '../ConnectServicesScreen';
-import { createConnectStore } from '../connectStore';
+import { createConnectStore, resolvedKey, moodOnlyKey } from '../connectStore';
 
 // Production wraps the app in a SafeAreaProvider; supply one (zero insets) so the safe-area
 // chrome reads its insets in the headless renderer.
@@ -143,6 +143,43 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     const t = allText(tree);
     expect(t).toContain('Unavailable'); // halted word
     expect(t).toContain('Not yet available'); // deferred word
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('ConnectServicesScreen — mood-only path (T5)', () => {
+  interface FakeKV { getString(k: string): string | undefined; set(k: string, v: string): void; __map: Map<string, string>; }
+  const makeKV = (): FakeKV => { const m = new Map<string, string>(); return { __map: m, getString: (k) => m.get(k), set: (k, v) => { m.set(k, v); } }; };
+
+  it('tapping "Continue with mood only" persists moodOnly+resolved, fires a commit haptic, and is idempotent', async () => {
+    const kv = makeKV();
+    const connect = createConnectStore(kv, () => 'u1');
+    const triggerHaptic = jest.fn();
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      tree = ReactTestRenderer.create(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <ConnectServicesScreen connect={connect} loadIntegrations={async () => null} triggerHaptic={triggerHaptic} />
+        </SafeAreaProvider>,
+      );
+    });
+    await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+
+    await ReactTestRenderer.act(async () => { byLabel(tree, 'continue-mood-only')[0].props.onPress(); });
+
+    // Forward gate satisfied via mood-only, persisted per-uid, and a single commit haptic fired.
+    expect(connect.getState().moodOnly).toBe(true);
+    expect(connect.getState().resolved).toBe(true);
+    expect(kv.__map.get(moodOnlyKey('u1'))).toBe('1');
+    expect(kv.__map.get(resolvedKey('u1'))).toBe('1');
+    expect(triggerHaptic).toHaveBeenCalledWith('commit');
+
+    // The bar has swapped to the filled "Continue" — no re-nag. Tapping forward stays a no-op-safe path.
+    expect(byLabel(tree, 'continue-mood-only')).toHaveLength(0);
+    const forward = byLabel(tree, 'continue-forward');
+    expect(forward.length).toBeGreaterThan(0);
+    await ReactTestRenderer.act(async () => { forward[0].props.onPress(); });
+    expect(connect.getState().resolved).toBe(true); // idempotent — still resolved, nothing regressed
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
