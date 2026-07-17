@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator, StyleSheet, Dimensions } from 'react-native';
-import { signInWithGoogle } from './auth';
+import { View, Text, Pressable, ActivityIndicator, StyleSheet, Dimensions, Platform } from 'react-native';
+import { appleAuth, AppleButton } from '@invertase/react-native-apple-authentication';
+import { signInWithGoogle, signInWithApple, type KokonadaUser } from './auth';
 import { currentUserStore } from './currentUser';
 import { onSignedIn } from '../prodBootstrap';
 import { useTheme, useMotion } from '../design/theme';
@@ -22,11 +23,14 @@ export function SignInScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const onPress = async () => {
+  // SACRED CONTRACT (QA4 Suspect #1): a successful sign-in ALWAYS runs
+  // <provider> → setUser → onSignedIn, unchanged. Both Google and Apple funnel through
+  // this one handler so the post-auth ignition is identical for either provider.
+  const runSignIn = async (provider: () => Promise<KokonadaUser>) => {
     setBusy(true);
     setError(null);
     try {
-      const user = await signInWithGoogle();
+      const user = await provider();
       currentUserStore.getState().setUser(user);
       await onSignedIn();
     } catch (e: any) {
@@ -35,6 +39,14 @@ export function SignInScreen() {
       setBusy(false);
     }
   };
+
+  const onGoogle = () => runSignIn(signInWithGoogle);
+  const onApple = () => runSignIn(signInWithApple);
+
+  // Guideline 4.8: on iOS, wherever a third-party login (Google) is offered we MUST offer
+  // Sign in with Apple. It uses Apple's OFFICIAL button (ASAuthorizationAppleIDButton via
+  // AppleButton) — never a hand-drawn look-alike. Not shown on Android or pre-iOS-13.
+  const showApple = Platform.OS === 'ios' && appleAuth.isSupported;
 
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
@@ -53,7 +65,7 @@ export function SignInScreen() {
 
       <View style={styles.actions}>
         <Pressable
-          onPress={onPress}
+          onPress={onGoogle}
           disabled={busy}
           accessibilityRole="button"
           accessibilityLabel="Continue with Google"
@@ -73,6 +85,16 @@ export function SignInScreen() {
           )}
         </Pressable>
 
+        {showApple ? (
+          <AppleButton
+            testID="apple-signin-button"
+            buttonStyle={AppleButton.Style.BLACK}
+            buttonType={AppleButton.Type.SIGN_IN}
+            onPress={onApple}
+            style={styles.appleButton}
+          />
+        ) : null}
+
         {error ? (
           <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ marginTop: space.md, color: c.state.danger, textAlign: 'center' }}>
             {error}
@@ -88,4 +110,7 @@ const styles = StyleSheet.create({
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   actions: { width: '100%', alignItems: 'center' },
   button: { width: '100%', maxWidth: 360, paddingVertical: space.lg, alignItems: 'center', borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth },
+  // The official Apple button draws its own fill/label; we only own its measure. It matches
+  // the Google button's width and sits one gap below it.
+  appleButton: { width: '100%', maxWidth: 360, height: 52, marginTop: space.md },
 });

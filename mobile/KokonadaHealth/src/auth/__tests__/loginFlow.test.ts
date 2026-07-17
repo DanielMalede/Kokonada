@@ -7,8 +7,9 @@
 // the fix: login requests the mobile session and installs it — and the token plane is
 // now unified on AuthSession alone (the legacy JWT store has been removed).
 
-import { signInWithGoogle, signOut, isLoggedIn } from '../auth';
+import { signInWithGoogle, signInWithApple, signOut, isLoggedIn } from '../auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { appleAuth } from '@invertase/react-native-apple-authentication';
 
 jest.mock('../session', () => ({
   authSession: {
@@ -76,6 +77,45 @@ describe('signInWithGoogle — token-plane unification (Suspect #1)', () => {
   it('throws a clear error when the backend rejects the sign-in', async () => {
     mockFetchOnce({ error: 'bad token' }, false, 401);
     await expect(signInWithGoogle()).rejects.toThrow('bad token');
+    expect(authSession.setSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('signInWithApple — Guideline 4.8 privacy-forward login (mobile session, mirrors Google)', () => {
+  beforeEach(() => {
+    (appleAuth.performRequest as jest.Mock).mockResolvedValue({
+      identityToken: 'apple-idtok', authorizationCode: 'code', user: 'apple-sub', email: 'relay@privaterelay.appleid.com', nonce: 'n',
+    });
+  });
+
+  it('exchanges the Apple identityToken at /api/auth/apple as a mobile session (client:"mobile", platform:"ios")', async () => {
+    mockFetchOnce({ token: 'acc', refreshToken: 'ref', user: USER });
+    await signInWithApple();
+
+    const [url, init] = ((globalThis as any).fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain('/api/auth/apple');
+    const body = JSON.parse(init.body);
+    expect(body.identityToken).toBe('apple-idtok');
+    expect(body.client).toBe('mobile');
+    expect(body.platform).toBe('ios');
+  });
+
+  it('installs the rotating pair into AuthSession so the socket can authenticate', async () => {
+    mockFetchOnce({ token: 'acc-a', refreshToken: 'ref-a', user: USER });
+    const user = await signInWithApple();
+    expect(authSession.setSession).toHaveBeenCalledWith({ access: 'acc-a', refresh: 'ref-a' });
+    expect(user).toEqual(USER);
+  });
+
+  it('throws when Apple returns no identityToken (nothing to verify)', async () => {
+    (appleAuth.performRequest as jest.Mock).mockResolvedValueOnce({ identityToken: null });
+    await expect(signInWithApple()).rejects.toThrow(/identity token/i);
+    expect(authSession.setSession).not.toHaveBeenCalled();
+  });
+
+  it('throws a clear error when the backend rejects the Apple sign-in', async () => {
+    mockFetchOnce({ error: 'bad apple token' }, false, 401);
+    await expect(signInWithApple()).rejects.toThrow('bad apple token');
     expect(authSession.setSession).not.toHaveBeenCalled();
   });
 });

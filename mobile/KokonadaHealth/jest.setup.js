@@ -105,3 +105,20 @@ jest.mock('react-native-bootsplash', () => ({
   hide: jest.fn().mockResolvedValue(undefined),
   isVisible: jest.fn().mockResolvedValue(false),
 }));
+
+// Sign in with Apple is a native module (iOS ASAuthorization). Stub it so headless renders
+// of SignInScreen never touch native code; the official AppleButton becomes a host element
+// that forwards its props (onPress/testID/accessibilityLabel) so tests can drive it.
+jest.mock('@invertase/react-native-apple-authentication', () => {
+  const React = require('react');
+  const appleAuth = {
+    isSupported: true,
+    performRequest: jest.fn(),
+    Operation: { LOGIN: 1, REFRESH: 2, LOGOUT: 3, IMPLICIT: 0 },
+    Scope: { EMAIL: 0, FULL_NAME: 1 },
+  };
+  const AppleButton = (props) => React.createElement('AppleButton', props, props.children ?? null);
+  AppleButton.Type = { SIGN_IN: 'SignIn', CONTINUE: 'Continue', SIGN_UP: 'SignUp', DEFAULT: 'SignIn' };
+  AppleButton.Style = { WHITE: 'White', WHITE_OUTLINE: 'WhiteOutline', BLACK: 'Black', DEFAULT: 'White' };
+  return { appleAuth, AppleButton };
+});

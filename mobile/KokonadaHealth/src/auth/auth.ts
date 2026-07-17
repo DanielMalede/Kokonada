@@ -1,4 +1,5 @@
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { appleAuth } from '@invertase/react-native-apple-authentication';
 import { BACKEND_URL, GOOGLE_WEB_CLIENT_ID } from '../health/config';
 import { authSession } from './session';
 
@@ -53,6 +54,38 @@ export async function signInWithGoogle(): Promise<KokonadaUser> {
   // empty — it authenticates until expiry, then a 401 triggers a clean re-login rather
   // than a broken no-auth state. Since the legacy tokenStore fallback was removed, this
   // guard is the only thing between "no refresh" and "no session". (QA4 Squad 2)
+  if (token) {
+    await authSession.setSession({ access: token, refresh: refreshToken ?? '' });
+  }
+  return user as KokonadaUser;
+}
+
+// Sign in with Apple → backend exchange → store JWT. Apple App Store Guideline 4.8 requires
+// this privacy-forward option wherever a third-party login (Google) is offered on iOS. The
+// contract mirrors signInWithGoogle exactly: exchange the provider identity token at
+// POST /api/auth/apple with client:'mobile' (issues the rotating {access,refresh} pair the
+// socket needs) → install into the single AuthSession token plane. Apple returns the email
+// only on first grant and may hand back a private-relay address — the backend accepts it.
+export async function signInWithApple(): Promise<KokonadaUser> {
+  const resp = await appleAuth.performRequest({
+    requestedOperation: appleAuth.Operation.LOGIN,
+    requestedScopes: [appleAuth.Scope.FULL_NAME, appleAuth.Scope.EMAIL],
+  });
+
+  const identityToken = resp?.identityToken;
+  if (!identityToken) throw new Error('Apple sign-in returned no identity token');
+
+  const res = await fetch(`${BACKEND_URL}/api/auth/apple`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identityToken, platform: 'ios', client: 'mobile' }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Auth failed (${res.status})`);
+  }
+
+  const { token, refreshToken, user } = await res.json();
   if (token) {
     await authSession.setSession({ access: token, refresh: refreshToken ?? '' });
   }
