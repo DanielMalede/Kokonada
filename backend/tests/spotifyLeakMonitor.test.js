@@ -46,6 +46,32 @@ describe('spotifyLeakMonitor.checkSpotifyLeak', () => {
     expect(warn).toHaveBeenCalled(); // alerts (non-destructive) when a leak is present
   });
 
+  // WHY THIS EXISTS: a serve-time resolver that cached a translated spotify: URI back onto an
+  // anonymous youtube: catalog row (the leak this fix removed) leaves the row's recordingKey youtube:
+  // but its `uri` field spotify:. This documents that the selector still COUNTS that exact shape as a
+  // leak (via the uri clause) — so nobody "fixes" the monitor to stop catching it without knowing why.
+  it('COUNTS a youtube:-keyed row whose uri was overwritten with a spotify: value (resolver recontamination shape)', async () => {
+    const res = await checkSpotifyLeak({
+      collections: {
+        TrackCatalog:   fakeCollection([
+          { recordingKey: 'youtube:y', uri: 'spotify:track:z' }, // recontaminated: keeps youtube: identity, uri now spotify:
+          { recordingKey: 'mbid:m', uri: null },                 // clean corpus row
+        ]),
+        TrackEmbedding: fakeCollection([{ recordingKey: 'mbid:m' }]),
+        AudioFeature:   fakeCollection([{ recordingKey: 'youtube:y', spotifyId: null }]),
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.counts.TrackCatalog).toBe(1); // the recontaminated youtube: row is caught
+    expect(res.total).toBe(1);
+  });
+
+  it('spotifyRowSelector catches recontamination via its uri clause even when recordingKey stays youtube:', () => {
+    const uriClause = spotifyRowSelector().$or.find((c) => c.uri)?.uri;
+    expect(uriClause).toBeInstanceOf(RegExp);
+    expect(uriClause.test('spotify:track:z')).toBe(true); // a spotify: uri on any-keyed row is a leak
+  });
+
   it('uses the shared spotifyRowSelector (regression guard on the query shape)', async () => {
     const spy = { async countDocuments(q) { this.q = q; return 0; }, q: null };
     await checkSpotifyLeak({ collections: { TrackCatalog: spy } });
