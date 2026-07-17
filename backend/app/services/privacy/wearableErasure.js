@@ -8,6 +8,7 @@
 
 const BiometricLog   = require('../../models/BiometricLog');
 const MedicalProfile = require('../../models/MedicalProfile');
+const garmin         = require('../wearable/garmin');
 const { getRedis }   = require('../../config/redis');
 
 const WEARABLE_PROVIDERS = Object.freeze(['garmin', 'apple_health', 'health_connect', 'suunto']);
@@ -66,11 +67,32 @@ function clearWearableCredentials(user, provider) {
   return changed;
 }
 
-// Full per-provider erasure: clear credentials, persist, then purge the data footprint.
+// Best-effort Garmin deregistration (Wave 6 T4). Flag-gated OFF by default: production
+// Garmin API access requires an approval that may not be live yet, so a NEW outbound call
+// must not fire until a human flips GARMIN_DEREGISTER_ENABLED after confirming approval.
+// It runs BEFORE the credentials are cleared (it needs a valid token) and NEVER blocks the
+// local erasure — a Garmin/network failure is swallowed so the user's GDPR erasure always
+// completes. Returns a small audit record of what was attempted.
+async function maybeDeregisterGarmin(user) {
+  if (process.env.GARMIN_DEREGISTER_ENABLED !== 'true') return { attempted: false };
+  try {
+    const accessToken = await garmin.getValidToken(user); // auto-refreshes a stale token
+    await garmin.deregisterUser(accessToken);
+    return { attempted: true, ok: true };
+  } catch (e) {
+    console.error('[garmin] deregister failed (erasure continues):', e.message);
+    return { attempted: true, ok: false };
+  }
+}
+
+// Full per-provider erasure: (garmin only) deregister with Garmin, then clear credentials,
+// persist, and purge the data footprint.
 async function eraseWearableProvider(user, provider) {
+  const deregistration = provider === 'garmin' ? await maybeDeregisterGarmin(user) : undefined;
   clearWearableCredentials(user, provider);
   await user.save();
-  return purgeWearableData(user._id, provider);
+  const purged = await purgeWearableData(user._id, provider);
+  return deregistration ? { ...purged, deregistration } : purged;
 }
 
 module.exports = {

@@ -132,8 +132,23 @@ async function requestSixMonthBackfill(accessToken) {
   }
 }
 
+// ── User deregistration (Wave 6 T4) ─────────────────────────────────────────────
+//
+// On a Garmin disconnect we tell Garmin to drop OUR registration for this user, so Garmin
+// stops pushing summaries to our webhook and revokes our access. The Garmin Health API
+// exposes this as DELETE /wellness-api/rest/user/registration, authenticated by the user's
+// Bearer access token (no request body; a successful call returns 204). This is a NEW
+// outbound Garmin call — its caller gates it behind GARMIN_DEREGISTER_ENABLED (dark by
+// default) because production Garmin API access requires an approval that may not be live.
+async function deregisterUser(accessToken) {
+  await axios.delete(`${API_BASE}/user/registration`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    timeout: 8000,
+  });
+}
+
 module.exports = {
   isConfigured, generatePKCE, getAuthUrl,
   exchangeCode, refreshAccessToken, getValidToken, getUserId,
-  requestBackfill, requestSixMonthBackfill,
+  requestBackfill, requestSixMonthBackfill, deregisterUser,
 };

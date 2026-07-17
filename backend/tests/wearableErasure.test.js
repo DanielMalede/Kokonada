@@ -19,8 +19,15 @@ jest.mock('../app/config/redis', () => {
   return { getRedis: jest.fn(() => fake), __fake: fake };
 });
 
+// Garmin Health API service — deregistration reaches out to Garmin, so it is mocked here.
+jest.mock('../app/services/wearable/garmin', () => ({
+  getValidToken:  jest.fn().mockResolvedValue('valid-access-token'),
+  deregisterUser: jest.fn().mockResolvedValue(undefined),
+}));
+
 const BiometricLog   = require('../app/models/BiometricLog');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const garmin         = require('../app/services/wearable/garmin');
 const { getRedis, __fake: fakeRedis } = require('../app/config/redis');
 const {
   purgeWearableData, clearWearableCredentials, eraseWearableProvider, WEARABLE_PROVIDERS,
@@ -34,7 +41,11 @@ beforeEach(() => {
   BiometricLog.countDocuments.mockResolvedValue(0);
   MedicalProfile.deleteMany.mockResolvedValue({ deletedCount: 1 });
   getRedis.mockReturnValue(fakeRedis);
+  garmin.getValidToken.mockResolvedValue('valid-access-token');
+  garmin.deregisterUser.mockResolvedValue(undefined);
+  delete process.env.GARMIN_DEREGISTER_ENABLED; // deregistration is dark by default
 });
+afterAll(() => { delete process.env.GARMIN_DEREGISTER_ENABLED; });
 
 describe('purgeWearableData', () => {
   it('deletes ONLY the biometric samples attributed to that provider (source-scoped)', async () => {
@@ -107,6 +118,49 @@ describe('eraseWearableProvider', () => {
     const res = await eraseWearableProvider(user, 'garmin');
     expect(user.wearableProvider).toBeNull();
     expect(save).toHaveBeenCalled();
+    expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
+    expect(res.biometricLogs).toBe(5);
+  });
+});
+
+describe('eraseWearableProvider — Garmin deregistration (Wave 6 T4, flag-gated OFF)', () => {
+  const makeGarminUser = () => ({
+    _id: USER, wearableProvider: 'garmin', wearableToken: { blob: 'x' }, garminUserId: 'g',
+    save: jest.fn().mockResolvedValue(undefined),
+  });
+
+  it('does NOT call Garmin when GARMIN_DEREGISTER_ENABLED is unset (dark by default)', async () => {
+    const res = await eraseWearableProvider(makeGarminUser(), 'garmin');
+    expect(garmin.getValidToken).not.toHaveBeenCalled();
+    expect(garmin.deregisterUser).not.toHaveBeenCalled();
+    expect(res.deregistration).toEqual({ attempted: false });
+    // local erasure still ran
+    expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
+  });
+
+  it('deregisters with a valid token when the flag is enabled', async () => {
+    process.env.GARMIN_DEREGISTER_ENABLED = 'true';
+    const user = makeGarminUser();
+    const res = await eraseWearableProvider(user, 'garmin');
+    expect(garmin.getValidToken).toHaveBeenCalledWith(user);
+    expect(garmin.deregisterUser).toHaveBeenCalledWith('valid-access-token');
+    expect(res.deregistration).toEqual({ attempted: true, ok: true });
+  });
+
+  it('never calls Garmin for a non-garmin provider even with the flag enabled', async () => {
+    process.env.GARMIN_DEREGISTER_ENABLED = 'true';
+    const user = { _id: USER, wearableProvider: 'apple_health', wearableToken: null, save: jest.fn().mockResolvedValue(undefined) };
+    const res = await eraseWearableProvider(user, 'apple_health');
+    expect(garmin.deregisterUser).not.toHaveBeenCalled();
+    expect(res.deregistration).toBeUndefined();
+  });
+
+  it('still completes the local erasure when Garmin deregistration fails (best-effort)', async () => {
+    process.env.GARMIN_DEREGISTER_ENABLED = 'true';
+    garmin.deregisterUser.mockRejectedValue(new Error('garmin 500'));
+    const res = await eraseWearableProvider(makeGarminUser(), 'garmin');
+    expect(res.deregistration).toEqual({ attempted: true, ok: false });
+    // erasure was NOT blocked by the Garmin failure
     expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
     expect(res.biometricLogs).toBe(5);
   });
