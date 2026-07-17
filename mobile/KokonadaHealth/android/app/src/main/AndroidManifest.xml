@@ -2,16 +2,15 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Health Connect: data read for the medical profile -->
+    <!-- Health Connect: data read for the medical profile (scope-minimized — only types a
+         shipped feature actually reads: HR / HRV / sleep / resting HR). -->
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
-    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
-    <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
-    <!-- History (>30 days) + background delta sync -->
+    <!-- History (>30 days) needed for the ~6-month backfill. No background read: every read
+         happens in the foreground, so READ_HEALTH_DATA_IN_BACKGROUND is not requested. -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
-    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
     <!-- Live heart-rate over BLE (Garmin "Broadcast Heart Rate" -> HR Service 0x180D).
          Android 12+ uses runtime BLE permissions; neverForLocation drops the FINE_LOCATION need. -->
