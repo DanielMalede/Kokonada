@@ -82,6 +82,12 @@ jest.mock('../app/models/BiometricLog', () => ({}));
 jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}), findOne: jest.fn() }));
 jest.mock('../app/models/ServeEvent', () => ({ deleteMany: jest.fn().mockResolvedValue({}) }));
 jest.mock('../app/utils/userRedisPurge', () => ({ purgeUserKeys: jest.fn().mockResolvedValue(0) }));
+// garminDisconnect now delegates the full GDPR erasure to this module (credentials + data purge +
+// best-effort deregister). Its REAL behaviour is proven against real Mongo in
+// garminDisconnectErasure.integration.test.js; here we only assert the controller delegates.
+jest.mock('../app/services/privacy/wearableErasure', () => ({
+  eraseWearableProvider: jest.fn().mockResolvedValue({ biometricLogs: 0, medicalProfiles: 0 }),
+}));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
@@ -510,12 +516,18 @@ describe('Garmin OAuth 2.0 + PKCE flow', () => {
   });
 
   describe('garminDisconnect', () => {
-    it('nulls provider + token and saves', async () => {
+    it('delegates to the per-provider erasure module (clears credentials AND purges the footprint) and never leaks an error', async () => {
+      const { eraseWearableProvider } = require('../app/services/privacy/wearableErasure');
+      eraseWearableProvider.mockClear();
       const user = buildUser({ wearableProvider: 'garmin', wearableToken: { blob: 'enc' } });
-      await ctrl.garminDisconnect({ user }, buildRes(), jest.fn());
-      expect(user.wearableProvider).toBeNull();
-      expect(user.wearableToken).toBeNull();
-      expect(user.save).toHaveBeenCalled();
+      const res = buildRes();
+      const next = jest.fn();
+
+      await ctrl.garminDisconnect({ user }, res, next);
+
+      expect(eraseWearableProvider).toHaveBeenCalledWith(user, 'garmin');
+      expect(res.json).toHaveBeenCalledWith({ message: 'Garmin disconnected' });
+      expect(next).not.toHaveBeenCalled();
     });
   });
 });
