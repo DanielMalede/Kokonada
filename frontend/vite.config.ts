@@ -4,6 +4,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// NOTE on CSP (see scripts/csp.mjs for the full history): this build no longer stamps
+// a per-build nonce onto <script> tags. vercel.json's Content-Security-Policy is now a
+// fully static, host-allowlist-only policy with no nonce/'strict-dynamic' — Vercel
+// reads vercel.json from the git-committed source before the Build Command runs, so a
+// nonce mutated in at build time could never match what the header actually served
+// (T3-1: a guaranteed CSP violation, i.e. a blank app, on every real deploy).
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [

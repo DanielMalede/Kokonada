@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
-const { watchLimiter } = require('../middleware/rateLimiter');
+const { watchLimiter, watchPairingLimiter } = require('../middleware/rateLimiter');
 const {
   getIntegrationsStatus,
   connectToken,
@@ -15,6 +15,7 @@ const {
   suuntoWebhook,
   wearableStatus,
   issueWatchToken, revokeWatchToken, watchHrIngest, watchStatus,
+  createWatchPairing, exchangeWatchPairing,
 } = require('../controllers/integrationsController');
 // Per-provider wearable erasure lives in a SEPARATE controller (ownership ruling). (T3.2)
 const { deleteWearableProvider } = require('../controllers/wearableErasureController');
@@ -33,6 +34,10 @@ router.post('/garmin/webhook',   garminWebhook); // Garmin Health API server-to-
 // Watch HR stream (PUBLIC — authenticated by the opaque device token, not the
 // session cookie; same placement rationale as the webhooks above).
 router.post('/watch/hr', watchLimiter, watchHrIngest);
+
+// Watch pairing-code exchange (PUBLIC — the watch has no session; it presents the
+// short-lived one-time code the user just saw in the browser instead). (T5)
+router.post('/watch/pair/exchange', watchPairingLimiter, exchangeWatchPairing);
 
 // All remaining integration routes require a logged-in user
 router.use(auth);
@@ -87,5 +92,6 @@ router.delete('/wearable/:provider', deleteWearableProvider);
 router.post('/watch/token',   issueWatchToken);
 router.delete('/watch/token', revokeWatchToken);
 router.get('/watch/status',   watchStatus);
+router.post('/watch/pair',    createWatchPairing); // mints the short-lived pairing code (T5)
 
 module.exports = router;

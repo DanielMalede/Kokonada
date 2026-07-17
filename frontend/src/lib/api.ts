@@ -3,6 +3,21 @@
 // also keep the JWT (returned in the login response body) in localStorage and
 // send it as a Bearer header / query param. Cookies still work locally and are
 // kept as a fallback.
+//
+// B2 same-domain auth prep (Wave 5 / T4, code only — the actual DNS/reverse-proxy
+// cutover that puts the SPA + API on one registrable domain is a separate,
+// human-gated step): once that migration lands, the httpOnly cookie becomes
+// first-party and browsers stop blocking it, so the localStorage bearer-token
+// workaround above is no longer needed — and is a residual XSS surface as long as
+// it stays around (any injected script can read `koko-token`). Flip
+// VITE_AUTH_SAME_ORIGIN=true post-migration to stop reading/writing that token
+// entirely and rely solely on the credentialed cookie. Defaults to OFF so nothing
+// changes on the CURRENT cross-site topology — flipping this before the domain
+// migration would break every fetch/socket call (the cookie is blocked cross-site,
+// which is exactly why the workaround exists).
+export function sameOriginAuth(): boolean {
+  return import.meta.env.VITE_AUTH_SAME_ORIGIN === 'true';
+}
 
 const TOKEN_KEY = 'koko-token';
 
@@ -30,8 +45,13 @@ export function clearToken(): void {
   }
 }
 
-/** Authorization header for authenticated fetch() calls (empty when no token). */
+/**
+ * Authorization header for authenticated fetch() calls (empty when no token, or
+ * when running in same-origin mode — see sameOriginAuth() above, where auth is
+ * carried solely by the credentialed httpOnly cookie).
+ */
 export function authHeaders(): Record<string, string> {
+  if (sameOriginAuth()) return {};
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
@@ -109,7 +129,10 @@ export async function deleteAccount(backendUrl: string): Promise<void> {
   clearToken();
 }
 
-/** Mint a new watch device token (plaintext returned once). Throws on failure. */
+/** Mint a new watch device token (plaintext returned once). Throws on failure.
+ *  Retained for non-browser/API callers — the web UI itself uses
+ *  requestWatchPairingCode() below so the long-lived token is never rendered in
+ *  the browser DOM or clipboard (audit L-15). */
 export async function issueWatchToken(backendUrl: string): Promise<string> {
   const res = await fetch(`${backendUrl}/api/integrations/watch/token`, {
     method: 'POST',
@@ -119,6 +142,24 @@ export async function issueWatchToken(backendUrl: string): Promise<string> {
   if (!res.ok) throw new Error(`issueWatchToken failed: ${res.status}`);
   const { token } = await res.json();
   return token as string;
+}
+
+/**
+ * Mints a short-lived, single-use pairing code (audit L-15) shown in the browser
+ * INSTEAD of the long-lived watch device token. The sideloaded watch app exchanges
+ * this code, server-side, for its own token — the long-lived secret never touches
+ * the browser DOM or clipboard.
+ */
+export async function requestWatchPairingCode(
+  backendUrl: string,
+): Promise<{ code: string; expiresAt: string }> {
+  const res = await fetch(`${backendUrl}/api/integrations/watch/pair`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`requestWatchPairingCode failed: ${res.status}`);
+  return res.json();
 }
 
 /** Revoke the current watch device token. Throws on failure. */

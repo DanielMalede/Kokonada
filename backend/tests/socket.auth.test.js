@@ -28,6 +28,7 @@ jest.mock('../app/models/User', () => ({
 }));
 
 const { createSocketServer } = require('../app/sockets/index');
+const { COOKIE_NAME } = require('../app/utils/jwt');
 
 let httpServer;
 let io;
@@ -44,6 +45,21 @@ function connect(token) {
     transports: ['websocket'],
     reconnection: false,
     timeout: 2000,
+  });
+  clients.push(socket);
+  return socket;
+}
+
+// B2 same-domain auth prep (T4): once the SPA + API share a registrable domain,
+// the browser sends the httpOnly session cookie automatically — no handshake.auth
+// token involved at all. Connects with NO auth.token but WITH a Cookie header,
+// mirroring what a same-domain browser socket connection actually looks like.
+function connectWithCookie(cookieValue) {
+  const socket = Client(`http://127.0.0.1:${port}`, {
+    transports: ['websocket'],
+    reconnection: false,
+    timeout: 2000,
+    extraHeaders: cookieValue ? { Cookie: `${COOKIE_NAME}=${cookieValue}` } : {},
   });
   clients.push(socket);
   return socket;
@@ -113,6 +129,42 @@ describe('socket handshake auth', () => {
     const socket = connect(signAccess());
     const err = await once(socket, 'connect_error');
     expect(err.message).toBe('unauthorized');
+  });
+});
+
+// T4 (B2 same-domain auth prep): the handshake must also accept the httpOnly
+// session cookie as an additional path, alongside — not instead of — the existing
+// bearer/handshake.auth.token used by native/mobile clients.
+describe('socket handshake auth — cookie fallback (B2 same-domain prep)', () => {
+  it('accepts a valid session cookie when no handshake.auth.token is present', async () => {
+    const socket = connectWithCookie(signAccess());
+    await once(socket, 'connect');
+    expect(socket.connected).toBe(true);
+  });
+
+  it('rejects when neither a token nor a cookie is present', async () => {
+    const socket = connectWithCookie(null);
+    const err = await once(socket, 'connect_error');
+    expect(err.message).toBe('unauthorized');
+  });
+
+  it('rejects an invalid/garbage cookie value', async () => {
+    const socket = connectWithCookie('not-a-real-jwt');
+    const err = await once(socket, 'connect_error');
+    expect(err.message).toBe('unauthorized');
+  });
+
+  it('rejects a cookie carrying a REVOKED jti — logout must close this door too', async () => {
+    mockIsRevoked.mockResolvedValue(true);
+    const socket = connectWithCookie(signAccess());
+    const err = await once(socket, 'connect_error');
+    expect(err.message).toBe('unauthorized');
+  });
+
+  it('still accepts handshake.auth.token when present — cookie support is additive, not a replacement', async () => {
+    const socket = connect(signAccess());
+    await once(socket, 'connect');
+    expect(socket.connected).toBe(true);
   });
 });
 

@@ -64,4 +64,18 @@ exports.playbackFailedLimiter = rateLimit({
   message: { error: 'Too many playback-failure reports — slow down' },
 });
 
+// Watch pairing-code exchange (T5/audit L-15): PUBLIC, unauthenticated endpoint —
+// the watch has no session, only the freshly-typed 6-digit code. IP-keyed since
+// there is no bearer token to hash here. 10/min per IP against a 5-min-TTL,
+// 1-in-1e6 keyspace code makes brute-forcing a live code infeasible while still
+// giving a legitimate retry (typo) a fair number of attempts.
+exports.watchPairingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip),
+  message: { error: 'Too many pairing attempts — please try again' },
+});
+
 exports._isWatchIngest = isWatchIngest;

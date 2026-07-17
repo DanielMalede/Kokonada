@@ -23,9 +23,13 @@ vi.mock('../hooks/useSocket', () => ({
   useSocket: () => ({ skipTrack: vi.fn(), emitEmotionUpdate: vi.fn(), connected: true, disconnect: vi.fn() }),
 }));
 
+// Spotify uris must be exactly 22 base-62 chars (SpotifyAttribution's own gate) —
+// pad the short test id out so these tracks actually resolve to a real attribution.
+const spotifyUri = (i: number) => `spotify:track:${`t${i}`.padEnd(22, '0')}`;
+
 const makePlaylist = (n: number) =>
   Array.from({ length: n }, (_, i) => ({
-    id: `t${i}`, title: `Song ${i}`, artist: `Artist ${i}`, uri: `spotify:track:t${i}`,
+    id: `t${i}`, title: `Song ${i}`, artist: `Artist ${i}`, uri: spotifyUri(i),
   }));
 
 function buildStore(playerOverrides = {}) {
@@ -52,7 +56,7 @@ function buildStore(playerOverrides = {}) {
         sdkPositionMs: 0,
         sdkDurationMs: 240_000,
         pendingPlaylist: [],
-        sdkCurrentTrackUri: 'spotify:track:t0',
+        sdkCurrentTrackUri: spotifyUri(0),
         ...playerOverrides,
       },
     } as never,
@@ -77,5 +81,30 @@ describe('NowPlayingPage — Bug 9: full scrollable Up next list', () => {
   it('wraps the queue in a scrollable (overflow-y-auto) container', () => {
     const { container } = renderPage();
     expect(container.querySelector('.overflow-y-auto')).toBeTruthy();
+  });
+});
+
+// Compliance (Wave 5 NEEDS CHANGE): the "Up next" queue showed Spotify title/artist
+// metadata with no link-back on any row but the actively-playing track.
+describe('NowPlayingPage — Up next attribution', () => {
+  it('links every Spotify track row in the queue back to open.spotify.com', () => {
+    renderPage();
+    // 11 queued rows (tracks 1..11) + the currently-playing track's own attribution up top.
+    const links = screen.getAllByRole('link', { name: /listen on spotify/i });
+    expect(links).toHaveLength(12);
+    expect(links[0]).toHaveAttribute('href', expect.stringContaining('open.spotify.com/track/'));
+  });
+
+  it('does not attribute a non-Spotify row in the queue', () => {
+    const list = [
+      { id: 't0', title: 'Now', artist: 'A', uri: 'spotify:track:aaaaaaaaaaaaaaaaaaaaaa' },
+      { id: 't1', title: 'Next', artist: 'B', uri: 'youtube_music:track:xyz' },
+    ];
+    renderPage({ playlist: list, sdkCurrentTrackUri: 'spotify:track:aaaaaaaaaaaaaaaaaaaaaa' });
+
+    expect(screen.getByText('Next')).toBeInTheDocument();
+    // Exactly one link: the currently-playing Spotify track's own attribution up top.
+    // The queued YouTube Music row must carry none.
+    expect(screen.queryAllByRole('link', { name: /listen on spotify/i })).toHaveLength(1);
   });
 });

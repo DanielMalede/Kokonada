@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { issueWatchToken, revokeWatchToken, fetchWatchStatus } from '../lib/api';
+import { issueWatchToken, revokeWatchToken, fetchWatchStatus, requestWatchPairingCode } from '../lib/api';
 
 const BACKEND = 'http://localhost:5000';
 
@@ -45,5 +45,26 @@ describe('watch API helpers', () => {
 
     const status = await fetchWatchStatus(BACKEND);
     expect(status).toEqual({ connected: true, lastSeenAt: '2026-06-24T17:00:00.000Z' });
+  });
+
+  it('requestWatchPairingCode POSTs to /watch/pair and returns the code + expiry', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ code: '123456', expiresAt: '2026-06-24T17:05:00.000Z' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await requestWatchPairingCode(BACKEND);
+
+    expect(result).toEqual({ code: '123456', expiresAt: '2026-06-24T17:05:00.000Z' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${BACKEND}/api/integrations/watch/pair`,
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('requestWatchPairingCode throws on a non-ok response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({}) }));
+    await expect(requestWatchPairingCode(BACKEND)).rejects.toThrow();
   });
 });

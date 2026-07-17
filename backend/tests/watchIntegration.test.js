@@ -17,6 +17,7 @@ const { getIo } = require('../app/sockets');
 const { handleBiometricReading } = require('../app/sockets/biometricHandler');
 const {
   issueWatchToken, revokeWatchToken, watchHrIngest,
+  createWatchPairing, exchangeWatchPairing,
 } = require('../app/controllers/integrationsController');
 
 function makeRes() {
@@ -85,6 +86,20 @@ describe('revokeWatchToken', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.message).toMatch(/disconnect/i);
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('also clears any in-flight watchPairing — a stale pairing must not outlive a disconnect', async () => {
+    const user = {
+      _id: 'u1',
+      watchToken: { hash: 'abc', createdAt: new Date(), lastSeenAt: new Date() },
+      watchPairing: { hash: 'pending-hash', expiresAt: new Date(Date.now() + 60_000) },
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const res = makeRes();
+
+    await revokeWatchToken({ user }, res, next);
+
+    expect(user.watchPairing).toBeNull();
   });
 
   it('forwards errors to next', async () => {
@@ -444,5 +459,127 @@ describe('watchHrIngest', () => {
 
     // next must NOT have been called — fire-and-forget swallows the error
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+// ── createWatchPairing (T5 / audit L-15) ────────────────────────────────────
+
+describe('createWatchPairing', () => {
+  beforeEach(() => {
+    User.exists = jest.fn().mockResolvedValue(false); // no collision by default
+  });
+
+  it('mints a 6-digit code, stores only its hash + expiry, and returns the plaintext code once', async () => {
+    const user = { _id: 'u1', save: jest.fn().mockResolvedValue(undefined) };
+    const res = makeRes();
+
+    await createWatchPairing({ user }, res, next);
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.code).toMatch(/^\d{6}$/);
+    expect(user.watchPairing.hash).toBe(sha256(res.body.code));
+    expect(user.watchPairing.hash).not.toBe(res.body.code); // never store the plaintext
+    expect(new Date(res.body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    expect(user.save).toHaveBeenCalledTimes(1);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('does NOT mint or store a real device token — only the short-lived code', async () => {
+    const user = { _id: 'u1', save: jest.fn().mockResolvedValue(undefined) };
+    const res = makeRes();
+    await createWatchPairing({ user }, res, next);
+    expect(user.watchToken).toBeUndefined();
+    expect(res.body.token).toBeUndefined();
+  });
+
+  it('retries on a hash collision and still succeeds', async () => {
+    User.exists = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const user = { _id: 'u1', save: jest.fn().mockResolvedValue(undefined) };
+    const res = makeRes();
+
+    await createWatchPairing({ user }, res, next);
+
+    expect(res.statusCode).toBe(201);
+    expect(User.exists).toHaveBeenCalledTimes(2);
+  });
+
+  it('503s if every collision-avoidance attempt collides', async () => {
+    User.exists = jest.fn().mockResolvedValue(true);
+    const user = { _id: 'u1', save: jest.fn().mockResolvedValue(undefined) };
+    const res = makeRes();
+
+    await createWatchPairing({ user }, res, next);
+
+    expect(res.statusCode).toBe(503);
+    expect(user.save).not.toHaveBeenCalled();
+  });
+
+  it('forwards errors to next', async () => {
+    const err = new Error('db down');
+    const user = { _id: 'u1', save: jest.fn().mockRejectedValue(err) };
+    const res = makeRes();
+    await createWatchPairing({ user }, res, next);
+    expect(next).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── exchangeWatchPairing (T5 / audit L-15) ──────────────────────────────────
+
+describe('exchangeWatchPairing', () => {
+  it('exchanges a valid, unexpired code for a fresh whr_ device token', async () => {
+    const user = { _id: 'u1', save: jest.fn().mockResolvedValue(undefined) };
+    User.findOneAndUpdate = jest.fn().mockResolvedValue(user);
+    const res = makeRes();
+
+    await exchangeWatchPairing({ body: { code: '123456' } }, res, next);
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body.token).toMatch(/^whr_[A-Za-z0-9_-]+$/);
+    expect(user.watchToken.hash).toBe(sha256(res.body.token));
+    expect(user.wearableProvider).toBe('garmin');
+    expect(user.save).toHaveBeenCalledTimes(1);
+
+    // Single-use: the atomic findOneAndUpdate clears watchPairing server-side —
+    // this is the call that enforces it (not a second write from this handler).
+    expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ 'watchPairing.hash': sha256('123456') }),
+      { $set: { watchPairing: null } },
+      { new: true },
+    );
+  });
+
+  it('401s on an invalid or expired code (no matching/live watchPairing found)', async () => {
+    User.findOneAndUpdate = jest.fn().mockResolvedValue(null);
+    const res = makeRes();
+
+    await exchangeWatchPairing({ body: { code: '000000' } }, res, next);
+
+    expect(res.statusCode).toBe(401);
+    expect(res.body.token).toBeUndefined();
+  });
+
+  it('400s on a malformed code (not exactly 6 digits)', async () => {
+    User.findOneAndUpdate = jest.fn();
+    for (const bad of ['12345', '1234567', 'abcdef', '', undefined, 123456]) {
+      const res = makeRes();
+      // eslint-disable-next-line no-await-in-loop
+      await exchangeWatchPairing({ body: { code: bad } }, res, next);
+      expect(res.statusCode).toBe(400);
+    }
+    expect(User.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('400s when req.body is missing entirely', async () => {
+    const res = makeRes();
+    await exchangeWatchPairing({}, res, next);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('forwards errors to next', async () => {
+    const err = new Error('db down');
+    User.findOneAndUpdate = jest.fn().mockRejectedValue(err);
+    const res = makeRes();
+    await exchangeWatchPairing({ body: { code: '123456' } }, res, next);
+    expect(next).toHaveBeenCalledWith(err);
   });
 });

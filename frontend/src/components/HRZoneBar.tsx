@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Heart, HeartPulse } from 'lucide-react';
 import type { RootState } from '@/store';
 import { cn } from '@/lib/utils';
+import GarminAttribution from '@/components/GarminAttribution';
 
 interface Zone {
   label: string;
@@ -86,6 +87,9 @@ export default function HRZoneBar() {
       {calibrationState === 'recalibrating' && (
         <p className="text-sm text-muted-foreground">Recalibrating your playlist…</p>
       )}
+      {/* Garmin API Brand Guidelines: required on every screen showing Garmin-sourced
+          biometrics. No-ops for non-Garmin sources (Apple Health / Health Connect). */}
+      <GarminAttribution />
     </div>
   );
 }
