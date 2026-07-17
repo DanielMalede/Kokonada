@@ -126,6 +126,18 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  it('each card carries a collapsed "why we ask" disclosure (Privacy-Vault tone, explain before asking)', async () => {
+    const { tree } = await render();
+    const musicWhy = tree.root.findAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Why connect music?');
+    const healthWhy = tree.root.findAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Why we ask for health data');
+    expect(musicWhy.length).toBeGreaterThan(0);
+    expect(healthWhy.length).toBeGreaterThan(0);
+    // Collapsed by default — the reason bodies are not read until asked for.
+    expect(musicWhy[0].props.accessibilityState).toEqual({ expanded: false });
+    expect(allText(tree)).not.toContain('never post, never your social graph');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('color is never the sole signal — every provider state carries a status word', async () => {
     const { tree } = await render();
     const t = allText(tree);

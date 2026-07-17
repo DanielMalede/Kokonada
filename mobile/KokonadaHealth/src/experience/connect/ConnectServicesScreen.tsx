@@ -9,6 +9,7 @@ import { apiGet } from '../../net/apiClient';
 import type { IntegrationsStatus } from '../profile/profileController';
 import { providersByKind } from './providers';
 import { ProviderRow } from './ProviderRow';
+import { WhyAccordion } from './WhyAccordion';
 import { MoodOnlyBar } from './MoodOnlyBar';
 import { connectStore, type ConnectState } from './connectStore';
 import type { StoreApi } from 'zustand/vanilla';
@@ -28,6 +29,17 @@ const DEFAULT_SUBTITLE =
   'Connect what you have — or start with just your mood. You can change any of this later.';
 const MOOD_ONLY_SUBTITLE = "You're in mood-only mode — that's a great place to start.";
 const WEARABLE_SUBTITLE = "Your wearable's connected. You're all set.";
+
+const MUSIC_WHY_TITLE = 'Why connect music?';
+const MUSIC_WHY_BODY =
+  "Music streaming is where Kokonada plays your set. We'd only ever read what's needed to build and " +
+  'play a playlist — never post, never your social graph.';
+// Echoes the §11 consent wall's heading/body rhythm; mirrors what permissions.ts actually reads.
+const WEARABLE_WHY_TITLE = 'Why we ask for health data';
+const WEARABLE_WHY_BODY =
+  'Kokonada turns how your body is doing — heart rate, HRV, sleep — into music tuned to you. ' +
+  "It's read only with your explicit say-so, kept private (never sold, never ads), and you can " +
+  'withdraw anytime. Kokonada works in mood-only mode without it.';
 
 type ConnectStore = StoreApi<ConnectState>;
 
@@ -117,6 +129,7 @@ export function ConnectServicesScreen({
               <ProviderRow provider={p} connected={connectedFor(p.id)} />
             </View>
           ))}
+          <WhyAccordion title={MUSIC_WHY_TITLE} body={MUSIC_WHY_BODY} />
         </View>
 
         {/* C — Wearable & Health card (the protagonist: the ONE live filled CTA) */}
@@ -131,6 +144,7 @@ export function ConnectServicesScreen({
           >
             <Text style={[styles.wearableCtaLabel, { color: c.content.onAccent }]}>Connect a wearable</Text>
           </Pressable>
+          <WhyAccordion title={WEARABLE_WHY_TITLE} body={WEARABLE_WHY_BODY} />
         </View>
       </ScrollView>
 
