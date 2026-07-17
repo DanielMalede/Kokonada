@@ -21,10 +21,7 @@ const DATA_TYPE_LABELS: Record<(typeof CONSENT_DATA_CATEGORIES)[number], string>
   hrv: 'Heart-rate variability (HRV)',
   sleep: 'Sleep sessions',
   resting_heart_rate: 'Resting heart rate',
-  spo2: 'Blood oxygen (SpO₂)',
-  respiratory_rate: 'Respiratory rate',
   historical_access_182d: 'Historical readings (up to ~6 months back)',
-  background_access: 'Background access, so new readings sync without opening the app',
 };
 
 interface Section { heading: string; body: string; }

@@ -222,16 +222,18 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       store.getState().hydrate(status({ granted: false }));
       const tree = await render(<ConsentSheet store={store} onProceed={jest.fn()} onDecline={jest.fn()} />);
       const all = texts(tree.toJSON()).join(' ').toLowerCase();
-      // The copy must enumerate exactly the categories being sent to the backend.
-      expect(CONSENT_DATA_CATEGORIES.length).toBe(8);
+      // The copy must enumerate exactly the categories being sent to the backend — scope-
+      // minimized to the REAL Health Connect request set (PR #152 T3): no SpO2/respiratory/
+      // background, since those scopes were removed for having zero readers.
+      expect(CONSENT_DATA_CATEGORIES.length).toBe(5);
       expect(all).toContain('heart rate');
       expect(all).toContain('hrv');
       expect(all).toContain('sleep');
       expect(all).toContain('resting heart rate');
-      expect(all).toMatch(/spo|blood oxygen/);
-      expect(all).toContain('respiratory');
       expect(all).toMatch(/6 month|historical/);
-      expect(all).toContain('background');
+      expect(all).not.toMatch(/spo|blood oxygen/);
+      expect(all).not.toContain('respiratory');
+      expect(all).not.toContain('background');
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 

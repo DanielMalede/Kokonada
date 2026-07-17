@@ -18,17 +18,18 @@ describe('consentApi', () => {
     (apiPost as jest.Mock).mockResolvedValue(okStatus);
   });
 
-  it('locks the canonical special-category data categories (no drift from the backend contract)', () => {
+  // Scope-minimized to match the ACTUAL Health Connect request set (PR #152, T3): SpO2,
+  // respiratory rate, and background access had zero readers and were removed from
+  // permissions.ts/AndroidManifest.xml — the consent copy/categories must never claim a
+  // broader ask than what the app really requests from the OS.
+  it('locks the canonical special-category data categories to the real, scope-minimized permission set', () => {
     expect(CONSENT_PURPOSE).toBe('health_biometric_processing');
     expect(CONSENT_DATA_CATEGORIES).toEqual([
       'heart_rate',
       'hrv',
       'sleep',
       'resting_heart_rate',
-      'spo2',
-      'respiratory_rate',
       'historical_access_182d',
-      'background_access',
     ]);
   });
 

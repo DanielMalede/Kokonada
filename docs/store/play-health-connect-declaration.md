@@ -25,7 +25,10 @@ to any advertiser, and never sent to the third-party inference provider. <!-- ve
 
 ## 1. Health Connect data types read — and why (one line each)
 
-All are **read-only**; each request is minimized to what the adaptive-generation feature needs. <!-- verified permission set: mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:6-14 -->
+All are **read-only**, requested in the **foreground only**, and **scope-minimized**: only
+record types with a real reader in the shipped feature are requested (PR #152, T3 — SpO₂,
+respiratory rate, and background access were dropped after confirming zero readers anywhere
+in the app). <!-- verified permission set: mobile/KokonadaHealth/src/health/permissions.ts; mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:6-14 -->
 
 | Health Connect permission | Data type | Why the app needs it (user benefit) |
 | :--- | :--- | :--- |
@@ -33,37 +36,28 @@ All are **read-only**; each request is minimized to what the adaptive-generation
 | `READ_HEART_RATE_VARIABILITY` | Heart rate variability | Autonomic recovery/stress signal: distinguishes "stressed/energized" from "recovered/calm" so the soundtrack matches state, not just pace. |
 | `READ_SLEEP` | Sleep sessions | Recovery/readiness context: calibrates morning and wind-down music to how the user actually slept. |
 | `READ_RESTING_HEART_RATE` | Resting heart rate | Personal baseline: lets the app read a live heart rate as "elevated *for this user*" instead of against a population average. |
-| `READ_OXYGEN_SATURATION` | Oxygen saturation | Additional physiological-state signal that refines the intensity band during activity/rest. |
-| `READ_RESPIRATORY_RATE` | Respiratory rate | Breathing-state signal used to steer calmer, lower-tempo selection during wind-down/meditation. |
 
 **Common purpose statement (reuse verbatim):** "Kokonada reads this data solely to generate
 and continuously re-tune music that matches your current physiological and emotional state.
 The data is used for no other purpose, is never used for advertising, and is never sold or
 shared with third parties for their own use."
 
-## 2. Special permission — `READ_HEALTH_DATA_IN_BACKGROUND` (background read)
+## 2. Special permission — `READ_HEALTH_DATA_IN_BACKGROUND` — NOT REQUESTED
 
-**Justification (paste into the form):**
+Kokonada does **not** request background Health Connect access. Every read happens while the
+app is in the foreground (the on-demand backfill and the live-poll fallback only run while a
+screen is mounted); the scope was confirmed to have zero readers and was removed rather than
+requested-and-unused (PR #152, T3). No background-read justification or demo video is needed
+for this declaration. <!-- verified: mobile/KokonadaHealth/src/health/permissions.ts (comment: "background-read scope intentionally NOT requested"); mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:6-14 -->
 
-> Kokonada's core feature is a soundtrack that tracks the listener's *current* physiological
-> state hands-free — during a run, a workout, meditation, or sleep, with the screen off and the
-> app in the background. To do this the app periodically reads only the **newest** heart-rate /
-> HRV / respiratory samples (a small delta sync) while backgrounded, and re-tunes the currently
-> playing session accordingly (e.g. as heart rate rises mid-run the music lifts in tempo and
-> energy; as HRV recovers afterward it eases down). Without background read, adaptive generation
-> would only work while the app is in the foreground and manually refreshed, which defeats the
-> primary use case (screen-off, hands-free adaptation during exercise/sleep/wind-down). Only
-> current-window deltas are read; no continuous bulk export occurs. <!-- verified use case: backend/app/routes/integrations.js:81 ("HealthKit / Health Connect medical-profile backfill + delta sync") -->
-
-**Prominent-disclosure + affirmative-consent (Google requires both for background health
-reads):** the app shows an explicit consent screen describing this background use and obtains
-affirmative consent **before** any background read; the server rejects special-category
-ingestion unless a current-version Art.9 consent record exists. <!-- verified server gate: backend/app/routes/integrations.js:79,83 -->
-
-**Demo video (prepare in advance — Google commonly requires one for background health reads):**
-a short screen recording showing (a) the in-app rationale/consent screen and the exact data
-types + purpose, (b) the user granting and later revoking/turning off background health access,
-and (c) the adaptive-music feature actually consuming live data while backgrounded.
+**Separate live-HR lane (not Health Connect, flag honestly if asked):** the app also reads
+live heart rate over Bluetooth LE from a paired Garmin "Broadcast Heart Rate" device
+(`BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`, not a Health Connect scope), including a periodic
+foreground/background HTTP push from the watch companion. This is a known, disclosed gap in
+the GDPR Art.9 consent gate as of this writing — see `docs/PRIVACY_DECLARATIONS.md`'s
+"Known coverage gap" note — and should be closed (or its Play declaration implications
+reassessed) before this app is submitted with a "background read: none" answer if the BLE/
+watch lane remains active in the background at that time.
 
 ## 3. Special permission — `READ_HEALTH_DATA_HISTORY` (historic / >30-day reads)
 
@@ -82,7 +76,7 @@ and (c) the adaptive-music feature actually consuming live data while background
 | Field | Answer |
 | :--- | :--- |
 | Data collected | **Yes.** |
-| Data type (health) | **Health and fitness → Health info** (heart rate, HRV, oxygen saturation, respiratory rate) + **Fitness info** (resting heart rate, sleep). |
+| Data type (health) | **Health and fitness → Health info** (heart rate, HRV) + **Fitness info** (resting heart rate, sleep). SpO₂ and respiratory rate are **not** collected. |
 | Other data types collected | Personal info → Email (required), Name (optional); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |
 | Data shared with third parties | **No.** Derived, non-identifying tokens are processed by Groq as a service provider under a DPA + Zero-Data-Retention; OAuth calls go to the user's chosen providers at their direction — neither is "sharing" per Google's definition. **This answer is conditional on the Groq DPA being executed + ZDR enabled** (business action — confirm before submission). |
 | Is data collection optional? | **Yes** for health/fitness — the app has a "mood only" path that works without any wearable. |
@@ -111,5 +105,5 @@ declaration **and** the consent screen. <!-- verified: mobile/KokonadaHealth/and
 - [ ] Groq DPA executed + ZDR enabled + Groq listed as sub-processor (blocks the "Shared: No" answer).
 - [ ] Consent screen live and writing versioned `ConsentRecord`; server `requireConsent` gate confirmed on all user-facing health-ingest routes.
 - [ ] Privacy policy URL + account-deletion URL live and consistent with this doc.
-- [ ] Demo video recorded (background read + revoke + feature consuming data).
+- [ ] ~~Demo video~~ — not required (Health Connect background read is not requested; the app is foreground-only). Reassess if the BLE/watch live-HR lane (§2) needs its own disclosure.
 - [ ] Rationale WebView copy == this declaration == consent screen (verbatim in substance).

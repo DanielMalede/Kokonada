@@ -15,15 +15,17 @@ export const CONSENT_PURPOSE = 'health_biometric_processing' as const;
 // list — the consent-document copy (ConsentSheet) MUST enumerate exactly these, so the record
 // reflects precisely what was shown. Do not invent alternatives; a change here is a versioned,
 // reviewed change that bumps CURRENT_CONSENT_VERSION server-side.
+//
+// Scope-minimized to match the REAL Health Connect request set (permissions.ts /
+// AndroidManifest.xml, PR #152 T3): spo2, respiratory_rate, and background_access were dropped
+// because those scopes had zero readers anywhere in the app and were removed from the actual
+// OS permission request. The consent copy must never ask for more than the app truly reads.
 export const CONSENT_DATA_CATEGORIES = [
   'heart_rate',
   'hrv',
   'sleep',
   'resting_heart_rate',
-  'spo2',
-  'respiratory_rate',
   'historical_access_182d',
-  'background_access',
 ] as const;
 
 // The status the server gate and the client both consume. staleVersion = granted, but at an
