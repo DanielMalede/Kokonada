@@ -93,6 +93,26 @@ jest.mock('../app/repositories/shadowBufferRepo', () => ({
   setBuffer: jest.fn().mockResolvedValue(true),
 }));
 
+// Cross-platform translation (serve-time Spotify playback resolution). ONLY translateToSpotify is
+// mocked so a test can drive a youtube→spotify resolution deterministically; the pure helpers
+// (cleanYouTubeArtist / parseYouTubeTitle) stay REAL because trackIdentity.canonicalKey depends on
+// them. Default = passthrough of the input tracks, which matches the real service's effective
+// behavior for the native-Spotify fixtures the other tests use (their searchTrackUri is unmocked →
+// every lookup misses → merged is left unchanged).
+jest.mock('../app/services/crossPlatform', () => ({
+  ...jest.requireActual('../app/services/crossPlatform'),
+  translateToSpotify: jest.fn(async (tracks) => ({ tracks, translated: 0, missed: 0 })),
+}));
+
+// The anonymous, cross-user discovery catalog. Mocked so a test can assert the serve path NEVER
+// caches a resolved spotify: URI back onto it (ADR-0011 containment / ADR-0010 Discovery ⊥ Resolver).
+jest.mock('../app/repositories/trackCatalogRepo', () => ({
+  updateResolvedUris:    jest.fn(async () => ({ updated: 0 })),
+  invalidateResolvedUri: jest.fn(async () => ({ invalidated: false })),
+  upsertMany:            jest.fn(async () => ({ upserted: 0 })),
+  getMany:               jest.fn(async () => new Map()),
+}));
+
 jest.mock('../app/services/wearable/adapter', () => ({
   normalize: jest.fn((source, raw) => {
     const KNOWN = ['garmin', 'apple_watch', 'fitbit'];
@@ -119,6 +139,8 @@ const playlistMixer   = require('../app/services/playlistMixer');
 
 const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
 const captionService   = require('../app/services/discovery/captionService');
+const crossPlatform    = require('../app/services/crossPlatform');
+const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
 
 const {
   registerBiometricHandler,
@@ -457,6 +479,42 @@ describe('generateAndEmitPlaylist — biometric trigger', () => {
 
     expect(spotify.getValidToken).toHaveBeenCalled();
     expect(youtube.getValidToken).not.toHaveBeenCalled();
+  });
+});
+
+// ── generateAndEmitPlaylist — Spotify resolver never recontaminates the catalog ─
+// A Spotify-connected user's serve-time translation resolves youtube: discovery tracks to playable
+// spotify: URIs for THIS playback (correct, and must stay). That resolution is per-user + market-
+// specific and must NEVER be written back onto the anonymous cross-user TrackCatalog: persisting a
+// resolved spotify: URI re-introduces Spotify Content into the shared corpus (ADR-0011 containment /
+// ADR-0010 Discovery ⊥ Runtime-Resolver), where the leak monitor counts it and the purge deletes the
+// whole row. youtube: discovery tracks therefore re-resolve on every serve, exactly like mbid: ones.
+describe('generateAndEmitPlaylist — Spotify resolver never caches resolved URIs back to the catalog', () => {
+  it('does NOT call trackCatalogRepo.updateResolvedUris even when translation resolves a youtube: track to a spotify: URI', async () => {
+    const orchestrator = require('../app/services/generation/orchestrator');
+    // Discovery track keyed by a native youtube: recordingKey — the exact shape whose serve-time
+    // resolution the old code cached back onto the anonymous catalog. generateV2 returns it as merged.
+    const ytDiscovery = { id: 'd1', uri: 'youtube:d1', recordingKey: 'youtube:d1', isDiscovery: true, name: 'Disc 1' };
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar: [], discovery: [ytDiscovery], merged: [ytDiscovery],
+      telemetry: { stageMs: {} }, targets: { bpmCenter: 120 },
+    });
+    // The (mocked) translation resolves the youtube: track to a playable, market-specific spotify: URI —
+    // precisely the value the removed cache-back wrote onto the shared youtube: catalog row.
+    crossPlatform.translateToSpotify.mockResolvedValueOnce({
+      tracks: [{ ...ytDiscovery, uri: 'spotify:track:resolved1', provider: 'spotify', translatedFrom: 'youtube' }],
+      translated: 1, missed: 0,
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    // Playback still resolves (a spotify: URI reaches the client) — the resolver itself is untouched …
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(ready[1].tracks[0].uri).toBe('spotify:track:resolved1');
+    // … but the resolved URI is NEVER written back to the cross-user catalog (the containment guarantee).
+    expect(trackCatalogRepo.updateResolvedUris).not.toHaveBeenCalled();
   });
 });
 

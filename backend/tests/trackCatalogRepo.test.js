@@ -102,51 +102,6 @@ describe('trackCatalogRepo', () => {
   });
 });
 
-describe('trackCatalogRepo.updateResolvedUris', () => {
-  it('emits a targeted $set of uri by recordingKey and never upserts (updates existing only)', async () => {
-    const res = await repo.updateResolvedUris([{ recordingKey: 'yt:abc', uri: 'spotify:track:123' }]);
-    expect(res).toEqual({ updated: 1 });
-
-    const [ops] = TrackCatalog.bulkWrite.mock.calls[0];
-    const op = ops[0].updateOne;
-    expect(op.filter).toEqual({ recordingKey: 'yt:abc' });
-    expect(op.update).toEqual({ $set: { uri: 'spotify:track:123' } });
-    // upsert:false invariant — a recordingKey not already in the catalog must create NO stub doc.
-    expect(op.upsert).not.toBe(true);
-  });
-
-  it('caches only recordingKey + uri (no user-identifying fields reach the catalog write)', async () => {
-    await repo.updateResolvedUris([{ recordingKey: 'yt:abc', uri: 'spotify:track:123' }]);
-    const op = TrackCatalog.bulkWrite.mock.calls[0][0][0].updateOne;
-    expect(Object.keys(op.update.$set)).toEqual(['uri']);
-  });
-
-  it('empty / missing pairs is a no-op that writes nothing', async () => {
-    expect(await repo.updateResolvedUris([])).toEqual({ updated: 0 });
-    expect(await repo.updateResolvedUris()).toEqual({ updated: 0 });
-    expect(TrackCatalog.bulkWrite).not.toHaveBeenCalled();
-  });
-
-  it('filters out invalid pairs (missing recordingKey or uri)', async () => {
-    const res = await repo.updateResolvedUris([
-      { recordingKey: 'yt:ok', uri: 'spotify:track:ok' },
-      { uri: 'spotify:track:nokey' },
-      { recordingKey: 'yt:nouri' },
-      { recordingKey: '', uri: 'spotify:track:empty' },
-      null,
-    ]);
-    expect(res).toEqual({ updated: 1 });
-    const ops = TrackCatalog.bulkWrite.mock.calls[0][0];
-    expect(ops).toHaveLength(1);
-    expect(ops[0].updateOne.filter).toEqual({ recordingKey: 'yt:ok' });
-  });
-
-  it('propagates a real DB error (caller is fire-and-forget)', async () => {
-    TrackCatalog.bulkWrite.mockRejectedValue(new Error('boom'));
-    await expect(repo.updateResolvedUris([{ recordingKey: 'k', uri: 'spotify:track:k' }])).rejects.toThrow('boom');
-  });
-});
-
 describe('trackCatalogRepo.invalidateResolvedUri', () => {
   it('nulls the CACHED uri of a translated (youtube:) entry and reports invalidated:true', async () => {
     TrackCatalog.updateOne.mockResolvedValue({ modifiedCount: 1 });

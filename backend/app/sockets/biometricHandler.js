@@ -21,9 +21,7 @@ const { canonicalKey } = require('../services/identity/trackIdentity');
 const { logBiometricAccess } = require('../utils/biometricAudit');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
-const trackCatalogRepo = require('../repositories/trackCatalogRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
-const { resolvedDiscoveryUris } = require('../services/discovery/resolvedUriCache');
 const captionService = require('../services/discovery/captionService');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
@@ -766,16 +764,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       try {
         const { tracks: playable } = await translateToSpotify(playlist.merged, spotifyToken);
         if (playable.length) playlist.merged = playable;
-        // Translate-once (T3): cache serve-time-resolved Spotify URIs back onto the anonymous
-        // discovery catalog so the next hydration passes through instead of re-searching Spotify.
-        // Fire-and-forget, best-effort — never awaited, never allowed to fail generation.
-        const resolved = resolvedDiscoveryUris(playable);
-        if (resolved.length) {
-          // Log (don't throw) on failure so a persistent cache-write regression is observable
-          // rather than a silent no-op that quietly re-searches Spotify every generation.
-          trackCatalogRepo.updateResolvedUris(resolved)
-            .catch((e) => log(`[generate] discovery uri-cache skipped: ${e.message}`));
-        }
+        // Serve-time Spotify resolution is EPHEMERAL and per-user: the resolved spotify: URI is used
+        // for THIS playback only and is NEVER written back onto the anonymous cross-user discovery
+        // catalog. Caching it there would re-introduce Spotify Content into the shared corpus
+        // (ADR-0011 containment) and breach ADR-0010's Discovery ⊥ Runtime-Resolver boundary — and,
+        // being market-specific, would serve one user's region to another. youtube: discovery tracks
+        // therefore re-resolve on every serve, exactly like mbid: discovery tracks already do.
       } catch (e) {
         log(`[generate] cross-platform translation skipped: ${e.message}`);
       }
