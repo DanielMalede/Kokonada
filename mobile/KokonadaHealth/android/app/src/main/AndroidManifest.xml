@@ -2,8 +2,13 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Health Connect: data read for the medical profile (scope-minimized — only types a
-         shipped feature actually reads: HR / HRV / sleep / resting HR). -->
+    <!-- Health Connect: data read for the medical profile (scope-minimized to the types THIS
+         Android client reads VIA Health Connect: HR / HRV / sleep / resting HR). SpO2 /
+         respiratory rate are deliberately NOT requested here — this client does not read them
+         via Android Health Connect. (This is NOT "unread by any shipped feature": the backend
+         mood context DOES read spO2/respiration when Garmin- or Apple-Health-sourced values
+         reach it through other channels — see backend/app/sockets/biometricHandler.js
+         resolveBiometricContext.) -->
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />

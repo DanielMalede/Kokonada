@@ -25,6 +25,9 @@ const timingSafe = require('../utils/timingSafeEqual');
 const { revoke, isRevoked } = require('../utils/tokenDenylist');
 // Art.9 consent gate for the device-token-authed watch/hr path (audit H-9 follow-up).
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
+// Per-provider GDPR erasure — the LIVE disconnect route reuses this (clears credentials AND
+// purges the provider's biometric/medical footprint AND best-effort deregisters). (T3.2)
+const { eraseWearableProvider } = require('../services/privacy/wearableErasure');
 const { getRedis } = require('../config/redis');
 
 // All callbacks land the user back in the app. On failure we redirect with a
@@ -535,12 +538,15 @@ exports.garminCallback = async (req, res) => {
   }
 };
 
+// DELETE /api/integrations/garmin/disconnect  (auth required)
+// GDPR-grade disconnect: this is the LIVE "Disconnect Garmin" button's path. It must do the
+// full per-provider erasure — clear the Garmin credentials, PURGE Garmin's biometric/medical
+// footprint, and best-effort deregister with Garmin — not merely null the fields. Delegating to
+// eraseWearableProvider keeps this route honest with docs/PRIVACY_DECLARATIONS.md; the local
+// data purge always completes even if the (flag-gated) Garmin deregistration call fails.
 exports.garminDisconnect = async (req, res, next) => {
   try {
-    req.user.wearableProvider = null;
-    req.user.wearableToken    = null;
-    req.user.garminUserId     = null;
-    await req.user.save();
+    await eraseWearableProvider(req.user, 'garmin');
     res.json({ message: 'Garmin disconnected' });
   } catch (err) { next(err); }
 };
