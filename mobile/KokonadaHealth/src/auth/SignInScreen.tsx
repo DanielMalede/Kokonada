@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet, Dimensions, Platform } from 'react-native';
 import { appleAuth, AppleButton } from '@invertase/react-native-apple-authentication';
 import { signInWithGoogle, signInWithApple, type KokonadaUser } from './auth';
@@ -18,25 +18,33 @@ import { BreathingGlow } from '../experience/aura/BreathingGlow';
 const GLOW_FRACTION = 0.66;
 
 export function SignInScreen() {
-  const { c } = useTheme();
+  const { c, name } = useTheme();
   const { reduced, duration } = useMotion();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Synchronous re-entry latch — immune to stale-closure races, so a fast Google+Apple
+  // double-tap can't double-fire (the native AppleButton has no `disabled` prop to lean on).
+  const inFlight = useRef(false);
 
   // SACRED CONTRACT (QA4 Suspect #1): a successful sign-in ALWAYS runs
   // <provider> → setUser → onSignedIn, unchanged. Both Google and Apple funnel through
-  // this one handler so the post-auth ignition is identical for either provider.
-  const runSignIn = async (provider: () => Promise<KokonadaUser>) => {
+  // this one handler so the post-auth ignition is identical for either provider. A provider
+  // may resolve null to signal a benign no-op (e.g. an Apple cancel) — that shows no error.
+  const runSignIn = async (provider: () => Promise<KokonadaUser | null>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
       const user = await provider();
+      if (!user) return; // cancelled / no-op — leave the gate untouched, no banner
       currentUserStore.getState().setUser(user);
       await onSignedIn();
     } catch (e: any) {
       setError(e?.message ?? 'Sign-in failed');
     } finally {
       setBusy(false);
+      inFlight.current = false;
     }
   };
 
@@ -47,6 +55,9 @@ export function SignInScreen() {
   // Sign in with Apple. It uses Apple's OFFICIAL button (ASAuthorizationAppleIDButton via
   // AppleButton) — never a hand-drawn look-alike. Not shown on Android or pre-iOS-13.
   const showApple = Platform.OS === 'ios' && appleAuth.isSupported;
+  // Apple HIG: a light button on dark backgrounds, a dark button on light. The app is
+  // dark-default ("abyss"), where a BLACK button would be nearly invisible.
+  const appleButtonStyle = name === 'dark' ? AppleButton.Style.WHITE : AppleButton.Style.BLACK;
 
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
@@ -88,7 +99,7 @@ export function SignInScreen() {
         {showApple ? (
           <AppleButton
             testID="apple-signin-button"
-            buttonStyle={AppleButton.Style.BLACK}
+            buttonStyle={appleButtonStyle}
             buttonType={AppleButton.Type.SIGN_IN}
             onPress={onApple}
             style={styles.appleButton}
