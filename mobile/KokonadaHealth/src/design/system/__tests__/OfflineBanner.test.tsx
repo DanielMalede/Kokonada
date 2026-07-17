@@ -36,6 +36,7 @@ const banner = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll(
 const dot = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.props?.testID === 'offline-dot' && typeof n.type === 'string')[0];
 const copy = (tree: ReactTestRenderer.ReactTestRenderer) => textOf(tree.toJSON()).join(' ');
 const readOpacity = (v: unknown): unknown => (typeof v === 'number' ? v : v && typeof (v as any).__getValue === 'function' ? (v as any).__getValue() : v);
+const isHost = (n: any, name: string): boolean => typeof n.type === 'string' && n.type === name;
 
 async function render(el: React.ReactElement) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
@@ -132,7 +133,7 @@ describe('OfflineBanner — the music never stops', () => {
     expect(colorsUsed.has(colors.light.state.danger)).toBe(false);
     expect(tree.root.findAll((n) => n.props?.accessibilityRole === 'alert')).toHaveLength(0);
     expect(banner(tree).props.accessibilityLiveRegion).toBe('polite'); // polite, never assertive
-    const message = tree.root.findAll((n) => n.type === 'Text' && textOf(n).join('').toLowerCase().includes('offline'))[0];
+    const message = tree.root.findAll((n) => isHost(n, 'Text') && textOf(n).join('').toLowerCase().includes('offline'))[0];
     expect(flatStyle(message).color).toBe(DARK.content.primary);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });

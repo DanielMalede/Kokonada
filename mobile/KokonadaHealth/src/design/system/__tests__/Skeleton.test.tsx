@@ -22,6 +22,7 @@ function flatStyle(node: any): Record<string, unknown> {
   const s = node?.props?.style;
   return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
 }
+const isHost = (n: any, name: string): boolean => typeof n.type === 'string' && n.type === name;
 const ghostBlocks = (tree: ReactTestRenderer.ReactTestRenderer) =>
   tree.root.findAll((n) => n.props?.accessibilityRole === 'none' && typeof n.type === 'string');
 const liveRegions = (tree: ReactTestRenderer.ReactTestRenderer) =>
@@ -89,7 +90,7 @@ describe('Skeleton — breathing placeholders, never spinners', () => {
 
   it('NEVER a spinner: no ActivityIndicator and no translational transform (pulse is opacity-only)', async () => {
     const tree = await render(<Skeleton variant="card" count={2} />);
-    expect(tree.root.findAll((n) => n.type === 'ActivityIndicator')).toHaveLength(0);
+    expect(tree.root.findAll((n) => isHost(n, 'ActivityIndicator'))).toHaveLength(0);
     for (const blk of ghostBlocks(tree)) {
       expect(flatStyle(blk).transform).toBeUndefined(); // no translateX shimmer
       expect('opacity' in flatStyle(blk)).toBe(true);    // it breathes on opacity

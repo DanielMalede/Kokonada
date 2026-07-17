@@ -22,6 +22,7 @@ function flatStyle(node: any): Record<string, unknown> {
   return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
 }
 const readOpacity = (v: unknown): unknown => (typeof v === 'number' ? v : v && typeof (v as any).__getValue === 'function' ? (v as any).__getValue() : v);
+const isHost = (n: any, name: string): boolean => typeof n.type === 'string' && n.type === name;
 const textOf = (node: any, acc: string[] = []): string[] => {
   if (node == null) return acc;
   if (typeof node === 'string') { acc.push(node); return acc; }
@@ -76,7 +77,7 @@ describe('EmptyState — never a dead end', () => {
     const tree = await render(<EmptyState title="Empty" body="Some body copy." action={ACTION} />);
     const order = tree.root.findAll(() => true);
     const idxHeader = order.indexOf(header(tree));
-    const bodyNode = tree.root.findAll((n) => n.type === 'Text' && textOf(n).join('') === 'Some body copy.')[0];
+    const bodyNode = tree.root.findAll((n) => isHost(n, 'Text') && textOf(n).join('') === 'Some body copy.')[0];
     const idxBody = order.indexOf(bodyNode);
     const idxCta = order.indexOf(button(tree));
     expect(idxHeader).toBeLessThan(idxBody);
@@ -89,7 +90,7 @@ describe('EmptyState — never a dead end', () => {
     const cta = flatStyle(button(tree));
     expect(cta.backgroundColor).toBe(DARK.accent.glowInk);
     expect(cta.borderColor).toBe(DARK.accent.glowInk);
-    const label = tree.root.findAll((n) => n.type === 'Text' && textOf(n).join('') === ACTION.label)[0];
+    const label = tree.root.findAll((n) => isHost(n, 'Text') && textOf(n).join('') === ACTION.label)[0];
     expect(flatStyle(label).color).toBe(DARK.content.onAccent);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
@@ -99,7 +100,7 @@ describe('EmptyState — never a dead end', () => {
     const cta = flatStyle(button(tree));
     expect(cta.borderColor).toBe(DARK.content.tertiary);
     expect(cta.backgroundColor).toBeUndefined(); // never a fill (protects the onAccent AA guarantee)
-    const label = tree.root.findAll((n) => n.type === 'Text' && textOf(n).join('') === ACTION.label)[0];
+    const label = tree.root.findAll((n) => isHost(n, 'Text') && textOf(n).join('') === ACTION.label)[0];
     expect(flatStyle(label).color).toBe(DARK.emotionAccent.intense.ink); // violet, never red
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
