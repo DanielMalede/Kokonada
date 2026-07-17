@@ -1,8 +1,31 @@
-import React, { useMemo } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 import { deriveAuraUniforms } from './auraUniforms';
 import { breathMsForArousal, arousalFromHr, hrGlowColor } from './auraBreath';
 import { BreathingGlow } from './BreathingGlow';
+import { motion } from '../../design/tokens';
+
+const EASE_CALM = Easing.bezier(...motion.easing.calm);
+// The emotion bloom crosses in to ~0.55 over duration.base when the first tap lands — the moment
+// "the palette comes alive". reduced-motion → it is simply present at that opacity, no fade.
+const ACCENT_PEAK_OPACITY = 0.55;
+
+// The emotion-accent bloom, mounted only when ≥1 tap exists. It fades ITSELF in on mount (0→peak)
+// so a snap is impossible; on unmount (taps cleared) it is gone. Reduced-motion → instant.
+function AccentBloom({ color, reduced, breathMs, size }: { color: string; reduced: boolean; breathMs: number; size: number }) {
+  const opacity = useRef(new Animated.Value(reduced ? ACCENT_PEAK_OPACITY : 0)).current;
+  useEffect(() => {
+    if (reduced) { opacity.setValue(ACCENT_PEAK_OPACITY); return; }
+    const anim = Animated.timing(opacity, { toValue: ACCENT_PEAK_OPACITY, duration: motion.duration.base, easing: EASE_CALM, useNativeDriver: true });
+    anim.start();
+    return () => anim.stop();
+  }, [reduced, opacity]);
+  return (
+    <Animated.View testID="aura-accent-bloom" pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity }]}>
+      <BreathingGlow color={color} reduced={reduced} breathMs={breathMs} size={size} />
+    </Animated.View>
+  );
+}
 
 // The bio-aura: a soft Skia glow behind the wheel that BREATHES with live HR. The pure,
 // unit-tested deriveAuraUniforms still owns HR hue/intensity; auraBreath shapes the visible
@@ -39,7 +62,7 @@ export function BioAura({
     >
       <BreathingGlow color={color} reduced={reduced} breathMs={breathMs} size={size} />
       {accentColor ? (
-        <BreathingGlow color={accentColor} reduced={reduced} breathMs={breathMs} size={size} />
+        <AccentBloom color={accentColor} reduced={reduced} breathMs={breathMs} size={size} />
       ) : null}
     </View>
   );
