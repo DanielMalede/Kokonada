@@ -7,12 +7,14 @@ import { configureStore } from '@reduxjs/toolkit';
 import emotionReducer, { addTap, setActivity, setTextPrompt } from '../../../state/cold/emotionSlice';
 import { GenerateScreen } from '../GenerateScreen';
 import { RadialWheel } from '../../wheel/RadialWheel';
+import { BioAura } from '../../aura/BioAura';
 import { EmotionListSelector } from '../EmotionListSelector';
 import { generationStatusStore } from '../generationStatusStore';
 import { playbackErrorStore } from '../../playback/playbackErrorStore';
 import { liveModeStore } from '../liveModeStore';
 import { warmStore } from '../../../state/store';
 import { colors, type ThemeName } from '../../../design/tokens';
+import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
 
 // The HERO composition (single writer, last in the DAG). The sacred emotion→socket→playlist loop
 // stays byte-for-byte (T9 pins the payloads); here we pin the SURFACE contract: 4-state CTA, undo/
@@ -35,6 +37,7 @@ async function mount(scheme: ThemeName, store: ReturnType<typeof makeStore>, soc
 const byId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
   tree.root.findAll((n) => n.props?.testID === id)[0];
 const label = (tree: ReactTestRenderer.ReactTestRenderer) => byId(tree, 'generate-cta-label').props.children;
+const flat = (node: any) => RN.StyleSheet.flatten(node.props.style) as any;
 
 beforeEach(() => {
   (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(false);
@@ -163,7 +166,18 @@ describe('GenerateScreen — mini-ring on keyboard focus (Fork 3A)', () => {
   });
 });
 
-describe('GenerateScreen — full-bleed Genesis gated on generating (blocks input, auto-resolves)', () => {
+describe('GenerateScreen — aura is restored (A1: scaled + behind the wheel, visible halo)', () => {
+  it('renders BioAura at AURA_SCALE (1.6×) so the bloom overspills the opaque disc', async () => {
+    const tree = await mount('dark', makeStore(), makeSocket());
+    const wheel = tree.root.findByType(RadialWheel);
+    const aura = tree.root.findByType(BioAura);
+    expect(aura.props.size).toBeCloseTo(wheel.props.size * 1.6);
+    expect(aura.props.size).toBeGreaterThan(wheel.props.size); // halo extends beyond the disc rim
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('GenerateScreen — full-bleed Genesis (gated, blocks input, success-exhale hold, reduced static)', () => {
   it('appears ONLY while generating and captures touches (blocks stray input)', async () => {
     const tree = await mount('dark', makeStore(), makeSocket());
     expect(byId(tree, 'genesis-overlay')).toBeFalsy();
@@ -171,9 +185,38 @@ describe('GenerateScreen — full-bleed Genesis gated on generating (blocks inpu
     const overlay = byId(tree, 'genesis-overlay');
     expect(overlay).toBeTruthy();
     expect(overlay.props.pointerEvents).toBe('auto'); // scrim captures touches mid-generation
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('HOLDS the overlay through a resolving exhale beat after generating ends (so the exit plays)', async () => {
+    const tree = await mount('dark', makeStore(), makeSocket());
+    await ReactTestRenderer.act(async () => { generationStatusStore.getState().begin(); });
+    await ReactTestRenderer.act(async () => { generationStatusStore.getState().settle(); });
+    // still mounted (resolving beat) so NeuralAnalysisLoader's spring exit can exhale, input still blocked
+    expect(byId(tree, 'genesis-overlay')).toBeTruthy();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('reduced motion cuts straight out on settle — no exhale hold (static path)', async () => {
+    (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
+    const tree = await mount('dark', makeStore(), makeSocket());
+    await ReactTestRenderer.act(async () => { generationStatusStore.getState().begin(); });
     await ReactTestRenderer.act(async () => { generationStatusStore.getState().settle(); });
     expect(byId(tree, 'genesis-overlay')).toBeFalsy();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('themes the scrim for pearl depth — surface.base (dark) / surface.overlay (light)', async () => {
+    const dark = await mount('dark', makeStore(), makeSocket());
+    await ReactTestRenderer.act(async () => { generationStatusStore.getState().begin(); });
+    expect(flat(byId(dark, 'genesis-overlay')).backgroundColor).toBe(colors.dark.surface.base);
+    await ReactTestRenderer.act(async () => { dark.unmount(); });
+    generationStatusStore.getState().settle();
+
+    const light = await mount('light', makeStore(), makeSocket());
+    await ReactTestRenderer.act(async () => { generationStatusStore.getState().begin(); });
+    expect(flat(byId(light, 'genesis-overlay')).backgroundColor).toBe(colors.light.surface.overlay);
+    await ReactTestRenderer.act(async () => { light.unmount(); });
   });
 });
 
@@ -190,6 +233,17 @@ describe('GenerateScreen — soft inline retry on failure (Fork 4A, NEVER a toas
     expect(playbackErrorStore.getState().message).toBeNull();        // and clears the error
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
+
+  it('the Retry label uses content.secondary — AA-normal on base in LIGHT, not the sub-AA accent.glow', async () => {
+    const store = makeStore();
+    const tree = await mount('light', store, makeSocket());
+    await ReactTestRenderer.act(async () => { store.dispatch(setActivity('running')); });
+    await ReactTestRenderer.act(async () => { playbackErrorStore.getState().set('err'); });
+    const color = flat(byId(tree, 'generate-retry-label')).color;
+    expect(color).toBe(colors.light.content.secondary);
+    expect(contrastRatio(color, colors.light.surface.base)).toBeGreaterThanOrEqual(AA_NORMAL);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
 });
 
 describe('GenerateScreen — renders light AND dark', () => {
@@ -202,9 +256,40 @@ describe('GenerateScreen — renders light AND dark', () => {
     await ReactTestRenderer.act(async () => { light.unmount(); });
   });
 
-  it('mounts the required list alternative to the wheel', async () => {
+});
+
+describe('GenerateScreen — quadrant words teach the map (A5a)', () => {
+  it('renders the 4 diagonal words in content.tertiary, fading after the first tap', async () => {
+    const store = makeStore();
+    const tree = await mount('dark', store, makeSocket());
+    const expected: Array<[string, string]> = [['calm', 'Calm'], ['joyful', 'Joyful'], ['intense', 'Intense'], ['reflective', 'Reflective']];
+    for (const [q, word] of expected) {
+      const w = byId(tree, `quadrant-word-${q}`);
+      expect(w.props.children).toBe(word);
+      expect(flat(w).color).toBe(colors.dark.content.tertiary);
+    }
+    expect(flat(byId(tree, 'quadrant-word-calm')).opacity).toBe(1); // full before a tap
+    await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: -0.5 })); });
+    expect(flat(byId(tree, 'quadrant-word-calm')).opacity).toBeCloseTo(0.4); // fades once the map is learned
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('GenerateScreen — EmotionListSelector gated behind a quiet affordance (A5b, a11y preserved)', () => {
+  it('is hidden by default behind a "Choose from a list" affordance; pressing it reveals the list', async () => {
     const tree = await mount('dark', makeStore(), makeSocket());
-    expect(tree.root.findByType(EmotionListSelector)).toBeTruthy();
+    expect(tree.root.findAllByType(EmotionListSelector)).toHaveLength(0);
+    const toggle = byId(tree, 'generate-list-toggle');
+    expect(toggle).toBeTruthy();
+    await ReactTestRenderer.act(async () => { toggle.props.onPress(); });
+    expect(tree.root.findAllByType(EmotionListSelector).length).toBeGreaterThan(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('auto-expands when a screen reader is enabled (full a11y preserved without a tap)', async () => {
+    jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled').mockResolvedValue(true);
+    const tree = await mount('dark', makeStore(), makeSocket());
+    expect(tree.root.findAllByType(EmotionListSelector).length).toBeGreaterThan(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

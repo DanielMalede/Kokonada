@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useState, useCallback } from 'react';
-import { View, Text, Pressable, StyleSheet, Keyboard, useWindowDimensions } from 'react-native';
+import { View, Text, Pressable, ScrollView, StyleSheet, Keyboard, AccessibilityInfo, useWindowDimensions } from 'react-native';
 import { useStore, useSelector } from 'react-redux';
 import { useSharedValue } from 'react-native-reanimated';
 import { RadialWheel } from '../wheel/RadialWheel';
@@ -15,7 +15,7 @@ import { warmStore } from '../../state/store';
 import { playbackSocket } from '../playback/playbackServices';
 import { playbackErrorStore } from '../playback/playbackErrorStore';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, type as typography } from '../../design/tokens';
+import { space, radius, motion, type as typography } from '../../design/tokens';
 import { emotionAccentFor } from '../../design/emotionAccent';
 import { fireHaptic } from '../../design/haptics';
 import type { Tap } from '../../state/cold/emotionSlice';
@@ -24,16 +24,26 @@ import type { Tap } from '../../state/cold/emotionSlice';
 // core loop) over the four-state CTA, with the full-bleed Genesis takeover while a generation is
 // in flight. THE single writer: committed intent lives in the cold emotionSlice (one source of
 // truth), the hot→cold→socket wiring is the unit-tested GenerateController, and every store /
-// keyboard subscription is torn down on unmount (ATTACK-6). Fully tokenised (light + dark) and
-// reduced-motion-aware.
+// keyboard / a11y subscription is torn down on unmount (ATTACK-6). Fully tokenised + reduced-aware.
 const WHEEL_MAX = 340;
 const MINI_WHEEL = space['4xl'] * 1.75; // ~112dp docked mini-ring while typing
+const AURA_SCALE = 1.6;                  // aura canvas ≈ 1.6× wheel so the bloom overspills the disc
 const GENESIS_FRACTION = 0.7;
+const QUADRANT_RADIUS = 0.66;            // words sit at 0.66r along the diagonals
 const ANALYZING_COPY = 'Reading your signal…';
+const RESOLVED_COPY = 'Found your sound';
+
+// Quadrant map (screen diagonals): LR Calm · UR Joyful · UL Intense · LL Reflective.
+const QUADRANT_WORDS: Array<{ q: string; label: string; dx: number; dy: number }> = [
+  { q: 'calm', label: 'Calm', dx: 1, dy: 1 },
+  { q: 'joyful', label: 'Joyful', dx: 1, dy: -1 },
+  { q: 'intense', label: 'Intense', dx: -1, dy: -1 },
+  { q: 'reflective', label: 'Reflective', dx: -1, dy: 1 },
+];
 
 export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi }) {
   const store = useStore() as any;
-  const { c } = useTheme();
+  const { name, c } = useTheme();
   const { reduced } = useMotion();
   const { width, height } = useWindowDimensions();
   const fullSize = Math.min(width - space.xl * 2, WHEEL_MAX);
@@ -41,14 +51,12 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
   const controller = useMemo(
     () => new GenerateController({
       store, warmStore, socket,
-      // Live mode owns the queue (band shifts serve the buffer), so the manual CTA yields.
       isLiveMode: () => liveModeStore.getState().liveMode,
     }),
     [store, socket],
   );
 
-  // COLD store is the single source of truth for committed intent — the wheel, the accent, and
-  // undo/clear all read/write it. (No shadow copy that could diverge from a list-selector tap.)
+  // COLD store is the single source of truth for committed intent — wheel, accent, undo/clear.
   const emotion = useSelector((s: any) => s.emotion);
   const taps: Tap[] = emotion.taps;
   const quadrant = emotionAccentFor(taps);
@@ -58,7 +66,7 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
 
   const [hr, setHr] = useState<number | null>(warmStore.getState().liveHr);
   useEffect(() => {
-    setHr(warmStore.getState().liveHr); // reconcile any HR that arrived before mount
+    setHr(warmStore.getState().liveHr);
     return warmStore.subscribe((s) => setHr(s.liveHr));
   }, []);
 
@@ -87,13 +95,40 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
   }, []);
 
   // Keyboard focus collapses the wheel to a display-only mini-ring (Fork 3A: onFocus/onBlur is
-  // primary, the Keyboard listener is the fallback — BOTH torn down on unmount).
+  // primary, the Keyboard listener the fallback — BOTH torn down on unmount).
   const [typing, setTyping] = useState(false);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', () => setTyping(true));
     const hide = Keyboard.addListener('keyboardDidHide', () => setTyping(false));
     return () => { show.remove(); hide.remove(); };
   }, []);
+
+  // The wheel's list alternative is gated behind a quiet affordance, but AUTO-OPENS under a
+  // screen reader so the full a11y path is always reachable. Listener cleaned up on unmount.
+  const [listOpen, setListOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isScreenReaderEnabled().then((v) => { if (alive && v) setListOpen(true); }).catch(() => {});
+    const sub = AccessibilityInfo.addEventListener('screenReaderChanged', (v: boolean) => { if (v) setListOpen(true); });
+    return () => { alive = false; sub?.remove?.(); };
+  }, []);
+
+  // Genesis exit beat: hold the overlay mounted through a brief RESOLVING phase after generating
+  // ends so NeuralAnalysisLoader's spring exit can EXHALE (field-expand + fade), THEN unmount.
+  // reduced-motion cuts straight out (no exhale).
+  const [genesisPhase, setGenesisPhase] = useState<'hidden' | 'active' | 'resolving'>(
+    generationStatusStore.getState().generating ? 'active' : 'hidden',
+  );
+  useEffect(() => {
+    if (generating) setGenesisPhase('active');
+    else setGenesisPhase((p) => (p === 'hidden' ? 'hidden' : 'resolving'));
+  }, [generating]);
+  useEffect(() => {
+    if (genesisPhase !== 'resolving') return;
+    if (reduced) { setGenesisPhase('hidden'); return; }
+    const id = setTimeout(() => setGenesisPhase('hidden'), motion.duration.slow);
+    return () => clearTimeout(id);
+  }, [genesisPhase, reduced]);
 
   // `engagement` (0..1 prompt richness) lives in a SharedValue so the Genesis animation reads it
   // on the UI thread without a React re-render each keystroke.
@@ -123,100 +158,143 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
   const ctaLabel = mode === 'live-tuned' ? 'Live-tuned'
     : mode === 'listen-to-heart' ? 'Listen to your heart'
       : 'Generate';
+  const ctaGlyph = mode === 'listen-to-heart' ? '♥' : mode === 'live-tuned' ? '●' : null;
   const ctaDisabled = mode === 'disabled' || mode === 'live-tuned';
   const cta = ctaTreatment(mode, c, accentInk, accentWash);
 
   const wheelSize = typing ? MINI_WHEEL : fullSize;
+  const auraSize = wheelSize * AURA_SCALE;
+  const auraOffset = (wheelSize - auraSize) / 2; // negative → the halo overspills the hero (no clip)
   const genesisSize = Math.round(Math.min(width, height) * GENESIS_FRACTION);
+  const genesisVisible = genesisPhase !== 'hidden';
+  const genesisScrim = name === 'light' ? c.surface.overlay : c.surface.base;
+
+  const R = wheelSize / 2;
+  const qDiag = QUADRANT_RADIUS * R * Math.SQRT1_2;
 
   return (
     <View style={[styles.root, { backgroundColor: c.surface.base }]}>
       {/* decorative reactive wash — pairs with nothing (no text over it); baked-alpha token */}
-      {hasTaps ? (
-        <View pointerEvents="none" style={[styles.wash, { backgroundColor: accentWash }]} />
-      ) : null}
+      {hasTaps ? <View pointerEvents="none" style={[styles.wash, { backgroundColor: accentWash }]} /> : null}
 
-      <View style={[styles.hero, { width: wheelSize, height: wheelSize }]}>
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <BioAura hr={hr} size={wheelSize} accentColor={hasTaps ? accentInk : undefined} reduced={reduced} />
-        </View>
-        <RadialWheel
-          size={wheelSize}
-          committedTaps={taps}
-          onCommit={onCommit}
-          onRemoveLast={typing ? undefined : onUndo}
-          onClear={typing ? undefined : onClear}
-          accentInk={accentInk}
-          reduced={reduced}
-        />
-      </View>
-
-      {hasTaps && !typing ? (
-        <View style={styles.undoRow}>
-          <Pressable testID="generate-undo" accessibilityRole="button" accessibilityLabel="Undo last tap" onPress={onUndo} style={styles.textControl}>
-            <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>↺ Undo</Text>
-          </Pressable>
-          <Pressable testID="generate-clear" accessibilityRole="button" accessibilityLabel="Clear all taps" onPress={onClear} style={styles.textControl}>
-            <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>Clear</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
-      <Pressable
-        onPress={() => {
-          const next = !liveModeStore.getState().liveMode;
-          liveModeStore.getState().setLiveMode(next);
-          socket.syncLiveMode?.();
-        }}
-        accessibilityRole="switch"
-        accessibilityState={{ checked: liveMode }}
-        accessibilityLabel="live-mode-toggle"
-        style={[styles.toggle, {
-          backgroundColor: liveMode ? c.emotionAccent.calm.wash : 'transparent',
-          borderColor: liveMode ? c.accent.glow : c.surface.hairline,
-        }]}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.toggleLabel, { color: liveMode ? c.content.primary : c.content.secondary }]}>
-          {liveMode ? '● Live Biometric' : 'Manual'}
-        </Text>
-      </Pressable>
+        <View style={[styles.hero, { width: wheelSize, height: wheelSize }]}>
+          <View pointerEvents="none" style={{ position: 'absolute', width: auraSize, height: auraSize, left: auraOffset, top: auraOffset }}>
+            <BioAura hr={hr} size={auraSize} accentColor={hasTaps ? accentInk : undefined} reduced={reduced} />
+          </View>
+          <RadialWheel
+            size={wheelSize}
+            committedTaps={taps}
+            onCommit={onCommit}
+            onRemoveLast={typing ? undefined : onUndo}
+            onClear={typing ? undefined : onClear}
+            accentInk={accentInk}
+            reduced={reduced}
+          />
+          {!typing ? (
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              {QUADRANT_WORDS.map((qw) => (
+                <Text
+                  key={qw.q}
+                  testID={`quadrant-word-${qw.q}`}
+                  style={[styles.quadrantWord, {
+                    color: c.content.tertiary,
+                    opacity: hasTaps ? 0.4 : 1,
+                    left: R + qw.dx * qDiag - space['3xl'] / 2,
+                    top: R + qw.dy * qDiag - space.lg / 2,
+                  }]}
+                >
+                  {qw.label}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
 
-      <ActivityChips />
-      <PromptBox onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} />
-      <EmotionListSelector />
+        {hasTaps && !typing ? (
+          <View style={[styles.undoRow, styles.gap24]}>
+            <Pressable testID="generate-undo" accessibilityRole="button" accessibilityLabel="Undo last tap" onPress={onUndo} style={styles.textControl}>
+              <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>↺ Undo</Text>
+            </Pressable>
+            <Pressable testID="generate-clear" accessibilityRole="button" accessibilityLabel="Clear all taps" onPress={onClear} style={styles.textControl}>
+              <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>Clear</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-      <Pressable
-        testID="generate-cta"
-        disabled={ctaDisabled}
-        onPress={doSubmit}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: ctaDisabled }}
-        style={[styles.cta, { backgroundColor: cta.fill, borderColor: cta.border }]}
-      >
-        <Text testID="generate-cta-label" style={[styles.ctaLabel, { color: cta.label }]}>{ctaLabel}</Text>
-      </Pressable>
-
-      {errorMessage && !generating ? (
-        <View style={styles.errorRow}>
-          <Text testID="generate-error" style={[styles.errorText, { color: c.content.secondary }]}>
-            That didn’t land — let’s try again.
+        <Pressable
+          onPress={() => {
+            const next = !liveModeStore.getState().liveMode;
+            liveModeStore.getState().setLiveMode(next);
+            socket.syncLiveMode?.();
+          }}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: liveMode }}
+          accessibilityLabel="live-mode-toggle"
+          style={[styles.toggle, styles.gap16, {
+            backgroundColor: liveMode ? c.emotionAccent.calm.wash : 'transparent',
+            borderColor: liveMode ? c.accent.glow : c.surface.hairline,
+          }]}
+        >
+          <Text style={[styles.toggleLabel, { color: liveMode ? c.content.primary : c.content.secondary }]}>
+            {liveMode ? '● Live Biometric' : 'Manual'}
           </Text>
-          <Pressable testID="generate-retry" accessibilityRole="button" accessibilityLabel="Retry generation" onPress={doSubmit} style={styles.textControl}>
-            <Text style={[styles.textControlLabel, { color: c.accent.glow }]}>Retry</Text>
-          </Pressable>
-        </View>
-      ) : null}
+        </Pressable>
 
-      {generating ? (
+        <View style={[styles.fullWidth, styles.gap24]}><ActivityChips /></View>
+        <View style={[styles.fullWidth, styles.gap16]}><PromptBox onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} /></View>
+
+        <Pressable
+          testID="generate-list-toggle"
+          accessibilityRole="button"
+          accessibilityState={{ expanded: listOpen }}
+          accessibilityLabel="Choose how you feel from a list"
+          onPress={() => setListOpen((o) => !o)}
+          style={[styles.textControl, styles.gap16]}
+        >
+          <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>{listOpen ? 'Hide the list' : 'Choose from a list'}</Text>
+        </Pressable>
+        {listOpen ? <View style={styles.fullWidth}><EmotionListSelector /></View> : null}
+
+        <Pressable
+          testID="generate-cta"
+          disabled={ctaDisabled}
+          onPress={doSubmit}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: ctaDisabled }}
+          style={[styles.cta, styles.gap24, { backgroundColor: cta.fill, borderColor: cta.border }]}
+        >
+          {ctaGlyph ? <Text style={[styles.ctaLabel, { color: cta.label }]}>{ctaGlyph} </Text> : null}
+          <Text testID="generate-cta-label" style={[styles.ctaLabel, { color: cta.label }]}>{ctaLabel}</Text>
+        </Pressable>
+
+        {errorMessage && !generating ? (
+          <View style={[styles.errorRow, styles.gap16]}>
+            <Text testID="generate-error" style={[styles.errorText, { color: c.content.secondary }]}>
+              That didn’t land — let’s try again.
+            </Text>
+            <Pressable testID="generate-retry" accessibilityRole="button" accessibilityLabel="Retry generation" onPress={doSubmit} style={styles.textControl}>
+              <Text testID="generate-retry-label" style={[styles.textControlLabel, { color: c.content.secondary }]}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </ScrollView>
+
+      {genesisVisible ? (
         <View
           testID="genesis-overlay"
           pointerEvents="auto"
           accessibilityViewIsModal
-          style={[StyleSheet.absoluteFill, styles.genesis, { backgroundColor: c.surface.base }]}
+          style={[StyleSheet.absoluteFill, styles.genesis, { backgroundColor: genesisScrim }]}
         >
-          <NeuralAnalysisLoader active={generating} engagement={engagement} size={genesisSize} reduced={reduced} />
+          <NeuralAnalysisLoader active={genesisPhase === 'active'} engagement={engagement} size={genesisSize} reduced={reduced} />
           <Text testID="genesis-status" style={[styles.genesisStatus, { color: c.content.secondary }]}>
-            {statusMessage ?? ANALYZING_COPY}
+            {genesisPhase === 'resolving' ? RESOLVED_COPY : (statusMessage ?? ANALYZING_COPY)}
           </Text>
         </View>
       ) : null}
@@ -236,11 +314,18 @@ function ctaTreatment(mode: string, c: any, accentInk: string, accentWash: strin
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.xl, paddingHorizontal: space.xl },
+  root: { flex: 1 },
+  scroll: { flex: 1 },
+  // Vertical rhythm: safe-top 4xl / safe-bottom 3xl, base 16 with 24 breaks (styles.gap24).
+  scrollContent: { alignItems: 'center', paddingTop: space['4xl'], paddingBottom: space['3xl'], paddingHorizontal: space.xl },
+  gap16: { marginTop: space.lg },
+  gap24: { marginTop: space.xl },
+  fullWidth: { width: '100%', alignItems: 'center' },
   wash: { position: 'absolute', top: 0, left: 0, right: 0, height: '45%' },
-  hero: { alignItems: 'center', justifyContent: 'center' },
+  hero: { alignItems: 'center', justifyContent: 'center' }, // overflow visible → the aura halo overspills
+  quadrantWord: { position: 'absolute', width: space['3xl'], textAlign: 'center', fontSize: typography.size.caption, letterSpacing: typography.tracking.caption },
   undoRow: { flexDirection: 'row', gap: space.xl, justifyContent: 'center' },
-  textControl: { minHeight: space['3xl'], justifyContent: 'center', paddingHorizontal: space.md },
+  textControl: { minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center', paddingHorizontal: space.md },
   textControlLabel: { fontSize: typography.size.callout, fontWeight: typography.weight.medium },
   toggle: {
     minHeight: space['3xl'], justifyContent: 'center',
@@ -249,7 +334,7 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { fontSize: typography.size.footnote, fontWeight: typography.weight.semibold, letterSpacing: typography.tracking.caption },
   cta: {
-    minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center',
+    flexDirection: 'row', minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center',
     paddingVertical: space.md, paddingHorizontal: space['2xl'],
     borderRadius: radius.pill, borderWidth: 1.5,
   },
