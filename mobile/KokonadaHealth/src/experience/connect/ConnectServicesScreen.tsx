@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, ScrollView, Dimensions, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, Pressable, ScrollView, Dimensions, Alert, Modal, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, type as typography, elevation, type HapticKey } from '../../design/tokens';
@@ -7,11 +7,17 @@ import { fireHaptic } from '../../design/haptics';
 import { BreathingGlow } from '../aura/BreathingGlow';
 import { apiGet } from '../../net/apiClient';
 import type { IntegrationsStatus } from '../profile/profileController';
+import { checkAvailability, requestHealthPermissions, openHealthConnectInStore, openHealthConnectSettings } from '../../health/healthConnect';
+import { fetchConsentStatus, grantConsent } from '../../health/consentApi';
+import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
+import { syncMedicalProfile } from '../../health/healthSync';
+import { ConsentSheet } from '../profile/ConsentSheet';
 import { providersByKind } from './providers';
 import { ProviderRow } from './ProviderRow';
 import { WhyAccordion } from './WhyAccordion';
 import { MoodOnlyBar } from './MoodOnlyBar';
 import { connectStore, type ConnectState } from './connectStore';
+import { createConnectController, type ConnectController, type WearableOutcome } from './connectController';
 import type { StoreApi } from 'zustand/vanilla';
 
 // SCREENS §4 — Connect Services / Integrations setup. The Privacy-Vault tone starts here: explain
@@ -67,21 +73,35 @@ function subtitleFor(resolved: boolean, moodOnly: boolean): string {
   return DEFAULT_SUBTITLE;
 }
 
+// The production controller, bound so its markResolved targets the SAME connect store the screen
+// renders. Overridable in tests with a real controller built from stateful fakes.
+function defaultController(connect: ConnectStore): ConnectController {
+  return createConnectController({
+    checkAvailability,
+    fetchConsentStatus,
+    grantConsent,
+    requestHealthPermissions,
+    syncMedicalProfile: (d) => syncMedicalProfile(d),
+    createConsentFlow,
+    markResolved: () => connect.getState().markResolved(),
+  });
+}
+
 export interface ConnectServicesScreenProps {
   connect?: ConnectStore;
   loadIntegrations?: () => Promise<IntegrationsStatus | null>;
+  controller?: ConnectController;
   // Chosen mood-only or forwarded after resolving — the route is DERIVED from the store in AppFlow,
   // so these default to no-ops (the store flip does the routing). Overridable for tests.
   onContinue?: () => void;
-  onConnectWearable?: () => void; // real §11-consent flow is wired in T6
   triggerHaptic?: (key: HapticKey) => void;
 }
 
 export function ConnectServicesScreen({
   connect = connectStore,
   loadIntegrations = defaultLoadIntegrations,
+  controller,
   onContinue = () => {},
-  onConnectWearable = () => {},
   triggerHaptic = fireHaptic,
 }: ConnectServicesScreenProps = {}) {
   const { c } = useTheme();
@@ -89,6 +109,11 @@ export function ConnectServicesScreen({
   const insets = useSafeAreaInsets();
   const { resolved, moodOnly } = useConnectSnapshot(connect);
   const [integrations, setIntegrations] = useState<IntegrationsStatus | null>(null);
+  // A non-null consentStore means the §11 Art.9 wall is presented (just-in-time, before the OS sheet).
+  const [consentStore, setConsentStore] = useState<ConsentFlowStore | null>(null);
+  const [hcBusy, setHcBusy] = useState(false);
+
+  const ctrl = useMemo(() => controller ?? defaultController(connect), [controller, connect]);
 
   useEffect(() => {
     let mounted = true;
@@ -102,6 +127,53 @@ export function ConnectServicesScreen({
     (id === 'youtube' && !!integrations?.youtubeConnected);
 
   const onMoodOnly = () => { triggerHaptic('commit'); connect.getState().setMoodOnly(); };
+
+  // Translate a controller outcome into UI. The wall (consent) is the only branch that renders a
+  // surface; every other branch is a guiding Alert or a silent success (markResolved has already
+  // flipped the route). Decline / background / offline never reach here with a resolved gate.
+  const dispatchOutcome = (outcome: WearableOutcome) => {
+    switch (outcome.kind) {
+      case 'unsupported':
+        Alert.alert('Available on Android', 'Connecting a wearable uses Health Connect, available on Android. You can start in mood-only mode anywhere.');
+        break;
+      case 'install-required':
+        Alert.alert('Health Connect needed', 'Install or update Health Connect from the Play Store, then try again.', [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Play Store', onPress: () => openHealthConnectInStore() },
+        ]);
+        break;
+      case 'consent':
+        setConsentStore(outcome.store); // present the §11 wall; the OS sheet is reached only via onProceed
+        break;
+      case 'permission-blocked':
+        Alert.alert('Permission needed', 'Android blocked the permission popup (it does this after repeated denials). Grant Kokonada access in Health Connect instead.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Health Connect', onPress: () => openHealthConnectSettings() },
+        ]);
+        break;
+      case 'connected':
+        triggerHaptic('success'); // a wearable is linked — the forward gate is resolved (route advances)
+        break;
+      case 'sync-failed':
+        Alert.alert('Wearable connected', 'Your wearable is linked, but we could not sync its data just now. It will retry — check your connection.');
+        break;
+    }
+  };
+
+  const onConnectWearable = async () => {
+    triggerHaptic('selection');
+    setHcBusy(true);
+    try { dispatchOutcome(await ctrl.begin()); } finally { setHcBusy(false); }
+  };
+
+  // Reached ONLY on a server-acked current grant (the ConsentSheet fires onProceed on ready |
+  // granted_ack). Dismiss the wall, then run the OS sheet + sync via the controller.
+  const onConsentProceed = async () => {
+    setConsentStore(null);
+    setHcBusy(true);
+    try { dispatchOutcome(await ctrl.runSync()); } finally { setHcBusy(false); }
+  };
+
   const glowSize = Dimensions.get('window').width * HEADER_GLOW_FRACTION;
 
   return (
@@ -138,9 +210,11 @@ export function ConnectServicesScreen({
           <Text style={[styles.cardCaption, { color: c.content.secondary }]}>Let your body shape the music. Optional, always.</Text>
           <Pressable
             onPress={onConnectWearable}
+            disabled={hcBusy}
             accessibilityRole="button"
             accessibilityLabel="connect-wearable"
-            style={[styles.wearableCta, { backgroundColor: c.accent.glowInk }]}
+            accessibilityState={{ disabled: hcBusy }}
+            style={[styles.wearableCta, { backgroundColor: c.accent.glowInk, opacity: hcBusy ? 0.6 : 1 }]}
           >
             <Text style={[styles.wearableCtaLabel, { color: c.content.onAccent }]}>Connect a wearable</Text>
           </Pressable>
@@ -150,6 +224,15 @@ export function ConnectServicesScreen({
 
       {/* D — pinned mood-only escape (outside the scroll, always visible) */}
       <MoodOnlyBar connect={connect} onMoodOnly={onMoodOnly} onContinue={onContinue} />
+
+      {/* The §11 Art.9 consent wall, presented just-in-time before the OS Health Connect sheet.
+          Reaching the OS sheet (onProceed) requires a server-acked current grant; Decline / back
+          / background just dismisses — the mood-only path stays fully intact (resolved unchanged). */}
+      {consentStore ? (
+        <Modal visible transparent statusBarTranslucent animationType="slide" onRequestClose={() => setConsentStore(null)}>
+          <ConsentSheet store={consentStore} onProceed={onConsentProceed} onDecline={() => setConsentStore(null)} />
+        </Modal>
+      ) : null}
     </View>
   );
 }
