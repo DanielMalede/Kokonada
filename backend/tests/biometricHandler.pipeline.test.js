@@ -795,15 +795,15 @@ describe('provider selection', () => {
   });
 });
 
-// ── YouTube-only discovery: corpus-sourced, filtered to actually-playable, never search.list ──
-// The per-generation YouTube search.list call (100 quota units) is retired: a YouTube-only user's
-// discovery candidates come from the provider-agnostic mbid vector corpus. That corpus resolves
-// mbid rows to SPOTIFY URIs only (no YouTube serve-time resolver by design), so for a YouTube user
-// the branch must keep ONLY candidates already playable on YouTube (a youtube: URI) — a spotify:
-// URI is truthy and would otherwise be delivered as an unplayable queue entry, and a uri:null row
-// would inflate discovery counts. These tests exercise the REAL delivery hop (fetchTracks →
-// generateV2 passthrough → toClientTracks → emit), not a hardcoded playlist.
-describe('YouTube-only discovery — corpus filtered to playable, no search.list', () => {
+// ── YouTube-only user: discovery is short-circuited (guaranteed-empty), familiar-only served ──
+// A YouTube-only account has no playback sink (Spotify is the only playback engine) and the shared
+// mbid corpus resolves rows to SPOTIFY URIs only (its youtube: rows were removed for ToS containment,
+// #151), so a discovery candidate can NEVER be playable for such a user. The generation path now
+// short-circuits BEFORE the LLM + vector query (see the "no-playback short-circuit" suite) and builds
+// familiar-only via generateV2 with zero discovery input. This pins the graceful-degradation property:
+// an empty discovery pool + a deliverable library still yields a familiar-only playlist_ready, never a
+// playlist_error, and never a per-generation search.list.
+describe('YouTube-only discovery — short-circuit to familiar-only, no search.list', () => {
   const orchestrator = require('../app/services/generation/orchestrator');
   const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
   // Captured at collection time (factory defaults) — global beforeEach never re-establishes
@@ -812,47 +812,14 @@ describe('YouTube-only discovery — corpus filtered to playable, no search.list
   const DEFAULT_GEN_V2  = orchestrator.generateV2.getMockImplementation();
   const DEFAULT_VDF     = vectorDiscoveryFetch.getMockImplementation();
 
-  const candNull    = { id: 'c-null', uri: null,               recordingKey: 'mbid:null', title: 'Unresolved', artist: 'A', isDiscovery: true };
-  const candSpotify = { id: 'c-spot', uri: 'spotify:track:s1', recordingKey: 'mbid:spot', title: 'Spotify Only', artist: 'A', isDiscovery: true };
-  const candYoutube = { id: 'c-yt',   uri: 'youtube:yt1',      recordingKey: 'youtube:yt1', title: 'Playable', artist: 'A', isDiscovery: true };
-
   beforeEach(() => {
     User.findById.mockResolvedValue(YOUTUBE_USER);
     youtube.getValidToken.mockResolvedValue('youtube-token');
-    // Un-mock the AI hop: forward the REAL fetchTracks closure output as the discovery set.
-    geminiEngine.adjustBiometricPlaylist.mockImplementation(async ({ fetchTracks }) => ({
-      params: AI_PARAMS,
-      tracks: await fetchTracks(AI_PARAMS),
-    }));
   });
 
   afterEach(() => {
     orchestrator.generateV2.mockImplementation(DEFAULT_GEN_V2);
     vectorDiscoveryFetch.mockImplementation(DEFAULT_VDF);
-  });
-
-  it('delivers ONLY the youtube: candidate — uri:null and spotify: URIs are filtered before delivery/telemetry', async () => {
-    vectorDiscoveryFetch.mockResolvedValue([candNull, candSpotify, candYoutube]);
-    // Passthrough merge so the surviving discovery reaches the client contract unchanged.
-    orchestrator.generateV2.mockImplementation(async ({ discoveryTracks }) => {
-      const d = Array.isArray(discoveryTracks) ? discoveryTracks : [];
-      return { familiar: [], discovery: d, merged: [...d], telemetry: { poolSize: d.length, afterFilters: d.length, relaxLevel: 0, stageMs: { total: 5 } }, targets: { bpmCenter: 120 } };
-    });
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'biometric', makeState());
-
-    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
-    expect(ready).toBeTruthy();
-    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
-    expect(ready[1].tracks).toHaveLength(1);
-    expect(ready[1].tracks[0].uri).toBe('youtube:yt1');
-    expect(ready[1].tracks.some(t => String(t.uri).startsWith('spotify:'))).toBe(false);
-    // Telemetry reflects the FILTERED count (1 of 3), not the raw corpus size.
-    expect(warnSpy.mock.calls.flat().join(' ')).toMatch(/youtubePlayable=1\/3/);
-    expect(youtube.searchRecommendations).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
   });
 
   it('graceful degradation: empty discovery + deliverable library ⇒ playlist_ready (familiar-only), never playlist_error', async () => {
@@ -868,6 +835,7 @@ describe('YouTube-only discovery — corpus filtered to playable, no search.list
 
     expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({ discovery: 0 }));
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+    expect(youtube.searchRecommendations).not.toHaveBeenCalled(); // no per-generation search.list
   });
 });
 
@@ -942,6 +910,116 @@ describe('YouTube-only user — no playable provider surfaces a clear, actionabl
     expect(errCall[1].reason).toBeUndefined();
     expect(errCall[1].reqId).toBe(103);                       // the generic path must still carry reqId
     expect(errCall[1].message).toEqual(expect.any(String));
+  });
+});
+
+// ── No-playback short-circuit: skip the guaranteed-empty discovery work ────────
+// A YouTube-only account (no Spotify token → resolvePlaybackProvider falsy) can NEVER
+// receive a playable discovery track: the shared mbid corpus resolves rows to spotify:
+// URIs only (its youtube: rows were removed for ToS containment, #151) and the sole
+// serve-time URI backfill is gated to Spotify-token users, so the isYoutubePlayable gate
+// (#143/#150) filters discovery to EMPTY by construction — the request is 100% guaranteed
+// to reach NO_PLAYABLE_PROVIDER. These pin the fix: the Groq LLM generation AND the vector-
+// discovery service are SKIPPED (no wasted spend) on the way there, going straight to the
+// familiar-only build (if the library is playable) or the honest NO_PLAYABLE_PROVIDER emit.
+// The short-circuit is orthogonal to a Spotify user whose pool is empty for another reason —
+// they keep the full LLM/vector path and the generic empty-playlist handling (proven below).
+describe('generateAndEmitPlaylist — no-playback short-circuit (skip wasted LLM/vector)', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+  const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
+  // Restore factory defaults (clearAllMocks keeps custom implementations) so this block's
+  // persistent generateV2/vectorDiscoveryFetch overrides never leak into later suites.
+  const DEFAULT_GEN_V2 = orchestrator.generateV2.getMockImplementation();
+  const DEFAULT_VDF    = vectorDiscoveryFetch.getMockImplementation();
+
+  afterEach(() => {
+    orchestrator.generateV2.mockImplementation(DEFAULT_GEN_V2);
+    vectorDiscoveryFetch.mockImplementation(DEFAULT_VDF);
+    delete process.env.VECTOR_DISCOVERY;
+  });
+
+  // Wire the LLM mocks so that IF they ran they would invoke fetchTracks → vectorDiscoveryFetch,
+  // making a leaked discovery call observable (the assertions below prove neither ever fires).
+  function armLeakDetectors() {
+    geminiEngine.adjustBiometricPlaylist.mockImplementation(async ({ fetchTracks }) => ({ params: AI_PARAMS, tracks: await fetchTracks(AI_PARAMS) }));
+    geminiEngine.buildEmotionPlaylist.mockImplementation(async ({ fetchTracks }) => ({ params: AI_PARAMS, tracks: await fetchTracks(AI_PARAMS) }));
+  }
+
+  it('GUARD 1a: YouTube-only user with a deliverable library — skips the Groq LLM AND the vector-discovery service, delivering familiar-only', async () => {
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    armLeakDetectors();
+    vectorDiscoveryFetch.mockResolvedValue([{ id: 'c-yt', uri: 'youtube:yt1', recordingKey: 'youtube:yt1', isDiscovery: true }]);
+    // A youtube_music familiar entry that IS playable (carries a native youtube: uri) so the
+    // familiar-only build returns a track; generateV2 does no discovery (discoveryTracks:[]).
+    const famYt = { id: 'lib-yt-1', uri: 'youtube:libyt1', name: 'Familiar YT', artist: 'A', provider: 'youtube_music' };
+    orchestrator.generateV2.mockImplementation(async ({ discoveryTracks }) => {
+      const d = Array.isArray(discoveryTracks) ? discoveryTracks : [];
+      return { familiar: [famYt], discovery: d, merged: [famYt, ...d], telemetry: { stageMs: {} }, targets: { bpmCenter: 120 } };
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 201 }));
+
+    // The NEW property: the expensive calls never fire.
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+    expect(geminiEngine.buildEmotionPlaylist).not.toHaveBeenCalled();
+    expect(vectorDiscoveryFetch).not.toHaveBeenCalled();
+    // …and the flow still delivers a familiar-only playlist (discovery:0), never an error.
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(ready[1].discovery).toBe(0);
+    expect(ready[1].tracks.length).toBeGreaterThan(0);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+
+  it('GUARD 1b: YouTube-only user with an unplayable library — skips the Groq LLM AND vector-discovery, emitting NO_PLAYABLE_PROVIDER with reqId', async () => {
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+    armLeakDetectors();
+    vectorDiscoveryFetch.mockResolvedValue([]);
+    // Real-world youtube_music familiar entries carry NO uri → all drop at the client contract.
+    const famNoUri = { id: 'yt-vid-1', provider: 'youtube_music', name: 'Familiar YT', artist: 'A' };
+    orchestrator.generateV2.mockResolvedValue({ familiar: [famNoUri], discovery: [], merged: [famNoUri], telemetry: { stageMs: {} }, targets: { bpmCenter: 120 } });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ lastReqId: 202 }));
+
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+    expect(geminiEngine.buildEmotionPlaylist).not.toHaveBeenCalled();
+    expect(vectorDiscoveryFetch).not.toHaveBeenCalled();
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(errCall[1].reason).toBe('NO_PLAYABLE_PROVIDER');
+    expect(errCall[1].reqId).toBe(202);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('GUARD 2a: Spotify user with an EMPTY discovery pool — the LLM STILL runs and generic empty handling is unchanged (not conflated with no-playback)', async () => {
+    // default beforeEach → SPOTIFY_USER (playback engine present); a legitimate no-tracks case.
+    orchestrator.generateV2.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [], telemetry: { stageMs: {} } });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 203 }));
+
+    // The short-circuit MUST NOT trip for a playback-capable user — the LLM fires as normal…
+    expect(geminiEngine.buildEmotionPlaylist).toHaveBeenCalled();
+    // …and the empty result keeps the EXISTING generic handling (no NO_PLAYABLE_PROVIDER reason).
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(errCall[1].reason).toBeUndefined();
+    expect(errCall[1].reqId).toBe(203);
+  });
+
+  it('GUARD 2b: Spotify user — the vector-discovery service STILL fires (VECTOR_DISCOVERY on); the short-circuit never trips for a playback-capable user', async () => {
+    process.env.VECTOR_DISCOVERY = 'true';
+    geminiEngine.buildEmotionPlaylist.mockImplementation(async ({ fetchTracks }) => ({ params: AI_PARAMS, tracks: await fetchTracks(AI_PARAMS) }));
+    vectorDiscoveryFetch.mockResolvedValue([{ id: 'sv1', uri: 'spotify:track:sv1', isDiscovery: true }]);
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }], lastReqId: 204 }));
+
+    expect(vectorDiscoveryFetch).toHaveBeenCalled();
   });
 });
 
