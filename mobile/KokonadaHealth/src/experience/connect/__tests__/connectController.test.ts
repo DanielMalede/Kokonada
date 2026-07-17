@@ -58,6 +58,20 @@ describe('connectController — the wearable connect flow', () => {
     expect(markResolved).not.toHaveBeenCalled();
   });
 
+  it('a STALE grant (granted but at an older consent version) re-opens the §11 wall — never the OS sheet directly', async () => {
+    // Art.9 re-consent guard: when CONSENT_SCREEN_VERSION bumps past a prior grant, granted:true is
+    // NOT a current grant. The short-circuit is `granted && !staleVersion`, so a stale grant must fall
+    // to the wall (consent_stale), NOT invisibly open the OS sheet. Pins the `!staleVersion` clause so
+    // a mutation dropping it cannot stay green.
+    const { deps, markResolved, requestHealthPermissions } = makeDeps({ fetchConsentStatus: jest.fn().mockResolvedValue(okStatus({ granted: true, staleVersion: true })) });
+    const outcome = await createConnectController(deps).begin();
+    expect(outcome.kind).toBe('consent');
+    if (outcome.kind !== 'consent') throw new Error('unreachable');
+    expect(outcome.store.getState().flow).toBe('consent_stale'); // re-confirm framing, not a short-circuit
+    expect(requestHealthPermissions).not.toHaveBeenCalled(); // the OS sheet stays shut until a fresh grant
+    expect(markResolved).not.toHaveBeenCalled();
+  });
+
   it('offline during the status read → still presents the wall UNSEEDED; the real store fails closed to submit_error', async () => {
     const { deps, requestHealthPermissions, markResolved } = makeDeps({ fetchConsentStatus: jest.fn().mockResolvedValue({ ok: false, error: 'offline' }) });
     const outcome = await createConnectController(deps).begin();
