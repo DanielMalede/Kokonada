@@ -125,6 +125,44 @@ describe('GenerateController — live-tuned (Part 2b: Live mode yields the manua
   });
 });
 
+describe('GenerateController — undo / clear passthroughs (§5, zero new socket traffic)', () => {
+  it('undoTap removes the most-recent committed tap from the cold store', () => {
+    const { store, controller } = build();
+    controller.commitTap({ x: 0.2, y: 0.2 });
+    controller.commitTap({ x: 0.5, y: -0.3 });
+    controller.undoTap();
+    expect(store.getState().emotion.taps).toEqual([{ x: 0.2, y: 0.2 }]);
+  });
+
+  it('clearTaps empties the taps but preserves the activity + prompt (not resetEmotion)', () => {
+    const { store, controller } = build();
+    store.dispatch(setActivity('running'));
+    store.dispatch(setTextPrompt('rainy'));
+    controller.commitTap({ x: 0.4, y: 0.4 });
+    controller.clearTaps();
+    expect(store.getState().emotion.taps).toEqual([]);
+    expect(store.getState().emotion.activity).toBe('running');
+    expect(store.getState().emotion.textPrompt).toBe('rainy');
+  });
+
+  it('undo / clear fire NO socket request — they touch local state only', () => {
+    const { controller, socket } = build();
+    controller.commitTap({ x: 0.4, y: 0.4 });
+    controller.undoTap();
+    controller.clearTaps();
+    expect(socket.requestPlaylist).not.toHaveBeenCalled();
+    expect(socket.requestHeartPlaylist).not.toHaveBeenCalled();
+  });
+
+  it('ctaMode reflects the reduced input — clearTaps of the only input returns to disabled', () => {
+    const { controller } = build();
+    controller.commitTap({ x: 0.4, y: 0.4 });
+    expect(controller.ctaMode()).toBe('generate');
+    controller.clearTaps();
+    expect(controller.ctaMode()).toBe('disabled');
+  });
+});
+
 describe('GenerateController — hot→cold race (attack #3)', () => {
   it('a burst of rapid taps racing a submit swallows NO coordinate and misaligns none', () => {
     const { store, controller } = build();
