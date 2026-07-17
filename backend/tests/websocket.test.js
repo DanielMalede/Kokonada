@@ -25,6 +25,14 @@ jest.mock('../app/services/spotify',       () => ({ getValidToken: jest.fn(), ge
 jest.mock('../app/services/youtube',       () => ({ getValidToken: jest.fn(), searchRecommendations: jest.fn() }));
 jest.mock('../app/services/geminiEngine',  () => ({ buildEmotionPlaylist: jest.fn(), adjustBiometricPlaylist: jest.fn() }));
 jest.mock('../app/services/playlistMixer', () => ({ mixPlaylist: jest.fn() }));
+// Art.9 consent gate for the socket biometric_push path (audit H-9 follow-up). Default to a current
+// grant so the existing state-machine tests are transparent to the gate; the dedicated no-consent
+// test overrides it. Mocking it also keeps the real consent service (mongoose) out of these tests.
+jest.mock('../app/services/privacy/consent', () => ({
+  getConsentStatus:       jest.fn().mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false }),
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
+}));
+const { getConsentStatus } = require('../app/services/privacy/consent');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function waitFor(socket, event, timeoutMs = 1000) {
@@ -154,11 +162,11 @@ describe('biometricHandler — normalize + ack', () => {
     _debounceMap.clear();
   });
 
-  it('emits biometric_ack with normalized data on valid garmin push', () => {
+  it('emits biometric_ack with normalized data on valid garmin push', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', {
+    await socket._trigger('biometric_push', {
       source: 'garmin',
       raw: { heartRate: 75, activityType: 1, startTimeLocal: '2026-01-01T10:00:00' },
     });
@@ -172,11 +180,11 @@ describe('biometricHandler — normalize + ack', () => {
     });
   });
 
-  it('emits biometric_ack with normalized data on valid apple_health push', () => {
+  it('emits biometric_ack with normalized data on valid apple_health push', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', {
+    await socket._trigger('biometric_push', {
       source: 'apple_health',
       raw: {
         value: 88,
@@ -190,11 +198,11 @@ describe('biometricHandler — normalize + ack', () => {
     });
   });
 
-  it('emits connection_error and does NOT disconnect on unknown source', () => {
+  it('emits connection_error and does NOT disconnect on unknown source', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', { source: 'fitbit', raw: {} });
+    await socket._trigger('biometric_push', { source: 'fitbit', raw: {} });
 
     expect(socket.emit).toHaveBeenCalledWith('connection_error', {
       message: expect.stringContaining('Unknown wearable source'),
@@ -202,6 +210,38 @@ describe('biometricHandler — normalize + ack', () => {
     // biometric_ack must NOT have been emitted
     const ackCall = socket.emit.mock.calls.find(([e]) => e === 'biometric_ack');
     expect(ackCall).toBeUndefined();
+  });
+
+  // Art.9 consent gate (audit H-9 follow-up): biometric_push is live special-category processing
+  // (transient/in-memory, but still Art.9). A reading from a user with no current consent grant must
+  // be DROPPED before any processing — no ack, no state — and the socket must stay connected.
+  it('[FIX5] drops biometric_push when the user has no current Art.9 consent (no ack, no processing)', async () => {
+    getConsentStatus.mockResolvedValueOnce({ granted: false, currentVersion: 1, staleVersion: false });
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    await socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 75, activityType: 1, startTimeLocal: '2026-01-01T10:00:00' },
+    });
+
+    const ackCall = socket.emit.mock.calls.find(([e]) => e === 'biometric_ack');
+    expect(ackCall).toBeUndefined();
+    expect(getConsentStatus).toHaveBeenCalledWith('user-abc', 'health_biometric_processing');
+  });
+
+  it('[FIX5] processes biometric_push normally when consent is current (ack emitted)', async () => {
+    const socket = makeMockSocket();
+    registerBiometricHandler(socket);
+
+    await socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 75, activityType: 1, startTimeLocal: '2026-01-01T10:00:00' },
+    });
+
+    expect(socket.emit).toHaveBeenCalledWith('biometric_ack', expect.objectContaining({
+      normalized: expect.objectContaining({ heartRate: 75 }),
+    }));
   });
 });
 
@@ -233,23 +273,23 @@ describe('biometricHandler — 60-second debounce', () => {
     _debounceMap.clear();
   });
 
-  it('does NOT emit recalibration_pending when delta < 10 BPM', () => {
+  it('does NOT emit recalibration_pending when delta < 10 BPM', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', GARMIN_RAW(70)); // sets stableHR = 70
-    socket._trigger('biometric_push', GARMIN_RAW(75)); // delta = 5, below threshold
+    await socket._trigger('biometric_push', GARMIN_RAW(70)); // sets stableHR = 70
+    await socket._trigger('biometric_push', GARMIN_RAW(75)); // delta = 5, below threshold
 
     const pendingCall = socket.emit.mock.calls.find(([e]) => e === 'recalibration_pending');
     expect(pendingCall).toBeUndefined();
   });
 
-  it('emits recalibration_pending when delta >= 10 BPM', () => {
+  it('emits recalibration_pending when delta >= 10 BPM', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', GARMIN_RAW(70));
-    socket._trigger('biometric_push', GARMIN_RAW(85)); // delta = 15
+    await socket._trigger('biometric_push', GARMIN_RAW(70));
+    await socket._trigger('biometric_push', GARMIN_RAW(85)); // delta = 15
 
     expect(socket.emit).toHaveBeenCalledWith('recalibration_pending', {
       delta: 15,
@@ -257,25 +297,25 @@ describe('biometricHandler — 60-second debounce', () => {
     });
   });
 
-  it('does NOT start a second timer if one is already running', () => {
+  it('does NOT start a second timer if one is already running', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', GARMIN_RAW(70));
-    socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
-    socket._trigger('biometric_push', GARMIN_RAW(90)); // should be ignored
+    await socket._trigger('biometric_push', GARMIN_RAW(70));
+    await socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
+    await socket._trigger('biometric_push', GARMIN_RAW(90)); // should be ignored
 
     const pendingCalls = socket.emit.mock.calls.filter(([e]) => e === 'recalibration_pending');
     expect(pendingCalls).toHaveLength(1); // only one timer ever started
   });
 
-  it('triggers playlist generation after 60 seconds of sustained change', () => {
+  it('triggers playlist generation after 60 seconds of sustained change', async () => {
     const { adjustBiometricPlaylist } = require('../app/services/geminiEngine');
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', GARMIN_RAW(70));
-    socket._trigger('biometric_push', GARMIN_RAW(85));
+    await socket._trigger('biometric_push', GARMIN_RAW(70));
+    await socket._trigger('biometric_push', GARMIN_RAW(85));
 
     jest.advanceTimersByTime(60_000);
 
@@ -284,13 +324,13 @@ describe('biometricHandler — 60-second debounce', () => {
     expect(socket.emit).toHaveBeenCalledWith('recalibration_pending', expect.objectContaining({ delta: 15 }));
   });
 
-  it('emits recalibration_cancelled and clears timer when HR returns below threshold', () => {
+  it('emits recalibration_cancelled and clears timer when HR returns below threshold', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', GARMIN_RAW(70));
-    socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
-    socket._trigger('biometric_push', GARMIN_RAW(72)); // delta = 2, below threshold
+    await socket._trigger('biometric_push', GARMIN_RAW(70));
+    await socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
+    await socket._trigger('biometric_push', GARMIN_RAW(72)); // delta = 2, below threshold
 
     // Timer was cancelled — advancing 60s should NOT emit recalibration
     jest.advanceTimersByTime(60_000);
@@ -300,12 +340,12 @@ describe('biometricHandler — 60-second debounce', () => {
     expect(recalCalls).toHaveLength(0);
   });
 
-  it('clears the timer and deletes state on disconnect — no event fires after', () => {
+  it('clears the timer and deletes state on disconnect — no event fires after', async () => {
     const socket = makeMockSocket('user-disconnect-test');
     registerBiometricHandler(socket);
 
-    socket._trigger('biometric_push', GARMIN_RAW(70));
-    socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
+    await socket._trigger('biometric_push', GARMIN_RAW(70));
+    await socket._trigger('biometric_push', GARMIN_RAW(85)); // starts timer
 
     socket._trigger('disconnect');
 
@@ -384,13 +424,13 @@ describe('biometricHandler — skip loop', () => {
     expect(recalCalls).toHaveLength(0);
   });
 
-  it('resets skip counter on biometric_push so skips must be consecutive', () => {
+  it('resets skip counter on biometric_push so skips must be consecutive', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
     socket._trigger('track_skipped', {}); // counter = 1
-    // biometric_push resets the counter
-    socket._trigger('biometric_push', {
+    // biometric_push resets the counter (await so the gate resolves before the next skip)
+    await socket._trigger('biometric_push', {
       source: 'garmin',
       raw: { heartRate: 70, activityType: 0, startTimeLocal: '2026-01-01T10:00:00' },
     });
@@ -400,17 +440,17 @@ describe('biometricHandler — skip loop', () => {
     expect(recalCalls).toHaveLength(0);
   });
 
-  it('two consecutive skips cancel any running debounce timer', () => {
+  it('two consecutive skips cancel any running debounce timer', async () => {
     const { adjustBiometricPlaylist } = require('../app/services/geminiEngine');
     const socket = makeMockSocket();
     registerBiometricHandler(socket);
 
     // Start a debounce timer
-    socket._trigger('biometric_push', {
+    await socket._trigger('biometric_push', {
       source: 'garmin',
       raw: { heartRate: 70, activityType: 0, startTimeLocal: '2026-01-01T10:00:00' },
     });
-    socket._trigger('biometric_push', {
+    await socket._trigger('biometric_push', {
       source: 'garmin',
       raw: { heartRate: 85, activityType: 1, startTimeLocal: '2026-01-01T10:00:01' },
     });

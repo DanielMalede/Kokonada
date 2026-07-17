@@ -106,6 +106,13 @@ jest.mock('../app/services/wearable/adapter', () => ({
   }),
 }));
 
+// Art.9 consent gate for the socket biometric_push path (audit H-9 follow-up) — default granted so
+// the pipeline tests are transparent to the gate; also keeps the real (mongoose) consent service out.
+jest.mock('../app/services/privacy/consent', () => ({
+  getConsentStatus:       jest.fn().mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false }),
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
+}));
+
 const User            = require('../app/models/User');
 const MusicProfile    = require('../app/models/MusicProfile');
 const BiometricLog    = require('../app/models/BiometricLog');
@@ -1320,8 +1327,8 @@ describe('socket event dispatch wiring', () => {
     registerBiometricHandler(socket);
     socket._trigger('live_mode', { enabled: true }); // band transitions auto-drive only in Live mode
 
-    socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
-    socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 80 } });
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 80 } });
 
     jest.advanceTimersByTime(60_000);
 
