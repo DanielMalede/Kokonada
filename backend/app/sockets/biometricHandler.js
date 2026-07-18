@@ -23,6 +23,8 @@ const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 const captionService = require('../services/discovery/captionService');
+// Art.9 consent gate (audit H-9 follow-up) for the live socket biometric_push path.
+const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -1136,7 +1138,17 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
 function registerBiometricHandler(socket) {
   const socketId = socket.id;
 
-  socket.on('biometric_push', ({ source, raw } = {}) => {
+  // biometric_push is live special-category (Art.9) processing. Even though the socket is
+  // authenticated, a reading must not be processed without a CURRENT consent grant on the socket's
+  // user — the SAME gate the ingest routes enforce (getConsentStatus). A missing/stale grant, or a
+  // consent-store error, DROPS the reading (fail closed) without ever crashing the socket.
+  socket.on('biometric_push', async ({ source, raw } = {}) => {
+    const uid = socket?.data?.user?._id;
+    if (!uid) return;
+    let status;
+    try { status = await getConsentStatus(uid, HEALTH_CONSENT_PURPOSE); }
+    catch { return; } // fail closed: never process special-category data on a consent-store error
+    if (!status.granted || status.staleVersion) return;
     handleBiometricReading(socket, source, raw);
   });
 

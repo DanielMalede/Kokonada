@@ -519,12 +519,21 @@ exports.garminCallback = async (req, res) => {
     await user.save();
     await burnState(payload); // single-use
 
-    // Kick off the ~6-month historical backfill (async, best-effort) — Garmin then
-    // pushes the historical summaries to our webhook. (garmin.requestSixMonthBackfill)
-    setImmediate(async () => {
-      try { await garmin.requestSixMonthBackfill(tokens.accessToken); }
-      catch (e) { console.error('[garmin] backfill kickoff failed:', e.message); }
-    });
+    // Art.9 consent gate (audit H-9 follow-up): the ~6-month backfill makes Garmin push 6 months
+    // of special-category history to our webhook, so it must NOT be requested for a user without a
+    // current consent grant. The webhook itself also drops unconsented data (defense in depth), but
+    // we don't even ask for it here. If/when the user consents, a later sync re-establishes the grant.
+    const consent = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
+    if (consent.granted && !consent.staleVersion) {
+      // Kick off the ~6-month historical backfill (async, best-effort) — Garmin then
+      // pushes the historical summaries to our webhook. (garmin.requestSixMonthBackfill)
+      setImmediate(async () => {
+        try { await garmin.requestSixMonthBackfill(tokens.accessToken); }
+        catch (e) { console.error('[garmin] backfill kickoff failed:', e.message); }
+      });
+    } else {
+      console.info(`[garmin] backfill skipped — no current Art.9 consent for user ${user._id}`);
+    }
 
     frontendRedirect(res, 'biometric=garmin');
   } catch (err) {
@@ -595,12 +604,21 @@ exports.garminWebhook = async (req, res, next) => {
     }
 
     let users = 0;
+    let skipped = 0;
     for (const [gid, items] of byGarminUser) {
       const user = await resolveGarminUser(gid); // garminUserId is encrypted → resolve via blind index (T3.3)
       if (!user) continue;
+      // Art.9 consent hard gate (audit H-9 follow-up): this lane carries special-category data
+      // (SpO2 / respiration / body-battery beyond HR) and, as a server-to-server push, has no
+      // req.user for the requireConsent middleware — so the SAME consent service is checked inline
+      // on the resolved user. An unconsented or stale-consent user's summaries are DROPPED, never
+      // persisted, mirroring the requireConsent 403 on the session-authed ingest routes.
+      const consent = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
+      if (!consent.granted || consent.staleVersion) { skipped += 1; continue; }
       await garminIngest.ingestSummaries(user._id, items);
       users += 1;
     }
+    if (skipped > 0) console.info(`[garmin] webhook dropped ${skipped} user(s) without current Art.9 consent`);
 
     res.status(200).json({ received: true, users });
   } catch (err) { next(err); }
@@ -628,9 +646,11 @@ exports.appleHealthPush = async (req, res, next) => {
 // POST /api/integrations/health/batch  (auth required — JWT)
 // The React Native companion app reads Garmin-synced data from the on-device OS
 // health store and pushes batches of multi-metric samples here for the medical
-// profile. heartRate lands in BiometricLog; resting HR / HRV / respiration / SpO2
-// are aggregated onto the user's MedicalProfile. Used for both the initial
-// backfill and the ongoing background delta sync.
+// profile. heartRate lands in BiometricLog; resting HR / HRV / sleep stages are
+// aggregated onto the user's MedicalProfile. Used for both the initial backfill and
+// the ongoing background delta sync. (Health Connect on this client no longer reads
+// SpO2/respiration — PR #152 scope-minimized those to their real, non-zero readers;
+// those categories now arrive only via the Garmin server-to-server lane.)
 exports.healthBatchIngest = async (req, res, next) => {
   // Always-on receipt log (#90): pairs with the mobile [koko] healthSync logs so ONE Sync
   // shows the full path — did the batch reach the server, and did it persist? The device

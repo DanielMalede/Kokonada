@@ -93,6 +93,12 @@ jest.mock('../app/models/User', () => ({
   findById:          jest.fn(),
   findOne:           jest.fn(),
 }));
+// Art.9 consent service — the Garmin webhook + callback backfill now gate on a current grant.
+// Default to granted so the connected-Garmin paths under test are exercised end-to-end.
+jest.mock('../app/services/privacy/consent', () => ({
+  getConsentStatus:       jest.fn().mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false }),
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
+}));
 
 const spotify     = require('../app/services/spotify');
 const youtube     = require('../app/services/youtube');
