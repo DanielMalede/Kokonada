@@ -23,6 +23,10 @@ type Phase = 'hidden' | 'offline' | 'connecting' | 'recovered';
 export interface OfflineBannerProps {
   status: BannerStatus;
   onRetry?: () => void;
+  // Fired on the VISIBLE edge only (hidden↔shown), never on a copy switch. The E2 SystemStateDock
+  // uses it to drive the calm appear/recede slide OUTSIDE the banner (the banner still owns its
+  // opacity fade). Optional + additive — absent, it is inert.
+  onVisibleChange?: (visible: boolean) => void;
 }
 
 const COPY: Record<Exclude<Phase, 'hidden'>, string> = {
@@ -35,7 +39,7 @@ const ANNOUNCE: Partial<Record<Phase, string>> = {
   recovered: 'Back online',
 };
 
-export function OfflineBanner({ status, onRetry }: OfflineBannerProps) {
+export function OfflineBanner({ status, onRetry, onVisibleChange }: OfflineBannerProps) {
   const { c } = useTheme();
   const { reduced, duration } = useMotion();
 
@@ -87,6 +91,20 @@ export function OfflineBanner({ status, onRetry }: OfflineBannerProps) {
   // edge, not on `phase`: a copy switch between two visible states (offline↔connecting) must NOT
   // re-run the fade — that would blink the banner. It fades once on appear and holds.
   const visible = phase !== 'hidden';
+
+  // Notify the shell on the VISIBLE edge only (hidden↔shown) — a copy switch between two visible
+  // phases (offline↔connecting) must not fire it. A ref holds the latest callback so an inline
+  // prop never churns the effect, and the initial mount (hidden) is not reported as an edge.
+  const onVisibleChangeRef = useRef(onVisibleChange);
+  onVisibleChangeRef.current = onVisibleChange;
+  const prevVisible = useRef(visible);
+  useEffect(() => {
+    if (prevVisible.current !== visible) {
+      prevVisible.current = visible;
+      onVisibleChangeRef.current?.(visible);
+    }
+  }, [visible]);
+
   const entry = useRef(new Animated.Value(reduced ? 1 : 0)).current;
   useEffect(() => {
     if (!visible) return;
