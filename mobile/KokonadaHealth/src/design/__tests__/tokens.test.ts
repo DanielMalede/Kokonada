@@ -100,6 +100,10 @@ describe('scales are coherent (no magic numbers leak — ascending, deduped)', (
     const sizes = order.map((k) => type.size[k]);
     expect(sizes).toEqual([...sizes].sort((a, b) => b - a));
   });
+  it('display face is the bundled General Sans, not the System placeholder', () => {
+    expect(type.family.display).toBe('GeneralSans-Semibold');
+    expect(type.family.display).not.toBe('System');
+  });
 });
 
 describe('motion honours reduced-motion (spec §2 — every token ships a reduced variant)', () => {
