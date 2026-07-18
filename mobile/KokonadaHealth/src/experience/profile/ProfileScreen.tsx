@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, Pressable, ScrollView, Image, Alert, Linking, AppState, Modal, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { useTheme } from '../../design/theme';
+import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, type as typography, elevation } from '../../design/tokens';
 import { fireHaptic } from '../../design/haptics';
 import { EMPTY_GLOW_OPACITY, Skeleton } from '../../design/system';
@@ -41,6 +41,7 @@ const youtubeProvider = PROVIDERS.find((p) => p.id === 'youtube')!;
 
 export function ProfileScreen() {
   const { c } = useTheme();
+  const { reduced } = useMotion();
   const insets = useSafeAreaInsets();
 
   const [snap, setSnap] = useState<ProfileSnapshot>({ me: null, integrations: null });
@@ -282,7 +283,7 @@ export function ProfileScreen() {
             reason={spotifyConnected ? 'Playing your library.' : spotifyProvider.why}
             statusWord={spotifyConnected ? 'Connected' : 'Unavailable'}
             connected={spotifyConnected}
-            action={spotifyConnected ? { label: 'Reconnect', a11yLabel: 'reconnect-spotify', onPress: onConnectSpotify } : undefined}
+            action={spotifyConnected ? { label: 'Reconnect', testId: 'reconnect-spotify', onPress: onConnectSpotify } : undefined}
           />
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow
@@ -290,7 +291,7 @@ export function ProfileScreen() {
             reason={youtubeConnected ? 'Kokonada plays it natively.' : youtubeProvider.why}
             statusWord={youtubeConnected ? 'Connected' : 'Not yet available'}
             connected={youtubeConnected}
-            action={youtubeConnected ? { label: 'Disconnect', busyLabel: 'Rebuilding…', a11yLabel: 'disconnect-youtube', onPress: onDisconnectYouTube, busy: ytBusy } : undefined}
+            action={youtubeConnected ? { label: 'Disconnect', busyLabel: 'Rebuilding…', testId: 'disconnect-youtube', onPress: onDisconnectYouTube, busy: ytBusy } : undefined}
           />
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow
@@ -378,7 +379,7 @@ export function ProfileScreen() {
       {/* The §11 Art.9 consent wall, just-in-time before the OS health sheet. Reaching the OS sheet
           (onProceed) requires a server-acked current grant; Decline / back just dismisses. */}
       {consentStore ? (
-        <Modal visible transparent statusBarTranslucent animationType="slide" onRequestClose={() => setConsentStore(null)}>
+        <Modal visible transparent statusBarTranslucent animationType={reduced ? 'none' : 'slide'} onRequestClose={() => setConsentStore(null)}>
           <ConsentSheet store={consentStore} onProceed={onConsentProceed} onDecline={() => setConsentStore(null)} />
         </Modal>
       ) : null}

@@ -18,6 +18,9 @@ const allText = (tree: ReactTestRenderer.ReactTestRenderer) => texts(tree.toJSON
 const byLabel = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
   tree.root.findAll((n) => n.props.accessibilityLabel === label);
 const has = (tree: ReactTestRenderer.ReactTestRenderer, label: string) => byLabel(tree, label).length > 0;
+// The action button is selected by a stable testID; its accessibilityLabel is a HUMAN phrase.
+const byTestId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
+  tree.root.findAll((n) => n.props.testID === id);
 
 function render(el: React.ReactElement) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
@@ -51,24 +54,28 @@ describe('ProfileIntegrationRow', () => {
     expect(group.props.accessibilityState).toEqual({ disabled: true });
   });
 
-  it('renders a secondary text action (Reconnect) that fires its callback and keeps its own label', () => {
+  it('renders a secondary text action (Reconnect) selected by testID, announcing the status word', () => {
     const onPress = jest.fn();
     const tree = render(
       <ProfileIntegrationRow label="Spotify" reason="Playing your library." statusWord="Connected" connected
-        action={{ label: 'Reconnect', a11yLabel: 'reconnect-spotify', onPress }} />,
+        action={{ label: 'Reconnect', testId: 'reconnect-spotify', onPress }} />,
     );
-    expect(has(tree, 'reconnect-spotify')).toBe(true);
-    ReactTestRenderer.act(() => { byLabel(tree, 'reconnect-spotify')[0].props.onPress(); });
+    const btn = byTestId(tree, 'reconnect-spotify')[0];
+    expect(btn).toBeTruthy();
+    // The status word is folded into the button's a11y label so a screen reader announces "Connected".
+    expect(btn.props.accessibilityLabel).toContain('Reconnect');
+    expect(btn.props.accessibilityLabel).toContain('Connected');
+    ReactTestRenderer.act(() => { btn.props.onPress(); });
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
   it('a busy action shows its busy label and is disabled', () => {
     const tree = render(
       <ProfileIntegrationRow label="YouTube Music" reason="Rebuilding your library…" statusWord="Connected" connected
-        action={{ label: 'Disconnect', busyLabel: 'Rebuilding…', a11yLabel: 'disconnect-youtube', onPress: jest.fn(), busy: true }} />,
+        action={{ label: 'Disconnect', busyLabel: 'Rebuilding…', testId: 'disconnect-youtube', onPress: jest.fn(), busy: true }} />,
     );
     expect(allText(tree)).toContain('Rebuilding…');
-    const btn = byLabel(tree, 'disconnect-youtube')[0];
+    const btn = byTestId(tree, 'disconnect-youtube')[0];
     expect(btn.props.accessibilityState).toEqual({ disabled: true });
   });
 

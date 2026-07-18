@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useTheme } from '../../design/theme';
-import { space, radius, type as typography } from '../../design/tokens';
+import { space, type as typography } from '../../design/tokens';
 import { ProviderGlyph } from '../connect/ProviderGlyph';
 
 // §10 integration row — the same calm grammar for all four rows (Spotify · YouTube · Wearable ·
@@ -18,7 +18,7 @@ import { ProviderGlyph } from '../connect/ProviderGlyph';
 export interface RowAction {
   label: string;
   busyLabel?: string;
-  a11yLabel: string;
+  testId: string; // stable selector; the human accessibilityLabel is composed (see below)
   onPress: () => void;
   busy?: boolean;
 }
@@ -52,6 +52,10 @@ export function ProfileIntegrationRow({ label, reason, statusWord, connected, ac
   );
 
   // Interactive row: text + status stay visible; the action button is its own focusable control.
+  // The status word is folded into the button's HUMAN accessibilityLabel (e.g. "Reconnect Spotify.
+  // Connected.") so a screen reader announces the connection state on these rows — the trailing
+  // status word is decorative/hidden here, so without this the state was never spoken. Selection
+  // uses a stable testID (the button label is human, not a dev token).
   if (action) {
     const busy = !!action.busy;
     return (
@@ -61,8 +65,9 @@ export function ProfileIntegrationRow({ label, reason, statusWord, connected, ac
         <Pressable
           onPress={action.onPress}
           disabled={busy}
+          testID={action.testId}
           accessibilityRole="button"
-          accessibilityLabel={action.a11yLabel}
+          accessibilityLabel={`${action.label} ${label}. ${statusWord}.`}
           accessibilityState={{ disabled: busy }}
           hitSlop={space.sm}
           style={[styles.actionBtn, { opacity: busy ? 0.6 : 1 }]}

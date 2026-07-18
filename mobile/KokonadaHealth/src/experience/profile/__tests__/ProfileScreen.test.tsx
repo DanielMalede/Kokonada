@@ -62,7 +62,7 @@ jest.mock('../../../health/watchPairingClient', () => ({
   revokeWatchPairing: jest.fn().mockResolvedValue({ ok: true, data: { message: 'ok' } }),
 }));
 
-import { Linking, Alert } from 'react-native';
+import { Linking, Alert, AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ProfileScreen } from '../ProfileScreen';
 import { profileController } from '../profileServices';
@@ -157,6 +157,10 @@ describe('ProfileScreen', () => {
 
   const byLabel = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
     tree.root.findAll((n) => n.props.accessibilityLabel === label)[0];
+  // Integration action buttons are selected by a stable testID; their accessibilityLabel is a human
+  // phrase that folds in the status word (so screen readers announce "Connected" on these rows).
+  const byTestId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
+    tree.root.findAll((n) => n.props.testID === id)[0];
 
   it('the delete flow requires a confirmation step before calling the server', async () => {
     const tree = await render();
@@ -177,14 +181,14 @@ describe('ProfileScreen', () => {
     });
     const tree = await render();
     expect(texts(tree.toJSON()).join(' ')).toContain('YouTube Music');
-    await ReactTestRenderer.act(async () => { await byLabel(tree, 'disconnect-youtube').props.onPress(); });
+    await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-youtube').props.onPress(); });
     expect(disconnectYouTube).toHaveBeenCalledTimes(1);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('hides the YouTube row when YouTube is not connected', async () => {
+  it('hides the YouTube Disconnect action when YouTube is not connected (the row still renders)', async () => {
     const tree = await render(); // beforeEach integrations has no youtubeConnected
-    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'disconnect-youtube')).toHaveLength(0);
+    expect(tree.root.findAll((n) => n.props.testID === 'disconnect-youtube')).toHaveLength(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
@@ -219,8 +223,9 @@ describe('ProfileScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
 
     const tree = await render();
-    const btn = byLabel(tree, 'reconnect-spotify');
+    const btn = byTestId(tree, 'reconnect-spotify');
     expect(btn).toBeTruthy();
+    expect(btn.props.accessibilityLabel).toContain('Connected'); // status folded into the button's a11y label
     await ReactTestRenderer.act(async () => { await btn.props.onPress(); });
 
     expect(openURL).toHaveBeenCalledTimes(1);
@@ -332,6 +337,20 @@ describe('ProfileScreen', () => {
     await flush();
     // Re-focus re-fetched → the local UI reflects ungranted (Withdraw gone), no manual refresh.
     expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent')).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── T10: reduced-motion polish — the consent Modal drops its slide when reduce-motion is on ─────
+  it('T10: under reduced motion, the consent Modal uses animationType "none" (no slide)', async () => {
+    const rm = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true as any);
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: false }));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'sync-health').props.onPress(); });
+    await flush();
+    const modal = tree.root.findAll((n) => typeof n.props.onRequestClose === 'function')[0];
+    expect(modal.props.animationType).toBe('none');
+    rm.mockRestore(); alertSpy.mockRestore();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
