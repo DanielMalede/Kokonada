@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { BreathingGlow, BREATH_OPACITY } from '../BreathingGlow';
 
@@ -55,6 +56,19 @@ describe('BreathingGlow — the shared soft brand breath', () => {
   it('a non-positive breath does not start a loop (still glow), no crash', async () => {
     const tree = await render(<BreathingGlow color="#0C8C7B" reduced={false} breathMs={0} size={80} />);
     expect(findWrapper(tree)).toBeTruthy();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('breathes arbitrary children when given (the ONE breath can carry the full BrandMark, not only the bloom)', async () => {
+    const tree = await render(
+      <BreathingGlow color="#31E1C4" reduced={false} breathMs={4200} size={200}>
+        <View testID="breathing-child" />
+      </BreathingGlow>,
+    );
+    const child = tree.root.findAll((n) => n.props?.testID === 'breathing-child')[0];
+    expect(child).toBeTruthy();
+    // custom children REPLACE the default bloom — no duplicate SoftGlow circle underneath
+    expect(findCircle(tree, '#31E1C4')).toBeFalsy();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
