@@ -101,8 +101,14 @@ describe('WatchPairingCard', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('NEVER renders a whr_ token in any state', async () => {
-    const { tree, store } = await renderCard(makeDeps());
+  it('NEVER renders a whr_ token in any state — even if the mint payload leaks one', async () => {
+    // ADVERSARIAL: the mint carries an extra whr_ device-token field alongside the pairing code.
+    // The card must render/announce only the 6-digit code + expiry — never the token.
+    const LEAK = 'whr_LEAKED_must_never_render';
+    const { tree, store } = await renderCard(makeDeps({
+      requestPairing: jest.fn().mockResolvedValue({ ok: true, data: { ...CODE, token: LEAK, deviceToken: LEAK } }),
+      fetchStatus: jest.fn().mockResolvedValue({ ok: true, data: { connected: true, lastSeenAt: null, token: LEAK } }),
+    }));
     await ReactTestRenderer.act(async () => { await store.getState().setUp(); });
     await flush();
     // Scan both rendered text AND every accessibilityLabel for the token prefix.

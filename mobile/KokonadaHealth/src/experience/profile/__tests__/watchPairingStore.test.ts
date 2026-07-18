@@ -134,11 +134,14 @@ describe('watchPairingStore', () => {
     expect(store.getState().phase).toBe('code_shown');
   });
 
-  it('NEVER surfaces a whr_ token anywhere in its observable state', async () => {
-    // An adversarial status/mint that leaks a token must never end up in the store's state.
+  it('NEVER surfaces a whr_ token anywhere in its observable state — even if the server leaks one', async () => {
+    // ADVERSARIAL: the mint/status payloads carry an extra whr_ device-token field. The store must
+    // copy ONLY code/expiresAt/lastSeenAt — a naive spread of res.data would land the token in
+    // state and this guard would (correctly) fail. Today it must not.
+    const LEAK = 'whr_LEAKED_must_never_surface';
     const store = createWatchPairingFlow(makeDeps({
-      requestPairing: jest.fn().mockResolvedValue({ ok: true, data: CODE }),
-      fetchStatus: jest.fn().mockResolvedValue({ ok: true, data: { connected: true, lastSeenAt: null } }),
+      requestPairing: jest.fn().mockResolvedValue({ ok: true, data: { ...CODE, token: LEAK, deviceToken: LEAK } }),
+      fetchStatus: jest.fn().mockResolvedValue({ ok: true, data: { connected: true, lastSeenAt: null, token: LEAK } }),
     }));
     await store.getState().setUp();
     await store.getState().poll();
