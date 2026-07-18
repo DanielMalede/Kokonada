@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, Image, Alert, Linking, AppState, Modal, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../design/theme';
 import { space, radius, type as typography, elevation } from '../../design/tokens';
 import { fireHaptic } from '../../design/haptics';
@@ -89,13 +90,18 @@ export function ProfileScreen() {
 
   useEffect(() => {
     mountedRef.current = true;
-    reload();
     const offPlayer = playerStatusStore.subscribe((s) => { if (mountedRef.current) setSpotify(s.status); });
     const offWarm = warmStore.subscribe((s) => { if (mountedRef.current) setWearable(s.biometricSource); });
     // Returning from the Spotify OAuth browser (or any resume) re-pulls status so badges refresh.
     const appSub = AppState.addEventListener('change', (st) => { if (st === 'active') reload(); });
     return () => { mountedRef.current = false; offPlayer(); offWarm(); appSub?.remove?.(); };
   }, [reload]);
+
+  // T7 — refresh on EVERY tab focus (not just first mount). A bottom-tab screen stays MOUNTED after
+  // its first visit, so a mount-only fetch would show a stale grant after a withdrawal made in §11
+  // (or a Sync elsewhere). Re-reading profile + consent + watch status on focus reflects it on
+  // return. Kept alongside AppState('active') so a background→foreground resume also refreshes.
+  useFocusEffect(useCallback(() => { reload(); }, [reload]));
 
   // A stored Spotify token keeps the badge "Connected", but a newly-added scope only lands on a
   // fresh grant — so an already-connected account keeps a Reconnect that re-runs OAuth in place.
@@ -383,7 +389,7 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   header: { alignItems: 'center', gap: space.sm },
   avatarWrap: { width: AVATAR * AVATAR_SEAL_SCALE, height: AVATAR * AVATAR_SEAL_SCALE, alignItems: 'center', justifyContent: 'center' },
-  sealWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  sealWrap: { position: 'absolute', top: space.none, left: space.none, right: space.none, bottom: space.none, alignItems: 'center', justifyContent: 'center' },
   avatar: { width: AVATAR, height: AVATAR, borderRadius: radius.pill },
   monogram: { alignItems: 'center', justifyContent: 'center' },
   monogramText: { fontSize: typography.size.heading, fontWeight: typography.weight.semibold },

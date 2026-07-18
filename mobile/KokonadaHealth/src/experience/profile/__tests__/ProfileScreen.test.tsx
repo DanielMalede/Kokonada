@@ -42,6 +42,18 @@ jest.mock('../../../health/healthConnect', () => ({
   checkAvailability: jest.fn(),
 }));
 jest.mock('../../../health/healthSync', () => ({ syncMedicalProfile: jest.fn() }));
+
+// useFocusEffect needs a navigation context; mock it to run the effect on mount and expose the
+// callback so a test can simulate returning to the tab (re-focus → re-fetch profile/consent/watch).
+let mockFocusCb: null | (() => void) = null;
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: (cb: () => void) => {
+    const { useEffect } = require('react');
+    mockFocusCb = cb;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { cb(); }, []); // run once on mount, mimicking a first focus
+  },
+}));
 // The §10 watch pairing seam — mocked so the WatchPairingCard's mount hydrate never touches the
 // network. The card/store are proven end-to-end in their own suites; here they just stay quiet.
 jest.mock('../../../health/watchPairingClient', () => ({
@@ -305,6 +317,21 @@ describe('ProfileScreen', () => {
     const confirm = byLabel(tree, 'withdraw-confirm');
     const s = Array.isArray(confirm.props.style) ? Object.assign({}, ...confirm.props.style.filter(Boolean)) : confirm.props.style;
     expect(s.backgroundColor).not.toBe('#ff5a5a');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── T7: refresh on tab focus so a change elsewhere (§11 withdrawal) reflects on return ──────────
+  it('T7: re-focusing the tab re-fetches consent, so a withdrawal made elsewhere is reflected on return', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    const tree = await render();
+    // First focus saw a grant on file → the Withdraw affordance is present.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent').length).toBeGreaterThan(0);
+    // Consent is withdrawn elsewhere; the next status read returns ungranted.
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: false }));
+    await ReactTestRenderer.act(async () => { mockFocusCb?.(); });
+    await flush();
+    // Re-focus re-fetched → the local UI reflects ungranted (Withdraw gone), no manual refresh.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent')).toHaveLength(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
