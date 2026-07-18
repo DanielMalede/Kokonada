@@ -13,6 +13,18 @@ const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('./wearableErasure
 // consent copy / dataCategories it stands for — whenever the terms materially change.
 const CURRENT_CONSENT_VERSION = 1;
 
+// ENFORCED go-live gate for the Garmin server-to-server lane's special-category (GDPR Art.9)
+// types — spo2 / respiratory_rate / body_battery (mobile consentApi.ts GARMIN_ONLY_DATA_CATEGORIES).
+// Health Connect on this client does NOT read them, so today they are DISCLOSED but the lane that
+// would actually process them is DORMANT. This constant is the consent version at which processing
+// those three becomes lawful; garminIngest.js DROPS them until the user's granted version reaches
+// it (guard test: tests/garminConsentVersionGate.test.js). It sits ABOVE CURRENT_CONSENT_VERSION
+// on purpose: flipping the lane live means bumping CURRENT_CONSENT_VERSION (and the mobile
+// CONSENT_SCREEN_VERSION in lockstep) to this value, which forces existing v1 grantors to
+// re-consent before any of the three is ever persisted. The tripwire test fails if the two drift
+// into alignment without a conscious bump.
+const GARMIN_CONSENT_MIN_VERSION = 2;
+
 // The one purpose enum value in use today (ConsentRecord.js schema). Exported so every call
 // site (routes/integrations.js's requireConsent mounts, watchHrIngest's inline gate, the mobile
 // CONSENT_PURPOSE contract) shares ONE literal instead of drifting copies.
@@ -87,6 +99,22 @@ async function withdrawConsent(userId, purpose) {
   return { record, erasureFailures };
 }
 
+// TRUE once the user has re-consented at (or above) the version where the Garmin lane's
+// special-category processing is lawful. A pure predicate on a version number; a non-number
+// (undefined / null / "no grant" sentinel) reads below the min → fails closed.
+function garminSpecialCategoryAllowed(consentVersion) {
+  return Number(consentVersion) >= GARMIN_CONSENT_MIN_VERSION;
+}
+
+// The version stamped on the user's CURRENT (latest) consent row IFF it is a grant, else 0.
+// Distinct from getConsentStatus (which returns booleans) because the Garmin lane's version gate
+// needs the raw number to compare against GARMIN_CONSENT_MIN_VERSION. A withdrawn/absent latest
+// yields 0 — below any real version — so the gate fails closed.
+async function getGrantedConsentVersion(userId, purpose) {
+  const latest = await ConsentRecord.latestFor(userId, purpose);
+  return latest && latest.status === 'granted' ? latest.consentVersion : 0;
+}
+
 // The read the server gate and the client both consume. staleVersion means the user IS granted
 // but at an older contract version — the client should re-prompt, and the server treats it as
 // not-current (distinct from a first-time "no record" case).
@@ -100,4 +128,13 @@ async function getConsentStatus(userId, purpose) {
   };
 }
 
-module.exports = { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE, recordConsent, withdrawConsent, getConsentStatus };
+module.exports = {
+  CURRENT_CONSENT_VERSION,
+  GARMIN_CONSENT_MIN_VERSION,
+  HEALTH_CONSENT_PURPOSE,
+  recordConsent,
+  withdrawConsent,
+  getConsentStatus,
+  garminSpecialCategoryAllowed,
+  getGrantedConsentVersion,
+};
