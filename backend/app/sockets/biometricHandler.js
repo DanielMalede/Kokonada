@@ -10,10 +10,11 @@ const { computeStateVector } = require('../services/medicalProfileService');
 const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../services/geminiEngine');
-const { generateFallbackPlaylist, personalizeWhitelist } = require('../services/playlistMixer');
+const { personalizeWhitelist } = require('../services/playlistMixer');
 const { buildMoodParams, resolveMoodKey, syntheticBioMoodKey, bandFromHeartRate } = require('../services/moodDescriptors');
 const serveLedger = require('../services/ledger/serveLedger');
 const orchestrator = require('../services/generation/orchestrator');
+const { buildDeterministicFallback } = require('../services/generation/deterministicFallback');
 const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
@@ -683,6 +684,58 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       }).catch(e => console.error('[serveLedger] record failed:', e.message));
     };
 
+    // ── Deterministic emotion-fallback (§5 Fork 4B) ───────────────────────────────
+    // The fallback module's playability PORT: keep ALL provider/token I/O here — translate onto
+    // the Spotify sink (if any) then normalize to the client contract. featured=0 (no AudioFeature
+    // coverage) ⇒ an honest "From your favorites" receipt (Fork 2: never overclaim a precise
+    // emotion match when the tracks carry no features); featured>0 ⇒ the trigger-tuned receipt.
+    const resolveFallbackPlayable = async (rawTracks, { featured = 0 } = {}) => {
+      let merged = Array.isArray(rawTracks) ? rawTracks : [];
+      if (provider === 'spotify' && spotifyToken && merged.length) {
+        try {
+          const { tracks } = await translateToSpotify(merged, spotifyToken);
+          if (tracks.length) merged = tracks;
+        } catch { /* keep raw; native-Spotify entries still resolve at toClientTracks */ }
+      }
+      const context = featured > 0
+        ? { trigger, params: useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : {} }
+        : { source: 'favorites' };
+      return toClientTracks(merged, provider, context);
+    };
+
+    // The never-empty, emotion-honoring, library-only guarantee. Reached when normal generation
+    // THROWS (G-1/G-4) or delivers an EMPTY PLAYABLE set (G-2). The bounded 3-tier ladder re-runs
+    // selection and checks the CLIENT-PLAYABLE count each tier (the downstream loop generateV2's L4
+    // can't see). A delivered fallback records the SAME serve side-effects as the normal path — or
+    // anti-repetition + history silently break for served fallbacks. Empty history → soft error.
+    const emitDeterministicFallback = async (emptyMessage) => {
+      const fb = await buildDeterministicFallback({
+        userId, musicProfile,
+        taps:    state.lastEmotionTaps,
+        moodKey, provider,
+        targets: bandTargets,
+        crossPlatform: provider === 'spotify' && !!spotifyToken,
+        live:    { heartRate: state.stableHR, activity: effectiveActivity },
+        now:     Date.now(),
+        resolveToPlayable: resolveFallbackPlayable,
+      });
+      console.warn(`[selection.v2] fallback fallbackTier=${fb.fallbackTier} featured=${fb.featured} tracks=${fb.tracks.length} reason=${fb.reason ?? ''} reqId=${reqId}`);
+      if (fb.tracks.length > 0) {
+        emit('playlist_ready', {
+          trigger, mode, reqId,
+          params:       fb.params,
+          tracks:       fb.tracks,
+          familiar:     fb.tracks.length,
+          discovery:    0,
+          fallback:     true,
+          fallbackTier: fb.fallbackTier,
+        });
+        recordServeSideEffects(fb.built, fb.tracks, fb.params);
+        return;
+      }
+      emit('playlist_error', emptyPlaylistError(user, reqId, emptyMessage));
+    };
+
     // ── Structural dead-end short-circuit: no playback sink ⇒ skip the LLM + vector ──
     // A user with NO playback provider (resolvePlaybackProvider falsy — a YouTube-only
     // account, since Spotify is the only playback engine) can NEVER receive a playable
@@ -788,56 +841,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         // budget timeout is an expected, handled condition (logged above) — not an exception.
         captureException(err, { scope: 'generate', trigger, reqId, provider });
       }
-      // Zero-tolerance fallback: if the LLM is down mid-mood, build a deterministic,
-      // strictly on-vibe playlist from the mood descriptors (no AI, library-only so it
-      // never depends on a possibly-failing Spotify) rather than dumping off-vibe
-      // top-affinity favourites that violate the chosen vibe.
-      const moodParams = useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : null;
-      if (moodParams) {
-        try {
-          // ACCEPTED (audit): no precomputed targets here → generateV2 recomputes the band; harmless (discoveryTracks:[], same live/mood inputs) so it can never drift from a discovery pass that did not run.
-          const moodPlaylist = await orchestrator.generateV2({
-            userId, musicProfile, moodKey, provider,
-            aiParams: moodParams,
-            discoveryTracks: [],
-            live: { heartRate: state.stableHR, activity: effectiveActivity },
-            crossPlatform: provider === 'spotify' && !!spotifyToken,
-          });
-          const moodTracks = toClientTracks(moodPlaylist?.merged, provider, { trigger, params: moodParams });
-          if (moodTracks.length > 0) {
-            log(`[generate] LLM failed → on-vibe mood fallback tracks=${moodTracks.length} reqId=${reqId}`);
-            emit('playlist_ready', {
-              trigger,
-              mode,
-              reqId,
-              params:    moodParams,
-              tracks:    moodTracks,
-              familiar:  moodPlaylist.familiar.length,
-              discovery: moodPlaylist.discovery.length,
-              fallback:  true,
-            });
-            return;
-          }
-        } catch (e2) {
-          log(`[generate] mood fallback failed: ${e2.message}`);
-        }
-      }
-
-      const fallbackTracks = toClientTracks(generateFallbackPlaylist(musicProfile ?? {}, provider), provider, { source: 'favorites' });
-      if (fallbackTracks.length > 0) {
-        log(`[generate] AI failed → fallback tracks=${fallbackTracks.length} reqId=${reqId}`);
-        emit('playlist_ready', {
-          trigger,
-          mode,
-          reqId,
-          tracks:    fallbackTracks,
-          familiar:  fallbackTracks.length,
-          discovery: 0,
-          fallback:  true,
-        });
-      } else {
-        emit('playlist_error', emptyPlaylistError(user, reqId, err.message));
-      }
+      // Deterministic personal fallback (G-1/G-4): emotion-honoring, library-only, never random.
+      // The bounded ladder subsumes the old on-vibe mood attempt AND the emotion-blind top-affinity
+      // terminal — and, critically, records serve side-effects so anti-repetition/history hold for a
+      // served fallback (the old terminal silently dropped them). The heart path is honored via the
+      // synthetic bio:* moodKey targets (no more moodKey=null → emotion-blind dump).
+      await emitDeterministicFallback(err.message);
       return;
     }
 
@@ -938,7 +947,11 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         + `library=${musicProfile.library?.length ?? 0} discoveryCandidates=${cachedDiscovery?.length ?? 0} `
         + `mixedFamiliar=${playlist?.familiar?.length ?? 0} mixedDiscovery=${playlist?.discovery?.length ?? 0} `
         + `seed_genres=${JSON.stringify(aiResult.params?.seed_genres)} exclude_genres=${JSON.stringify(aiResult.params?.exclude_genres)}`);
-      emit('playlist_error', emptyPlaylistError(user, reqId, 'Could not build a playlist from the current sources — try again'));
+      // G-2: the main path succeeded but resolved to an EMPTY PLAYABLE set (every track dropped at
+      // translation/provider — the downstream loop generateV2's L4 can't see). Try the deterministic
+      // personal fallback (never random, library-only) BEFORE erroring; a user with ANY history is
+      // never left empty. Zero history → the fallback returns empty and this emits the soft error.
+      await emitDeterministicFallback('Could not build a playlist from the current sources — try again');
       return;
     }
 
