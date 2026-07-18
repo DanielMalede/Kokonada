@@ -97,6 +97,7 @@ describe('wipeLocalSession — safe ordering', () => {
       resetWarm: rec('warm'),
       resetNowPlaying: rec('now'),
       resetPlaybackError: rec('err'),
+      resetLiveMode: rec('liveMode'), // D-9 — persisted Live/Manual preference reset to Manual
       clearCurrentUser: rec('user'),
     };
     return { deps, calls };
@@ -107,7 +108,16 @@ describe('wipeLocalSession — safe ordering', () => {
     await wipeLocalSession(deps);
     expect(calls[0]).toBe('socket');
     expect(calls[calls.length - 1]).toBe('user');
-    expect(new Set(calls).size).toBe(10); // every step ran exactly once
+    expect(new Set(calls).size).toBe(11); // every step ran exactly once
+  });
+
+  it('D-9: resets the Live/Manual preference to Manual — the step before dropping identity', async () => {
+    // Pins resetLiveMode so a removal of the D-9 step (which would leave next login on Live) is
+    // caught. It must run just before clearCurrentUser (a persisted '0' → next login is Manual).
+    const { deps, calls } = spyDeps();
+    await wipeLocalSession(deps);
+    expect(calls).toContain('liveMode');
+    expect(calls[calls.length - 2]).toBe('liveMode');
   });
 
   it('a throwing step never blocks the remaining teardown (identity is still cleared)', async () => {
