@@ -191,4 +191,90 @@ describe('buildDeterministicFallback — pure emotion-honoring library fallback'
     expect(res.tracks.some((t) => t.uri === 'spotify:track:yt-vid-1')).toBe(false);
     for (const t of res.tracks) expect(t.uri.startsWith('spotify:')).toBe(true);
   });
+
+  // (LOW-1) serve-ledger parity: `built` carries the ACTUALLY-SERVED (post-resolveToPlayable) set —
+  // never a raw candidate the port dropped — so anti-repetition marks exactly what the user heard,
+  // not a track that vanished at translation/client-contract resolution.
+  it('(LOW-1) built reflects the SERVED playable set, not a merged candidate dropped at resolution', async () => {
+    const musicProfile = {
+      lastAnalyzed: new Date('2026-07-01'), topGenres: [],
+      library: [
+        { id: 'keep', provider: 'spotify', uri: 'spotify:track:keep', canonicalKey: 'at:k|keep', name: 'Keep', artist: 'K', genres: ['g'], affinity: 5 },
+        { id: 'drop', provider: 'spotify', uri: 'spotify:track:drop', canonicalKey: 'at:d|drop', name: 'Drop', artist: 'D', genres: ['g'], affinity: 5 },
+      ],
+    };
+    // Both tracks are featureless (no fixture row) → both pass the band and appear in `merged`; the
+    // port then DROPS 'drop' at resolution (the exact translation/toClientTrack loss LOW-1 targets).
+    const dropOne = (raw) => guardedResolve(raw).filter((t) => t.id !== 'drop');
+    const res = await buildDeterministicFallback({
+      userId: 'u1', musicProfile, taps: CALM_TAPS, provider: 'spotify',
+      targets: null, crossPlatform: false, live: {}, now: NOW, resolveToPlayable: dropOne,
+    });
+    expect(res.tracks.map((t) => t.id)).toEqual(['keep']);
+    // The recorded set == the served set: 'drop' is absent from BOTH merged and familiar.
+    expect(res.built.merged.map((t) => t.id)).toEqual(['keep']);
+    expect(res.built.familiar.map((t) => t.id)).toEqual(['keep']);
+    expect(res.built.merged.some((t) => t.id === 'drop')).toBe(false);
+  });
+
+  // (LOW-2) the band-drop tier genuinely WIDENS past T0: a track the confident (T0) band excludes
+  // but the zero-confidence (T1) band admits is delivered AT TIER 1 — pinning that T1 ≠ T0 (the
+  // existing widening test lands on the T2 affinity terminal, leaving this seam uncovered).
+  it('(LOW-2) T1 band-drop widens beyond T0: a track only the widened band surfaces returns fallbackTier===1', async () => {
+    featureRepo.getMany.mockResolvedValue(new Map([
+      ['spotify:in-a', { bpm: 120, energy: 0.50, valence: 0.5, acousticness: 0.5, danceability: 0.5 }],
+      ['spotify:in-b', { bpm: 120, energy: 0.50, valence: 0.5, acousticness: 0.5, danceability: 0.5 }],
+      ['spotify:wide', { bpm: 120, energy: 0.70, valence: 0.5, acousticness: 0.5, danceability: 0.5 }],
+    ]));
+    const musicProfile = {
+      lastAnalyzed: new Date('2026-07-01'), topGenres: [],
+      library: [
+        { id: 'in-a', provider: 'spotify', uri: 'spotify:track:in-a', canonicalKey: 'at:a|in a', name: 'In A', artist: 'A', genres: ['g'], affinity: 5 },
+        { id: 'in-b', provider: 'spotify', uri: 'spotify:track:in-b', canonicalKey: 'at:b|in b', name: 'In B', artist: 'B', genres: ['g'], affinity: 5 },
+        { id: 'wide', provider: 'spotify', uri: 'spotify:track:wide', canonicalKey: 'at:w|wide', name: 'Wide', artist: 'W', genres: ['g'], affinity: 5 },
+      ],
+    };
+    // A narrow, CONFIDENT band (T0, confidence:1) around energy 0.5 excludes 'wide' (energy 0.70);
+    // T1 zeroes the confidence → the logistic tolerance widens the energy window enough to admit it.
+    const t0targets = { bpmCenter: 120, bpmWidth: 8, energyFloor: 0.45, energyCeiling: 0.55, valenceTarget: 0.5, confidence: 1 };
+    // Only 'wide' is client-playable, so T0 (which surfaces only in-a/in-b) resolves EMPTY; the FIRST
+    // tier to deliver 'wide' is whichever band first admits it — T1 iff the band-drop truly widens.
+    const onlyWide = (raw) => guardedResolve(raw).filter((t) => t.id === 'wide');
+    const res = await buildDeterministicFallback({
+      userId: 'u1', musicProfile, taps: CALM_TAPS, provider: 'spotify',
+      targets: t0targets, crossPlatform: false, live: {}, now: NOW, resolveToPlayable: onlyWide,
+    });
+    expect(res.tracks.map((t) => t.id)).toEqual(['wide']);
+    expect(res.fallbackTier).toBe(1); // delivered by the band-DROP tier — not T0, not the T2 affinity terminal
+  });
+
+  // (LOW-3a) throw-safety on the injected port: a resolveToPlayable that THROWS on one tier degrades
+  // the ladder to the next tier instead of rejecting generation with an unhandled error.
+  it('(LOW-3a) a resolveToPlayable throw on a tier degrades to the next tier (no unhandled rejection)', async () => {
+    const musicProfile = featureRichProfile();
+    const throwOnFirst = (raw, meta) => {
+      if (meta.tier === 0) throw new Error('translate boom on T0');
+      return guardedResolve(raw);
+    };
+    const res = await buildDeterministicFallback({
+      userId: 'u1', musicProfile, taps: INTENSE_TAPS, provider: 'spotify',
+      targets: null, crossPlatform: false, live: {}, now: NOW, resolveToPlayable: throwOnFirst,
+    });
+    expect(res.tracks.length).toBeGreaterThan(0);
+    expect(res.reason).toBeNull();
+    expect(res.fallbackTier).toBeGreaterThanOrEqual(1); // T0 threw → the ladder carried on
+  });
+
+  // (LOW-3b) throw-safety terminal: a resolveToPlayable that throws on EVERY tier (including the T2
+  // affinity call) returns an honest empty + reason — never an unhandled rejection.
+  it('(LOW-3b) a resolveToPlayable that throws on every tier returns an honest empty (no_playable)', async () => {
+    const musicProfile = featureRichProfile();
+    const alwaysThrow = () => { throw new Error('sink down'); };
+    const res = await buildDeterministicFallback({
+      userId: 'u1', musicProfile, taps: INTENSE_TAPS, provider: 'spotify',
+      targets: null, crossPlatform: false, live: {}, now: NOW, resolveToPlayable: alwaysThrow,
+    });
+    expect(res.tracks).toEqual([]);
+    expect(res.reason).toBe('no_playable');
+  });
 });

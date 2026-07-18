@@ -34,10 +34,12 @@ const { resolveMoodKey, buildMoodParams } = require('../moodDescriptors');
 
 const FALLBACK_K = () => parseInt(process.env.PLAYLIST_SIZE || '50', 10);
 
-// A generateV2 result → the playlist-shaped object the serve side-effects need (session
-// history + serve ledger for anti-repetition). Always library-only: discovery is [].
-function _built(merged, targets) {
-  return { familiar: merged, discovery: [], merged, targets: targets ?? null };
+// A delivered tier → the playlist-shaped object the serve side-effects need (session history +
+// serve ledger for anti-repetition). `served` is the ACTUALLY-PLAYABLE set the port returned
+// (post-translate / post-client-contract) — NOT the pre-resolve candidates — so anti-repetition
+// records EXACTLY what was served, never a track dropped at resolution. Always library-only: discovery is [].
+function _built(served, targets) {
+  return { familiar: served, discovery: [], merged: served, targets: targets ?? null };
 }
 
 async function buildDeterministicFallback({
@@ -83,9 +85,8 @@ async function buildDeterministicFallback({
   ];
 
   for (const { tier, targets: tierTargets } of selectionTiers) {
-    let out;
     try {
-      out = await orchestrator.generateV2({
+      const out = await orchestrator.generateV2({
         userId, musicProfile, moodKey: key, provider,
         aiParams: moodParams,
         discoveryTracks: [],           // library-only: no corpus, no discovery
@@ -94,31 +95,35 @@ async function buildDeterministicFallback({
         now,
         crossPlatform,
       });
+      const merged = (out?.merged || []).filter((t) => t && !t.isDiscovery);
+      if (!merged.length) continue;
+      const featured = out?.telemetry?.featured ?? 0;
+      const playable = await resolveToPlayable(merged, { tier, featured });
+      if (playable && playable.length) {
+        return { tracks: playable, built: _built(playable, out.targets), fallbackTier: tier, featured, params: moodParams, reason: null };
+      }
     } catch {
-      continue; // a pipeline outage on this tier falls through to the next / the pure affinity tier
-    }
-    const merged = (out?.merged || []).filter((t) => t && !t.isDiscovery);
-    if (!merged.length) continue;
-    const featured = out?.telemetry?.featured ?? 0;
-    const playable = await resolveToPlayable(merged, { tier, featured });
-    if (playable && playable.length) {
-      return { tracks: playable, built: _built(merged, out.targets), fallbackTier: tier, featured, params: moodParams, reason: null };
+      // A pipeline OR resolution (translate / client-contract) throw on this tier degrades to the
+      // next tier / the pure affinity terminal — never an unhandled rejection that voids generation.
     }
   }
 
-  // T2 — last resort: pure top-affinity personal library. Band-free, ledger-free, and free of
-  // the selection pipeline entirely, so it still delivers even if generateV2 threw on T0 + T1.
-  const affinityRaw = (generateFallbackPlaylist(musicProfile, provider, FALLBACK_K()) || [])
-    .filter((t) => t && !t.isDiscovery);
-  if (affinityRaw.length) {
-    const playable = await resolveToPlayable(affinityRaw, { tier: 2, featured: 0 });
-    if (playable && playable.length) {
-      return { tracks: playable, built: _built(affinityRaw, t0), fallbackTier: 2, featured: 0, params: moodParams, reason: null };
+  // T2 — last resort: pure top-affinity personal library. Band-free, ledger-free, and free of the
+  // selection pipeline entirely, so it still delivers even if generateV2 threw on T0 + T1. Wrapped so
+  // a throw in the affinity builder OR the port degrades to the honest empty below, never a rejection.
+  try {
+    const affinityRaw = (generateFallbackPlaylist(musicProfile, provider, FALLBACK_K()) || [])
+      .filter((t) => t && !t.isDiscovery);
+    if (affinityRaw.length) {
+      const playable = await resolveToPlayable(affinityRaw, { tier: 2, featured: 0 });
+      if (playable && playable.length) {
+        return { tracks: playable, built: _built(playable, t0), fallbackTier: 2, featured: 0, params: moodParams, reason: null };
+      }
     }
-  }
+  } catch { /* fall through to the honest empty result below */ }
 
-  // History exists but nothing was client-playable (e.g. a cross-provider library the sink
-  // cannot resolve). Honest empty + reason — the caller surfaces its existing error copy.
+  // History exists but nothing was client-playable (e.g. a cross-provider library the sink cannot
+  // resolve, or a tier/affinity/port throw). Honest empty + reason — the caller surfaces its error copy.
   return { tracks: [], built: _built([], t0), fallbackTier: 2, featured: 0, params: moodParams, reason: 'no_playable' };
 }
 

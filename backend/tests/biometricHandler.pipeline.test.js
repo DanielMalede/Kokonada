@@ -1281,6 +1281,52 @@ describe('deterministic emotion-fallback (§5 Fork 4B)', () => {
     expect(featureService.enqueueHydration).toHaveBeenCalled();
   });
 
+  it('LOW-1: the serve ledger records EXACTLY the served (post-resolve) tracks by their true identity — a candidate dropped at resolution is NOT ledgered', async () => {
+    const serveLedger  = require('../app/services/ledger/serveLedger');
+    geminiEngine.buildEmotionPlaylist.mockRejectedValue(new Error('Groq 500')); // → deterministic fallback
+    // The fallback's generateV2 (discoveryTracks:[]) surfaces one playable spotify track (ISRC-keyed,
+    // so an at:artist|title recompute would MISS its true identity) and one youtube_music track with
+    // NO uri that the Spotify sink DROPS at the client contract.
+    const served  = { id: 'keep-1', provider: 'spotify', name: 'Keep', artist: 'A', isrc: 'USRC17607839', canonicalKey: 'isrc:USRC17607839' };
+    const dropped = { id: 'yt-drop', provider: 'youtube_music', name: 'Drop', artist: 'B', canonicalKey: 'at:b|drop' };
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar: [served, dropped], discovery: [], merged: [served, dropped],
+      telemetry: { stageMs: {} }, targets: { bpmCenter: 120 },
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], lastReqId: 320 }));
+
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(ready[1].tracks.map(t => t.id)).toEqual(['keep-1']); // only the playable track reaches the client
+    // The serve ledger records EXACTLY the served track, by its true (ISRC) identity, and NOT the dropped candidate.
+    const arg = serveLedger.recordServes.mock.calls.at(-1)[0];
+    const keys = arg.entries.map(e => e.canonicalKey);
+    expect(keys).toEqual(['isrc:USRC17607839']);
+    expect(keys).not.toContain('at:b|drop');
+  });
+
+  it('LOW-3: a throw inside the fallback ladder (affinity terminal) degrades to playlist_error, never crashes generation', async () => {
+    geminiEngine.buildEmotionPlaylist.mockRejectedValue(new Error('Groq 500')); // → deterministic fallback
+    // Both selection tiers throw so the ladder reaches the T2 affinity terminal (one generateV2 call
+    // per tier)…
+    orchestrator.generateV2.mockRejectedValueOnce(new Error('t0 down')).mockRejectedValueOnce(new Error('t1 down'));
+    // …where generateFallbackPlaylist ALSO throws — the previously-unwrapped call LOW-3 guards. Pre-fix
+    // this rejected emitDeterministicFallback and voided generation with NO playlist_error emitted.
+    playlistMixer.generateFallbackPlaylist.mockImplementationOnce(() => { throw new Error('affinity boom'); });
+
+    const socket = makeSocket();
+    await expect(
+      generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], lastReqId: 330 })),
+    ).resolves.toBeUndefined(); // never rejects/crashes
+
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(errCall[1].reqId).toBe(330);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
   it('G-4: a heart-path throw honors the HR via the synthetic bio moodKey (not an emotion-blind dump)', async () => {
     geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Groq 500'));
 
