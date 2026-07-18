@@ -1,5 +1,5 @@
 import type { Store } from '@reduxjs/toolkit';
-import { addTap, type EmotionState, type Tap } from '../../state/cold/emotionSlice';
+import { addTap, undoTap, clearTaps, type EmotionState, type Tap } from '../../state/cold/emotionSlice';
 import { TapCommitter } from '../../state/hot/laneCommit';
 import type { WarmStore } from '../../state/warm/warmStore';
 
@@ -48,6 +48,19 @@ export class GenerateController {
   // Hot→cold handoff. Clamps + commits a circumplex point into the cold store.
   commitTap(circumplex: Tap): boolean {
     return this.committer.commit(circumplex);
+  }
+
+  // §5 quiet remove: pop the most-recent tap. Local cold-state only — NO socket traffic (the
+  // emotion payload is re-emitted lazily, right before the next request), so undo/clear never
+  // touch the wire. Preserves the ≤3-tap contract (can only shrink).
+  undoTap(): void {
+    this.deps.store.dispatch(undoTap());
+  }
+
+  // §5 forgiving clear: empty the taps, preserving activity + prompt (NOT resetEmotion). Also
+  // local cold-state only.
+  clearTaps(): void {
+    this.deps.store.dispatch(clearTaps());
   }
 
   private hasEmotionInput(): boolean {

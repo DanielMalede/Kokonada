@@ -12,6 +12,7 @@ import { CoverArtResolver } from './coverArtResolver';
 import { playbackErrorStore } from './playbackErrorStore';
 import { generationStatusStore } from '../generate/generationStatusStore';
 import { liveModeStore } from '../generate/liveModeStore';
+import { fireHaptic } from '../../design/haptics';
 
 // App-level bootstrap: constructs the session → socket → player → orchestrator
 // graph and wires them together. This is the on-device glue; every component it
@@ -59,7 +60,7 @@ export const kokoSocket = new KokonadaSocket({
     const e = store.getState().emotion;
     return { taps: e.taps, textPrompt: e.textPrompt, activity: e.activity };
   },
-  onPlaylist: (payload) => { generationStatusStore.getState().settle(); playbackErrorStore.getState().clear(); void orchestrator.handlePlaylist(payload); },
+  onPlaylist: (payload) => { generationStatusStore.getState().settle(); playbackErrorStore.getState().clear(); fireHaptic('success'); void orchestrator.handlePlaylist(payload); },
   onLoggedOut: () => { void authSession.clear(); },
   onGenerationError: (message) => {
     generationStatusStore.getState().settle();                         // stop the analysis loader

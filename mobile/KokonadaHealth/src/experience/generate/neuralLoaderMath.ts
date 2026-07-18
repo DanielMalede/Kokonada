@@ -3,7 +3,15 @@
 // a single NaN in a Skia transform blanks or crashes the whole canvas (the BioAura
 // §B.2 precedent). Deterministic and unit-tested; the component is a thin surface.
 
+import { emotionAnchors } from '../../design/tokens';
+import { parseHex } from '../../design/contrast';
+
 export type RGB = [number, number, number];
+
+function anchorRgb(hex: string): RGB {
+  const { r, g, b } = parseHex(hex);
+  return [r, g, b];
+}
 
 export interface Node3 {
   x: number;
@@ -19,10 +27,12 @@ export interface Projected {
   phase: number;
 }
 
-// Engagement heat ramp anchors — cyan (calm) → coral → red (peak). Exported for tests.
-export const CYAN: RGB = [158, 232, 255];
-const CORAL: RGB = [255, 148, 120];
-export const RED: RGB = [255, 58, 62];
+// Engagement heat ramp anchors — cyan (calm) → coral → red (peak) — sourced from the design
+// tokens (emotionAnchors calm/coral/peak) so the loader's colour tracks the palette with zero
+// drift. Exported for tests. (parseHex on a static token literal cannot throw.)
+export const CYAN: RGB = anchorRgb(emotionAnchors.calm);  // #31E1C4
+export const CORAL: RGB = anchorRgb(emotionAnchors.coral); // #FF8A73
+export const RED: RGB = anchorRgb(emotionAnchors.peak);   // #FF5A5A
 
 const TWO_PI = Math.PI * 2;
 
@@ -103,15 +113,15 @@ export function projectNode(node: Node3, ry: number, rx: number): Projected {
   };
 }
 
-// Engagement → colour. Two-stop ramp so it stays vivid (a direct cyan→red RGB lerp
-// muddies through grey): cyan → coral for the first half, coral → red for the second.
+// Engagement → colour. Ramps cyan → coral and is CAPPED there — it never reaches the peak RED
+// (never-alarming-red ethic, matching the aura's hrGlowColor). RED is retained as the token
+// triad's hot anchor but is deliberately unused by the ramp.
 export function heat(e: number): RGB {
   'worklet';
   const t = clamp01(e);
-  const [from, to, f] = t < 0.5 ? [CYAN, CORAL, t / 0.5] : [CORAL, RED, (t - 0.5) / 0.5];
   return [
-    Math.round(from[0] + (to[0] - from[0]) * f),
-    Math.round(from[1] + (to[1] - from[1]) * f),
-    Math.round(from[2] + (to[2] - from[2]) * f),
+    Math.round(CYAN[0] + (CORAL[0] - CYAN[0]) * t),
+    Math.round(CYAN[1] + (CORAL[1] - CYAN[1]) * t),
+    Math.round(CYAN[2] + (CORAL[2] - CYAN[2]) * t),
   ];
 }

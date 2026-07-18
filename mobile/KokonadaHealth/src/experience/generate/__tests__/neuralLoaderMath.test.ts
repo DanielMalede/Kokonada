@@ -5,8 +5,23 @@ import {
   heat,
   clamp01,
   CYAN,
+  CORAL,
   RED,
 } from '../neuralLoaderMath';
+import { emotionAnchors } from '../../../design/tokens';
+import { parseHex } from '../../../design/contrast';
+
+// The engagement heat ramp must SPEAK THE TOKEN PALETTE (no drift): cyan→coral→red is the
+// emotionAnchors calm→coral→peak triad, not a hand-picked approximation. If a token shifts, the
+// loader's colour follows — these pins fail on any divergence.
+describe('heat ramp anchors are the emotionAnchors tokens (no palette drift)', () => {
+  const rgb = (hex: string) => { const { r, g, b } = parseHex(hex); return [r, g, b]; };
+  it('CYAN = emotionAnchors.calm, CORAL = emotionAnchors.coral, RED = emotionAnchors.peak', () => {
+    expect(CYAN).toEqual(rgb(emotionAnchors.calm));   // #31E1C4
+    expect(CORAL).toEqual(rgb(emotionAnchors.coral)); // #FF8A73
+    expect(RED).toEqual(rgb(emotionAnchors.peak));    // #FF5A5A
+  });
+});
 
 describe('fibonacciSphere', () => {
   it('returns n points, each on the unit sphere', () => {
@@ -95,21 +110,22 @@ describe('projectNode', () => {
   });
 });
 
-describe('heat (engagement colour ramp: cyan → coral → red)', () => {
-  it('anchors cyan at 0 and red at 1', () => {
+describe('heat (engagement colour ramp: cyan → coral, CAPPED — never peak red)', () => {
+  it('anchors cyan at 0 and CORAL at 1 — the hot end is capped at coral (never-alarming-red ethic)', () => {
     expect(heat(0)).toEqual(CYAN);
-    expect(heat(1)).toEqual(RED);
+    expect(heat(1)).toEqual(CORAL);
+    expect(heat(1)).not.toEqual(RED); // matches the aura's hrGlowColor cap
   });
 
   it('is warm (more red than blue) at peak and cool (more blue than red) at rest', () => {
     const cool = heat(0), hot = heat(1);
     expect(cool[2]).toBeGreaterThan(cool[0]); // blue > red when calm
-    expect(hot[0]).toBeGreaterThan(hot[2]);   // red > blue at peak
+    expect(hot[0]).toBeGreaterThan(hot[2]);   // red > blue at the (coral) hot end
   });
 
   it('clamps out-of-range and NaN engagement to the endpoints/finite RGB', () => {
     expect(heat(-5)).toEqual(CYAN);
-    expect(heat(9)).toEqual(RED);
+    expect(heat(9)).toEqual(CORAL); // hot end capped at coral
     for (const c of heat(NaN)) expect(Number.isFinite(c)).toBe(true);
   });
 
