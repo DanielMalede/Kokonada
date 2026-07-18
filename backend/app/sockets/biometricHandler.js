@@ -626,6 +626,61 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
 
     log(`[generate] start trigger=${trigger} hr=${state.stableHR} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
 
+    // Serve-time side effects, recorded by EVERY playlist_ready (the normal LLM/discovery path AND
+    // the no-playback familiar-only short-circuit): warm the live-biometric buffer, persist the
+    // session (History + anti-repetition), queue feature hydration, and record serves in the
+    // exposure ledger. One definition so the two ready-paths can NEVER diverge on side effects — a
+    // divergence that would silently drop anti-repetition/history for a served no-playback playlist.
+    // All fire-and-forget: a failed side effect is reported but never fails generation.
+    const recordServeSideEffects = (builtPlaylist, clientTracks, params) => {
+      // Warm the live-biometric buffer (Part 3): an HR-driven generation is cached under its bio-mood
+      // key so a Live-mode toggle plays instantly. Storing records NO serves (§3.5). Emotion → skip.
+      if (!useEmotion && isPhysiologicalHR(state.stableHR)) {
+        shadowBufferRepo.setBuffer(userId, moodKey, {
+          tracks:    clientTracks,
+          familiar:  builtPlaylist.familiar.length,
+          discovery: builtPlaylist.discovery.length,
+          targets:   builtPlaylist.targets,
+          builtAt:   Date.now(),
+        }).catch(() => {});
+      }
+      // Session-history honesty: only record the emotion taps / prompt when the emotion pipeline
+      // actually drove this generation. A heart/biometric mix must not be labelled with stale mood.
+      PlaylistSession.create({
+        userId,
+        emotionTaps:       useEmotion && state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
+        contextPrompt:     useEmotion ? (state.lastTextPrompt || '') : '',
+        moodKey,
+        biometricSnapshot: { heartRate: state.stableHR, activity: effectiveActivity },
+        targetBpm:         params.target_bpm,
+        targetGenres:      params.seed_genres || [],
+        targetValence:     params.target_valence,
+        targetEnergy:      params.target_energy,
+        musicProvider:     provider,
+        trackIds:          builtPlaylist.merged.map(t => t.id).filter(Boolean),
+        // Canonical keys mirroring trackIds — the cross-provider identity the serve ledger dedupes on.
+        trackKeys:         builtPlaylist.merged.map(t => t.canonicalKey ?? canonicalKey(t)).filter(Boolean),
+        // Denormalized display summary for the History feed (A11); cap at 50.
+        trackSummary:      clientTracks.slice(0, 50).map(t => ({ id: t.id, title: t.title, artist: t.artist })),
+      }).catch(e => {
+        console.error('[PlaylistSession] save failed:', e.message);
+        // A dropped session write silently breaks anti-repetition — report it rather than swallow.
+        captureException(e, { scope: 'playlistSession.save', userId: String(userId) });
+      });
+      // Dark launch: queue audio-feature hydration for anything just served the store hasn't seen.
+      featureService.enqueueHydration(builtPlaylist.merged).catch(() => {});
+      // Serve ledger (write path): record every served track under this generation's mood context.
+      serveLedger.recordServes({
+        userId,
+        sessionId: String(reqId ?? ''),
+        entries: builtPlaylist.merged.map(t => ({
+          canonicalKey: t.canonicalKey ?? canonicalKey(t),
+          moodKey,
+          bioState: { tempoBand: bandFromHeartRate(state.stableHR), activity: state.latestActivity ?? null },
+        })),
+      }).catch(e => console.error('[serveLedger] record failed:', e.message));
+    };
+
     // ── Structural dead-end short-circuit: no playback sink ⇒ skip the LLM + vector ──
     // A user with NO playback provider (resolvePlaybackProvider falsy — a YouTube-only
     // account, since Spotify is the only playback engine) can NEVER receive a playable
@@ -643,9 +698,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // user whose discovery pool is empty for an unrelated reason: playbackProvider is
     // truthy for them, so they keep the full LLM/vector path + generic empty handling below.
     if (!playbackProvider) {
+      let familiarPlaylist = null;
       let familiarTracks = [];
       try {
-        const familiarPlaylist = await orchestrator.generateV2({
+        familiarPlaylist = await orchestrator.generateV2({
           userId, musicProfile, moodKey, provider,
           aiParams: {},
           discoveryTracks: [],
@@ -655,7 +711,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         });
         familiarTracks = toClientTracks(familiarPlaylist?.merged, provider, { trigger, params: {} });
       } catch (e) {
-        log(`[generate] no-playback familiar-only build failed: ${e.message}`);
+        // Observability parity with the LLM path (this file's standard): a systemic generateV2
+        // failure for no-playback users must NOT masquerade as a plain empty playlist. Always-on
+        // warn + Sentry capture so it's visible in prod; the user still gets the honest
+        // NO_PLAYABLE_PROVIDER below (familiarTracks stays []).
+        console.warn(`[generate] no-playback familiar-only build failed reqId=${reqId}: ${e.message}`);
+        captureException(e, { scope: 'generate.noPlayback', reqId, provider });
       }
       if (familiarTracks.length > 0) {
         log(`[generate] no playback provider → familiar-only tracks=${familiarTracks.length} reqId=${reqId}`);
@@ -666,6 +727,9 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
           discovery: 0,
           fallback:  true,
         });
+        // Side-effect parity: a delivered playlist_ready records the SAME session/ledger/hydration/
+        // buffer side effects as the normal path (a legacy Spotify library row can survive here).
+        recordServeSideEffects(familiarPlaylist, familiarTracks, {});
       } else {
         console.warn(`[generate] no playback provider + no playable familiar → NO_PLAYABLE_PROVIDER (skipped LLM+vector) reqId=${reqId}`);
         emit('playlist_error', emptyPlaylistError(user, reqId, 'Could not build a playlist from the current sources — try again'));
@@ -887,66 +951,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     });
     log(`[generate] done trigger=${trigger} tracks=${clientTracks.length} familiar=${playlist.familiar.length} discovery=${playlist.discovery.length} reqId=${reqId}`);
 
-    // Warm the live-biometric buffer (Part 3): an HR-driven generation for the current band is
-    // cached under its bio-mood key so a Live-mode toggle plays instantly. Reuses THIS playlist
-    // (zero extra Groq cost on the free tier) instead of a duplicate worker generation;
-    // fire-and-forget. Storing records NO serves — serves happen only when a buffer is played (§3.5).
-    if (!useEmotion && isPhysiologicalHR(state.stableHR)) {
-      shadowBufferRepo.setBuffer(userId, moodKey, {
-        tracks:    clientTracks,
-        familiar:  playlist.familiar.length,
-        discovery: playlist.discovery.length,
-        targets:   playlist.targets,
-        builtAt:   Date.now(),
-      }).catch(() => {});
-    }
-
-    // Session-history honesty: only record the emotion taps / prompt when the emotion
-    // pipeline actually drove this generation. A heart/biometric mix must not be
-    // labelled with stale mood context it never used.
-    PlaylistSession.create({
-      userId,
-      emotionTaps:       useEmotion && state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
-      contextPrompt:     useEmotion ? (state.lastTextPrompt || '') : '',
-      // Persist the resolved mood so a repeat can be detected + its tracks blacklisted.
-      moodKey,
-      // Persist effectiveActivity (the chosen chip on the emotion path, watch motion on the
-      // heart path) — not raw latestActivity — so History can show the activity the user picked. (D-3)
-      biometricSnapshot: { heartRate: state.stableHR, activity: effectiveActivity },
-      targetBpm:         aiResult.params.target_bpm,
-      targetGenres:      aiResult.params.seed_genres || [],
-      targetValence:     aiResult.params.target_valence,
-      targetEnergy:      aiResult.params.target_energy,
-      musicProvider:     provider,
-      trackIds:          playlist.merged.map(t => t.id).filter(Boolean),
-      // Canonical keys (isrc:… / at:artist|title) mirroring trackIds — the cross-provider
-      // identity the serve ledger dedupes on. Library tracks carry one; discovery gets it here.
-      trackKeys:         playlist.merged.map(t => t.canonicalKey ?? canonicalKey(t)).filter(Boolean),
-      // Denormalized display summary for the history feed (A11). clientTracks already
-      // resolved title/artist + a playable URI; cap at 50 (a playlist is always 50).
-      trackSummary:      clientTracks.slice(0, 50).map(t => ({ id: t.id, title: t.title, artist: t.artist })),
-    }).catch(e => {
-      console.error('[PlaylistSession] save failed:', e.message);
-      // A dropped session write silently breaks anti-repetition (the next generation
-      // won't know these tracks were just served) — report it rather than swallow.
-      captureException(e, { scope: 'playlistSession.save', userId: String(userId) });
-    });
-
-    // Dark launch: queue audio-feature hydration for anything just served that the
-    // store hasn't seen. Nothing reads AudioFeature until the Phase-5 scorer.
-    featureService.enqueueHydration(playlist.merged).catch(() => {});
-
-    // Serve ledger (write path — reads land with the Phase-5 selector): record every
-    // served track under this generation's mood context. Coarse bands only, no vitals.
-    serveLedger.recordServes({
-      userId,
-      sessionId: String(reqId ?? ''),
-      entries: playlist.merged.map(t => ({
-        canonicalKey: t.canonicalKey ?? canonicalKey(t),
-        moodKey,
-        bioState: { tempoBand: bandFromHeartRate(state.stableHR), activity: state.latestActivity ?? null },
-      })),
-    }).catch(e => console.error('[serveLedger] record failed:', e.message));
+    // Serve-time side effects (buffer warm + session + feature hydration + serve ledger) — the SAME
+    // set the no-playback short-circuit records, via one shared helper so the two ready-paths cannot
+    // diverge. Fire-and-forget inside the helper; never blocks or fails generation.
+    recordServeSideEffects(playlist, clientTracks, aiResult.params);
   } finally {
     await readyEmitSettled; // the context-attach ready emit must land before the lock frees
     clearTimeout(timer);
