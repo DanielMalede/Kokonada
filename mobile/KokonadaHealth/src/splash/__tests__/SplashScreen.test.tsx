@@ -37,7 +37,8 @@ describe('SplashScreen — the brand breath', () => {
     expect(texts(header).join('')).toBe('Kokonada');
     const st = flatStyle(header);
     expect(st.fontSize).toBe(typography.size.display);
-    expect(st.fontWeight).toBe(typography.weight.bold);
+    expect(st.fontWeight).toBe(typography.weight.semibold);
+    expect(st.fontFamily).toBe(typography.family.display);
     expect(st.letterSpacing).toBe(typography.tracking.display);
     // token-derived ink (theme is resolved from the OS at render — accept either face)
     expect([colors.dark.content.primary, colors.light.content.primary]).toContain(st.color);

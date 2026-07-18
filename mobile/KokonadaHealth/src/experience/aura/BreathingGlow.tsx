@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { SoftGlow } from './SoftGlow';
+import { BREATH_OPACITY } from './breath';
 
 // THE brand gesture: a single soft glow that BREATHES. It renders a soft-falloff Skia glow
 // (SoftGlow: Circle + Blur) — a bioluminescent FIELD, never a hard-edged flat disc — behind
@@ -12,9 +13,9 @@ import { SoftGlow } from './SoftGlow';
 // OPACITY, and it disposes on unmount (loop.stop). Under reduced motion (or a non-positive
 // breath) it STILLS to a fixed dim glow with no loop. Decorative (a11y-hidden) by contract.
 
-// The breath opacity curve — a gentle swell, defined ONCE here so every surface breathes
-// identically. Exported so contrast tests judge legibility against the TRUE peak (0.75).
-export const BREATH_OPACITY = { rest: 0.45, peak: 0.75, still: 0.55 } as const; // still = reduced-motion fixed glow
+// The breath opacity curve lives in ./breath (a pure module shared with the asset scripts);
+// re-exported here so every existing importer keeps `import { BREATH_OPACITY } from '.../BreathingGlow'`.
+export { BREATH_OPACITY };
 
 export function BreathingGlow({
   color,
@@ -22,12 +23,14 @@ export function BreathingGlow({
   breathMs,
   size,
   style,
+  children,
 }: {
   color: string;
   reduced: boolean;
   breathMs: number;
   size: number;
   style?: StyleProp<ViewStyle>;
+  children?: React.ReactNode;
 }) {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -53,7 +56,9 @@ export function BreathingGlow({
       accessibilityElementsHidden
       style={[styles.glow, { width: size, height: size, opacity }, style]}
     >
-      <SoftGlow color={color} size={size} />
+      {/* custom children (e.g. the full BrandMark) REPLACE the default bloom, so the ONE
+          breath can carry the whole mark — not only the soft glow — with no duplication. */}
+      {children ?? <SoftGlow color={color} size={size} />}
     </Animated.View>
   );
 }

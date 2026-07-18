@@ -4,6 +4,7 @@ import { useTheme, useMotion } from '../design/theme';
 import { space, type as typography, motion } from '../design/tokens';
 import { BreathingGlow } from '../experience/aura/BreathingGlow';
 import { SoftGlow } from '../experience/aura/SoftGlow';
+import { BrandMark } from '../experience/brand/BrandMark';
 
 // The first breath of the instrument — the same organism as SignInScreen: one soft
 // breathing aura (brand accent.glow) behind the wordmark, on surface.base, and NOTHING
@@ -25,7 +26,7 @@ export const SPLASH_WORDMARK_SCRIM_ALPHA = 0.45;
 const SCRIM_SCALE_Y = 0.4; // compress the soft scrim into a wide, short band behind the wordmark
 
 export function SplashScreen() {
-  const { c } = useTheme();
+  const { c, name } = useTheme();
   const { reduced, duration } = useMotion();
 
   // 0 → 1 entry progress; under reduced motion it starts (and stays) at 1 → appears at once.
@@ -43,7 +44,12 @@ export function SplashScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
       <View style={styles.hero}>
-        <BreathingGlow color={c.accent.glow} reduced={reduced} breathMs={duration.breath} size={glowSize} />
+        {/* The full Aurora Seed breathes as ONE — bloom + rings + seed — so the OS bootsplash
+            (still mark at rest) hands off to this (the same mark breathing from rest) with no
+            pop. The breath wrapper carries the rest→peak swell; the mark is held full (opacity 1). */}
+        <BreathingGlow color={c.accent.glow} reduced={reduced} breathMs={duration.breath} size={glowSize}>
+          <BrandMark size={glowSize} treatment={name} opacity={1} />
+        </BreathingGlow>
         {/* Legibility scrim: a soft surface-colored field between the glow and the wordmark,
             compressed into a wide short band, so white ink clears AA over the bright core. */}
         <View
@@ -58,7 +64,8 @@ export function SplashScreen() {
           accessibilityRole="header"
           style={{
             fontSize: typography.size.display,
-            fontWeight: typography.weight.bold,
+            fontFamily: typography.family.display,
+            fontWeight: typography.weight.semibold,
             letterSpacing: typography.tracking.display,
             color: c.content.primary,
             opacity: enter,

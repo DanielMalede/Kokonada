@@ -12,6 +12,7 @@ import { SignInScreen } from '../SignInScreen';
 import { signInWithGoogle, signInWithApple } from '../auth';
 import { currentUserStore } from '../currentUser';
 import { onSignedIn } from '../../prodBootstrap';
+import { type as typography } from '../../design/tokens';
 
 const signIn = signInWithGoogle as jest.Mock;
 const signInApple = signInWithApple as jest.Mock;
@@ -44,6 +45,16 @@ describe('SignInScreen (Wave 2.8 reskin — logic contract preserved)', () => {
     const all = texts(tree.toJSON()).join(' ');
     expect(all).toContain('Kokonada');
     expect(byLabel(tree, 'Continue with Google')).toBeTruthy();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('sets the wordmark in the display face at the refined 600 weight (not the old 700)', async () => {
+    const tree = await render();
+    const header = tree.root.findAll((n) => n.props.accessibilityRole === 'header')[0];
+    const s = header.props.style;
+    const st = Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
+    expect(st.fontWeight).toBe(typography.weight.semibold);
+    expect(st.fontFamily).toBe(typography.family.display);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
