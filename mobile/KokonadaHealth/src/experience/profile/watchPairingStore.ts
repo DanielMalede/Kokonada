@@ -63,7 +63,10 @@ export function createWatchPairingFlow(deps: WatchPairingDeps): StoreApi<WatchPa
       // the old slot must be forgotten now (it re-mints lazily). A first-time set-up no-ops safely.
       if (repair) await deps.clearToken();
       const res = await deps.requestPairing();
-      if (res.ok) set({ phase: 'code_shown', code: res.data.code, expiresAt: Date.parse(res.data.expiresAt) });
+      // Guard the parse: a malformed ISO → NaN, which would make checkExpiry (now >= NaN === false)
+      // never fire — a never-expiring code — and render "Expires in NaNs". Fail closed to error.
+      const expiresAt = res.ok ? Date.parse(res.data.expiresAt) : NaN;
+      if (res.ok && Number.isFinite(expiresAt)) set({ phase: 'code_shown', code: res.data.code, expiresAt });
       else set({ phase: 'error', ...cleared });
     },
 

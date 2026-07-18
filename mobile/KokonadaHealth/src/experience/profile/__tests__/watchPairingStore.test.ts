@@ -55,6 +55,18 @@ describe('watchPairingStore', () => {
     expect(store.getState().code).toBeNull();
   });
 
+  it('rejects a malformed (non-finite) expiry rather than showing a never-expiring code', async () => {
+    // A bad ISO → Date.parse → NaN → checkExpiry (now >= NaN) is always false → the code would
+    // never expire and the card would render "Expires in NaNs". Fail closed to error instead.
+    const store = createWatchPairingFlow(makeDeps({
+      requestPairing: jest.fn().mockResolvedValue({ ok: true, data: { code: '123456', expiresAt: 'not-a-date' } }),
+    }));
+    await store.getState().setUp();
+    expect(store.getState().phase).toBe('error');
+    expect(store.getState().code).toBeNull();
+    expect(store.getState().expiresAt).toBeNull();
+  });
+
   it('checkExpiry auto-expires the code at its TTL and clears it', async () => {
     const store = createWatchPairingFlow(makeDeps({ now: () => AFTER }));
     await store.getState().setUp();
