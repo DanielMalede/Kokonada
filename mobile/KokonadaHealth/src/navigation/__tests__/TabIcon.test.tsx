@@ -38,14 +38,28 @@ describe('TabIcon — Skia token glyph (zero-tofu chrome)', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('active (filled) → Skia fill; inactive (default) → Skia stroke [shape signal, not colour]', async () => {
-    const active = await render(<TabIcon route="Pulse" color="#fff" filled />);
-    expect(glyph(active).props.style).toBe('fill');
-    await ReactTestRenderer.act(async () => { active.unmount(); });
+  it('SOLID glyphs (Generate/NowPlaying/Profile) → Skia fill when active, stroke when inactive [shape signal]', async () => {
+    for (const route of ['Generate', 'NowPlaying', 'Profile'] as const) {
+      const active = await render(<TabIcon route={route} color="#fff" filled />);
+      expect(glyph(active).props.style).toBe('fill');
+      const inactive = await render(<TabIcon route={route} color="#fff" />);
+      expect(glyph(inactive).props.style).toBe('stroke');
+      await ReactTestRenderer.act(async () => { active.unmount(); inactive.unmount(); });
+    }
+  });
 
-    const inactive = await render(<TabIcon route="Pulse" color="#fff" />);
-    expect(glyph(inactive).props.style).toBe('stroke');
-    await ReactTestRenderer.act(async () => { inactive.unmount(); });
+  it('LINE glyphs (Pulse/History) stay STROKED in both states and go HEAVIER when active [weight signal, never a fill-blob]', async () => {
+    // Skia implicitly closes an open contour when filling, so filling the ECG polyline / clock rim
+    // would collapse the SELECTED state into a blob/disc. Line glyphs therefore never fill — active
+    // is signalled by a bolder stroke instead (colour stays non-sole: weight + wash + hue + selected).
+    for (const route of ['Pulse', 'History'] as const) {
+      const active = await render(<TabIcon route={route} color="#fff" filled />);
+      const inactive = await render(<TabIcon route={route} color="#fff" />);
+      expect(glyph(active).props.style).toBe('stroke');
+      expect(glyph(inactive).props.style).toBe('stroke');
+      expect(glyph(active).props.strokeWidth).toBeGreaterThan(glyph(inactive).props.strokeWidth);
+      await ReactTestRenderer.act(async () => { active.unmount(); inactive.unmount(); });
+    }
   });
 
   it('is DECORATIVE — the wrapper hides the glyph from assistive tech (label rides on the tab)', async () => {

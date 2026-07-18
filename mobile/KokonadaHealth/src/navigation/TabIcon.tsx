@@ -12,13 +12,22 @@ import type { TabRoute } from './tabRoutes';
 // Each glyph is built from primitives the whole stack supports — moveTo / lineTo / addCircle / close
 // — in a normalised 0..size box (the coordinate fractions are glyph ART, the RadialWheel-DOT_BASE
 // precedent, not layout magic; glyph FIDELITY is device-verified via screenshots + the designer
-// SHIP, per R6). Active = a filled paint; inactive = an outline — a SHAPE signal so colour is never
-// the sole active/inactive cue. The glyph is decorative: the accessible label rides on the tab.
+// SHIP, per R6). The glyph is decorative: the accessible label rides on the tab.
+//
+// Active/inactive is a SHAPE-or-WEIGHT signal (colour is never the sole cue). SOLID glyphs
+// (Generate, NowPlaying, Profile) fill cleanly, so they use fill (active) vs outline (inactive).
+// LINE glyphs (Pulse's ECG polyline, History's clock rim + hands) must NEVER fill — Skia implicitly
+// closes an open contour when filling, collapsing the selected state into a blob/disc — so they stay
+// stroked in BOTH states and mark active with a bolder stroke instead.
 
-// Glyph stroke ≈ 2 at the space.xl (24) icon size — a proportion, so it scales with any size.
+// Glyph stroke proportions (scale with any size). Inactive/outline ≈ 2 at the space.xl (24) icon
+// size; the bolder active line weight ≈ 3 — the same icon-ART proportion category, not layout magic.
 const STROKE_RATIO = 1 / 12;
+const STROKE_RATIO_ACTIVE = 1 / 8;
 
 type GlyphBuilder = (p: SkPath, s: number) => void;
+type GlyphKind = 'solid' | 'line';
+interface Glyph { kind: GlyphKind; draw: GlyphBuilder; }
 
 // Generate (HERO) — a soft 4-point create/aura sparkle (echoes the discovery mark). Deliberately a
 // concave star, NOT Spotify's 3-bar soundwave-in-circle (compliance C4); its hue is the passed ink,
@@ -83,12 +92,12 @@ const profileGlyph: GlyphBuilder = (p, s) => {
   p.close();
 };
 
-const GLYPHS: Record<TabRoute, GlyphBuilder> = {
-  Generate: generateGlyph,
-  NowPlaying: nowPlayingGlyph,
-  Pulse: pulseGlyph,
-  History: historyGlyph,
-  Profile: profileGlyph,
+const GLYPHS: Record<TabRoute, Glyph> = {
+  Generate: { kind: 'solid', draw: generateGlyph },
+  NowPlaying: { kind: 'solid', draw: nowPlayingGlyph },
+  Pulse: { kind: 'line', draw: pulseGlyph },
+  History: { kind: 'line', draw: historyGlyph },
+  Profile: { kind: 'solid', draw: profileGlyph },
 };
 
 export interface TabIconProps {
@@ -99,7 +108,12 @@ export interface TabIconProps {
 }
 
 export function TabIcon({ route, color, size = space.xl, filled = false }: TabIconProps) {
-  const path = useMemo(() => { const p = Skia.Path.Make(); GLYPHS[route](p, size); return p; }, [route, size]);
+  const glyph = GLYPHS[route];
+  const path = useMemo(() => { const p = Skia.Path.Make(); glyph.draw(p, size); return p; }, [glyph, size]);
+  // Solid → fill when active; line → always stroke, heavier when active.
+  const isLine = glyph.kind === 'line';
+  const paintStyle: 'fill' | 'stroke' = !isLine && filled ? 'fill' : 'stroke';
+  const strokeWidth = size * (isLine && filled ? STROKE_RATIO_ACTIVE : STROKE_RATIO);
   return (
     <View
       testID={`tab-icon-${route}`}
@@ -111,8 +125,8 @@ export function TabIcon({ route, color, size = space.xl, filled = false }: TabIc
         <Path
           path={path}
           color={color}
-          style={filled ? 'fill' : 'stroke'}
-          strokeWidth={size * STROKE_RATIO}
+          style={paintStyle}
+          strokeWidth={strokeWidth}
           strokeJoin="round"
           strokeCap="round"
         />
