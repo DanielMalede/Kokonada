@@ -23,12 +23,17 @@ jest.mock('../profileServices', () => ({
 
 // WS-5 (Art.9 consent) native + network seams. The real consentStore/ConsentSheet run against
 // these fakes so the ProfileScreen gate wiring is tested against real component behaviour.
+// Faithful to the REAL consentApi exports (audit correction): CONSENT_DATA_CATEGORIES is the
+// UNION across every wearable lane (HC + Garmin), and HEALTH_CONNECT_DATA_CATEGORIES is the
+// on-device read set the Vault panel mirrors. The old mock listed an invented/stale set
+// (spo2/respiratory/background_access as if they were the HC set) — corrected here to source truth.
 jest.mock('../../../health/consentApi', () => ({
   fetchConsentStatus: jest.fn(),
   grantConsent: jest.fn(),
   withdrawConsent: jest.fn(),
   CONSENT_PURPOSE: 'health_biometric_processing',
-  CONSENT_DATA_CATEGORIES: ['heart_rate', 'hrv', 'sleep', 'resting_heart_rate', 'spo2', 'respiratory_rate', 'historical_access_182d', 'background_access'],
+  HEALTH_CONNECT_DATA_CATEGORIES: ['heart_rate', 'hrv', 'sleep', 'resting_heart_rate', 'historical_access_182d'],
+  CONSENT_DATA_CATEGORIES: ['heart_rate', 'hrv', 'sleep', 'resting_heart_rate', 'historical_access_182d', 'spo2', 'respiratory_rate', 'body_battery'],
 }));
 jest.mock('../../../health/healthConnect', () => ({
   requestHealthPermissions: jest.fn(),
@@ -38,7 +43,27 @@ jest.mock('../../../health/healthConnect', () => ({
 }));
 jest.mock('../../../health/healthSync', () => ({ syncMedicalProfile: jest.fn() }));
 
-import { Linking, Alert } from 'react-native';
+// useFocusEffect needs a navigation context; mock it to run the effect on mount and expose the
+// callback so a test can simulate returning to the tab (re-focus → re-fetch profile/consent/watch).
+let mockFocusCb: null | (() => void) = null;
+jest.mock('@react-navigation/native', () => ({
+  useFocusEffect: (cb: () => void) => {
+    const { useEffect } = require('react');
+    mockFocusCb = cb;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { cb(); }, []); // run once on mount, mimicking a first focus
+  },
+}));
+// The §10 watch pairing seam — mocked so the WatchPairingCard's mount hydrate never touches the
+// network. The card/store are proven end-to-end in their own suites; here they just stay quiet.
+jest.mock('../../../health/watchPairingClient', () => ({
+  requestWatchPairing: jest.fn().mockResolvedValue({ ok: true, data: { code: '123456', expiresAt: new Date(Date.now() + 300000).toISOString() } }),
+  fetchWatchStatus: jest.fn().mockResolvedValue({ ok: true, data: { connected: false, lastSeenAt: null } }),
+  revokeWatchPairing: jest.fn().mockResolvedValue({ ok: true, data: { message: 'ok' } }),
+}));
+
+import { Linking, Alert, AccessibilityInfo } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ProfileScreen } from '../ProfileScreen';
 import { profileController } from '../profileServices';
 import { playerStatusStore } from '../../player/playerStatusStore';
@@ -60,9 +85,17 @@ function texts(node: any, acc: string[] = []): string[] {
   return acc;
 }
 
+// The screen reads safe-area insets (parity with §4/§5); provide zero-inset metrics like the
+// ConnectServices suite so a headless render never needs the app shell's real provider.
+const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 0, left: 0, right: 0, bottom: 0 } };
+
 async function render() {
   let tree!: ReactTestRenderer.ReactTestRenderer;
-  await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<ProfileScreen />); });
+  await ReactTestRenderer.act(async () => {
+    tree = ReactTestRenderer.create(
+      <SafeAreaProvider initialMetrics={METRICS}><ProfileScreen /></SafeAreaProvider>,
+    );
+  });
   // Flush the mount effect's async loadProfile().then(setSnap) chain deterministically.
   // A single act() around create() does NOT reliably drain a resolved-promise → setSnap →
   // re-render chain, which intermittently failed the auth-critical "identity from /me"
@@ -124,6 +157,10 @@ describe('ProfileScreen', () => {
 
   const byLabel = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
     tree.root.findAll((n) => n.props.accessibilityLabel === label)[0];
+  // Integration action buttons are selected by a stable testID; their accessibilityLabel is a human
+  // phrase that folds in the status word (so screen readers announce "Connected" on these rows).
+  const byTestId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
+    tree.root.findAll((n) => n.props.testID === id)[0];
 
   it('the delete flow requires a confirmation step before calling the server', async () => {
     const tree = await render();
@@ -144,14 +181,14 @@ describe('ProfileScreen', () => {
     });
     const tree = await render();
     expect(texts(tree.toJSON()).join(' ')).toContain('YouTube Music');
-    await ReactTestRenderer.act(async () => { await byLabel(tree, 'disconnect-youtube').props.onPress(); });
+    await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-youtube').props.onPress(); });
     expect(disconnectYouTube).toHaveBeenCalledTimes(1);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('hides the YouTube row when YouTube is not connected', async () => {
+  it('hides the YouTube Disconnect action when YouTube is not connected (the row still renders)', async () => {
     const tree = await render(); // beforeEach integrations has no youtubeConnected
-    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'disconnect-youtube')).toHaveLength(0);
+    expect(tree.root.findAll((n) => n.props.testID === 'disconnect-youtube')).toHaveLength(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
@@ -162,20 +199,15 @@ describe('ProfileScreen', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('connect-spotify opens the OAuth URL with returnTo=app so the callback deep-links back into the app', async () => {
+  it('honors the Spotify halt: a NOT-connected user sees NO Connect pill — only the honest "Unavailable" status (§4 registry, D1)', async () => {
+    // D1/reconciliation: ProfileScreen used to offer a dead Spotify "Connect" pill that contradicted
+    // the §4 registry (Spotify is HALTED — external cap, no known fix). The redesign retires that
+    // dead OAuth entirely for a not-connected user; there is no connect-spotify affordance to strand
+    // them on. (Reconnect stays reachable for an ALREADY-connected account — see the next test.)
     await ReactTestRenderer.act(async () => { playerStatusStore.getState().set('disconnected'); });
-    (profileController.getSpotifyConnectToken as jest.Mock).mockResolvedValue('ct-token');
-    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
-
-    const tree = await render();
-    await ReactTestRenderer.act(async () => { await byLabel(tree, 'connect-spotify').props.onPress(); });
-
-    expect(openURL).toHaveBeenCalledTimes(1);
-    const url = openURL.mock.calls[0][0];
-    expect(url).toContain('/api/integrations/spotify/connect?ct=');
-    expect(url).toContain('returnTo=app');
-
-    openURL.mockRestore();
+    const tree = await render(); // beforeEach: integrations spotifyConnected:false
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'connect-spotify')).toHaveLength(0);
+    expect(texts(tree.toJSON()).join(' ')).toContain('Unavailable');
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
@@ -191,8 +223,9 @@ describe('ProfileScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
 
     const tree = await render();
-    const btn = byLabel(tree, 'reconnect-spotify');
+    const btn = byTestId(tree, 'reconnect-spotify');
     expect(btn).toBeTruthy();
+    expect(btn.props.accessibilityLabel).toContain('Connected'); // status folded into the button's a11y label
     await ReactTestRenderer.act(async () => { await btn.props.onPress(); });
 
     expect(openURL).toHaveBeenCalledTimes(1);
@@ -289,6 +322,35 @@ describe('ProfileScreen', () => {
     const confirm = byLabel(tree, 'withdraw-confirm');
     const s = Array.isArray(confirm.props.style) ? Object.assign({}, ...confirm.props.style.filter(Boolean)) : confirm.props.style;
     expect(s.backgroundColor).not.toBe('#ff5a5a');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── T7: refresh on tab focus so a change elsewhere (§11 withdrawal) reflects on return ──────────
+  it('T7: re-focusing the tab re-fetches consent, so a withdrawal made elsewhere is reflected on return', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    const tree = await render();
+    // First focus saw a grant on file → the Withdraw affordance is present.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent').length).toBeGreaterThan(0);
+    // Consent is withdrawn elsewhere; the next status read returns ungranted.
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: false }));
+    await ReactTestRenderer.act(async () => { mockFocusCb?.(); });
+    await flush();
+    // Re-focus re-fetched → the local UI reflects ungranted (Withdraw gone), no manual refresh.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent')).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── T10: reduced-motion polish — the consent Modal drops its slide when reduce-motion is on ─────
+  it('T10: under reduced motion, the consent Modal uses animationType "none" (no slide)', async () => {
+    const rm = jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true as any);
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: false }));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'sync-health').props.onPress(); });
+    await flush();
+    const modal = tree.root.findAll((n) => typeof n.props.onRequestClose === 'function')[0];
+    expect(modal.props.animationType).toBe('none');
+    rm.mockRestore(); alertSpy.mockRestore();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
