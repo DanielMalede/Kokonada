@@ -914,8 +914,10 @@ describe('YouTube-only user — no playable provider surfaces a clear, actionabl
     expect(errCall[1].message).not.toMatch(/Gemini timeout/); // never leak the raw internal error
   });
 
-  it('SPOTIFY USER: a genuine empty playlist (has a playback engine) keeps the EXISTING generic handling — no NO_PLAYABLE_PROVIDER reason', async () => {
-    // default beforeEach → SPOTIFY_USER (playback engine present); this is a legitimate no-tracks case.
+  it('SPOTIFY USER: an empty result with NO personal history keeps the EXISTING generic handling — no NO_PLAYABLE_PROVIDER reason', async () => {
+    // default beforeEach → SPOTIFY_USER (playback engine present). The deterministic fallback is scoped
+    // to users WITH history (Fork 3); a no-history Spotify user still gets the soft generic error.
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ library: [] })));
     orchestrator.generateV2.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [], telemetry: { stageMs: {} } });
 
     const socket = makeSocket();
@@ -1011,8 +1013,10 @@ describe('generateAndEmitPlaylist — no-playback short-circuit (skip wasted LLM
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
 
-  it('GUARD 2a: Spotify user with an EMPTY discovery pool — the LLM STILL runs and generic empty handling is unchanged (not conflated with no-playback)', async () => {
-    // default beforeEach → SPOTIFY_USER (playback engine present); a legitimate no-tracks case.
+  it('GUARD 2a: Spotify user with an EMPTY pool + NO history — the LLM STILL runs and generic empty handling is unchanged (not conflated with no-playback)', async () => {
+    // default beforeEach → SPOTIFY_USER (playback engine present); a legitimate no-tracks case. Empty
+    // history (Fork 3) so the deterministic fallback is a no-op and the generic soft error still surfaces.
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ library: [] })));
     orchestrator.generateV2.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [], telemetry: { stageMs: {} } });
 
     const socket = makeSocket();
@@ -1166,9 +1170,10 @@ describe('error handling', () => {
     }
   });
 
-  it('emits playlist_error (not playlist_ready) when Gemini fails and library is empty', async () => {
+  it('emits playlist_error (not playlist_ready) when Gemini fails and there is NO personal history', async () => {
     geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
-    playlistMixer.generateFallbackPlaylist.mockReturnValueOnce([]);
+    // Fork 3: the deterministic fallback is scoped to users WITH history — an empty library keeps the soft error.
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ library: [] })));
 
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
@@ -1179,15 +1184,115 @@ describe('error handling', () => {
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
   });
 
-  it('emits playlist_error (not an empty playlist_ready) when the mixed playlist is empty', async () => {
+  it('G-2: an empty mixed playlist WITH history falls back to a personal playlist_ready (never a bare empty error)', async () => {
     const orchestrator = require('../app/services/generation/orchestrator');
+    // Main path resolves to empty ONCE; the deterministic fallback then reruns selection over the
+    // (non-empty) personal library and delivers — a user with history is never left empty (G-2).
     orchestrator.generateV2.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [], telemetry: { stageMs: {} } });
 
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.5, y: 0.5 }] }));
 
-    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: expect.any(String) }));
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(ready[1].fallback).toBe(true);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+});
+
+// ── Deterministic emotion-fallback playlist (§5 Fork 4B) — G-1/G-2/G-4 wiring ──
+// When normal generation FAILS or yields an EMPTY PLAYABLE set, the backend must ALWAYS
+// return a playlist built ONLY from the user's personal history, honoring the emotion tap —
+// never random, never the global corpus — and record the SAME serve side-effects.
+describe('deterministic emotion-fallback (§5 Fork 4B)', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  it('G-1: LLM throw + library>0 + Spotify sink → playlist_ready{fallback:true}, never playlist_error', async () => {
+    geminiEngine.buildEmotionPlaylist.mockRejectedValue(new Error('Groq 500'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], lastReqId: 301 }));
+
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(ready[1].fallback).toBe(true);
+    expect(ready[1].discovery).toBe(0);                     // library-only, zero discovery
+    expect(ready[1].tracks.length).toBeGreaterThan(0);
+    expect(typeof ready[1].fallbackTier).toBe('number');   // telemetry surfaces the reached tier
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+
+  it('G-2: main success but 0 client-playable + library>0 → playlist_ready{fallback:true} (the empty-playable guard)', async () => {
+    // The main path returns a track the client contract DROPS (youtube_music, no uri on a Spotify
+    // sink) → clientTracks empty. Pre-fix this emitted a bare playlist_error; now it falls back.
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar: [{ id: 'yt-x', provider: 'youtube_music', name: 'YT' }], discovery: [],
+      merged:   [{ id: 'yt-x', provider: 'youtube_music', name: 'YT' }],
+      telemetry: { stageMs: {} }, targets: { bpmCenter: 120 },
+    });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], lastReqId: 302 }));
+
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(ready[1].fallback).toBe(true);
+    expect(ready[1].tracks.length).toBeGreaterThan(0);
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
+  });
+
+  it('Fork 3: zero personal history → a soft, retryable playlist_error (never the global corpus)', async () => {
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ library: [] })));
+    orchestrator.generateV2.mockResolvedValueOnce({ familiar: [], discovery: [], merged: [], telemetry: { stageMs: {} } });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], lastReqId: 303 }));
+
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(errCall[1].reqId).toBe(303);
+    expect(errCall[1].reason).toBeUndefined(); // Spotify user → generic soft error, NOT NO_PLAYABLE_PROVIDER
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('sink semantics intact: a YouTube-only user with an unplayable library still emits NO_PLAYABLE_PROVIDER', async () => {
+    User.findById.mockResolvedValue(YOUTUBE_USER);
+    youtube.getValidToken.mockResolvedValue('youtube-token');
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], lastReqId: 304 }));
+
+    const errCall = socket.emit.mock.calls.find(c => c[0] === 'playlist_error');
+    expect(errCall).toBeTruthy();
+    expect(errCall[1].reason).toBe('NO_PLAYABLE_PROVIDER');
+  });
+
+  it('parity: a delivered fallback records the SAME serve side-effects (PlaylistSession + serveLedger + hydration)', async () => {
+    const serveLedger    = require('../app/services/ledger/serveLedger');
+    const featureService = require('../app/services/features/featureService');
+    geminiEngine.buildEmotionPlaylist.mockRejectedValue(new Error('Groq 500'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], lastReqId: 305 }));
+
+    expect(socket.emit.mock.calls.find(c => c[0] === 'playlist_ready')).toBeTruthy();
+    expect(PlaylistSession.create).toHaveBeenCalledTimes(1);
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+    expect(featureService.enqueueHydration).toHaveBeenCalled();
+  });
+
+  it('G-4: a heart-path throw honors the HR via the synthetic bio moodKey (not an emotion-blind dump)', async () => {
+    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Groq 500'));
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 150, latestActivity: 'running', lastReqId: 306 }));
+
+    // The fallback's selection ran under the deterministic HR-derived bio moodKey, library-only.
+    const bioCall = orchestrator.generateV2.mock.calls.find(
+      c => c[0].moodKey === 'bio:peak:running' && Array.isArray(c[0].discoveryTracks) && c[0].discoveryTracks.length === 0);
+    expect(bioCall).toBeTruthy();
+    const ready = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
+    expect(ready[1].fallback).toBe(true);
   });
 });
 
