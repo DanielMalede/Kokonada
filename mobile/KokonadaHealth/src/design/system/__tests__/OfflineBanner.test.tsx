@@ -206,3 +206,50 @@ describe('OfflineBanner — supportive-dot ≥3:1 non-text contrast on surface.o
     }
   });
 });
+
+describe('OfflineBanner — onVisibleChange visible-edge hook (additive; the E2 dock owns the slide)', () => {
+  // The banner still animates opacity-only internally; the calm appear/recede SLIDE is added by the
+  // SystemStateDock, which needs to know the VISIBLE edge (hidden↔shown) — not every copy switch.
+  const renderCb = async (status: 'disconnected' | 'connecting' | 'connected', cb: (v: boolean) => void) => {
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<OfflineBanner status={status} onVisibleChange={cb} />); });
+    return tree;
+  };
+  const update = async (tree: ReactTestRenderer.ReactTestRenderer, status: 'disconnected' | 'connecting' | 'connected', cb: (v: boolean) => void) => {
+    await ReactTestRenderer.act(async () => { tree.update(<OfflineBanner status={status} onVisibleChange={cb} />); });
+  };
+
+  it('fires onVisibleChange(true) when the banner APPEARS — never on mount or before the grace', async () => {
+    const onVisibleChange = jest.fn();
+    const tree = await renderCb('disconnected', onVisibleChange);
+    expect(onVisibleChange).not.toHaveBeenCalled();      // hidden on mount → no spurious edge
+    await advance(OFFLINE_GRACE_MS - 1);
+    expect(onVisibleChange).not.toHaveBeenCalled();
+    await advance(1);
+    expect(onVisibleChange).toHaveBeenCalledTimes(1);
+    expect(onVisibleChange).toHaveBeenCalledWith(true);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('fires onVisibleChange(false) when it RECEDES after the back-online hold', async () => {
+    const onVisibleChange = jest.fn();
+    const tree = await renderCb('disconnected', onVisibleChange);
+    await advance(OFFLINE_GRACE_MS);
+    onVisibleChange.mockClear();                          // ignore the appear(true)
+    await update(tree, 'connected', onVisibleChange);     // → "Back online", still visible
+    expect(onVisibleChange).not.toHaveBeenCalled();
+    await advance(BACK_ONLINE_HOLD_MS);
+    expect(onVisibleChange).toHaveBeenCalledWith(false);  // receded to hidden
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('does NOT fire on a visible→visible copy switch (offline → connecting)', async () => {
+    const onVisibleChange = jest.fn();
+    const tree = await renderCb('disconnected', onVisibleChange);
+    await advance(OFFLINE_GRACE_MS);
+    onVisibleChange.mockClear();
+    await update(tree, 'connecting', onVisibleChange);    // copy swap only — still visible
+    expect(onVisibleChange).not.toHaveBeenCalled();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
