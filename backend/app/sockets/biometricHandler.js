@@ -700,7 +700,16 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       const context = featured > 0
         ? { trigger, params: useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : {} }
         : { source: 'favorites' };
-      return toClientTracks(merged, provider, context);
+      // Carry the SERVED (post-translate) canonical identity onto each surviving client track so the
+      // fallback's serve ledger records EXACTLY what was served (LOW-1) — not a raw candidate dropped
+      // at translation/client-contract — keyed by the SAME identity the normal path records.
+      return merged
+        .map((t) => {
+          const ct = toClientTrack(t, provider, context);
+          if (ct) ct.canonicalKey = t.canonicalKey ?? canonicalKey(t);
+          return ct;
+        })
+        .filter(Boolean);
     };
 
     // The never-empty, emotion-honoring, library-only guarantee. Reached when normal generation
