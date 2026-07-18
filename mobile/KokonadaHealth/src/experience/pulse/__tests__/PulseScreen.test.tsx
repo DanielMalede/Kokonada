@@ -18,9 +18,10 @@ jest.mock('../pulseStateStore', () => {
 // The last sync's per-type counts drive the honest gauge sentences (#90). Mutable so a test
 // can model "watch shared restingHR/sleep but not HRV" and assert the right sentence per gauge.
 let mockSyncCounts: any = null;
+const mockCountsUnsub = jest.fn();
 jest.mock('../../../health/healthSync', () => ({
   getLastSyncCounts: () => mockSyncCounts,
-  subscribeSyncCounts: () => () => {},
+  subscribeSyncCounts: () => mockCountsUnsub,
 }));
 
 // useFocusEffect needs a navigation context; mock it to run the effect on mount and expose the
@@ -101,17 +102,19 @@ describe('PulseScreen — sacred pipeline wiring (unchanged by the reskin)', () 
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('unsubscribes from both stores on unmount (parity)', async () => {
+  it('unsubscribes from both stores AND sync-counts on unmount (no leaked closure)', async () => {
     let subs = 0; let unsubs = 0;
     const realW = warmStore.subscribe.bind(warmStore);
     const realP = pulseStateStore.subscribe.bind(pulseStateStore);
     const w = jest.spyOn(warmStore, 'subscribe').mockImplementation((cb: any) => { subs++; const u = realW(cb); return () => { unsubs++; u(); }; });
     const p = jest.spyOn(pulseStateStore, 'subscribe').mockImplementation((cb: any) => { subs++; const u = realP(cb); return () => { unsubs++; u(); }; });
     const tree = await render();
+    expect(mockCountsUnsub).not.toHaveBeenCalled();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
     w.mockRestore(); p.mockRestore();
     expect(subs).toBe(2);
     expect(unsubs).toBe(2);
+    expect(mockCountsUnsub).toHaveBeenCalledTimes(1); // the sync-counts unsub fired too (setCounts closure freed)
   });
 
   it('shows the live warm-store HR', async () => {
@@ -181,6 +184,18 @@ describe('PulseScreen — dashboard values, gauges and state headline', () => {
     expect(t).toContain('90%'); // confidence
     expect(t).toContain('read confidence');
     expect(texts(tree.toJSON()).some((s) => s === '—')).toBe(false);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('keeps good numbers visible while refreshing (stale-while-revalidate, never a skeleton takeover)', async () => {
+    // A refresh over existing data is data-present + loading:true. isSyncing guards on data == null,
+    // so the good gauges stay — dropping that term would blank them into skeletons on every pull.
+    await ReactTestRenderer.act(async () => { pulseStateStore.setState({ ...withData(), loading: true } as any); });
+    const tree = await render();
+    const t = allText(tree);
+    expect(t).toContain('48'); // HRV still shown
+    expect(t).toContain('90'); // deep sleep still shown
+    expect(byLabel(tree, 'Reading your body…').length).toBe(0); // no skeleton takeover on refresh
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

@@ -380,7 +380,7 @@ export function PulseScreen() {
 
 const styles = StyleSheet.create({
   emptyContent: { flexGrow: 1 },
-  syncGroup: { padding: 0, gap: 0, width: '100%' },
+  syncGroup: { padding: space.none, gap: space.none, width: '100%' },
   stack: { gap: space.xl },
 
   hero: { minHeight: HERO_AURA_SIZE, alignItems: 'center', justifyContent: 'center' },
