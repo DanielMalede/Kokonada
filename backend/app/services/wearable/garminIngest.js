@@ -11,18 +11,12 @@
 
 const { normalizeGarminSummaries } = require('./adapter');
 const { persistMetrics } = require('./metricStore');
+const { GARMIN_SPECIAL_CATEGORY_METRICS } = require('./specialCategoryMetrics');
 const {
   HEALTH_CONSENT_PURPOSE,
   garminSpecialCategoryAllowed,
   getGrantedConsentVersion,
 } = require('../privacy/consent');
-
-// The Garmin-only special-category (GDPR Art.9) canonical metrics — spo2 / respiratory_rate /
-// body_battery in adapter.js's normalizer. These are DISCLOSED to the user but only lawful to
-// process once they re-consent at GARMIN_CONSENT_MIN_VERSION; below that they are dropped at
-// ingest. The HC-lane metrics (heartRate / restingHeartRate / hrv / sleep*, lawful at v1) are
-// NOT in this set and always pass through. (guard test: tests/garminConsentVersionGate.test.js)
-const GARMIN_SPECIAL_CATEGORY_METRICS = new Set(['spO2', 'respirationRate', 'bodyBattery']);
 
 /**
  * @param {string} userId

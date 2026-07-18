@@ -34,23 +34,6 @@ describe('normalizeHealthStoreSamples — HealthKit (iOS)', () => {
     expect(r.value).toBe(42);
     expect(r.unit).toBe('ms');
   });
-
-  it('maps respiratory rate to the respirationRate metric', () => {
-    const [r] = normalizeHealthStoreSamples('healthkit', [
-      { type: 'respiratory_rate', value: 14, startDate: ts },
-    ]);
-    expect(r.metric).toBe('respirationRate');
-    expect(r.value).toBe(14);
-  });
-
-  it('converts HealthKit SpO2 fraction (0–1) to a 0–100 percentage', () => {
-    const [r] = normalizeHealthStoreSamples('healthkit', [
-      { type: 'spo2', value: 0.97, startDate: ts },
-    ]);
-    expect(r.metric).toBe('spO2');
-    expect(r.value).toBe(97); // 0.97 → 97, not 97.0000001
-    expect(r.unit).toBe('%');
-  });
 });
 
 describe('normalizeHealthStoreSamples — Health Connect (Android)', () => {
@@ -60,13 +43,39 @@ describe('normalizeHealthStoreSamples — Health Connect (Android)', () => {
     ]);
     expect(r.source).toBe('health_connect');
   });
+});
 
-  it('keeps Health Connect SpO2 as an already-percentage value', () => {
-    const [r] = normalizeHealthStoreSamples('health_connect', [
+// GDPR Art.9 (audit follow-up): spo2 / respiratory_rate are Garmin-only special categories that
+// are NOT part of the mobile HEALTH_CONNECT_DATA_CATEGORIES — no shipped client sends them and
+// Health Connect never reads them. The server MUST NOT emit them on this lane; they may flow only
+// via the (v2-gated) Garmin server-to-server lane. Dropping them from HEALTH_METRIC_MAP is the
+// leak-source fix (healthStore.ingestBatch's consent-version gate is the defense-in-depth backstop).
+describe('normalizeHealthStoreSamples — special categories are NOT on the Health-Connect lane', () => {
+  it('drops a HealthKit spo2 sample (no spO2 metric emitted)', () => {
+    expect(normalizeHealthStoreSamples('healthkit', [{ type: 'spo2', value: 0.97, startDate: ts }])).toEqual([]);
+  });
+
+  it('drops a Health Connect spo2 sample (no spO2 metric emitted)', () => {
+    expect(normalizeHealthStoreSamples('health_connect', [{ type: 'spo2', value: 96, startDate: ts }])).toEqual([]);
+  });
+
+  it('drops a respiratory_rate sample (no respirationRate metric emitted)', () => {
+    expect(normalizeHealthStoreSamples('healthkit', [{ type: 'respiratory_rate', value: 14, startDate: ts }])).toEqual([]);
+  });
+
+  it('never emits spO2/respirationRate even mixed with HC-lane samples — those still pass', () => {
+    const metrics = normalizeHealthStoreSamples('health_connect', [
+      { type: 'heart_rate', value: 70, startDate: ts },
       { type: 'spo2', value: 96, startDate: ts },
-    ]);
-    expect(r.metric).toBe('spO2');
-    expect(r.value).toBe(96);
+      { type: 'resting_heart_rate', value: 55, startDate: ts },
+      { type: 'respiratory_rate', value: 14, startDate: ts },
+      { type: 'hrv', value: 42, startDate: ts },
+      { type: 'sleep_deep', value: 60, startDate: ts },
+    ]).map((r) => r.metric);
+    expect(metrics).not.toContain('spO2');
+    expect(metrics).not.toContain('respirationRate');
+    // HC-lane (HEALTH_CONNECT_DATA_CATEGORIES) is unaffected — all still normalize.
+    expect(metrics).toEqual(expect.arrayContaining(['heartRate', 'restingHeartRate', 'hrv', 'sleepDeep']));
   });
 });
 

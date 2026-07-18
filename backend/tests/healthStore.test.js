@@ -7,9 +7,16 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 // the other backend suites). The adapter + aggregation it uses are real (pure).
 jest.mock('../app/models/BiometricLog', () => ({ insertMany: jest.fn().mockResolvedValue([]), find: jest.fn() }));
 jest.mock('../app/models/MedicalProfile', () => ({ findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
+// ingestBatch now reads the consent version (Art.9 special-category gate). Mock the consent DB
+// so the unit test stays DB-free; these HC-lane-only batches carry no special category, so the
+// gate is inert and every assertion below is unchanged. (gate itself: healthStoreConsentVersionGate)
+jest.mock('../app/models/ConsentRecord', () => ({ latestFor: jest.fn() }));
+jest.mock('../app/models/User', () => ({ findById: jest.fn() }));
+jest.mock('../app/services/privacy/wearableErasure', () => ({ WEARABLE_PROVIDERS: [], eraseWearableProvider: jest.fn() }));
 
 const BiometricLog   = require('../app/models/BiometricLog');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const ConsentRecord  = require('../app/models/ConsentRecord');
 const { ingestBatch } = require('../app/services/wearable/healthStore');
 
 const ts = '2026-01-15T03:30:00Z';
@@ -21,7 +28,11 @@ function mockExisting(rows = []) {
 }
 
 describe('healthStore.ingestBatch', () => {
-  beforeEach(() => { jest.clearAllMocks(); mockExisting([]); });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExisting([]);
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: 1 });
+  });
 
   it('writes heart-rate samples to BiometricLog tagged with the platform source', async () => {
     await ingestBatch('user-1', 'healthkit', [

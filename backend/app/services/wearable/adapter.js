@@ -95,14 +95,19 @@ function normalize(source, raw) {
 // The mobile companion app reads Garmin-synced data from the on-device OS health
 // store and pushes it here for the medical-profile backfill. Unlike the live HR
 // adapters above (single bpm reading), these batches carry several metric types
-// (HR, resting HR, HRV, respiration, SpO2). Each raw sample is tagged with a
-// canonical snake_case `type` on the device; this normalizer maps it to the
-// internal field name used by BiometricLog / MedicalProfile, owning the
-// platform-specific quirks (e.g. HealthKit reports SpO2 as a 0–1 fraction while
-// Health Connect reports a 0–100 percentage).
+// (HR, resting HR, HRV, sleep stages). Each raw sample is tagged with a canonical
+// snake_case `type` on the device; this normalizer maps it to the internal field
+// name used by BiometricLog / MedicalProfile.
+//
+// GDPR Art.9 (audit follow-up): the three special categories — spo2 / respiratory_rate /
+// body_battery — are DELIBERATELY absent from this map. They are NOT in the mobile
+// HEALTH_CONNECT_DATA_CATEGORIES, no shipped client sends them, and Health Connect never
+// reads them; they may only be processed via the (v2-consent-gated) Garmin server-to-server
+// lane (normalizeGarminSummaries + garminIngest). Dropping them here is the leak-source fix —
+// healthStore.ingestBatch's consent-version gate is the defense-in-depth backstop.
 //
 // @typedef {Object} NormalizedMetric
-// @property {string} metric     - heartRate|restingHeartRate|hrv|respirationRate|spO2
+// @property {string} metric     - heartRate|restingHeartRate|hrv|sleepDeep|sleepLight|sleepRem
 // @property {number} value
 // @property {string} unit
 // @property {Date}   recordedAt
@@ -113,8 +118,6 @@ const HEALTH_METRIC_MAP = {
   heart_rate:         { metric: 'heartRate',        unit: 'bpm' },
   resting_heart_rate: { metric: 'restingHeartRate', unit: 'bpm' },
   hrv:                { metric: 'hrv',              unit: 'ms' },
-  respiratory_rate:   { metric: 'respirationRate',  unit: 'brpm' },
-  spo2:               { metric: 'spO2',             unit: '%' },
   // Sleep stage durations (minutes per session) → MedicalProfile.sleepStages.*
   sleep_deep:         { metric: 'sleepDeep',        unit: 'min' },
   sleep_light:        { metric: 'sleepLight',       unit: 'min' },
@@ -143,13 +146,8 @@ function normalizeHealthStoreSamples(platform, samples) {
     if (!mapping) continue; // unrecognised metric type
 
     if (raw.value == null) continue; // Number(null) === 0 — reject before coercing
-    const num = Number(raw.value);
-    if (!Number.isFinite(num)) continue; // drop NaN/garbage
-
-    // SpO2 unit reconciliation: HealthKit → 0–1 fraction; Health Connect → percentage.
-    const value = mapping.metric === 'spO2'
-      ? Math.round(platform === 'healthkit' ? num * 100 : num)
-      : num;
+    const value = Number(raw.value);
+    if (!Number.isFinite(value)) continue; // drop NaN/garbage
 
     out.push({
       metric:     mapping.metric,
