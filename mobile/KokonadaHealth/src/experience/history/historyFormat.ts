@@ -103,3 +103,30 @@ export function rowA11yLabel(
   ].filter(Boolean);
   return parts.join(', ');
 }
+
+export type HistoryBody = 'skeleton' | 'error' | 'empty' | 'list';
+
+export interface HistoryBodyInput {
+  hasLoaded: boolean; // the FIRST page has resolved (guards the empty-flash)
+  items: number;      // loaded moment count
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+}
+
+/**
+ * The state-machine → body decision, kept PURE so the flagship empty-flash guard is pinned in isolation
+ * (behind a mount effect a screen test can't see the first frame). Order is load-bearing:
+ *  1. `!hasLoaded` → skeleton — the FIRST-FRAME gate: never flash empty before the first page resolves.
+ *  2. 0 items + error → the non-alarm error body (a failed first load).
+ *  3. 0 items + fetching → skeleton — a retry/first-load in flight never re-flashes empty.
+ *  4. 0 items (resolved, idle, no error) → the confirmed-empty body.
+ *  5. otherwise → the list (items present; a load-more error rides a quiet footer note, list intact).
+ */
+export function selectHistoryBody({ hasLoaded, items, loading, refreshing, error }: HistoryBodyInput): HistoryBody {
+  if (!hasLoaded) return 'skeleton';
+  if (items === 0 && error) return 'error';
+  if (items === 0 && (loading || refreshing)) return 'skeleton';
+  if (items === 0) return 'empty';
+  return 'list';
+}

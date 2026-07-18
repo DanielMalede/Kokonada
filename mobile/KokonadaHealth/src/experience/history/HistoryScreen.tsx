@@ -7,6 +7,7 @@ import { Skeleton, EmptyState } from '../../design/system';
 import { fetchSessions, type SessionItem } from './sessionsApi';
 import { SessionsFeed, type SessionsFeedState } from './sessionsFeed';
 import { HistoryRow } from './HistoryRow';
+import { selectHistoryBody } from './historyFormat';
 
 // §9 History — a QUIET ARCHIVE. The moments are content; the chrome recedes. The frame is STATE-STABLE
 // (a pinned "History" header renders identically across loading / empty / error / list — only the body
@@ -103,11 +104,20 @@ export function HistoryScreen({ onGenerate = () => {}, onOpenSession = () => {} 
     return null;
   };
 
-  const fetching = state.loading || state.refreshing;
+  // The body is chosen by the PURE selector (unit-pinned in historyFormat.test) — the screen only paints
+  // the chosen state. This keeps the load-bearing empty-flash gate honest in isolation, out of reach of a
+  // mount effect the render test can't rewind.
+  const view = selectHistoryBody({
+    hasLoaded,
+    items: state.items.length,
+    loading: state.loading,
+    refreshing: state.refreshing,
+    error: state.error,
+  });
   let body: React.ReactNode;
-  if (!hasLoaded) {
-    body = <FirstPageSkeleton />;                              // first page in flight — never the empty flash
-  } else if (state.items.length === 0 && state.error) {
+  if (view === 'skeleton') {
+    body = <FirstPageSkeleton />; // first page / retry in flight — never the empty flash
+  } else if (view === 'error') {
     body = (
       <EmptyState
         title="We couldn't load your moments"
@@ -115,9 +125,7 @@ export function HistoryScreen({ onGenerate = () => {}, onOpenSession = () => {} 
         action={{ label: 'Try again', onPress: retry }}
       />
     );
-  } else if (state.items.length === 0 && fetching) {
-    body = <FirstPageSkeleton />;                              // retrying from empty/error — no empty flash
-  } else if (state.items.length === 0) {
+  } else if (view === 'empty') {
     body = (
       <EmptyState
         title="Your moments will live here"

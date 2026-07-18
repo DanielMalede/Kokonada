@@ -66,7 +66,7 @@ async function render(props: Partial<React.ComponentProps<typeof HistoryScreen>>
 beforeEach(() => { jest.clearAllMocks(); jest.restoreAllMocks(); });
 
 describe('HistoryScreen — the quiet archive (§9)', () => {
-  it('state-stable frame — the "History" header renders identically across loading, empty and list', async () => {
+  it('state-stable frame — the "History" header renders identically across loading, empty, error and list', async () => {
     fetchSessions.mockImplementation(() => new Promise(() => {}));
     const loading = await render();
     expect(allText(loading)).toContain('History');
@@ -76,6 +76,11 @@ describe('HistoryScreen — the quiet archive (§9)', () => {
     const empty = await render();
     expect(allText(empty)).toContain('History');
     await ReactTestRenderer.act(async () => { empty.unmount(); });
+
+    fetchSessions.mockResolvedValue({ ok: false, status: 500, error: 'server down' });
+    const errored = await render();
+    expect(allText(errored)).toContain('History'); // the header never moves, even on error
+    await ReactTestRenderer.act(async () => { errored.unmount(); });
 
     fetchSessions.mockResolvedValue({ ok: true, data: { items: [item('a')], nextCursor: null } });
     const loaded = await render();

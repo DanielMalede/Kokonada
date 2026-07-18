@@ -6,6 +6,7 @@ import {
   metaLine,
   relativeTime,
   rowA11yLabel,
+  selectHistoryBody,
   JUST_NOW_MS,
   MINUTE_MS,
   HOUR_MS,
@@ -127,5 +128,39 @@ describe('rowA11yLabel — one composed spoken sentence (friendly title, never t
     const NOW = new Date(2026, 6, 15, 14, 0, 0);
     const it0 = item({ moodKey: 'bio:peak:running', activity: 'running', createdAt: new Date(NOW.getTime() - 5 * MINUTE_MS).toISOString() });
     expect(rowA11yLabel(it0, NOW)).toBe('Peak Energy, live session, Running, 5m ago');
+  });
+});
+
+// The body-state decision, pinned PURE so the flagship empty-flash guard can never silently regress
+// behind the mount effect. The two revert-sensitive cases below flip RED the instant the `!hasLoaded`
+// first-frame term is deleted from the selector.
+describe('selectHistoryBody — the state-machine → body decision', () => {
+  it('CASE 1 (flagship): the first frame is a SKELETON, never the empty flash, before the first page resolves', () => {
+    // Deleting the `!hasLoaded` term makes this return 'empty' — this assertion is the guard.
+    expect(selectHistoryBody({ hasLoaded: false, items: 0, loading: false, refreshing: false, error: null })).toBe('skeleton');
+  });
+
+  it('CASE 2: retrying from empty/error (0 items, refreshing) shows the SKELETON, never a re-flashed empty', () => {
+    expect(selectHistoryBody({ hasLoaded: true, items: 0, loading: false, refreshing: true, error: null })).toBe('skeleton');
+  });
+
+  it('a first-page load still in flight (0 items, loading) stays a skeleton even once hasLoaded flips', () => {
+    expect(selectHistoryBody({ hasLoaded: true, items: 0, loading: true, refreshing: false, error: null })).toBe('skeleton');
+  });
+
+  it('a first-load error with 0 items is the non-alarm error body', () => {
+    expect(selectHistoryBody({ hasLoaded: true, items: 0, loading: false, refreshing: false, error: 'boom' })).toBe('error');
+  });
+
+  it('a confirmed-empty response (resolved, 0 items, idle, no error) is the empty body', () => {
+    expect(selectHistoryBody({ hasLoaded: true, items: 0, loading: false, refreshing: false, error: null })).toBe('empty');
+  });
+
+  it('any loaded items render the list', () => {
+    expect(selectHistoryBody({ hasLoaded: true, items: 3, loading: false, refreshing: false, error: null })).toBe('list');
+  });
+
+  it('a load-more failure with items present KEEPS the list intact (the footer note carries the error)', () => {
+    expect(selectHistoryBody({ hasLoaded: true, items: 3, loading: false, refreshing: false, error: 'boom' })).toBe('list');
   });
 });
