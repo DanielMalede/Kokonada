@@ -8,23 +8,26 @@
 
 ---
 
-## ROLLOUT STATUS & BUILD QUEUE (Wave 2.8.2 — updated 2026-07-12)
+## ROLLOUT STATUS & BUILD QUEUE (Wave 2.8.2 — ✅ COMPLETE, updated 2026-07-18)
 
-One screen at a time, in this order; each screen = its own branch + PR off fresh `main`. On merge, the queue auto-advances to the next row — no re-prompt.
+**The Wave 2.8.2 screen rollout is fully shipped** — every screen + the brand identity is on `main`, each through the full architect → designer → TDD → resilience → compliance gate. Mobile suite ~1,220 tests, all green. Tab bar, §4, §5, the Aurora Seed bootsplash, and the General Sans wordmark are device-verified on the Galaxy S22+.
 
 | Queue | Screen | Status |
 | :--- | :--- | :--- |
 | ✅ | Auth (§3) | SHIPPED — #108, recovered to main via #120 |
 | ✅ | Now Playing (§7) | SHIPPED — #121 redesign · #122 art/receipts payload · #124 SDK cover |
 | ✅ | FTUE / Onboarding (§2) + Splash (§1) | SHIPPED — #141 |
-| **2 — NEXT** | Connect Services (§4) | ready to start |
-| 3 | Generate — HERO (§5) + Genesis overlay (§6) | queued |
-| 4 | History (§9) | queued |
-| 5 | Profile / Privacy Vault (§10) | queued — must absorb the web `WatchTokenCard` (mint/copy/revoke `whr_` token UI); this unblocks the web sunset (Wave 2.5) |
-| 5.5 | Health-Data Consent — Art.9 gate (§11) | ready — backend contract landed (`feat/ws5-consent-backend`, 2026-07-16 audit finding H-9); build alongside § 10 (shared trust surface + withdrawal echo) |
-| 6 | Tab bar + system states (§0) | queued |
-| 7 | Pulse (§8) | **HELD** on issue #90 (orphaned HC medical-profile ingestion) — build last, once #90 closes |
-| 8 | Brand identity | icon · wordmark · bootsplash · motion signature — final PR |
+| ✅ | Connect Services (§4) | SHIPPED — #160 (device-verified light + dark) |
+| ✅ | Generate — HERO (§5) + Genesis overlay (§6) | SHIPPED — #162 (device-verified dark; reactive aura restored, regulator-ethic breath, Genesis exhale) |
+| ✅ | History (§9) | SHIPPED — #163 (quiet archive; friendly titles, silhouette source cue, skeleton/empty states) |
+| ✅ | Profile / Privacy Vault (§10) | SHIPPED — #165 (absorbed `WatchTokenCard` as a **pairing-code** flow — `whr_` never rendered, L-15 preserved; consent-withdrawal echo; GDPR delete) |
+| ✅ | Health-Data Consent — Art.9 gate (§11) | SHIPPED — #154 (backend + `ConsentSheet`); reused unchanged by §4 (#160) and §10's withdrawal echo (#165) |
+| ✅ | §0 shared system-state components (E1) | SHIPPED — #161 (Skeleton · EmptyState · OfflineBanner · useCalmPulse) |
+| ✅ | Tab bar + system-state shell (§0 E2) | SHIPPED — #166 (Skia glyphs — structurally tofu-proof · emotion-tinted active tab · live offline banner) |
+| ✅ | Pulse (§8) | SHIPPED — #164 (un-**HELD**: issue #90 was already closed via #99/#110; honest-empty gauges, Garmin-only source truth, regulating aura) |
+| ✅ | Brand identity | SHIPPED — #167 (Aurora Seed icon · wordmark · bootsplash · Splash breath-seam · motion signature) + #168 (General Sans font bundle) — device-verified |
+
+**Remaining follow-ons (not screens; tracked separately):** runtime-agent backend deterministic-fallback playlist (§5 Fork 4B); pin PR #159's Garmin-lane consent version-bump as a test; store submission (playback-surface Spotify/YouTube attribution, Groq DPA/ZDR, Play/Apple declaration forms, iOS icon build on a Mac, store-icon export/upload).
 
 **Per-screen Definition of Done (spec §9):** tokens only (zero magic numbers) · light + dark · reduced-motion path · WCAG 2.2 AA · 60fps floor on device · on-device **before/after screenshots** in the PR · **`designer` SHIP verdict** (design-review pass on the built screen vs the design language) · resilience audit posted · `compliance-auditor` pass for any third-party mark/OAuth/permission surface · sacred contracts untouched (≤3-tap emotion payload, three-lane state, `screenToCircumplex`, socket/DTO contracts, pinned S/D-series tests).
 
