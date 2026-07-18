@@ -54,7 +54,7 @@ export function SignInScreen() {
         <BreathingGlow color={c.accent.glow} reduced={reduced} breathMs={duration.breath} size={Dimensions.get('window').width * GLOW_FRACTION} />
         <Text
           accessibilityRole="header"
-          style={{ fontSize: typography.size.display, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.display, color: c.content.primary }}
+          style={{ fontSize: typography.size.display, fontFamily: typography.family.display, fontWeight: typography.weight.semibold, letterSpacing: typography.tracking.display, color: c.content.primary }}
         >
           Kokonada
         </Text>
