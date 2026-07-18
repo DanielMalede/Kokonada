@@ -8,7 +8,14 @@ import { EmotionTabBar } from '../EmotionTabBar';
 import { TAB_ROUTES, TAB_LABELS, type TabRoute } from '../tabRoutes';
 import emotionReducer, { addTap } from '../../state/cold/emotionSlice';
 import { colors } from '../../design/tokens';
-import { contrastRatio, AA_NORMAL } from '../../design/contrast';
+import { contrastRatio, parseHex, flatten, AA_NORMAL, AA_LARGE } from '../../design/contrast';
+
+// The active glyph paints over the emotionAccent[q].wash lozenge, not bare base — so the icon leg of
+// the pin composites the wash (RGB + baked alpha) onto surface.base and judges what actually renders.
+const toHex = ({ r, g, b }: { r: number; g: number; b: number }) =>
+  `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+const washOverBase = (washHex: string, baseHex: string) =>
+  toHex(flatten(parseHex(washHex.slice(0, 7)), parseInt(washHex.slice(7, 9), 16) / 255, parseHex(baseHex)));
 
 // EmotionTabBar is the CHROME that owns the reactive emotion subscription (a derived-primitive
 // selector on the quadrant), so screens never re-render on an emotion change. This suite pins the
@@ -108,11 +115,15 @@ describe('EmotionTabBar — emotion-tinted chrome', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('(f) CONTRAST PIN: every quadrant ink + content.secondary clear AA-normal on surface.base (both themes)', () => {
+  it('(f) CONTRAST PIN: active ink ≥3:1 over the wash lozenge + ≥AA-normal as a label; inactive secondary AA-normal (both themes)', () => {
     for (const t of [colors.dark, colors.light]) {
       for (const q of ['calm', 'joyful', 'intense', 'reflective'] as const) {
+        // active ICON renders over the wash lozenge → composite it, judge against the 3:1 graphic floor
+        expect(contrastRatio(t.emotionAccent[q].ink, washOverBase(t.emotionAccent[q].wash, t.surface.base))).toBeGreaterThanOrEqual(AA_LARGE);
+        // active LABEL rides on bare base → text AA-normal
         expect(contrastRatio(t.emotionAccent[q].ink, t.surface.base)).toBeGreaterThanOrEqual(AA_NORMAL);
       }
+      // inactive icon + label on bare base → AA-normal
       expect(contrastRatio(t.content.secondary, t.surface.base)).toBeGreaterThanOrEqual(AA_NORMAL);
     }
   });
