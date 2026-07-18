@@ -78,6 +78,6 @@ describe('ProfileIntegrationRow', () => {
     );
     // The glyph shows the initial "S"; there is no <Image> logo anywhere in the row.
     expect(allText(tree)).toContain('S');
-    expect(tree.root.findAll((n) => n.type === 'Image')).toHaveLength(0);
+    expect(tree.root.findAll((n) => (n.type as unknown as string) === 'Image')).toHaveLength(0);
   });
 });
