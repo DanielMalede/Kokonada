@@ -44,16 +44,22 @@ export function SystemStateDock({ store = singletonWarmStore, onRetry }: SystemS
   }, [store]);
 
   // CF-1: the calm slide. 0 = tucked up + transparent, 1 = seated + opaque. Fired only on the
-  // banner's VISIBLE edge (hidden↔shown), never on an offline↔connecting copy switch.
+  // banner's VISIBLE edge (hidden↔shown), never on an offline↔connecting copy switch. The same edge
+  // also gates the top inset: the banner returns null when online AND the screens self-inset at top,
+  // so reserving the inset unconditionally would leave a permanent status-bar band above every
+  // screen. Reserve it ONLY while the banner shows — zero-footprint (0) when hidden. (The transient
+  // double-inset WHILE the offline banner is up is accepted: rare, non-occluding, content-shifting.)
   const slide = useRef(new Animated.Value(0)).current;
-  const onVisibleChange = (visible: boolean) => {
-    const to = visible ? 1 : 0;
+  const [visible, setVisible] = useState(false);
+  const onVisibleChange = (isVisible: boolean) => {
+    setVisible(isVisible);
+    const to = isVisible ? 1 : 0;
     if (reduced) { slide.setValue(to); return; }
     Animated.timing(slide, { toValue: to, duration: duration.base, easing: SLIDE_BEZIER, useNativeDriver: true }).start();
   };
 
   return (
-    <View testID="system-state-dock" style={{ paddingTop: insets.top }}>
+    <View testID="system-state-dock" style={{ paddingTop: visible ? insets.top : 0 }}>
       <Animated.View
         style={{
           opacity: slide,

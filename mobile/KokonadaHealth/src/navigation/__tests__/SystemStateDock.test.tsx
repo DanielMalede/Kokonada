@@ -73,10 +73,18 @@ describe('SystemStateDock — the live system-state shell (E2)', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('(c) the dock sits at the TOP safe-area inset (never under the status bar)', async () => {
+  it('(c) reserves the top inset ONLY while the banner is visible — zero-footprint band when online', async () => {
+    // The banner returns null when online AND the screens self-inset at top, so an unconditional
+    // dock inset would leave a permanent status-bar-height blank band above every screen. The dock
+    // reserves the inset only while the banner shows (content shifts down), and 0 otherwise.
     const store = createWarmStore();
+    store.getState().setConnection('connected'); // online → banner hidden
     const tree = await mount(store);
-    expect(flat(dock(tree)).paddingTop).toBe(TOP);
+    expect(flat(dock(tree)).paddingTop).toBe(0);          // hidden → no permanent band
+    await ReactTestRenderer.act(async () => { store.getState().setConnection('disconnected'); });
+    await advance(OFFLINE_GRACE_MS);
+    expect(banner(tree)).toBeTruthy();
+    expect(flat(dock(tree)).paddingTop).toBe(TOP);         // visible → reserves the inset
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
