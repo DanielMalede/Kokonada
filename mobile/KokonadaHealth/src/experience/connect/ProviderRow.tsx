@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useTheme } from '../../design/theme';
 import { space, radius, type as typography } from '../../design/tokens';
+import { ProviderGlyph } from './ProviderGlyph';
 import type { Provider } from './providers';
 
 // One music provider, rendered as a SINGLE accessible group: [glyph] [name + reason] ··· [status].
@@ -22,21 +23,6 @@ const STATUS_WORD: Record<Exclude<DisplayState, 'enabled'>, string> = {
   halted: 'Unavailable',
 };
 const CONNECTED_REASON = 'Playing your library.';
-
-// A neutral monochrome mark — the provider's initial in a tinted circle. NEVER an official
-// colored logo/wordmark (compliance): plain glyph on setup chrome only. Decorative → a11y-hidden.
-function ProviderGlyph({ label }: { label: string }) {
-  const { c } = useTheme();
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={[styles.glyph, { backgroundColor: c.surface.overlay }]}
-    >
-      <Text style={[styles.glyphText, { color: c.content.secondary }]}>{label.charAt(0)}</Text>
-    </View>
-  );
-}
 
 export interface ProviderRowProps {
   provider: Provider;
@@ -111,6 +97,4 @@ const styles = StyleSheet.create({
   checkGlyph: { fontSize: typography.size.caption, fontWeight: typography.weight.bold },
   connectPill: { paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: 1.5, minHeight: space['2xl'], alignItems: 'center', justifyContent: 'center' },
   connectWord: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
-  glyph: { width: space['2xl'], height: space['2xl'], borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-  glyphText: { fontSize: typography.size.callout, fontWeight: typography.weight.semibold },
 });
