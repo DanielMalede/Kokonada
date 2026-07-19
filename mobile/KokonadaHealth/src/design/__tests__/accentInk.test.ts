@@ -35,10 +35,10 @@ describe('accentInkFor — theme-resolved emotion ink', () => {
 
   it('returns the correct LIGHT vs DARK hex from tokens for the same quadrant', () => {
     const joy = [tap(0.6, 0.6)];
-    expect(accentInkFor(joy, colors.dark)).toBe('#FFC06B');  // dark joyful ink
-    expect(accentInkFor(joy, colors.light)).toBe('#A34E24'); // light joyful ink
+    expect(accentInkFor(joy, colors.dark)).toBe('#FFC24D');  // dark joyful ink
+    expect(accentInkFor(joy, colors.light)).toBe('#8F5410'); // light joyful ink
     const intense = [tap(-0.6, 0.6)];
-    expect(accentInkFor(intense, colors.dark)).toBe('#C4A6FF');  // dark violet (never red)
+    expect(accentInkFor(intense, colors.dark)).toBe('#D9ADFF');  // dark violet (never red)
     expect(accentInkFor(intense, colors.light)).toBe('#6E3FC4'); // light violet
   });
 

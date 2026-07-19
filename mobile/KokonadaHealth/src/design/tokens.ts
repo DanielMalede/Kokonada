@@ -2,7 +2,7 @@
 // KOKONADA DESIGN TOKENS — the single source of truth (Wave 2.8).
 // "Calm / Premium Wellness × Bioluminescent Depth." Zero magic numbers in
 // components: everything visual derives from here. Two themes:
-//   • dark  — "Bioluminescence": deep-sea OLED black, one living cyan glow used as
+//   • dark  — "Bioluminescence": deep-sea OLED black, one living gold glow used as
 //             DEPTH, not neon. The app breathes in the dark.
 //   • light — "Clinical Premium": cool porcelain, frosted glass with solid,
 //             contrast-safe fallbacks. Airy and trustworthy.
@@ -12,10 +12,11 @@
 import type { Hex } from './contrast';
 
 // A discovery accent maps a valence×arousal quadrant to a text-safe `ink` (AA on every discovery
-// surface, both themes) and a decorative `wash` (alpha baked into the hex). `intense` is
-// deliberately VIOLET, never red — the regulator ethic lives in the token, not the component.
+// surface, both themes), a decorative `wash` (alpha baked into the hex), and an `onAccent` label
+// that rides ON the ink fill (AA over its own ink in dark). `intense` is deliberately VIOLET,
+// never red — the regulator ethic lives in the token, not the component.
 export type EmotionQuadrant = 'calm' | 'joyful' | 'intense' | 'reflective';
-export interface EmotionQuadrantColor { ink: Hex; wash: Hex; }
+export interface EmotionQuadrantColor { ink: Hex; wash: Hex; onAccent: Hex; }
 export type EmotionAccent = Record<EmotionQuadrant, EmotionQuadrantColor>;
 
 // ── Semantic color matrices ──────────────────────────────────────────────────
@@ -53,9 +54,10 @@ export interface ColorScheme {
 // degrade to the opaque fallback (which is what the AA test judges).
 export const glassAlpha = { dark: 0.55, light: 0.6 } as const;
 
-// The brand bioluminescent accent literal, shared by dark `accent.glow` and the calm
-// `emotionAccent.ink` so a calm session provably wears the brand accent — one source, no drift.
-const BRAND_GLOW_DARK: Hex = '#31E1C4';
+// The brand accent literal, shared by each theme's `accent.glow` and its calm `emotionAccent.ink`
+// so a calm session provably wears the brand accent — one source per theme, no drift. Aurum gold.
+const BRAND_GLOW_DARK: Hex = '#F2C879';
+const BRAND_GLOW_LIGHT: Hex = '#7A5A10';
 
 const dark: ColorScheme = {
   surface: {
@@ -70,20 +72,20 @@ const dark: ColorScheme = {
     primary: '#EAF3F6',     // foam
     secondary: '#A9BAC6',   // mist
     tertiary: '#8397A4',    // haze (tuned up to hold AA on abyss)
-    onAccent: '#04120F',    // near-black-green, rides on the bright glow fill
+    onAccent: '#1C1408',    // near-black-umber, rides on the bright gold glow fill
   },
   accent: {
-    glow: BRAND_GLOW_DARK,  // plankton cyan — the signature
-    glowInk: '#31E1C4',     // bright glow is dark-theme-safe for onAccent text
-    bloom: '#8FB0FF',       // periwinkle
+    glow: BRAND_GLOW_DARK,    // aurum gold — the signature
+    glowInk: BRAND_GLOW_DARK, // the bright gold is dark-theme-safe for onAccent text
+    bloom: '#C9A6FF',         // amethyst
   },
   emotionAccent: {
-    calm:       { ink: BRAND_GLOW_DARK, wash: '#31E1C424' },
-    joyful:     { ink: '#FFC06B', wash: '#FFC06B24' },
-    intense:    { ink: '#C4A6FF', wash: '#C4A6FF24' }, // violet, not red — regulator ethic
-    reflective: { ink: '#9DB4FF', wash: '#9DB4FF24' },
+    calm:       { ink: BRAND_GLOW_DARK, wash: '#F2C87924', onAccent: '#1C1408' },
+    joyful:     { ink: '#FFC24D', wash: '#FFC24D24', onAccent: '#1C1408' },
+    intense:    { ink: '#D9ADFF', wash: '#D9ADFF24', onAccent: '#1C1408' }, // violet, not red — regulator ethic
+    reflective: { ink: '#B7A6FF', wash: '#B7A6FF24', onAccent: '#1C1408' },
   },
-  state: { success: '#3ECF8E', warning: '#E7B75B', danger: '#FF6B6B', info: '#31E1C4' },
+  state: { success: '#3ECF8E', warning: '#E7B75B', danger: '#FF6B6B', info: '#C9A6FF' },
 };
 
 const light: ColorScheme = {
@@ -99,20 +101,20 @@ const light: ColorScheme = {
     primary: '#0E1920',     // ink — deep slate
     secondary: '#3E5764',   // slate
     tertiary: '#4C6572',    // (tuned down to hold AA-normal on porcelain)
-    onAccent: '#FFFFFF',    // white on the deep-teal fill
+    onAccent: '#2A1B00',    // near-black-umber on the gold fill
   },
   accent: {
-    glow: '#0C8C7B',        // teal (readable as text/icon on porcelain)
-    glowInk: '#0A7A6B',     // deeper teal fill so white onAccent passes AA
-    bloom: '#3D6BE0',       // deeper periwinkle for light bg
+    glow: BRAND_GLOW_LIGHT, // deep aurum gold (readable as text/icon on porcelain)
+    glowInk: '#D99A2E',     // brighter gold fill so the dark onAccent passes AA
+    bloom: '#6D4BC9',       // deeper amethyst for light bg
   },
   emotionAccent: {
-    calm:       { ink: '#0A7A6B', wash: '#0A7A6B14' },
-    joyful:     { ink: '#A34E24', wash: '#A34E2414' },
-    intense:    { ink: '#6E3FC4', wash: '#6E3FC414' }, // violet, not red — regulator ethic
-    reflective: { ink: '#3A5CCC', wash: '#3A5CCC14' },
+    calm:       { ink: BRAND_GLOW_LIGHT, wash: '#7A5A1014', onAccent: '#2A1B00' },
+    joyful:     { ink: '#8F5410', wash: '#8F541014', onAccent: '#2A1B00' },
+    intense:    { ink: '#6E3FC4', wash: '#6E3FC414', onAccent: '#FFFFFF' }, // violet, not red — regulator ethic
+    reflective: { ink: '#573CB8', wash: '#573CB814', onAccent: '#FFFFFF' },
   },
-  state: { success: '#1E9E6A', warning: '#B87A18', danger: '#B4322F', info: '#0C8C7B' },
+  state: { success: '#1E9E6A', warning: '#B4791E', danger: '#B4322F', info: '#6D4BC9' },
 };
 
 export const colors = { dark, light } as const;
@@ -121,13 +123,17 @@ export type ThemeName = keyof typeof colors;
 // ── emotionAccent — valence×arousal → hue (spec §2 / §3) ─────────────────────
 // The palette shifts with mood. Anchor stops the runtime interpolates between;
 // keep in lockstep with the Skia aura's deriveAuraUniforms so UI and aura agree.
-// Calm (low arousal) = the brand glow; rising arousal heats cyan→coral→red.
+// Calm (low arousal) = the brand glow; rising arousal shifts the hue gold→amber→
+// coral-pink toward amethyst — a warm bloom, never an alarming red.
 export const emotionAnchors = {
-  calm: '#31E1C4',    // low arousal
-  warm: '#FFC06B',    // mid
-  coral: '#FF8A73',   // elevated
-  peak: '#FF5A5A',    // high arousal
+  calm: '#F2C879',    // low arousal
+  warm: '#F0A85E',    // mid
+  coral: '#E58AB8',   // elevated
+  peak: '#B368D6',    // high arousal
 } as const;
+
+// single source for the future brand hero gradient; no consumer yet
+export const signatureGradient = ['#F7D08A', '#F2C879', '#E58AB8', '#7C4DD0'] as const;
 
 // ── Space (4-pt base, calm rhythm) ───────────────────────────────────────────
 export const space = { none: 0, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, '2xl': 32, '3xl': 48, '4xl': 64 } as const;

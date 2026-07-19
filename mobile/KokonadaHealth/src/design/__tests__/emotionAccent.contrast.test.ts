@@ -31,22 +31,32 @@ describe.each(themes)('emotionAccent ink is AA-safe on the discovery surfaces �
 describe('emotionAccent — designer authority hexes (exact)', () => {
   it('dark quadrant inks + washes', () => {
     expect(colors.dark.emotionAccent).toEqual({
-      calm: { ink: '#31E1C4', wash: '#31E1C424' },
-      joyful: { ink: '#FFC06B', wash: '#FFC06B24' },
-      intense: { ink: '#C4A6FF', wash: '#C4A6FF24' },
-      reflective: { ink: '#9DB4FF', wash: '#9DB4FF24' },
+      calm: { ink: '#F2C879', wash: '#F2C87924', onAccent: '#1C1408' },
+      joyful: { ink: '#FFC24D', wash: '#FFC24D24', onAccent: '#1C1408' },
+      intense: { ink: '#D9ADFF', wash: '#D9ADFF24', onAccent: '#1C1408' },
+      reflective: { ink: '#B7A6FF', wash: '#B7A6FF24', onAccent: '#1C1408' },
     });
   });
   it('light quadrant inks + washes', () => {
     expect(colors.light.emotionAccent).toEqual({
-      calm: { ink: '#0A7A6B', wash: '#0A7A6B14' },
-      joyful: { ink: '#A34E24', wash: '#A34E2414' },
-      intense: { ink: '#6E3FC4', wash: '#6E3FC414' },
-      reflective: { ink: '#3A5CCC', wash: '#3A5CCC14' },
+      calm: { ink: '#7A5A10', wash: '#7A5A1014', onAccent: '#2A1B00' },
+      joyful: { ink: '#8F5410', wash: '#8F541014', onAccent: '#2A1B00' },
+      intense: { ink: '#6E3FC4', wash: '#6E3FC414', onAccent: '#FFFFFF' },
+      reflective: { ink: '#573CB8', wash: '#573CB814', onAccent: '#FFFFFF' },
     });
   });
   it('calm dark ink IS the brand accent glow (a calm session wears the brand accent)', () => {
     expect(colors.dark.emotionAccent.calm.ink).toBe(colors.dark.accent.glow);
+  });
+});
+
+// In DARK, discovery paints `ink` as a solid emotion chip and drops `onAccent` as the label ON
+// that fill, so onAccent must clear AA-normal over its own quadrant ink. (Dark only — the light
+// fills use onAccent as a fill-label whose legibility is governed by the light spec, not asserted
+// here: light onAccent is white/near-black-brown on a mid-value ink and fails this by design.)
+describe('emotionAccent onAccent is AA-safe as a label on its own ink — dark', () => {
+  it.each(quadrants)('onAccent clears AA-normal on the %s ink fill (≥ 4.5)', (q) => {
+    expect(contrastRatio(colors.dark.emotionAccent[q].onAccent, colors.dark.emotionAccent[q].ink)).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 });
 

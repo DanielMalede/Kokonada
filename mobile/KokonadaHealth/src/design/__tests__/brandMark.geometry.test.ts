@@ -43,20 +43,20 @@ describe('brandMark.geometry — Aurora Seed constants', () => {
 
   it('carries the exact dark (abyss) spec literals', () => {
     expect(treatments.dark.bg).toBe('#060B11');
-    expect(treatments.dark.coreHighlight).toBe('#ECFFFB');
-    expect(treatments.dark.coreBody).toBe('#6FF3DE');
-    expect(treatments.dark.ring).toBe('#31E1C4');
+    expect(treatments.dark.coreHighlight).toBe('#FFF7E9');
+    expect(treatments.dark.coreBody).toBe('#F7D08A');
+    expect(treatments.dark.ring).toBe('#F2C879');
     expect(treatments.dark.ring1Alpha).toBe(0.85);
     expect(treatments.dark.ring2Alpha).toBe(0.38);
-    expect(treatments.dark.bloom).toBe('#31E1C4');
+    expect(treatments.dark.bloom).toBe('#F2C879');
     expect(treatments.dark.bloomStops.map((s) => s.alpha)).toEqual([0.55, 0.28, 0]);
   });
 
   it('carries the exact light (porcelain) spec literals', () => {
     expect(treatments.light.bg).toBe('#F3F8FA');
-    expect(treatments.light.coreHighlight).toBe('#16A892');
-    expect(treatments.light.coreBody).toBe('#0A7A6B');
-    expect(treatments.light.ring).toBe('#0C8C7B');
+    expect(treatments.light.coreHighlight).toBe('#E0A93A');
+    expect(treatments.light.coreBody).toBe('#9A6E12');
+    expect(treatments.light.ring).toBe('#7A5A10');
     expect(treatments.light.ring1Alpha).toBe(0.9);
     expect(treatments.light.ring2Alpha).toBe(0.3);
   });

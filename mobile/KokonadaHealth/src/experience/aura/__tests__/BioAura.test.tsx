@@ -52,13 +52,13 @@ describe('auraBreath — REGULATOR ETHIC (breath slows + deepens as arousal rise
 
 describe('auraBreath — hrGlowColor is capped at coral (NEVER alarming red)', () => {
   it('cool calm at rest → soft coral at peak, and never the peak red anchor', () => {
-    expect(hrGlowColor(null)).toBe('rgb(49,225,196)');   // emotionAnchors.calm #31E1C4
-    expect(hrGlowColor(200)).toBe('rgb(255,138,115)');   // emotionAnchors.coral #FF8A73 — the CAP
-    expect(hrGlowColor(200)).not.toBe('rgb(255,90,90)'); // never emotionAnchors.peak #FF5A5A
-    expect(emotionAnchors.coral).toBe('#FF8A73');
+    expect(hrGlowColor(null)).toBe('rgb(242,200,121)');    // emotionAnchors.calm #F2C879
+    expect(hrGlowColor(200)).toBe('rgb(229,138,184)');     // emotionAnchors.coral #E58AB8 — the CAP
+    expect(hrGlowColor(200)).not.toBe('rgb(179,104,214)'); // never emotionAnchors.peak #B368D6
+    expect(emotionAnchors.coral).toBe('#E58AB8');
   });
   it('a non-finite HR degrades to the resting calm colour (never NaN into Skia)', () => {
-    expect(hrGlowColor(NaN)).toBe('rgb(49,225,196)');
+    expect(hrGlowColor(NaN)).toBe('rgb(242,200,121)');
     expect(hrGlowColor(Infinity)).toMatch(/^rgb\(\d+,\d+,\d+\)$/);
   });
 });
@@ -76,14 +76,14 @@ describe('BioAura — additive accent composition', () => {
   it('WITHOUT an accentColor renders the HR glow ONLY (identical read to today)', async () => {
     const tree = await render(<BioAura hr={72} size={200} />);
     expect(findCircle(tree, hrGlowColor(72)).length).toBeGreaterThan(0); // HR layer present
-    expect(findCircle(tree, '#C4A6FF')).toHaveLength(0);                  // no emotion tint layer
+    expect(findCircle(tree, '#D9ADFF')).toHaveLength(0);                  // no emotion tint layer
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('WITH an accentColor composites a SECOND glow tinted to that emotion ink', async () => {
-    const tree = await render(<BioAura hr={72} size={200} accentColor="#C4A6FF" />);
+    const tree = await render(<BioAura hr={72} size={200} accentColor="#D9ADFF" />);
     expect(findCircle(tree, hrGlowColor(72)).length).toBeGreaterThan(0); // HR layer still there
-    expect(findCircle(tree, '#C4A6FF').length).toBeGreaterThan(0);        // accent bloom on top
+    expect(findCircle(tree, '#D9ADFF').length).toBeGreaterThan(0);        // accent bloom on top
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

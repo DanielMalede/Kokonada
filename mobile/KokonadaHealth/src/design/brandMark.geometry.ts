@@ -64,28 +64,28 @@ export const treatments: { readonly dark: Treatment; readonly light: Treatment }
   dark: {
     bg: '#060B11',
     bgGradient: ['#0B131C', '#04080D'],
-    coreHighlight: '#ECFFFB',
-    coreBody: '#6FF3DE',
-    ring: '#31E1C4',
+    coreHighlight: '#FFF7E9',
+    coreBody: '#F7D08A',
+    ring: '#F2C879',
     ring1Alpha: 0.85,
     ring2Alpha: 0.38,
-    bloom: '#31E1C4',
+    bloom: '#F2C879',
     bloomStops: [
       { offset: 0.0, alpha: 0.55 },
       { offset: 0.35, alpha: 0.28 },
       { offset: 1.0, alpha: 0.0 },
     ],
   },
-  // Light / Porcelain — light surfaces + marketing + favicon (deep-teal ink on cool white).
+  // Light / Porcelain — light surfaces + marketing + favicon (deep-gold ink on cool white).
   light: {
     bg: '#F3F8FA',
     bgGradient: ['#FFFFFF', '#E9F1F4'],
-    coreHighlight: '#16A892',
-    coreBody: '#0A7A6B',
-    ring: '#0C8C7B',
+    coreHighlight: '#E0A93A',
+    coreBody: '#9A6E12',
+    ring: '#7A5A10',
     ring1Alpha: 0.9,
     ring2Alpha: 0.3,
-    bloom: '#31E1C4',
+    bloom: '#D99A2E',
     bloomStops: [
       { offset: 0.0, alpha: 0.22 },
       { offset: 0.35, alpha: 0.11 },

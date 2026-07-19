@@ -1,4 +1,4 @@
-import { colors, space, radius, motion, type, emotionAnchors, glassAlpha, type ColorScheme, type ThemeName } from '../tokens';
+import { colors, space, radius, motion, type, emotionAnchors, glassAlpha, signatureGradient, type ColorScheme, type ThemeName } from '../tokens';
 import { contrastRatio, passesAA, parseHex, flatten, relativeLuminance, AA_NORMAL, AA_LARGE } from '../contrast';
 import { resolveScheme } from '../theme';
 
@@ -73,6 +73,12 @@ describe.each(themes)('theme "%s" — content passes AA on every surface', (name
     const under = flatten(parseHex(c.surface.overlay), glassAlpha[name], parseHex(c.surface.base));
     const flatHex = `#${[under.r, under.g, under.b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
     expect(contrastRatio(c.content.primary, flatHex)).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+});
+
+describe('signatureGradient — the dormant brand hero gradient (single source, no consumer yet)', () => {
+  it('pins the gold→amethyst stop order exactly', () => {
+    expect(signatureGradient).toEqual(['#F7D08A', '#F2C879', '#E58AB8', '#7C4DD0']);
   });
 });
 
