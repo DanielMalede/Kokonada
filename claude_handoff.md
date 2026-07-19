@@ -1,46 +1,59 @@
-# Kokonada — Session Handoff (2026-07-06)
+# Kokonada — Session Handoff (2026-07-19)
 
-Everything below is committed unless noted. Safe to `/clear` and resume from this.
+Everything below is committed/merged unless noted. Safe to `/clear` and resume from this.
+This is a **cross-session** handoff — multiple parallel sessions update it. Always `git fetch origin main`
+and re-verify PR/merge state before trusting a status here; this repo moves fast (5+ PRs/day is normal).
+NOTE: on 2026-07-19 the main checkout was seen on a parallel branch `feat/aurum-amethyst-palette` — do
+**not** assume the checked-out branch reflects your session; verify against `origin/main` directly.
 
-## ✅ Shipped & merged (prod)
-- #70 energy-primary band, #71 hydration 429-backoff, #72 texture gates + rhythmic rotation + playlist weight, #73 Spotify playlist-read scopes, #74 OAuth deep-link back to app, #75 geminiEngine 429-backoff (fixed the `tracks=10` generation collapse). **Running/Workout confirmed SOLID by Daniel.**
+## 🏁 MILESTONE — the standalone app runs 24/7 and plays music (verified on-device 2026-07-19)
+Kokonada is now an installable, standalone Android app you can run all day without Metro, and it plays real music end to end.
+- **Standalone release build** (JS+Hermes bundle embedded → no Metro): `cd mobile/KokonadaHealth/android && JAVA_HOME="C:\Program Files\Android\Android Studio\jbr" ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a` → `app/build/outputs/apk/release/app-release.apk` (~50 MB, arm64-v8a). Install: `adb install -r <apk>` (same release key ⇒ keeps login/data). Backup copy staged at `C:\Users\danie\Videos\Kokonada-standalone.apk` (sideloadable).
+- **Release keystore (PERMANENT — BACK IT UP):** `android/app/kokonada-release.keystore` (gitignored), alias `kokonada`, creds in `android/keystore.properties` (gitignored). **Release SHA-1: `79:DC:AF:76:84:47:45:55:80:C2:72:93:38:52:36:A0:A8:40:55:AC`** — registered in Google Cloud Console (Android OAuth client, project `225621926146`) + Spotify dashboard. Losing the keystore/password ⇒ can never update the installed app.
+- **Verified flow (2026-07-19):** Google login → Spotify connected → taste profile built from Spotify history (~90 s first connect) → Generate → 50 real `spotify:track:` tracks → Spotify App Remote PLAYED (player position advanced in logcat).
 
-## 🔄 Hydration (background, unattended)
-- New account `userId=6a4b992f0e82ab8ed85e8d9a`. Was 2276 featureless; **pass 2 running** (50-min budget, TPM-paced on Groq free 6000 TPM).
-- Driver: `kokonada-wt-ws1/backend/_hydrateDriver.js`. Re-fire until it prints `missing=0`:
-  `HYDRATE_BUDGET_S=3000 railway run -p 1dea751f-6230-491f-9229-29fa158d61df -e production -s kokonada-backend -- node C:/Users/danie/Videos/kokonada-wt-ws1/backend/_hydrateDriver.js`
-- Delete `_hydrateDriver.js` + `_rebuildDriver.js` (temp, gitignored-by-convention) when done.
+## ✅ Shipped & merged (main) — Wave 2.8.2 rollout + standalone follow-ups
+Screen rollout (all 7 screens + brand):
+- **#160** Connect Services (§4) — provider registry `{enabled|deferred|halted}`, mood-only path, wearable→Art.9 consent handoff.
+- **#161** §0 shared system-state components (Skeleton, EmptyState, OfflineBanner, useCalmPulse).
+- **#162** Generate HERO (§5) + Genesis overlay (§6) — reactive emotion wheel, aura, tap-rewind, magic-moment.
+- **#163** History (§9) — quiet-archive redesign. · **#164** Pulse (§8) — honest body dashboard (Garmin-only source truth).
+- **#165** Profile / Privacy Vault (§10) — integration rows, watch pairing-code, consent-withdrawal echo, GDPR delete.
+- **#166** §0 tab bar chrome + system-state shell — Skia glyphs (tofu-proof), emotion-tinted active tab, offline banner.
+- **#167** Brand identity — Aurora Seed icon, wordmark 600, adaptive/monochrome icons, bootsplash, Splash breath-seam. · **#168** General Sans Semibold bundled + display token flipped.
+- **#169** docs: Wave 2.8.2 rollout marked complete (SCREENS.md).
 
-## ✅ Part 2a — Neural-Analysis Loader (DONE, committed on `feat/spotify-playback-turbomodule`, NOT pushed)
-- Design LOCKED via preview: **Genesis** — bigger translucent glass pearl, **living 3D reticulated neural net** (nodes pulse on own phase), undulating harmonic bloom, `active` springs intensity (soft overshoot), `engagement` heats **cyan→coral→red**.
-- Files: `mobile/KokonadaHealth/src/experience/generate/` → `neuralLoaderMath.ts` (14 tests, pure+worklet-safe, NaN-clamped), `NeuralAnalysisLoader.tsx` (Skia+Reanimated), `generationStatusStore.ts` (3 tests, begin/settle + 30s auto-settle), Generate-screen wiring; `jest.setup.js` mocks extended. **401 mobile tests green.**
-- To SEE it: **Metro reload (press `r`)** — pure JS + existing Skia, no `gradlew` rebuild. On-device visual tuning may follow (values map 1:1 from preview).
+Standalone + follow-ups (this session):
+- **#170** Garmin special-category **consent-version gate** — prose "MUST bump" comment → enforced test; `GARMIN_CONSENT_MIN_VERSION=2`, `CURRENT_CONSENT_VERSION` stays 1 (Garmin S2S lane dormant). Resilience 8.5/10.
+- **#171** **Deterministic emotion-fallback playlist** (§5 Fork 4B) — when generation fails/empties, returns a library-only, emotion-honoring, never-empty playlist; closes G-1/G-2/G-4; fixes an anti-repetition parity bug. Zero mobile change. Resilience 9.2/10.
+- **#172** Closed a pre-existing **GDPR Art.9 leak** — `/health/batch` could persist spO2/respiratory at consent v1; dropped them from the HC-lane map + added the same v2 gate (shared `wearable/specialCategoryMetrics.js`). "Special categories never persisted below v2" is now **system-wide TRUE**. Resilience 9.4/10.
+- **#173** Fallback playlist **hardening** — serve-ledger records the *served* set (true canonicalKey), a T1≠T0 coverage test, port throw-safety.
+- **#174** **Android release signing** — `buildTypes.release` uses the real keystore when `keystore.properties` exists, else debug (CI-safe fallback).
+- **#175** **Beta-flagged Spotify connect** — `SPOTIFY_BETA_CONNECT` in `mobile/KokonadaHealth/src/experience/connect/betaFlags.ts`, committed **false** (tripwire test fails CI if ever true on main). Compliance SHIP. See "Providers" below.
 
-## 🔨 Part 3 — Biometric Buffer (in progress, branch `feat/biometric-buffer` off main, NOT pushed)
-- **Done + committed (1078 backend tests green):**
-  - `queues/definitions.js` → `BIOMETRIC_BUFFER='biometric-buffer'`
-  - `repositories/shadowBufferRepo.js` (setBuffer/getBuffer, key `buffer:{userId}:{bioMoodKey}`, TTL `SHADOW_BUFFER_TTL_S=1800`, 6 tests)
-  - `workers/biometricBuffer.worker.js` (+ registered in `workers/index.js`) — reuses `generateV2`, stores buffer, **records NO serves** (3 tests). Kept as infra for future predictive warming.
-  - **Warm-on-transition (inline)** in `sockets/biometricHandler.js` after the `[generate] done` log: an HR-driven gen (`!useEmotion && isPhysiologicalHR`) caches its `clientTracks` under `moodKey` (the `bio:*` key) via `shadowBufferRepo.setBuffer` — **zero extra Groq cost** (reuses the playlist, NOT the worker, to protect the free-tier TPM). Fire-and-forget, no serves recorded.
-- **Remaining — folds into Part 2b (needs the client Live toggle):**
-  - **Read buffer on toggle**: `getBuffer(userId, currentBioMoodKey)` → play instantly; cold → one-time live gen + loader "assembling your live biometric soundscape".
-  - **Serve-on-play**: `serveLedger.recordServes` ONLY when a buffer is actually played (§3.5) — currently the live gen path records serves on emit; the buffer *store* does not.
-- `generateV2({ userId, musicProfile, moodKey, provider, aiParams, discoveryTracks, live:{heartRate,activity}, k, now, crossPlatform }) → { familiar, discovery, merged, telemetry, targets }` (`services/generation/orchestrator.js:54`).
-- Spec: `docs/superpowers/specs/2026-07-06-unified-pool-dualpath-shadowbuffer-design.md` §3.
+(Earlier the same day, before this session: #154 WS-5 consent gate, #155 Spotify resolver-URI recontamination, #156 Garmin disconnect erasure, #157 youtube-discovery short-circuit, #158 serve side-effects, #159 consent-gate gap closure.)
 
-## 🔨 Part 2b — mobile dual-path (in progress on `feat/spotify-playback-turbomodule`)
-- **Done + committed:** `src/experience/generate/liveModeStore.ts` — persisted (KVBackend port) `liveMode` store, default Manual; `createLiveModeStore(kv?)` (5 tests) + prod singleton + `bindLiveModeKV(kv)`. This RESOLVES the "liveMode has no home" fork (warmStore ephemeral / emotionSlice sealed).
-- **Done + committed (406 mobile tests green):**
-  1. ✅ **Bootstrap bind** — `prodBootstrap.ts` calls `bindLiveModeKV({getString,set})` (adapting SecureStore's `getItem`/`setItem`) after `createSecureStore()`, so the preference persists.
-  2. ✅ **Live/Manual switch** on `GenerateScreen` (above ActivityChips), reads/sets `liveModeStore`, `accessibilityLabel="live-mode-toggle"`.
-- **Remaining — the ONE last piece (needs a fresh session; touches socket/server):**
-  - **Slice 4 — Band recalibration serving the buffer:** in Live mode, on a confirmed band change, serve the Part-3 buffer instead of a fresh gen: a socket handler reads `shadowBufferRepo.getBuffer(userId, currentBioMoodKey)` → play instantly; **cold** → one-time live gen + show the loader with "assembling your live biometric soundscape"; **record serves ONLY on play** (`serveLedger.recordServes`, §3.5). Also gate the Generate CTA to a "live-tuned" state when `liveMode` (so manual + live can't both drive the queue). Server-side: mode-gate `biometricHandler` auto-gen on `liveMode` (client sends mode, or a per-socket flag). This is the only unfinished item in the whole plan.
-- No client auto-generation exists today (manual is the only trigger) — Live mode's band-recalibration is net-new. Reorder (2a→3→2b) was approved.
+## 🎛️ Providers (Connect Services §4) — EXACT current facts (verified in code 2026-07-19)
+- **Playback is Spotify-only.** `resolvePlaybackProvider(user)` returns literally `'spotify' | null` (`backend/app/utils/providerSelect.js:52`). There is **no YouTube player anywhere in the app** (`backend/app/sockets/biometricHandler.js:145` — "Playback is Spotify-only … NO client — web or mobile — has a YouTube player").
+- **Spotify.** Two separate systems: (i) **App Remote playback** (the sink) — always on, works whenever the Spotify app is installed + the owner is Premium; (ii) **OAuth account-connect** (the source, builds the taste profile) — the surface that was halted.
+  - Public onboarding shows Spotify **"halted"/Unavailable** (`connect/providers.ts:30`) because Spotify's 2026 Dev-Mode caps solo-dev apps at **5 authorized users** (Extended Quota needs a business + 250k MAU). **Do NOT flip `providers.ts` to `enabled` publicly** — it breaches the cap the moment a 6th installer connects.
+  - **Beta path (Daniel's ≤5-tester build):** flip `SPOTIFY_BETA_CONNECT=true` locally (uncommitted) → a "Connect" button appears in Profile/Settings (reuses the existing OAuth handler). Compliance **SHIP** (the ≤5 cap is enforced *server-side by Spotify*; owner must hold Premium; before ANY beta wider than 5, add the Spotify logo + "Powered by Spotify"). **This is live + verified playing music for Daniel.**
+- **YouTube is DATA-ONLY — not a playback sink.** Registry `deferred`/"Not yet available". If connected, it only builds the taste profile (source) + export; it produces **no audio**. Blocked on the Google OAuth sensitive-scope verification.
+  - **YouTube playback player = APPROVED for a FUTURE session, NOT built.** The Source/Sink plan calls for an **attested-IFrame, Premium-only** YouTube player (YouTube ToS requires the official IFrame player showing the video; Premium can't be verified via API → self-attested). This does **not** exist in code today — it's new dev + a YouTube-terms compliance pass when picked up. (Reconciles the earlier "YouTube needs Premium + a running video" statement — that described this *plan*, not current capability.)
+
+## ⏳ In progress / next up (Daniel-paced, not blocking)
+- **YouTube OAuth sensitive-scope verification** — Artifact/checklist delivered (`youtube.readonly` is *sensitive*, not *restricted* ⇒ no CASA audit). Trap: move the app to "Production" before starting the review clock or sensitive-scope tokens expire every 7 days. Enriches the profile; does NOT add audio.
+- **YouTube attested-IFrame Premium PLAYER** — new dev (see Providers). Daniel wants this in a future session.
+- **Wave-3 store submission** — DEFERRED per Daniel (playback attribution, Groq DPA/ZDR, Play/Apple forms, store-icon export/upload, iOS icon build on a Mac).
+- **Declined (deliberate):** GDPR audit LOW nits — centralize the special-category gate inside `persistMetrics` / graceful-degrade on a consent-DB read error. Daniel chose to keep strict fail-closed Art.9 + avoid store↔consent coupling; the invariant is already system-wide TRUE without them.
 
 ## Environment / gotchas
-- Backend worktree: `C:\Users\danie\Videos\kokonada-wt-ws1` (branch off `origin/main`). Mobile: `C:\Users\danie\Videos\AI-Music-App` on `feat/spotify-playback-turbomodule`.
-- Run mobile jest from `mobile/KokonadaHealth` (`cd` first — cwd resets to repo root where root jest fails with "import outside a module").
-- Groq free **6000 TPM** is the ceiling (Daniel staying free); `withRetry` 429-backoff in `llmClient` + `geminiEngine` handles it.
-- Commit style: **short single-line, no body/trailers**.
-- Railway: project `1dea751f-6230-491f-9229-29fa158d61df`, service `kokonada-backend`, env `production`. CLI authed.
-- To push/PR when ready: `feat/biometric-buffer` (Part 3) and the loader commits on `feat/spotify-playback-turbomodule`.
+- `hermesEnabled=true`, `newArchEnabled=true`. `config.ts` `BACKEND_URL` targets prod Railway (`kokonada-backend-production.up.railway.app`) ⇒ standalone app works over WiFi/data, no `adb reverse`/Metro.
+- **Spotify connect dashboard setup (new tester):** Spotify Dashboard → **User Management** (add tester's Spotify account, ≤5 total incl. owner) + **Redirect URIs** (`https://kokonada-backend-production.up.railway.app/api/integrations/spotify/callback` — must EXACTLY match Railway `SPOTIFY_REDIRECT_URI`, the #1 failure cause — and `kokonadahealth://spotify-callback`) + **Android** package `com.kokonadahealth` + the release SHA-1. Owner account must be Premium.
+- **`gh pr merge` classifier hard-blocks agent-initiated merges** regardless of verbal permission — every PR needs Daniel's manual merge click (intermittently allows).
+- **Flaky device USB** — the S22+ (`RFCT40SGAWM`) drops intermittently; re-check `adb devices` before an on-device step. Sideload alternative: copy `Kokonada-standalone.apk` to the phone, tap to install (same signature ⇒ keeps data/login).
+- **git worktree on Windows:** `git worktree remove --force` unregisters the worktree but can leave the physical dir (with `node_modules`) on disk; delete leftovers with `cmd rmdir /s /q` (junction-safe — does NOT follow a `node_modules` junction into the main checkout). NEVER `rm -rf` / `Remove-Item -Recurse` a worktree dir that has a node_modules JUNCTION.
+- **A worktree cut from `origin/main` has a placeholder `mobile/KokonadaHealth/src/health/config.ts`** — copy the real one from the main checkout + `git update-index --skip-worktree` before an on-device build.
+- **Other parallel sessions are active in this repo** — always fetch/verify against `origin/main`; don't trust the checked-out branch.
+- **MongoDB MCP is the real app DB** (named `test` — Mongoose default); read-only `count`/`find` are safe.
+- Commit style: **short single-line, no body/trailers, no AI/Claude/Anthropic attribution** (CLAUDE.md standing order).
