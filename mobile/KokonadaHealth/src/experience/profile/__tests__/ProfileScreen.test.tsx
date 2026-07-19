@@ -43,6 +43,16 @@ jest.mock('../../../health/healthConnect', () => ({
 }));
 jest.mock('../../../health/healthSync', () => ({ syncMedicalProfile: jest.fn() }));
 
+// Beta-tester flag seam for the Spotify FIRST-connect surface (ADR-0011 / ToS 5-user cap). A
+// mutable getter lets one test file exercise both the committed-OFF public build and a tester
+// build with it flipped ON. Reset to false (the committed default) in beforeEach so every other
+// test sees the honest public behaviour. Its committed value is separately tripwired in
+// connect/__tests__/betaFlags.test.ts.
+let mockSpotifyBetaConnect = false;
+jest.mock('../../connect/betaFlags', () => ({
+  get SPOTIFY_BETA_CONNECT() { return mockSpotifyBetaConnect; },
+}));
+
 // useFocusEffect needs a navigation context; mock it to run the effect on mount and expose the
 // callback so a test can simulate returning to the tab (re-focus → re-fetch profile/consent/watch).
 let mockFocusCb: null | (() => void) = null;
@@ -111,6 +121,7 @@ const status = (over: Record<string, unknown> = {}) => ({ ok: true, data: { gran
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSpotifyBetaConnect = false; // committed public default: Spotify first-connect is hidden
   loadProfile.mockResolvedValue({
     me: { id: 'u1', displayName: 'Dan Malede', email: 'd@x.io', wearableProvider: null },
     integrations: { spotifyConnected: false },
@@ -234,6 +245,59 @@ describe('ProfileScreen', () => {
     expect(url).toContain('returnTo=app'); // same deep-link-back flow as first connect
 
     openURL.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── Spotify beta-connect flag (ADR-0011 / ToS 5-user cap) ────────────────────────────────
+  // The FIRST-connect surface is gated behind SPOTIFY_BETA_CONNECT (committed OFF). Off ⇒ the app
+  // behaves as if Spotify connect does not exist; a tester build may flip it ON to link an account
+  // via the SAME proven OAuth flow the Reconnect action already uses.
+
+  it('flag OFF + not connected: NO Connect action is reachable and the connect flow is never invoked', async () => {
+    mockSpotifyBetaConnect = false; // committed public default (redundant with beforeEach, pinned for intent)
+    (profileController.getSpotifyConnectToken as jest.Mock).mockResolvedValue('ct-token');
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+    const tree = await render(); // beforeEach: integrations spotifyConnected:false
+    // No first-connect affordance exists at all.
+    expect(tree.root.findAll((n) => n.props.testID === 'connect-spotify')).toHaveLength(0);
+    expect(tree.root.findAll((n) => n.props.testID === 'reconnect-spotify')).toHaveLength(0);
+    // The honest halted status word is unchanged (public build byte-identical).
+    expect(texts(tree.toJSON()).join(' ')).toContain('Unavailable');
+    // With no reachable control, the OAuth flow is never started.
+    expect(profileController.getSpotifyConnectToken).not.toHaveBeenCalled();
+    expect(openURL).not.toHaveBeenCalled();
+    openURL.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('flag ON + not connected: a Connect action appears and drives the existing OAuth connect flow', async () => {
+    mockSpotifyBetaConnect = true; // tester build flips it on
+    (profileController.getSpotifyConnectToken as jest.Mock).mockResolvedValue('ct-token');
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+    const tree = await render(); // beforeEach: integrations spotifyConnected:false
+    const btn = byTestId(tree, 'connect-spotify');
+    expect(btn).toBeTruthy();
+    expect(btn.props.accessibilityLabel).toContain('Connect Spotify'); // human label folds the row name
+    await ReactTestRenderer.act(async () => { await btn.props.onPress(); });
+    // Reuses the same handler → mint token, then open the SAME connect URL as Reconnect.
+    expect(profileController.getSpotifyConnectToken).toHaveBeenCalledTimes(1);
+    expect(openURL).toHaveBeenCalledTimes(1);
+    const url = openURL.mock.calls[0][0];
+    expect(url).toContain('/api/integrations/spotify/connect?ct=');
+    expect(url).toContain('returnTo=app');
+    openURL.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('already connected: the Reconnect action still renders (no Connect) regardless of the flag', async () => {
+    mockSpotifyBetaConnect = true; // even with the flag ON, an already-connected account keeps Reconnect
+    loadProfile.mockResolvedValue({
+      me: { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null },
+      integrations: { spotifyConnected: true },
+    });
+    const tree = await render();
+    expect(byTestId(tree, 'reconnect-spotify')).toBeTruthy();
+    expect(tree.root.findAll((n) => n.props.testID === 'connect-spotify')).toHaveLength(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
