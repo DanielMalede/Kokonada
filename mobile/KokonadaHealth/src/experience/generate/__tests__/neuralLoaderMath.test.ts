@@ -117,10 +117,10 @@ describe('heat (engagement colour ramp: cyan → coral, CAPPED — never peak re
     expect(heat(1)).not.toEqual(RED); // matches the aura's hrGlowColor cap
   });
 
-  it('is warm (more red than blue) at peak and cool (more blue than red) at rest', () => {
+  it('shifts from the warm calm gold toward the cooler coral-pink hot end (blue rises, green falls)', () => {
     const cool = heat(0), hot = heat(1);
-    expect(cool[2]).toBeGreaterThan(cool[0]); // blue > red when calm
-    expect(hot[0]).toBeGreaterThan(hot[2]);   // red > blue at the (coral) hot end
+    expect(hot[2]).toBeGreaterThan(cool[2]); // blue rises as engagement climbs (gold → coral-pink)
+    expect(cool[1]).toBeGreaterThan(hot[1]); // green falls off the warm gold toward the pink
   });
 
   it('clamps out-of-range and NaN engagement to the endpoints/finite RGB', () => {
