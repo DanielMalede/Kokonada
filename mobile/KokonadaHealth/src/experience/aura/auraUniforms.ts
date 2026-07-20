@@ -4,7 +4,7 @@
 // frame count, so the aura breathes identically at 60fps or a throttled 30fps.
 
 export interface AuraUniforms {
-  hue: number;      // 0..360 — cool (calm) → warm (aroused)
+  hue: number;      // 198..262 — the cool Aurora band: sky (calm) → violet (aroused). NEVER warm.
   intensity: number; // 0..1 — glow strength
   pulseHz: number;   // >0..4 — beats per second driving the breathing
 }
@@ -17,6 +17,16 @@ const HR_MAX = 200;
 const MAX_PULSE_HZ = 4; // hard strobe guard
 const TWO_PI = 2 * Math.PI;
 
+// ── AURORA hue band (regulator ethic, enforced at the uniform) ───────────────
+// The aura lives entirely inside a COOL band: sky → violet. Rising arousal DEEPENS the light
+// toward violet; it can never cross into orange/red. The previous mapping ramped 210 → 0, i.e.
+// straight into alarm red at high HR — exactly the "visually agitate a stressed user" failure the
+// regulator ethic forbids. The band is a hard clamp, not a convention, so no HR (or future tuning
+// of the ramp) can emit a warm hue onto the Skia surface.
+const HUE_MIN = 198;     // sky — the coolest the aura goes
+const HUE_MAX = 262;     // violet — the "hot" end of the band, still cool to the eye
+const HUE_RESTING = 210; // === RESTING_AURA.hue, so connecting a watch never jumps the colour
+
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
@@ -28,7 +38,8 @@ export function deriveAuraUniforms(hr: number | null): AuraUniforms {
   const t = (clampedHr - HR_MIN) / (HR_MAX - HR_MIN); // 0..1
 
   return {
-    hue: 210 - t * 210,                       // 210 (cool blue) → 0 (hot red)
+    // resting sky → aroused violet, hard-clamped inside the never-red band
+    hue: clamp(HUE_RESTING + t * (HUE_MAX - HUE_RESTING), HUE_MIN, HUE_MAX),
     intensity: clamp(0.1 + t * 0.8, 0, 1),
     pulseHz: clamp(clampedHr / 60, 0.1, MAX_PULSE_HZ), // bpm → beats/sec, strobe-capped
   };

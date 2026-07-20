@@ -17,9 +17,9 @@ import { parseHex } from '../../../design/contrast';
 describe('heat ramp anchors are the emotionAnchors tokens (no palette drift)', () => {
   const rgb = (hex: string) => { const { r, g, b } = parseHex(hex); return [r, g, b]; };
   it('CYAN = emotionAnchors.calm, CORAL = emotionAnchors.coral, RED = emotionAnchors.peak', () => {
-    expect(CYAN).toEqual(rgb(emotionAnchors.calm));   // #31E1C4
-    expect(CORAL).toEqual(rgb(emotionAnchors.coral)); // #FF8A73
-    expect(RED).toEqual(rgb(emotionAnchors.peak));    // #FF5A5A
+    expect(CYAN).toEqual(rgb(emotionAnchors.calm));   // #3FB4F0 sky
+    expect(CORAL).toEqual(rgb(emotionAnchors.coral)); // #8B6FE8 violet
+    expect(RED).toEqual(rgb(emotionAnchors.peak));    // #4B6FD0 indigo
   });
 });
 
@@ -117,10 +117,17 @@ describe('heat (engagement colour ramp: cyan → coral, CAPPED — never peak re
     expect(heat(1)).not.toEqual(RED); // matches the aura's hrGlowColor cap
   });
 
-  it('is warm (more red than blue) at peak and cool (more blue than red) at rest', () => {
+  // AURORA re-tinted the anchor triad into the cool band, so the hot end is the VIOLET anchor
+  // rather than a warm coral. The ramp is therefore never red-dominant at ANY engagement — a
+  // strictly stronger never-alarming-red guarantee than "the hot end is merely a softer red".
+  it('stays COOL end-to-end — blue dominates red at rest, mid AND at the (violet) hot end', () => {
     const cool = heat(0), hot = heat(1);
-    expect(cool[2]).toBeGreaterThan(cool[0]); // blue > red when calm
-    expect(hot[0]).toBeGreaterThan(hot[2]);   // red > blue at the (coral) hot end
+    expect(cool[2]).toBeGreaterThan(cool[0]); // blue > red when calm (sky)
+    expect(hot[2]).toBeGreaterThan(hot[0]);   // blue > red at the hot end (violet, not coral)
+    for (const e of [0, 0.25, 0.5, 0.75, 1]) {
+      const c = heat(e);
+      expect(c[2]).toBeGreaterThan(c[0]);
+    }
   });
 
   it('clamps out-of-range and NaN engagement to the endpoints/finite RGB', () => {

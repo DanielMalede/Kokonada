@@ -31,6 +31,9 @@ describe('deriveAuraUniforms — HR → shader params', () => {
     for (const spike of [0, -50, 300, 9999, 1e9]) {
       const u = deriveAuraUniforms(spike);
       expect(Number.isFinite(u.hue)).toBe(true);
+      // even a garbage spike can NEVER push the hue out of the cool band into an alarm colour
+      expect(u.hue).toBeGreaterThanOrEqual(198);
+      expect(u.hue).toBeLessThanOrEqual(262);
       expect(u.intensity).toBeGreaterThanOrEqual(0);
       expect(u.intensity).toBeLessThanOrEqual(1);
       expect(u.pulseHz).toBeGreaterThan(0);
@@ -43,12 +46,20 @@ describe('deriveAuraUniforms — HR → shader params', () => {
     expect(deriveAuraUniforms(Infinity)).toEqual(RESTING_AURA);
   });
 
-  it('hue shifts from calm (cool) toward hot as HR rises but stays a valid 0..360', () => {
+  // AURORA re-tunes the hue into the cool sky→violet band and CLAMPS it there. Rising arousal
+  // deepens the light toward violet; it may never cross into orange/red. The old mapping ramped
+  // 210→0 (straight into red) — that is the regression this band pins shut.
+  it('hue deepens sky→violet as HR rises but NEVER leaves the cool band [198,262]', () => {
     for (const hr of [50, 80, 110, 140, 180]) {
       const u = deriveAuraUniforms(hr);
-      expect(u.hue).toBeGreaterThanOrEqual(0);
-      expect(u.hue).toBeLessThanOrEqual(360);
+      expect(u.hue).toBeGreaterThanOrEqual(198);
+      expect(u.hue).toBeLessThanOrEqual(262);
     }
+    // arousal moves the hue TOWARD violet (up the band), never back down toward red
+    expect(deriveAuraUniforms(180).hue).toBeGreaterThan(deriveAuraUniforms(50).hue);
+    // the no-signal resting default sits in-band too, so there is no jump when a watch connects
+    expect(RESTING_AURA.hue).toBeGreaterThanOrEqual(198);
+    expect(RESTING_AURA.hue).toBeLessThanOrEqual(262);
   });
 });
 
