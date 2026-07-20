@@ -31,22 +31,29 @@ describe.each(themes)('emotionAccent ink is AA-safe on the discovery surfaces â€
 describe('emotionAccent â€” designer authority hexes (exact)', () => {
   it('dark quadrant inks + washes', () => {
     expect(colors.dark.emotionAccent).toEqual({
-      calm: { ink: '#31E1C4', wash: '#31E1C424' },
-      joyful: { ink: '#FFC06B', wash: '#FFC06B24' },
-      intense: { ink: '#C4A6FF', wash: '#C4A6FF24' },
-      reflective: { ink: '#9DB4FF', wash: '#9DB4FF24' },
+      calm: { ink: '#7FCDF5', wash: '#3FB4F024' },
+      joyful: { ink: '#FFD37A', wash: '#F5B93A24' },
+      intense: { ink: '#C4A6FF', wash: '#8B6FE824' },
+      reflective: { ink: '#9DB4FF', wash: '#4B6FD024' },
     });
   });
   it('light quadrant inks + washes', () => {
     expect(colors.light.emotionAccent).toEqual({
-      calm: { ink: '#0A7A6B', wash: '#0A7A6B14' },
-      joyful: { ink: '#A34E24', wash: '#A34E2414' },
-      intense: { ink: '#6E3FC4', wash: '#6E3FC414' },
-      reflective: { ink: '#3A5CCC', wash: '#3A5CCC14' },
+      calm: { ink: '#1F6FA6', wash: '#3FB4F014' },
+      joyful: { ink: '#8A5A12', wash: '#F5B93A14' },
+      intense: { ink: '#6E3FC4', wash: '#8B6FE814' },
+      reflective: { ink: '#3A5CCC', wash: '#4B6FD014' },
     });
   });
-  it('calm dark ink IS the brand accent glow (a calm session wears the brand accent)', () => {
-    expect(colors.dark.emotionAccent.calm.ink).toBe(colors.dark.accent.glow);
+  // AURORA decouples the two: the ambient BRAND is the violet focal glow, while CALM is the sky
+  // stop of the aurora gradient. (Pre-Aurora these were one cyan literal.) Pin both so neither
+  // silently drifts back into the other.
+  it('calm dark ink is the Aurora SKY, distinct from the violet brand glow (which equals glowIdle)', () => {
+    expect(colors.dark.emotionAccent.calm.ink).toBe('#7FCDF5');
+    expect(colors.dark.accent.glow).toBe('#9B7BF0');
+    expect(colors.dark.emotionAccent.calm.ink).not.toBe(colors.dark.accent.glow);
+    expect(colors.dark.accent.glow).toBe(colors.dark.accent.glowIdle);
+    expect(colors.light.accent.glow).toBe(colors.light.accent.glowIdle);
   });
 });
 
