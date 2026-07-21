@@ -41,7 +41,9 @@ describe('MedicalProfile encryption round-trip (real Mongo, real crypto)', () =>
   // A distinct userId per run so the upsert always creates a fresh document.
   const userId = new mongoose.Types.ObjectId().toString();
 
-  // Sleep record carries recordedAt = session END; a few hours ago buckets it into "last night".
+  // recordedAt only feeds computeLastNightSleep's calendar bucketing (which night a sleep record
+  // belongs to) — it is NOT a recency window: toPulseStateDTO reads lastNightSleep.deep
+  // unconditionally, so this timestamp is not load-bearing for the read-back assertion below.
   const lastNight = new Date(Date.now() - 8 * 60 * 60 * 1000);
   const metrics = [
     { metric: 'restingHeartRate', value: 55, unit: 'bpm', recordedAt: new Date(), source: 'apple_health' },

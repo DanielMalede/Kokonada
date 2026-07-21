@@ -222,11 +222,35 @@ describe('D-1 contextUri attach', () => {
     expect(urisArg.length).toBeGreaterThanOrEqual(2);
     expect(urisArg.every((u) => u.startsWith('spotify:track:'))).toBe(true);
 
+    // Exactly ONE playlist_ready — a spurious second (pre-attach, contextUri-less) emit must never
+    // slip past the .find() below (which would otherwise happily match the first, wrong one).
+    const readyEmits = socket.emit.mock.calls.filter((c) => c[0] === 'playlist_ready');
+    expect(readyEmits).toHaveLength(1);
     // The DEFERRED, post-attach payload the client actually receives carries the contextUri.
-    const ready = socket.emit.mock.calls.find((c) => c[0] === 'playlist_ready');
-    expect(ready).toBeTruthy();
+    const ready = readyEmits[0];
     expect(ready[1].contextUri).toBe('spotify:playlist:abc');
     expect(ready[1].tracks.length).toBeGreaterThanOrEqual(2); // tracks still delivered
+  });
+
+  it('attaches the contextUri at the EXACTLY-2-URI boundary (>=2 gate, not >2)', async () => {
+    // A playlist that yields EXACTLY two spotify:track: URIs — the boundary where a `< 2` gate
+    // proceeds but a mutated `< 3` gate would wrongly skip. Pins the write IS driven at 2 URIs.
+    const two = [{ id: 'lib-1', name: 'Familiar 1' }, { id: 'd1', name: 'Discovery 1' }];
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar: [two[0]], discovery: [two[1]], merged: two,
+      telemetry: { stageMs: {} }, targets: { bpmCenter: 120 },
+    });
+    sessionPlaylist.writeSessionPlaylist.mockResolvedValue({ playlistId: 'two', contextUri: 'spotify:playlist:two' });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+
+    expect(sessionPlaylist.writeSessionPlaylist).toHaveBeenCalledTimes(1);
+    expect(sessionPlaylist.writeSessionPlaylist.mock.calls[0][1]).toHaveLength(2); // exactly 2 URIs
+    const ready = socket.emit.mock.calls.find((c) => c[0] === 'playlist_ready');
+    expect(ready).toBeTruthy();
+    expect(ready[1].contextUri).toBe('spotify:playlist:two');
+    expect(ready[1].tracks).toHaveLength(2);
   });
 
   it('fails OPEN to track playback on a 403: playlist_ready STILL emits, WITHOUT a contextUri', async () => {
@@ -238,8 +262,9 @@ describe('D-1 contextUri attach', () => {
 
     expect(sessionPlaylist.writeSessionPlaylist).toHaveBeenCalledTimes(1);
     // The playlist is still delivered — a 403 on the session-playlist write must NEVER fail generation.
-    const ready = socket.emit.mock.calls.find((c) => c[0] === 'playlist_ready');
-    expect(ready).toBeTruthy();
+    const readyEmits = socket.emit.mock.calls.filter((c) => c[0] === 'playlist_ready');
+    expect(readyEmits).toHaveLength(1); // exactly one ready — no duplicate slips past .find below
+    const ready = readyEmits[0];
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
     // …and the client falls back to loose track URIs — no contextUri attached.
     expect(ready[1]).not.toHaveProperty('contextUri');
