@@ -40,6 +40,13 @@ const CTA_LABEL_SIZE = 19;               // ≥18.66 → WCAG-large, so the adap
 const GENESIS_AURORA_OPACITY = 0.5;      // the genesis moment is aurora-tinted, but dimmed under the loader
 const ANALYZING_COPY = 'Reading your signal…';
 const RESOLVED_COPY = 'Found your sound';
+// Once a point is placed the quadrant words LINGER as ambient reference, softened into a genuine
+// out-of-focus blur: a transparent fill + a wide gaussian text-shadow (Android BlurMaskFilter /
+// iOS gaussian NSShadow), so only the blurred glyph shows. Static → reduced-motion safe, 60fps-cheap.
+const FROST_BLUR = 7;                     // gaussian radius — reads as out-of-focus, not a sharp halo
+const FROST_OPACITY = 0.55;              // the frosted words recede behind the taps
+const FROST_SHADOW_OFFSET = { width: 0, height: 0 } as const; // centred bloom (no directional cast)
+const CORNER_INSET = space.xs;           // undo/clear hug the wheel's lower corners (Bug 3)
 
 // Quadrant map (screen diagonals): LR Calm · UR Joyful · UL Intense · LL Reflective.
 const QUADRANT_WORDS: Array<{ q: string; label: string; dx: number; dy: number }> = [
@@ -219,38 +226,58 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
             accentInk={accentInk}
             reduced={reduced}
           />
-          {!typing && !hasTaps ? (
-            // The quadrant words TEACH the map, each on its own AA scrim; they retire once a point is
-            // placed (the map is learned), so they never sit sub-AA over the live field at low opacity.
+          {!typing ? (
+            // The quadrant words TEACH the map, each on its own AA scrim. Once a point is placed the
+            // map is learned — but Daniel wants them to LINGER as ambient reference, so they STAY and
+            // soften into a genuine frosted blur (transparent fill + gaussian text-shadow). Decorative
+            // once tapped → the AA-over-aura burden is waived. Hidden only while typing (mini-ring).
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              {QUADRANT_WORDS.map((qw) => (
-                <View
-                  key={qw.q}
-                  style={[styles.quadrantScrim, {
-                    backgroundColor: textScrimFill(c, name),
-                    left: R + qw.dx * qDiag - space['3xl'] / 2,
-                    top: R + qw.dy * qDiag - space.lg / 2,
-                  }]}
-                >
-                  <Text testID={`quadrant-word-${qw.q}`} style={[styles.quadrantWord, { color: c.content.muted }]}>
-                    {qw.label}
-                  </Text>
-                </View>
-              ))}
+              {QUADRANT_WORDS.map((qw) => {
+                const frosted = hasTaps;
+                return (
+                  <View
+                    key={qw.q}
+                    style={[
+                      styles.quadrantScrim,
+                      {
+                        left: R + qw.dx * qDiag - space['3xl'] / 2,
+                        top: R + qw.dy * qDiag - space.lg / 2,
+                      },
+                      frosted
+                        ? { opacity: FROST_OPACITY }                    // ambient — receded, no scrim
+                        : { backgroundColor: textScrimFill(c, name) },  // teaching — crisp on its AA scrim
+                    ]}
+                  >
+                    <Text
+                      testID={`quadrant-word-${qw.q}`}
+                      style={[
+                        styles.quadrantWord,
+                        frosted
+                          ? { color: 'transparent', textShadowColor: c.content.muted, textShadowOffset: FROST_SHADOW_OFFSET, textShadowRadius: FROST_BLUR }
+                          : { color: c.content.muted },
+                      ]}
+                    >
+                      {qw.label}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           ) : null}
-        </View>
 
-        {hasTaps && !typing ? (
-          <View style={[styles.undoRow, styles.gap24]}>
-            <Pressable testID="generate-undo" accessibilityRole="button" accessibilityLabel="Undo last tap" onPress={onUndo} style={[styles.miniPill, { backgroundColor: c.surface.glassFallback, borderColor: c.surface.hairline }]}>
-              <Text style={[styles.textControlLabel, { color: c.content.muted }]}>↺ Undo</Text>
-            </Pressable>
-            <Pressable testID="generate-clear" accessibilityRole="button" accessibilityLabel="Clear all taps" onPress={onClear} style={[styles.miniPill, { backgroundColor: c.surface.glassFallback, borderColor: c.surface.hairline }]}>
-              <Text style={[styles.textControlLabel, { color: c.content.muted }]}>Clear</Text>
-            </Pressable>
-          </View>
-        ) : null}
+          {/* Bug 3: undo/clear are ABSOLUTE overlays anchored to the wheel's bottom corners, so they
+              fade in on tap with ZERO layout shift — nothing else on the screen moves. Hidden while typing. */}
+          {hasTaps && !typing ? (
+            <>
+              <Pressable testID="generate-undo" accessibilityRole="button" accessibilityLabel="Undo last tap" onPress={onUndo} style={[styles.cornerControl, styles.cornerLeft, styles.miniPill, { backgroundColor: c.surface.glassFallback, borderColor: c.surface.hairline }]}>
+                <Text style={[styles.textControlLabel, { color: c.content.muted }]}>↺ Undo</Text>
+              </Pressable>
+              <Pressable testID="generate-clear" accessibilityRole="button" accessibilityLabel="Clear all taps" onPress={onClear} style={[styles.cornerControl, styles.cornerRight, styles.miniPill, { backgroundColor: c.surface.glassFallback, borderColor: c.surface.hairline }]}>
+                <Text style={[styles.textControlLabel, { color: c.content.muted }]}>Clear</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
 
         <Pressable
           onPress={() => {
@@ -358,7 +385,11 @@ const styles = StyleSheet.create({
   hero: { alignItems: 'center', justifyContent: 'center' }, // overflow visible → the aura halo overspills
   quadrantScrim: { position: 'absolute', width: space['3xl'], alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, paddingVertical: 2 },
   quadrantWord: { textAlign: 'center', fontSize: typography.size.caption, letterSpacing: typography.tracking.caption },
-  undoRow: { flexDirection: 'row', gap: space.xl, justifyContent: 'center' },
+  // Undo/Clear as absolute overlays on the wheel's lower corners (Bug 3) — appearing on tap can never
+  // push a sibling, so the layout stays perfectly still. Same glass mini-pill styling as before.
+  cornerControl: { position: 'absolute', bottom: CORNER_INSET },
+  cornerLeft: { left: CORNER_INSET },
+  cornerRight: { right: CORNER_INSET },
   textControl: { minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center', paddingHorizontal: space.md },
   textControlLabel: { fontSize: typography.size.callout, fontWeight: typography.weight.medium },
   // quiet glass mini-pill (undo / clear / list toggle) — an opaque frosted surface so its muted label
