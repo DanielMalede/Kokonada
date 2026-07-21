@@ -223,16 +223,38 @@ export const radius = { xs: 6, sm: 10, md: 14, lg: 20, xl: 28, pill: 999 } as co
 // ── Type scale (modular ~1.25) — sizes are Dynamic-Type-scalable units ────────
 export const type = {
   family: {
-    // Indirection so bundled faces can replace these later without touching screens.
-    display: 'GeneralSans-Semibold',
-    text: 'System',
+    // Indirection so bundled faces can replace these without touching screens. AURORA bundles
+    // Manrope (OFL) as the ONE face for the whole app — display (incl. the "Kokonada" wordmark,
+    // weight 600), headlines (weight 800), and UI body copy (400–600). `mono` is kept for
+    // technical/code-like labels (e.g. a watch pairing code). See `fontFace` below for the
+    // Android weight-resolution fallback.
+    display: 'Manrope',
+    text: 'Manrope',
     mono: 'monospace',
   },
   size: { display: 34, title: 28, heading: 22, subheading: 18, body: 16, callout: 15, footnote: 13, caption: 11 },
-  weight: { regular: '400', medium: '500', semibold: '600', bold: '700' },
+  weight: { regular: '400', medium: '500', semibold: '600', bold: '700', extrabold: '800' },
   // multiply size → lineHeight; calmer copy breathes at ~1.4.
   leading: { tight: 1.12, snug: 1.28, normal: 1.44 },
   tracking: { display: -0.4, heading: -0.2, body: 0, caption: 0.3 },
+} as const;
+
+// ── Manrope per-weight faces — the Android weight-resolution FALLBACK ─────────
+// RN 0.86 on Android resolves `fontFamily:'Manrope' + fontWeight` by matching the numeric weight
+// against the bundled faces, and can mis-select a weight (500/800 in particular) or render tofu
+// when the file's internal family name differs from the base name (Manrope ships Medium/SemiBold/
+// ExtraBold as their OWN internal families, not weights of "Manrope"). Each constant below names
+// the exact bundled TTF (Android matches a fontFamily string against the asset file's base name),
+// so a component can pin ONE unambiguous face instead of asking Android to resolve a weight.
+//   Default path stays `fontFamily: type.family.display, fontWeight: type.weight.extrabold`.
+//   If the on-device build renders the wrong weight or tofu, flip that consumer to
+//   `fontFamily: fontFace.extrabold` (no fontWeight) — one file, nothing to resolve.
+export const fontFace = {
+  regular: 'Manrope-Regular',
+  medium: 'Manrope-Medium',
+  semibold: 'Manrope-SemiBold',
+  bold: 'Manrope-Bold',
+  extrabold: 'Manrope-ExtraBold',
 } as const;
 
 // ── Elevation — soft, diffuse, wellness-grade (not harsh Material drops) ──────

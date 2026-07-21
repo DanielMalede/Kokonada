@@ -1,4 +1,4 @@
-import { colors, space, radius, motion, type, emotionAnchors, glassAlpha, type ColorScheme, type ThemeName } from '../tokens';
+import { colors, space, radius, motion, type, fontFace, emotionAnchors, glassAlpha, type ColorScheme, type ThemeName } from '../tokens';
 import { contrastRatio, passesAA, parseHex, flatten, relativeLuminance, AA_NORMAL, AA_LARGE } from '../contrast';
 import { resolveScheme } from '../theme';
 
@@ -152,9 +152,32 @@ describe('scales are coherent (no magic numbers leak — ascending, deduped)', (
     const sizes = order.map((k) => type.size[k]);
     expect(sizes).toEqual([...sizes].sort((a, b) => b - a));
   });
-  it('display face is the bundled General Sans, not the System placeholder', () => {
-    expect(type.family.display).toBe('GeneralSans-Semibold');
+  it('display + text faces are the bundled Manrope, not the System placeholder', () => {
+    // AURORA replaced General Sans with Manrope app-wide: one face carries the wordmark,
+    // headlines and body copy, so display and text must both resolve to it.
+    expect(type.family.display).toBe('Manrope');
+    expect(type.family.text).toBe('Manrope');
     expect(type.family.display).not.toBe('System');
+    expect(type.family.display).not.toBe('GeneralSans-Semibold');
+    // the technical/mono stack is deliberately kept for code-like labels.
+    expect(type.family.mono).toBe('monospace');
+  });
+  it('the weight ramp carries an extrabold (800) for Aurora headlines', () => {
+    expect(type.weight.extrabold).toBe('800');
+    // the ramp still ascends regular→extrabold as numeric strings.
+    const ramp = [type.weight.regular, type.weight.medium, type.weight.semibold, type.weight.bold, type.weight.extrabold];
+    expect(ramp).toEqual(['400', '500', '600', '700', '800']);
+  });
+  it('exposes exact per-weight Manrope faces (Android weight-resolution fallback)', () => {
+    // RN 0.86 on Android can mis-select a weight from `fontFamily:"Manrope" + fontWeight`;
+    // each named face maps 1:1 to a bundled TTF so a component can pin the exact face.
+    expect(fontFace).toEqual({
+      regular: 'Manrope-Regular',
+      medium: 'Manrope-Medium',
+      semibold: 'Manrope-SemiBold',
+      bold: 'Manrope-Bold',
+      extrabold: 'Manrope-ExtraBold',
+    });
   });
 });
 

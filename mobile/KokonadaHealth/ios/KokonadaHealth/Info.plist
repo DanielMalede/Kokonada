@@ -58,7 +58,11 @@
 	<array>
 		<string>MaterialCommunityIcons.ttf</string>
 		<string>Feather.ttf</string>
-		<string>GeneralSans-Semibold.otf</string>
+		<string>Manrope-Bold.ttf</string>
+		<string>Manrope-ExtraBold.ttf</string>
+		<string>Manrope-Medium.ttf</string>
+		<string>Manrope-Regular.ttf</string>
+		<string>Manrope-SemiBold.ttf</string>
 	</array>
 </dict>
 </plist>
