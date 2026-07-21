@@ -8,6 +8,9 @@ import emotionReducer, { setActivity } from '../../../state/cold/emotionSlice';
 import { ActivityChips } from '../ActivityChips';
 import { ACTIVITIES } from '../activities';
 import { colors, space, type ThemeName } from '../../../design/tokens';
+import { auroraGlow } from '../../../design/emotionAccent';
+import { CTA_INK } from '../../../design/auroraSurfaces';
+import { contrastRatio, parseHex, AA_NORMAL } from '../../../design/contrast';
 
 const makeStore = () => configureStore({ reducer: { emotion: emotionReducer } });
 
@@ -60,9 +63,25 @@ describe('ActivityChips — tokenised, single-select, ≥44dp', () => {
     expect(flat(idle).borderColor).toBe(colors.dark.surface.hairline); // quiet hairline when idle
   });
 
-  it('uses no raw hex — the idle chip surface is the token raised surface', () => {
+  it('uses no raw hex — the idle chip is the token frosted glass (its opaque AA fallback)', () => {
     const tree = renderWith('light', makeStore());
-    expect(flat(chip(tree, 'running')).backgroundColor).toBe(colors.light.surface.raised);
+    expect(flat(chip(tree, 'running')).backgroundColor).toBe(colors.light.surface.glassFallback);
     expect(space['3xl']).toBe(48);
+  });
+
+  it('AURORA legibility: the idle muted label + the selected ink both clear AA-normal over their fills', () => {
+    const mix2 = (a: string, b: string, t: number) => {
+      const A = parseHex(a); const B = parseHex(b);
+      const h = (n: number) => Math.round(n).toString(16).padStart(2, '0');
+      return `#${h(A.r + (B.r - A.r) * t)}${h(A.g + (B.g - A.g) * t)}${h(A.b + (B.b - A.b) * t)}`;
+    };
+    for (const t of [colors.dark, colors.light]) {
+      // idle label: content.muted over the opaque glass the chip degrades to (small text → AA-normal)
+      expect(contrastRatio(t.content.muted, t.surface.glassFallback)).toBeGreaterThanOrEqual(AA_NORMAL);
+    }
+    // selected ink: the deep indigo across the WHOLE neutral-aurora → gold gradient (theme-independent fill)
+    for (let k = 0; k <= 1.0001; k += 0.1) {
+      expect(contrastRatio(CTA_INK.dark, mix2(auroraGlow(0, 0), colors.dark.accent.gold, k))).toBeGreaterThanOrEqual(AA_NORMAL);
+    }
   });
 });

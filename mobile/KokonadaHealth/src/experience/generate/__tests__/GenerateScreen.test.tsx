@@ -258,19 +258,73 @@ describe('GenerateScreen — renders light AND dark', () => {
 
 });
 
-describe('GenerateScreen — quadrant words teach the map (A5a)', () => {
-  it('renders the 4 diagonal words in content.tertiary, fading after the first tap', async () => {
+describe('GenerateScreen — quadrant words: teach the map, then LINGER as a frosted blur once tapped (Bug 1)', () => {
+  it('teaches in crisp content.muted before any tap, then STAYS (not removed) as an out-of-focus blur after a point is placed', async () => {
     const store = makeStore();
     const tree = await mount('dark', store, makeSocket());
     const expected: Array<[string, string]> = [['calm', 'Calm'], ['joyful', 'Joyful'], ['intense', 'Intense'], ['reflective', 'Reflective']];
+    // Teaching state (pre-tap): crisp muted ink over its own AA scrim
     for (const [q, word] of expected) {
       const w = byId(tree, `quadrant-word-${q}`);
       expect(w.props.children).toBe(word);
-      expect(flat(w).color).toBe(colors.dark.content.tertiary);
+      expect(flat(w).color).toBe(colors.dark.content.muted);
+      expect(flat(w).textShadowRadius ?? 0).toBe(0); // crisp while teaching
     }
-    expect(flat(byId(tree, 'quadrant-word-calm')).opacity).toBe(1); // full before a tap
+    // Place a point → the map is learned. Daniel OVERRODE the old "retire" behavior: the words must
+    // LINGER as an ambient, genuinely-out-of-focus reference behind the taps (decorative → AA waived).
     await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: -0.5 })); });
-    expect(flat(byId(tree, 'quadrant-word-calm')).opacity).toBeCloseTo(0.4); // fades once the map is learned
+    for (const [q, word] of expected) {
+      const w = byId(tree, `quadrant-word-${q}`);
+      expect(w).toBeTruthy();                          // STILL present (Bug 1: no longer removed)
+      expect(w.props.children).toBe(word);
+      const s = flat(w);
+      expect(s.textShadowRadius).toBeGreaterThan(0);   // a REAL gaussian blur (Android BlurMaskFilter / iOS gaussian shadow)
+      expect(s.color).toBe('transparent');             // fill hidden → only the blurred glyph shows (out of focus)
+    }
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('hides the words entirely while typing (the wheel collapses to a mini-ring)', async () => {
+    const store = makeStore();
+    const tree = await mount('dark', store, makeSocket());
+    await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: -0.5 })); });
+    expect(byId(tree, 'quadrant-word-calm')).toBeTruthy();  // frosted, present
+    const promptInput = tree.root.findByType(RN.TextInput);
+    await ReactTestRenderer.act(async () => { promptInput.props.onFocus(); });
+    expect(byId(tree, 'quadrant-word-calm')).toBeFalsy();   // hidden while typing
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('GenerateScreen — undo/clear anchored to the wheel corners, zero layout shift (Bug 3)', () => {
+  it('renders undo (bottom-left) + clear (bottom-right) as ABSOLUTE overlays on the wheel, never an in-flow row', async () => {
+    const store = makeStore();
+    const tree = await mount('dark', store, makeSocket());
+    await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: 0.5 })); });
+    const undo = byId(tree, 'generate-undo');
+    const clear = byId(tree, 'generate-clear');
+    expect(undo).toBeTruthy();
+    expect(clear).toBeTruthy();
+    // Absolutely positioned → appearing on tap cannot push any sibling (zero layout shift = the jank fix)
+    expect(flat(undo).position).toBe('absolute');
+    expect(flat(clear).position).toBe('absolute');
+    // opposite bottom corners of the wheel/hero
+    expect(flat(undo).left).toBeDefined();
+    expect(flat(undo).right).toBeUndefined();
+    expect(flat(clear).right).toBeDefined();
+    expect(flat(clear).left).toBeUndefined();
+    expect(flat(undo).bottom).toBe(flat(clear).bottom); // same baseline row across the disc
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('hides undo/clear while typing', async () => {
+    const store = makeStore();
+    const tree = await mount('dark', store, makeSocket());
+    await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: 0.5 })); });
+    const promptInput = tree.root.findByType(RN.TextInput);
+    await ReactTestRenderer.act(async () => { promptInput.props.onFocus(); });
+    expect(byId(tree, 'generate-undo')).toBeFalsy();
+    expect(byId(tree, 'generate-clear')).toBeFalsy();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

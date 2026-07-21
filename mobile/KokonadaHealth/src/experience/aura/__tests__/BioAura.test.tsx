@@ -50,15 +50,23 @@ describe('auraBreath — REGULATOR ETHIC (breath slows + deepens as arousal rise
   });
 });
 
-describe('auraBreath — hrGlowColor is capped at coral (NEVER alarming red)', () => {
-  it('cool calm at rest → soft coral at peak, and never the peak red anchor', () => {
-    expect(hrGlowColor(null)).toBe('rgb(49,225,196)');   // emotionAnchors.calm #31E1C4
-    expect(hrGlowColor(200)).toBe('rgb(255,138,115)');   // emotionAnchors.coral #FF8A73 — the CAP
-    expect(hrGlowColor(200)).not.toBe('rgb(255,90,90)'); // never emotionAnchors.peak #FF5A5A
-    expect(emotionAnchors.coral).toBe('#FF8A73');
+describe('auraBreath — hrGlowColor is capped at the violet anchor (NEVER alarming red)', () => {
+  it('cool sky at rest → violet at peak, and never the peak anchor', () => {
+    expect(hrGlowColor(null)).toBe('rgb(63,180,240)');    // emotionAnchors.calm #3FB4F0 (sky)
+    expect(hrGlowColor(200)).toBe('rgb(139,111,232)');    // emotionAnchors.coral #8B6FE8 (violet) — the CAP
+    expect(hrGlowColor(200)).not.toBe('rgb(75,111,208)'); // never emotionAnchors.peak #4B6FD0
+    expect(emotionAnchors.coral).toBe('#8B6FE8');
+  });
+  // AURORA strengthens the guarantee: the cap is no longer a SOFTER red, it has no warmth at all.
+  // Blue must dominate red at EVERY point of the ramp, so no HR can tint the aura warm.
+  it('the ENTIRE ramp stays cool — blue dominates red at rest, mid and peak', () => {
+    for (const hr of [null, 40, 90, 140, 200]) {
+      const [r, , b] = (hrGlowColor(hr).match(/\d+/g) ?? []).map(Number);
+      expect(b).toBeGreaterThan(r);
+    }
   });
   it('a non-finite HR degrades to the resting calm colour (never NaN into Skia)', () => {
-    expect(hrGlowColor(NaN)).toBe('rgb(49,225,196)');
+    expect(hrGlowColor(NaN)).toBe('rgb(63,180,240)');
     expect(hrGlowColor(Infinity)).toMatch(/^rgb\(\d+,\d+,\d+\)$/);
   });
 });
@@ -67,7 +75,8 @@ describe('auraUniforms is NOT modified by the accent layer (sealed derivation pi
   it('deriveAuraUniforms still yields its unchanged HR mapping', () => {
     expect(deriveAuraUniforms(null)).toEqual({ hue: 210, intensity: 0.12, pulseHz: 0.9 });
     const u = deriveAuraUniforms(120);
-    expect(u.hue).toBeCloseTo(210 - ((120 - 40) / 160) * 210, 6);
+    // AURORA hue band: resting 210 → violet 262 (was 210 → 0, straight into alarm red)
+    expect(u.hue).toBeCloseTo(210 + ((120 - 40) / 160) * (262 - 210), 6);
     expect(Number.isFinite(u.hue) && Number.isFinite(u.intensity) && u.pulseHz > 0).toBe(true);
   });
 });

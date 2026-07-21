@@ -41,22 +41,22 @@ describe('brandMark.geometry — Aurora Seed constants', () => {
     }
   });
 
-  it('carries the exact dark (abyss) spec literals', () => {
-    expect(treatments.dark.bg).toBe('#060B11');
-    expect(treatments.dark.coreHighlight).toBe('#ECFFFB');
-    expect(treatments.dark.coreBody).toBe('#6FF3DE');
-    expect(treatments.dark.ring).toBe('#31E1C4');
+  it('carries the exact Aurora Nocturne (aurora orb on midnight) spec literals', () => {
+    expect(treatments.dark.bg).toBe('#0E1030');
+    expect(treatments.dark.coreHighlight).toBe('#FFCB6E'); // gold spark
+    expect(treatments.dark.coreBody).toBe('#5EC8F5');      // sky orb
+    expect(treatments.dark.ring).toBe('#9B7BF0');          // aurora violet
     expect(treatments.dark.ring1Alpha).toBe(0.85);
     expect(treatments.dark.ring2Alpha).toBe(0.38);
-    expect(treatments.dark.bloom).toBe('#31E1C4');
+    expect(treatments.dark.bloom).toBe('#9B7BF0');
     expect(treatments.dark.bloomStops.map((s) => s.alpha)).toEqual([0.55, 0.28, 0]);
   });
 
-  it('carries the exact light (porcelain) spec literals', () => {
-    expect(treatments.light.bg).toBe('#F3F8FA');
-    expect(treatments.light.coreHighlight).toBe('#16A892');
-    expect(treatments.light.coreBody).toBe('#0A7A6B');
-    expect(treatments.light.ring).toBe('#0C8C7B');
+  it('carries the exact Aurora Day (the orb on porcelain, deepened) spec literals', () => {
+    expect(treatments.light.bg).toBe('#FAFAFF');
+    expect(treatments.light.coreHighlight).toBe('#F5B93A'); // deepened gold spark for porcelain
+    expect(treatments.light.coreBody).toBe('#3FB4F0');      // deepened aurora sky
+    expect(treatments.light.ring).toBe('#8B6FE8');          // deepened violet for porcelain
     expect(treatments.light.ring1Alpha).toBe(0.9);
     expect(treatments.light.ring2Alpha).toBe(0.3);
   });
@@ -68,8 +68,11 @@ describe('brandMark.geometry — Aurora Seed constants', () => {
     expect(treatments.light.ring).toBe(colors.light.accent.glow);
   });
 
-  it('swaps the palette between treatments (dark != light core)', () => {
+  it('swaps the palette between the two faces (the aurora orb tuned to each canvas — dark != light)', () => {
+    // The same aurora orb, tuned per canvas: the bright blob hues on midnight, the deeper aurora stops
+    // on porcelain. Core, canvas (bg) and ring hue all differ between the faces.
     expect(treatments.dark.coreBody).not.toBe(treatments.light.coreBody);
+    expect(treatments.dark.bg).not.toBe(treatments.light.bg);
     expect(treatments.dark.ring).not.toBe(treatments.light.ring);
   });
 

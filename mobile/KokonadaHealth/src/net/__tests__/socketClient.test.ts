@@ -271,6 +271,21 @@ describe('KokonadaSocket — reconnect re-hydration', () => {
     client.requestPlaylist();
     expect(sock.emitted.map((e) => e.event)).toEqual(['emotion_update', 'request_playlist']);
   });
+
+  it('FINALIZES the prompt at the wire — the emitted intent is trimmed even when the live store keeps surrounding spaces (Bug 2)', () => {
+    // The cold store keeps the prompt verbatim WHILE typing (so spaces never glue); the
+    // submit path is the single place the prompt is finalized (.trim()). Internal spaces
+    // must survive — only the leading/trailing padding is stripped as it leaves for the wire.
+    const { client, created } = build({
+      getEmotionIntent: () => ({ taps: [], textPrompt: '   hello world foo   ', activity: null }),
+    });
+    client.connect();
+    const sock = created[0];
+    sock.emitted.length = 0;
+    client.requestPlaylist();
+    const emotion = sock.emitted.find((e) => e.event === 'emotion_update');
+    expect(emotion?.payload.textPrompt).toBe('hello world foo');
+  });
 });
 
 describe('KokonadaSocket — playlist_error', () => {

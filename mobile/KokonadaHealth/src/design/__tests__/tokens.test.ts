@@ -76,12 +76,64 @@ describe.each(themes)('theme "%s" — content passes AA on every surface', (name
   });
 });
 
-describe('emotionAccent anchors heat monotonically (calm→peak)', () => {
-  it('luminance/hue shifts from the calm glow toward the peak red', () => {
+describe('emotionAnchors stay in the cool Aurora band (HR aura ramp — NEVER alarming red)', () => {
+  it('the ramp is sky→indigo: calm differs from peak, every anchor is valid, and NONE is warm/red', () => {
     // Not a strict luminance order (perceptual), but calm must differ from peak clearly.
     expect(emotionAnchors.calm).not.toEqual(emotionAnchors.peak);
     // each anchor is a valid color
     (['calm', 'warm', 'coral', 'peak'] as const).forEach((k) => expect(() => relativeLuminance(emotionAnchors[k])).not.toThrow());
+    // regulator ethic in the TOKEN: blue channel dominates red at EVERY anchor, so no warm/red hue
+    // can ever leak into the HR aura ramp — the never-red guarantee is a value invariant, not a comment.
+    (['calm', 'warm', 'coral', 'peak'] as const).forEach((k) => {
+      const { r, b } = parseHex(emotionAnchors[k]);
+      expect(b).toBeGreaterThanOrEqual(r);
+    });
+  });
+  it('carries the exact Aurora sky→indigo values', () => {
+    expect(emotionAnchors).toEqual({ calm: '#3FB4F0', warm: '#6FA6EC', coral: '#8B6FE8', peak: '#4B6FD0' });
+  });
+});
+
+describe('Aurora foundation tokens (the LOCKED direction — exact pins so the palette cannot drift)', () => {
+  it('content.muted (the mockup --mut supporting-text hue) — exact, both themes', () => {
+    expect(colors.dark.content.muted).toBe('#A7A6D0');
+    expect(colors.light.content.muted).toBe('#6A6589');
+  });
+  it('accent.goldInk (the gold-signature text ink) — exact, both themes', () => {
+    expect(colors.dark.accent.goldInk).toBe('#FFD37A');
+    expect(colors.light.accent.goldInk).toBe('#8A5A12');
+  });
+  it('surface.textScrim base + alpha ramp (aura-over-text legibility veil) — exact, both themes', () => {
+    expect(colors.dark.surface.textScrim).toEqual({ base: '#0A0C28', from: 0, to: 0.55 });
+    expect(colors.light.surface.textScrim).toEqual({ base: '#F3F4FE', from: 0, to: 0.6 });
+  });
+  it('the new Aurora surface fields (canvas gradient / gold hairline / veil) — exact, both themes', () => {
+    expect(colors.dark.surface.canvasTop).toBe('#0E1030');
+    expect(colors.dark.surface.canvasBottom).toBe('#080A20');
+    expect(colors.dark.surface.veilColor).toBe('#0A0C28');
+    expect(colors.light.surface.canvasTop).toBe('#FAFAFF');
+    expect(colors.light.surface.canvasBottom).toBe('#EEF1FC');
+    expect(colors.light.surface.veilColor).toBe('#F5F6FF');
+    // the gold hairline frame is the SAME 30% gold in both themes
+    expect(colors.dark.surface.hairlineGold).toBe('rgba(212,175,95,0.30)');
+    expect(colors.light.surface.hairlineGold).toBe('rgba(212,175,95,0.30)');
+  });
+  it('aurora blobs / motion / glass — shared hues in both themes, exact', () => {
+    for (const name of themes) {
+      const a = colors[name].aurora;
+      expect(a.blobs).toEqual({
+        sky: { color: '#5EC8F5', alpha: 0.9 },
+        violet: { color: '#9B7BF0', alpha: 0.85 },
+        gold: { color: '#FFCB6E', alpha: 0.85 },
+        pink: { color: '#F79AC0', alpha: 0.45 },
+      });
+      expect(a.blur).toBe(15);
+      expect(a.flow).toBe(15000);
+      expect(a.focalGlow).toBe(4600);
+      // both glass variants are exposed from either theme (light = Day, Nocturne = night)
+      expect(a.glass.day).toEqual({ bg: 'rgba(255,255,255,0.52)', blur: 10, border: 'rgba(255,255,255,0.66)' });
+      expect(a.glass.night).toEqual({ bg: 'rgba(255,255,255,0.10)', blur: 10, border: 'rgba(255,255,255,0.18)' });
+    }
   });
 });
 
@@ -113,6 +165,12 @@ describe('motion honours reduced-motion (spec §2 — every token ships a reduce
   it('reduced motion stills the ambient breath and collapses transitions', () => {
     expect(motion.durationReduced.breath).toBe(0);
     expect(motion.durationReduced.base).toBe(0);
+  });
+  it('the Aurora flow + focal-glow durations live in BOTH maps (reduced stills them)', () => {
+    expect(motion.duration.flow).toBe(15000);      // ambient aurora drift (~15s)
+    expect(motion.duration.focalGlow).toBe(4600);  // the focal-glow breath (~4.6s)
+    expect(motion.durationReduced.flow).toBe(0);
+    expect(motion.durationReduced.focalGlow).toBe(0);
   });
   it('the calm easing is a settle (ends decelerating, no snap-back past 1)', () => {
     expect(motion.easing.calm[3]).toBeLessThanOrEqual(1);

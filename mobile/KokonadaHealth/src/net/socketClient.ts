@@ -3,6 +3,8 @@
 // reconnect re-hydration (the server's emotion cache is per-socketId), and the
 // auth_expired refresh-then-reconnect that stops a dead-token reconnect storm.
 
+import { finalizePrompt } from '../experience/generate/promptSanitizer';
+
 export interface SocketLike {
   on(event: string, cb: (payload?: any) => void): void;
   off(event: string, cb: (payload?: any) => void): void;
@@ -289,7 +291,9 @@ export class KokonadaSocket {
     const intent = this.deps.getEmotionIntent();
     this.socket.emit('emotion_update', {
       taps: intent.taps,
-      textPrompt: intent.textPrompt,
+      // The cold store keeps the prompt verbatim while typing (so spaces never glue); this is the
+      // single SUBMIT/re-hydration point where it's finalized (.trim()) before it crosses the wire.
+      textPrompt: finalizePrompt(intent.textPrompt),
       activity: intent.activity,
     });
   }

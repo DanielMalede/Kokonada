@@ -4,6 +4,8 @@ import { useStore, useSelector } from 'react-redux';
 import { useSharedValue } from 'react-native-reanimated';
 import { RadialWheel } from '../wheel/RadialWheel';
 import { BioAura } from '../aura/BioAura';
+import { LivingAurora } from '../aurora/LivingAurora';
+import { AuroraGradientFill } from '../aurora/AuroraGradientFill';
 import { ActivityChips } from './ActivityChips';
 import { PromptBox } from './PromptBox';
 import { EmotionListSelector } from './EmotionListSelector';
@@ -16,22 +18,35 @@ import { playbackSocket } from '../playback/playbackServices';
 import { playbackErrorStore } from '../playback/playbackErrorStore';
 import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, motion, type as typography } from '../../design/tokens';
-import { emotionAccentFor } from '../../design/emotionAccent';
+import { emotionAccentFor, auroraGlow } from '../../design/emotionAccent';
+import { auroraCtaStops, onAuroraInk, textScrimFill } from '../../design/auroraSurfaces';
 import { fireHaptic } from '../../design/haptics';
 import type { Tap } from '../../state/cold/emotionSlice';
 
-// The HERO. Composes the reactive bio-aura + radial wheel (the sacred emotion→socket→playlist
-// core loop) over the four-state CTA, with the full-bleed Genesis takeover while a generation is
-// in flight. THE single writer: committed intent lives in the cold emotionSlice (one source of
-// truth), the hot→cold→socket wiring is the unit-tested GenerateController, and every store /
-// keyboard / a11y subscription is torn down on unmount (ATTACK-6). Fully tokenised + reduced-aware.
+// The HERO. Composes the reactive bio-aura + radial wheel (the sacred emotion→socket→playlist core
+// loop) over the LIVING AURORA field, with a four-state morphing CTA and the full-bleed Genesis
+// takeover while a generation is in flight. THE single writer: committed intent lives in the cold
+// emotionSlice (one source of truth), the hot→cold→socket wiring is the unit-tested GenerateController,
+// and every store / keyboard / a11y subscription is torn down on unmount (ATTACK-6). AURORA: the field
+// is the brand backdrop, the emotion mean becomes the aura's FOCAL glow (auroraGlow, presentation-only —
+// never fed back to emotion state, Fork 2A), and every text cluster floats on frosted glass / a scrim
+// so it clears AA over the moving gradient. Fully tokenised + reduced-aware.
 const WHEEL_MAX = 340;
 const MINI_WHEEL = space['4xl'] * 1.75; // ~112dp docked mini-ring while typing
 const AURA_SCALE = 1.6;                  // aura canvas ≈ 1.6× wheel so the bloom overspills the disc
 const GENESIS_FRACTION = 0.7;
 const QUADRANT_RADIUS = 0.66;            // words sit at 0.66r along the diagonals
+const CTA_LABEL_SIZE = 19;               // ≥18.66 → WCAG-large, so the adaptive ink is judged at AA-large
+const GENESIS_AURORA_OPACITY = 0.5;      // the genesis moment is aurora-tinted, but dimmed under the loader
 const ANALYZING_COPY = 'Reading your signal…';
 const RESOLVED_COPY = 'Found your sound';
+// Once a point is placed the quadrant words LINGER as ambient reference, softened into a genuine
+// out-of-focus blur: a transparent fill + a wide gaussian text-shadow (Android BlurMaskFilter /
+// iOS gaussian NSShadow), so only the blurred glyph shows. Static → reduced-motion safe, 60fps-cheap.
+const FROST_BLUR = 7;                     // gaussian radius — reads as out-of-focus, not a sharp halo
+const FROST_OPACITY = 0.55;              // the frosted words recede behind the taps
+const FROST_SHADOW_OFFSET = { width: 0, height: 0 } as const; // centred bloom (no directional cast)
+const CORNER_INSET = space.xs;           // undo/clear hug the wheel's lower corners (Bug 3)
 
 // Quadrant map (screen diagonals): LR Calm · UR Joyful · UL Intense · LL Reflective.
 const QUADRANT_WORDS: Array<{ q: string; label: string; dx: number; dy: number }> = [
@@ -61,8 +76,20 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
   const taps: Tap[] = emotion.taps;
   const quadrant = emotionAccentFor(taps);
   const accentInk = c.emotionAccent[quadrant].ink;
-  const accentWash = c.emotionAccent[quadrant].wash;
   const hasTaps = taps.length > 0;
+
+  // The committed MEAN (presentation-only): the aura's focal glow, the CTA gradient + adaptive ink all
+  // travel with it. Empty → the idle brand glow. It never flows back into emotion state (Fork 2A).
+  const meanTap = useMemo(() => {
+    let sx = 0; let sy = 0; let n = 0;
+    for (const t of taps) {
+      if (Number.isFinite(t.x) && Number.isFinite(t.y)) { sx += t.x; sy += t.y; n += 1; }
+    }
+    return n ? { x: sx / n, y: sy / n } : null;
+  }, [taps]);
+  const focalColor = meanTap ? auroraGlow(meanTap.x, meanTap.y) : c.accent.glowIdle;
+  const ctaStops = useMemo(() => auroraCtaStops(meanTap?.x ?? 0, meanTap?.y ?? 0), [meanTap]);
+  const ctaInk = useMemo(() => onAuroraInk(ctaStops), [ctaStops]);
 
   const [hr, setHr] = useState<number | null>(warmStore.getState().liveHr);
   useEffect(() => {
@@ -160,7 +187,7 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
       : 'Generate';
   const ctaGlyph = mode === 'listen-to-heart' ? '♥' : mode === 'live-tuned' ? '●' : null;
   const ctaDisabled = mode === 'disabled' || mode === 'live-tuned';
-  const cta = ctaTreatment(mode, c, accentInk, accentWash);
+  const cta = ctaTreatment(mode, c, ctaStops, ctaInk);
 
   const wheelSize = typing ? MINI_WHEEL : fullSize;
   const auraSize = wheelSize * AURA_SCALE;
@@ -174,8 +201,10 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
 
   return (
     <View style={[styles.root, { backgroundColor: c.surface.base }]}>
-      {/* decorative reactive wash — pairs with nothing (no text over it); baked-alpha token */}
-      {hasTaps ? <View pointerEvents="none" style={[styles.wash, { backgroundColor: accentWash }]} /> : null}
+      {/* the LIVING AURORA — the ambient brand field, UI-thread Skia, static under reduce-motion */}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <LivingAurora width={width} height={height} reduced={reduced} />
+      </View>
 
       <ScrollView
         style={styles.scroll}
@@ -185,7 +214,8 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
       >
         <View style={[styles.hero, { width: wheelSize, height: wheelSize }]}>
           <View pointerEvents="none" style={{ position: 'absolute', width: auraSize, height: auraSize, left: auraOffset, top: auraOffset }}>
-            <BioAura hr={hr} size={auraSize} accentColor={hasTaps ? accentInk : undefined} reduced={reduced} />
+            {/* the FOCAL glow: the aura tinted by the committed emotion mean (idle brand glow when empty) */}
+            <BioAura hr={hr} size={auraSize} accentColor={focalColor} reduced={reduced} />
           </View>
           <RadialWheel
             size={wheelSize}
@@ -197,35 +227,57 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
             reduced={reduced}
           />
           {!typing ? (
+            // The quadrant words TEACH the map, each on its own AA scrim. Once a point is placed the
+            // map is learned — but Daniel wants them to LINGER as ambient reference, so they STAY and
+            // soften into a genuine frosted blur (transparent fill + gaussian text-shadow). Decorative
+            // once tapped → the AA-over-aura burden is waived. Hidden only while typing (mini-ring).
             <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-              {QUADRANT_WORDS.map((qw) => (
-                <Text
-                  key={qw.q}
-                  testID={`quadrant-word-${qw.q}`}
-                  style={[styles.quadrantWord, {
-                    color: c.content.tertiary,
-                    opacity: hasTaps ? 0.4 : 1,
-                    left: R + qw.dx * qDiag - space['3xl'] / 2,
-                    top: R + qw.dy * qDiag - space.lg / 2,
-                  }]}
-                >
-                  {qw.label}
-                </Text>
-              ))}
+              {QUADRANT_WORDS.map((qw) => {
+                const frosted = hasTaps;
+                return (
+                  <View
+                    key={qw.q}
+                    style={[
+                      styles.quadrantScrim,
+                      {
+                        left: R + qw.dx * qDiag - space['3xl'] / 2,
+                        top: R + qw.dy * qDiag - space.lg / 2,
+                      },
+                      frosted
+                        ? { opacity: FROST_OPACITY }                    // ambient — receded, no scrim
+                        : { backgroundColor: textScrimFill(c, name) },  // teaching — crisp on its AA scrim
+                    ]}
+                  >
+                    <Text
+                      testID={`quadrant-word-${qw.q}`}
+                      style={[
+                        styles.quadrantWord,
+                        frosted
+                          ? { color: 'transparent', textShadowColor: c.content.muted, textShadowOffset: FROST_SHADOW_OFFSET, textShadowRadius: FROST_BLUR }
+                          : { color: c.content.muted },
+                      ]}
+                    >
+                      {qw.label}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           ) : null}
-        </View>
 
-        {hasTaps && !typing ? (
-          <View style={[styles.undoRow, styles.gap24]}>
-            <Pressable testID="generate-undo" accessibilityRole="button" accessibilityLabel="Undo last tap" onPress={onUndo} style={styles.textControl}>
-              <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>↺ Undo</Text>
-            </Pressable>
-            <Pressable testID="generate-clear" accessibilityRole="button" accessibilityLabel="Clear all taps" onPress={onClear} style={styles.textControl}>
-              <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>Clear</Text>
-            </Pressable>
-          </View>
-        ) : null}
+          {/* Bug 3: undo/clear are ABSOLUTE overlays anchored to the wheel's bottom corners, so they
+              fade in on tap with ZERO layout shift — nothing else on the screen moves. Hidden while typing. */}
+          {hasTaps && !typing ? (
+            <>
+              <Pressable testID="generate-undo" accessibilityRole="button" accessibilityLabel="Undo last tap" onPress={onUndo} style={[styles.cornerControl, styles.cornerLeft, styles.miniPill, { backgroundColor: c.surface.glassFallback, borderColor: c.surface.hairline }]}>
+                <Text style={[styles.textControlLabel, { color: c.content.muted }]}>↺ Undo</Text>
+              </Pressable>
+              <Pressable testID="generate-clear" accessibilityRole="button" accessibilityLabel="Clear all taps" onPress={onClear} style={[styles.cornerControl, styles.cornerRight, styles.miniPill, { backgroundColor: c.surface.glassFallback, borderColor: c.surface.hairline }]}>
+                <Text style={[styles.textControlLabel, { color: c.content.muted }]}>Clear</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
 
         <Pressable
           onPress={() => {
@@ -237,11 +289,11 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
           accessibilityState={{ checked: liveMode }}
           accessibilityLabel="live-mode-toggle"
           style={[styles.toggle, styles.gap16, {
-            backgroundColor: liveMode ? c.emotionAccent.calm.wash : 'transparent',
+            backgroundColor: c.surface.glassFallback,
             borderColor: liveMode ? c.accent.glow : c.surface.hairline,
           }]}
         >
-          <Text style={[styles.toggleLabel, { color: liveMode ? c.content.primary : c.content.secondary }]}>
+          <Text style={[styles.toggleLabel, { color: liveMode ? c.content.primary : c.content.muted }]}>
             {liveMode ? '● Live Biometric' : 'Manual'}
           </Text>
         </Pressable>
@@ -255,9 +307,9 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
           accessibilityState={{ expanded: listOpen }}
           accessibilityLabel="Choose how you feel from a list"
           onPress={() => setListOpen((o) => !o)}
-          style={[styles.textControl, styles.gap16]}
+          style={[styles.miniPill, styles.gap16, { backgroundColor: c.surface.glassFallback, borderColor: c.surface.hairline }]}
         >
-          <Text style={[styles.textControlLabel, { color: c.content.secondary }]}>{listOpen ? 'Hide the list' : 'Choose from a list'}</Text>
+          <Text style={[styles.textControlLabel, { color: c.content.muted }]}>{listOpen ? 'Hide the list' : 'Choose from a list'}</Text>
         </Pressable>
         {listOpen ? <View style={styles.fullWidth}><EmotionListSelector /></View> : null}
 
@@ -269,12 +321,13 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
           accessibilityState={{ disabled: ctaDisabled }}
           style={[styles.cta, styles.gap24, { backgroundColor: cta.fill, borderColor: cta.border }]}
         >
+          {cta.gradient ? <AuroraGradientFill colors={cta.gradient} /> : null}
           {ctaGlyph ? <Text style={[styles.ctaLabel, { color: cta.label }]}>{ctaGlyph} </Text> : null}
           <Text testID="generate-cta-label" style={[styles.ctaLabel, { color: cta.label }]}>{ctaLabel}</Text>
         </Pressable>
 
         {errorMessage && !generating ? (
-          <View style={[styles.errorRow, styles.gap16]}>
+          <View style={[styles.errorRow, styles.gap16, { backgroundColor: c.surface.glassFallback }]}>
             <Text testID="generate-error" style={[styles.errorText, { color: c.content.secondary }]}>
               That didn’t land — let’s try again.
             </Text>
@@ -292,25 +345,33 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
           accessibilityViewIsModal
           style={[StyleSheet.absoluteFill, styles.genesis, { backgroundColor: genesisScrim }]}
         >
+          {/* aurora-tint the takeover (dimmed under the loader); still under reduce-motion */}
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.genesisAurora]}>
+            <LivingAurora width={width} height={height} reduced={reduced} />
+          </View>
           <NeuralAnalysisLoader active={genesisPhase === 'active'} engagement={engagement} size={genesisSize} reduced={reduced} />
-          <Text testID="genesis-status" style={[styles.genesisStatus, { color: c.content.secondary }]}>
-            {genesisPhase === 'resolving' ? RESOLVED_COPY : (statusMessage ?? ANALYZING_COPY)}
-          </Text>
+          <View style={[styles.genesisStatusScrim, { backgroundColor: textScrimFill(c, name) }]}>
+            <Text testID="genesis-status" style={[styles.genesisStatus, { color: c.content.secondary }]}>
+              {genesisPhase === 'resolving' ? RESOLVED_COPY : (statusMessage ?? ANALYZING_COPY)}
+            </Text>
+          </View>
         </View>
       ) : null}
     </View>
   );
 }
 
-// The AA-safe reactive CTA treatment (design §5): ink LABEL + wash FILL + ink BORDER for the
-// generate state (an emotionAccent ink-on-surface pairing, AA-proven). disabled is an inert
-// tertiary outline; the HR + Live states wear the brand accent glow as border/graphic with an
-// AA-safe content label — never content.onAccent on an emotion ink as a solid fill (gated).
-function ctaTreatment(mode: string, c: any, accentInk: string, accentWash: string) {
-  if (mode === 'disabled') return { fill: 'transparent', border: c.content.tertiary, label: c.content.tertiary };
-  if (mode === 'listen-to-heart') return { fill: c.emotionAccent.calm.wash, border: c.accent.glow, label: c.content.primary };
-  if (mode === 'live-tuned') return { fill: c.emotionAccent.calm.wash, border: c.accent.glow, label: c.content.secondary };
-  return { fill: accentWash, border: accentInk, label: accentInk }; // generate — reactive
+// The morphing CTA treatment (design §5). GENERATE rides the aurora gradient (sky → your emotion glow
+// → gold) with the ADAPTIVE ink onAuroraInk chose (AA-large across the label band, label ≥18.66/700);
+// its solid `fill` is the gradient's own mid stop, the AA-proven fallback the label sits on until the
+// Skia gradient measures itself. The three non-reactive states are frosted-glass pills distinguished by
+// border + glyph + label weight (colour is never the sole cue), each AA over the opaque glass.
+function ctaTreatment(mode: string, c: any, stops: readonly [string, string, string], ink: string) {
+  const glass = c.surface.glassFallback;
+  if (mode === 'disabled') return { fill: glass, border: c.surface.hairline, label: c.content.tertiary, gradient: null as readonly string[] | null };
+  if (mode === 'listen-to-heart') return { fill: glass, border: c.accent.glow, label: c.content.primary, gradient: null as readonly string[] | null };
+  if (mode === 'live-tuned') return { fill: glass, border: c.accent.glow, label: c.content.secondary, gradient: null as readonly string[] | null };
+  return { fill: stops[1], border: c.surface.hairlineGold, label: ink, gradient: stops as readonly string[] }; // generate — aurora gradient
 }
 
 const styles = StyleSheet.create({
@@ -321,12 +382,23 @@ const styles = StyleSheet.create({
   gap16: { marginTop: space.lg },
   gap24: { marginTop: space.xl },
   fullWidth: { width: '100%', alignItems: 'center' },
-  wash: { position: 'absolute', top: 0, left: 0, right: 0, height: '45%' },
   hero: { alignItems: 'center', justifyContent: 'center' }, // overflow visible → the aura halo overspills
-  quadrantWord: { position: 'absolute', width: space['3xl'], textAlign: 'center', fontSize: typography.size.caption, letterSpacing: typography.tracking.caption },
-  undoRow: { flexDirection: 'row', gap: space.xl, justifyContent: 'center' },
+  quadrantScrim: { position: 'absolute', width: space['3xl'], alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm, paddingVertical: 2 },
+  quadrantWord: { textAlign: 'center', fontSize: typography.size.caption, letterSpacing: typography.tracking.caption },
+  // Undo/Clear as absolute overlays on the wheel's lower corners (Bug 3) — appearing on tap can never
+  // push a sibling, so the layout stays perfectly still. Same glass mini-pill styling as before.
+  cornerControl: { position: 'absolute', bottom: CORNER_INSET },
+  cornerLeft: { left: CORNER_INSET },
+  cornerRight: { right: CORNER_INSET },
   textControl: { minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center', paddingHorizontal: space.md },
   textControlLabel: { fontSize: typography.size.callout, fontWeight: typography.weight.medium },
+  // quiet glass mini-pill (undo / clear / list toggle) — an opaque frosted surface so its muted label
+  // clears AA over the moving aurora (the RN glass degrades to surface.glassFallback, which AA judges).
+  miniPill: {
+    minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center',
+    paddingVertical: space.sm, paddingHorizontal: space.lg,
+    borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth,
+  },
   toggle: {
     minHeight: space['3xl'], justifyContent: 'center',
     paddingVertical: space.sm, paddingHorizontal: space.lg,
@@ -336,11 +408,13 @@ const styles = StyleSheet.create({
   cta: {
     flexDirection: 'row', minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center',
     paddingVertical: space.md, paddingHorizontal: space['2xl'],
-    borderRadius: radius.pill, borderWidth: 1.5,
+    borderRadius: radius.pill, borderWidth: 1.5, overflow: 'hidden', // clip the gradient fill to the pill
   },
-  ctaLabel: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
-  errorRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, justifyContent: 'center' },
+  ctaLabel: { fontSize: CTA_LABEL_SIZE, fontWeight: typography.weight.bold }, // ≥18.66/700 → WCAG-large
+  errorRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, justifyContent: 'center', paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.md },
   errorText: { fontSize: typography.size.footnote },
   genesis: { alignItems: 'center', justifyContent: 'center', gap: space.xl },
+  genesisAurora: { opacity: GENESIS_AURORA_OPACITY },
+  genesisStatusScrim: { paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.md },
   genesisStatus: { fontSize: typography.size.subheading, letterSpacing: typography.tracking.body, textAlign: 'center' },
 });

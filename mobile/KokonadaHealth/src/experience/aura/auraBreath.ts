@@ -35,10 +35,14 @@ export function arousalFromHr(hr: number | null): number {
 }
 
 // ── NEVER-alarming-red ───────────────────────────────────────────────────────
-// HR glow colour ramps cool calm → soft coral as arousal rises, CAPPED at coral so the aura is
-// never a vivid red (a designer FAIL condition). Token-anchored, so hue and cap track the palette.
-const CALM_RGB = parseHex(emotionAnchors.calm);   // #31E1C4 — resting cool
-const CORAL_RGB = parseHex(emotionAnchors.coral); // #FF8A73 — the HOT CAP (never emotionAnchors.peak)
+// The HR glow ramps from the calm anchor to the hot CAP as arousal rises and stops there — it
+// never reaches the `peak` anchor (a designer FAIL condition). Both ends are read from the tokens,
+// so the ramp tracks the palette with zero drift: under AURORA that is SKY → VIOLET, both inside
+// the cool band, matching deriveAuraUniforms' [198,262] hue clamp. The cap is therefore no longer
+// merely a *softer* red — there is no warmth in it at all. A racing heart is met with deeper,
+// cooler light, never an alarm colour.
+const CALM_RGB = parseHex(emotionAnchors.calm);   // #3FB4F0 sky — resting
+const CORAL_RGB = parseHex(emotionAnchors.coral); // #8B6FE8 violet — the HOT CAP (never emotionAnchors.peak)
 
 export function hrGlowColor(hr: number | null): string {
   const a = arousalFromHr(hr);

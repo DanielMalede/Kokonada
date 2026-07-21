@@ -4,7 +4,7 @@
 // control/null bytes (JSON-serialization + LLM-API safety), and never throw on any
 // paste — a 50,000-char blob, raw JSON, SQL fragments, emoji, or a null byte.
 
-import { sanitizePrompt, MAX_PROMPT_LENGTH } from '../promptSanitizer';
+import { sanitizePrompt, finalizePrompt, MAX_PROMPT_LENGTH } from '../promptSanitizer';
 
 describe('sanitizePrompt — length cap (overflow)', () => {
   it('caps a 50,000-character paste to the max length', () => {
@@ -37,8 +37,36 @@ describe('sanitizePrompt — control/null byte stripping', () => {
     expect(sanitizePrompt('sad\nsong\there')).toBe('sad song here');
   });
 
-  it('trims leading/trailing whitespace', () => {
-    expect(sanitizePrompt('   focus   ')).toBe('focus');
+  it('does NOT trim on live input — surrounding spaces are preserved while typing', () => {
+    // Bug 2: a live .trim() strips the trailing space before the next keystroke, gluing
+    // words together. Live sanitize keeps spaces exactly; trim is a SUBMIT-only concern.
+    expect(sanitizePrompt('   focus   ')).toBe('   focus   ');
+  });
+
+  it('preserves an in-progress trailing space so the next word cannot glue on (Bug 2)', () => {
+    expect(sanitizePrompt('hello world ')).toBe('hello world ');
+  });
+});
+
+describe('finalizePrompt — SUBMIT-time trim (the only trim), guards still enforced', () => {
+  it('trims leading/trailing whitespace at submit', () => {
+    expect(finalizePrompt('   focus   ')).toBe('focus');
+    expect(finalizePrompt('hello world ')).toBe('hello world');
+  });
+
+  it('never collapses internal spaces', () => {
+    expect(finalizePrompt('hello world foo')).toBe('hello world foo');
+  });
+
+  it('still hard-caps length and strips control/null bytes', () => {
+    expect(finalizePrompt('x'.repeat(50_000)).length).toBe(MAX_PROMPT_LENGTH);
+    expect(finalizePrompt('rai\0ny\x01 day')).toBe('rainy day');
+  });
+
+  it('returns an empty string for non-string input, never throws', () => {
+    for (const bad of [null, undefined, 123, {}, []]) {
+      expect(finalizePrompt(bad as any)).toBe('');
+    }
   });
 });
 

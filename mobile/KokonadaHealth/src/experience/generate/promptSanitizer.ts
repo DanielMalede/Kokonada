@@ -17,10 +17,21 @@ function stripAndCollapse(raw: string): string {
     .replace(/[\0-\x1f\x7f]/g, '');
 }
 
+// LIVE input sanitizer — runs on EVERY keystroke (the reducer) and on rehydrate. It strips
+// control/null bytes and hard-caps length, but deliberately does NOT trim: a live .trim() would
+// eat the trailing space the instant it's typed, gluing the next word onto the previous one
+// ("hello world" → "helloworld"). Spaces are the user's — internal AND in-progress trailing —
+// so they are preserved verbatim; trimming is a SUBMIT-only concern (finalizePrompt).
 export function sanitizePrompt(raw: unknown): string {
   if (typeof raw !== 'string') return '';
-  // Cap BEFORE trim so a giant leading-whitespace paste can't hide length, then trim.
-  return stripAndCollapse(raw).slice(0, MAX_PROMPT_LENGTH).trim();
+  return stripAndCollapse(raw).slice(0, MAX_PROMPT_LENGTH);
+}
+
+// SUBMIT-time finalizer — the ONE place the prompt is trimmed, applied where the committed intent
+// leaves for the wire (KokonadaSocket.emitEmotion). Re-runs the same guards then strips the
+// padding the user never meant to send. Internal spaces are never collapsed.
+export function finalizePrompt(raw: unknown): string {
+  return sanitizePrompt(raw).trim();
 }
 
 // Bounded activity: a non-string yields null (cleared); anything else is stripped,

@@ -22,6 +22,14 @@ describe('emotionSlice — setTextPrompt sanitizes in the reducer', () => {
     expect(s.textPrompt).toBe('rainy day');
   });
 
+  it('preserves spaces on live input — words never glue together (Bug 2)', () => {
+    // The reducer runs on EVERY keystroke; a live .trim() strips the trailing space
+    // before the next letter, so "hello world" collapses to "helloworld". Live sanitize
+    // must keep both internal AND in-progress trailing spaces verbatim.
+    expect(reducer(initial, setTextPrompt('hello world foo')).textPrompt).toBe('hello world foo');
+    expect(reducer(initial, setTextPrompt('hello ')).textPrompt).toBe('hello ');
+  });
+
   it('the persisted blob of an overflow prompt is bounded (no MMKV bloat)', () => {
     const s = reducer(initial, setTextPrompt('z'.repeat(50_000)));
     const blob = serializeForPersist(s);
