@@ -5,6 +5,8 @@ import { RadialWheel } from '../RadialWheel';
 import { hitsMostRecentDot, REMOVE_HIT_RADIUS } from '../wheelInteraction';
 import { circumplexToScreen, type WheelLayout } from '../wheelGeometry';
 import { colors, type ThemeName } from '../../../design/tokens';
+import { auroraGlow } from '../../../design/emotionAccent';
+import { contrastRatio, AA_LARGE } from '../../../design/contrast';
 
 // The Skia radial wheel, ELEVATED. Skia paint is verified on-device; here we attack the pure
 // hit-test that routes a tap to undo-vs-add (§5 "tap a placed dot to remove") and the component's
@@ -16,6 +18,10 @@ const tap = (x: number, y: number) => ({ x, y });
 
 const findCircles = (tree: ReactTestRenderer.ReactTestRenderer, color: string) =>
   tree.root.findAll((n) => n.props?.color === color && typeof n.props?.r === 'number');
+const findFills = (tree: ReactTestRenderer.ReactTestRenderer, color: string) =>
+  tree.root.findAll((n) => n.props?.color === color && typeof n.props?.r === 'number' && n.props?.style !== 'stroke');
+const findStrokes = (tree: ReactTestRenderer.ReactTestRenderer, color: string) =>
+  tree.root.findAll((n) => n.props?.color === color && n.props?.style === 'stroke');
 const findGradient = (tree: ReactTestRenderer.ReactTestRenderer) =>
   tree.root.findAll((n) => Array.isArray(n.props?.colors))[0];
 
@@ -54,20 +60,36 @@ describe('hitsMostRecentDot — §5 tap-a-placed-dot routes to undo (Fork 1b: mo
   });
 });
 
-describe('RadialWheel — token disc + accent-ink dots', () => {
-  it('paints tap dots in the passed emotion accent ink (all dots re-tint together)', () => {
+describe('RadialWheel — frosted aurora-glass disc + per-dot glow + structural ring', () => {
+  it('paints each tap dot in ITS OWN aurora glow, ringed by the session ink (fill decorative, ring structural)', () => {
+    const taps = [tap(0.3, 0.3), tap(-0.2, 0.5)];
     const tree = renderWith('dark',
-      <RadialWheel size={340} committedTaps={[tap(0.3, 0.3), tap(-0.2, 0.5)]} onCommit={() => {}} accentInk="#C4A6FF" />);
-    expect(findCircles(tree, '#C4A6FF').length).toBe(2); // one node per committed tap, all in ink
+      <RadialWheel size={340} committedTaps={taps} onCommit={() => {}} accentInk="#C4A6FF" />);
+    // each dot's soft FILL glows its own continuous emotion colour (distinct per tap)
+    for (const t of taps) expect(findFills(tree, auroraGlow(t.x, t.y))).toHaveLength(1);
+    // …and every dot carries a crisp structural RING in the session accent ink
+    expect(findStrokes(tree, '#C4A6FF')).toHaveLength(taps.length);
   });
 
-  it('the disc gradient is token-sourced and differs light vs dark (no raw hex)', () => {
+  it('the disc gradient is the frosted aurora glass — token-sourced, differs light vs dark (no raw hex)', () => {
     const dark = findGradient(renderWith('dark',
       <RadialWheel size={340} committedTaps={[]} onCommit={() => {}} accentInk="#31E1C4" />)).props.colors;
     const light = findGradient(renderWith('light',
       <RadialWheel size={340} committedTaps={[]} onCommit={() => {}} accentInk="#0A7A6B" />)).props.colors;
-    expect(dark).toEqual([colors.dark.surface.overlay, colors.dark.surface.base]);
-    expect(light).toEqual([colors.light.surface.raised, colors.light.surface.overlay]);
+    expect(dark).toEqual([colors.dark.surface.overlay, colors.dark.surface.glassFallback]);
+    expect(light).toEqual([colors.light.surface.raised, colors.light.surface.glassFallback]);
+  });
+
+  it('the dot RING clears AA-large against the frosted disc, every quadrant + both faces (structural cue)', () => {
+    for (const name of ['dark', 'light'] as ThemeName[]) {
+      const c = colors[name];
+      const disc = name === 'light'
+        ? [c.surface.raised, c.surface.glassFallback]
+        : [c.surface.overlay, c.surface.glassFallback];
+      for (const q of ['calm', 'joyful', 'intense', 'reflective'] as const) {
+        for (const stop of disc) expect(contrastRatio(c.emotionAccent[q].ink, stop)).toBeGreaterThanOrEqual(AA_LARGE);
+      }
+    }
   });
 
   it('renders no dots when there are no taps', () => {

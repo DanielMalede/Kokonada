@@ -259,18 +259,19 @@ describe('GenerateScreen — renders light AND dark', () => {
 });
 
 describe('GenerateScreen — quadrant words teach the map (A5a)', () => {
-  it('renders the 4 diagonal words in content.tertiary, fading after the first tap', async () => {
+  it('renders the 4 diagonal words in content.muted over a scrim; they retire once a point is placed', async () => {
     const store = makeStore();
     const tree = await mount('dark', store, makeSocket());
     const expected: Array<[string, string]> = [['calm', 'Calm'], ['joyful', 'Joyful'], ['intense', 'Intense'], ['reflective', 'Reflective']];
     for (const [q, word] of expected) {
       const w = byId(tree, `quadrant-word-${q}`);
       expect(w.props.children).toBe(word);
-      expect(flat(w).color).toBe(colors.dark.content.tertiary);
+      // AURORA: content.muted over a per-word scrim (the old content.tertiary@0.4 failed AA over the live field)
+      expect(flat(w).color).toBe(colors.dark.content.muted);
     }
-    expect(flat(byId(tree, 'quadrant-word-calm')).opacity).toBe(1); // full before a tap
     await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: -0.5 })); });
-    expect(flat(byId(tree, 'quadrant-word-calm')).opacity).toBeCloseTo(0.4); // fades once the map is learned
+    // once a point is placed the map is learned, so the words retire entirely — never a sub-AA fade
+    expect(byId(tree, 'quadrant-word-calm')).toBeFalsy();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

@@ -52,7 +52,8 @@ jest.mock('react-native-reanimated', () => ({
 const StubView = ({ children }) => children ?? null;
 jest.mock('@shopify/react-native-skia', () => ({
   Canvas: StubView, Group: StubView, Circle: StubView, Blur: StubView, Path: StubView,
-  RadialGradient: StubView, vec: (x, y) => ({ x, y }),
+  RadialGradient: StubView, LinearGradient: StubView, Fill: StubView, Rect: StubView, RoundedRect: StubView,
+  vec: (x, y) => ({ x, y }),
   useClock: () => ({ value: 0 }),
   Skia: { Path: { Make: () => ({ moveTo() {}, lineTo() {}, addCircle() {}, close() {} }) } },
 }));

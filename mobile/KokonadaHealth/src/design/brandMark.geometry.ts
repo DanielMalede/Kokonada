@@ -59,33 +59,40 @@ export interface Treatment {
   bloomStops: readonly BloomStop[];
 }
 
+// AURORA re-tint: the mark is now "an aurora orb on midnight" — a luminous sky-blue seed with a warm
+// gold spark at its heart, ringed and haloed by the Aurora violet. The core/bloom are drawn from the
+// aurora palette (sky #5EC8F5 / violet #9B7BF0 / gold #FFCB6E) and TUNED to each canvas: the bright
+// blob hues glow on the midnight face; the deeper aurora stops (sky #3FB4F0 / gold #F5B93A) read on
+// the porcelain face. bg (= surface.base gradient) and ring (= accent.glow) ride the tokens BY
+// CONSTRUCTION, so brandMark.geometry.test.ts's "no drift from surface.base / accent.glow" invariant
+// holds forever. The violet bloom is shared — the halo is the same aurora light on both faces.
 export const treatments: { readonly dark: Treatment; readonly light: Treatment } = {
-  // Dark / Abyss — the PRIMARY launcher treatment (a bioluminescent seed on deep-sea black).
+  // Aurora Nocturne — the PRIMARY launcher treatment (the aurora orb on midnight indigo).
   dark: {
-    bg: '#060B11',
-    bgGradient: ['#0B131C', '#04080D'],
-    coreHighlight: '#ECFFFB',
-    coreBody: '#6FF3DE',
-    ring: '#31E1C4',
+    bg: '#0E1030',
+    bgGradient: ['#0E1030', '#080A20'],
+    coreHighlight: '#FFCB6E', // the warm gold spark at the seed's heart
+    coreBody: '#5EC8F5',      // the luminous sky-blue orb
+    ring: '#9B7BF0',          // the Aurora violet breath rings (= accent.glow)
     ring1Alpha: 0.85,
     ring2Alpha: 0.38,
-    bloom: '#31E1C4',
+    bloom: '#9B7BF0',         // the violet aurora halo
     bloomStops: [
       { offset: 0.0, alpha: 0.55 },
       { offset: 0.35, alpha: 0.28 },
       { offset: 1.0, alpha: 0.0 },
     ],
   },
-  // Light / Porcelain — light surfaces + marketing + favicon (deep-teal ink on cool white).
+  // Aurora Day — light surfaces + marketing + favicon (the same orb, softer, on cool porcelain).
   light: {
-    bg: '#F3F8FA',
-    bgGradient: ['#FFFFFF', '#E9F1F4'],
-    coreHighlight: '#16A892',
-    coreBody: '#0A7A6B',
-    ring: '#0C8C7B',
+    bg: '#FAFAFF',
+    bgGradient: ['#FAFAFF', '#EEF1FC'],
+    coreHighlight: '#F5B93A', // the deeper gold spark — reads on porcelain (the vivid gold would wash out)
+    coreBody: '#3FB4F0',      // the deeper aurora sky — a vivid orb on the cool-white canvas
+    ring: '#8B6FE8',          // the Aurora violet, deepened so it reads on porcelain (= accent.glow)
     ring1Alpha: 0.9,
     ring2Alpha: 0.3,
-    bloom: '#31E1C4',
+    bloom: '#9B7BF0',
     bloomStops: [
       { offset: 0.0, alpha: 0.22 },
       { offset: 0.35, alpha: 0.11 },

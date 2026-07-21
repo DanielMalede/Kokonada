@@ -62,7 +62,9 @@ export function BioAura({
     >
       <BreathingGlow color={color} reduced={reduced} breathMs={breathMs} size={size} />
       {accentColor ? (
-        <AccentBloom color={accentColor} reduced={reduced} breathMs={breathMs} size={size} />
+        // The emotion FOCAL glow breathes on the aurora's own focalGlow cadence (4600ms), independent
+        // of the HR glow's arousal-shaped breath above (the HR layer keeps driving intensity + period).
+        <AccentBloom color={accentColor} reduced={reduced} breathMs={motion.duration.focalGlow} size={size} />
       ) : null}
     </View>
   );

@@ -179,4 +179,18 @@ describe('EmotionTabBar — emotion-tinted chrome', () => {
     expect(flat(label(tree, 'Pulse')).color).toBe(colors.light.content.secondary);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
+
+  it('(l) AURORA gold-as-text: the active LABEL clears AA-normal in every quadrant, and the gold quadrant rides accent.goldInk (never the vivid graphic gold)', () => {
+    for (const t of [colors.dark, colors.light]) {
+      // the joyful (gold) quadrant's LABEL ink IS the gold-as-TEXT token — the glyph may be vivid, the label may not
+      expect(t.emotionAccent.joyful.ink).toBe(t.accent.goldInk);
+      // every active label ink clears AA-normal as TEXT on the bare bar (all four quadrants, both faces)
+      for (const q of ['calm', 'joyful', 'intense', 'reflective'] as const) {
+        expect(contrastRatio(t.emotionAccent[q].ink, t.surface.base)).toBeGreaterThanOrEqual(AA_NORMAL);
+      }
+    }
+    // WHY goldInk and not the vivid graphic gold: on the LIGHT face the graphic gold is sub-AA as text (only AA-large).
+    expect(contrastRatio(colors.light.accent.goldGraphic, colors.light.surface.base)).toBeLessThan(AA_NORMAL);
+    expect(contrastRatio(colors.light.accent.goldInk, colors.light.surface.base)).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
 });

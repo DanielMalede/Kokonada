@@ -6,16 +6,20 @@ import { runOnJS } from 'react-native-reanimated';
 import { screenToCircumplex, circumplexToScreen, isOnWheel, type WheelLayout } from './wheelGeometry';
 import { hitsMostRecentDot } from './wheelInteraction';
 import { useTheme } from '../../design/theme';
-import { emotionAccentFor } from '../../design/emotionAccent';
+import { emotionAccentFor, auroraGlow } from '../../design/emotionAccent';
+import { glassFor } from '../../design/auroraSurfaces';
 import { elevation } from '../../design/tokens';
 import type { Tap } from '../../state/cold/emotionSlice';
 
 // Dot geometry (fractions of the wheel radius): the painted node is small, but the tap target
-// is the generous ≥44dp remove-radius in wheelInteraction. Most-recent dot is largest + brightest
-// (a recency trail); because the accent ink is the MEAN of all taps, every dot re-tints together.
+// is the generous ≥44dp remove-radius in wheelInteraction. Most-recent dot is largest (a recency
+// trail). AURORA: each dot's soft fill is ITS OWN continuous auroraGlow(x,y) — the emotion colour
+// at that exact point on the disc — while a crisp structural RING (AA-large vs the disc) carries the
+// shape, so the decorative bright fill never has to also be the legibility cue.
 const DOT_BASE = 0.055;
 const DOT_RECENCY_GROW = 0.4; // most-recent is 1.4× the oldest
 const DOT_OPACITY_FLOOR = 0.5;
+const DOT_RING_WIDTH = 2; // the crisp structural stroke around each dot
 
 // The Skia radial valence/arousal wheel. The gesture runs on the UI thread; only the pure
 // geometry + the final commit cross into JS via a SINGLE runOnJS on gesture-end — the ≤3-tap
@@ -42,11 +46,16 @@ export function RadialWheel({
   const { name, c } = useTheme();
   const r = size / 2;
   const layout: WheelLayout = { cx: r, cy: r, radius: r };
-  const ink = accentInk ?? c.emotionAccent.calm.ink;
-  // Token disc gradient — a floating lens: elevated centre → recessed rim, per theme (no raw hex).
+  // The session's emotion-mean ink RINGS every dot (AA-large vs the disc — RadialWheel.test pins it);
+  // the per-dot FILL is each tap's own auroraGlow, so the ring, not the bright fill, carries the shape.
+  const ringInk = accentInk ?? c.emotionAccent.calm.ink;
+  const glass = glassFor(c, name);
+  // The wheel is a frosted-glass LENS floating ON the aurora (not a window onto it — the moving field
+  // must never fight the dots), so the disc is the glass in its opaque fallback form with a bright
+  // frosted rim of light. The living aurora reads in the FIELD around the wheel, and glints on this rim.
   const discColors = name === 'light'
-    ? [c.surface.raised, c.surface.overlay]
-    : [c.surface.overlay, c.surface.base];
+    ? [c.surface.raised, c.surface.glassFallback]
+    : [c.surface.overlay, c.surface.glassFallback];
 
   // Hit-test + geometry run on the JS thread. §5: a tap on the most-recent dot removes it
   // (undo), otherwise it commits a new point. Single bridge crossing per tap either way.
@@ -83,7 +92,7 @@ export function RadialWheel({
           <Circle cx={r} cy={r} r={r}>
             <RadialGradient c={vec(r, r)} r={r} colors={discColors} />
           </Circle>
-          <Circle cx={r} cy={r} r={r} color={c.surface.hairline} opacity={0.5} style="stroke" strokeWidth={1} />
+          <Circle cx={r} cy={r} r={r} color={glass.border} style="stroke" strokeWidth={1} />
           <Group>
             {committedTaps.map((t, i) => {
               const p = circumplexToScreen(t, layout);
@@ -91,9 +100,14 @@ export function RadialWheel({
               const dotR = r * DOT_BASE * (1 + DOT_RECENCY_GROW * recency);
               const opacity = reduced ? 1 : DOT_OPACITY_FLOOR + (1 - DOT_OPACITY_FLOOR) * recency;
               return (
-                <Circle key={i} cx={p.x} cy={p.y} r={dotR} color={ink} opacity={opacity}>
-                  <Blur blur={dotR} />
-                </Circle>
+                <Group key={i}>
+                  {/* decorative soft fill — this dot's OWN emotion glow (no AA burden) */}
+                  <Circle cx={p.x} cy={p.y} r={dotR} color={auroraGlow(t.x, t.y)} opacity={opacity}>
+                    <Blur blur={dotR} />
+                  </Circle>
+                  {/* crisp structural ring — AA-large vs the disc (carries the shape) */}
+                  <Circle cx={p.x} cy={p.y} r={dotR} color={ringInk} opacity={opacity} style="stroke" strokeWidth={DOT_RING_WIDTH} />
+                </Group>
               );
             })}
           </Group>
