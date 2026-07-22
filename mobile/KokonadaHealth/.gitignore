@@ -34,6 +34,9 @@ local.properties
 *.keystore
 # NOTE: the RN template's `!debug.keystore` negation is intentionally removed so
 # the debug keystore stays UNTRACKED (it is regenerable and credential-shaped). (audit F5)
+# Release signing credentials — NEVER commit (holds the release keystore passwords).
+android/keystore.properties
+keystore.properties
 .kotlin/
 
 # node.js

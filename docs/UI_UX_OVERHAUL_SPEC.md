@@ -7,16 +7,26 @@
 
 ---
 
-## APPROVED VISUAL DIRECTION (Daniel, 2026-07-12 — LOCKED)
+## APPROVED VISUAL DIRECTION — "AURORA" (Daniel, 2026-07-13 — LOCKED)
 
-Reviewed against concept mockups and approved. Build the Vision Frame to **this**:
-- **Light "Clinical Premium" is the PRIMARY / default mode** — airy, white-based, frosted, generous whitespace. **Dark "Bioluminescence" is the alternate.**
-- **Reactive emotion accent** — the bio-aura, the emotion-wheel tap dots, and the primary CTA all re-tint to the current emotion (from the valence×arousal circumplex): Calm = teal, Joyful = amber/coral, Intense = violet/magenta, Reflective = indigo. Per the regulator ethic, high-arousal negative states stay **soft — never an alarming red.**
-- **Large floating aura is the signature element** — a big, soft, breathing field (~half the screen) behind the hero and, above all, the **Genesis** moment. It MUST run on the UI thread, be frame-rate-independent and reduced-motion-aware, and degrade under low-power/thermal (per §6).
-- **Genesis = no spinner** — a breathing neural-particle field + one calm status line.
-- **Restraint everywhere else** so the wheel + aura are the stars; WCAG 2.2 AA maintained for all text over the aura/gradients.
+Approved from the interactive Aurora mockup (`docs/mockups/aurora-interactive.html`). **This supersedes the earlier Calm/Bioluminescent direction.** Build the Vision Frame to this.
 
-This is the north-star feel the token system (§2) and the screen rollout (§4 / `docs/SCREENS.md`) implement.
+**Concept — "living light."** The interface is a soft, breathing **aurora** of light-blue → violet → gold. The ambient aurora is the brand; the user's *emotion* becomes the focal glow. UI floats on top as **frosted glass**. Gold is the premium signature (key moments only); blue + violet are the emotional depth. Light-primary, with an **Aurora Nocturne** dark alternate.
+
+**Tokens (exact):**
+- **Aurora gradient stops:** sky `#3FB4F0` → violet `#8B6FE8` → gold `#F5B93A` (with a soft pink `#F79AC0` accent allowed in the ambient field).
+- **Reactive emotion → color** (bilinear over the valence×arousal wheel — aura focal glow, tap dots, primary CTA, accent all re-tint): top-left/negative-high = violet `#8B6FE8`, top-right/positive-high = gold `#F5B93A`, bottom-left/negative-low = indigo `#4B6FD0`, bottom-right/positive-low = sky `#3FB4F0`. High-arousal-negative stays **soft, never alarming red** (regulator ethic).
+- **Glass:** `background rgba(255,255,255,.52)` + `backdrop-filter: blur(10px)` + `1px` border `rgba(255,255,255,.66)` (Nocturne: `rgba(255,255,255,.10)` / border `.18`).
+- **Light canvas:** `#FAFAFF → #EEF1FC`. **Nocturne canvas:** `#0E1030 → #080A20`.
+- **Text:** deep indigo `#241B45` (light) / `#EEF0FF` (Nocturne). **Muted:** `#6F6A90` / `#A7A6D0`.
+- **Gold hairline** frame: `1px rgba(212,175,95,.3)`. **Nav:** frosted glass, active tab gold.
+- **Brand:** wordmark = the aurora gradient as text; app-icon = aurora orb on midnight.
+
+**Signature elements:** the **large floating aura** (breathes ~4.6s), the reactive focal glow, the Genesis neural-particle field (**no spinner**), and the frosted-glass nav.
+
+**Motion & performance (mandatory):** the aurora "flow" (~15s) and "breathe" run on the **UI thread**, **frame-rate-independent**, with a **reduced-motion fallback** (static aura) and a **low-power/thermal fallback** — hold the 60fps floor and protect battery. WCAG 2.2 AA for all text over the aurora/glass.
+
+This is the north-star the token system (§2) and the screen rollout (§4 / `docs/SCREENS.md`) implement. Reference mockup: `docs/mockups/aurora-interactive.html`.
 
 ---
 

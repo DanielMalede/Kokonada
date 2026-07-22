@@ -20,6 +20,7 @@ import { requestWatchPairing, fetchWatchStatus, revokeWatchPairing } from '../..
 import { clearWatchToken } from '../../health/liveHrClient';
 import { createWatchPairingFlow, type WatchPairingStore } from './watchPairingStore';
 import { PROVIDERS } from '../connect/providers';
+import { SPOTIFY_BETA_CONNECT } from '../connect/betaFlags';
 import { ProfileIntegrationRow } from './ProfileIntegrationRow';
 import { WatchPairingCard } from './WatchPairingCard';
 import { VaultConsentPanel } from './VaultConsentPanel';
@@ -283,7 +284,17 @@ export function ProfileScreen() {
             reason={spotifyConnected ? 'Playing your library.' : spotifyProvider.why}
             statusWord={spotifyConnected ? 'Connected' : 'Unavailable'}
             connected={spotifyConnected}
-            action={spotifyConnected ? { label: 'Reconnect', testId: 'reconnect-spotify', onPress: onConnectSpotify } : undefined}
+            action={
+              spotifyConnected
+                ? { label: 'Reconnect', testId: 'reconnect-spotify', onPress: onConnectSpotify }
+                // First-connect is gated to allow-listed testers (SPOTIFY_BETA_CONNECT, committed
+                // OFF — Spotify connect is halted under the ToS 5-user cap). Off ⇒ no button, so a
+                // not-connected public user sees only the honest "Unavailable" word. On ⇒ reuse the
+                // SAME proven OAuth handler as Reconnect.
+                : SPOTIFY_BETA_CONNECT
+                  ? { label: 'Connect', testId: 'connect-spotify', onPress: onConnectSpotify }
+                  : undefined
+            }
           />
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow

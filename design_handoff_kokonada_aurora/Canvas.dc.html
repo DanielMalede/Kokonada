@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics="">
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+  :root{--canvas-a:#FAFAFF;--canvas-b:#EEF1FC;--glass:rgba(255,255,255,.52);--glass-br:rgba(255,255,255,.66);--text:#241B45;--muted:#6F6A90;--page:#E9E7F3}
+  [data-theme="night"]{--canvas-a:#0E1030;--canvas-b:#080A20;--glass:rgba(255,255,255,.10);--glass-br:rgba(255,255,255,.18);--text:#EEF0FF;--muted:#A7A6D0;--page:#0A0C22}
+  body{margin:0;font-family:Manrope,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:#8B6FE8;text-decoration:none}a:hover{color:#F5B93A}
+  @keyframes driftA{0%{transform:translate(0,0) scale(1)}100%{transform:translate(16px,20px) scale(1.14)}}
+  @keyframes driftB{0%{transform:translate(0,0) scale(1)}100%{transform:translate(-18px,12px) scale(1.16)}}
+  @keyframes driftC{0%{transform:translate(0,0) scale(1)}100%{transform:translate(14px,-16px) scale(1.1)}}
+  @keyframes driftD{0%{transform:translate(0,0) scale(1)}100%{transform:translate(-12px,-14px) scale(1.2)}}
+  @keyframes breathe{0%{transform:scale(.94);opacity:.82}100%{transform:scale(1.1);opacity:1}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes shimmer{0%{background-position:-120% 0}100%{background-position:220% 0}}
+  @media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important}}
+</style>
+</helmet>
+<div data-theme="{{ theme }}" style="min-height:100vh;background:var(--page);padding-bottom:40px;transition:background .5s ease">
+  <div style="max-width:1240px;margin:0 auto;padding:30px 24px 6px;display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px">
+    <div>
+      <div style="font:800 32px Manrope;background:linear-gradient(90deg,#3FB4F0,#8B6FE8,#F5B93A);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:-.02em">Kokonada</div>
+      <div style="color:var(--muted);font:500 13px Manrope;margin-top:3px">AURORA · your body &amp; mind, as a living playlist</div>
+    </div>
+    <div style="display:flex;gap:4px;padding:4px;background:var(--glass);border:1px solid var(--glass-br);border-radius:999px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)">
+      <button onClick="{{ setDay }}" style="{{ dayStyle }}">Day</button>
+      <button onClick="{{ setNight }}" style="{{ nightStyle }}">Night</button>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:32px 26px;justify-content:center;padding:26px 24px 40px;max-width:1240px;margin:0 auto">
+
+    <!-- 01 SPLASH -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">01 · SPLASH</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px">
+          <div style="height: 179px; border-radius: 50%; background: radial-gradient(circle at 38% 34%,#3FB4F0,#8B6FE8 52%,#F5B93A); box-shadow: 0 0 46px 6px rgba(139,111,232,.55),inset 0 0 22px rgba(255,255,255,.35); animation: breathe 4.6s ease-in-out infinite alternate; width: 176px"></div>
+          <div style="text-align:center">
+            <div style="font:800 30px Manrope;background:linear-gradient(90deg,#3FB4F0,#8B6FE8,#F5B93A);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:-.02em">Kokonada</div>
+            <div style="color:var(--muted);font:500 12px Manrope;margin-top:6px;letter-spacing:.02em">your body, in music</div>
+          </div>
+        </div>
+        <div style="position:absolute;bottom:26px;left:0;right:0;z-index:1;text-align:center;color:var(--muted);font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.12em">TUNING IN…</div>
+      </div>
+    </div>
+
+    <!-- 02 ONBOARDING -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">02 · ONBOARDING</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;padding:16px 20px 22px">
+          <div style="height:26px;display:flex;align-items:center;justify-content:space-between;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;text-align:center">
+            <div style="width:120px;height:120px;border-radius:50%;background:var(--glass);border:1px solid var(--glass-br);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 1px rgba(212,175,95,.25)"><div style="width: 104px; height: 105px; border-radius: 50%; background: radial-gradient(circle at 40% 36%,#3FB4F0,#8B6FE8 55%,#F5B93A); animation: breathe 4.6s ease-in-out infinite alternate; box-shadow: 0 0 30px rgba(139,111,232,.5)"></div></div>
+            <div>
+              <div style="font:800 21px Manrope;color:var(--text);letter-spacing:-.01em;line-height:1.15">Music that<br>feels you</div>
+              <div style="font:500 13px/1.5 Manrope;color:var(--muted);margin-top:10px;max-width:180px">Your heart, breath and mood become a playlist that moves with you.</div>
+            </div>
+            <div style="display:flex;gap:6px"><div style="width:20px;height:6px;border-radius:6px;background:#8B6FE8"></div><div style="width:6px;height:6px;border-radius:6px;background:var(--glass-br)"></div><div style="width:6px;height:6px;border-radius:6px;background:var(--glass-br)"></div></div>
+          </div>
+          <button style="width:100%;border:none;cursor:pointer;padding:14px;border-radius:16px;background:#8B6FE8;color:#fff;font:800 15px Manrope;box-shadow:0 10px 24px -8px #8B6FE8">Get started</button>
+          <div style="text-align:center;margin-top:12px;color:var(--muted);font:600 12px Manrope">Skip</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 LOGIN -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">03 · LOGIN</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;padding:16px 20px 22px">
+          <div style="height:26px;display:flex;align-items:center;justify-content:space-between;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="text-align:center;margin:22px 0 20px"><div style="font:800 22px Manrope;background:linear-gradient(90deg,#3FB4F0,#8B6FE8,#F5B93A);-webkit-background-clip:text;background-clip:text;color:transparent">Kokonada</div><div style="color:var(--muted);font:500 12px Manrope;margin-top:4px">Welcome back</div></div>
+          
+          
+          <div style="background: var(--glass); border: 1px solid var(--glass-br); border-radius: 20px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 16px; display: flex; flex-direction: column; gap: 11px; width: 160px; height: 192px">
+            <div style="font:700 10px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.08em">EMAIL</div>
+            <div style="background:var(--canvas-a);border:1px solid var(--glass-br);border-radius:12px;padding:11px 13px;font:500 13px Manrope;color:var(--text)">ari@kokonada.fm</div>
+            <div style="font:700 10px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.08em;margin-top:2px">PASSWORD</div>
+            <div style="background:var(--canvas-a);border:1px solid var(--glass-br);border-radius:12px;padding:11px 13px;font:500 13px Manrope;color:var(--muted);letter-spacing:.24em">••••••••</div>
+            <button style="margin-top:6px;width:100%;border:none;cursor:pointer;padding:13px;border-radius:14px;background:#8B6FE8;color:#fff;font:800 14px Manrope;box-shadow:0 8px 20px -8px #8B6FE8">Continue</button>
+          </div><div style="display:flex;align-items:center;gap:10px;margin:16px 0"><div style="flex:1;height:1px;background:var(--glass-br)"></div><div style="font:600 11px Manrope;color:var(--muted)">or</div><div style="flex:1;height:1px;background:var(--glass-br)"></div></div><div style="display: flex; flex-direction: column-reverse; gap: 9px">
+            
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:13px;padding:11px;display:flex;align-items:center;justify-content:center;gap:9px;font:700 13px Manrope;color:var(--text)"><div style="width:15px;height:15px;border-radius:4px;background:var(--text);opacity:.85"></div>Continue with Apple</div><div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:13px;padding:11px;display:flex;align-items:center;justify-content:center;gap:9px;font:700 13px Manrope;color:var(--text)"><div style="width:15px;height:15px;border-radius:50%;background:conic-gradient(#F5B93A,#3FB4F0,#8B6FE8,#F79AC0,#F5B93A)"></div>Continue with Google</div>
+          </div>
+          <div style="text-align: center; margin-top: 10px; color: var(--muted); font: 500 12px Manrope">New here? <span style="color:#8B6FE8;font-weight:700">Create account</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 CONNECT SERVICES -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">04 · CONNECT</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;padding:16px 18px 22px">
+          <div style="height:26px;display:flex;align-items:center;justify-content:space-between;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="margin:14px 2px 14px"><div style="font:800 20px Manrope;color:var(--text);letter-spacing:-.01em">Connect your world</div><div style="font:500 12px/1.5 Manrope;color:var(--muted);margin-top:5px">The more signals, the truer the tune.</div></div>
+          <div style="display:flex;align-items:center;gap:7px;margin:0 2px 8px"><span style="font:700 10px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">WEARABLES &amp; HEALTH</span><div style="flex:1;height:1px;background:var(--glass-br)"></div></div>
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:12px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F79AC0,#F5B93A)"></div><div style="flex:1"><div style="font:700 13px Manrope;color:var(--text)">Apple Health</div><div style="font:600 10px Manrope;color:#3FB4F0">Connected</div></div><div style="width:38px;height:22px;border-radius:22px;background:#8B6FE8;position:relative"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div></div>
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:12px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#241B45,#4B6FD0)"></div><div style="flex:1"><div style="font:700 13px Manrope;color:var(--text)">Oura Ring</div><div style="font:600 10px Manrope;color:var(--muted)">Tap to connect</div></div><div style="width:38px;height:22px;border-radius:22px;background:var(--glass-br);border:1px solid var(--glass-br);position:relative"><div style="position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:var(--muted);opacity:.6"></div></div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;margin:16px 2px 8px"><span style="font:700 10px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">MUSIC PLATFORMS</span><div style="flex:1;height:1px;background:var(--glass-br)"></div></div>
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:12px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#3FB4F0,#8B6FE8)"></div><div style="flex:1"><div style="font:700 13px Manrope;color:var(--text)">Spotify</div><div style="font:600 10px Manrope;color:#3FB4F0">Connected</div></div><div style="width:38px;height:22px;border-radius:22px;background:#8B6FE8;position:relative"><div style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff"></div></div></div>
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:12px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#F5B93A,#F79AC0)"></div><div style="flex:1"><div style="font:700 13px Manrope;color:var(--text)">Apple Music</div><div style="font:600 10px Manrope;color:var(--muted)">Tap to connect</div></div><div style="width:38px;height:22px;border-radius:22px;background:var(--glass-br);border:1px solid var(--glass-br);position:relative"><div style="position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:var(--muted);opacity:.6"></div></div></div>
+          </div>
+          <button style="margin-top:auto;width:100%;border:none;cursor:pointer;padding:14px;border-radius:16px;background:#8B6FE8;color:#fff;font:800 15px Manrope;box-shadow:0 10px 24px -8px #8B6FE8">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 05 GENERATE (interactive) -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:#F5B93A;letter-spacing:.1em">05 · GENERATE · LIVE</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="{{ emotionVar }}">
+          <div style="height:26px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;margin-top:16px;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="flex:1;display:flex;flex-direction:column;padding:8px 20px 0;gap:14px">
+            <div><div style="font:800 20px Manrope;color:var(--text);letter-spacing:-.01em">How are you?</div><div style="font:500 12px Manrope;color:var(--muted);margin-top:3px">Tap the field — up to 3 points.</div></div>
+            <div onClick="{{ placeTap }}" style="position:relative;width:188px;height:188px;border-radius:50%;background:var(--glass);border:1px solid var(--glass-br);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:inset 0 0 0 1px rgba(212,175,95,.22);cursor:crosshair;overflow:hidden;margin:0 auto">
+              <div style="position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 0 0,rgba(139,111,232,.5),transparent 56%),radial-gradient(circle at 100% 0,rgba(245,185,58,.5),transparent 56%),radial-gradient(circle at 0 100%,rgba(75,111,208,.48),transparent 56%),radial-gradient(circle at 100% 100%,rgba(63,180,240,.5),transparent 56%)"></div>
+              <div style="position:absolute;left:50%;top:50%;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;pointer-events:none;background:radial-gradient(circle,var(--emotion,#8B6FE8),transparent 70%);filter:blur(5px);animation:breathe 4.6s ease-in-out infinite alternate"></div>
+              <div style="position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,.25);pointer-events:none"></div>
+              <div style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(255,255,255,.25);pointer-events:none"></div>
+              <div style="position:absolute;left:7px;top:6px;font:700 8px ui-monospace,Menlo,monospace;color:var(--text);opacity:.6;pointer-events:none">TENSE</div>
+              <div style="position:absolute;right:7px;top:6px;font:700 8px ui-monospace,Menlo,monospace;color:var(--text);opacity:.6;pointer-events:none">ELATED</div>
+              <div style="position:absolute;left:7px;bottom:6px;font:700 8px ui-monospace,Menlo,monospace;color:var(--text);opacity:.6;pointer-events:none">LOW</div>
+              <div style="position:absolute;right:7px;bottom:6px;font:700 8px ui-monospace,Menlo,monospace;color:var(--text);opacity:.6;pointer-events:none">CALM</div>
+              <sc-for list="{{ dots }}" as="d" hint-placeholder-count="0"><div style="{{ d.style }}"></div></sc-for>
+            </div>
+            <div style="text-align:center"><div style="font:800 18px Manrope;color:var(--text)">{{ stateLabel }}</div><div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);margin-top:2px">{{ tapCountLabel }}</div></div>
+            <div style="display:flex;gap:8px;justify-content:center">
+              <button onClick="{{ undo }}" style="flex:1;border:1px solid var(--glass-br);cursor:pointer;padding:9px;border-radius:12px;background:var(--glass);color:var(--text);font:700 12px Manrope">Undo</button>
+              <button onClick="{{ clear }}" style="flex:1;border:1px solid var(--glass-br);cursor:pointer;padding:9px;border-radius:12px;background:var(--glass);color:var(--text);font:700 12px Manrope">Clear</button>
+            </div>
+            <button style="margin-top:auto;margin-bottom:8px;width:100%;border:none;cursor:pointer;padding:15px;border-radius:16px;background:var(--emotion,#8B6FE8);color:#fff;font:800 15px Manrope;box-shadow:0 10px 26px -6px var(--emotion,#8B6FE8);letter-spacing:.01em">Generate playlist</button>
+          </div>
+          <div style="flex:none"><dc-import name="BottomNav" active="generate" hint-size="100%,58px"></dc-import></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 06 GENESIS -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">06 · GENESIS</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,#0E1030,#080A20);border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.6)">
+        <div style="position:absolute;inset:0;opacity:.5"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="{{ emotionVar }}">
+          <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 40%,rgba(14,16,48,.5),rgba(8,10,32,.9));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:24px">
+            <div style="position:relative;width:150px;height:150px;display:flex;align-items:center;justify-content:center">
+              <div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,#3FB4F0,#8B6FE8,#F5B93A,#F79AC0,#3FB4F0);-webkit-mask:radial-gradient(farthest-side,transparent 62%,#000 64%);mask:radial-gradient(farthest-side,transparent 62%,#000 64%);animation:spin 6s linear infinite;opacity:.9"></div>
+              <div style="width:100px;height:100px;border-radius:50%;background:radial-gradient(circle,var(--emotion,#8B6FE8),transparent 72%);filter:blur(3px);animation:breathe 4.6s ease-in-out infinite alternate"></div>
+            </div>
+            <div style="text-align:center"><div style="font:800 18px Manrope;color:#EEF0FF">Composing your aurora…</div><div style="font:500 12px Manrope;color:#A7A6D0;margin-top:5px">reading heart, breath &amp; motion</div></div>
+            <div style="width:160px;height:6px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden"><div style="width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(245,185,58,.95),transparent);background-size:50% 100%;animation:shimmer 1.6s linear infinite"></div></div>
+            <div style="font:800 13px ui-monospace,Menlo,monospace;color:#F5B93A;letter-spacing:.06em">12 TRACKS FORMING</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 07 NOW PLAYING -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">07 · NOW PLAYING</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;padding:16px 20px 0">
+          <div style="height:26px;display:flex;align-items:center;justify-content:space-between;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:8px 0 14px"><span style="font:700 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.08em">NOW PLAYING</span><span style="font:700 10px Manrope;color:#F5B93A;background:rgba(245,185,58,.14);border:1px solid rgba(212,175,95,.35);border-radius:20px;padding:3px 9px">calm · bright</span></div>
+          <div style="position:relative;width:100%;aspect-ratio:1;border-radius:20px;overflow:hidden;box-shadow:0 16px 34px -12px rgba(139,111,232,.6)"><div style="position:absolute;inset:0;background:repeating-linear-gradient(45deg,rgba(139,111,232,.22),rgba(139,111,232,.22) 9px,rgba(63,180,240,.16) 9px,rgba(63,180,240,.16) 18px)"></div><div style="position:absolute;inset:0;background:radial-gradient(circle at 35% 30%,rgba(245,185,58,.4),transparent 60%)"></div><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:700 10px ui-monospace,Menlo,monospace;color:var(--text);opacity:.55;letter-spacing:.1em">ALBUM ART</div></div>
+          <div style="margin-top:16px"><div style="font:800 18px Manrope;color:var(--text)">Aurora Drift</div><div style="font:600 12px Manrope;color:var(--muted);margin-top:2px">Kokonada AI · session 04</div></div>
+          <div style="margin-top:14px"><div style="height:4px;border-radius:4px;background:var(--glass-br);position:relative"><div style="position:absolute;left:0;top:0;height:100%;width:42%;border-radius:4px;background:linear-gradient(90deg,#3FB4F0,#8B6FE8)"></div><div style="position:absolute;left:42%;top:50%;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;border-radius:50%;background:#F5B93A;box-shadow:0 0 8px rgba(245,185,58,.8)"></div></div><div style="display:flex;justify-content:space-between;margin-top:6px;font:600 10px ui-monospace,Menlo,monospace;color:var(--muted)"><span>1:42</span><span>4:03</span></div></div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:26px;margin-top:16px">
+            <div style="width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-right:13px solid var(--text);opacity:.75"></div>
+            <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#F5B93A,#F79AC0);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px -4px rgba(245,185,58,.7)"><div style="width:0;height:0;border-top:9px solid transparent;border-bottom:9px solid transparent;border-left:15px solid #fff;margin-left:4px"></div></div>
+            <div style="width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:13px solid var(--text);opacity:.75"></div>
+          </div>
+          <div style="margin-top:auto;margin-bottom:12px;background:var(--glass);border:1px solid var(--glass-br);border-radius:14px;backdrop-filter:blur(10px);padding:10px 12px;display:flex;align-items:center;gap:9px"><div style="width:26px;height:26px;border-radius:8px;background:radial-gradient(circle,#3FB4F0,#8B6FE8)"></div><div style="font:600 11px/1.35 Manrope;color:var(--text)">Chosen for HR&nbsp;72 · steady breath</div></div>
+          <div style="margin:0 -20px"><dc-import name="BottomNav" active="home" hint-size="100%,58px"></dc-import></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 08 PULSE -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">08 · PULSE</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;padding:16px 18px 0">
+          <div style="height:26px;display:flex;align-items:center;justify-content:space-between;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="font:800 20px Manrope;color:var(--text);margin:12px 2px 14px;letter-spacing:-.01em">Your pulse</div>
+          <div style="position:relative;width:132px;height:132px;margin:0 auto 6px"><div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(#F5B93A 0 72%,var(--glass-br) 72% 100%);-webkit-mask:radial-gradient(farthest-side,transparent 68%,#000 70%);mask:radial-gradient(farthest-side,transparent 68%,#000 70%)"></div><div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font:800 30px Manrope;color:var(--text);line-height:1">72</div><div style="font:700 10px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">BPM</div></div></div>
+          <div style="display:flex;gap:10px;margin-top:8px">
+            <div style="flex:1;background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:12px"><div style="font:700 9px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.08em">STATE</div><div style="position:relative;width:100%;aspect-ratio:1;margin-top:8px;border-radius:12px;background:radial-gradient(circle at 0 0,rgba(139,111,232,.4),transparent 60%),radial-gradient(circle at 100% 0,rgba(245,185,58,.4),transparent 60%),radial-gradient(circle at 0 100%,rgba(75,111,208,.38),transparent 60%),radial-gradient(circle at 100% 100%,rgba(63,180,240,.4),transparent 60%);border:1px solid var(--glass-br)"><div style="position:absolute;right:22%;bottom:26%;width:12px;height:12px;border-radius:50%;background:#3FB4F0;border:2px solid #fff;box-shadow:0 0 10px #3FB4F0"></div></div></div>
+            <div style="flex:1;background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:12px;display:flex;flex-direction:column"><div style="font:700 9px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.08em">TREND</div><svg viewBox="0 0 100 60" style="width:100%;margin-top:auto"><polyline points="0,44 14,40 28,46 42,30 56,34 70,18 84,26 100,14" fill="none" stroke="#8B6FE8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline></svg><div style="font:700 15px Manrope;color:var(--text);margin-top:6px">Steady · bright</div></div>
+          </div>
+          <div style="margin-top:14px;background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:12px;display:flex;align-items:center;gap:10px"><div style="width:32px;height:32px;border-radius:50%;background:radial-gradient(circle,#3FB4F0,#8B6FE8);animation:breathe 4.6s ease-in-out infinite alternate"></div><div><div style="font:700 12px Manrope;color:var(--text)">Reading live</div><div style="font:600 10px Manrope;color:var(--muted)">HRV 58ms · resp 14/min</div></div></div>
+          <div style="margin:auto -18px 0"><dc-import name="BottomNav" active="pulse" hint-size="100%,58px"></dc-import></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 09 HISTORY -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">09 · HISTORY</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;padding:16px 18px 0">
+          <div style="height:26px;display:flex;align-items:center;justify-content:space-between;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="font:800 20px Manrope;color:var(--text);margin:12px 2px 14px;letter-spacing:-.01em">History</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:15px;backdrop-filter:blur(10px);padding:11px;display:flex;align-items:center;gap:11px"><div style="width:32px;height:32px;border-radius:50%;background:radial-gradient(circle,#F5B93A,#F79AC0);flex:none"></div><div style="flex:1"><div style="font:700 12px Manrope;color:var(--text)">Morning lift</div><div style="font:600 10px Manrope;color:var(--muted)">Today · 9:12</div></div><div style="text-align:right"><div style="font:700 11px Manrope;color:var(--text)">14 tracks</div><div style="font:600 10px ui-monospace,Menlo,monospace;color:var(--muted)">52 min</div></div></div>
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:15px;backdrop-filter:blur(10px);padding:11px;display:flex;align-items:center;gap:11px"><div style="width:32px;height:32px;border-radius:50%;background:radial-gradient(circle,#3FB4F0,#8B6FE8);flex:none"></div><div style="flex:1"><div style="font:700 12px Manrope;color:var(--text)">Deep focus</div><div style="font:600 10px Manrope;color:var(--muted)">Yesterday · 14:30</div></div><div style="text-align:right"><div style="font:700 11px Manrope;color:var(--text)">22 tracks</div><div style="font:600 10px ui-monospace,Menlo,monospace;color:var(--muted)">1h 18m</div></div></div>
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:15px;backdrop-filter:blur(10px);padding:11px;display:flex;align-items:center;gap:11px"><div style="width:32px;height:32px;border-radius:50%;background:radial-gradient(circle,#8B6FE8,#4B6FD0);flex:none"></div><div style="flex:1"><div style="font:700 12px Manrope;color:var(--text)">Wind down</div><div style="font:600 10px Manrope;color:var(--muted)">Mon · 22:40</div></div><div style="text-align:right"><div style="font:700 11px Manrope;color:var(--text)">9 tracks</div><div style="font:600 10px ui-monospace,Menlo,monospace;color:var(--muted)">34 min</div></div></div>
+            <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:15px;backdrop-filter:blur(10px);padding:11px;display:flex;align-items:center;gap:11px"><div style="width:32px;height:32px;border-radius:50%;background:radial-gradient(circle,#F79AC0,#8B6FE8);flex:none"></div><div style="flex:1"><div style="font:700 12px Manrope;color:var(--text)">Run pace</div><div style="font:600 10px Manrope;color:var(--muted)">Sun · 7:05</div></div><div style="text-align:right"><div style="font:700 11px Manrope;color:var(--text)">18 tracks</div><div style="font:600 10px ui-monospace,Menlo,monospace;color:var(--muted)">1h 02m</div></div></div>
+          </div>
+          <div style="margin:auto -18px 0"><dc-import name="BottomNav" active="history" hint-size="100%,58px"></dc-import></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10 PROFILE / PRIVACY VAULT -->
+    <div style="display:flex;flex-direction:column;gap:11px;align-items:center">
+      <div style="font:600 11px ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em">10 · PRIVACY VAULT</div>
+      <div style="position:relative;width:236px;height:512px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,var(--canvas-a),var(--canvas-b));border:1px solid rgba(212,175,95,.3);box-shadow:0 22px 54px -18px rgba(36,27,69,.5)">
+        <div style="position:absolute;inset:0"><dc-import name="Aurora" hint-size="100%,100%"></dc-import></div>
+        <div style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;padding:16px 18px 0">
+          <div style="height:26px;display:flex;align-items:center;justify-content:space-between;font:600 11px Manrope;color:var(--text)"><span>9:41</span><span style="width:16px;height:8px;border:1px solid var(--text);border-radius:2px;opacity:.6"></span></div>
+          <div style="display:flex;align-items:center;gap:12px;margin:12px 2px 16px"><div style="width:56px;height:56px;border-radius:50%;background:radial-gradient(circle at 38% 34%,#3FB4F0,#8B6FE8 55%,#F5B93A);box-shadow:0 0 24px rgba(139,111,232,.5)"></div><div><div style="font:800 17px Manrope;color:var(--text)">Ari Chen</div><div style="display:inline-flex;align-items:center;gap:5px;margin-top:4px;font:700 10px Manrope;color:#8A6A1E;background:linear-gradient(135deg,rgba(245,185,58,.9),rgba(247,154,192,.7));border:1px solid rgba(212,175,95,.5);border-radius:20px;padding:3px 9px"><span style="width:5px;height:5px;border-radius:50%;background:#8A6A1E"></span>PREMIUM</div></div></div>
+          <div style="display:flex;align-items:center;gap:7px;margin:0 2px 10px"><div style="width:13px;height:11px;border-radius:2px;background:var(--text);opacity:.85;position:relative;margin-top:5px"><div style="position:absolute;left:2.5px;top:-5px;width:8px;height:8px;border:2px solid var(--text);border-bottom:none;border-radius:5px 5px 0 0"></div></div><span style="font:700 11px ui-monospace,Menlo,monospace;color:var(--text);letter-spacing:.06em">PRIVACY VAULT</span></div>
+          <div style="background:var(--glass);border:1px solid var(--glass-br);border-radius:16px;backdrop-filter:blur(10px);padding:6px 12px">
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--glass-br)"><div style="flex:1;font:700 12px Manrope;color:var(--text)">Heart rate</div><div style="width:36px;height:21px;border-radius:21px;background:#8B6FE8;position:relative"><div style="position:absolute;right:2px;top:2px;width:17px;height:17px;border-radius:50%;background:#fff"></div></div></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--glass-br)"><div style="flex:1;font:700 12px Manrope;color:var(--text)">Sleep &amp; recovery</div><div style="width:36px;height:21px;border-radius:21px;background:#8B6FE8;position:relative"><div style="position:absolute;right:2px;top:2px;width:17px;height:17px;border-radius:50%;background:#fff"></div></div></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--glass-br)"><div style="flex:1;font:700 12px Manrope;color:var(--muted)">Location</div><div style="width:36px;height:21px;border-radius:21px;background:var(--glass-br);border:1px solid var(--glass-br);position:relative"><div style="position:absolute;left:2px;top:2px;width:17px;height:17px;border-radius:50%;background:var(--muted);opacity:.6"></div></div></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 0"><div style="flex:1;font:700 12px Manrope;color:var(--text)">Listening history</div><div style="width:36px;height:21px;border-radius:21px;background:#8B6FE8;position:relative"><div style="position:absolute;right:2px;top:2px;width:17px;height:17px;border-radius:50%;background:#fff"></div></div></div>
+          </div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(212,175,95,.3);display:flex;align-items:center;justify-content:center;gap:6px;font:600 11px Manrope;color:var(--muted)"><div style="width:11px;height:9px;border-radius:2px;background:var(--muted);position:relative;margin-top:4px"><div style="position:absolute;left:2px;top:-4px;width:7px;height:6px;border:1.5px solid var(--muted);border-bottom:none;border-radius:4px 4px 0 0"></div></div>Your data stays on device</div>
+          <div style="margin:auto -18px 0"><dc-import name="BottomNav" active="profile" hint-size="100%,58px"></dc-import></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { night: false, taps: [] };
+
+  hexToRgb(h){ const n = parseInt(h.slice(1),16); return [n>>16&255, n>>8&255, n&255]; }
+  lerp(a,b,t){ return a+(b-a)*t; }
+  mixArr(a,b,t){ return a.map((v,i)=>this.lerp(v,b[i],t)); }
+  toCss(a){ return `rgb(${a.map(v=>Math.round(v)).join(',')})`; }
+  colorAt(x,y){
+    const TL=this.hexToRgb('#8B6FE8'), TR=this.hexToRgb('#F5B93A'), BL=this.hexToRgb('#4B6FD0'), BR=this.hexToRgb('#3FB4F0');
+    const top=this.mixArr(TL,TR,x), bot=this.mixArr(BL,BR,x);
+    return this.mixArr(top,bot,y);
+  }
+  labelFor(x,y){
+    const val = x<0.4?'heavy' : x<0.6?'neutral' : 'bright';
+    const ar  = y<0.4?'Energized' : y<0.6?'Steady' : 'Calm';
+    return `${ar} · ${val}`;
+  }
+
+  placeTap = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    let x = (e.clientX - r.left) / r.width;
+    let y = (e.clientY - r.top) / r.height;
+    let dx = x-0.5, dy = y-0.5, d = Math.hypot(dx,dy);
+    if (d>0.5){ dx=dx/d*0.5; dy=dy/d*0.5; x=0.5+dx; y=0.5+dy; }
+    this.setState(s => ({ taps: [...s.taps, {x,y}].slice(-3) }));
+  };
+  undo = () => this.setState(s => ({ taps: s.taps.slice(0,-1) }));
+  clear = () => this.setState({ taps: [] });
+  setDay = () => this.setState({ night: false });
+  setNight = () => this.setState({ night: true });
+
+  renderVals(){
+    const taps = this.state.taps;
+    let ax=0.5, ay=0.42;
+    if (taps.length){ ax = taps.reduce((a,t)=>a+t.x,0)/taps.length; ay = taps.reduce((a,t)=>a+t.y,0)/taps.length; }
+    const emotion = this.toCss(this.colorAt(ax,ay));
+
+    const dots = taps.map(t => {
+      const c = this.toCss(this.colorAt(t.x,t.y));
+      return { style: { position:'absolute', left:(t.x*100)+'%', top:(t.y*100)+'%', width:'16px', height:'16px', marginLeft:'-8px', marginTop:'-8px', borderRadius:'50%', background:c, boxShadow:`0 0 14px 3px ${c}`, border:'2px solid rgba(255,255,255,.9)', pointerEvents:'none' } };
+    });
+
+    const baseBtn = { border:'none', cursor:'pointer', font:'700 12px Manrope', padding:'7px 18px', borderRadius:'999px', transition:'all .3s ease' };
+    const active = { background:'linear-gradient(90deg,#8B6FE8,#F5B93A)', color:'#fff', boxShadow:'0 2px 10px rgba(139,111,232,.45)' };
+    const inactive = { background:'transparent', color:'var(--text)' };
+
+    const emotionVar = { position:'absolute', inset:0, zIndex:1, display:'flex', flexDirection:'column', '--emotion': emotion };
+
+    return {
+      theme: this.state.night ? 'night' : 'light',
+      setDay: this.setDay, setNight: this.setNight,
+      dayStyle: { ...baseBtn, ...(this.state.night ? inactive : active) },
+      nightStyle: { ...baseBtn, ...(this.state.night ? active : inactive) },
+      placeTap: this.placeTap, undo: this.undo, clear: this.clear,
+      dots,
+      emotionVar,
+      stateLabel: taps.length ? this.labelFor(ax,ay) : 'Tap the field',
+      tapCountLabel: taps.length ? `avg of ${taps.length} point${taps.length>1?'s':''}` : 'awaiting your signal',
+    };
+  }
+}
+</script>
+</body>
+</html>

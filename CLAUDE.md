@@ -32,10 +32,13 @@ Dispatch work to these five named sub-agents (all Opus, all read the docs above)
 - **`architect`** — read-only. Principal-level analysis + dependency-ordered plans; surfaces forks as decision tables. Invoke before any non-trivial change.
 - **`designer`** — read-only. Design lead: authors the Vision Frame + tokens + per-screen direction, and gives the **SHIP / REVISE** design-review verdict. No screen merges without a `designer` SHIP.
 - **`developer`** — full tools. Builds ONE scoped task under strict TDD; real (on-device) evidence, never green mocks.
-- **`resilience-auditor`** — read-only. Master QA: stress/boundary tests, fault-tree root-cause, hunts false-greens, pins regression guards.
+- **`resilience-auditor`** — read-only. Master QA: stress/boundary tests, fault-tree root-cause, hunts false-greens, pins regression guards, and renders the **GREEN/RED pre-merge verdict** (`/pr-check`). **Never weakens tests/strictness to go green** — fixes the underlying code. Reads CI + diff for the verdict (doesn't re-run CI); hands minor fixes to the `developer` test-first, stops for approval on logic/architecture. Never edits, pushes, or merges.
 - **`compliance-auditor`** — read-only (+ web). Verifies external-API/store/branding surfaces against current TOS and **HALTs** on ban/rejection risk; mandatory gate before store submission.
+- **`integrator`** — read-only (+ git). Conflict supervisor: **before** parallel dispatch, only parallelizes tasks with disjoint file footprints (overlapping → sequential); **before** merges, predicts conflicts (`git merge-tree`) and sets the merge order. Prevents the multi-session merge-conflict problem.
 
-No agent merges or approves its own work. Cloud portals = Pause & Guide (stop and hand the human a tutorial).
+Cloud portals = Pause & Guide (stop and hand the human a tutorial).
+
+Agents ARE allowed to merge and push when Daniel wants that — but must ask him for explicit confirmation every single time before running `git push`, `git merge`, or `gh pr merge`, even if a merge/push was approved earlier in the same session. Prior approval never carries over to the next merge/push.
 
 ## Runtime agents (the app itself) — do NOT confuse with the above
 

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Kokonada — Aurora, all 10 screens</title>
+<!-- Approved "Aurora" direction. Reference for designer + developer agents. Tokens are in docs/UI_UX_OVERHAUL_SPEC.md. Editable: aurora #3FB4F0 / #8B6FE8 / #F5B93A. -->
+<style>
+ html,body{margin:0;background:#e9ecfb;font-family:'Segoe UI',system-ui,sans-serif}
+ h1{text-align:center;color:#3a3560;font-weight:800;margin:22px 0 4px;
+   background:linear-gradient(90deg,#3fb4f0,#8b6fe8,#f5b93a);-webkit-background-clip:text;background-clip:text;color:transparent}
+ .cap{text-align:center;color:#7a7ba0;font-size:13px;margin-bottom:18px}
+ .grid{display:flex;gap:22px;justify-content:center;flex-wrap:wrap;padding:8px 14px 40px}
+ .col{display:flex;flex-direction:column;align-items:center;gap:9px}
+ .ph{position:relative;width:216px;height:466px;border-radius:36px;background:#e9e9fb;box-shadow:0 20px 46px rgba(80,70,150,.28)}
+ .sc{position:absolute;inset:7px;border-radius:30px;overflow:hidden;background:linear-gradient(180deg,#fafaff,#eef1fc)}
+ .au{position:absolute;inset:-45%;background:
+   radial-gradient(45% 40% at 30% 22%,rgba(94,200,245,.9),transparent 60%),
+   radial-gradient(45% 42% at 74% 40%,rgba(155,123,240,.85),transparent 62%),
+   radial-gradient(52% 46% at 50% 80%,rgba(255,203,110,.85),transparent 60%);
+   filter:blur(14px);animation:fl 15s ease-in-out infinite}
+ @keyframes fl{0%,100%{transform:translate(0,0) rotate(0) scale(1)}33%{transform:translate(5%,-4%) rotate(6deg) scale(1.09)}66%{transform:translate(-4%,4%) rotate(-5deg) scale(1.05)}}
+ @media (prefers-reduced-motion:reduce){.au,.br{animation:none}}
+ .veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(245,246,255,.32),rgba(245,246,255,.6))}
+ .hair{position:absolute;inset:13px;border-radius:24px;border:1px solid rgba(212,175,95,.3);pointer-events:none}
+ .c{position:absolute;inset:0;color:#241b45}
+ .g{background:rgba(255,255,255,.52);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);border:1px solid rgba(255,255,255,.66);box-shadow:0 5px 15px rgba(90,80,160,.12)}
+ .br{animation:be 4.6s ease-in-out infinite}@keyframes be{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+ .t{position:absolute;left:20px;top:32px;font-size:17px;font-weight:700}
+ .s{position:absolute;left:20px;top:56px;font-size:10px;color:#6f6a90}
+ .wm{font-weight:800;letter-spacing:2px;background:linear-gradient(90deg,#3fb4f0,#8b6fe8 55%,#f5b93a);-webkit-background-clip:text;background-clip:text;color:transparent}
+ .cta{position:absolute;left:22px;right:22px;height:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;background:linear-gradient(90deg,#3fb4f0,#8b6fe8 55%,#f5b93a);box-shadow:0 8px 20px rgba(139,111,232,.4)}
+ .dot{position:absolute;border-radius:50%}
+ .nav{position:absolute;left:7px;right:7px;bottom:7px;height:48px;display:flex;align-items:center;justify-content:space-around;border-top:1px solid rgba(255,255,255,.6);background:rgba(255,255,255,.45);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);border-radius:0 0 28px 28px}
+ .nt{font-size:7px;color:#8b86a8;display:flex;flex-direction:column;align-items:center;gap:2px}.nd{width:5px;height:5px;border-radius:50%;background:#b9b4d0}
+ .nt.on{color:#c99a1e}.nt.on .nd{background:linear-gradient(90deg,#8b6fe8,#f5b93a)}
+ .lbl{font-size:12px;font-weight:600;color:#6f6a90}
+ .chip{position:absolute;height:24px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:10px}
+ .chipOn{background:linear-gradient(90deg,#8b6fe8,#f5b93a);color:#fff;font-weight:700}
+ .card{position:absolute;border-radius:14px}
+ .rowb{display:flex;justify-content:space-between;font-size:10px;margin-top:6px}
+</style>
+</head>
+<body>
+<h1>KOKONADA · Aurora</h1>
+<div class="cap">All 10 screens · living light (blue → violet → gold) on frosted glass · gold = the premium signature</div>
+<div class="grid">
+
+ <!-- 1 SPLASH -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div class="br" style="position:absolute;left:58px;top:140px;width:100px;height:100px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.7),rgba(155,123,240,.35));border:1.5px solid rgba(212,175,95,.5)"></div>
+   <div style="position:absolute;left:0;right:0;top:270px;text-align:center;font-size:22px" class="wm">kokonada</div>
+   <div style="position:absolute;left:0;right:0;top:300px;text-align:center;font-size:9px;color:#6f6a90;letter-spacing:1px">body + mind, in sound</div>
+ </div></div></div><div class="lbl">1 · Splash</div></div>
+
+ <!-- 2 ONBOARDING -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:12s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div class="br" style="position:absolute;left:68px;top:86px;width:80px;height:80px;border-radius:50%;border:1.5px solid rgba(63,180,240,.5);background:rgba(255,255,255,.25)"></div>
+   <div class="dot" style="left:110px;top:112px;width:14px;height:14px;background:#8b6fe8;box-shadow:0 0 6px #8b6fe8"></div>
+   <div class="dot" style="left:82px;top:134px;width:10px;height:10px;background:#f5b93a;box-shadow:0 0 5px #f5b93a"></div>
+   <div style="position:absolute;left:0;right:0;top:250px;text-align:center;font-size:16px;font-weight:700;line-height:1.35">Your body,<br>your soundtrack</div>
+   <div style="position:absolute;left:0;right:0;top:312px;text-align:center;font-size:9px;color:#6f6a90">we read your mood + heartbeat</div>
+   <div style="position:absolute;left:88px;top:338px;display:flex;gap:7px"><span style="width:15px;height:5px;border-radius:3px;background:linear-gradient(90deg,#8b6fe8,#f5b93a)"></span><span style="width:5px;height:5px;border-radius:3px;background:#cfc9e4"></span><span style="width:5px;height:5px;border-radius:3px;background:#cfc9e4"></span></div>
+   <div class="cta" style="top:372px">Continue</div>
+   <div style="position:absolute;left:0;right:0;top:426px;text-align:center;font-size:10px;color:#9a95b6">Skip</div>
+ </div></div></div><div class="lbl">2 · Onboarding</div></div>
+
+ <!-- 3 LOGIN -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:13s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div style="position:absolute;left:0;right:0;top:110px;text-align:center;font-size:19px" class="wm">kokonada</div>
+   <div style="position:absolute;left:0;right:0;top:138px;text-align:center;font-size:9px;color:#6f6a90">welcome back</div>
+   <div style="position:absolute;left:22px;right:22px;top:200px;height:40px;border-radius:12px;background:#181a34;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center"> Continue with Apple</div>
+   <div class="g" style="position:absolute;left:22px;right:22px;top:250px;height:40px;border-radius:12px;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center">Continue with Google</div>
+   <div style="position:absolute;left:0;right:0;top:318px;text-align:center;font-size:11px;color:#8b6fe8">or use email</div>
+   <div style="position:absolute;left:0;right:0;top:426px;text-align:center;font-size:8px;color:#9a95b6">Terms · Privacy</div>
+ </div></div></div><div class="lbl">3 · Login</div></div>
+
+ <!-- 4 CONNECT -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:14s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div class="t">Connect your world</div><div class="s">music required · wearable optional</div>
+   <div class="g card" style="left:18px;right:18px;top:82px;height:68px;padding:12px 14px">
+     <div style="display:flex;align-items:center;gap:8px"><span style="width:18px;height:18px;border-radius:50%;background:#1db954"></span><b style="font-size:11px">Spotify</b></div>
+     <div style="font-size:8px;color:#6f6a90;margin-top:3px">playback + your taste</div>
+     <div class="cta" style="left:auto;right:14px;top:14px;width:56px;height:20px;font-size:9px">Connect</div>
+   </div>
+   <div class="g card" style="left:18px;right:18px;top:162px;height:68px;padding:12px 14px">
+     <div style="display:flex;align-items:center;gap:8px"><span style="width:18px;height:18px;border-radius:50%;background:#8b6fe8"></span><b style="font-size:11px">Wearable</b></div>
+     <div style="font-size:8px;color:#6f6a90;margin-top:3px">HR · sleep · movement</div>
+     <div class="g" style="position:absolute;right:14px;top:14px;width:56px;height:20px;border-radius:10px;font-size:9px;font-weight:700;color:#8b6fe8;display:flex;align-items:center;justify-content:center">Connect</div>
+   </div>
+   <div class="g" style="position:absolute;left:18px;right:18px;top:244px;height:28px;border-radius:10px;display:flex;align-items:center;padding-left:12px;font-size:9px;color:#6f6a90">ⓘ  Why we ask for health data</div>
+   <div class="g" style="position:absolute;left:22px;right:22px;top:372px;height:42px;border-radius:21px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">Try with mood only</div>
+ </div></div></div><div class="lbl">4 · Connect Services</div></div>
+
+ <!-- 5 GENERATE -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div class="t">How do you feel?</div><div class="s">tap up to 3 · your body is listening</div>
+   <div class="br" style="position:absolute;left:48px;top:96px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,rgba(139,111,232,.4),transparent 68%)"></div>
+   <div style="position:absolute;left:48px;top:96px;width:120px;height:120px;border-radius:50%;border:1.5px solid rgba(139,111,232,.6);background:rgba(255,255,255,.14)"></div>
+   <div class="dot" style="left:128px;top:128px;width:15px;height:15px;background:#3fb4f0;box-shadow:0 0 8px #3fb4f0"></div>
+   <div class="dot" style="left:88px;top:170px;width:12px;height:12px;background:#8b6fe8;box-shadow:0 0 7px #8b6fe8"></div>
+   <div class="dot" style="left:112px;top:158px;width:9px;height:9px;background:#f5b93a;box-shadow:0 0 6px #f5b93a"></div>
+   <div class="chip chipOn" style="left:20px;top:246px;width:56px">Running</div>
+   <div class="g chip" style="left:82px;top:246px;width:44px;color:#5a5580">Focus</div>
+   <div class="g chip" style="left:132px;top:246px;width:40px;color:#5a5580">Calm</div>
+   <div class="g" style="position:absolute;left:20px;right:20px;top:280px;height:30px;border-radius:11px;display:flex;align-items:center;padding-left:12px;font-size:10px;color:#9a95b6">Anything on your mind…</div>
+   <div class="cta" style="top:322px">Generate</div>
+   <div class="nav"><div class="nt on"><span class="nd"></span>Gen</div><div class="nt"><span class="nd"></span>Play</div><div class="nt"><span class="nd"></span>Pulse</div><div class="nt"><span class="nd"></span>Hist</div><div class="nt"><span class="nd"></span>You</div></div>
+ </div></div></div><div class="lbl">5 · Generate · hero</div></div>
+
+ <!-- 6 GENESIS -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:11s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div class="br" style="position:absolute;left:36px;top:120px;width:144px;height:144px;border-radius:50%;border:1.5px solid rgba(63,180,240,.4)"></div>
+   <div style="position:absolute;left:62px;top:146px;width:92px;height:92px;border-radius:50%;border:1.5px solid rgba(155,123,240,.4)"></div>
+   <div class="br dot" style="left:88px;top:172px;width:40px;height:40px;background:radial-gradient(circle,#fff,rgba(139,111,232,.6))"></div>
+   <div class="dot" style="left:168px;top:140px;width:6px;height:6px;background:#3fb4f0"></div><div class="dot" style="left:52px;top:230px;width:5px;height:5px;background:#f5b93a"></div><div class="dot" style="left:160px;top:236px;width:5px;height:5px;background:#8b6fe8"></div>
+   <div style="position:absolute;top:300px;left:0;right:0;text-align:center;font-size:16px;font-weight:700">Composing your<br>soundtrack…</div>
+   <div style="position:absolute;top:360px;left:0;right:0;text-align:center;font-size:9px;color:#6f6a90">heart · mood · movement</div>
+ </div></div></div><div class="lbl">6 · Genesis · magic moment</div></div>
+
+ <!-- 7 NOW PLAYING -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:15s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div style="position:absolute;left:0;right:0;top:40px;text-align:center;font-size:8px;letter-spacing:2px;color:#6f6a90">NOW PLAYING</div>
+   <div class="br" style="position:absolute;left:48px;top:58px;width:110px;height:110px;border-radius:22px;background:linear-gradient(135deg,#4bb8f0,#9b7bf0 55%,#ffcf6a);box-shadow:0 12px 30px rgba(139,111,232,.45)"></div>
+   <div style="position:absolute;left:0;right:0;top:186px;text-align:center;font-size:16px;font-weight:700">Weightless</div>
+   <div style="position:absolute;left:0;right:0;top:207px;text-align:center;font-size:10px;color:#6f6a90">Marconi Union</div>
+   <div style="position:absolute;left:30px;right:30px;top:236px;height:4px;border-radius:2px;background:#e0e2f2"><div style="width:52%;height:4px;border-radius:2px;background:linear-gradient(90deg,#3fb4f0,#f5b93a)"></div></div>
+   <div style="position:absolute;left:56px;top:262px;border-top:8px solid transparent;border-bottom:8px solid transparent;border-right:12px solid #8b86a8;width:0;height:0"></div>
+   <div style="position:absolute;left:90px;top:252px;width:40px;height:40px;border-radius:50%;background:linear-gradient(90deg,#3fb4f0,#8b6fe8 55%,#f5b93a);box-shadow:0 7px 18px rgba(139,111,232,.45);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700">II</div>
+   <div style="position:absolute;right:56px;top:262px;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:12px solid #8b86a8;width:0;height:0"></div>
+   <div class="g" style="position:absolute;left:22px;right:22px;top:318px;height:36px;border-radius:12px;padding:7px 0 0 12px"><div style="font-size:9px;font-weight:700;color:#c99a1e">Why this mix</div><div style="font-size:8px;color:#6f6a90">low HRV · winding down · calm lock</div></div>
+   <div class="nav"><div class="nt"><span class="nd"></span>Gen</div><div class="nt on"><span class="nd"></span>Play</div><div class="nt"><span class="nd"></span>Pulse</div><div class="nt"><span class="nd"></span>Hist</div><div class="nt"><span class="nd"></span>You</div></div>
+ </div></div></div><div class="lbl">7 · Now Playing</div></div>
+
+ <!-- 8 PULSE -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:16s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div class="t">Your pulse</div><div class="s">Live · Galaxy Watch</div>
+   <div class="br" style="position:absolute;left:48px;top:88px;width:120px;height:120px;border-radius:50%;border:3.5px solid transparent;background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,#3fb4f0,#8b6fe8,#f5b93a) border-box"></div>
+   <div style="position:absolute;left:0;right:0;top:120px;text-align:center;font-size:36px;font-weight:800">72</div>
+   <div style="position:absolute;left:0;right:0;top:162px;text-align:center;font-size:9px;color:#6f6a90">bpm</div>
+   <div class="g" style="position:absolute;left:56px;top:224px;width:104px;height:26px;border-radius:13px;display:flex;align-items:center;justify-content:center;color:#8b6fe8;font-weight:700;font-size:11px">Resting · Calm</div>
+   <div class="g card" style="left:22px;top:266px;width:78px;height:52px;padding:10px 12px"><div style="font-size:8px;color:#6f6a90">HRV</div><div style="font-size:16px;font-weight:700">—</div><div style="font-size:6px;color:#a4a0c0">not shared</div></div>
+   <div class="g card" style="right:22px;top:266px;width:78px;height:52px;padding:10px 12px"><div style="font-size:8px;color:#6f6a90">Sleep</div><div style="font-size:16px;font-weight:700">7.2h</div></div>
+   <div class="g card" style="left:22px;top:326px;width:78px;height:52px;padding:10px 12px"><div style="font-size:8px;color:#6f6a90">Resting HR</div><div style="font-size:16px;font-weight:700">54</div></div>
+   <div class="g card" style="right:22px;top:326px;width:78px;height:52px;padding:10px 12px"><div style="font-size:8px;color:#6f6a90">Movement</div><div style="font-size:13px;font-weight:700;color:#3fb4f0">Still</div></div>
+   <div class="nav"><div class="nt"><span class="nd"></span>Gen</div><div class="nt"><span class="nd"></span>Play</div><div class="nt on"><span class="nd"></span>Pulse</div><div class="nt"><span class="nd"></span>Hist</div><div class="nt"><span class="nd"></span>You</div></div>
+ </div></div></div><div class="lbl">8 · Pulse · the body</div></div>
+
+ <!-- 9 HISTORY -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:14s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div class="t">Your moments</div>
+   <div class="g card" style="left:18px;right:18px;top:70px;height:48px;padding:9px 12px"><div style="display:flex;align-items:center;gap:10px"><span style="width:16px;height:16px;border-radius:50%;background:#f5b93a"></span><div><div style="font-size:11px;font-weight:600">Peak Energy</div><div style="font-size:8px;color:#6f6a90">Live · Running · 24</div></div></div></div>
+   <div class="g card" style="left:18px;right:18px;top:126px;height:48px;padding:9px 12px"><div style="display:flex;align-items:center;gap:10px"><span style="width:16px;height:16px;border-radius:50%;background:#3fb4f0"></span><div><div style="font-size:11px;font-weight:600">Deep Focus</div><div style="font-size:8px;color:#6f6a90">Manual · studying · 30</div></div></div></div>
+   <div class="g card" style="left:18px;right:18px;top:182px;height:48px;padding:9px 12px"><div style="display:flex;align-items:center;gap:10px"><span style="width:16px;height:16px;border-radius:50%;background:#8b6fe8"></span><div><div style="font-size:11px;font-weight:600">Wind Down</div><div style="font-size:8px;color:#6f6a90">Live · Still · 18</div></div></div></div>
+   <div class="g card" style="left:18px;right:18px;top:238px;height:48px;padding:9px 12px"><div style="display:flex;align-items:center;gap:10px"><span style="width:16px;height:16px;border-radius:50%;background:#f79ac0"></span><div><div style="font-size:11px;font-weight:600">Morning Lift</div><div style="font-size:8px;color:#6f6a90">Live · Walking · 20</div></div></div></div>
+   <div class="nav"><div class="nt"><span class="nd"></span>Gen</div><div class="nt"><span class="nd"></span>Play</div><div class="nt"><span class="nd"></span>Pulse</div><div class="nt on"><span class="nd"></span>Hist</div><div class="nt"><span class="nd"></span>You</div></div>
+ </div></div></div><div class="lbl">9 · History</div></div>
+
+ <!-- 10 PROFILE -->
+ <div class="col"><div class="ph"><div class="sc"><div class="au" style="animation-duration:17s"></div><div class="veil"></div><div class="hair"></div><div class="c">
+   <div style="position:absolute;left:20px;top:30px;width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#3fb4f0,#8b6fe8,#f5b93a)"></div>
+   <div style="position:absolute;left:64px;top:34px;font-size:14px;font-weight:700">Daniel</div>
+   <div style="position:absolute;left:64px;top:52px;font-size:8px;color:#6f6a90">danielmalede@gmail.com</div>
+   <div class="g card" style="left:18px;right:18px;top:80px;height:88px;padding:11px 14px">
+     <div style="font-size:7px;letter-spacing:1px;color:#8b86a8">INTEGRATIONS</div>
+     <div class="rowb"><span>Spotify</span><span style="color:#1db954;font-weight:600">Connected</span></div>
+     <div class="rowb"><span>YouTube Music</span><span style="color:#9a95b6">Connect</span></div>
+     <div class="rowb"><span>Wearable</span><span style="color:#1db954;font-weight:600">Connected</span></div>
+   </div>
+   <div class="g card" style="left:18px;right:18px;top:180px;height:58px;padding:11px 14px;background:rgba(255,251,240,.6)">
+     <div style="display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#c99a1e"><span style="width:12px;height:14px;border-radius:3px 3px 5px 5px;background:linear-gradient(135deg,#f5d98a,#c99a1e)"></span>Privacy Vault</div>
+     <div style="font-size:7px;color:#6f6a90;margin-top:4px">health data encrypted on-device</div>
+     <div style="margin-top:5px;width:44px;height:15px;border-radius:8px;background:linear-gradient(90deg,#8b6fe8,#f5b93a);color:#fff;font-size:7px;font-weight:700;display:flex;align-items:center;justify-content:center">Sync</div>
+   </div>
+   <div class="g" style="position:absolute;left:18px;right:18px;top:248px;height:34px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600">Log out</div>
+   <div style="position:absolute;left:0;right:0;top:294px;text-align:center;font-size:9px;color:#e0708a">Delete account</div>
+   <div class="nav"><div class="nt"><span class="nd"></span>Gen</div><div class="nt"><span class="nd"></span>Play</div><div class="nt"><span class="nd"></span>Pulse</div><div class="nt"><span class="nd"></span>Hist</div><div class="nt on"><span class="nd"></span>You</div></div>
+ </div></div></div><div class="lbl">10 · Profile · Privacy Vault</div></div>
+
+</div>
+</body>
+</html>

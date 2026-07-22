@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Kokonada — Aurora (interactive design mockup)</title>
+<!--
+  EDIT ME. This is the approved "Aurora" design direction, interactive.
+  Tap the wheel (up to 3), toggle Day/Night, use undo/clear.
+  Key tokens to tweak live:
+    Aurora stops:  #3FB4F0 (sky)  #8B6FE8 (violet)  #F5B93A (gold)
+    Emotion corners (JS below): TL violet / TR gold / BL indigo / BR sky
+    Text: #241B45   Glass: rgba(255,255,255,.52) + blur(10px)
+-->
+<style>
+  html,body{margin:0;background:#eef1fc;min-height:100vh;display:flex;align-items:center;justify-content:center}
+  .KA{--bg1:#fafaff;--bg2:#eef1fc;--txt:#241b45;--mut:#6f6a90;--glass:rgba(255,255,255,.52);--gb:rgba(255,255,255,.66);--acc:139,111,232;
+   font-family:'Segoe UI',system-ui,sans-serif;display:flex;gap:26px;align-items:center;justify-content:center;flex-wrap:wrap;padding:24px}
+  .KA.night{--bg1:#0e1030;--bg2:#080a20;--txt:#eef0ff;--mut:#a7a6d0;--glass:rgba(255,255,255,.10);--gb:rgba(255,255,255,.18)}
+  .KA .ph{position:relative;width:300px;height:600px;border-radius:46px;background:#e9e9fb;box-shadow:0 30px 70px rgba(70,60,140,.4)}
+  .KA.night .ph{background:#1a1c40}
+  .KA .sc{position:absolute;inset:9px;border-radius:38px;overflow:hidden;background:linear-gradient(180deg,var(--bg1),var(--bg2))}
+  .KA .au{position:absolute;inset:-45%;background:
+    radial-gradient(45% 40% at 30% 22%,rgba(94,200,245,.9),transparent 60%),
+    radial-gradient(45% 42% at 74% 40%,rgba(155,123,240,.85),transparent 62%),
+    radial-gradient(52% 46% at 50% 80%,rgba(255,203,110,.85),transparent 60%);
+    filter:blur(16px);animation:KAf 15s ease-in-out infinite}
+  .KA.night .au{filter:blur(18px) saturate(1.3);opacity:.9}
+  @keyframes KAf{0%,100%{transform:translate(0,0) rotate(0) scale(1)}33%{transform:translate(5%,-4%) rotate(6deg) scale(1.1)}66%{transform:translate(-4%,5%) rotate(-5deg) scale(1.06)}}
+  @media (prefers-reduced-motion: reduce){.KA .au,.KA .glow{animation:none}}
+  .KA .veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(245,246,255,.30),rgba(245,246,255,.60))}
+  .KA.night .veil{background:linear-gradient(180deg,rgba(10,12,40,.30),rgba(8,10,32,.55))}
+  .KA .hair{position:absolute;inset:16px;border-radius:30px;border:1px solid rgba(212,175,95,.3);pointer-events:none}
+  .KA .c{position:absolute;inset:0;color:var(--txt)}
+  .KA .g{background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--gb)}
+  .KA .t{position:absolute;left:26px;top:40px;font-size:21px;font-weight:700}
+  .KA .s{position:absolute;left:26px;top:68px;font-size:12px;color:var(--mut)}
+  .KA .glow{position:absolute;left:66px;top:150px;width:168px;height:168px;border-radius:50%;
+    background:radial-gradient(circle,rgba(var(--acc),.55),transparent 68%);filter:blur(6px);animation:KAb 4.6s ease-in-out infinite;transition:background .5s}
+  @keyframes KAb{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+  .KA .wheel{position:absolute;left:70px;top:154px;width:160px;height:160px;border-radius:50%;
+    border:1.5px solid rgba(var(--acc),.7);background:rgba(255,255,255,.14);cursor:crosshair;transition:border-color .5s}
+  .KA .wheel .ax{position:absolute;background:rgba(150,150,190,.4)}
+  .KA .dot{position:absolute;width:16px;height:16px;border-radius:50%;transform:translate(-50%,-50%);
+    background:rgb(var(--acc));box-shadow:0 0 10px rgb(var(--acc));transition:background .4s}
+  .KA .row{position:absolute;left:26px;top:330px;display:flex;gap:8px}
+  .KA .mini{padding:0 10px;height:24px;border-radius:12px;display:flex;align-items:center;font-size:11px;color:var(--mut);cursor:pointer}
+  .KA .chip.on{position:absolute;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:11px;background:linear-gradient(90deg,rgb(var(--acc)),#f5b93a);color:#fff;font-weight:700}
+  .KA .state{position:absolute;left:26px;right:26px;top:372px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:rgb(var(--acc));transition:color .4s}
+  .KA .cta{position:absolute;left:26px;right:26px;top:414px;height:50px;border-radius:25px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;background:linear-gradient(90deg,#3fb4f0,rgb(var(--acc)) 55%,#f5b93a);box-shadow:0 10px 26px rgba(var(--acc),.5);transition:background .4s}
+  .KA .nav{position:absolute;left:9px;right:9px;bottom:9px;height:56px;display:flex;align-items:center;justify-content:space-around;border-top:1px solid var(--gb);background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:0 0 34px 34px}
+  .KA .nt{font-size:8px;color:var(--mut);display:flex;flex-direction:column;align-items:center;gap:3px}
+  .KA .nt.on{color:#c99a1e}.KA .nd{width:6px;height:6px;border-radius:50%;background:#b9b4d0}.KA .nt.on .nd{background:linear-gradient(90deg,rgb(var(--acc)),#f5b93a)}
+  .KA .side{display:flex;flex-direction:column;gap:16px;width:220px;color:#3a3560}
+  .KA .icon{width:96px;height:96px;border-radius:24px;background:
+    radial-gradient(40% 40% at 30% 25%,#5ec8f5,transparent 60%),
+    radial-gradient(45% 45% at 72% 45%,#9b7bf0,transparent 62%),
+    radial-gradient(50% 50% at 55% 82%,#ffcf6a,transparent 60%),#1a1c40;
+    box-shadow:0 14px 34px rgba(139,111,232,.4);position:relative}
+  .KA .icon:after{content:"";position:absolute;left:38px;top:30px;width:20px;height:36px;border-left:4px solid #fff;border-radius:2px}
+  .KA .sw{display:flex;gap:8px}.KA .sw div{flex:1;height:34px;border-radius:9px;font-size:8px;color:#fff;display:flex;align-items:flex-end;justify-content:center;padding-bottom:3px;font-weight:600}
+  .KA .tog{align-self:flex-start;padding:8px 16px;border-radius:20px;border:1px solid #cfc9e4;background:#fff;cursor:pointer;font-weight:600;font-size:12px;color:#3a3560}
+  .KA .hint{font-size:12px;line-height:1.5;color:#6f6a90}
+</style>
+</head>
+<body>
+<div class="KA" id="KAroot">
+ <div class="ph"><div class="sc">
+   <div class="au"></div><div class="veil"></div><div class="hair"></div>
+   <div class="c">
+     <div class="t">How do you feel?</div>
+     <div class="s">tap the wheel · the app wears your emotion</div>
+     <div class="glow" id="KAglow"></div>
+     <div class="wheel" id="KAwheel">
+       <div class="ax" style="left:0;top:50%;width:100%;height:1px"></div>
+       <div class="ax" style="top:0;left:50%;width:1px;height:100%"></div>
+     </div>
+     <div class="row">
+       <div class="mini g" id="KAundo">&#8634; undo</div>
+       <div class="mini g" id="KAclear">clear</div>
+     </div>
+     <div class="chip on" style="left:150px;top:330px;width:56px">Running</div>
+     <div class="state g" id="KAstate">place a tap to begin</div>
+     <div class="cta">Generate</div>
+     <div class="nav"><div class="nt on"><span class="nd"></span>Gen</div><div class="nt"><span class="nd"></span>Play</div><div class="nt"><span class="nd"></span>Pulse</div><div class="nt"><span class="nd"></span>Hist</div><div class="nt"><span class="nd"></span>You</div></div>
+   </div>
+ </div></div>
+ <div class="side">
+   <div style="display:flex;align-items:center;gap:14px"><div class="icon"></div><div><div style="font-weight:800;font-size:16px;background:linear-gradient(90deg,#3fb4f0,#8b6fe8,#f5b93a);-webkit-background-clip:text;background-clip:text;color:transparent">kokonada</div><div style="font-size:10px;color:#8b86a8">app icon &middot; Aurora</div></div></div>
+   <div class="hint"><b>Aurora</b> &mdash; the interface is living light. The ambient aura is the brand; your emotion becomes the focal glow. Tap the wheel and watch the accent, the button, and the aura recolor to how you feel.</div>
+   <div class="sw">
+     <div style="background:#3fb4f0">Calm</div><div style="background:#8b6fe8">Intense</div><div style="background:#f5b93a">Joy</div><div style="background:#4b6fd0">Low</div>
+   </div>
+   <button class="tog" id="KAtog">&#9680; Toggle Day / Night</button>
+   <div class="hint" style="font-size:11px">Day-primary, with an Aurora Nocturne night mode. Everything breathes; reduced-motion and low-power fall back to a calm static aura at 60fps.</div>
+ </div>
+</div>
+<script>
+(function(){
+ var root=document.getElementById('KAroot'),wheel=document.getElementById('KAwheel'),state=document.getElementById('KAstate');
+ var taps=[]; var R=80;
+ var TL=[139,111,232],TR=[245,185,58],BL=[75,111,208],BR=[63,180,240];
+ function lerp(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];}
+ function col(x01,ar01){var top=lerp(TL,TR,x01),bot=lerp(BL,BR,x01);return lerp(bot,top,ar01);}
+ function render(){
+   wheel.querySelectorAll('.dot').forEach(function(d){d.remove();});
+   var ax=0,ay=0;
+   taps.forEach(function(t){
+     var d=document.createElement('div');d.className='dot';
+     d.style.left=(80+t.x*R)+'px';d.style.top=(80-t.y*R)+'px';
+     var c=col((t.x+1)/2,(t.y+1)/2).map(Math.round);d.style.background='rgb('+c.join(',')+')';d.style.boxShadow='0 0 10px rgb('+c.join(',')+')';
+     wheel.appendChild(d);ax+=t.x;ay+=t.y;
+   });
+   if(taps.length){ax/=taps.length;ay/=taps.length;var c=col((ax+1)/2,(ay+1)/2).map(Math.round);
+     root.style.setProperty('--acc',c.join(','));
+     var v=ax>0.15?'bright':ax<-0.15?'low':'neutral', e=ay>0.4?'high energy':ay<-0.4?'calm':'steady';
+     state.textContent=(e.charAt(0).toUpperCase()+e.slice(1))+' · '+v;
+   } else {root.style.setProperty('--acc','139,111,232');state.textContent='place a tap to begin';}
+ }
+ wheel.addEventListener('click',function(ev){
+   var r=wheel.getBoundingClientRect();
+   var x=(ev.clientX-r.left-80)/R, y=-(ev.clientY-r.top-80)/R;
+   var m=Math.hypot(x,y); if(m>1){x/=m;y/=m;}
+   taps.push({x:x,y:y}); if(taps.length>3)taps.shift(); render();
+ });
+ document.getElementById('KAundo').addEventListener('click',function(){taps.pop();render();});
+ document.getElementById('KAclear').addEventListener('click',function(){taps=[];render();});
+ document.getElementById('KAtog').addEventListener('click',function(){root.classList.toggle('night');});
+})();
+</script>
+</body>
+</html>
