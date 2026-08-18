@@ -5,10 +5,10 @@
 
 ## Run header
 
-- phase: halted           <!-- review | execute | closeout | halted — see docs/plans/WAVE4_HALT + HITL H2 -->
+- phase: execute           <!-- review | execute | closeout | halted — H2 closed 2026-08-19 (see HITL queue) -->
 - branch: feat/intelligence-wave   <!-- created from origin/main (== local main, in sync) in session 1 -->
 - lastMainSha: 1a1657ea4bae1f48a6de4e2dd29b3f2a14d02010
-- testBaseline: (unset — record in W4-000 exec session AFTER the worker.test.js real-connection-leak fix per §0.4 S1a; landscape: 162 test files at backend/tests top level)
+- testBaseline: 163 suites / 1767 tests green (162 product suites: 1759 passed + 1 todo, plus adr0012.tripwire.test.js), ~60s, exit 0 without --forceExit, --detectOpenHandles silent. Established 2026-08-19 after the worker.test.js real-connection-leak fix (injected queue seam). Real root cause was more specific than S1a guessed: backend/.env sets GLOBAL_SEED_INGEST_ENABLED=true and worker.js loads it with override:true, so the success-path tests reached a real ioredis dial against the fake host — not merely "no local Redis".
 - missionVersion: 2026-08-18 (as approved by Daniel; amended by W4-000 review deltas, same date)
 - runStartedAt: 2026-08-18T22:56 local (session 1)
 - day4CutoffAt: 2026-08-22T22:56 local (runStartedAt + 96h; after this, only W4-015 may run)
@@ -17,7 +17,7 @@
 
 | id | title | tier | size | deps | status | owner-session | notes |
 |----|-------|------|------|------|--------|---------------|-------|
-| W4-000 | Bootstrap, review pass, ADR-0012 | MUST | S | — | in_progress | 1 | review pass DONE (deltas below); remaining: S1 preflight, worker.test.js leak fix + green baseline, ADR-0012 + tripwire test |
+| W4-000 | Bootstrap, review pass, ADR-0012 | MUST | S | — | done | 1,3 | review pass + S1 preflight + worker.test.js leak fix + green baseline (163/1767, see testBaseline above) + ADR-0012 + tripwire all landed in `d1db088`. ADR filed as `docs/adr/0012-learning-compliance.md` matching the repo's existing `000N-kebab-title.md` convention (not the mission text's `ADR-0012-…` — intentional call, ADR README index refreshed). Docker is NOT installed on this machine — S1a's `docker-compose up` path is not viable here (moot: the injected-queue-seam fix superseded it). |
 | W4-001 | Surgical bug backlog (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9) | MUST | M | 000 | pending | — | |
 | W4-002 | Synthetic-human simulator + replay | MUST | L | 000 | pending | — | |
 | W4-003 | A0 signal integrity + live persistence | MUST | L | 001,002 | pending | — | |
@@ -80,6 +80,22 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
   Blocked on this: the entire remaining queue. Nothing else is wrong — no product-code defect
   is implied by this halt.
 
+  **RESOLVED 2026-08-19 (H2 closeout).** Verified directly against the live tree before
+  reopening: `git log --oneline` on the branch shows a clean, non-conflicting history
+  (`deed3c4` → `2b3deec` → `1a0e58b` → `8d3e53e` → `d1db088`, all five wave4 commits distinct,
+  no merge conflicts, no force-pushes); `git status` shows only the known intentional item
+  (`mobile/src/health/config.ts`, leave in place per S2) plus the in-flight `run-mission.ps1`
+  fix below — no leftover untracked files from the collision. `d1db088` (the ADR + tripwire
+  commit) only touched 3 new/append-only files and never touched `WAVE4_STATE.md` or
+  `run-mission.ps1`, confirming the three sessions did not actually corrupt each other's work —
+  the halt worked exactly as designed, it just needed a human-reviewed close. Fix landed:
+  `run-mission.ps1` now takes a named mutex (`Global\KokonadaWave4Loop`) before touching the
+  tree and refuses to run a second instance (self-heals from an abandoned mutex if a prior loop
+  was killed without releasing it), closing the root cause. `docs/plans/WAVE4_HALT` removal and
+  the Task-Manager stray-process check are Daniel's — bridge tooling can't safely delete a
+  tracked file or touch Windows processes from here. Once both are done: resume with exactly
+  one loop.
+
 ## PR queue
 
 | PR | cluster(s) | url | status |
@@ -96,4 +112,7 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
 | # | started | result line (`WAVE4_SESSION_RESULT: ...`) |
 |---|---------|--------------------------------------------|
 | 1 | 2026-08-18 22:56 | WAVE4_SESSION_RESULT: W4-000 in_progress review pass complete — 6 unknowns resolved, mission amended, phase→execute |
-| 2 | 2026-08-19 00:20 | WAVE4_SESSION_RESULT: W4-000 in_progress HALT — 3 concurrent sessions on one working tree (R7); preflight S1 verified green, HITL H2 raised |
+| 2 | 2026-08-19 00:29 | WAVE4_SESSION_RESULT: W4-000 in_progress HALT — 3 concurrent sessions on one working tree (R7); preflight S1 verified green, HITL H2 raised |
+| 3 | 2026-08-19 00:20 | WAVE4_SESSION_RESULT: W4-000 in_progress halted by WAVE4_HALT (3 concurrent sessions); worker.test.js leak root-caused and fixed, baseline 163/1767 green, ADR-0012 + tripwire landed in d1db088, STATE intentionally not written |
+| 4 | 2026-08-19 00:28 | WAVE4_SESSION_RESULT: W4-000 in_progress halted on WAVE4_HALT - three concurrent sessions on one tree (HITL H2); preflight passed, no docker, no work committed |
+| — | 2026-08-19 (Cowork) | H2 closed after direct git verification (clean, non-conflicting history) + run-mission.ps1 single-instance mutex fix; phase→execute; W4-000→done; rows 2-4 are the three colliding launches (00:20/00:28/00:29), numbered in write-order not start-order |
