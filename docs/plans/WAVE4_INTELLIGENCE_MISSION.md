@@ -114,7 +114,7 @@ Each session (headless or interactive) does this, exactly:
 3. **If STATE says `phase: review` (first session only):** run the PLAN-MODE REVIEW PASS (§3, W4-000) — a read-only validation of this mission against the FULL repo — then update this mission file + STATE with deltas, set `phase: execute`, commit, exit.
 4. **Reflection trigger (check BEFORE picking a task):** run `node scripts/wave4/reflect-marker.js check` — it reads `logs/wave4/last-reflect.txt` (ISO-8601 UTC timestamp on line 1, HEAD sha on line 2) and prints `DUE <reason>` / `NOT-DUE <reason>`. Do NOT hand-parse the file: missing, unreadable and future-dated markers all count as DUE, which is the safe direction. If it is missing, or ≥ `REFLECT_INTERVAL_HOURS` (default **4**) have passed since it, **this session is a REFLECTION session** — run §2.5 instead of a queue task, then exit. Skip the reflection if `day4CutoffAt` has passed (only W4-015 runs then), or if a `class: repair` task is currently `pending`/`in_progress` (fix the tree first, reflect after).
 5. Otherwise pick the FIRST task with status `pending` whose `deps` are all `done` (or `in_progress` tasks you own — continue them). Respect the tier fallback rule: if a bio-track task is blocked/failed, W4-007/008 are eligible early (they depend only on the frozen targets shape from W4-006 — or on today's shape if 006 hasn't landed, coded superset-tolerant). Model economy: if `WAVE4_MODEL_TIER` is `saver`, prefer an S/M task or an `in_progress` continuation over starting a new L design task, when one is unblocked. Stuck-task guard **S4** (§0.4): a task `in_progress` across 3 sessions with no status change → mark it `failed` with a summary and move on.
-6. Set the task `in_progress` in STATE (with a one-line progress note), commit STATE.
+6. Set the task `in_progress` in STATE (with a one-line progress note), commit STATE. **Every STATE write (here, at step 8, and in R7) starts by re-reading `WAVE4_STATE.md` from disk and applying a surgical edit to THAT text — never compose the file from a copy read earlier in the session — and ends by running `node scripts/wave4/state-guard.js check`, which exits non-zero if the edit regressed a task row down the status ladder or dropped one entirely (W4-D02). A deliberate reopen (§2.5 R2) is allowed and declares itself by putting the literal token `REOPENED` in that row. `run-mission.ps1` re-runs the same check after every session as a backstop, so a skipped check surfaces in `logs/wave4/usage.log` rather than silently rewriting queue truth.**
 7. Execute the task under TDD. Definition of Done, ALL required: failing-test-first evidence; full backend suite green and ≥ baseline (`cd backend && npm test`); lint clean; secret scan of the diff (`grep -E "AIza|ghp_|sk-|-----BEGIN|eyJ[A-Za-z0-9_-]{30,}"`); zero-knowledge check (no numeric vitals in new logs/DTOs/prompts); no attribution anywhere; STATE updated.
 8. Mark task `done` in STATE (with test counts + key evidence), commit everything (single-line messages), **push `feat/intelligence-wave` to origin (S3 — offsite backup, every task)**, cut a PR if the cluster is complete.
 9. If the task hits a Pause & Guide wall or a decision only Daniel can make: write a numbered HITL entry in STATE (what, why, exact steps for Daniel, what's blocked on it), ship what can ship dark/flagged, and continue.
@@ -142,7 +142,8 @@ limit R4–R5 to the diff since the last reflection rather than a broad sweep, a
 - **R2 · Verify the last interval's claims.** For every task marked `done` since the last reflection, spot-check that its DoD is
   *actually* satisfied — the tests it claims exist do exist and genuinely fail without the fix (re-run one with the fix stubbed out
   if cheap), the STATE evidence matches reality, the PR (if cut) reflects the real diff. **A task whose claim does not hold gets
-  reopened**: status → `pending`, note why. This is the single highest-value thing a reflection does; an autonomous run's main
+  reopened**: status → `pending`, note why, and put the literal token `REOPENED` in that row so the step-6 guard reads the
+  downgrade as the decision it is (W4-D02). This is the single highest-value thing a reflection does; an autonomous run's main
   failure mode is a task that *reports* success.
 - **R3 · Constraint audit of the new code.** Against §0.2: ADR-0011/0012 (no Spotify-derived learned artifact — run the tripwire),
   zero-knowledge (no numeric vitals in any new DTO/log/prompt), targets superset-only, regulator-not-mirror, consent gates intact,
@@ -173,7 +174,10 @@ limit R4–R5 to the diff since the last reflection rather than a broad sweep, a
   - The exception to "reflections don't implement": a fix under ~10 minutes with an obvious test (a typo, a stale doc line, a
     missing clamp, a flaky assertion) may be done inline — commit it separately with a `wave4: reflect —` prefix.
 - **R7 · Close out.** Write the reflection entry into STATE's **Reflection log** (timestamp, interval covered, suite result,
-  what was verified, what was reopened, what was queued, or "clean"). Then stamp the close-out marker with
+  what was verified, what was reopened, what was queued, or "clean"). A reflection runs alongside a session that may have
+  committed STATE while the reflection was reading it, so this write above all others re-reads the file first and runs the
+  step-6 `state-guard.js check` before committing (W4-D02 — a reflection is what clobbered W4-001's row). Then stamp the
+  close-out marker with
   `node scripts/wave4/reflect-marker.js stamp` (writes the current UTC timestamp + HEAD sha to
   `logs/wave4/last-reflect.txt`). **That stamp is the only thing that clears the trigger — a reflection that
   skips it latches the trigger ON and no queue task can ever be picked again** (W4-D01). `run-mission.ps1`

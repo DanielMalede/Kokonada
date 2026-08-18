@@ -190,6 +190,31 @@ function Assert-ReflectMarkerStamped {
     }
 }
 
+function Assert-StateRowsNotClobbered {
+    param([string]$BaseSha)
+    # W4-D02. WAVE4_STATE.md is the run's SINGLE resume source, so a session that rebuilds the
+    # whole file from a read taken earlier silently reverts everything committed in between -
+    # ccecca3 reset W4-001 from in_progress back to pending exactly that way, and nothing noticed.
+    # The session is asked to run this same check before it commits STATE; the loop repeats it
+    # afterwards because the sessions most likely to have made a mess (killed, timed out, working
+    # from a stale copy) are precisely the ones that will not have run it themselves.
+    #
+    # This is a DETECTOR, not a repair: it cannot un-commit. Its whole job is to turn a silent
+    # erasure into a loud line in the usage log, next to the session that caused it.
+    if (-not $BaseSha) { return }
+    $tool = Join-Path $RepoRoot 'scripts\wave4\state-guard.js'
+    if (-not (Test-Path $tool)) { return }
+
+    $out = ''
+    try { $out = (& node $tool check --root $RepoRoot --base $BaseSha | Out-String) } catch { return }
+    if ($LASTEXITCODE -eq 0) { return }
+
+    foreach ($line in ($out -split "`n")) {
+        if ($line.Trim()) { Log-Usage "STATE-GUARD $($line.Trim())" }
+    }
+    Log-Usage "WARN: this session regressed a WAVE4_STATE row since $BaseSha - queue truth may be wrong, verify it before trusting the next pick (W4-D02)"
+}
+
 # --- main loop ------------------------------------------------------------------------------
 
 $consecutiveFailures = 0
@@ -265,6 +290,11 @@ while ($sessionsLaunched -lt $MaxIterations) {
     $ErrFile = "$LogFile.err"
     Log-Usage "session $i/$MaxIterations  model=$model tier=$tier phase=$phase  session-window=$sessPctTxt  weekly=$weekTxt"
 
+    # W4-D02: remember where the tree stood before this session touched it, so the STATE tables can
+    # be diffed against that exact point once it exits.
+    $sessionStartSha = $null
+    try { $sessionStartSha = (& git -C $RepoRoot rev-parse HEAD).Trim() } catch { }
+
     $cmdLine = "claude -p --model $model --dangerously-skip-permissions < `"$PromptFile`" > `"$LogFile`" 2> `"$ErrFile`""
     $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/c', $cmdLine `
               -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru
@@ -297,6 +327,10 @@ while ($sessionsLaunched -lt $MaxIterations) {
         try { $proc.Kill() } catch {}
         $exitCode = 124
     }
+
+    # Runs on EVERY outcome, before the classification below: a crashed or timed-out session can
+    # have committed a clobbered STATE just as easily as a clean one (W4-D02).
+    Assert-StateRowsNotClobbered -BaseSha $sessionStartSha
 
     # 5. classify the outcome
     $marker = $null
