@@ -211,11 +211,19 @@ function buildMoodParams(taps, musicProfile = {}) {
 
 // Coarse HR banding for the synthetic bio moodKey. Personal HR zones refine
 // this in the biosonic phase; these fixed cuts keep the key deterministic.
+//
+// The lower bound of each band, and the ONE definition of the cuts. D11's lesson was that a
+// trigger keyed on anything other than what the buffer is keyed by disagrees with the buffer;
+// a consumer that needs to reason ABOUT a cut (W4-D05's release margin measures from one)
+// reads it here rather than hand-copying 90/120 into a second place that can drift.
+// `resting` has no lower cut — it starts at the first physiologically usable reading.
+const BAND_LOWER_CUT = Object.freeze({ resting: null, active: 90, peak: 120 });
+
 function bandFromHeartRate(hr) {
   const n = Number(hr);
   if (!Number.isFinite(n) || n <= 0) return null;
-  if (n < 90) return 'resting';
-  if (n < 120) return 'active';
+  if (n < BAND_LOWER_CUT.active) return 'resting';
+  if (n < BAND_LOWER_CUT.peak) return 'active';
   return 'peak';
 }
 
@@ -396,6 +404,7 @@ module.exports = {
   applyMoodFallback,
   buildMoodParams,
   bandFromHeartRate,
+  BAND_LOWER_CUT,
   syntheticBioMoodKey,
   moodCoords,
   biometricBand,

@@ -1802,6 +1802,63 @@ describe('handleBiometricReading immediate mode', () => {
   });
 });
 
+// ── W4-D05 · the watch lane must not flap at a band cut ───────────────────────
+// This lane has no debounce, so W4-001's symmetric band trigger re-served the shadow buffer
+// on EVERY 5-minute ping while the wearer's resting HR oscillated across the 90 cut — each
+// flip changing their music and burning a serve. Counted here at the SERVE, not at the
+// predicate; wave4.bandHysteresis.test.js pins the trigger maths.
+
+describe('W4-D05 — a resting oscillation across a cut does not re-serve every ping', () => {
+  const { handleBiometricReading } = require('../app/sockets/biometricHandler');
+
+  const liveWatch = () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true }); // the lane only auto-drives in Live mode
+    return socket;
+  };
+
+  // Each ping is given real async time to settle so an in-flight generation can never
+  // collapse a later trigger and flatter the count.
+  const ping = async (socket, hr) => {
+    handleBiometricReading(socket, 'garmin', { heartRate: hr, activityType: 0 }, { immediate: true });
+    await new Promise(r => setTimeout(r, 50));
+  };
+
+  afterEach(() => { delete process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED; });
+
+  it('serves at most once for an 88↔93 oscillation, after the baseline', async () => {
+    const socket = liveWatch();
+    await ping(socket, 88);                       // first reading — the unavoidable baseline serve
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+
+    for (const hr of [93, 88, 93, 88, 93, 88, 93, 88]) await ping(socket, hr);
+
+    expect(geminiEngine.adjustBiometricPlaylist.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
+  it('still serves the genuine 115→121 crossing (W4-001 D11 stays fixed)', async () => {
+    const socket = liveWatch();
+    await ping(socket, 115);
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+
+    await ping(socket, 121);
+
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
+  });
+
+  it('WAVE4_RECAL_STATE_TRIGGER_DISABLED restores the W4-001 flap without a revert (S11)', async () => {
+    process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED = 'true';
+    const socket = liveWatch();
+    await ping(socket, 88);
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+
+    for (const hr of [93, 88, 93, 88]) await ping(socket, hr);
+
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(4);
+  });
+});
+
 // ── Activity-mode change trigger (Bug 4) ──────────────────────────────────────
 
 describe('activity-mode change triggers regeneration', () => {

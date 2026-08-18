@@ -11,7 +11,7 @@ const spotify        = require('../services/spotify');
 const youtube        = require('../services/youtube');
 const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../services/geminiEngine');
 const { personalizeWhitelist } = require('../services/playlistMixer');
-const { buildMoodParams, resolveMoodKey, syntheticBioMoodKey, bandFromHeartRate } = require('../services/moodDescriptors');
+const { buildMoodParams, resolveMoodKey, syntheticBioMoodKey, bandFromHeartRate, BAND_LOWER_CUT } = require('../services/moodDescriptors');
 const serveLedger = require('../services/ledger/serveLedger');
 const orchestrator = require('../services/generation/orchestrator');
 const { buildDeterministicFallback } = require('../services/generation/deterministicFallback');
@@ -40,6 +40,22 @@ const HR_DELTA_THRESHOLD = 10;
 // evidence of a physiological change — it is the sensor breathing across the cut.
 // Used to keep the band-transition trigger (D11) from flapping at 90/120.
 const HR_NOISE_FLOOR = 3;
+// Band RELEASE margin (W4-D05). The noise floor is sized for SENSOR error; resting heart
+// rate additionally varies 5-10 bpm minute to minute from respiratory sinus arrhythmia and
+// ordinary autonomic drift, which is real signal at the wrong scale to act on. Reflection #1
+// measured the resulting flap at 3-5 bpm amplitude (88<->93, 87<->92, 119<->122), each flip
+// re-serving the buffer and changing the listener's music. So leaving a band costs more than
+// entering one: 2x the sensor's own error must separate the reading from the cut before we
+// abandon the mix. MUST stay > HR_NOISE_FLOOR or the trigger is symmetric again.
+const HR_BAND_RELEASE_MARGIN = 6;
+// §0.4 S11 escape hatch: set it and the trigger reverts to W4-001's symmetric behaviour with
+// no revert and no deploy. Forgiving about its value on purpose — a kill-switch that ignores
+// `=1` because it demanded `=true` is a kill-switch that fails when it is finally needed.
+const RECAL_HYSTERESIS_FLAG = 'WAVE4_RECAL_STATE_TRIGGER_DISABLED';
+const _hysteresisDisabled = () => {
+  const v = String(process.env[RECAL_HYSTERESIS_FLAG] ?? '').trim().toLowerCase();
+  return v !== '' && v !== 'false' && v !== '0';
+};
 // Smoothing factor for the streaming observation trace. α = 0.2 ⇒ ~5-sample memory:
 // fast enough to track a real ramp well inside the 60 s debounce window, slow enough
 // that one spike cannot move it far. This is an OBSERVATION only — it never confirms
@@ -246,6 +262,14 @@ function getState(socketId) {
       // silently overwriting stableHR, which is how 9 bpm steps used to walk 60 -> 150
       // without ever tripping the 10 bpm gate.
       hrEwma:           null,
+      // The heart rate the last recalibration was TRIGGERED at — the latched output of the
+      // Schmitt trigger (W4-D05), i.e. the band this socket is being served. Distinct from
+      // stableHR, which on the watch lane tracks every 5-minute ping: comparing a crossing
+      // against the previous READING makes an oscillation look like a fresh crossing every
+      // time, so the release margin alone would not have bounded it. Latched on the trigger
+      // decision, not on the serve — the Manual-mode gate lives inside recalibrateForBand,
+      // and a latch that only warmed in Live mode would flap on the first switch into it.
+      servedHR:         null,
       latestActivity:   null,
       // Last sustained activity state — drives activity-change-triggered regen
       // (resting→running etc.) independently of the HR delta gate.
@@ -1106,6 +1130,12 @@ function _updateEwma(prev, next) {
 // The delta guard survives as a NOISE FLOOR: a crossing smaller than the sensor's own
 // error is the PPG breathing across the cut, not a state change, and must not flap the band.
 //
+// W4-D05 made the crossing ASYMMETRIC. W4-001's version fired on any crossing in either
+// direction, which is a symmetric comparator sitting on a noisy signal — the textbook way to
+// build an oscillator. The costs are not symmetric either: entering a higher band late means
+// the music ignores a real activation (the exact D11 complaint), while leaving one early
+// abandons a mix the body has not actually left. So: fast attack, slow release.
+//
 // PURE — exported for unit testing. State-transition triggering proper lands in W4-009.
 function _shouldRecalibrate({ prevHR, nextHR, activityChanged = false }) {
   if (activityChanged) return true;
@@ -1114,7 +1144,17 @@ function _shouldRecalibrate({ prevHR, nextHR, activityChanged = false }) {
   const prevBand = bandFromHeartRate(prevHR);
   if (prevBand === null) return true;             // no confirmed serve state yet
   if (prevBand === nextBand) return false;
-  return Math.abs(Number(nextHR) - Number(prevHR)) >= HR_NOISE_FLOOR;
+  const prev = Number(prevHR);
+  const next = Number(nextHR);
+  // ATTACK — into a higher band: unchanged from W4-001, the noise floor is the only gate.
+  if (next > prev) return next - prev >= HR_NOISE_FLOOR;
+  // RELEASE — back down: the reading must clear the band's own cut by the margin. Measured
+  // from the cut rather than from prevHR so the threshold is a property of the BAND, which
+  // is what the buffer is keyed by; a delta from the last reading is what flapped.
+  if (_hysteresisDisabled()) return prev - next >= HR_NOISE_FLOOR;
+  const cut = BAND_LOWER_CUT[prevBand];
+  if (cut === null || cut === undefined) return true;  // nothing below resting to defend
+  return next < cut - HR_BAND_RELEASE_MARGIN;
 }
 
 function handleBiometricReading(socket, source, raw, opts = {}) {
@@ -1155,10 +1195,15 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     state.stableActivity = normalized.activity;
     // D11: the trigger is the BAND — what the buffer is actually keyed by — not a bare
     // ±25 bpm delta, which fired on same-band jumps and missed real band crossings.
+    // W4-D05: compared against the band being SERVED, not the previous ping. This lane has no
+    // debounce at all, so the latch is the only thing standing between a resting oscillation
+    // across a cut and a re-serve every five minutes.
+    const latchHR = _hysteresisDisabled() ? prev : (state.servedHR ?? prev);
     const bandChanged = prev !== null &&
-      _shouldRecalibrate({ prevHR: prev, nextHR: normalized.heartRate, activityChanged: false });
+      _shouldRecalibrate({ prevHR: latchHR, nextHR: normalized.heartRate, activityChanged: false });
     if (prev === null || bandChanged || activityChanged) {
       log(`[handleBiometric] immediate hr=${normalized.heartRate} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
+      state.servedHR = normalized.heartRate;
       recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
     }
     return;
@@ -1327,6 +1372,8 @@ module.exports = {
   // Exported for unit testing
   _shouldRecalibrate,
   HR_NOISE_FLOOR,
+  HR_BAND_RELEASE_MARGIN,
+  RECAL_HYSTERESIS_FLAG,
   toClientTrack,
   toClientTracks,
   resolveBiometricContext,
