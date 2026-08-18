@@ -166,6 +166,30 @@ function Log-Usage([string]$line) {
     Write-Host "[wave4] $line"
 }
 
+function Assert-ReflectMarkerStamped {
+    param([datetime]$Since)
+    # W4-D01. Mission section 2 step 4 latches the recurring-reflection trigger on ONE file,
+    # logs\wave4\last-reflect.txt: "if it is missing, or >= REFLECT_INTERVAL_HOURS have passed
+    # since it, this session is a REFLECTION session". Section 2.5 R7 asks the SESSION to stamp it
+    # on the way out - but a session that is killed, times out, or simply forgets that last step
+    # leaves the trigger latched ON forever: every later session reflects again and no queue task
+    # can ever be picked, which quietly kills a 4-day run. So the loop checks the invariant itself
+    # instead of trusting a session to have kept its own promise.
+    $markerFile = Join-Path $RepoRoot 'logs\wave4\last-reflect.txt'
+    if ((Test-Path $markerFile) -and ((Get-Item $markerFile).LastWriteTime -ge $Since)) { return }
+
+    Log-Usage 'WARN: reflection session left last-reflect.txt unstamped - loop stamping it (W4-D01 backstop)'
+    $tool = Join-Path $RepoRoot 'scripts\wave4\reflect-marker.js'
+    try { & node $tool stamp --root $RepoRoot | Out-Null } catch { }
+
+    if (-not (Test-Path $markerFile)) {
+        # Last resort, same format (ISO-8601 UTC on line 1): a missing or broken node must never be
+        # able to re-latch the trigger this function exists to clear.
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $markerFile) | Out-Null
+        Set-Content -Path $markerFile -Value (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd\THH:mm:ss\Z') -Encoding UTF8
+    }
+}
+
 # --- main loop ------------------------------------------------------------------------------
 
 $consecutiveFailures = 0
@@ -283,6 +307,7 @@ while ($sessionsLaunched -lt $MaxIterations) {
     if (($exitCode -eq 0) -and $marker) {
         $consecutiveFailures = 0
         Log-Usage "$($marker.Line.Trim())"
+        if ($marker.Line -match 'WAVE4_SESSION_RESULT:\s*REFLECT') { Assert-ReflectMarkerStamped -Since $sessionStart }
         if ($marker.Line -match 'WAVE4_SESSION_RESULT:\s*DONE-ALL') { Write-Host '[wave4] queue reported complete - stopping.'; break }
     } else {
         # limit / overload errors are NOT failures - wait and retry

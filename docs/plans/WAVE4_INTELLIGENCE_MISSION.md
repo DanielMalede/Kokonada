@@ -112,7 +112,7 @@ Each session (headless or interactive) does this, exactly:
 1. `git fetch origin` → divergence check vs STATE `lastMainSha` (see §0.3). Check out / fast-forward `feat/intelligence-wave`. If the working tree is dirty (a prior session was killed mid-work), apply safeguard **S2** (§0.4) before anything else.
 2. Read `docs/plans/WAVE4_STATE.md`. If a `WAVE4_HALT` file exists → print the halt reason and exit.
 3. **If STATE says `phase: review` (first session only):** run the PLAN-MODE REVIEW PASS (§3, W4-000) — a read-only validation of this mission against the FULL repo — then update this mission file + STATE with deltas, set `phase: execute`, commit, exit.
-4. **Reflection trigger (check BEFORE picking a task):** read `logs/wave4/last-reflect.txt` (a single ISO-8601 UTC timestamp). If it is missing, or ≥ `REFLECT_INTERVAL_HOURS` (default **4**) have passed since it, **this session is a REFLECTION session** — run §2.5 instead of a queue task, then exit. Skip the reflection if `day4CutoffAt` has passed (only W4-015 runs then), or if a `class: repair` task is currently `pending`/`in_progress` (fix the tree first, reflect after).
+4. **Reflection trigger (check BEFORE picking a task):** run `node scripts/wave4/reflect-marker.js check` — it reads `logs/wave4/last-reflect.txt` (ISO-8601 UTC timestamp on line 1, HEAD sha on line 2) and prints `DUE <reason>` / `NOT-DUE <reason>`. Do NOT hand-parse the file: missing, unreadable and future-dated markers all count as DUE, which is the safe direction. If it is missing, or ≥ `REFLECT_INTERVAL_HOURS` (default **4**) have passed since it, **this session is a REFLECTION session** — run §2.5 instead of a queue task, then exit. Skip the reflection if `day4CutoffAt` has passed (only W4-015 runs then), or if a `class: repair` task is currently `pending`/`in_progress` (fix the tree first, reflect after).
 5. Otherwise pick the FIRST task with status `pending` whose `deps` are all `done` (or `in_progress` tasks you own — continue them). Respect the tier fallback rule: if a bio-track task is blocked/failed, W4-007/008 are eligible early (they depend only on the frozen targets shape from W4-006 — or on today's shape if 006 hasn't landed, coded superset-tolerant). Model economy: if `WAVE4_MODEL_TIER` is `saver`, prefer an S/M task or an `in_progress` continuation over starting a new L design task, when one is unblocked. Stuck-task guard **S4** (§0.4): a task `in_progress` across 3 sessions with no status change → mark it `failed` with a summary and move on.
 6. Set the task `in_progress` in STATE (with a one-line progress note), commit STATE.
 7. Execute the task under TDD. Definition of Done, ALL required: failing-test-first evidence; full backend suite green and ≥ baseline (`cd backend && npm test`); lint clean; secret scan of the diff (`grep -E "AIza|ghp_|sk-|-----BEGIN|eyJ[A-Za-z0-9_-]{30,}"`); zero-knowledge check (no numeric vitals in new logs/DTOs/prompts); no attribution anywhere; STATE updated.
@@ -173,8 +173,11 @@ limit R4–R5 to the diff since the last reflection rather than a broad sweep, a
   - The exception to "reflections don't implement": a fix under ~10 minutes with an obvious test (a typo, a stale doc line, a
     missing clamp, a flaky assertion) may be done inline — commit it separately with a `wave4: reflect —` prefix.
 - **R7 · Close out.** Write the reflection entry into STATE's **Reflection log** (timestamp, interval covered, suite result,
-  what was verified, what was reopened, what was queued, or "clean"). Write the current UTC timestamp to
-  `logs/wave4/last-reflect.txt` and the current HEAD sha next to it. Commit, push, and print:
+  what was verified, what was reopened, what was queued, or "clean"). Then stamp the close-out marker with
+  `node scripts/wave4/reflect-marker.js stamp` (writes the current UTC timestamp + HEAD sha to
+  `logs/wave4/last-reflect.txt`). **That stamp is the only thing that clears the trigger — a reflection that
+  skips it latches the trigger ON and no queue task can ever be picked again** (W4-D01). `run-mission.ps1`
+  stamps it as a backstop when a session dies before this step, but the session still owns it. Commit, push, and print:
   `WAVE4_SESSION_RESULT: REFLECT done <n verified, m reopened, k queued — one-line headline>`
   A reflection session **never** counts against the error budget or the rule-of-2, and never blocks the queue.
 
