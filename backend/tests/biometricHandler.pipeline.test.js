@@ -1667,15 +1667,18 @@ describe('socket event dispatch wiring', () => {
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalled();
   });
 
-  it('biometric_push debounce fires pipeline after 60s', async () => {
+  // W4-001/D11 re-pin: the confirmed change must now CROSS A BAND to recalibrate — the
+  // buffer this serves is keyed `bio:<band>:<activity>`, so a same-band confirmation
+  // (the old 65→80) produced an identical key and burned a generation for nothing.
+  it('biometric_push debounce fires pipeline after 60s on a confirmed band crossing', async () => {
     jest.useFakeTimers();
 
     const socket = makeSocket();
     registerBiometricHandler(socket);
     socket._trigger('live_mode', { enabled: true }); // band transitions auto-drive only in Live mode
 
-    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
-    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 80 } });
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });  // resting
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 95 } });  // → active
 
     jest.advanceTimersByTime(60_000);
 
@@ -1685,8 +1688,29 @@ describe('socket event dispatch wiring', () => {
     await new Promise(r => setTimeout(r, 50));
 
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
-      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 80 }) })
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 95 }) })
     );
+  });
+
+  it('a confirmed change INSIDE one band settles without recalibrating (D11)', async () => {
+    jest.useFakeTimers();
+
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+    geminiEngine.adjustBiometricPlaylist.mockClear();
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 60 } });
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 85 } }); // Δ25, still resting
+
+    jest.advanceTimersByTime(60_000);
+    jest.useRealTimers();
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('recalibration_cancelled', { reason: 'band_unchanged' });
+    // ...but the confirmed heart rate still tracks the body.
+    expect(_debounceMap.get(socket.id).stableHR).toBe(85);
   });
 });
 
@@ -1741,24 +1765,29 @@ describe('handleBiometricReading immediate mode', () => {
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT re-trigger when the change is < 25 bpm', async () => {
+  // W4-001/D11 re-pin: the watch lane triggers on the BAND, not a ±25 bpm delta. Both of
+  // these used to assert the delta gate — and the negative one asserted it on a socket that
+  // was never in Live mode, so it would have passed whatever the gate did.
+  it('does NOT re-trigger on a large jump that stays inside one band', async () => {
     const socket = makeSocket();
-    handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+    handleBiometricReading(socket, 'garmin', { heartRate: 60 }, { immediate: true }); // resting
     await new Promise(r => setTimeout(r, 50));
     geminiEngine.adjustBiometricPlaylist.mockClear();
-    handleBiometricReading(socket, 'garmin', { heartRate: 120 }, { immediate: true }); // delta 20
+    handleBiometricReading(socket, 'garmin', { heartRate: 85 }, { immediate: true }); // Δ25, still resting
     await new Promise(r => setTimeout(r, 50));
     expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
   });
 
-  it('re-triggers when the change is >= 25 bpm', async () => {
+  it('re-triggers on a band crossing the old 25 bpm gate would have missed', async () => {
     const socket = makeSocket();
     registerBiometricHandler(socket);
     socket._trigger('live_mode', { enabled: true });
-    handleBiometricReading(socket, 'garmin', { heartRate: 100 }, { immediate: true });
+    handleBiometricReading(socket, 'garmin', { heartRate: 115 }, { immediate: true }); // active
     await new Promise(r => setTimeout(r, 50));
     geminiEngine.adjustBiometricPlaylist.mockClear();
-    handleBiometricReading(socket, 'garmin', { heartRate: 130 }, { immediate: true }); // delta 30
+    handleBiometricReading(socket, 'garmin', { heartRate: 125 }, { immediate: true }); // Δ10 → peak
     await new Promise(r => setTimeout(r, 50));
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
   });
@@ -1792,13 +1821,15 @@ describe('activity-mode change triggers regeneration', () => {
     expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
   });
 
-  it('immediate: does NOT re-trigger when activity is unchanged and HR delta < 25', async () => {
+  it('immediate: does NOT re-trigger when neither the activity nor the band moved', async () => {
     const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
     handleBiometricReading(socket, 'garmin', { heartRate: 100, activityType: 0 }, { immediate: true });
     await new Promise(r => setTimeout(r, 50));
     geminiEngine.adjustBiometricPlaylist.mockClear();
 
-    handleBiometricReading(socket, 'garmin', { heartRate: 110, activityType: 0 }, { immediate: true }); // delta 10, same activity
+    handleBiometricReading(socket, 'garmin', { heartRate: 110, activityType: 0 }, { immediate: true }); // same band, same activity
     await new Promise(r => setTimeout(r, 50));
 
     expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();

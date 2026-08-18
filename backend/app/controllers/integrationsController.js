@@ -810,8 +810,9 @@ exports.watchStatus = (req, res) => {
 // POST /api/integrations/watch/hr  (PUBLIC — device-token auth, not session)
 // The sideloaded watch app POSTs live HR here ~every 5 minutes. We authenticate
 // by hashing the Bearer token, look up the user's live browser socket, and feed
-// the reading into the biometric pipeline in immediate mode (each ping trusted
-// as the new sustained HR; see WATCH_HR_DELTA_THRESHOLD in biometricHandler).
+// the reading into the biometric pipeline in immediate mode (each ping trusted as
+// the new sustained HR; recalibration fires on a band/activity change — see
+// _shouldRecalibrate in biometricHandler).
 exports.watchHrIngest = async (req, res, next) => {
   try {
     const header = req.headers.authorization;

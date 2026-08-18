@@ -46,10 +46,10 @@ const HR_NOISE_FLOOR = 3;
 // a heart rate (D7). W4-003 replaces it with the Kalman/Hampel filter.
 const HR_EWMA_ALPHA = 0.2;
 const DEBOUNCE_MS        = 60_000;
-// Watch (5-min cadence) path: each ping is trusted as the new sustained HR.
-// A larger 25 bpm gate ensures we only re-adapt on a real activity-state change
-// (vs the 10 bpm streaming threshold), so a flat HR never churns Spotify.
-const WATCH_HR_DELTA_THRESHOLD = 25;
+// Watch (5-min cadence) path: each ping is trusted as the new sustained HR, so it skips
+// the debounce entirely. It used to need its own 25 bpm gate to avoid churning Spotify on
+// a flat HR; the band trigger (D11) subsumes that — a same-band ping produces the same
+// buffer key and is therefore inert by construction, at any delta.
 // Over-fetch discovery candidates so the mixer can filter to the user's taste and
 // still fill 50 (15 discovery + library backfill, or all 50 from discovery when
 // the library is empty). The mixer trims to the 30% target / fills the rest.
@@ -241,6 +241,11 @@ function getState(socketId) {
     debounceMap.set(socketId, {
       stableHR:         null,
       pendingHR:        null,
+      // Smoothed observation trace (D7). Every accepted reading updates it; it never
+      // confirms a heart rate on its own. Sub-threshold movement lands HERE instead of
+      // silently overwriting stableHR, which is how 9 bpm steps used to walk 60 -> 150
+      // without ever tripping the 10 bpm gate.
+      hrEwma:           null,
       latestActivity:   null,
       // Last sustained activity state — drives activity-change-triggered regen
       // (resting→running etc.) independently of the HR delta gate.
@@ -1084,6 +1089,34 @@ function isValidReading(n) {
   return true;
 }
 
+// Smoothed observation trace. Never confirms a heart rate on its own (D7).
+function _updateEwma(prev, next) {
+  if (!Number.isFinite(next)) return prev;
+  if (prev == null) return next;
+  return Math.round((HR_EWMA_ALPHA * next + (1 - HR_EWMA_ALPHA) * prev) * 10) / 10;
+}
+
+// The CONFIRMED-transition trigger (D11). Recalibration serves a shadow buffer keyed
+// `bio:<band>:<activity>` (syntheticBioMoodKey), so the only changes that can produce a
+// DIFFERENT serve are a band crossing or an activity change. The old ±10/±25 bpm gates
+// were keyed on nothing the buffer knows about, and that cost both ways: 60→85 bpm burned
+// a recalibration on an identical key, while 115→125 crossed the 120 cut on the watch lane
+// and was ignored because it moved less than 25 bpm.
+//
+// The delta guard survives as a NOISE FLOOR: a crossing smaller than the sensor's own
+// error is the PPG breathing across the cut, not a state change, and must not flap the band.
+//
+// PURE — exported for unit testing. State-transition triggering proper lands in W4-009.
+function _shouldRecalibrate({ prevHR, nextHR, activityChanged = false }) {
+  if (activityChanged) return true;
+  const nextBand = bandFromHeartRate(nextHR);
+  if (nextBand === null) return false;            // an unusable reading is never a trigger
+  const prevBand = bandFromHeartRate(prevHR);
+  if (prevBand === null) return true;             // no confirmed serve state yet
+  if (prevBand === nextBand) return false;
+  return Math.abs(Number(nextHR) - Number(prevHR)) >= HR_NOISE_FLOOR;
+}
+
 function handleBiometricReading(socket, source, raw, opts = {}) {
   let normalized;
   try {
@@ -1106,6 +1139,10 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   const state = getState(socket.id);
   state.consecutiveSkips = 0;
   state.latestActivity   = normalized.activity;
+  // D7: EVERY accepted reading feeds the smoothed observation, on both lanes. The
+  // CONFIRMED heart rate only ever moves through the trigger paths below, so
+  // sub-threshold noise can no longer latch it one silent step at a time.
+  state.hrEwma           = _updateEwma(state.hrEwma, normalized.heartRate);
 
   // Immediate (trusted) mode for the 5-minute watch ingest path: no 60s debounce.
   // First reading (no baseline), a change >= 25 bpm, OR a new activity state
@@ -1116,9 +1153,12 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     const activityChanged = state.stableActivity !== null && normalized.activity !== state.stableActivity;
     state.stableHR       = normalized.heartRate;
     state.stableActivity = normalized.activity;
-    const hrJumped = prev !== null && Math.abs(normalized.heartRate - prev) >= WATCH_HR_DELTA_THRESHOLD;
-    if (prev === null || hrJumped || activityChanged) {
-      log(`[handleBiometric] immediate hr=${normalized.heartRate} activity=${normalized.activity} hrJumped=${hrJumped} activityChanged=${activityChanged} → recalibrate`);
+    // D11: the trigger is the BAND — what the buffer is actually keyed by — not a bare
+    // ±25 bpm delta, which fired on same-band jumps and missed real band crossings.
+    const bandChanged = prev !== null &&
+      _shouldRecalibrate({ prevHR: prev, nextHR: normalized.heartRate, activityChanged: false });
+    if (prev === null || bandChanged || activityChanged) {
+      log(`[handleBiometric] immediate hr=${normalized.heartRate} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
       recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
     }
     return;
@@ -1132,19 +1172,31 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
 
   const delta = Math.abs(normalized.heartRate - state.stableHR);
   const activityChanged = normalized.activity !== state.stableActivity;
+  // A band crossing is a candidate even below the 10 bpm gate (D11): the buffer is keyed by
+  // band, so 115→121 changes the serve while the old gate saw "only 6 bpm" and ignored it.
+  // The noise floor inside _shouldRecalibrate keeps jitter at the 90/120 cuts from arming.
+  const bandCrossed = _shouldRecalibrate({
+    prevHR: state.stableHR, nextHR: normalized.heartRate, activityChanged: false,
+  });
+  const meaningful = delta >= HR_DELTA_THRESHOLD || activityChanged || bandCrossed;
 
-  // Neither HR nor activity moved meaningfully → settle and cancel any pending
-  // recalibration. A new activity state counts as a meaningful change.
-  if (delta < HR_DELTA_THRESHOLD && !activityChanged) {
+  // Nothing moved meaningfully → settle and cancel any pending recalibration.
+  if (!meaningful) {
     if (state.timer) {
       clearTimer(state);
       socket.emit('recalibration_cancelled', { reason: 'change_reverted' });
     }
-    state.stableHR = normalized.heartRate;
-    return;
+    return; // D7: stableHR is deliberately NOT overwritten here — that was the silent drift.
   }
 
-  if (state.timer) return;
+  // D8: a reading arriving INSIDE the window refreshes the pending snapshot instead of being
+  // discarded, so the timer confirms where the body actually ended up. The old code captured
+  // pendingHR once and threw away every larger change that followed within the same minute.
+  if (state.timer) {
+    state.pendingHR       = normalized.heartRate;
+    state.pendingActivity = normalized.activity;
+    return;
+  }
 
   state.pendingHR       = normalized.heartRate;
   state.pendingActivity = normalized.activity;
@@ -1152,11 +1204,22 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     const s = debounceMap.get(socket.id);
     if (!s) return;
     const currentDelta = Math.abs(s.pendingHR - s.stableHR);
-    const stillChanged = currentDelta >= HR_DELTA_THRESHOLD || s.pendingActivity !== s.stableActivity;
+    const pendingActivityChanged = s.pendingActivity !== s.stableActivity;
+    const serveChanged = _shouldRecalibrate({
+      prevHR: s.stableHR, nextHR: s.pendingHR, activityChanged: pendingActivityChanged,
+    });
+    const stillChanged = currentDelta >= HR_DELTA_THRESHOLD || pendingActivityChanged || serveChanged;
     if (stillChanged) {
+      // The change is CONFIRMED, so it becomes the sustained heart rate either way — but it
+      // only earns a recalibration when it actually changes the served band/activity (D11);
+      // otherwise the buffer key is identical and the work would be wasted.
       s.stableHR       = s.pendingHR;
       s.stableActivity = s.pendingActivity;
-      recalibrateForBand(socket, s); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+      if (serveChanged) {
+        recalibrateForBand(socket, s); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+      } else {
+        socket.emit('recalibration_cancelled', { reason: 'band_unchanged' });
+      }
     } else {
       socket.emit('recalibration_cancelled', { reason: 'change_reverted' });
     }
@@ -1262,6 +1325,8 @@ module.exports = {
   handleBiometricReading,
   _debounceMap: debounceMap,
   // Exported for unit testing
+  _shouldRecalibrate,
+  HR_NOISE_FLOOR,
   toClientTrack,
   toClientTracks,
   resolveBiometricContext,
