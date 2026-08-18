@@ -22,3 +22,6 @@ consequences** — so the locked decisions and future ones are traceable and
 | [0007](0007-mobile-ci-node-24-interim.md) | Mobile CI pinned to Node 24 (interim) | Accepted (interim — see [#84](https://github.com/DanielMalede/Kokonada/issues/84)) |
 | [0008](0008-global-feature-caches-excluded-from-erasure.md) | Global feature caches excluded from GDPR erasure | Accepted |
 | [0009](0009-calm-bioluminescent-design-language.md) | Design language: Calm/Premium × Bioluminescent Depth, biometric-regulation UI | Accepted (Vision-Frame gate pending) |
+| [0010](0010-global-corpus-cc0-only-provider-agnostic.md) | Global corpus: CC0-only, provider-agnostic identity | Accepted |
+| [0011](0011-spotify-content-containment.md) | Spotify Content containment (corpus, feature store, erasure, bandit) | Accepted |
+| [0012](0012-learning-compliance.md) | Learning compliance: state-space buckets for all, `mbid:`-only track posteriors | Accepted |
