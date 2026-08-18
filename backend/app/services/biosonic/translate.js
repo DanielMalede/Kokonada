@@ -21,6 +21,23 @@ const STAGE_WEIGHTS = { deep: 1.5, light: 1.0, rem: 1.2 };
 const DEFAULT_NIGHT = { deep: 90, light: 300, rem: 90 };
 const HRV_FALLBACK = { median: 45, mad: 8 };
 const MAD_SCALE = 1.4826;
+// Above this, an UNLABELLED heart rate is exertion, not stress at rest (D3). ~110 bpm is
+// the low edge of Zone 2 for a typical adult (roughly 60% of a 190 HRmax) — sustained rates
+// above it are not produced by sitting still, whatever the missing activity label claims.
+// Personal Karvonen zones replace this fixed anchor in W4-004/005.
+const UNLABELLED_RESTING_HR_CEILING = 110;
+// Comfort bias under stress: at most +0.1 valence, reached at S≈0.67. A bias, never a floor —
+// VISION §6 makes the engine a REGULATOR, not a mirror, and forcing a distressed listener into
+// cheerful music is exactly the mirror failure (it also breaks the iso-principle: you meet the
+// state first, then move it). Structural down-regulation is the trajectory, added in W4-006.
+const COMFORT_BIAS_MAX = 0.1;
+const COMFORT_BIAS_SLOPE = 0.15;
+// Confidence: one step down per missing input group. 4 groups × 0.175 lands exactly on the
+// 0.3 floor, so a cold start is genuinely represented as "no idea" and biosonicBand can reach
+// its widest tolerance. The old 0.15 step bottomed out at 0.4 — the floor was unreachable and
+// a total stranger was served with the same band width as a half-known user. (D14)
+const CONFIDENCE_STEP = 0.175;
+const CONFIDENCE_FLOOR = 0.3;
 
 // Locked walking/running cadence bands (entrainment beats intent for locomotion).
 const CADENCE_BPM = { walking: 118, running: 162, cycling: 145 };
@@ -84,7 +101,16 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   const R = mean(recoveryParts) ?? 0.6; // neutral default when the body is a stranger
 
   const hrvSuppression = hrvZ != null ? clamp01(0.4 * -hrvZ) : null;
-  const restingElevation = (heartRate != null && (activity === 'resting' || activity === 'unknown' || activity == null))
+  // Resting elevation only means something when the body is actually AT REST. Every batch
+  // HR row is written with activity 'unknown' (D2), so the old `unknown → treat as resting`
+  // branch scored a 165 bpm workout as z≈17 → S=1.0 → maximal stress: narrow window, forced
+  // acoustic/instrumental, forced-cheerful valence. An unlabelled reading is now only read
+  // as resting while it stays BELOW the exertion cut — above it, exertion explains the HR and
+  // stress is left to the HRV term rather than invented. (D3)
+  const restingElevation = (heartRate != null && (
+    activity === 'resting' ||
+    ((activity === 'unknown' || activity == null) && heartRate < UNLABELLED_RESTING_HR_CEILING)
+  ))
     ? (() => { const z = _robustZ(heartRate, baselines?.rhrMedian, baselines?.rhrMAD, null); return z != null ? clamp01(0.25 * z) : null; })()
     : null;
   const stressParts = [hrvSuppression, restingElevation].filter(v => v != null);
@@ -137,8 +163,11 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   const acousticnessBias = round3(Math.min(0.4, (S >= 0.6 ? 0.3 : S >= 0.35 ? 0.15 : 0) + (windDown < 1 ? 0.1 : 0)));
   const instrumentalBias = S >= 0.6 ? 0.2 : 0;
 
+  // Stress adds a bounded comfort bias — it never OVERRIDES the felt state (D4). The old
+  // Math.max(moodValence, 0.6) floor meant the more distressed the reading, the more forcibly
+  // cheerful the music: the exact "mirror" behaviour VISION §6 forbids.
   const moodValence = desc ? desc.valence_hint : moodCoords(moodKey).valence;
-  const valenceTarget = round3(S >= 0.6 ? Math.max(moodValence, 0.6) : S >= 0.35 ? Math.max(moodValence, 0.5) : moodValence);
+  const valenceTarget = round3(clamp01(moodValence + Math.min(COMFORT_BIAS_MAX, COMFORT_BIAS_SLOPE * S)));
 
   const tempoBand = bpmCenter < 100 ? 'resting' : bpmCenter <= 135 ? 'active' : 'peak';
 
@@ -152,14 +181,19 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
     : activityEnergy <= 0.2 ? 'low'
     : null;
 
-  // Confidence: one step down per missing input group; never below 0.3.
+  // Confidence: one step down per missing input group; never below the floor. The step is
+  // sized so ALL FOUR groups missing lands exactly on the floor (D14) — see CONFIDENCE_STEP.
   const groups = [
     finite(baselines?.rhrMedian) != null || finite(baselines?.hrvMedian) != null,
     sleepScore != null,
     heartRate != null,
     hrvScore != null || batteryScore != null || readinessScore != null,
   ];
-  const confidence = Math.max(0.3, Math.round((1 - 0.15 * groups.filter(g => !g).length) * 100) / 100);
+  const missing = groups.filter(g => !g).length;
+  const confidence = Math.max(
+    CONFIDENCE_FLOOR,
+    Math.round((1 - CONFIDENCE_STEP * missing) * 100) / 100,
+  );
 
   return {
     version: VERSION,
