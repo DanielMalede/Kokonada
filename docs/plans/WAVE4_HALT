@@ -1,0 +1,44 @@
+WAVE-4 RUN HALTED — 2026-08-19 00:33 local
+
+REASON: run-integrity failure — THREE concurrent Wave-4 sessions are executing against the
+SAME working tree, branch and STATE file at the same time. This is risk R7 (parallel-session
+collision) at a severity the mission did not anticipate: the mission assumes one session at a
+time (§1 "one task per session", STATE as "the SINGLE resume source"). Continuing would
+silently corrupt the wave's output. Per §S ("when in doubt, halt is the safe move"), the run
+stops here for a human decision.
+
+EVIDENCE (captured 00:30-00:33 local, 2026-08-19):
+- Three live headless sessions, same repo root, all reading logs/wave4/session-prompt.txt:
+    PID 26304  started 00:20:30
+    PID 3516   started 00:28:25
+    PID 3028   started 00:29:30
+- Three log files ALL numbered session-001:
+    logs/wave4/session-001-20260819-002030.log
+    logs/wave4/session-001-20260819-002825.log
+    logs/wave4/session-001-20260819-002930.log
+  run-mission.ps1 is sequential INTERNALLY ($proc.WaitForExit) and numbers sessions from a
+  per-process counter, so three "session-001" logs mean three SEPARATE INVOCATIONS of the
+  loop script are running at once — not one loop iterating.
+- Commit 1a0e58b ("wave4: fix worker.test.js real-connection leak") landed at 00:30:56 from
+  PID 3516 while another session was mid-preflight on the same task.
+- Two orphaned `jest tests/worker.test.js` processes (00:22:22, 00:29:55) left hanging by
+  sibling sessions.
+- At 00:33 a sibling session had docs/adr/0012-learning-compliance.md untracked-in-progress
+  plus scripts/run-mission.ps1 and docs/adr/README.md modified — i.e. two sessions were about
+  to author the SAME W4-000 deliverable. (Note the filename differs from the mission's
+  specified docs/adr/ADR-0012-learning-compliance.md.)
+
+ROOT CAUSE: scripts/run-mission.ps1 has NO single-instance guard. Nothing prevents N
+concurrent loops on one working tree, and every instance shares one session-prompt.txt, one
+git branch, one working tree and one STATE file.
+
+CONCRETE RISKS IF RESUMED AS-IS: interleaved writes to the same source files; duplicate and
+conflicting commits; racing edits to STATE (the single resume source) causing lost or wrong
+task ownership; concurrent npm install / jest runs producing false or flaky baselines;
+two sessions independently marking the same task done.
+
+REMEDY FOR DANIEL — see HITL item H2 in docs/plans/WAVE4_STATE.md for the numbered steps.
+
+NOTHING IS BROKEN IN THE PRODUCT CODE. This halt is about run orchestration only. Work
+committed so far on feat/intelligence-wave (deed3c4, 2b3deec, 1a0e58b) is intact; W4-000 is
+still in_progress with ADR-0012 + tripwire test + recorded test baseline outstanding.

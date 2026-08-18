@@ -5,7 +5,7 @@
 
 ## Run header
 
-- phase: execute           <!-- review | execute | closeout | halted -->
+- phase: halted           <!-- review | execute | closeout | halted — see docs/plans/WAVE4_HALT + HITL H2 -->
 - branch: feat/intelligence-wave   <!-- created from origin/main (== local main, in sync) in session 1 -->
 - lastMainSha: 1a1657ea4bae1f48a6de4e2dd29b3f2a14d02010
 - testBaseline: (unset — record in W4-000 exec session AFTER the worker.test.js real-connection-leak fix per §0.4 S1a; landscape: 162 test files at backend/tests top level)
@@ -53,6 +53,33 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
 
 - **H1 — DISCOVERED (not in roadmap): scheduled Secret-scan workflow failing on main.** The weekly "Secret scan (full history)" GitHub Action has failed every scheduled run since at least 2026-07-27 (runs last ~10–13s → likely a setup/config error, not a found secret; push CI is green). Steps: (1) GitHub → Actions → "Secret scan (full history)" → open the latest failed run; (2) read the failing step's log — if it's a tooling/setup error (e.g. action version, token perms), fix the workflow file; (3) if it actually reports a secret hit, treat as an incident. Nothing in Wave-4 is blocked on this; the wave was instructed not to chase it.
 
+- **H2 — RUN HALTED: three concurrent sessions on one working tree (BLOCKS THE WHOLE RUN).**
+  At 00:20:30, 00:28:25 and 00:29:30 on 2026-08-19, three separate invocations of
+  `scripts/run-mission.ps1` were running simultaneously against this repo (PIDs 26304, 3516,
+  3028), each writing the same working tree, branch and STATE. Proof: three log files all
+  numbered `session-001-*` in `logs/wave4/` (the loop is sequential internally, so identical
+  numbering means separate loop processes); commit `1a0e58b` landed from one session while
+  another was mid-preflight on the same task; two sessions were concurrently authoring the
+  same W4-000 ADR deliverable. Root cause: `run-mission.ps1` has **no single-instance guard**,
+  and all instances share one `session-prompt.txt`. `docs/plans/WAVE4_HALT` is written; the
+  loop stops. Steps for Daniel:
+  1. Stop every loop: close the `run-mission.ps1` windows, then
+     `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*claude -p*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`
+     and kill any leftover `jest` node processes.
+  2. Confirm none remain: `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*claude -p*' }` returns nothing.
+  3. Inspect the tree for half-written sibling work: `git status` — at halt time
+     `docs/adr/0012-learning-compliance.md` was untracked-in-progress and
+     `scripts/run-mission.ps1` + `docs/adr/README.md` were modified by a sibling session.
+     Decide per file: keep (commit it) or discard. Note the ADR filename differs from the
+     mission's specified `docs/adr/ADR-0012-learning-compliance.md` — pick ONE and delete the other.
+  4. Add a single-instance guard to `scripts/run-mission.ps1` before relaunching, e.g. near the
+     top: `$mtx = New-Object System.Threading.Mutex($false,'Global\KokonadaWave4'); if (-not $mtx.WaitOne(0)) { Write-Host '[wave4] another loop is already running - exiting'; exit 0 }`
+     (a lockfile with the PID works too). Also give each launch its own prompt file
+     (`session-prompt-<stamp>.txt`) instead of the shared `session-prompt.txt`.
+  5. Delete `docs/plans/WAVE4_HALT`, set `phase: execute` in this file, and start **exactly one** loop.
+  Blocked on this: the entire remaining queue. Nothing else is wrong — no product-code defect
+  is implied by this halt.
+
 ## PR queue
 
 | PR | cluster(s) | url | status |
@@ -69,3 +96,4 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
 | # | started | result line (`WAVE4_SESSION_RESULT: ...`) |
 |---|---------|--------------------------------------------|
 | 1 | 2026-08-18 22:56 | WAVE4_SESSION_RESULT: W4-000 in_progress review pass complete — 6 unknowns resolved, mission amended, phase→execute |
+| 2 | 2026-08-19 00:20 | WAVE4_SESSION_RESULT: W4-000 in_progress HALT — 3 concurrent sessions on one working tree (R7); preflight S1 verified green, HITL H2 raised |
