@@ -17,6 +17,13 @@
 #   FAILS OPEN after -MaxConsecutiveWaits, and real limit errors are always handled (20 min retry).
 #
 # Stop at any time: create an empty file  docs\plans\WAVE4_HALT , or Ctrl+C in this window.
+#
+# WHILE A SESSION RUNS: the log file (logs\wave4\session-*.log) stays at 0 bytes for the
+# WHOLE session - claude's output is buffered and only flushes when the process exits. Every
+# ~3 min this window prints '[wave4] session N alive - ...' - as long as that keeps appearing,
+# it is working normally. Do NOT close the window or Ctrl+C because the log looks empty; that
+# kills real work and burns real tokens for nothing, since nothing is saved until the session
+# ends on its own (max SessionTimeoutMin minutes, auto-killed and retried after that).
 
 param(
     [int]$MaxIterations = 40,
@@ -42,6 +49,27 @@ $ErrorActionPreference = 'Continue'
 # --- locate repo root (this script lives in <repo>\scripts) ---------------------------------
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
+
+# --- single-instance guard -------------------------------------------------------------------
+# 2026-08-19 incident: three copies of this script were accidentally launched at once and all
+# three ran claude -p against the SAME working tree/branch/STATE file simultaneously (HITL H2).
+# One session caught it mid-run and halted safely, but it could have raced two commits or two
+# concurrent edits to WAVE4_STATE.md. A named mutex makes a second launch impossible instead of
+# relying on a human never double-launching the loop.
+$MissionMutex = New-Object System.Threading.Mutex($false, 'Global\KokonadaWave4Loop')
+$gotMutex = $false
+try {
+    $gotMutex = $MissionMutex.WaitOne(0)
+} catch [System.Threading.AbandonedMutexException] {
+    # the previous holder died without releasing (crash / Task Manager kill) - ownership passes
+    # to us safely; this is the self-healing case, not a collision.
+    $gotMutex = $true
+}
+if (-not $gotMutex) {
+    Write-Host '[wave4] another run-mission.ps1 is already running on this machine - exiting.'
+    Write-Host '[wave4] if you believe that is wrong, check Task Manager for a stray claude/node process before retrying.'
+    exit 1
+}
 
 $HaltFile = Join-Path $RepoRoot 'docs\plans\WAVE4_HALT'
 $StateFile = Join-Path $RepoRoot 'docs\plans\WAVE4_STATE.md'
@@ -217,12 +245,34 @@ while ($sessionsLaunched -lt $MaxIterations) {
     $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/c', $cmdLine `
               -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru
 
-    $finished = $proc.WaitForExit($SessionTimeoutMin * 60 * 1000)
-    if (-not $finished) {
+    # Poll with a heartbeat instead of one blocking WaitForExit. IMPORTANT: the log file
+    # legitimately stays at 0 bytes for the ENTIRE session - claude's stdout is fully buffered
+    # once redirected to a file, so nothing flushes until the process exits. An empty log is
+    # NOT a hang. Only the timeout below (or Ctrl+C on this window) should ever stop a session -
+    # killing it early on a hunch wastes real tokens AND discards all progress, since nothing is
+    # committed until the session ends on its own.
+    $sessionStart = Get-Date
+    $deadline = $sessionStart.AddMinutes($SessionTimeoutMin)
+    $lastBeat = $sessionStart
+    while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 15
+        if (((Get-Date) - $lastBeat).TotalSeconds -ge 180) {
+            $lastBeat = Get-Date
+            $elapsedMin = [int]((Get-Date) - $sessionStart).TotalMinutes
+            $sz = 0
+            if (Test-Path $LogFile) { $sz = (Get-Item $LogFile).Length }
+            Write-Host "[wave4] session $i alive - ${elapsedMin}m/${SessionTimeoutMin}m elapsed, log=$sz bytes (0 is normal mid-session - do NOT close this window)"
+        }
+    }
+    if ($proc.HasExited) {
+        $finished = $true
+        $exitCode = $proc.ExitCode
+    } else {
+        $finished = $false
         Write-Host "[wave4] session $i exceeded $SessionTimeoutMin min - killing"
         try { $proc.Kill() } catch {}
         $exitCode = 124
-    } else { $exitCode = $proc.ExitCode }
+    }
 
     # 5. classify the outcome
     $marker = $null
@@ -263,3 +313,4 @@ while ($sessionsLaunched -lt $MaxIterations) {
 }
 
 Write-Host '[wave4] loop finished. State: docs\plans\WAVE4_STATE.md ; usage: logs\wave4\usage.log ; report (when closeout ran): docs\plans\WAVE4_REPORT.md'
+try { $MissionMutex.ReleaseMutex() } catch {}
