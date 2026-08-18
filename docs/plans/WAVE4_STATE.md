@@ -8,7 +8,7 @@
 - phase: execute           <!-- review | execute | closeout | halted — H2 closed 2026-08-19 (see HITL queue) -->
 - branch: feat/intelligence-wave   <!-- created from origin/main (== local main, in sync) in session 1 -->
 - lastMainSha: 1a1657ea4bae1f48a6de4e2dd29b3f2a14d02010
-- testBaseline: **165 suites / 1829 tests** green after W4-D01 (was 164/1802 after W4-001; +1 suite `wave4.reflectMarker.test.js` with 27 pins, no re-pins). ~81s, exit 0. Prior: 164 suites / 1802 tests after W4-001 (was 163/1767 after W4-000; +1 suite `wave4.bugfix.test.js` with 34 pins, +1 re-pin in `biometricHandler.pipeline.test.js`), ~80s, exit 0. Prior baseline text: 163 suites / 1767 tests green (162 product suites: 1759 passed + 1 todo, plus adr0012.tripwire.test.js), ~60s, exit 0 without --forceExit, --detectOpenHandles silent. Established 2026-08-19 after the worker.test.js real-connection-leak fix (injected queue seam). Real root cause was more specific than S1a guessed: backend/.env sets GLOBAL_SEED_INGEST_ENABLED=true and worker.js loads it with override:true, so the success-path tests reached a real ioredis dial against the fake host — not merely "no local Redis".
+- testBaseline: **166 suites / 1865 tests** green after W4-D02 (was 165/1829 after W4-D01; +1 suite `wave4.stateGuard.test.js` with 36 pins, no re-pins). ~81s, exit 0. Prior: 165 suites / 1829 tests after W4-D01 (was 164/1802 after W4-001; +1 suite `wave4.reflectMarker.test.js` with 27 pins, no re-pins). ~81s, exit 0. Prior: 164 suites / 1802 tests after W4-001 (was 163/1767 after W4-000; +1 suite `wave4.bugfix.test.js` with 34 pins, +1 re-pin in `biometricHandler.pipeline.test.js`), ~80s, exit 0. Prior baseline text: 163 suites / 1767 tests green (162 product suites: 1759 passed + 1 todo, plus adr0012.tripwire.test.js), ~60s, exit 0 without --forceExit, --detectOpenHandles silent. Established 2026-08-19 after the worker.test.js real-connection-leak fix (injected queue seam). Real root cause was more specific than S1a guessed: backend/.env sets GLOBAL_SEED_INGEST_ENABLED=true and worker.js loads it with override:true, so the success-path tests reached a real ioredis dial against the fake host — not merely "no local Redis".
 - missionVersion: 2026-08-18 (as approved by Daniel; amended by W4-000 review deltas, same date)
 - runStartedAt: 2026-08-18T22:56 local (session 1)
 - day4CutoffAt: 2026-08-22T22:56 local (runStartedAt + 96h; after this, only W4-015 may run)
@@ -199,6 +199,77 @@ trigger ON forever: every later session becomes another reflection and the queue
 - **The inline fallback is not gold-plating.** This function exists precisely because the primary path can fail;
   a backstop that silently no-ops when `node` is missing would re-open the hole it was written to close.
 
+## W4-D02 evidence — the STATE row-clobber guard (session 7)
+
+Test-first: `backend/tests/wave4.stateGuard.test.js` (36 pins) was written and run RED before any
+implementation existed (`Cannot find module .../scripts/wave4/state-guard.js`, 0 tests executed), then
+27/36 green once the engine landed, then 34/36 after one real parser bug the pins caught (see below),
+then 36/36 after the loop backstop. Full suite **166 suites / 1865 tests / 1 todo** green, ~81 s, exit 0
+(baseline 165/1829: +1 suite, +36 pins, **zero re-pins** — nothing existing changed behaviour). Secret
+scan of the branch diff: clean (the one regex hit is the mission's own DoD line quoting the grep
+pattern). No numeric vitals — this task touches no biometric surface at all. No attribution. Still no
+`lint` script in `backend/package.json`, so that DoD line stays vacuous — recorded, not claimed.
+
+**What was actually wrong.** The backlog row's premise held up: `ccecca3` reset W4-001 from `in_progress`
+back to `pending` because it composed the whole of `WAVE4_STATE.md` from a read taken before that commit
+and wrote it back wholesale. The row's DoD was phrased as a rule ("reflection sessions re-read STATE
+immediately before writing and never downgrade a row they did not set") — but that rule already existed
+in spirit and did not help, which is precisely the W4-D01 lesson: a rule nobody can *fail loudly* is not
+a control. STATE is declared the SINGLE resume source, so a stale rewrite can re-run finished work or
+strand an owned task, and nothing anywhere was looking.
+
+**The fix, in two halves (mirroring W4-D01):**
+
+1. `scripts/wave4/state-guard.js` — the ONE implementation of "did this STATE edit illegally regress a
+   row?". Pure engine (two strings in, violations out; no clock, no randomness, no git — §0.4 S9), git
+   and fs confined to the CLI. Flags three kinds: `regressed` (down the status ladder), `removed` (a row
+   that simply vanished — the other half of a stale rewrite), `unknown-status` (a garbled cell). CLI
+   `check --base <ref>` exits non-zero and names the row.
+2. `run-mission.ps1` `Assert-StateRowsNotClobbered` — the loop captures `$sessionStartSha` before
+   launching a session and re-runs the same check afterwards. Mission §2 step 6 / §2.5 R2 + R7 now
+   require the session to run it before every STATE commit; the loop guarantees the invariant either way.
+
+**Design decisions taken inside the task:**
+
+- **Deliberate reopening stays possible, and has to say so.** §2.5 R2 legitimately sends a task from
+  `done` back to `pending`. A rank decrease is therefore allowed when the row carries the literal
+  uppercase token `REOPENED` — the difference between the two cases is exactly that a reopen is a
+  decision someone made and wrote down, while a clobber is a decision nobody made. The token is
+  **uppercase on purpose**: STATE already contains the word "reopened" in ordinary prose (H2's narrative,
+  the reflection-log header), and STATE's house style already uses uppercase tokens (`DISCOVERED`,
+  `RESOLVED`) for deliberate annotations, so a case-insensitive match would have switched the guard off
+  by accident rather than by choice. Pinned both ways.
+- **A vanished row is never suppressible**, not even by `REOPENED`. There is no legitimate reason to
+  delete a task row — STATE's own header says to keep the task table authoritative and never drop history.
+- **Tables are identified by header, not by position.** The task table puts `status` in column 6, the
+  discovered backlog in column 7 (it has an extra `class`). A table counts as a task table iff its header
+  has BOTH an `id` and a `status` column — which cleanly admits exactly those two and excludes the PR
+  queue (status, no id) and the reflection log (neither). Without that, every PR status change would read
+  as a task regression.
+- **`failed` ranks level with `done`**, so only a STRICT decrease trips. `in_progress → failed` (rule of 2,
+  S4) stays legal, and reviving a `failed` row needs the same `REOPENED` a `done` row does.
+- **The pins caught a real bug in this module before it shipped**: stripping markdown emphasis with a
+  global `[*_`]` strip turned `in_progress` into `inprogress`, silently breaking the very ladder the guard
+  rests on. Emphasis is now trimmed at the edges only. This is the whole argument for writing the
+  status-ladder assertions before the parser.
+- **One pin reads the REAL `WAVE4_STATE.md`** and asserts every parsed status is one of the four known
+  values and that the file is self-consistent. It is a live tripwire: a future session that garbles a
+  status cell or breaks a table's shape turns the suite red instead of silently becoming unparseable —
+  a guard that stops parsing the file it guards is worse than no guard.
+- **The jest pins over `run-mission.ps1` can only read text, which is a false-green risk**, so the loop
+  change was verified for real, exactly as W4-D01's was: `Parser::ParseFile` reports no syntax errors, and
+  the function was extracted from the file via its AST and executed against a scratch git repo over six
+  cases — legal forward edit (silent), the ccecca3 clobber (flagged, names the row), row deleted
+  (flagged), `REOPENED` reopen (allowed), no base sha (silent no-op), tool absent (degrades silently
+  instead of wedging the loop). The CLI was also run against the real repo: `OK 20 rows` clean, exit 1 on
+  an injected regression of W4-001.
+- **The backstop runs on EVERY outcome, before the loop classifies the session.** A crashed or timed-out
+  session can commit a clobbered STATE just as easily as a clean one — gating the check behind the success
+  branch would skip exactly the sessions most likely to have made a mess. Pinned by asserting the call
+  site precedes `# 5. classify the outcome`.
+- **It is a detector, not a repair.** It cannot un-commit. Its whole job is to turn a silent erasure into
+  a loud line in `logs/wave4/usage.log`, attributed to the session that caused it.
+
 ## Discovered backlog (filled by reflection passes — §2.5)
 
 > Work found DURING the run that was not in the original §3 queue. Same rigor as §3: every row needs class, tier, size,
@@ -208,7 +279,7 @@ trigger ON forever: every later session becomes another reflection and the queue
 | id | class | title | tier | size | deps | status | found | DoD / justification |
 |----|-------|-------|------|------|------|--------|-------|---------------------|
 | W4-D01 | repair | Reflection close-out marker had no mechanical writer | MUST | S | — | **done** | session 5 | Fixed session 6 — see the W4-D01 evidence section below. **Premise corrected:** `ccecca3` was NOT a reflection run, it is the commit that AUTHORED §2.5 (its own STATE text says "no reflection has run yet"), so no R7 was ever skipped. The run-stopping defect is real but different: the marker was written by nothing except a session's voluntary compliance with R7, and `logs/` is gitignored, so any reflection that is killed/times out/forgets latches the trigger ON permanently. Now: one tested implementation (`scripts/wave4/reflect-marker.js`) + a loop backstop that stamps it after any REFLECT session. |
-| W4-D02 | repair | Reflection pass clobbered the executing session's STATE row | SHOULD | S | — | in_progress | session 5 | *(session 7: mechanical row-clobber guard, mirroring W4-D01 — script + pins + loop backstop)*  `ccecca3` reset W4-001 from `in_progress` (written by this session at `bd4a6bc`) back to `pending`, because it composed STATE from a read taken before that commit. No code was lost — but a concurrent reflection can silently erase queue truth. DoD: reflection sessions re-read STATE immediately before writing and never downgrade a row they did not set. |
+| W4-D02 | repair | Reflection pass clobbered the executing session's STATE row | SHOULD | S | — | **done** | session 5 | Fixed session 7 — see the W4-D02 evidence section below. `scripts/wave4/state-guard.js` + 36 pins + a `run-mission.ps1` backstop that re-checks STATE after EVERY session.  `ccecca3` reset W4-001 from `in_progress` (written by this session at `bd4a6bc`) back to `pending`, because it composed STATE from a read taken before that commit. No code was lost — but a concurrent reflection can silently erase queue truth. DoD: reflection sessions re-read STATE immediately before writing and never downgrade a row they did not set. |
 | W4-D03 | improve | DEBUG log line carries a numeric heart rate | SHOULD | S | — | pending | session 5 | `biometricHandler` `log('[handleBiometric] immediate hr=${...}')` prints a raw vital. It is DEBUG-gated (`if (DEBUG) console.log`) so it is not a production leak, but §0.2.2 says no numeric vitals in logs at all. Pre-existing, untouched by W4-001 beyond one adjacent field. DoD: coarse band instead of the number. |
 | W4-D04 | improve | Cold-start reflection semantics contradict the "first reflection due in 4h" note | SHOULD | S | — | pending | session 6 | Noticed in passing while fixing W4-D01 (NOT acted on — execute sessions don't re-plan). §2 step 4 says a MISSING marker means "reflect now", so session 1 of any fresh run/clone burns itself on a reflection before there is anything to reflect on — while `ccecca3`'s own STATE note says "first reflection due ~4h after 2026-08-19 01:00". One of the two is wrong. DoD: next reflection decides — either seed the marker at run start (`reflect-marker.js stamp`, making "missing" mean "start the clock") or delete the contradicting note; whichever, §2 step 4 and the note must agree. |
 
@@ -243,4 +314,5 @@ trigger ON forever: every later session becomes another reflection and the queue
 | 4 | 2026-08-19 00:28 | WAVE4_SESSION_RESULT: W4-000 in_progress halted on WAVE4_HALT - three concurrent sessions on one tree (HITL H2); preflight passed, no docker, no work committed |
 | 5 | 2026-08-19 01:0x | WAVE4_SESSION_RESULT: W4-001 done — 10 surgical fixes (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9), 34 new pins, suite 164/1802 green |
 | 6 | 2026-08-19 01:27 | WAVE4_SESSION_RESULT: W4-D01 done — reflect-marker module + loop backstop, 27 new pins, suite 165/1829 green |
+| 7 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-D02 done — STATE row-clobber guard + loop backstop, 36 new pins, suite 166/1865 green |
 | — | 2026-08-19 (Cowork) | H2 closed after direct git verification (clean, non-conflicting history) + run-mission.ps1 single-instance mutex fix; phase→execute; W4-000→done; rows 2-4 are the three colliding launches (00:20/00:28/00:29), numbered in write-order not start-order |
