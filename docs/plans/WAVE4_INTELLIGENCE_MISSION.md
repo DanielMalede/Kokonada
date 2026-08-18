@@ -112,14 +112,79 @@ Each session (headless or interactive) does this, exactly:
 1. `git fetch origin` → divergence check vs STATE `lastMainSha` (see §0.3). Check out / fast-forward `feat/intelligence-wave`. If the working tree is dirty (a prior session was killed mid-work), apply safeguard **S2** (§0.4) before anything else.
 2. Read `docs/plans/WAVE4_STATE.md`. If a `WAVE4_HALT` file exists → print the halt reason and exit.
 3. **If STATE says `phase: review` (first session only):** run the PLAN-MODE REVIEW PASS (§3, W4-000) — a read-only validation of this mission against the FULL repo — then update this mission file + STATE with deltas, set `phase: execute`, commit, exit.
-4. Otherwise pick the FIRST task in the queue with status `pending` whose `deps` are all `done` (or `in_progress` tasks you own — continue them). Respect the tier fallback rule: if a bio-track task is blocked/failed, W4-007/008 are eligible early (they depend only on the frozen targets shape from W4-006 — or on today's shape if 006 hasn't landed, coded superset-tolerant). Model economy: if `WAVE4_MODEL_TIER` is `saver`, prefer an S/M task or an `in_progress` continuation over starting a new L design task, when one is unblocked. Stuck-task guard **S4** (§0.4): a task `in_progress` across 3 sessions with no status change → mark it `failed` with a summary and move on.
-5. Set the task `in_progress` in STATE (with a one-line progress note), commit STATE.
-6. Execute the task under TDD. Definition of Done, ALL required: failing-test-first evidence; full backend suite green and ≥ baseline (`cd backend && npm test`); lint clean; secret scan of the diff (`grep -E "AIza|ghp_|sk-|-----BEGIN|eyJ[A-Za-z0-9_-]{30,}"`); zero-knowledge check (no numeric vitals in new logs/DTOs/prompts); no attribution anywhere; STATE updated.
-7. Mark task `done` in STATE (with test counts + key evidence), commit everything (single-line messages), **push `feat/intelligence-wave` to origin (S3 — offsite backup, every task)**, cut a PR if the cluster is complete.
-8. If the task hits a Pause & Guide wall or a decision only Daniel can make: write a numbered HITL entry in STATE (what, why, exact steps for Daniel, what's blocked on it), ship what can ship dark/flagged, and continue.
-9. Print a final line: `WAVE4_SESSION_RESULT: <taskId> <done|in_progress|failed> <one-line summary>` and exit. One task per session (an L task may span sessions via `in_progress` + progress notes). Special case: when the entire queue including W4-015 is `done`, print `WAVE4_SESSION_RESULT: DONE-ALL complete` — the loop stops on it.
+4. **Reflection trigger (check BEFORE picking a task):** read `logs/wave4/last-reflect.txt` (a single ISO-8601 UTC timestamp). If it is missing, or ≥ `REFLECT_INTERVAL_HOURS` (default **4**) have passed since it, **this session is a REFLECTION session** — run §2.5 instead of a queue task, then exit. Skip the reflection if `day4CutoffAt` has passed (only W4-015 runs then), or if a `class: repair` task is currently `pending`/`in_progress` (fix the tree first, reflect after).
+5. Otherwise pick the FIRST task with status `pending` whose `deps` are all `done` (or `in_progress` tasks you own — continue them). Respect the tier fallback rule: if a bio-track task is blocked/failed, W4-007/008 are eligible early (they depend only on the frozen targets shape from W4-006 — or on today's shape if 006 hasn't landed, coded superset-tolerant). Model economy: if `WAVE4_MODEL_TIER` is `saver`, prefer an S/M task or an `in_progress` continuation over starting a new L design task, when one is unblocked. Stuck-task guard **S4** (§0.4): a task `in_progress` across 3 sessions with no status change → mark it `failed` with a summary and move on.
+6. Set the task `in_progress` in STATE (with a one-line progress note), commit STATE.
+7. Execute the task under TDD. Definition of Done, ALL required: failing-test-first evidence; full backend suite green and ≥ baseline (`cd backend && npm test`); lint clean; secret scan of the diff (`grep -E "AIza|ghp_|sk-|-----BEGIN|eyJ[A-Za-z0-9_-]{30,}"`); zero-knowledge check (no numeric vitals in new logs/DTOs/prompts); no attribution anywhere; STATE updated.
+8. Mark task `done` in STATE (with test counts + key evidence), commit everything (single-line messages), **push `feat/intelligence-wave` to origin (S3 — offsite backup, every task)**, cut a PR if the cluster is complete.
+9. If the task hits a Pause & Guide wall or a decision only Daniel can make: write a numbered HITL entry in STATE (what, why, exact steps for Daniel, what's blocked on it), ship what can ship dark/flagged, and continue.
+10. Print a final line: `WAVE4_SESSION_RESULT: <taskId> <done|in_progress|failed> <one-line summary>` and exit. One task per session (an L task may span sessions via `in_progress` + progress notes). Special case: when the entire queue including W4-015 is `done`, print `WAVE4_SESSION_RESULT: DONE-ALL complete` — the loop stops on it.
 
-**Never** re-plan the whole mission mid-run, re-order tiers, or start work outside the queue. Discovered work → HITL queue as `DISCOVERED — not in roadmap`.
+**Outside a reflection session:** never re-plan the mission, re-order tiers, or start work outside the queue — stay on the one task you picked. Work you notice in passing goes to the **Discovered backlog** in STATE (a one-line note is enough; the next reflection triages it), and anything needing Daniel goes to the HITL queue. Re-planning is a privilege of reflection sessions only (§2.5) — that separation is what keeps a 4-day autonomous run from drifting into an endless redesign.
+
+## 2.5 RECURRING REFLECTION PASS (every 4 hours — Daniel's standing order)
+
+> Daniel's instruction, verbatim intent: *"every 4 hours it should look again and see where things can be improved,
+> fixed, and what else can be done — it must always be thinking of more tasks."* This section is how that happens
+> **without** the run drifting into endless redesign. A reflection session VERIFIES, AUDITS and QUEUES.
+> It does not implement (one narrow exception in step R6).
+
+**Trigger:** §2 step 4 — `logs/wave4/last-reflect.txt` is missing or older than `REFLECT_INTERVAL_HOURS` (default **4**).
+**Model:** whatever tier the loop launched (`WAVE4_MODEL_TIER`). On `saver`, still do R1–R3 (verification is never skipped) but
+limit R4–R5 to the diff since the last reflection rather than a broad sweep, and say so in the STATE entry.
+**Budget:** a reflection is a SHORT session. If it is running long, finish R1–R3 + write findings and exit; depth is R4's job next time.
+
+### What a reflection session does, in order
+
+- **R1 · Health check (never skipped).** `cd backend && npm test` (full suite) + lint + secret scan of everything since the last
+  reflection. Compare against STATE `testBaseline`. Also: `git log --oneline <lastReflectSha>..HEAD` and
+  `git status` — the tree must be clean and the branch pushed.
+- **R2 · Verify the last interval's claims.** For every task marked `done` since the last reflection, spot-check that its DoD is
+  *actually* satisfied — the tests it claims exist do exist and genuinely fail without the fix (re-run one with the fix stubbed out
+  if cheap), the STATE evidence matches reality, the PR (if cut) reflects the real diff. **A task whose claim does not hold gets
+  reopened**: status → `pending`, note why. This is the single highest-value thing a reflection does; an autonomous run's main
+  failure mode is a task that *reports* success.
+- **R3 · Constraint audit of the new code.** Against §0.2: ADR-0011/0012 (no Spotify-derived learned artifact — run the tripwire),
+  zero-knowledge (no numeric vitals in any new DTO/log/prompt), targets superset-only, regulator-not-mirror, consent gates intact,
+  no attribution anywhere, kill-switch env flag present for every new serving-path behavior (§0.4 S-series).
+  **Any violation → a `class: repair` task at the TOP of the queue, ahead of all MUST work.**
+- **R4 · Quality sweep (the "what can be better" pass).** Read the code landed since the last reflection with fresh eyes and ask:
+  does the implementation actually match the §M formula it claims (coefficients, clamps, units, edge cases at n=0/1)?
+  Numerical hazards — division by zero, NaN propagation, unbounded growth, silent `undefined` coercion?
+  Missing tests for a branch that matters? A seam that got hardcoded where the architecture wanted a port?
+  Dead/duplicated logic? A degraded-mode path that was never exercised? Performance cliffs (O(n²) over a candidate pool, an
+  unbounded Redis blob, a missing index for a new query)?
+- **R5 · Opportunity sweep (the "what else" pass).** Deliberately look OUTSIDE the current queue for work that would raise the
+  ceiling of the two engines: a defect not in the D1–D20 list; a math upgrade with real payoff (better estimator, principled prior,
+  a smarter distance); a taxonomy state that reality needs and §3's ~32 don't cover; an evaluation the wave can't currently do
+  (a metric, a golden set, a persona); an integration seam that would unlock a later wave cheaply.
+- **R6 · Triage into the queue.** Everything found in R2–R5 becomes a row in STATE's **Discovered backlog** — id `W4-D<nn>`, with
+  (if the `## Discovered backlog` or `## Reflection log` sections are missing from STATE — e.g. a session rewrote the file — recreate them from the shape described here before writing; they are self-healing by design, never a reason to skip the pass)
+  the SAME rigor as §3 tasks: `class` (`repair` | `improve` | `extend`), tier, size, deps, a concrete DoD, and one line of
+  justification (why it is worth spending part of a 4-day budget on). **Discipline rules, all binding:**
+  - **Max 5 new rows per reflection.** A reflection that finds more has found a theme, not five tasks — write the theme as one task.
+  - **`class: repair` outranks everything.** Otherwise, original MUST-tier queue tasks (§3) always outrank discovered work;
+    discovered `improve`/`extend` rows are picked up only when the MUST queue is blocked or done. The wave's committed scope ships first.
+  - **"Nothing found" is a valid and respected result.** If the interval's work was clean, say so in one line and move on.
+    Do NOT manufacture busywork to look productive — a padded backlog is worse than an empty one, because it dilutes the real signal.
+    (This is the honest reading of "always be thinking of more": *always look*, not *always find*.)
+  - **Never** silently rewrite §3's committed scope, drop a task, or re-order tiers. Proposals to change scope go to STATE as a
+    HITL entry for Daniel, not into the queue.
+  - The exception to "reflections don't implement": a fix under ~10 minutes with an obvious test (a typo, a stale doc line, a
+    missing clamp, a flaky assertion) may be done inline — commit it separately with a `wave4: reflect —` prefix.
+- **R7 · Close out.** Write the reflection entry into STATE's **Reflection log** (timestamp, interval covered, suite result,
+  what was verified, what was reopened, what was queued, or "clean"). Write the current UTC timestamp to
+  `logs/wave4/last-reflect.txt` and the current HEAD sha next to it. Commit, push, and print:
+  `WAVE4_SESSION_RESULT: REFLECT done <n verified, m reopened, k queued — one-line headline>`
+  A reflection session **never** counts against the error budget or the rule-of-2, and never blocks the queue.
+
+### Why this shape (for any session tempted to "improve" it)
+
+A 4-day autonomous run has two opposite failure modes. One is tunnel vision: mechanically executing a queue written before the code
+existed, never noticing the plan was wrong (session 1's review pass already proved the plan had six wrong assumptions). The other is
+drift: an agent that re-plans continuously, gold-plates, and lands nothing shippable. The 4-hour cadence with a hard separation —
+*execute sessions never re-plan, reflect sessions never implement* — is what buys the first without paying for the second.
+R2 is the load-bearing step: **trust nothing that reports its own success.**
 
 ## 3. TASK QUEUE
 
@@ -260,11 +325,11 @@ Tests: octave-neighbor cosine ≥ same-tempo-different-genre; tag-count invarian
 2. Cross-session context loss → STATE is the single resume source; one task per session; NO mid-run re-planning.
 3. ADR-0011/0012 breach via a careless learned artifact → schema `mbid:` guards, tripwire tests, per-learning-PR compliance checklist.
 4. Pause & Guide stalls → never block: ship dark/flagged + HITL tutorial, continue.
-5. Invisible selection-quality regression → golden-set snapshots with reviewable diffs in every scoring/trajectory PR body.
-6. Windows env traps → §0.3 pinned commands only.
-7. Parallel-session collision (PR #78 precedent) → fetch + SHA check each session; divergence → HITL, never auto-rebase mid-task.
-8. Encryption mistakes → AAD 3rd arg; `$set` skips setters (encrypt explicitly / use `.save()`); every new encrypted field ships a round-trip test.
-9. Circular sim validation → holdout personas with a different noise family; property invariants independent of personas; literature bounds as absolute checks; real-data validation stays on the on-device checklist.
+6. Invisible selection-quality regression → golden-set snapshots with reviewable diffs in every scoring/trajectory PR body.
+7. Windows env traps → §0.3 pinned commands only.
+8. Parallel-session collision (PR #78 precedent) → fetch + SHA check each session; divergence → HITL, never auto-rebase mid-task.
+9. Encryption mistakes → AAD 3rd arg; `$set` skips setters (encrypt explicitly / use `.save()`); every new encrypted field ships a round-trip test.
+10. Circular sim validation → holdout personas with a different noise family; property invariants independent of personas; literature bounds as absolute checks; real-data validation stays on the on-device checklist.
 10. Clinical-sounding label leakage → labels encrypted at rest, never in prompts/logs, display vocabulary is a compliance-gated HITL item.
 
 ## S. STOP CONDITIONS

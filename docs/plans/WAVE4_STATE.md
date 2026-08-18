@@ -12,13 +12,14 @@
 - missionVersion: 2026-08-18 (as approved by Daniel; amended by W4-000 review deltas, same date)
 - runStartedAt: 2026-08-18T22:56 local (session 1)
 - day4CutoffAt: 2026-08-22T22:56 local (runStartedAt + 96h; after this, only W4-015 may run)
+- reflectIntervalHours: 4   <!-- §2.5 recurring reflection pass; trigger state in logs/wave4/last-reflect.txt -->
 
 ## Task table
 
 | id | title | tier | size | deps | status | owner-session | notes |
 |----|-------|------|------|------|--------|---------------|-------|
 | W4-000 | Bootstrap, review pass, ADR-0012 | MUST | S | — | done | 1,3 | review pass + S1 preflight + worker.test.js leak fix + green baseline (163/1767, see testBaseline above) + ADR-0012 + tripwire all landed in `d1db088`. ADR filed as `docs/adr/0012-learning-compliance.md` matching the repo's existing `000N-kebab-title.md` convention (not the mission text's `ADR-0012-…` — intentional call, ADR README index refreshed). Docker is NOT installed on this machine — S1a's `docker-compose up` path is not viable here (moot: the injected-queue-seam fix superseded it). |
-| W4-001 | Surgical bug backlog (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9) | MUST | M | 000 | in_progress | 5 | session 5 (exec tier) started 2026-08-19; 10 sub-fixes under TDD in `backend/tests/wave4.bugfix.test.js` |
+| W4-001 | Surgical bug backlog (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9) | MUST | M | 000 | pending | — | |
 | W4-002 | Synthetic-human simulator + replay | MUST | L | 000 | pending | — | |
 | W4-003 | A0 signal integrity + live persistence | MUST | L | 001,002 | pending | — | |
 | W4-004 | A1+A2 baselines & chronobiology v2 | MUST | L | 003 | pending | — | superset blob = HRV fix |
@@ -95,6 +96,22 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
   the Task-Manager stray-process check are Daniel's — bridge tooling can't safely delete a
   tracked file or touch Windows processes from here. Once both are done: resume with exactly
   one loop.
+
+## Discovered backlog (filled by reflection passes — §2.5)
+
+> Work found DURING the run that was not in the original §3 queue. Same rigor as §3: every row needs class, tier, size,
+> deps, a concrete DoD and a justification. Rules: `class: repair` outranks everything; original MUST-tier §3 tasks
+> outrank `improve`/`extend` rows; max 5 new rows per reflection; an empty table is a good result, not a failure.
+
+| id | class | title | tier | size | deps | status | found | DoD / justification |
+|----|-------|-------|------|------|------|--------|-------|---------------------|
+| — | — | (none yet — first reflection due ~4h after 2026-08-19 01:00) | — | — | — | — | — | — |
+
+## Reflection log (one entry per §2.5 pass)
+
+| # | at | interval covered | suite | verified / reopened / queued | headline |
+|---|----|------------------|-------|------------------------------|----------|
+| — | — | — | — | — | (no reflection has run yet) |
 
 ## PR queue
 
