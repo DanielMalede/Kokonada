@@ -174,7 +174,11 @@ pre-existing DEBUG-gated one).
 
 | PR | cluster(s) | url | status |
 |----|-----------|-----|--------|
-| — | — | — | — |
+| #179 | W4-000, W4-001 | https://github.com/DanielMalede/Kokonada/pull/179 | open — RUNNING PR for the whole branch |
+
+> Choice recorded per §1: ONE running PR for `feat/intelligence-wave`, updated per cluster, rather than a PR per
+> cluster off a single branch (which would stack noisy, overlapping diffs). Later clusters append to #179's body.
+> Never merged by an agent — Daniel's click only.
 
 ## Error budget
 
