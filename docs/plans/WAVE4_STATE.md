@@ -8,7 +8,7 @@
 - phase: execute           <!-- review | execute | closeout | halted — H2 closed 2026-08-19 (see HITL queue) -->
 - branch: feat/intelligence-wave   <!-- created from origin/main (== local main, in sync) in session 1 -->
 - lastMainSha: 1a1657ea4bae1f48a6de4e2dd29b3f2a14d02010
-- testBaseline: **164 suites / 1802 tests** green after W4-001 (was 163/1767 after W4-000; +1 suite `wave4.bugfix.test.js` with 34 pins, +1 re-pin in `biometricHandler.pipeline.test.js`). ~80s, exit 0. Prior baseline text: 163 suites / 1767 tests green (162 product suites: 1759 passed + 1 todo, plus adr0012.tripwire.test.js), ~60s, exit 0 without --forceExit, --detectOpenHandles silent. Established 2026-08-19 after the worker.test.js real-connection-leak fix (injected queue seam). Real root cause was more specific than S1a guessed: backend/.env sets GLOBAL_SEED_INGEST_ENABLED=true and worker.js loads it with override:true, so the success-path tests reached a real ioredis dial against the fake host — not merely "no local Redis".
+- testBaseline: **165 suites / 1829 tests** green after W4-D01 (was 164/1802 after W4-001; +1 suite `wave4.reflectMarker.test.js` with 27 pins, no re-pins). ~81s, exit 0. Prior: 164 suites / 1802 tests after W4-001 (was 163/1767 after W4-000; +1 suite `wave4.bugfix.test.js` with 34 pins, +1 re-pin in `biometricHandler.pipeline.test.js`), ~80s, exit 0. Prior baseline text: 163 suites / 1767 tests green (162 product suites: 1759 passed + 1 todo, plus adr0012.tripwire.test.js), ~60s, exit 0 without --forceExit, --detectOpenHandles silent. Established 2026-08-19 after the worker.test.js real-connection-leak fix (injected queue seam). Real root cause was more specific than S1a guessed: backend/.env sets GLOBAL_SEED_INGEST_ENABLED=true and worker.js loads it with override:true, so the success-path tests reached a real ioredis dial against the fake host — not merely "no local Redis".
 - missionVersion: 2026-08-18 (as approved by Daniel; amended by W4-000 review deltas, same date)
 - runStartedAt: 2026-08-18T22:56 local (session 1)
 - day4CutoffAt: 2026-08-22T22:56 local (runStartedAt + 96h; after this, only W4-015 may run)
@@ -152,6 +152,53 @@ pre-existing DEBUG-gated one).
   re-enable a confidence-gated hard ceiling. The comment now states it is dormant by WIRING (both call sites pass
   `energyCeiling: null`), not dead by accident, and a pin asserts the annotation exists.
 
+## W4-D01 evidence — the reflection close-out marker (session 6)
+
+Test-first: `backend/tests/wave4.reflectMarker.test.js` (27 pins) was written and run RED before any
+implementation existed (`Cannot find module .../scripts/wave4/reflect-marker.js`), then 25/27 green after the
+module landed with only the two loop-backstop guards still red, then 27/27 after the loop change. Full suite
+**165 suites / 1829 tests / 1 todo** green, ~81 s, exit 0. Secret scan of the branch diff: clean (the single
+regex hit is the mission's own DoD line quoting the grep pattern). No numeric vitals anywhere in the diff; no
+attribution. No `lint` script exists in `backend/package.json`, so that DoD line stays vacuous — recorded, not claimed.
+
+**What was actually wrong** (the backlog row's premise was off, corrected above): §2 step 4 latches the
+reflection trigger on `logs/wave4/last-reflect.txt`, §2.5 R7 is the only thing that clears it, and R7 was
+pure convention — no code wrote that file. `logs/` is gitignored, so it is machine-local and invisible to CI.
+A reflection killed by the 100-minute session timeout, or one that simply ended without doing R7, leaves the
+trigger ON forever: every later session becomes another reflection and the queue can never advance.
+
+**The fix, in two halves:**
+
+1. `scripts/wave4/reflect-marker.js` — the ONE implementation of the marker's format and staleness rule,
+   used by both the loop and the session, so "is a reflection due?" stops being re-derived by hand each
+   session. Pure (`now` is a parameter, §0.4 S9), zero dependencies. Line 1 is a bare ISO-8601 UTC timestamp
+   (§2 step 4 calls the file "a single ISO-8601 UTC timestamp"), line 2 the HEAD sha (§2.5 R7's "next to it").
+   CLI: `check` → `DUE <reason>` / `NOT-DUE <reason>`; `stamp` → writes it.
+2. `run-mission.ps1` `Assert-ReflectMarkerStamped` — after any session whose result line is `REFLECT`, the
+   loop verifies the marker was touched during that session and stamps it if not. The session still owns R7;
+   the loop guarantees the invariant. A crashed/timed-out session takes the failure branch and is NOT stamped,
+   so a reflection that never happened still re-runs.
+
+**Design decisions taken inside the task:**
+
+- **Parsing fails toward reflecting, never toward silence.** Missing, unparseable and future-dated markers all
+  report DUE. The future check (5-minute skew tolerance) is deliberate: a clock skew or a bad hand-edit could
+  otherwise park the timestamp years ahead and suppress every future reflection — the same trap §0.4 S6 pins
+  for biometric `recordedAt`. Timestamps are matched by a strict ISO-8601 regex, not free-form `Date` parsing,
+  so prose like "no reflection has run yet" can never be coerced into a valid date.
+- **The guard is NOT a file-existence assertion.** `logs/` is gitignored, so on a fresh clone or in CI the
+  marker legitimately does not exist and such a test would be permanently red. What is pinned instead is the
+  invariant's *mechanism*: the loop defines the backstop, invokes it on a REFLECT result, and touches the real
+  marker path — with a detector self-test (the `adr0012.tripwire.test.js` pattern) proving all three checks can
+  still fail.
+- **A jest tripwire over a PowerShell file can only read text, which is a false-green risk**, so the loop change
+  was also verified for real: `Parser::ParseFile` reports no syntax errors, and the function was extracted from
+  the file via its AST and executed against a scratch root over four cases — session forgot to stamp (stamps),
+  marker already fresh (no-op, mtime unchanged), stale marker from a previous session (re-stamps), and node
+  removed entirely (inline PowerShell fallback still clears the trigger).
+- **The inline fallback is not gold-plating.** This function exists precisely because the primary path can fail;
+  a backstop that silently no-ops when `node` is missing would re-open the hole it was written to close.
+
 ## Discovered backlog (filled by reflection passes — §2.5)
 
 > Work found DURING the run that was not in the original §3 queue. Same rigor as §3: every row needs class, tier, size,
@@ -160,9 +207,10 @@ pre-existing DEBUG-gated one).
 
 | id | class | title | tier | size | deps | status | found | DoD / justification |
 |----|-------|-------|------|------|------|--------|-------|---------------------|
-| W4-D01 | repair | Reflection pass never wrote `logs/wave4/last-reflect.txt` | MUST | S | — | pending | session 5 | Reflection `ccecca3` ran at 2026-08-19 01:12 +0300 but its R7 close-out marker file is ABSENT, so §2.5's trigger ("missing → this is a reflection session") fires forever and NO queue task can ever be picked. DoD: the next reflection writes the marker (timestamp + HEAD sha) and a guard asserts it exists after a reflection. Run-stopping if unfixed. |
+| W4-D01 | repair | Reflection close-out marker had no mechanical writer | MUST | S | — | **done** | session 5 | Fixed session 6 — see the W4-D01 evidence section below. **Premise corrected:** `ccecca3` was NOT a reflection run, it is the commit that AUTHORED §2.5 (its own STATE text says "no reflection has run yet"), so no R7 was ever skipped. The run-stopping defect is real but different: the marker was written by nothing except a session's voluntary compliance with R7, and `logs/` is gitignored, so any reflection that is killed/times out/forgets latches the trigger ON permanently. Now: one tested implementation (`scripts/wave4/reflect-marker.js`) + a loop backstop that stamps it after any REFLECT session. |
 | W4-D02 | repair | Reflection pass clobbered the executing session's STATE row | SHOULD | S | — | pending | session 5 | `ccecca3` reset W4-001 from `in_progress` (written by this session at `bd4a6bc`) back to `pending`, because it composed STATE from a read taken before that commit. No code was lost — but a concurrent reflection can silently erase queue truth. DoD: reflection sessions re-read STATE immediately before writing and never downgrade a row they did not set. |
 | W4-D03 | improve | DEBUG log line carries a numeric heart rate | SHOULD | S | — | pending | session 5 | `biometricHandler` `log('[handleBiometric] immediate hr=${...}')` prints a raw vital. It is DEBUG-gated (`if (DEBUG) console.log`) so it is not a production leak, but §0.2.2 says no numeric vitals in logs at all. Pre-existing, untouched by W4-001 beyond one adjacent field. DoD: coarse band instead of the number. |
+| W4-D04 | improve | Cold-start reflection semantics contradict the "first reflection due in 4h" note | SHOULD | S | — | pending | session 6 | Noticed in passing while fixing W4-D01 (NOT acted on — execute sessions don't re-plan). §2 step 4 says a MISSING marker means "reflect now", so session 1 of any fresh run/clone burns itself on a reflection before there is anything to reflect on — while `ccecca3`'s own STATE note says "first reflection due ~4h after 2026-08-19 01:00". One of the two is wrong. DoD: next reflection decides — either seed the marker at run start (`reflect-marker.js stamp`, making "missing" mean "start the clock") or delete the contradicting note; whichever, §2 step 4 and the note must agree. |
 
 ## Reflection log (one entry per §2.5 pass)
 
@@ -194,4 +242,5 @@ pre-existing DEBUG-gated one).
 | 3 | 2026-08-19 00:20 | WAVE4_SESSION_RESULT: W4-000 in_progress halted by WAVE4_HALT (3 concurrent sessions); worker.test.js leak root-caused and fixed, baseline 163/1767 green, ADR-0012 + tripwire landed in d1db088, STATE intentionally not written |
 | 4 | 2026-08-19 00:28 | WAVE4_SESSION_RESULT: W4-000 in_progress halted on WAVE4_HALT - three concurrent sessions on one tree (HITL H2); preflight passed, no docker, no work committed |
 | 5 | 2026-08-19 01:0x | WAVE4_SESSION_RESULT: W4-001 done — 10 surgical fixes (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9), 34 new pins, suite 164/1802 green |
+| 6 | 2026-08-19 01:27 | WAVE4_SESSION_RESULT: W4-D01 done — reflect-marker module + loop backstop, 27 new pins, suite 165/1829 green |
 | — | 2026-08-19 (Cowork) | H2 closed after direct git verification (clean, non-conflicting history) + run-mission.ps1 single-instance mutex fix; phase→execute; W4-000→done; rows 2-4 are the three colliding launches (00:20/00:28/00:29), numbered in write-order not start-order |
