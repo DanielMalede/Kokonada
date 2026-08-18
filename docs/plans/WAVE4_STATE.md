@@ -8,7 +8,7 @@
 - phase: execute           <!-- review | execute | closeout | halted — H2 closed 2026-08-19 (see HITL queue) -->
 - branch: feat/intelligence-wave   <!-- created from origin/main (== local main, in sync) in session 1 -->
 - lastMainSha: 1a1657ea4bae1f48a6de4e2dd29b3f2a14d02010
-- testBaseline: 163 suites / 1767 tests green (162 product suites: 1759 passed + 1 todo, plus adr0012.tripwire.test.js), ~60s, exit 0 without --forceExit, --detectOpenHandles silent. Established 2026-08-19 after the worker.test.js real-connection-leak fix (injected queue seam). Real root cause was more specific than S1a guessed: backend/.env sets GLOBAL_SEED_INGEST_ENABLED=true and worker.js loads it with override:true, so the success-path tests reached a real ioredis dial against the fake host — not merely "no local Redis".
+- testBaseline: **164 suites / 1802 tests** green after W4-001 (was 163/1767 after W4-000; +1 suite `wave4.bugfix.test.js` with 34 pins, +1 re-pin in `biometricHandler.pipeline.test.js`). ~80s, exit 0. Prior baseline text: 163 suites / 1767 tests green (162 product suites: 1759 passed + 1 todo, plus adr0012.tripwire.test.js), ~60s, exit 0 without --forceExit, --detectOpenHandles silent. Established 2026-08-19 after the worker.test.js real-connection-leak fix (injected queue seam). Real root cause was more specific than S1a guessed: backend/.env sets GLOBAL_SEED_INGEST_ENABLED=true and worker.js loads it with override:true, so the success-path tests reached a real ioredis dial against the fake host — not merely "no local Redis".
 - missionVersion: 2026-08-18 (as approved by Daniel; amended by W4-000 review deltas, same date)
 - runStartedAt: 2026-08-18T22:56 local (session 1)
 - day4CutoffAt: 2026-08-22T22:56 local (runStartedAt + 96h; after this, only W4-015 may run)
@@ -19,7 +19,7 @@
 | id | title | tier | size | deps | status | owner-session | notes |
 |----|-------|------|------|------|--------|---------------|-------|
 | W4-000 | Bootstrap, review pass, ADR-0012 | MUST | S | — | done | 1,3 | review pass + S1 preflight + worker.test.js leak fix + green baseline (163/1767, see testBaseline above) + ADR-0012 + tripwire all landed in `d1db088`. ADR filed as `docs/adr/0012-learning-compliance.md` matching the repo's existing `000N-kebab-title.md` convention (not the mission text's `ADR-0012-…` — intentional call, ADR README index refreshed). Docker is NOT installed on this machine — S1a's `docker-compose up` path is not viable here (moot: the injected-queue-seam fix superseded it). |
-| W4-001 | Surgical bug backlog (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9) | MUST | M | 000 | pending | — | |
+| W4-001 | Surgical bug backlog (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9) | MUST | M | 000 | done | 5 | all 10 sub-fixes landed (`f2add0e`→`b92aee3`). Suite **164 suites / 1802 tests** green (baseline 163/1767: +1 suite `wave4.bugfix.test.js`, +34 new pins, +1 re-pin). 3 deliberate re-pins, see below. Shared HR predicate extracted to `app/services/wearable/hrRange.js`; `WATCH_HR_DELTA_THRESHOLD` retired (subsumed by the band trigger). |
 | W4-002 | Synthetic-human simulator + replay | MUST | L | 000 | pending | — | |
 | W4-003 | A0 signal integrity + live persistence | MUST | L | 001,002 | pending | — | |
 | W4-004 | A1+A2 baselines & chronobiology v2 | MUST | L | 003 | pending | — | superset blob = HRV fix |
@@ -97,6 +97,61 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
   tracked file or touch Windows processes from here. Once both are done: resume with exactly
   one loop.
 
+## W4-001 evidence — deliberate behaviour changes & re-pins (session 5)
+
+Every fix landed test-first in `backend/tests/wave4.bugfix.test.js` (34 pins, one describe per defect).
+Full suite **164 suites / 1802 tests / 1 todo** green in ~80 s. No lint step exists in `backend/package.json`
+(`start|worker|dev|test` only), so "lint clean" is vacuous here — recorded rather than claimed. Secret scan of the
+whole branch diff: clean. Zero-knowledge: the diff adds no numeric vital to any log/DTO/prompt (see W4-D03 for the
+pre-existing DEBUG-gated one).
+
+**Three existing tests were deliberately re-pinned** (behaviour changed on purpose):
+
+1. `watchIntegration.test.js` — "boundary: heartRate 30 and **230** → 202" became **220**, plus a new assertion that
+   225 is now a 400. The route accepted 30–230 while every consumer requires 30–220, so 221–230 was accepted with a
+   202 and then silently dropped one call later. Both now call `isPhysiologicalHR`.
+2. `biometricHandler.pipeline.test.js` — "biometric_push debounce fires pipeline after 60s" used 65→80 bpm, which is
+   `resting`→`resting`. Under the D11 band trigger that no longer recalibrates (identical `bio:<band>:<activity>`
+   buffer key), so the fixture became 65→95 (`resting`→`active`) and the test keeps its original intent: the debounce
+   is wired to the pipeline. A NEW test covers the other side — 60→85 confirms `stableHR` but emits
+   `recalibration_cancelled {reason:'band_unchanged'}` instead of burning a generation.
+3. `biometricHandler.pipeline.test.js` — the two immediate-mode ±25 bpm tests now assert band semantics
+   (`does NOT re-trigger on a large jump that stays inside one band`, `re-triggers on a band crossing the old 25 bpm
+   gate would have missed`). Worth flagging: the old negative test ran on a socket that was never in Live mode, so
+   `recalibrateForBand` early-returned and the test would have passed whatever the gate did — a false green. It is
+   now a real test (`live_mode` on).
+
+**Design decisions taken inside the task:**
+
+- **Shared HR predicate got its own module** — `app/services/wearable/hrRange.js` (`HR_MIN`/`HR_MAX`/`isPhysiologicalHR`),
+  imported by both the socket handler and `integrationsController`. "Delegate to the shared predicate" needs one
+  canonical home; leaving it in the socket module and importing that into a controller is the wrong direction.
+- **D11 trigger extracted as a pure `_shouldRecalibrate({prevHR,nextHR,activityChanged})`**, exported for unit testing.
+  The alternative — asserting through `recalibrateForBand` — needs the full mock harness and hides the decision.
+  `HR_NOISE_FLOOR = 3` bpm keeps boundary jitter (119↔121 across the 120 cut) from flapping the band; it is the
+  documented "delta guard as noise floor". The streaming lane ALSO arms on a sub-10-bpm band crossing now, so
+  115→121 is no longer a missed transition on either lane.
+- **`WATCH_HR_DELTA_THRESHOLD` (25 bpm) deleted, not kept dead.** The band trigger subsumes it: a same-band ping
+  produces the same buffer key and is inert by construction at any delta.
+- **D7's EWMA (α = 0.2, ~5-sample memory) updates on EVERY accepted reading, both lanes**, seeded at the first
+  reading — it is an observation trace, not a confirmation path. W4-003 replaces it with Hampel + Kalman.
+- **D3's cut is `UNLABELLED_RESTING_HR_CEILING = 110`** (low edge of Zone 2 for a ~190 HRmax adult): an unlabelled
+  reading counts as "resting" only below it. Personal Karvonen zones replace this fixed anchor in W4-004/005.
+- **D4 is now a bias, never a floor** — `valenceTarget = clamp01(moodValence + min(0.1, 0.15·S))`. Note this defect
+  was LATENT, not live: every current mood preset has `valence_hint >= 0.5`, so the old `max(v, 0.6)` floor rarely
+  bit. The pin therefore injects a low-valence mood via `jest.doMock` to prove the floor is really gone before
+  W4-005/006 start emitting genuinely low-valence states.
+- **D14's step is 0.175** so 4 missing groups land exactly on the 0.3 floor; `biosonicBand.tolerance` now reaches
+  within 0.1 of `W_MAX` for a cold start (pinned).
+- **D17 keeps the old single-argument signature** (`_analyzeYouTubeTracks(videos)` → all treated as likes) so the
+  existing `musicProfile.test.js` callers are untouched; `buildProfile` passes `{likedIds}`. Playlist items now
+  outrank likes (`SOURCE_WEIGHTS.playlist` 4 > `saved` 3) — that inversion is the Spotify side's existing product
+  ruling ("a curated playlist is a DELIBERATE choice"), applied consistently, not an accident.
+- **W9: the energy gate was ANNOTATED, not removed** (the mission allows either). Deleting it would also delete a
+  working, tested capability and its unit test for zero product gain, and W4-007 rebuilds the energy kernel and may
+  re-enable a confidence-gated hard ceiling. The comment now states it is dormant by WIRING (both call sites pass
+  `energyCeiling: null`), not dead by accident, and a pin asserts the annotation exists.
+
 ## Discovered backlog (filled by reflection passes — §2.5)
 
 > Work found DURING the run that was not in the original §3 queue. Same rigor as §3: every row needs class, tier, size,
@@ -105,7 +160,9 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
 
 | id | class | title | tier | size | deps | status | found | DoD / justification |
 |----|-------|-------|------|------|------|--------|-------|---------------------|
-| — | — | (none yet — first reflection due ~4h after 2026-08-19 01:00) | — | — | — | — | — | — |
+| W4-D01 | repair | Reflection pass never wrote `logs/wave4/last-reflect.txt` | MUST | S | — | pending | session 5 | Reflection `ccecca3` ran at 2026-08-19 01:12 +0300 but its R7 close-out marker file is ABSENT, so §2.5's trigger ("missing → this is a reflection session") fires forever and NO queue task can ever be picked. DoD: the next reflection writes the marker (timestamp + HEAD sha) and a guard asserts it exists after a reflection. Run-stopping if unfixed. |
+| W4-D02 | repair | Reflection pass clobbered the executing session's STATE row | SHOULD | S | — | pending | session 5 | `ccecca3` reset W4-001 from `in_progress` (written by this session at `bd4a6bc`) back to `pending`, because it composed STATE from a read taken before that commit. No code was lost — but a concurrent reflection can silently erase queue truth. DoD: reflection sessions re-read STATE immediately before writing and never downgrade a row they did not set. |
+| W4-D03 | improve | DEBUG log line carries a numeric heart rate | SHOULD | S | — | pending | session 5 | `biometricHandler` `log('[handleBiometric] immediate hr=${...}')` prints a raw vital. It is DEBUG-gated (`if (DEBUG) console.log`) so it is not a production leak, but §0.2.2 says no numeric vitals in logs at all. Pre-existing, untouched by W4-001 beyond one adjacent field. DoD: coarse band instead of the number. |
 
 ## Reflection log (one entry per §2.5 pass)
 
@@ -132,4 +189,5 @@ Session 1 (2026-08-18, plan tier) — full-repo validation of the mission. All s
 | 2 | 2026-08-19 00:29 | WAVE4_SESSION_RESULT: W4-000 in_progress HALT — 3 concurrent sessions on one working tree (R7); preflight S1 verified green, HITL H2 raised |
 | 3 | 2026-08-19 00:20 | WAVE4_SESSION_RESULT: W4-000 in_progress halted by WAVE4_HALT (3 concurrent sessions); worker.test.js leak root-caused and fixed, baseline 163/1767 green, ADR-0012 + tripwire landed in d1db088, STATE intentionally not written |
 | 4 | 2026-08-19 00:28 | WAVE4_SESSION_RESULT: W4-000 in_progress halted on WAVE4_HALT - three concurrent sessions on one tree (HITL H2); preflight passed, no docker, no work committed |
+| 5 | 2026-08-19 01:0x | WAVE4_SESSION_RESULT: W4-001 done — 10 surgical fixes (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9), 34 new pins, suite 164/1802 green |
 | — | 2026-08-19 (Cowork) | H2 closed after direct git verification (clean, non-conflicting history) + run-mission.ps1 single-instance mutex fix; phase→execute; W4-000→done; rows 2-4 are the three colliding launches (00:20/00:28/00:29), numbered in write-order not start-order |
