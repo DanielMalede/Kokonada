@@ -30,12 +30,21 @@ const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privac
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
 // report 0 (no contact) or a spike — neither should mint a garbage target_bpm.
-function isPhysiologicalHR(n) {
-  return Number.isFinite(n) && n >= 30 && n <= 220;
-}
+// ONE definition, shared with ingest (D9): see services/wearable/hrRange.
+const { isPhysiologicalHR } = require('../services/wearable/hrRange');
 
 const debounceMap = new Map();
 const HR_DELTA_THRESHOLD = 10;
+// Sensor noise floor. Consumer optical (PPG) heart rate carries a few bpm of
+// error against ECG even at rest, so a band crossing SMALLER than that is not
+// evidence of a physiological change — it is the sensor breathing across the cut.
+// Used to keep the band-transition trigger (D11) from flapping at 90/120.
+const HR_NOISE_FLOOR = 3;
+// Smoothing factor for the streaming observation trace. α = 0.2 ⇒ ~5-sample memory:
+// fast enough to track a real ramp well inside the 60 s debounce window, slow enough
+// that one spike cannot move it far. This is an OBSERVATION only — it never confirms
+// a heart rate (D7). W4-003 replaces it with the Kalman/Hampel filter.
+const HR_EWMA_ALPHA = 0.2;
 const DEBOUNCE_MS        = 60_000;
 // Watch (5-min cadence) path: each ping is trusted as the new sustained HR.
 // A larger 25 bpm gate ensures we only re-adapt on a real activity-state change
@@ -1061,9 +1070,11 @@ async function recalibrateForBand(socket, state) {
 // biometric_push is fully attacker-controlled (a user can spoof their own client). (audit F14)
 function isValidReading(n) {
   if (!n) return false;
-  // heartRate is the attacker-controlled physiological value — validate strictly.
-  if (typeof n.heartRate !== 'number' || !Number.isFinite(n.heartRate)) return false;
-  if (n.heartRate <= 0 || n.heartRate > 300) return false;
+  // heartRate is the attacker-controlled physiological value — validate strictly,
+  // against the SAME range every consumer requires (D9). Accepting 0–300 here while
+  // consumption demanded 30–220 meant an out-of-range reading was acked and then
+  // silently dropped downstream, which reads to the user as "the app stopped reacting".
+  if (!isPhysiologicalHR(n.heartRate)) return false;
   // recordedAt isn't persisted on the socket path, but if present it must be a
   // real Date (rejects `new Date('garbage')` from a bad provider timestamp).
   if (n.recordedAt !== undefined &&

@@ -10,6 +10,7 @@ const garminIngest = require('../services/wearable/garminIngest');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
 const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
 const { persistMetrics } = require('../services/wearable/metricStore');
+const { isPhysiologicalHR, HR_MIN, HR_MAX } = require('../services/wearable/hrRange');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
@@ -831,8 +832,11 @@ exports.watchHrIngest = async (req, res, next) => {
     if (consentStatus.staleVersion) return res.status(403).json({ error: 'consent_stale' });
 
     const { heartRate, activityType, ts } = req.body || {};
-    if (!Number.isFinite(heartRate) || heartRate < 30 || heartRate > 230) {
-      return res.status(400).json({ error: 'heartRate must be a finite number between 30 and 230' });
+    // ONE physiological range for the whole system (D9). This route used to accept
+    // 30-230 while the handler it feeds requires 30-220, so a 221-230 reading was
+    // accepted with a 202 and then silently dropped one call later.
+    if (!isPhysiologicalHR(heartRate)) {
+      return res.status(400).json({ error: `heartRate must be a finite number between ${HR_MIN} and ${HR_MAX}` });
     }
     const activity = Number.isInteger(activityType) ? activityType : 0;
     const startTimeLocal =
