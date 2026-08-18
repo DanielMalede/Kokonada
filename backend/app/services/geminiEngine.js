@@ -203,7 +203,7 @@ User's musical taste profile (anonymised):
 - Baseline valence: ${valence ?? 'unknown'}
 - Baseline acousticness: ${acousticness ?? 'unknown'}
 
-Current emotional state — 2D coordinates from an emotion wheel (x = arousal, y = valence, range -1 to 1):
+Current emotional state — 2D coordinates from an emotion wheel (x = valence, y = arousal, range -1 to 1):
 ${JSON.stringify((emotionTaps || []).map((t) => ({ x: Number(t?.x), y: Number(t?.y) })))}
 ${intentLine}
 ${effectiveActivity ? `Current activity: ${effectiveActivity}` : ''}
