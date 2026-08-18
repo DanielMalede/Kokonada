@@ -9,9 +9,12 @@
 #   - est. session-window usage >= 95%       -> WAIT until the window resets (no session launched)
 #   - weekly usage >= soft% -> Sonnet ; >= hard% -> WAIT (rechecks every 30 min)
 #   Usage is ESTIMATED locally from Claude Code's own logs via `ccusage` (Anthropic does not expose
-#   exact quota via API). Units are ccusage totalTokens (includes cache reads). Budgets auto-calibrate
-#   from your recent history, or set -SessionTokenBudget / -WeeklyTokenBudget explicitly after
-#   comparing with /usage in the app.
+#   exact quota via API). Units are ccusage totalTokens (includes cache reads), so the estimate is a
+#   PROXY, not the real quota. Therefore: gating stays OFF ("uncalibrated") until either you pass
+#   -SessionTokenBudget / -WeeklyTokenBudget explicitly (recommended - compare logs\wave4\usage.log
+#   token counts against /usage in the app, then divide), or >=2 COMPLETED 5h windows of local
+#   history exist to calibrate from. The active window is never used to calibrate itself. Every wait
+#   FAILS OPEN after -MaxConsecutiveWaits, and real limit errors are always handled (20 min retry).
 #
 # Stop at any time: create an empty file  docs\plans\WAVE4_HALT , or Ctrl+C in this window.
 
@@ -30,7 +33,8 @@ param(
     [long]$WeeklyTokenBudget  = 0,    # 0 = monitor-only (no weekly gating, still logged)
     [int]$WeeklySoftPct = 75,         # >= this % of weekly budget -> SaverModel
     [int]$WeeklyHardPct = 90,         # >= this % -> pause (recheck every 30 min)
-    [int]$MaxThinkingTokens = 31999   # exported as MAX_THINKING_TOKENS for max reasoning; 0 = don't set
+    [int]$MaxThinkingTokens = 31999,  # exported as MAX_THINKING_TOKENS for max reasoning; 0 = don't set
+    [int]$MaxConsecutiveWaits = 2     # after this many no-change waits, FAIL OPEN (never deadlock a 4-day run)
 )
 
 $ErrorActionPreference = 'Continue'
@@ -93,8 +97,12 @@ function Get-UsageSnapshot {
         } else { $snap.SessionTokens = 0 }
         $budget = $SessionTokenBudget
         if ($budget -le 0) {
-            $max = ($bj.blocks | Where-Object { $_.isGap -ne $true } | Measure-Object -Property totalTokens -Maximum).Maximum
-            if ($max -ge 1000000) { $budget = [long]$max }   # auto-calibrate only once history is meaningful
+            # AUTO-CALIBRATION - only from COMPLETED windows, NEVER the active one: including the
+            # active block makes the estimate self-referential (budget == current usage == 100%),
+            # which is exactly the false WAIT-BLOCK seen on a fresh machine. Needs >=2 completed
+            # windows of real history; below that stay UNCALIBRATED (monitor-only, no gating).
+            $done = @($bj.blocks | Where-Object { $_.isGap -ne $true -and $_.isActive -ne $true -and [long]$_.totalTokens -ge 1000000 })
+            if ($done.Count -ge 2) { $budget = [long](($done | Measure-Object -Property totalTokens -Maximum).Maximum) }
         }
         if ($budget -gt 0) {
             $snap.SessionBudget = $budget
@@ -135,6 +143,8 @@ function Log-Usage([string]$line) {
 $consecutiveFailures = 0
 $planModelBroken = $false
 $sessionsLaunched = 0
+$consecutiveWaits = 0
+$forceSaver = $false
 
 while ($sessionsLaunched -lt $MaxIterations) {
 
@@ -144,29 +154,42 @@ while ($sessionsLaunched -lt $MaxIterations) {
     # 2. usage snapshot -> model decision
     $u = Get-UsageSnapshot
     $phase = Get-Phase
-    $sessPctTxt = 'n/a'; if ($u.SessionPct -ne $null) { $sessPctTxt = "$($u.SessionPct)%" }
+    $sessPctTxt = 'uncalibrated'
+    if ($u.SessionPct -ne $null) { $sessPctTxt = "$($u.SessionPct)%" }
+    if ($u.SessionTokens -ne $null) { $sessPctTxt = "$sessPctTxt [$([math]::Round($u.SessionTokens/1e6,1))M tok]" }
     $weekTxt = 'n/a'
     if ($u.WeeklyTokens -ne $null) {
         $weekTxt = "$([math]::Round($u.WeeklyTokens/1e6,1))M tok"
         if ($u.WeeklyPct -ne $null) { $weekTxt = "$weekTxt ($($u.WeeklyPct)%)" }
     }
 
-    # weekly hard gate
+    # --- wait gates. FAIL-OPEN by design: these run on a LOCAL ESTIMATE (ccusage token
+    # counts), not on the real quota, so a miscalibrated estimate must never deadlock a
+    # 4-day run. After $MaxConsecutiveWaits no-change waits we proceed anyway on the saver
+    # model; a genuine limit is still caught by the limit-error handler below (20 min retry).
+    $waitReason = $null
+    $waitSec = 900
     if ($u.WeeklyPct -ne $null -and $u.WeeklyPct -ge $WeeklyHardPct) {
-        Log-Usage "WAIT-WEEKLY: weekly est $weekTxt >= $WeeklyHardPct% - sleeping 30 min"
-        Start-Sleep -Seconds 1800
-        continue
-    }
-    # session-window wait gate
-    if ($u.SessionPct -ne $null -and $u.SessionPct -ge $SessionWaitPct) {
-        $sleepSec = 900
+        $waitReason = "weekly est $weekTxt >= $WeeklyHardPct%"; $waitSec = 1800
+    } elseif ($u.SessionPct -ne $null -and $u.SessionPct -ge $SessionWaitPct) {
         if ($u.BlockEnd) {
             $delta = ($u.BlockEnd - (Get-Date).ToUniversalTime()).TotalSeconds + 120
-            if ($delta -gt 0) { $sleepSec = [int][math]::Min($delta, 3600) }
+            if ($delta -gt 0) { $waitSec = [int][math]::Min($delta, 3600) }
         }
-        Log-Usage "WAIT-BLOCK: session est $sessPctTxt >= $SessionWaitPct% - sleeping $([int]($sleepSec/60)) min until window reset"
-        Start-Sleep -Seconds $sleepSec
-        continue
+        $waitReason = "session est $sessPctTxt >= $SessionWaitPct%"
+    }
+    if ($waitReason) {
+        $consecutiveWaits++
+        if ($consecutiveWaits -le $MaxConsecutiveWaits) {
+            Log-Usage "WAIT: $waitReason - sleeping $([int]($waitSec/60)) min (wait $consecutiveWaits/$MaxConsecutiveWaits)"
+            Start-Sleep -Seconds $waitSec
+            continue
+        }
+        Log-Usage "FAIL-OPEN: $waitReason persisted across $consecutiveWaits waits - estimate is likely miscalibrated; proceeding on $SaverModel"
+        $forceSaver = $true
+    } else {
+        $consecutiveWaits = 0
+        $forceSaver = $false
     }
 
     # model selection
@@ -175,6 +198,7 @@ while ($sessionsLaunched -lt $MaxIterations) {
     $saverReason = $null
     if ($u.SessionPct -ne $null -and $u.SessionPct -ge $SessionSwitchPct) { $saverReason = "session $sessPctTxt >= $SessionSwitchPct%" }
     if ($u.WeeklyPct -ne $null -and $u.WeeklyPct -ge $WeeklySoftPct) { $saverReason = "weekly $($u.WeeklyPct)% >= $WeeklySoftPct%" }
+    if ($forceSaver) { $saverReason = 'fail-open guard' }
     if ($saverReason -and $tier -ne 'plan') { $tier = 'saver'; $model = $SaverModel }   # the review pass stays on the plan model
     $env:WAVE4_MODEL_TIER = $tier
 
