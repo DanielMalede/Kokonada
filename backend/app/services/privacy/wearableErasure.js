@@ -16,6 +16,11 @@ const WEARABLE_PROVIDERS = Object.freeze(['garmin', 'apple_health', 'health_conn
 
 // Mirrors baselines.js `_cacheKey` (not exported there) — the AAD-bound rolling-median blob.
 const _baselineKey = (userId) => `bio:baseline:${userId}`;
+// W4-006 (§0.4 S5): the carried affect posterior. It is DERIVED from heart rate and HRV, so it is
+// wearable data by provenance even though it stores neither — leaving a cached inference about
+// somebody's emotional state behind after they disconnect the sensor that produced it is exactly
+// the silent leak S5 exists to prevent.
+const { affectKey: _affectKey } = require('../biosonic/affectCache');
 
 // Remove a provider's DATA footprint (biometric samples + derived health profile), scoped
 // so nothing belonging to another still-connected wearable is touched.
@@ -50,6 +55,14 @@ async function purgeWearableData(userId, provider) {
   try {
     const redis = getRedis();
     if (redis) await redis.del(_baselineKey(userId));
+  } catch { /* best-effort */ }
+
+  // 3b. And the derived affect posterior (W4-006, S5). Separate try/catch on purpose: these are
+  //     two independent promises about the user's data, and a failure to invalidate one must not
+  //     skip the other.
+  try {
+    const redis = getRedis();
+    if (redis) await redis.del(_affectKey(userId));
   } catch { /* best-effort */ }
 
   return { biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles };

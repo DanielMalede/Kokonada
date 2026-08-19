@@ -95,6 +95,22 @@ describe('purgeWearableData', () => {
     expect(fakeRedis.del).toHaveBeenCalledWith(`bio:baseline:${USER}`);
   });
 
+  // W4-006 (§0.4 S5): the affect posterior is DERIVED from the heart rate and HRV this provider
+  // supplied. It stores no vital, but its `label` is an inference about the person, and leaving
+  // that cached after they disconnect the sensor is the silent leak S5 exists to prevent.
+  it('invalidates the derived affect posterior too', async () => {
+    await purgeWearableData(USER, 'garmin');
+    expect(fakeRedis.del).toHaveBeenCalledWith(`bio:affect:${USER}`);
+  });
+
+  // The two invalidations are independent promises about the user's data, so they carry
+  // independent error handling: a Redis failure on the first must not skip the second.
+  it('still invalidates the affect posterior when the baseline delete fails', async () => {
+    fakeRedis.del.mockRejectedValueOnce(new Error('READONLY'));
+    await expect(purgeWearableData(USER, 'garmin')).resolves.toBeDefined();
+    expect(fakeRedis.del).toHaveBeenCalledWith(`bio:affect:${USER}`);
+  });
+
   it('never throws when Redis is unavailable', async () => {
     getRedis.mockReturnValue(null);
     await expect(purgeWearableData(USER, 'suunto')).resolves.toBeDefined();
