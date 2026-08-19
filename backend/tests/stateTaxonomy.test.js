@@ -28,7 +28,7 @@ const {
   TAXONOMY_VERSION, STATES, DOMAINS, BANDS, AXIS_ROLES, ROLE_WEIGHTS,
   VALENCE_APPROACHES, TRAJECTORY_ARCHETYPES, ARCHETYPE_DIRECTION,
   LEGACY_STATE_MAP, HR_DEPENDENT_AXES, LOG_PRECISION_BUDGET,
-  peakLogEmission, byId, bandOf, policyOf, explainOf, fromLegacyLabel, stateBandTable,
+  AXIS_RANGE, peakLogEmission, byId, bandOf, policyOf, explainOf, fromLegacyLabel, stateBandTable,
 } = require('../app/agents/runtime/knowledge/stateTaxonomy');
 
 const { _STATE_TO_BAND } = require('../app/services/moodDescriptors');
@@ -119,8 +119,13 @@ describe('stateTaxonomy — emission fairness (no state wins by claiming harder)
     const peaks = STATES.map((s) => peakLogEmission(s));
     const spread = Math.max(...peaks) - Math.min(...peaks);
     expect(spread).toBeLessThan(1e-9);
-    // and the peak is the budget the module says it is, not a number that drifted
-    expect(peaks[0]).toBeCloseTo(LOG_PRECISION_BUDGET - AXIS_NAMES.length * HALF_LOG_2PI, 9);
+    // and the peak is the budget the module says it is, not a number that drifted. The budget is
+    // spent in NORMALISED units, so mapping into engine units costs exactly Σ log(span) — the
+    // same constant for every state, which is why the affine map preserves peak equality.
+    const spans = AXIS_NAMES.reduce((acc, a) => acc + Math.log(AXIS_RANGE[a].hi - AXIS_RANGE[a].lo), 0);
+    expect(peaks[0]).toBeCloseTo(
+      LOG_PRECISION_BUDGET - spans - AXIS_NAMES.length * HALF_LOG_2PI, 9,
+    );
   });
 
   test('peakLogEmission is the real emission at the centre, not a bookkeeping copy', () => {
@@ -134,18 +139,24 @@ describe('stateTaxonomy — emission fairness (no state wins by claiming harder)
   });
 
   test('role weights order the widths: defining is tightest, agnostic is nearly flat', () => {
+    // In NORMALISED units. Raw widths carry their axis's span, so a `defining` claim on fatigue
+    // (span 0.42) is narrower in engine units than a `contextual` one on arousal (span 0.80)
+    // without that meaning anything about roles — the budget is spent in normalised space.
+    const normWidth = (s, a) => s.region[a].width / (AXIS_RANGE[a].hi - AXIS_RANGE[a].lo);
     for (const s of STATES) {
       for (const a of AXIS_NAMES) {
         for (const b of AXIS_NAMES) {
           if (ROLE_WEIGHTS[s.region[a].role] > ROLE_WEIGHTS[s.region[b].role]) {
-            expect(s.region[a].width).toBeLessThan(s.region[b].width);
+            expect(normWidth(s, a)).toBeLessThan(normWidth(s, b));
           }
         }
       }
-      // An agnostic axis has to be genuinely non-committal: wider than the flat-prior width
+      // An agnostic axis has to be genuinely non-committal: in NORMALISED units, wider than
       // 1/sqrt(2*pi), the point where its peak contribution turns negative.
       for (const a of AXIS_NAMES) {
-        if (s.region[a].role === 'agnostic') expect(s.region[a].width).toBeGreaterThan(0.398);
+        if (s.region[a].role !== 'agnostic') continue;
+        const span = AXIS_RANGE[a].hi - AXIS_RANGE[a].lo;
+        expect(s.region[a].width / span).toBeGreaterThan(0.398);
       }
     }
   });
@@ -232,7 +243,7 @@ describe('stateTaxonomy — confusable states must be musically harmless', () =>
   test('no two states share an identical centre vector', () => {
     const seen = new Map();
     for (const s of STATES) {
-      const key = AXIS_NAMES.map((a) => s.region[a].center.toFixed(4)).join('|');
+      const key = AXIS_NAMES.map((a) => s.region[a].norm.toFixed(4)).join('|');
       expect(seen.get(key)).toBeUndefined();
       seen.set(key, s.id);
     }
@@ -310,7 +321,7 @@ describe('stateTaxonomy — music policy is a regulator, never a mirror', () => 
 
   test('VISION §6: an agitated state is never pushed harder', () => {
     for (const s of STATES) {
-      if (s.region.stress.center >= 0.55) {
+      if (s.region.stress.norm >= 0.55) {
         expect(s.musicPolicy.energyBias).toBeLessThanOrEqual(0);
         expect(ARCHETYPE_DIRECTION[s.musicPolicy.trajectoryArchetype]).toBeLessThanOrEqual(0);
       }
@@ -319,7 +330,7 @@ describe('stateTaxonomy — music policy is a regulator, never a mirror', () => 
 
   test('a depleted body is never handed a strong push', () => {
     for (const s of STATES) {
-      if (s.region.recovery.center <= 0.3) expect(s.musicPolicy.energyBias).toBeLessThanOrEqual(0.1);
+      if (s.region.recovery.norm <= 0.3) expect(s.musicPolicy.energyBias).toBeLessThanOrEqual(0.1);
     }
   });
 
@@ -405,7 +416,7 @@ describe('stateTaxonomy — zero knowledge and purity', () => {
   test('NEUTRAL is where the agnostic axes sit, so an opinionless axis is genuinely opinionless', () => {
     for (const s of STATES) {
       for (const a of AXIS_NAMES) {
-        if (s.region[a].role === 'agnostic') expect(s.region[a].center).toBe(NEUTRAL[a]);
+        if (s.region[a].role === 'agnostic') expect(s.region[a].center).toBeCloseTo(NEUTRAL[a], 4);
       }
     }
   });

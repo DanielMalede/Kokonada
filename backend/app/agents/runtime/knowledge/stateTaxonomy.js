@@ -100,11 +100,55 @@ const ROLE_WEIGHTS = Object.freeze({
 });
 
 /**
- * The geometric mean of a state's seven widths. The single number the whole width solver is
- * derived from: "on average, a state claims an axis lies within a quarter of its range".
+ * The geometric mean of a state's seven widths, in NORMALISED axis units. The single number the
+ * whole width solver is derived from: "on average, a state claims an axis lies within a quarter
+ * of the range that axis can actually reach".
  */
 const GEOMETRIC_MEAN_WIDTH = 0.25;
 const LOG_PRECISION_BUDGET = -AXIS_NAMES.length * Math.log(GEOMETRIC_MEAN_WIDTH);
+
+/**
+ * THE ATTAINABLE ENVELOPE — and the reason centres in the table below are normalised rather than
+ * raw axis values.
+ *
+ * An affect axis is not a free variable in [0,1]. `blend()` fuses the evidence with the engine's
+ * NEUTRAL prior at `AXIS_PRIOR_MASS`, so an axis whose evidence mass tops out at m can only ever
+ * reach `m·1 + (1−m)·neutral`. Several axes are squeezed further by their own weights: exertion
+ * is dragged toward the stated activity's prior, and fatigue carries `FATIGUE_WEIGHTS.debt`, so
+ * it cannot pass ~0.48 no matter how ruinous the sleep history is.
+ *
+ * The first draft of this table was authored in raw units and eight states were consequently
+ * UNREACHABLE — `peak-effort` sat at exertion 0.94 against an engine that cannot emit above 0.78,
+ * `low-mood-low-energy` at valence 0.14 against a floor of 0.14, every heavily-fatigued state
+ * above a ceiling of 0.48. The reachability suite caught it; nothing else would have, because an
+ * unreachable state is silent rather than wrong.
+ *
+ * MEASURED, not assumed: min/max over 5.8M evidence vectors — five personas × a coherent grid of
+ * heart rate (−0.15 to 1.05 of reserve), activity label, hrv ratio, sleep, multi-week debt,
+ * battery, readiness, hour and saturated mood taps — through the real `computeAxes` against real
+ * `computeBaselineBlob` baselines (`sim/` personas, 21 days each). Rounded outward by a hair.
+ *
+ * Regions are therefore authored in [0,1] NORMALISED units, where 0 is the lowest an axis is
+ * known to go and 1 the highest, and both centres and widths are mapped through the same affine
+ * transform. Every geometric property the suite pins — peak equality, separation in units of σ,
+ * argmax-at-centre — is invariant under that map, so the taxonomy can be REASONED about in
+ * normalised space and still speak the engine's units.
+ */
+const AXIS_RANGE = Object.freeze({
+  arousal: Object.freeze({ lo: 0.10, hi: 0.90 }),
+  stress: Object.freeze({ lo: 0.04, hi: 0.85 }),
+  recovery: Object.freeze({ lo: 0.19, hi: 0.90 }),
+  exertion: Object.freeze({ lo: 0.03, hi: 0.78 }),
+  fatigue: Object.freeze({ lo: 0.06, hi: 0.48 }),
+  circadianAlertness: Object.freeze({ lo: 0.14, hi: 0.84 }),
+  valence: Object.freeze({ lo: 0.14, hi: 0.86 }),
+});
+
+const spanOf = (axis) => AXIS_RANGE[axis].hi - AXIS_RANGE[axis].lo;
+/** normalised → raw engine units */
+const toRaw = (axis, norm) => AXIS_RANGE[axis].lo + norm * spanOf(axis);
+/** raw engine units → normalised */
+const toNorm = (axis, raw) => (raw - AXIS_RANGE[axis].lo) / spanOf(axis);
 
 /** How the regulator is allowed to move valence. There is deliberately no value meaning FORCE. */
 const VALENCE_APPROACHES = Object.freeze(['meet', 'sustain', 'lift-gently']);
@@ -131,11 +175,23 @@ const ARCHETYPE_DIRECTION = Object.freeze({
 const TRAJECTORY_ARCHETYPES = Object.freeze(Object.keys(ARCHETYPE_DIRECTION));
 
 /**
- * The axes that cannot be computed without a usable live heart rate. `degraded` is derived from
- * this, not declared — a state is reportable under the ingestion filter's mood-only degraded run
- * exactly when none of its REQUIRED signals is in here.
+ * The axes whose evidence comes from the LIVE WRIST SIGNAL — heart rate and HRV. `degraded` is
+ * derived from this set, never declared, so the two cannot drift apart.
+ *
+ * The first version of this listed only `arousal` and `exertion`, on the reasoning that those are
+ * the heart-rate-derived ones. The reachability suite falsified it in the most useful way: under
+ * a degraded (mood-only) run, `arousal` still carries mass — from the user's own mood taps — and
+ * `exertion` still carries the activity prior, so states requiring them were NOT excluded and the
+ * flag was asserting something untrue. What actually distinguishes the two classes is the SOURCE:
+ * arousal, exertion and stress are statements about the body's live signal, while recovery,
+ * fatigue, circadian alertness and valence come from sleep, the clock and the person's own word,
+ * and survive a dead sensor intact.
+ *
+ * The guarantee this buys, and the one the reachability suite pins: given ONLY passive evidence —
+ * no heart rate, no HRV, no taps — every label the engine reports is one of these degraded-safe
+ * states. It never names a bodily state on the strength of a clock.
  */
-const HR_DEPENDENT_AXES = Object.freeze(['arousal', 'exertion']);
+const HR_DEPENDENT_AXES = Object.freeze(['arousal', 'exertion', 'stress']);
 
 /** The env var the WIRING half must honour (S11). Read there, never here — this module is pure. */
 const DISABLE_ENV_VAR = 'WAVE4_AFFECT_DISABLED';
@@ -446,10 +502,15 @@ function solveRegion(axes) {
   const region = {};
   for (const axis of AXIS_NAMES) {
     const declared = axes[axis];
+    // An axis the state has no opinion about sits at the engine's own NEUTRAL exactly, so an
+    // agnostic claim is literally "whatever the prior says" rather than a nearby number.
+    const norm = declared ? declared[0] : toNorm(axis, NEUTRAL[axis]);
     region[axis] = Object.freeze({
-      center: declared ? declared[0] : NEUTRAL[axis],
-      width: Math.exp(-k * ROLE_WEIGHTS[roles[axis]]),
+      center: round4(toRaw(axis, norm)),
+      width: spanOf(axis) * Math.exp(-k * ROLE_WEIGHTS[roles[axis]]),
       role: roles[axis],
+      // Kept so the geometry can be inspected in the units it was authored in.
+      norm: round4(norm),
     });
   }
   return Object.freeze(region);
@@ -463,7 +524,7 @@ function solveRegion(axes) {
  */
 function prominenceOf(entry, region) {
   if (entry.required.length === 0) return 'fallback';
-  if (entry.band === 'peak' || region.stress.center >= 0.7) return 'loud';
+  if (entry.band === 'peak' || region.stress.norm >= 0.7) return 'loud';
   return 'normal';
 }
 
@@ -571,6 +632,7 @@ module.exports = {
   LEGACY_STATE_MAP,
   HR_DEPENDENT_AXES,
   GEOMETRIC_MEAN_WIDTH,
+  AXIS_RANGE,
   LOG_PRECISION_BUDGET,
   ENTER_PRIOR_MULTIPLE,
   EXIT_FRACTION_OF_ENTER,
