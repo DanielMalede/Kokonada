@@ -138,7 +138,19 @@ limit R4–R5 to the diff since the last reflection rather than a broad sweep, a
 
 - **R1 · Health check (never skipped).** `cd backend && npm test` (full suite) + lint + secret scan of everything since the last
   reflection. Compare against STATE `testBaseline`. Also: `git log --oneline <lastReflectSha>..HEAD` and
-  `git status` — the tree must be clean and the branch pushed.
+  `git status` — the tree must be clean and the branch pushed. **Also check the real CI, not only the local run:** if STATE's PR
+  queue has an open PR, `gh pr checks <PR>` — a red or missing GitHub Actions check is a genuine gap the local suite cannot see
+  (H1 is a standing example: a scheduled workflow has been failing on `main` for weeks without tripping anything local). Treat a
+  red required check the same as a red local suite for R2/R3 purposes; a red non-required or pre-existing-red check (H1 itself)
+  just gets named in the reflection log so it does not silently drift out of view.
+- **R1.5 · STATE housekeeping.** Every session reads all of `WAVE4_STATE.md` as step 1 of §2 — a growing file is a growing tax
+  on every future session, reflection or not (it started ~7KB; by the first reflection after the concurrent-session incident it
+  had already reached 175KB). Check the file's size. Past **150KB**, archive what is no longer active: `Discovered backlog` rows
+  with status `done`/`closed`, `Reflection log` entries older than the 2 most recent, and `Session log` rows for sessions more
+  than 24h old — move them verbatim (do not summarize/lossy-compress a row; provenance matters) into `docs/plans/WAVE4_ARCHIVE.md`
+  under a dated heading, in append order, and delete them from STATE. STATE keeps: the Run header, the full Task table (never
+  archived — it is the live truth), open/pending backlog rows, open HITL items, the PR queue, and the last 2 reflection entries +
+  last 24h of session log. Note the archival itself as one line in the Reflection log so the row count discontinuity is explained.
 - **R2 · Verify the last interval's claims.** For every task marked `done` since the last reflection, spot-check that its DoD is
   *actually* satisfied — the tests it claims exist do exist and genuinely fail without the fix (re-run one with the fix stubbed out
   if cheap), the STATE evidence matches reality, the PR (if cut) reflects the real diff. **A task whose claim does not hold gets
@@ -162,7 +174,11 @@ limit R4–R5 to the diff since the last reflection rather than a broad sweep, a
 - **R6 · Triage into the queue.** Everything found in R2–R5 becomes a row in STATE's **Discovered backlog** — id `W4-D<nn>`, with
   (if the `## Discovered backlog` or `## Reflection log` sections are missing from STATE — e.g. a session rewrote the file — recreate them from the shape described here before writing; they are self-healing by design, never a reason to skip the pass)
   the SAME rigor as §3 tasks: `class` (`repair` | `improve` | `extend`), tier, size, deps, a concrete DoD, and one line of
-  justification (why it is worth spending part of a 4-day budget on). **Discipline rules, all binding:**
+  justification (why it is worth spending part of a 4-day budget on). **Before adding a row, check for a duplicate** — read
+  every existing `W4-D<nn>` (open AND closed/done) and ask whether it already names this finding, not just a similarly-worded
+  one; if it does, do not add a new row — append one line to the existing row's evidence instead (or, if it was closed and this
+  interval shows the closure did not hold, that IS an R2 reopen, not a new discovery). At the backlog's current size this is a
+  real risk, not a formality — cross-check by grepping the finding's file:line, not just its title. **Discipline rules, all binding:**
   - **Max 5 new rows per reflection.** A reflection that finds more has found a theme, not five tasks — write the theme as one task.
   - **`class: repair` outranks everything.** Otherwise, original MUST-tier queue tasks (§3) always outrank discovered work;
     discovered `improve`/`extend` rows are picked up only when the MUST queue is blocked or done. The wave's committed scope ships first.
@@ -173,6 +189,13 @@ limit R4–R5 to the diff since the last reflection rather than a broad sweep, a
     HITL entry for Daniel, not into the queue.
   - The exception to "reflections don't implement": a fix under ~10 minutes with an obvious test (a typo, a stale doc line, a
     missing clamp, a flaky assertion) may be done inline — commit it separately with a `wave4: reflect —` prefix.
+- **R6.5 · Pace check.** `day4CutoffAt` is a hard wall — after it, only W4-015 may run. Count remaining `pending`/`in_progress`
+  MUST-tier §3 tasks; compute average wall-clock per completed task from the Session log (a rough per-tier median is enough, L
+  tasks already show as 2 owner-sessions when split); project whether the remaining MUST-tier work finishes before the cutoff at
+  the observed pace. If the projection says no — or came close enough last time that it is trending the wrong way — raise (or
+  update) **one standing HITL entry** with the math shown (tasks remaining × observed pace vs. hours left) so Daniel sees it
+  forming on day 1–2, not on day 4 when nothing can be done about it. This is a projection, not a panic button — do not let it
+  turn into scope-cutting on your own authority; that decision is Daniel's, the HITL entry is how it reaches him early.
 - **R7 · Close out.** Write the reflection entry into STATE's **Reflection log** (timestamp, interval covered, suite result,
   what was verified, what was reopened, what was queued, or "clean"). A reflection runs alongside a session that may have
   committed STATE while the reflection was reading it, so this write above all others re-reads the file first and runs the
