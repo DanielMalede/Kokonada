@@ -206,7 +206,31 @@ describe('ATTACK 3 — final concurrency stress (the budget must hold LIVE)', ()
     );
   }, 15000);
 
+  // Single-threaded queueing under a burst: individual wall-clocks include the other 19
+  // calls' CPU slices, so the honest bound is aggregate throughput. This is a COLLAPSE
+  // guard, not a tight SLA — the real latency budget is the sibling per-call test.
+  //
+  // W4-D09: this was `wall < 6000`, and that absolute constant is the SAME defect as the
+  // per-call budget above, one timescale up. It failed at 6236 ms on a CLEAN full-suite run
+  // while the concurrency it guards was perfectly healthy. The work is CPU-bound with mocked
+  // I/O, so 20 concurrent generations can never beat 20 sequential ones — the burst costs
+  // ~1.07x the serial equivalent, and the old constant was simply 20x a per-call cost this
+  // box no longer hits. The bound is therefore RELATIVE to a calibration measured on the
+  // same machine in the same run: concurrency must not cost materially more than running the
+  // work one call after another, which is precisely "queueing, not collapse" — and unlike a
+  // millisecond constant it does not age with the hardware or flake on a busy box.
+  //
+  // 1.5 is derived from the measured overhead ratio of 1.07 (run C: burst 6236 ms against a
+  // 292 ms per-call min), leaving ~40% headroom for noise in BOTH the calibration and the
+  // burst, while a genuine collapse — thrashing, lost queueing — runs 2-5x serial and trips.
+  const BURST_OVERHEAD_RATIO = 1.5;
+
   it('pathological 20-user burst: zero failures, correct playlists, bounded throughput (queueing, not collapse)', async () => {
+    // Calibrate on THIS machine, this run. min-of-3 for the same one-sided-noise reason the
+    // helper exists: a calibration that happened to land on a slow slice would loosen the
+    // budget, and one on a fast slice would tighten it into a flake.
+    const calibration = await perf.measure(() => gen(999), { samples: 3, warmup: 1, label: 'burst-calibration' });
+
     const started = Date.now();
     const runs = await Promise.all(Array.from({ length: 20 }, (_, u) => gen(100 + u)));
     const wall = Date.now() - started;
@@ -215,13 +239,11 @@ describe('ATTACK 3 — final concurrency stress (the budget must hold LIVE)', ()
       expect(run.merged).toHaveLength(50);
       expect(run.telemetry.degraded).toBe(false);
     }
-    // Single-threaded queueing under a burst: individual wall-clocks include the
-    // other 19 calls' CPU slices, so the honest bound is aggregate throughput. This is
-    // a COLLAPSE guard, not a tight SLA — the real latency budget is the sibling
-    // per-call test (<300ms). Healthy runs finish in ~1–4s; a genuine concurrency
-    // collapse (thrashing / lost queueing) balloons toward the 15s timeout. Bounded at
-    // 6000ms so shared-CI-runner variance (which tipped a tight 2500ms bound at ~2.5–3.7s
-    // on otherwise-correct runs) can't flake it while a true collapse still trips it.
-    expect(wall).toBeLessThan(6000);
-  }, 15000);
+
+    const serialEquivalentMs = 20 * calibration.wall.min;
+    perf.expectWithinBudget(
+      perf.fromDurations([wall], { label: 'burst-20' }),
+      { budgetMs: Math.round(BURST_OVERHEAD_RATIO * serialEquivalentMs) },
+    );
+  }, 30000);
 });

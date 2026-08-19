@@ -367,4 +367,29 @@ describe('W4-D09 tripwire — the single-shot wall-clock budgets stay dead', () 
     expect(scan(`expect(Date.now() - started).${OFFENDER};`)).toBe(true);
     expect(scan('expect(wall).toBeLessThan(6000);')).toBe(false);
   });
+
+  // The 20-user burst in the same file is the SAME defect on a longer timescale: an absolute
+  // millisecond constant standing in for a throughput property. It failed at 6236 ms on a
+  // clean full-suite run (C) and again under load (B) while the concurrency it guards was
+  // healthy — 20 concurrent generations cost 1.07x the serial equivalent.
+  const ABSOLUTE_BURST = 'toBeLessThan(' + '6000)';
+
+  it('shadow.flip.test.js no longer bounds the 20-user burst with an absolute constant', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'shadow.flip.test.js'), 'utf8');
+    expect(src.includes(ABSOLUTE_BURST)).toBe(false);
+  });
+
+  it('the burst is bounded RELATIVE to this machine\'s own per-call cost', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'shadow.flip.test.js'), 'utf8');
+    // A budget derived from a calibration measured on the same box in the same run is what
+    // makes the guard machine-speed invariant instead of a constant that ages with hardware.
+    expect(src).toMatch(/serialEquivalent/);
+    expect(src).toMatch(/BURST_OVERHEAD_RATIO/);
+  });
+
+  it('detector self-test: the burst scan really does catch its offending pattern', () => {
+    const burstScan = (s) => s.includes(ABSOLUTE_BURST);
+    expect(burstScan('expect(wall).toBeLessThan(6000);')).toBe(true);
+    expect(burstScan('expect(wall).toBeLessThan(serialEquivalentMs);')).toBe(false);
+  });
 });
