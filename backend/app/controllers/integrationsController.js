@@ -665,7 +665,8 @@ exports.healthBatchIngest = async (req, res, next) => {
     }
 
     const result = await healthStore.ingestBatch(req.user._id, platform, samples);
-    console.warn(`[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} profileMetrics=${JSON.stringify(result.profileMetrics || {})}`);
+    // W4-D08: `rejected` is a count plus (path, validator-kind) pairs — never a submitted value.
+    console.warn(`[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} rejected=${result.rejected?.count || 0} profileMetrics=${JSON.stringify(result.profileMetrics || {})}`);
 
     // Mark the wearable provider on first push so the web UI reflects the connection.
     const provider = platform === 'healthkit' ? 'apple_health' : 'health_connect';

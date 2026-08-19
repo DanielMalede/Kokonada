@@ -231,17 +231,13 @@ describe('replay — the batch lane round-trips into real collections', () => {
     expect(rows).toBeLessThanOrEqual(report.submitted);
   });
 
-  test('MEASURED: one out-of-range sample is dropped silently and `inserted` over-reports', async () => {
-    // Found by running the simulator rather than by reading the code. BiometricLog caps
-    // heartRate at 300, and a x2 PPG artifact on a workout reading clears that easily.
-    // What happens then: `insertMany({ ordered: false })` writes the good rows and does NOT
-    // reject, and `persistMetrics` returns `inserted: hrDocs.length` — the ATTEMPTED count.
-    // So the batch API reports full success while a sample is gone, with nothing logged.
-    // A backfill client reconciling on `inserted` would believe data landed that did not.
-    //
-    // Not fixed here: W4-002 is the simulator, and §2 sends work noticed in passing to the
-    // Discovered backlog (W4-D08) rather than widening the task. This pin is the
-    // reproduction, and it flips loudly the day the count becomes truthful.
+  test('W4-D08 FIXED: an out-of-range sample is counted as rejected, not reported as inserted', async () => {
+    // Was: "MEASURED: one out-of-range sample is dropped silently and `inserted` over-reports" —
+    // a deliberate pin on the DEFECT, written by W4-002 so the fix would flip it loudly. It has.
+    // BiometricLog caps heartRate at 300 and a x2 PPG artifact on a workout reading clears that
+    // easily; `insertMany({ ordered: false })` still writes the good rows and still does not reject.
+    // What changed is the accounting: the count now comes from the driver, and the refused row is
+    // surfaced by path + validator kind (never by value — the value is the vital).
     const run = watchRun('athlete', { artifacts: false });
     const batches = run.healthStore.batches.map((b) => b.map((s) => ({ ...s })));
     const poisonedRow = batches[0].find((s) => s.type === 'heart_rate');
@@ -252,10 +248,26 @@ describe('replay — the batch lane round-trips into real collections', () => {
     const report = await replayBatchLane({ run: poisoned, userId: userId.toString() });
     const emittedHr = batches.flat().filter((s) => s.type === 'heart_rate').length;
 
-    expect(report.errors).toEqual([]);        // nothing thrown, nothing surfaced
-    expect(report.inserted).toBe(emittedHr);  // the API says every row landed...
-    expect(await BiometricLog.countDocuments({ userId })).toBe(emittedHr - 1); // ...one did not
+    expect(report.errors).toEqual([]);                 // still no throw — the write is still partial
+    expect(report.inserted).toBe(emittedHr - 1);       // ...and the count finally says so
+    expect(await BiometricLog.countDocuments({ userId })).toBe(emittedHr - 1);
+    expect(report.inserted).toBe(await BiometricLog.countDocuments({ userId }));
+
+    // The reject is surfaced rather than dropped, and carries no submitted value.
+    expect(report.rejected.count).toBe(1);
+    expect(report.rejected.reasons).toEqual([{ path: 'heartRate', reason: 'user-defined', count: 1 }]);
+    expect(JSON.stringify(report.rejected)).not.toMatch(/340/);
   });
+
+  test(
+    'a clean batch reports zero rejects, so a non-zero count always means something was refused',
+    async () => {
+      const run = watchRun('athlete', { artifacts: false });
+      const report = await replayBatchLane({ run, userId: userId.toString() });
+      expect(report.rejected).toEqual({ count: 0, reasons: [] });
+      expect(report.inserted).toBe(await BiometricLog.countDocuments({ userId }));
+    },
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

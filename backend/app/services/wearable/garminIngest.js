@@ -39,8 +39,8 @@ async function ingestSummaries(userId, items) {
     ? metrics
     : metrics.filter((m) => !GARMIN_SPECIAL_CATEGORY_METRICS.has(m.metric));
 
-  const { inserted, profileMetrics } = await persistMetrics(userId, gated);
-  return { accepted: gated.length, inserted, profileMetrics };
+  const { inserted, rejected, profileMetrics } = await persistMetrics(userId, gated);
+  return { accepted: gated.length, inserted, rejected, profileMetrics };
 }
 
 module.exports = { ingestSummaries, GARMIN_SPECIAL_CATEGORY_METRICS };

@@ -38,6 +38,7 @@ const {
   _debounceMap,
 } = require('../app/sockets/biometricHandler');
 const { ingestBatch: realIngestBatch } = require('../app/services/wearable/healthStore');
+const { mergeRejected, NO_REJECTS } = require('../app/services/wearable/insertAccounted');
 
 const REPLAY_VERSION = 1;
 
@@ -177,6 +178,7 @@ async function replayBatchLane(opts) {
   const platform = run.healthStore.platform;
   let accepted = 0;
   let inserted = 0;
+  let rejected = NO_REJECTS;
   const errors = [];
 
   for (let i = 0; i < run.healthStore.batches.length; i++) {
@@ -185,6 +187,9 @@ async function replayBatchLane(opts) {
       const res = await ingestBatch(userId, platform, batch);
       accepted += res.accepted || 0;
       inserted += res.inserted || 0;
+      // W4-D08: rows the DB refused. Aggregated, not dropped — a harness that reports only what
+      // landed reproduces the exact defect it exists to measure.
+      rejected = mergeRejected(rejected, res.rejected);
     } catch (e) {
       errors.push({ batchIndex: i, size: batch.length, message: e.message, name: e.name });
     }
@@ -196,6 +201,7 @@ async function replayBatchLane(opts) {
     submitted: run.healthStore.batches.reduce((a, b) => a + b.length, 0),
     accepted,
     inserted,
+    rejected,
     errors,
   };
 }

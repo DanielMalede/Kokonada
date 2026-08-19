@@ -10,6 +10,7 @@ const BiometricLog   = require('../../models/BiometricLog');
 const MedicalProfile = require('../../models/MedicalProfile');
 const { aggregateProfileMetrics, computeLastNightSleep } = require('../medicalProfileService');
 const { enqueue } = require('../../queues/queue');
+const { insertManyAccounted, NO_REJECTS } = require('./insertAccounted');
 const { QUEUES } = require('../../queues/definitions');
 
 // Aggregated metric keys that live on a NESTED MedicalProfile path; others map 1:1.
@@ -22,9 +23,13 @@ const METRIC_FIELD_PATHS = {
 /**
  * @param {string} userId
  * @param {Array<{metric,value,unit,recordedAt,source}>} metrics  canonical records
- * @returns {Promise<{inserted:number, profileMetrics:object}>}
+ * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, profileMetrics:object}>}
+ *   `inserted` is what Mongo actually took — NOT the attempted count (W4-D08).
  */
 async function persistMetrics(userId, metrics) {
+  let inserted = 0;
+  let rejected = NO_REJECTS;
+
   // heartRate → encrypted time-series rows, idempotent (skip already-stored
   // (source,recordedAt); collapse duplicate timestamps within the batch). App-level
   // dedupe (no DB unique index) so the live watch path is untouched.
@@ -51,7 +56,9 @@ async function persistMetrics(userId, metrics) {
       return true;
     });
 
-    if (hrDocs.length) await BiometricLog.insertMany(hrDocs, { ordered: false });
+    // W4-D08: `insertMany({ ordered: false })` drops schema-rejected rows without rejecting, so the
+    // count has to come from the driver, not from `hrDocs.length`.
+    if (hrDocs.length) ({ inserted, rejected } = await insertManyAccounted(BiometricLog, hrDocs));
   }
 
   // Profile scalars → aggregate (median) → upsert. Pass RAW values: Mongoose 9 DOES run
@@ -94,6 +101,8 @@ async function persistMetrics(userId, metrics) {
   // Debounced: a deterministic jobId + delay coalesces a backfill burst (hundreds
   // of chunked batches) into ONE heavy decrypt run; removeOnComplete frees the id
   // so the next batch can queue again. (shadow-audit flood finding)
+  // NOTE (W4-D08): still the ATTEMPTED count on purpose — the debounced recompute is an
+  // "new data arrived" signal, and re-gating it on `inserted` would be an unrelated change.
   if (hrDocs.length || Object.keys($set).length) {
     try {
       await enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
@@ -107,7 +116,7 @@ async function persistMetrics(userId, metrics) {
     }
   }
 
-  return { inserted: hrDocs.length, profileMetrics };
+  return { inserted, rejected, profileMetrics };
 }
 
 module.exports = { persistMetrics };
