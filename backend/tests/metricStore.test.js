@@ -14,7 +14,13 @@ jest.mock('../app/models/MedicalProfile', () => ({
 }));
 jest.mock('../app/models/BiometricLog', () => ({
   find: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }),
-  insertMany: jest.fn().mockResolvedValue([]),
+  // W4-D08: the real return is an accounting object, not an array of docs.
+  insertMany: jest.fn(async (docs) => ({
+      acknowledged: true,
+      insertedCount: docs.length,
+      insertedIds: {},
+      mongoose: { validationErrors: [], results: docs },
+    })),
 }));
 jest.mock('../app/queues/queue', () => ({ enqueue: jest.fn().mockResolvedValue(undefined) }));
 

@@ -9,7 +9,13 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 jest.mock('../app/models/BiometricLog', () => ({
   find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([]) }), sort: () => ({ limit: () => Promise.resolve([]) }) })),
-  insertMany: jest.fn().mockResolvedValue([]),
+  // W4-D08: the real return is an accounting object, not an array of docs.
+    insertMany: jest.fn(async (docs) => ({
+      acknowledged: true,
+      insertedCount: docs.length,
+      insertedIds: {},
+      mongoose: { validationErrors: [], results: docs },
+    })),
 }));
 jest.mock('../app/models/MedicalProfile', () => ({
   findOneAndUpdate: jest.fn().mockResolvedValue({}),
