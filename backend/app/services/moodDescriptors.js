@@ -411,4 +411,8 @@ module.exports = {
   applyBiometricBands,
   extractIntent,
   normalizeActivity,
+  // Exported additively for the W4-006 taxonomy, which extends this projection with its own
+  // state ids. Exporting it means the superset guarantee is PINNED against the real table
+  // rather than against a copy of it that could drift (the ACTIVITY_EXERTION_FLOOR precedent).
+  _STATE_TO_BAND,
 };
