@@ -10,6 +10,7 @@
 // single registry is deferred to the post-Wave-1 rebase — until then keep them in lockstep.
 
 const BiometricLog      = require('../../models/BiometricLog');
+const VitalSample       = require('../../models/VitalSample');
 const MedicalProfile    = require('../../models/MedicalProfile');
 const MusicProfile      = require('../../models/MusicProfile');
 const PlaylistSession   = require('../../models/PlaylistSession');
@@ -25,6 +26,7 @@ const { logBiometricAccess } = require('../../utils/biometricAudit');
 // (the row is still represented — only the secret field is removed).
 const COLLECTIONS = [
   { model: BiometricLog },
+  { model: VitalSample },                              // per-metric vitals (W4-004, S5)
   { model: MedicalProfile },
   { model: MusicProfile },
   { model: PlaylistSession },

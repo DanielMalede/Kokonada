@@ -7,6 +7,7 @@
 // (services/privacy/erasure.js) stays owned by Wave 1; consolidation happens later.
 
 const BiometricLog   = require('../../models/BiometricLog');
+const VitalSample    = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const garmin         = require('../wearable/garmin');
 const { getRedis }   = require('../../config/redis');
@@ -22,12 +23,23 @@ async function purgeWearableData(userId, provider) {
   // 1. BiometricLog is source-attributed — delete exactly this provider's samples.
   const bio = await BiometricLog.deleteMany({ userId, source: provider });
 
+  // 1b. VitalSample carries the SAME `source` attribution (W4-004, S5), so the identical
+  //     scoping applies: disconnecting Garmin removes Garmin's HRV/SpO2/battery history and
+  //     leaves an Apple Health connection's rows alone. Registered here in the task that
+  //     created the collection rather than "later" — a wearable-derived collection missing
+  //     from per-provider erasure is a silent GDPR leak that nothing would surface.
+  const vitals = await VitalSample.deleteMany({ userId, source: provider });
+
   // 2. MedicalProfile is a single per-user AGGREGATE with no per-source attribution; it is
   //    derived from BiometricLog. Delete it ONLY when no biometric samples remain (i.e. it
   //    was derived solely from the purged provider). Otherwise it still reflects another
   //    connected wearable — leave it and let baselines recompute.
+  //    "Derived solely from the purged provider" now means no HR samples AND no vital samples
+  //    remain — counting only BiometricLog would delete a profile still backed by another
+  //    wearable's VitalSample rows.
   let medicalProfiles = 0;
-  const remaining = await BiometricLog.countDocuments({ userId });
+  const remaining = await BiometricLog.countDocuments({ userId })
+    + await VitalSample.countDocuments({ userId });
   if (remaining === 0) {
     const med = await MedicalProfile.deleteMany({ userId });
     medicalProfiles = med?.deletedCount ?? 0;
@@ -40,7 +52,7 @@ async function purgeWearableData(userId, provider) {
     if (redis) await redis.del(_baselineKey(userId));
   } catch { /* best-effort */ }
 
-  return { biometricLogs: bio?.deletedCount ?? 0, medicalProfiles };
+  return { biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles };
 }
 
 // Null out the User-doc credential fields for a provider. Does NOT persist — the caller

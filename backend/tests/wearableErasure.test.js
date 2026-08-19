@@ -10,6 +10,10 @@ jest.mock('../app/models/BiometricLog', () => ({
   deleteMany:     jest.fn().mockResolvedValue({ deletedCount: 5 }),
   countDocuments: jest.fn().mockResolvedValue(0),
 }));
+jest.mock('../app/models/VitalSample', () => ({
+  deleteMany:     jest.fn().mockResolvedValue({ deletedCount: 3 }),
+  countDocuments: jest.fn().mockResolvedValue(0),
+}));
 jest.mock('../app/models/MedicalProfile', () => ({
   deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
 }));
@@ -26,6 +30,7 @@ jest.mock('../app/services/wearable/garmin', () => ({
 }));
 
 const BiometricLog   = require('../app/models/BiometricLog');
+const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const garmin         = require('../app/services/wearable/garmin');
 const { getRedis, __fake: fakeRedis } = require('../app/config/redis');
@@ -39,6 +44,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   BiometricLog.deleteMany.mockResolvedValue({ deletedCount: 5 });
   BiometricLog.countDocuments.mockResolvedValue(0);
+  VitalSample.deleteMany.mockResolvedValue({ deletedCount: 3 });
+  VitalSample.countDocuments.mockResolvedValue(0);
   MedicalProfile.deleteMany.mockResolvedValue({ deletedCount: 1 });
   getRedis.mockReturnValue(fakeRedis);
   garmin.getValidToken.mockResolvedValue('valid-access-token');
@@ -51,6 +58,22 @@ describe('purgeWearableData', () => {
   it('deletes ONLY the biometric samples attributed to that provider (source-scoped)', async () => {
     await purgeWearableData(USER, 'garmin');
     expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
+  });
+
+  // W4-004 / S5: VitalSample is source-attributed too, so a provider disconnect has to take
+  // that provider's HRV/SpO2/battery history with it — and nobody else's.
+  it('deletes ONLY that provider\'s vital samples, and reports the count', async () => {
+    const res = await purgeWearableData(USER, 'garmin');
+    expect(VitalSample.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
+    expect(res.vitalSamples).toBe(3);
+  });
+
+  it('KEEPS the MedicalProfile when only VITAL samples remain (HR history exhausted)', async () => {
+    BiometricLog.countDocuments.mockResolvedValue(0);  // no HR rows left...
+    VitalSample.countDocuments.mockResolvedValue(4);   // ...but another provider's vitals are
+    const res = await purgeWearableData(USER, 'garmin');
+    expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
+    expect(res.medicalProfiles).toBe(0);
   });
 
   it('deletes the aggregated MedicalProfile only when NO biometric samples remain (orphaned)', async () => {

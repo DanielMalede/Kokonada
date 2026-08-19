@@ -9,6 +9,7 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 jest.mock('../app/utils/biometricAudit', () => ({ logBiometricAccess: jest.fn(), auditedDecrypt: jest.fn() }));
 const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const BiometricLog    = require('../app/models/BiometricLog');
+const VitalSample     = require('../app/models/VitalSample');
 const MedicalProfile  = require('../app/models/MedicalProfile');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
@@ -30,6 +31,7 @@ beforeEach(() => {
   jest.restoreAllMocks();
   // Real model instances so the encrypted getters actually run (real decryption semantics).
   stubFind(BiometricLog, [new BiometricLog({ userId: OID, heartRate: 72, source: 'garmin', recordedAt: new Date() })]);
+  stubFind(VitalSample, [new VitalSample({ userId: OID, metric: 'hrv', value: 63, source: 'garmin', recordedAt: new Date() })]);
   stubFind(MedicalProfile, []);
   stubFind(MusicProfile, []);
   stubFind(PlaylistSession, [new PlaylistSession({
@@ -51,7 +53,7 @@ afterEach(() => jest.restoreAllMocks());
 describe('exportUserData', () => {
   it('scopes every collection query to the subject userId (never another user)', async () => {
     await exportUserData(OID);
-    for (const model of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
+    for (const model of [BiometricLog, VitalSample, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
       expect(model.find).toHaveBeenCalledWith({ userId: OID });
     }
     expect(User.findById).toHaveBeenCalledWith(OID);
@@ -60,6 +62,7 @@ describe('exportUserData', () => {
   it('decrypts the subject\'s own special-category data', async () => {
     const out = await exportUserData(OID);
     expect(out.collections.biometriclogs[0].heartRate).toBe(72);       // decrypted
+    expect(out.collections.vitalsamples[0].value).toBe(63);            // decrypted (W4-004, S5)
     expect(out.collections.playlistsessions[0].contextPrompt).toBe('private note'); // decrypted
   });
 
@@ -84,6 +87,7 @@ describe('exportUserData', () => {
     const out = await exportUserData(OID);
     expect(Object.keys(out.collections).sort()).toEqual([
       'biometriclogs', 'consentrecords', 'identities', 'medicalprofiles', 'musicprofiles',
+      'vitalsamples',
       'playlistsessions', 'refreshtokens', 'serveevents', 'unclassifiedtracks',
     ].sort());
   });
