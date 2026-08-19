@@ -104,16 +104,17 @@ describe('sim/rng — the seeded stream everything else is built on', () => {
   });
 
   test('next() stays in [0,1) and unit() in (0,1] — the log-domain guard (S8)', () => {
+    // Violations are collected and asserted once rather than through 100k matcher calls:
+    // same coverage, ~7s faster, and a failure names the offending draw instead of "false".
     const r = createRng(7);
+    const bad = [];
     for (let i = 0; i < 20000; i++) {
       const u = r.next();
-      expect(u).toBeGreaterThanOrEqual(0);
-      expect(u).toBeLessThan(1);
+      if (!(u >= 0 && u < 1)) bad.push({ i, fn: 'next', value: u });
       const v = r.unit();
-      expect(v).toBeGreaterThan(0);
-      expect(v).toBeLessThanOrEqual(1);
-      expect(Number.isFinite(Math.log(v))).toBe(true);
+      if (!(v > 0 && v <= 1) || !Number.isFinite(Math.log(v))) bad.push({ i, fn: 'unit', value: v });
     }
+    expect(bad).toEqual([]);
   });
 
   test('gaussian() is standard normal to within sampling error, and always finite', () => {
@@ -351,13 +352,12 @@ describe('sim/generator — physiological plausibility', () => {
 
   test('every CLEAN sample is a heart rate a body can produce', () => {
     for (const [id, run] of Object.entries(runs)) {
-      for (const s of run.truth.samples) {
-        expect(Number.isFinite(s.hr)).toBe(true);
-        if (!isPhysiologicalHR(s.hr)) {
-          throw new Error(`${id}: clean sample out of range at ${s.tMs} (${s.hr})`);
-        }
-        expect(s.hr).toBeLessThanOrEqual(ALL_PERSONAS[id].maxHeartRate);
-      }
+      const ceiling = ALL_PERSONAS[id].maxHeartRate;
+      const bad = run.truth.samples
+        .filter((s) => !isPhysiologicalHR(s.hr) || s.hr > ceiling)
+        .slice(0, 5)
+        .map((s) => ({ tMs: s.tMs, hr: s.hr }));
+      expect({ id, bad }).toEqual({ id, bad: [] });
     }
   });
 
@@ -643,13 +643,15 @@ describe('sim/generator — both lanes speak the REAL adapters', () => {
   });
 
   test('every clean socket event normalises to a valid reading through the REAL adapter', () => {
+    const bad = [];
     for (const e of run.socket.events) {
       const n = normalize(e.payload.source, e.payload.raw);
-      expect(n.recordedAt instanceof Date).toBe(true);
-      expect(Number.isNaN(n.recordedAt.getTime())).toBe(false);
-      expect(isPhysiologicalHR(n.heartRate)).toBe(true);
-      expect(n.source).toBe('garmin');
+      const okDate = n.recordedAt instanceof Date && !Number.isNaN(n.recordedAt.getTime());
+      if (!okDate || !isPhysiologicalHR(n.heartRate) || n.source !== 'garmin') {
+        bad.push({ atMs: e.atMs, raw: e.payload.raw, normalized: n });
+      }
     }
+    expect(bad).toEqual([]);
   });
 
   test('the activity map round-trips through the REAL adapter for every entry', () => {
@@ -788,5 +790,99 @@ describe('sim/generator — numerical hygiene and input validation (S8)', () => 
     // this, and every persona would silently mean something different per sampling rate.
     const quiet = (r) => r.truth.samples.filter((s) => !s.episode && s.asleep).map((s) => s.hr);
     expect(Math.abs(stdev(quiet(fine)) - stdev(quiet(coarse)))).toBeLessThan(1.5);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('sim/soak — the long-run harness and its gate', () => {
+  const { runSoak, requireSoakEnabled, isSoakEnabled, SOAK_DEFAULTS } = require('../sim/soak');
+  const { bandFromHeartRate } = require('../app/services/moodDescriptors');
+
+  test('the RUN_SOAK gate reads the environment at call time, not at import time', () => {
+    const prev = process.env.RUN_SOAK;
+    try {
+      delete process.env.RUN_SOAK;
+      expect(isSoakEnabled()).toBe(false);
+      expect(() => requireSoakEnabled()).toThrow(/RUN_SOAK/);
+      process.env.RUN_SOAK = '1';
+      expect(isSoakEnabled()).toBe(true);
+      expect(() => requireSoakEnabled()).not.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.RUN_SOAK; else process.env.RUN_SOAK = prev;
+    }
+  });
+
+  test('a 24h dry soak covers every persona and reports per-persona statistics', () => {
+    const report = runSoak({ seed: 4242, startAt: T0, days: 1 });
+    expect(report.v).toBe(1);
+    expect(report.personas).toHaveLength(Object.keys(ALL_PERSONAS).length);
+    for (const p of report.personas) {
+      expect(ALL_PERSONAS[p.personaId]).toBeTruthy();
+      expect(p.samples).toBe(SOAK_DEFAULTS.days * 24 * 3600 / SOAK_DEFAULTS.sampleIntervalSec);
+      expect(Object.values(p.activityDwell).reduce((a, b) => a + b, 0)).toBe(p.samples);
+      expect(Object.values(p.bandDwell).reduce((a, b) => a + b, 0)).toBe(p.samples);
+      expect(p.artifactCounts).toBeTruthy();
+      expect(Object.values(p.artifactCounts).reduce((a, b) => a + b, 0)).toBe(p.artifacts);
+    }
+  });
+
+  test('dwell histograms are keyed by the REAL band function, and are plausible', () => {
+    const report = runSoak({ seed: 4242, startAt: T0, days: 1 });
+    const byId = Object.fromEntries(report.personas.map((p) => [p.personaId, p]));
+    for (const p of report.personas) {
+      for (const band of Object.keys(p.bandDwell)) {
+        expect(['resting', 'active', 'peak', 'invalid']).toContain(band);
+      }
+      // Nobody spends a whole simulated day at peak effort.
+      const peak = p.bandDwell.peak || 0;
+      expect(peak / p.samples).toBeLessThan(0.25);
+      expect(p.bandDwell.invalid || 0).toBe(0); // clean truth is always a usable reading
+    }
+    // The athlete trains into zone 4, so the peak band must actually be reached — a soak
+    // that never leaves `resting` would exercise none of the band machinery.
+    expect(byId.athlete.bandDwell.peak || 0).toBeGreaterThan(0);
+    expect(bandFromHeartRate(PERSONAS.athlete.restingHeartRate)).toBe('resting');
+  });
+
+  test('the report is O(personas), not O(samples) — a long soak cannot balloon it', () => {
+    // The real anti-leak property for a multi-day soak: it must summarise, never accumulate.
+    const short = runSoak({ seed: 1, startAt: T0, days: 1 });
+    const long  = runSoak({ seed: 1, startAt: T0, days: 4 });
+    const size = (r) => JSON.stringify(r).length;
+    expect(long.personas[0].samples).toBe(4 * short.personas[0].samples);
+    expect(size(long)).toBeLessThan(size(short) * 1.5);
+    const json = JSON.stringify(long);
+    expect(json).not.toMatch(/"samples":\s*\[/);
+    expect(json).not.toMatch(/"events":\s*\[/);
+    expect(long.memory.heapUsedDeltaBytes).toEqual(expect.any(Number));
+  });
+
+  test('an injected replay is invoked once per persona and folded into the report', async () => {
+    const seen = [];
+    const report = await runSoak({
+      seed: 7, startAt: T0, days: 1,
+      personas: ['athlete', 'sedentary'],
+      replay: async (run) => { seen.push(run.meta.personaId); return { acks: run.socket.events.length }; },
+    });
+    expect(seen).toEqual(['athlete', 'sedentary']);
+    expect(report.personas.map((p) => p.replay.acks))
+      .toEqual(report.personas.map((p) => p.socketEvents));
+  });
+
+  test('the soak emits one house-style telemetry line per persona plus a total', () => {
+    const lines = [];
+    runSoak({ seed: 3, startAt: T0, days: 1, personas: ['athlete'], logger: (l) => lines.push(l) });
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const l of lines) {
+      expect(l).not.toContain('\n');
+      expect(l).toMatch(/^\[sim\.(generate|soak)\] /);
+      expect(l).not.toMatch(/\b(hr|bpm|hrv|rhr)=/i);
+    }
+    expect(lines.some((l) => l.startsWith('[sim.soak] total'))).toBe(true);
+  });
+
+  test('an unknown persona in the list fails loudly rather than being skipped', () => {
+    expect(() => runSoak({ seed: 1, startAt: T0, personas: ['athlete', 'ghost'] }))
+      .toThrow(/unknown persona/i);
   });
 });
