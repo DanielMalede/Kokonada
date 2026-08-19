@@ -41,7 +41,9 @@ param(
     [int]$WeeklySoftPct = 75,         # >= this % of weekly budget -> SaverModel
     [int]$WeeklyHardPct = 90,         # >= this % -> pause (recheck every 30 min)
     [int]$MaxThinkingTokens = 31999,  # exported as MAX_THINKING_TOKENS for max reasoning; 0 = don't set
-    [int]$MaxConsecutiveWaits = 2     # after this many no-change waits, FAIL OPEN (never deadlock a 4-day run)
+    [int]$MaxConsecutiveWaits = 2,    # after this many no-change waits, FAIL OPEN (never deadlock a 4-day run)
+    [int]$TransientFailSec = 180,     # a session dying faster than this = environmental, not a failed task
+    [int]$MaxTransientRetries = 12    # ~2h of transient retries before it counts as a real failure
 )
 
 $ErrorActionPreference = 'Continue'
@@ -218,6 +220,7 @@ function Assert-StateRowsNotClobbered {
 # --- main loop ------------------------------------------------------------------------------
 
 $consecutiveFailures = 0
+$transientRetries = 0
 $planModelBroken = $false
 $sessionsLaunched = 0
 $consecutiveWaits = 0
@@ -340,18 +343,41 @@ while ($sessionsLaunched -lt $MaxIterations) {
 
     if (($exitCode -eq 0) -and $marker) {
         $consecutiveFailures = 0
+        $transientRetries = 0
         Log-Usage "$($marker.Line.Trim())"
         if ($marker.Line -match 'WAVE4_SESSION_RESULT:\s*REFLECT') { Assert-ReflectMarkerStamped -Since $sessionStart }
         if ($marker.Line -match 'WAVE4_SESSION_RESULT:\s*DONE-ALL') { Write-Host '[wave4] queue reported complete - stopping.'; break }
     } else {
-        # limit / overload errors are NOT failures - wait and retry
+        # limit / overload errors are NOT failures - wait and retry.
+        # 2026-08-19 incident: the real message is "You've hit your session limit - resets 5:10am",
+        # which the old narrow pattern (usage limit|rate limit|limit reached|quota|overloaded|429)
+        # did NOT match. Three such launches in 11 minutes burned the 3-strike budget and auto-halted
+        # a perfectly healthy run for ~5 hours. The pattern is now deliberately BROAD - a bare
+        # \blimit\b is enough. False positives are harmless: this branch is only reached when the
+        # session already failed, so the worst case is "wait 20 min and retry" instead of "count a strike".
         $errText = ''
         foreach ($f in @($LogFile, $ErrFile)) { if (Test-Path $f) { $errText += (Get-Content -Raw $f) } }
-        if ($errText -match '(?i)usage limit|rate.?limit|limit reached|quota|overloaded|429') {
-            Log-Usage "session $i hit a usage/rate limit - waiting 20 min (not counted as failure)"
+        $sessionRanSec = ((Get-Date) - $sessionStart).TotalSeconds
+        if ($errText -match '(?i)\blimit\b|quota|overloaded|too many requests|429|503|resets? (at )?\d') {
+            Log-Usage "session $i hit a usage/session limit - waiting 20 min (not counted as failure)"
             $sessionsLaunched--   # this attempt doesn't consume the iteration budget
             Start-Sleep -Seconds 1200
             continue
+        }
+        # SHORT-RUN TRANSIENT GUARD - the general backstop behind the pattern above, so the loop
+        # never again depends on matching an exact error string. Real task work takes many minutes;
+        # a session that dies in under $TransientFailSec is an environmental problem (quota, auth,
+        # network, bad launch), not a failed task, and must not spend the 3-strike budget that halts
+        # an unattended run. Capped, so a genuinely broken environment still halts eventually.
+        if ($sessionRanSec -lt $TransientFailSec) {
+            $transientRetries++
+            if ($transientRetries -le $MaxTransientRetries) {
+                Log-Usage ("session $i died in {0:n0}s (< {1}s) - transient, waiting 10 min (transient {2}/{3}, no strike)" -f $sessionRanSec, $TransientFailSec, $transientRetries, $MaxTransientRetries)
+                $sessionsLaunched--
+                Start-Sleep -Seconds 600
+                continue
+            }
+            Log-Usage "session $i died fast again - $transientRetries transient retries exhausted, counting as a real failure"
         }
         # a model-flag rejection on the plan model -> fall back to the exec model for the review pass
         if ($tier -eq 'plan' -and $errText -match '(?i)model') {
