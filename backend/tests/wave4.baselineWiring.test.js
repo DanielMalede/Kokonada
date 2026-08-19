@@ -322,8 +322,12 @@ describe('stale-while-revalidate peek (D15: no unpersonalized window every 6 h)'
     const [, blob, mode, ttl] = set.mock.calls[0];
     expect(mode).toBe('EX');
     expect(ttl).toBeGreaterThan(baselines.FRESH_TTL_S);
-    // unchanged: only an encrypted blob ever reaches Redis
-    expect(blob).not.toMatch(/52/);
+    // Only an encrypted blob ever reaches Redis — asserted on the plaintext FIELD NAME, never
+    // on the value. The blob is base64 AES-GCM ciphertext over a random IV, and base64's
+    // alphabet includes digits, so a two-digit needle like "52" occurs by chance across its
+    // ~111 adjacent pairs in ~2.7% of runs (1 in 37) — the identical flake already diagnosed
+    // and fixed in baselines.test.js. A 9-char field name cannot collide (p ~ 6e-15).
+    expect(blob).not.toContain('rhrMedian');
     expect(decrypt(blob, true, 'u1').rhrMedian).toBe(52);
   });
 });
