@@ -2,6 +2,7 @@
 
 const MedicalProfile = require('../models/MedicalProfile');
 const { encrypt } = require('../utils/encryption');
+const { byId, fromLegacyLabel } = require('../agents/runtime/knowledge/stateTaxonomy');
 
 // ── Priority-ordered state classification rules ────────────────────────────────
 //
@@ -190,8 +191,23 @@ function computeStateVector(telemetry) {
  * @param {object} telemetry - Raw pillar fields from the wearable adapter
  * @returns {Promise<MedicalProfile>}
  */
-async function upsertStateVector(userId, telemetry) {
+async function upsertStateVector(userId, telemetry, { affect = null } = {}) {
   const { status, confidence } = computeStateVector(telemetry);
+
+  // W4-006: resolve the TAXONOMY id alongside the legacy label.
+  //
+  // Preference order, and the reason for it: the affect engine's own label when it produced one
+  // (it reasons over six evidence axes and a temporal posterior), otherwise the nine-rule
+  // classifier's label mapped through the compat table — `computeStateVector` is kept as the
+  // DEGRADED fallback, exactly as the mission specifies, rather than deleted. A label the
+  // taxonomy does not contain is discarded rather than stored: an id nothing can resolve is
+  // worse than no id, because every consumer would silently fall through while looking supplied.
+  const declared = typeof affect?.label === 'string' ? affect.label : null;
+  const fromAffect = declared && byId(declared) ? declared : null;
+  const stateId = fromAffect ?? fromLegacyLabel(status);
+  const stateConfidence = fromAffect != null && Number.isFinite(affect?.confidence)
+    ? affect.confidence
+    : null;
 
   // The state label reveals the user's inferred emotional/physiological state, so
   // it is encrypted at rest. Encrypt explicitly here because setters do not run on
@@ -200,7 +216,15 @@ async function upsertStateVector(userId, telemetry) {
     { userId },
     {
       $set: {
-        stateVector: { status: encrypt(status), confidence, computedAt: new Date() },
+        stateVector: {
+          status: encrypt(status),
+          confidence,
+          computedAt: new Date(),
+          // `status`/`confidence` keep their exact prior meaning — they are the pair
+          // pulseController serves to the owner. The taxonomy pair is additive and internal.
+          stateId: stateId ? encrypt(stateId) : null,
+          stateConfidence,
+        },
       },
     },
     { upsert: true, new: true }

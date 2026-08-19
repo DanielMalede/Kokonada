@@ -3,10 +3,7 @@
 const MedicalProfile = require('../../models/MedicalProfile');
 const { peekBaselines } = require('../biosonic/baselines');
 const { translate } = require('../biosonic/translate');
-const { peekAffectState, saveAffectState } = require('../biosonic/affectCache');
-const { localHour } = require('../../agents/runtime/physiology/baselineEngine');
-const { updateAffect } = require('../../agents/runtime/physiology/affectEngine');
-const { STATES } = require('../../agents/runtime/knowledge/stateTaxonomy');
+const { resolveAffect, resolveHourContext } = require('../biosonic/affectService');
 const wellbeingRegulator = require('../../agents/runtime/translation/wellbeingRegulator');
 
 // Assemble the biosonic targets from everything the system knows: cached personal
@@ -43,58 +40,13 @@ const wellbeingRegulator = require('../../agents/runtime/translation/wellbeingRe
 // The second exists because turning off what a listener HEARS should not also blind W4-009's
 // transition detector or force every user back to a cold prior when the flag is lifted.
 
-/** S11 escape hatches. Read per call — a switch needing a redeploy is not an escape hatch. */
-const affectDisabled = () => Boolean(process.env.WAVE4_AFFECT_DISABLED);
+/**
+ * S11 escape hatch for the DECORATION only. `WAVE4_AFFECT_DISABLED` is honoured one level down,
+ * inside `resolveAffect`, so the whole layer cannot be half-wired; this flag stops the listener
+ * hearing the regulation while the posterior keeps advancing for W4-009 and the soak.
+ * Read per call — a switch that needs a redeploy is not an escape hatch.
+ */
 const trajectoryDisabled = () => Boolean(process.env[wellbeingRegulator.DISABLE_ENV_VAR]);
-
-const finite = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-
-/**
- * WHICH HOUR IS IT FOR THIS LISTENER? (D13's serving-path half)
- *
- * `translate()`'s wind-down and the affect engine's circadian axis both key off hour-of-day, and
- * until now that hour was the SERVER's — a user in Auckland got Frankfurt's evening. W4-004 made
- * the habitual offset available on the baseline blob (the modal non-null `tzOffsetMinutes` across
- * their samples), so when it is known it is used.
- *
- * When it is NOT known — which is every shipped client today, since mobile does not yet emit the
- * offset — the fallback is the SERVER's own offset, not zero. Zero is UTC, which is a different
- * hour from the server's for most of the world, so defaulting to it would silently move every
- * existing user's wind-down window while looking like a no-op. Returning the server offset makes
- * `localHour` reproduce `new Date(now).getHours()` exactly, which is what today does.
- *
- * Returning BOTH values matters: translate and the affect engine must agree about what time it is,
- * and they take the answer in different units.
- */
-function resolveHourContext(now, baselines) {
-  const declared = finite(baselines?.tzOffsetMinutes);
-  const tzOffsetMinutes = declared != null ? declared : -new Date(now).getTimezoneOffset();
-  return { tzOffsetMinutes, hourOfDay: Math.floor(localHour(now, tzOffsetMinutes)) };
-}
-
-/**
- * Run the affect layer for this generation. Returns the AffectState the regulator consumes, or
- * null when there is nothing honest to say. Never throws — the caller has a playlist to serve.
- */
-async function _resolveAffect({ userId, live, baselines, state, sleep, taps, tzOffsetMinutes, now }) {
-  try {
-    const carried = await peekAffectState(userId, { now });
-    const step = updateAffect(
-      carried,
-      { live, baselines: baselines ?? {}, state, sleep, taps, tzOffsetMinutes },
-      { now, states: STATES },
-    );
-    // Fire-and-forget: the posterior is a convenience for the NEXT generation, and waiting on a
-    // cache write to serve this one would trade a real latency budget for a speculative benefit.
-    Promise.resolve(saveAffectState(userId, step.state)).catch(() => {});
-    return step.affect;
-  } catch (e) {
-    // Type only — an engine validation message can quote the evidence that failed it, and on this
-    // path that evidence is a vital (§0.2.2).
-    console.error(`[affect] serving-path update failed: ${e?.name || 'Error'}`);
-    return null;
-  }
-}
 
 async function buildTargets({ userId, live = {}, moodKey = null, taps = null, now = Date.now() } = {}) {
   let baselines = null;
@@ -133,9 +85,7 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
     moodKey,
   });
 
-  if (affectDisabled()) return targets;
-
-  const affect = await _resolveAffect({
+  const affect = await resolveAffect({
     userId, live, baselines, state, sleep, taps, tzOffsetMinutes, now,
   });
 
@@ -148,4 +98,6 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
   return wellbeingRegulator.apply(targets, affect, { disabled: trajectoryDisabled() });
 }
 
+// `resolveHourContext` is re-exported (it lives in affectService, next to the engine that
+// shares its clock rule) so callers and tests have one import for the generation seam.
 module.exports = { buildTargets, resolveHourContext };

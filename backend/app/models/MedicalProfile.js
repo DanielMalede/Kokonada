@@ -91,6 +91,16 @@ const medicalProfileSchema = new mongoose.Schema({
     status:      { type: String, default: null }, // e.g. "Peak Athletic Performance"
     confidence:  { type: Number, default: null }, // 0–1
     computedAt:  { type: Date,   default: null },
+    // W4-006, ADDITIVE. The taxonomy state id ("peak-effort") — the INTERNAL vocabulary the
+    // engines reason in, stored encrypted for the same reason `status` is (audit F3, R10) and
+    // written explicitly by medicalProfileService because $set skips setters.
+    //
+    // Deliberately a SECOND field rather than a change of vocabulary on `status`: that field is
+    // decrypted and served to the owner by pulseController, and what a person is shown for a
+    // state is HITL H6 — Daniel's open decision, pending a compliance pass on the wording. A
+    // seam is not the place to settle it by accident.
+    stateId:         { type: String, default: null },
+    stateConfidence: { type: Number, default: null }, // 0–1, the affect engine's own
   },
 
   // How many biometric readings the AI used to build this profile

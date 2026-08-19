@@ -31,7 +31,25 @@ const {
   AXIS_RANGE, peakLogEmission, byId, bandOf, policyOf, explainOf, fromLegacyLabel, stateBandTable,
 } = require('../app/agents/runtime/knowledge/stateTaxonomy');
 
-const { _STATE_TO_BAND } = require('../app/services/moodDescriptors');
+// W4-006 SEAM-HALF RE-PIN (deliberate, not a weakening).
+//
+// These three tests used to read `moodDescriptors.LEGACY_BAND_RECORD` as an INDEPENDENT artifact —
+// the hand-written nine-entry table — which made "the taxonomy preserves what that consumer
+// already resolved" a real comparison. The seam half made that table DERIVED from
+// `stateBandTable()`, so reading it here would now compare the taxonomy against itself and pass
+// unconditionally. The comparison is therefore against a written-out RECORD of the pre-W4-006
+// table instead: the same assertion, against a source the code can no longer move.
+const LEGACY_BAND_RECORD = Object.freeze({
+  'High-Stress / Pre-Panic':           'resting',
+  'Peak Athletic Performance':         'peak',
+  'Intense Workout':                   'peak',
+  'Active Recovery':                   'active',
+  'Morning Activation':                'active',
+  'Exhausted Commute':                 'resting',
+  'Screen-Off / Background Listening': 'resting',
+  'Deep Focus / Flow State':           'active',
+  'Resting / Meditative':              'resting',
+});
 
 const HALF_LOG_2PI = 0.5 * Math.log(2 * Math.PI);
 
@@ -375,28 +393,28 @@ describe('stateTaxonomy — explain templates claim only what the state measures
 
 describe('stateTaxonomy — legacy compatibility (the seam W4-006 has to keep)', () => {
   test('all nine legacy labels map into the taxonomy, plus the Neutral fallback', () => {
-    for (const label of Object.keys(_STATE_TO_BAND)) {
+    for (const label of Object.keys(LEGACY_BAND_RECORD)) {
       expect(byId(fromLegacyLabel(label))).not.toBeNull();
     }
     expect(fromLegacyLabel('Neutral')).toBe('neutral-baseline');
     expect(fromLegacyLabel('not a label')).toBeNull();
-    expect(Object.keys(LEGACY_STATE_MAP)).toHaveLength(Object.keys(_STATE_TO_BAND).length + 1);
+    expect(Object.keys(LEGACY_STATE_MAP)).toHaveLength(Object.keys(LEGACY_BAND_RECORD).length + 1);
   });
 
   test('the mapping preserves the band every legacy label already resolved to', () => {
-    for (const [label, band] of Object.entries(_STATE_TO_BAND)) {
+    for (const [label, band] of Object.entries(LEGACY_BAND_RECORD)) {
       expect(bandOf(fromLegacyLabel(label))).toBe(band);
     }
   });
 
-  test('stateBandTable is a STRICT SUPERSET of _STATE_TO_BAND — no consumer loses a key', () => {
+  test('stateBandTable is a STRICT SUPERSET of the pre-W4-006 table — no consumer loses a key', () => {
     const table = stateBandTable();
-    for (const [label, band] of Object.entries(_STATE_TO_BAND)) expect(table[label]).toBe(band);
+    for (const [label, band] of Object.entries(LEGACY_BAND_RECORD)) expect(table[label]).toBe(band);
     for (const s of STATES) {
       if (s.id === 'neutral-baseline') continue;
       expect(table[s.id]).toBe(s.band);
     }
-    expect(Object.keys(table).length).toBe(Object.keys(_STATE_TO_BAND).length + STATES.length - 1);
+    expect(Object.keys(table).length).toBe(Object.keys(LEGACY_BAND_RECORD).length + STATES.length - 1);
   });
 });
 
