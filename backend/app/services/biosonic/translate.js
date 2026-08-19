@@ -216,4 +216,7 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   };
 }
 
-module.exports = { translate, VERSION };
+// ACTIVITY_EXERTION_FLOOR is exported for the W4-005 affect engine, which reuses these exact
+// numbers as a Bayesian PRIOR rather than as a floor (see affectEngine.exertionAxis). One table,
+// two readings of it — a second copy would drift.
+module.exports = { translate, VERSION, ACTIVITY_EXERTION_FLOOR };
