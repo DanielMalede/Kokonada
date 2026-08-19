@@ -641,7 +641,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // the pipeline key off the SAME object (no double translate). OFF → stays null and every
     // downstream call behaves exactly as today (generateV2's default targets is null → recompute).
     const bandTargets = DISCOVERY_BAND_AWARE()
-      ? await orchestrator.buildTargets({ userId, live: { heartRate: state.stableHR, activity: effectiveActivity }, moodKey })
+      ? await orchestrator.buildTargets({ userId, live: { heartRate: state.stableHR, activity: effectiveActivity }, moodKey, taps: state.lastEmotionTaps })
       : null;
     let fetchTracks;
     let spotifyToken = null; // hoisted so the post-mix Spotify translation step can reuse it
