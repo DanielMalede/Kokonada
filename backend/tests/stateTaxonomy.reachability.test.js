@@ -238,7 +238,7 @@ describe('stateTaxonomy reachability — the label is a state, not a reading', (
     // across the deep-rest/resting-content boundary every three minutes for two hours and counts
     // reported transitions; a memoryless labeller would follow every swing.
     const personaId = 'sedentary';
-    const { persona, blob } = baselineFor(personaId);
+    const { persona } = baselineFor(personaId);
     const t0 = Date.UTC(2026, 7, 1, 0, 0, 0) + 21 * 3600e3 - persona.tzOffsetMinutes * 60e3;
     let engineState = createAffectState({ states: STATES });
     let transitions = 0;
