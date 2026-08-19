@@ -2,6 +2,7 @@ const axios      = require('axios');
 const crypto     = require('crypto');
 const BiometricLog = require('../../models/BiometricLog');
 const { normalize } = require('./adapter');
+const { insertManyAccounted } = require('./insertAccounted');
 
 const BASE = 'https://cloudapi.suunto.com/v2';
 
