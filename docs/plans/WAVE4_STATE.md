@@ -20,7 +20,7 @@
 |----|-------|------|------|------|--------|---------------|-------|
 | W4-000 | Bootstrap, review pass, ADR-0012 | MUST | S | — | done | 1,3 | review pass + S1 preflight + worker.test.js leak fix + green baseline (163/1767, see testBaseline above) + ADR-0012 + tripwire all landed in `d1db088`. ADR filed as `docs/adr/0012-learning-compliance.md` matching the repo's existing `000N-kebab-title.md` convention (not the mission text's `ADR-0012-…` — intentional call, ADR README index refreshed). Docker is NOT installed on this machine — S1a's `docker-compose up` path is not viable here (moot: the injected-queue-seam fix superseded it). |
 | W4-001 | Surgical bug backlog (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9) | MUST | M | 000 | done | 5 | all 10 sub-fixes landed (`f2add0e`→`b92aee3`). Suite **164 suites / 1802 tests** green (baseline 163/1767: +1 suite `wave4.bugfix.test.js`, +34 new pins, +1 re-pin). 3 deliberate re-pins, see below. Shared HR predicate extracted to `app/services/wearable/hrRange.js`; `WATCH_HR_DELTA_THRESHOLD` retired (subsumed by the band trigger). |
-| W4-002 | Synthetic-human simulator + replay | MUST | L | 000 | pending | — | |
+| W4-002 | Synthetic-human simulator + replay | MUST | L | 000 | in_progress | 11 | session 11: seeded RNG + personas + generator + holdouts first, then replay/soak. |
 | W4-003 | A0 signal integrity + live persistence | MUST | L | 001,002 | pending | — | |
 | W4-004 | A1+A2 baselines & chronobiology v2 | MUST | L | 003 | pending | — | superset blob = HRV fix |
 | W4-005 | A3 affect engine core (axes+HMM) | MUST | L | 004 | pending | — | |
