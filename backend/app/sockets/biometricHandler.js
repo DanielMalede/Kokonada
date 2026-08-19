@@ -311,6 +311,25 @@ function clearTimer(state) {
   }
 }
 
+/**
+ * Drop ALL socket debounce state — releasing every armed timer first (W4-D06).
+ *
+ * `debounceMap` is module-global and a debounce timer runs for a full minute, so dropping entries
+ * with `debounceMap.delete()`/`.clear()` does NOT stop the timers: it only makes the armed
+ * callbacks unreachable while they keep the event loop alive and then fire against whatever state
+ * exists a minute later. In production `registerBiometricHandler`'s disconnect handler gets the
+ * order right (`clearTimer` THEN `delete`); a caller reaching for the map directly cannot, which is
+ * how 60 s timers leaked across a whole wave and fired inside later suites of the same in-band run.
+ *
+ * Release and clear are therefore ONE operation, not a sequence a caller has to remember — the
+ * lesson of W4-D02: a rule nobody can fail loudly is not a control. Built on the same `clearTimer`
+ * the disconnect path uses, so there is a single definition of "let go of an armed timer".
+ */
+function _resetDebounceState() {
+  for (const state of debounceMap.values()) clearTimer(state);
+  debounceMap.clear();
+}
+
 const THIRTY_MIN_MS = 30 * 60 * 1000;
 
 // "Listen to your heart": resolve the heart-rate context to drive a playlist,
@@ -1370,6 +1389,7 @@ module.exports = {
   handleBiometricReading,
   _debounceMap: debounceMap,
   // Exported for unit testing
+  _resetDebounceState,
   _shouldRecalibrate,
   HR_NOISE_FLOOR,
   HR_BAND_RELEASE_MARGIN,

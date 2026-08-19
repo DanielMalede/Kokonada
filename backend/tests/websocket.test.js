@@ -146,7 +146,7 @@ describe('WebSocket auth', () => {
 // ── Biometric handler unit tests ───────────────────────────────────────────────
 // These tests use a mock socket object — no network needed.
 describe('biometricHandler — normalize + ack', () => {
-  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+  const { registerBiometricHandler, _debounceMap, _resetDebounceState } = require('../app/sockets/biometricHandler');
 
   function makeMockSocket(userId = 'user-abc') {
     const handlers = {};
@@ -159,7 +159,7 @@ describe('biometricHandler — normalize + ack', () => {
   }
 
   afterEach(() => {
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   it('emits biometric_ack with normalized data on valid garmin push', async () => {
@@ -246,7 +246,7 @@ describe('biometricHandler — normalize + ack', () => {
 });
 
 describe('biometricHandler — 60-second debounce', () => {
-  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+  const { registerBiometricHandler, _debounceMap, _resetDebounceState } = require('../app/sockets/biometricHandler');
 
   function makeMockSocket(userId = 'user-debounce') {
     const handlers = {};
@@ -265,12 +265,12 @@ describe('biometricHandler — 60-second debounce', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   afterEach(() => {
     jest.useRealTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   it('does NOT emit recalibration_pending when delta < 10 BPM', async () => {
@@ -361,7 +361,7 @@ describe('biometricHandler — 60-second debounce', () => {
 });
 
 describe('biometricHandler — skip loop', () => {
-  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+  const { registerBiometricHandler, _debounceMap, _resetDebounceState } = require('../app/sockets/biometricHandler');
 
   function makeMockSocket(userId = 'user-skip') {
     const handlers = {};
@@ -375,12 +375,12 @@ describe('biometricHandler — skip loop', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   afterEach(() => {
     jest.useRealTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   it('does NOT recalibrate on a single skip', () => {

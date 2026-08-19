@@ -15,7 +15,7 @@ const { translate }           = require('../app/services/biosonic/translate');
 const { _buildEmotionPrompt } = require('../app/services/geminiEngine');
 const { isPhysiologicalHR, HR_MIN, HR_MAX } = require('../app/services/wearable/hrRange');
 const {
-  _shouldRecalibrate, _debounceMap, handleBiometricReading, HR_NOISE_FLOOR,
+  _shouldRecalibrate, _debounceMap, _resetDebounceState, handleBiometricReading, HR_NOISE_FLOOR,
 } = require('../app/sockets/biometricHandler');
 const { _analyzeYouTubeTracks, _analyzeSpotifyProfile, SOURCE_WEIGHTS } =
   require('../app/services/musicProfileService');
@@ -37,6 +37,12 @@ function makeSocket(id = 'w4-sock') {
   return { id, emit: jest.fn(), data: { user: { _id: 'u-w4' } } };
 }
 const events = (socket) => socket.emit.mock.calls.map((c) => c[0]);
+
+// W4-D06: the streaming lane arms a 60 s debounce timer, and dropping the map entry directly
+// does NOT stop it — the callback then fires inside a LATER suite of the same in-band run.
+// `_resetDebounceState()` releases then clears in one step; the run-level guard in
+// jest/globalTeardown.js is what makes a regression loud instead of silent behind `--forceExit`.
+afterEach(() => { _resetDebounceState(); });
 
 // A garmin push carries a real timestamp; the adapter turns startTimeLocal into recordedAt.
 const RAW = (heartRate, activityType = 0) => ({ heartRate, activityType, startTimeLocal: '2026-01-01T10:00:00' });
@@ -74,7 +80,7 @@ describe('D9 — a single shared physiological HR predicate (30–220)', () => {
       handleBiometricReading(socket, 'garmin', RAW(hr));
       expect(events(socket)).toContain('connection_error');
       expect(events(socket)).not.toContain('biometric_ack');
-      _debounceMap.delete(socket.id);
+      _resetDebounceState();
     }
   });
 
@@ -82,7 +88,7 @@ describe('D9 — a single shared physiological HR predicate (30–220)', () => {
     const socket = makeSocket('d9-ok');
     handleBiometricReading(socket, 'garmin', RAW(72));
     expect(events(socket)).toContain('biometric_ack');
-    _debounceMap.delete(socket.id);
+    _resetDebounceState();
   });
 
   it('the watch route delegates to the SAME predicate instead of its own 30–230 range', () => {
@@ -94,7 +100,7 @@ describe('D9 — a single shared physiological HR predicate (30–220)', () => {
 
 // ── D7 · silent drift ─────────────────────────────────────────────────────────
 describe('D7 — sub-threshold readings can no longer walk the confirmed HR', () => {
-  afterEach(() => { _debounceMap.clear(); });
+  afterEach(() => { _resetDebounceState(); });
 
   it('9 bpm steps do NOT silently move stableHR from 60 to 150', () => {
     const socket = makeSocket('d7-drift');
@@ -127,8 +133,8 @@ describe('D7 — sub-threshold readings can no longer walk the confirmed HR', ()
 
 // ── D8 · stale debounce snapshot ──────────────────────────────────────────────
 describe('D8 — the debounce confirms the LATEST reading, not a stale snapshot', () => {
-  beforeEach(() => { jest.useFakeTimers(); _debounceMap.clear(); });
-  afterEach(() => { jest.useRealTimers(); _debounceMap.clear(); });
+  beforeEach(() => { jest.useFakeTimers(); _resetDebounceState(); });
+  afterEach(() => { _resetDebounceState(); jest.useRealTimers(); });
 
   it('refreshes the pending value on every reading inside the window', () => {
     const socket = makeSocket('d8-refresh');

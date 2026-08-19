@@ -7,7 +7,8 @@
     "start": "node app/index.js",
     "worker": "node app/worker.js",
     "dev": "nodemon app/index.js",
-    "test": "jest --runInBand --forceExit"
+    "test": "jest --runInBand --forceExit",
+    "test:handles": "jest --runInBand --forceExit --detectOpenHandles"
   },
   "keywords": [],
   "author": "",
@@ -34,6 +35,11 @@
   },
   "overrides": {
     "bson": "7.2.0"
+  },
+  "jest": {
+    "globalSetup": "<rootDir>/jest/globalSetup.js",
+    "globalTeardown": "<rootDir>/jest/globalTeardown.js",
+    "testResultsProcessor": "<rootDir>/jest/openHandleResultsProcessor.js"
   },
   "devDependencies": {
     "jest": "^29.7.0",

@@ -22,7 +22,7 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 
 const {
-  _shouldRecalibrate, _debounceMap, handleBiometricReading,
+  _shouldRecalibrate, _debounceMap, _resetDebounceState, handleBiometricReading,
   HR_NOISE_FLOOR, HR_BAND_RELEASE_MARGIN, RECAL_HYSTERESIS_FLAG,
 } = require('../app/sockets/biometricHandler');
 const { bandFromHeartRate, BAND_LOWER_CUT } = require('../app/services/moodDescriptors');
@@ -57,7 +57,7 @@ function pingSeries(socketId, hrs, { activity } = {}) {
 
 afterEach(() => {
   delete process.env[RECAL_HYSTERESIS_FLAG];
-  _debounceMap.clear();
+  _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
 });
 
 // ── The cuts have ONE definition ──────────────────────────────────────────────
