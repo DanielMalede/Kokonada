@@ -83,6 +83,7 @@ function fromGarmin(raw) {
     activity:   resolveActivity('garmin', raw.activityType),
     recordedAt: new Date(raw.startTimeLocal),
     source:     'garmin',
+    tzOffsetMinutes: sanitizeTzOffset(raw.tzOffsetMinutes),
   };
 }
 
@@ -96,6 +97,7 @@ function fromAppleHealth(raw) {
     activity:   resolveActivity('apple_health', raw.workoutType ?? null),
     recordedAt: new Date(raw.startDate),
     source:     'apple_health',
+    tzOffsetMinutes: sanitizeTzOffset(raw.tzOffsetMinutes),
   };
 }
 
@@ -109,6 +111,7 @@ function fromSuunto(raw) {
     activity:   resolveActivity('suunto', raw.sport ?? null),
     recordedAt: new Date(raw.timestamp),
     source:     'suunto',
+    tzOffsetMinutes: sanitizeTzOffset(raw.tzOffsetMinutes),
   };
 }
 

@@ -89,8 +89,9 @@ async function persistVitalSamples(userId, metrics) {
     if (!docs.length) return { inserted: 0, rejected: NO_REJECTS };
     return await insertManyAccounted(VitalSample, docs);
   } catch (e) {
-    // Count only — a message could carry a value on some driver errors.
-    console.error(`[metricStore] vital persist failed for ${docs.length} row(s):`, e.message);
+    // A driver/validation message can echo the offending VALUE ("340 is above maximum"), and these
+    // rows ARE the vitals. So the error TYPE and a count, never the message. (§0.2.2)
+    console.error(`[metricStore] vital persist failed for ${docs.length} row(s): ${e?.name || 'Error'}`);
     return { inserted: 0, rejected: NO_REJECTS };
   }
 }
@@ -110,7 +111,10 @@ async function persistMetrics(userId, metrics) {
   // dedupe (no DB unique index) so the live watch path is untouched.
   let hrDocs = (metrics || [])
     .filter(m => m.metric === 'heartRate')
-    .map(m => ({ userId, heartRate: m.value, activity: 'unknown', source: m.source, recordedAt: m.recordedAt }));
+    .map(m => ({
+      userId, heartRate: m.value, activity: 'unknown', source: m.source, recordedAt: m.recordedAt,
+      tzOffsetMinutes: sanitizeTzOffset(m.tzOffsetMinutes),
+    }));
 
   if (hrDocs.length) {
     const times = hrDocs.map(d => d.recordedAt.getTime());

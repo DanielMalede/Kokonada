@@ -17,6 +17,12 @@ async function process(job) {
 
   const stats = await baselinesService.computeBaselines(userId);
   await baselinesService.cacheBaselines(userId, stats);
+  // W4-004: the engine also derives HRmax + Karvonen zones (§M.7). Persisting them onto the
+  // (previously dormant) MedicalProfile fields keeps the stored profile consistent with the
+  // physiology the engine reasons with. Decoration only — the baselines are already cached above,
+  // so a failure here must never cost the user their refresh. Guarded at the CALL as well as
+  // inside, because "the callee catches" is a property that quietly stops being true.
+  await baselinesService.persistDerivedProfile(userId, stats).catch(() => {});
 
   const profile = await MedicalProfile.findOne({ userId }); // getters decrypt here only
   const telemetry = profile ? (typeof profile.toObject === 'function' ? profile.toObject() : profile) : {};

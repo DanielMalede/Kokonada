@@ -6,6 +6,8 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 jest.mock('../app/services/biosonic/baselines', () => ({
   computeBaselines: jest.fn().mockResolvedValue({ rhrMedian: 60, rhrMAD: 4, sampleCount: 40 }),
   cacheBaselines: jest.fn().mockResolvedValue(undefined),
+  // W4-004: the refresh also writes back the derived HRmax + Karvonen zones.
+  persistDerivedProfile: jest.fn().mockResolvedValue(true),
   getBaselines: jest.fn(),
 }));
 jest.mock('../app/services/medicalProfileService', () => ({
@@ -34,6 +36,17 @@ describe('stateVector worker', () => {
     expect(baselines.computeBaselines).toHaveBeenCalledWith('u1');
     expect(baselines.cacheBaselines).toHaveBeenCalledWith('u1', expect.objectContaining({ rhrMedian: 60 }));
     expect(upsertStateVector).toHaveBeenCalledWith('u1', expect.any(Object));
+    // W4-004: the same refresh writes the derived HRmax + Karvonen zones back onto the profile,
+    // from the SAME blob it just cached — not a second, divergent computation.
+    expect(baselines.persistDerivedProfile)
+      .toHaveBeenCalledWith('u1', expect.objectContaining({ rhrMedian: 60 }));
+  });
+
+  it('a failed zone write-back never fails the refresh (best-effort decoration)', async () => {
+    baselines.persistDerivedProfile.mockRejectedValueOnce(new Error('profile write failed'));
+
+    await expect(worker.process({ data: { userId: 'u1' } })).resolves.toBeTruthy();
+    expect(baselines.cacheBaselines).toHaveBeenCalled();
   });
 
   it('returns a summary that carries NO raw biometric values (zero-knowledge boundary)', async () => {

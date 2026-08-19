@@ -10,6 +10,14 @@ const { normalizeGarminSummaries } = require('../app/services/wearable/adapter')
 const START = 1700000000; // epoch seconds
 const startDate = new Date(START * 1000);
 
+// DELIBERATE RE-PIN (W4-004): every canonical record now carries `tzOffsetMinutes` — the wearer's
+// own UTC offset, derived from Garmin's `startTimeOffsetInSeconds` when the summary supplies one
+// and null otherwise. These assertions stay EXACT (toEqual, not toMatchObject) because their whole
+// job is to catch an unexpected field; they simply declare the new one. `rec()` states the default
+// once instead of scattering `tzOffsetMinutes: null` through twelve object literals.
+const rec = (o) => ({ tzOffsetMinutes: null, ...o });
+const recs = (...o) => o.map(rec);
+
 describe('normalizeGarminSummaries — sleeps', () => {
   it('maps deep/light/rem second-durations to per-night minute metrics', () => {
     const out = normalizeGarminSummaries('sleeps', {
@@ -18,11 +26,11 @@ describe('normalizeGarminSummaries — sleeps', () => {
       lightSleepDurationInSeconds: 7200,
       remSleepInSeconds: 1800,
     });
-    expect(out).toEqual([
+    expect(out).toEqual(recs(
       { metric: 'sleepDeep', value: 60, unit: 'min', recordedAt: startDate, source: 'garmin' },
       { metric: 'sleepLight', value: 120, unit: 'min', recordedAt: startDate, source: 'garmin' },
       { metric: 'sleepRem', value: 30, unit: 'min', recordedAt: startDate, source: 'garmin' },
-    ]);
+    ));
   });
 
   it('accepts the remSleepDurationInSeconds name variant', () => {
@@ -30,7 +38,7 @@ describe('normalizeGarminSummaries — sleeps', () => {
       startTimeInSeconds: START,
       remSleepDurationInSeconds: 1200,
     });
-    expect(out).toEqual([{ metric: 'sleepRem', value: 20, unit: 'min', recordedAt: startDate, source: 'garmin' }]);
+    expect(out).toEqual([rec({ metric: 'sleepRem', value: 20, unit: 'min', recordedAt: startDate, source: 'garmin' })]);
   });
 });
 
@@ -41,16 +49,16 @@ describe('normalizeGarminSummaries — dailies', () => {
       restingHeartRateInBeatsPerMinute: 52,
       timeOffsetHeartRateSamples: { '0': 60, '60': 62 },
     });
-    expect(out).toContainEqual({ metric: 'restingHeartRate', value: 52, unit: 'bpm', recordedAt: startDate, source: 'garmin' });
-    expect(out).toContainEqual({ metric: 'heartRate', value: 60, unit: 'bpm', recordedAt: new Date(START * 1000), source: 'garmin' });
-    expect(out).toContainEqual({ metric: 'heartRate', value: 62, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' });
+    expect(out).toContainEqual(rec({ metric: 'restingHeartRate', value: 52, unit: 'bpm', recordedAt: startDate, source: 'garmin' }));
+    expect(out).toContainEqual(rec({ metric: 'heartRate', value: 60, unit: 'bpm', recordedAt: new Date(START * 1000), source: 'garmin' }));
+    expect(out).toContainEqual(rec({ metric: 'heartRate', value: 62, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' }));
   });
 });
 
 describe('normalizeGarminSummaries — hrv / respiration / pulseox / stress', () => {
   it('maps hrv lastNightAvg', () => {
     const out = normalizeGarminSummaries('hrv', { startTimeInSeconds: START, lastNightAvg: 48 });
-    expect(out).toEqual([{ metric: 'hrv', value: 48, unit: 'ms', recordedAt: startDate, source: 'garmin' }]);
+    expect(out).toEqual([rec({ metric: 'hrv', value: 48, unit: 'ms', recordedAt: startDate, source: 'garmin' })]);
   });
 
   it('maps respiration timeOffsetEpochToBreaths', () => {
@@ -67,7 +75,7 @@ describe('normalizeGarminSummaries — hrv / respiration / pulseox / stress', ()
       startTimeInSeconds: START,
       timeOffsetSpo2Values: { '0': 97 },
     });
-    expect(out).toEqual([{ metric: 'spO2', value: 97, unit: '%', recordedAt: startDate, source: 'garmin' }]);
+    expect(out).toEqual([rec({ metric: 'spO2', value: 97, unit: '%', recordedAt: startDate, source: 'garmin' })]);
   });
 
   it('maps stressDetails body battery values (proprietary metric Health Connect strips)', () => {
@@ -91,7 +99,7 @@ describe('normalizeGarminSummaries — robustness', () => {
       restingHeartRateInBeatsPerMinute: -1, // Garmin invalid sentinel
       timeOffsetHeartRateSamples: { '0': 0, '60': 61 },
     });
-    expect(out).toEqual([{ metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' }]);
+    expect(out).toEqual([rec({ metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' })]);
   });
 });
 
@@ -101,7 +109,7 @@ describe('normalizeGarminSummaries — physiological range bounds (audit T2.2)',
       startTimeInSeconds: START,
       timeOffsetHeartRateSamples: { '0': 300, '60': 61 }, // 300 bpm is physiologically impossible
     });
-    expect(out).toEqual([{ metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' }]);
+    expect(out).toEqual([rec({ metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' })]);
   });
 
   it('drops an impossible resting HR (> 260)', () => {

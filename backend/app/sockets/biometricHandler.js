@@ -1204,6 +1204,9 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
       activity:   normalized.activity ?? 'unknown',
       source:     normalized.source,
       recordedAt,
+      // W4-004: the wearer's own offset when the client sends one; null (server-hour fallback)
+      // for every client shipped today. Mobile emission is an on-device checklist item.
+      tzOffsetMinutes: normalized.tzOffsetMinutes ?? null,
     }], { label: 'BiometricLog.live' });
   } catch (e) {
     console.error('[biometricHandler] live persistence failed:', e.message);

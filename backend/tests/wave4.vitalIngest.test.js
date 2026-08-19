@@ -247,3 +247,59 @@ describe('tzOffsetMinutes on the batch lane (additive, optional)', () => {
     expect(out[0].tzOffsetMinutes).toBe(120);
   });
 });
+
+describe('tzOffsetMinutes on the LIVE socket lane (additive, optional)', () => {
+  const { normalize } = require('../app/services/wearable/adapter');
+
+  it('passes a device-supplied offset through every live normalizer', () => {
+    expect(normalize('garmin', {
+      heartRate: 72, activityType: 0, startTimeLocal: '2026-08-01T07:00:00Z', tzOffsetMinutes: 120,
+    }).tzOffsetMinutes).toBe(120);
+    expect(normalize('apple_health', {
+      value: 72, startDate: '2026-08-01T07:00:00Z', tzOffsetMinutes: -300,
+    }).tzOffsetMinutes).toBe(-300);
+    expect(normalize('suunto', {
+      hr: 72, timestamp: '2026-08-01T07:00:00Z', tzOffsetMinutes: 0,
+    }).tzOffsetMinutes).toBe(0); // 0 is a REAL offset and must survive
+  });
+
+  it('is null when the client does not send one (every shipped client, today)', () => {
+    expect(normalize('garmin', {
+      heartRate: 72, activityType: 0, startTimeLocal: '2026-08-01T07:00:00Z',
+    }).tzOffsetMinutes).toBeNull();
+  });
+
+  it('drops an out-of-band offset rather than trusting the client (S6)', () => {
+    expect(normalize('garmin', {
+      heartRate: 72, activityType: 0, startTimeLocal: '2026-08-01T07:00:00Z', tzOffsetMinutes: 999,
+    }).tzOffsetMinutes).toBeNull();
+  });
+
+  it('BiometricLog can STORE the offset — without this the plumbing stops at the door', () => {
+    const BiometricLogReal = jest.requireActual('../app/models/BiometricLog');
+    const path = BiometricLogReal.schema.path('tzOffsetMinutes');
+    expect(path).toBeDefined();
+    expect(path.options.default).toBeNull();
+    expect(path.options.min).toBe(-840);
+    expect(path.options.max).toBe(720);
+  });
+});
+
+describe('zero-knowledge: the new failure paths log a type and a count, never a vital (§0.2.2)', () => {
+  it('a rejected vital write never puts the value in the log', async () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const err = new Error('VitalSample validation failed: value 340 is above the maximum');
+    err.name = 'ValidationError';
+    mockVitalInsertMany.mockRejectedValueOnce(err);
+
+    await persistMetrics('u1', [
+      { metric: 'hrv', value: 340, recordedAt: at('2026-08-01T07:00:00Z'), source: 'garmin' },
+    ]);
+
+    const logged = spy.mock.calls.flat().join(' ');
+    expect(logged).toContain('ValidationError');
+    expect(logged).not.toContain('340');
+    expect(logged).not.toMatch(/above the maximum/);
+    spy.mockRestore();
+  });
+});

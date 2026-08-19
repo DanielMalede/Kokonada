@@ -118,6 +118,26 @@ describe('W4-D13 · retention documentation is registered, not remembered', () =
     expect([...declared].sort()).toEqual([...actual].sort());
   });
 
+  // W4-D13 (c) — the declaration and the code must agree about what is COLLECTED, not merely
+  // about what a schema could hold. `VitalSample.metric` is a consent-v2-ready superset, so a
+  // future reader grepping the enum would otherwise conclude we collect SpO₂. The doc says the
+  // enum is a superset with no writer; this is what makes that sentence checkable.
+  it('gives the metrics declared "NOT collected" no writer while that declaration stands', () => {
+    // Emphasis markers are editorial and move around; strip them before matching the claim.
+    const doc = readDoc().replace(/\*/g, '');
+    const declaresNotCollected = /SpO₂ and respirator(y rate|ial) .{0,10}are\s+not collected/i.test(doc);
+    expect(declaresNotCollected).toBe(true); // if this is ever removed, revisit the pins below
+
+    const { VITAL_METRICS_PERSISTED } = require('../app/services/wearable/metricStore');
+    expect(VITAL_METRICS_PERSISTED).not.toContain('spO2');
+    expect(VITAL_METRICS_PERSISTED).not.toContain('respirationRate');
+
+    // …and the enum really is wider than the writer, which is the claim the doc makes.
+    const { VITAL_METRICS } = jest.requireActual('../app/models/VitalSample');
+    expect(VITAL_METRICS).toContain('spO2');
+    expect(VITAL_METRICS).toContain('respirationRate');
+  });
+
   it('keeps the erasure-cascade provenance comment pointing at the real function', () => {
     const doc = readDoc();
     const line = doc.split('\n').find((l) => l.includes('Users can request data deletion'));
