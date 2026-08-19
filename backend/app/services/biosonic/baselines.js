@@ -205,6 +205,12 @@ async function computeBaselines(userId) {
   // null baseline makes the resting-elevation stress term ABSTAIN rather than score the user
   // against a stranger's physiology.
   //
+  // That sentence was FALSE when it was written and is true now (W4-D15). `translate`'s numeric
+  // guard read `Number.isFinite(Number(x))`, and `Number(null)` is 0 — so a null median did not
+  // abstain, it anchored the z-score at a resting pulse of ZERO and reported stress = 1.0 for
+  // every calm user this branch produces. The guard is fixed; this comment is now load-bearing
+  // rather than aspirational, and `tests/wave4.nullBaseline.test.js` pins it from both ends.
+  //
   // The engine, by design, always returns a number — with zero evidence that number is the
   // population prior, correctly tagged `confidence: 0`. Handing that to translate through the
   // legacy key would silently convert "we don't know" into "62 bpm", which is the fabrication the
@@ -216,11 +222,23 @@ async function computeBaselines(userId) {
   // estimate; only genuinely zero evidence produces null. The superset keys are untouched, so
   // engines that want the prior and its confidence still get both.
   const hasPersonalEvidence = blob.sampleCount > 0;
+  // The HRV pair gets the SAME ruling, gated on its OWN evidence (W4-D15(e)). It was passing the
+  // engine's population prior through untouched, which is the identical fabrication one metric
+  // over — and the two pairs are independent: a user can have months of heart rate and no HRV.
+  // Nulling it is numerically free today, because translate carries its own HRV population
+  // fallback whose constants equal `POPULATION.hrv` exactly (pinned in wave4.nullBaseline), so the
+  // z-score is unchanged; what changes is that the D14 confidence ladder stops counting an unknown
+  // person as a known one, and the W4-005 affect engine's HRV axis abstains instead of scoring
+  // against a stranger. The superset keys (`coverage.hrvDays`, `coverage.hrvConfidence`, `acute`,
+  // `chronic`, `trend`) still carry the prior and its confidence for engines that want both.
+  const hasHrvEvidence = (blob.coverage?.hrvDays ?? 0) > 0;
 
   return {
     ...blob,
     rhrMedian: hasPersonalEvidence ? blob.rhrMedian : null,
     rhrMAD: hasPersonalEvidence ? blob.rhrMAD : null,
+    hrvMedian: hasHrvEvidence ? blob.hrvMedian : null,
+    hrvMAD: hasHrvEvidence ? blob.hrvMAD : null,
     // Reported so a consumer can tell a genuine UTC user from a server-hour fallback.
     tzOffsetMinutes,
   };

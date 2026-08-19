@@ -1,6 +1,10 @@
 'use strict';
 
 const { MOOD_DESCRIPTORS, moodCoords } = require('../moodDescriptors');
+// The lowest spread any robust z-score here may divide by. One definition, shared with the engine
+// that produces most of these baselines — see _robustZ. (No cycle: baselineEngine imports only
+// chronobiology, and neither imports this file.)
+const { MIN_SPREAD } = require('../../agents/runtime/physiology/baselineEngine');
 
 // The biometric→sonic translation function. PURE — zero I/O, fully deterministic,
 // every output finite and range-clamped for ANY input. This is the numeric layer
@@ -54,16 +58,54 @@ const ACTIVITY_ENERGY = {
   resting: 0.15, 'winding down': 0.15,
 };
 
+// S11 escape hatch for the whole W4-D15 repair: set it to restore the pre-repair behaviour
+// byte-for-byte, without a revert. It covers BOTH halves — the null/'' coercion and the MIN_SPREAD
+// floor — because they are one behaviour from an operator's point of view: whether a degenerate or
+// absent baseline makes the stress term abstain or saturate. Read per call, not at module load, so
+// toggling it needs no process restart.
+const ABSTENTION_FLAG = 'WAVE4_BASELINE_ABSTENTION_DISABLED';
+const abstentionDisabled = () => Boolean(process.env[ABSTENTION_FLAG]);
+
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const round3 = (x) => Math.round(x * 1000) / 1000;
-const finite = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+// `Number(null)`, `Number('')`, `Number(false)` and `Number([])` are all 0, and 0 is finite — so
+// the old guard (`Number.isFinite(Number(x)) ? Number(x) : null`) could not tell "nothing was
+// measured" from "zero was measured". For a vital those are opposite claims, and the coercion
+// always landed on the alarming one: a null resting-HR baseline became a resting pulse of ZERO,
+// against which every human heart rate z-scores as maximal stress (D3/D4's exact target profile,
+// re-created through a type coercion). A value is a measurement only if it is a finite number, or
+// a non-blank string that parses to one. (W4-D15 — the same guard baselineEngine.js and
+// chronobiology.js already carry; this is the copy on the serving path that never got it.)
+const finite = (x) => {
+  if (abstentionDisabled()) return Number.isFinite(Number(x)) ? Number(x) : null;
+  if (typeof x === 'number') return Number.isFinite(x) ? x : null;
+  if (typeof x === 'string' && x.trim() !== '') {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
+// `fallback` is the term's ABSTENTION CONTRACT, not a convenience: pass a population prior to say
+// "score this against the population when the person is unknown" (the HRV term does), or pass null
+// to say "produce no score at all when the person is unknown" (the resting-elevation term does —
+// scoring a stranger's resting HR against anything invented is what D3 exists to prevent, and
+// `baselines.computeBaselines` deliberately returns a null median to request exactly that).
 function _robustZ(x, median, mad, fallback) {
   const v = finite(x);
   const m = finite(median) ?? fallback?.median ?? null;
   if (v == null || m == null) return null;
-  const spread = finite(mad) > 0 ? Number(mad) : (fallback?.mad ?? 3);
+  // The spread must clear MIN_SPREAD, not merely be positive. A MAD of 1e-12 is not a person whose
+  // pulse never varies, it is numerical debris — and dividing by it explodes the z-score and hands
+  // that user maximal stress, which is the same saturation W4-D15 fixed one argument over. The
+  // engine has floored its own output at MIN_SPREAD since W4-004 for exactly this reason (its
+  // comment names D3 by name); the floor belongs here too, because `translate` accepts baselines
+  // the engine did not produce — pre-W4-004 cache blobs, the kill-switch legacy path, callers.
+  // Imported rather than copied: a safety floor that exists twice is a safety floor that drifts.
+  const observed = finite(mad);
+  const floor = abstentionDisabled() ? Number.MIN_VALUE : MIN_SPREAD;
+  const spread = observed != null && observed >= floor ? observed : (fallback?.mad ?? 3);
   return (v - m) / (MAD_SCALE * spread);
 }
 
@@ -219,4 +261,11 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
 // ACTIVITY_EXERTION_FLOOR is exported for the W4-005 affect engine, which reuses these exact
 // numbers as a Bayesian PRIOR rather than as a floor (see affectEngine.exertionAxis). One table,
 // two readings of it — a second copy would drift.
-module.exports = { translate, VERSION, ACTIVITY_EXERTION_FLOOR };
+// HRV_FALLBACK is exported so the equality with the engine's own population prior
+// (`POPULATION.hrv`) can be PINNED rather than left as a coincidence — `baselines.js` relies on it
+// when it nulls an unknown user's HRV pair. `_finite` is exported for the same reason: the guard
+// that separates "no measurement" from "a measurement of zero" is load-bearing enough to test
+// directly, not only through its consequences. (W4-D15)
+module.exports = {
+  translate, VERSION, ACTIVITY_EXERTION_FLOOR, HRV_FALLBACK, ABSTENTION_FLAG, MIN_SPREAD, _finite: finite,
+};

@@ -37,6 +37,7 @@ const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const { decrypt } = require('../app/utils/encryption');
 const baselines = require('../app/services/biosonic/baselines');
 const { POPULATION } = require('../app/agents/runtime/physiology/baselineEngine');
+const { HRV_FALLBACK } = require('../app/services/biosonic/translate');
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-08-19T12:00:00Z');
@@ -141,12 +142,43 @@ describe('computeBaselines delegates to the baseline engine (superset blob)', ()
     expect(stats.hrvMAD).toBeGreaterThan(0);
   });
 
-  it('D1 (no data): with NO HRV history the estimate falls back to the population prior, honestly low-confidence', async () => {
+  // DELIBERATE RE-PIN (W4-D15(e)). This test used to assert `stats.hrvMedian ≈ POPULATION.hrv.value`
+  // — the legacy key handing translate() the population prior when the user has no HRV history at
+  // all. That is the same laundering of "unknown" into "measured" that the RHR pair was already
+  // nulled to prevent, one metric over, and it made the D14 confidence ladder count a total
+  // stranger as a known user. The prior itself did not go anywhere: it is still on the superset
+  // keys, with `hrvConfidence: 0` attached, for engines that want a prior rather than an abstention.
+  it('D1 (no data): with NO HRV history the LEGACY key abstains, and the prior stays on the superset keys', async () => {
     mockPages(BiometricLog, personaHr(), []);
     const stats = await baselines.computeBaselines('u1');
 
-    expect(stats.hrvMedian).toBeCloseTo(POPULATION.hrv.value, 0);
+    expect(stats.hrvMedian).toBeNull();
+    expect(stats.hrvMAD).toBeNull();
+    expect(stats.coverage.hrvDays).toBe(0);
     expect(stats.coverage.hrvConfidence).toBeLessThan(0.2); // never claims to know the user
+
+    // The prior is still reachable — abstaining on the legacy key is not discarding information.
+    expect(stats.acute.hrv).toBeCloseTo(POPULATION.hrv.value, 0);
+    expect(stats.chronic.hrv).toBeCloseTo(POPULATION.hrv.value, 0);
+  });
+
+  it('D1 (no data): the abstention is numerically free — translate falls back to the same constants', () => {
+    // Why nulling the pair is safe: translate carries its own HRV population fallback, and its
+    // constants equal the engine's prior exactly. Pinned here as well as in wave4.nullBaseline so
+    // a future change to POPULATION.hrv cannot silently move every user's HRV scoring.
+    expect(HRV_FALLBACK.median).toBe(POPULATION.hrv.value);
+    expect(HRV_FALLBACK.mad).toBe(POPULATION.hrv.spread);
+  });
+
+  it('the two pairs are gated independently — HRV history with no resting HR still reports HRV', async () => {
+    // A user can have months of one and none of the other; one shared `hasPersonalEvidence` flag
+    // would have thrown away real data.
+    mockPages(BiometricLog, [], []);
+    mockPages(VitalSample, personaHrv({ value: 85 }), []);
+    const stats = await baselines.computeBaselines('u1');
+
+    expect(stats.rhrMedian).toBeNull();          // no non-exercise HR observed
+    expect(stats.hrvMedian).toBeGreaterThan(75); // but the HRV is real and survives
   });
 
   it('D2/D3: an every-evening workout written as activity "unknown" does not drag the resting rate up', async () => {

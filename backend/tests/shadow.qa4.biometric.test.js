@@ -111,30 +111,54 @@ describe('Q1 — degenerate baseline statistics (robust-z must not explode)', ()
     });
     assertTargetsSane(t);
   });
+  // W4-D15(c): this test's NAME claimed the fallback spread was used; its body only asserted
+  // finiteness, so it would have passed on any spread at all. Pinned differentially now — a
+  // useless MAD must score exactly as if no MAD had been supplied.
   it('negative and sub-epsilon MAD are treated as fallback spread', () => {
+    const withMad = (mad) => translate({
+      live: { heartRate: 72, activity: 'resting' },
+      baselines: { rhrMedian: 60, rhrMAD: mad, hrvMedian: 45, hrvMAD: mad },
+      state: { hrv: 40 },
+    });
+    const fallback = withMad(undefined);
     for (const mad of [-5, 1e-12, -0]) {
-      assertTargetsSane(translate({
-        live: { heartRate: 72, activity: 'resting' },
-        baselines: { rhrMedian: 60, rhrMAD: mad, hrvMedian: 45, hrvMAD: mad },
-        state: { hrv: 40 },
-      }));
+      assertTargetsSane(withMad(mad));
+      expect(withMad(mad).state).toEqual(fallback.state);
     }
   });
+  // W4-D15: this is the test that named the defect and then failed to check for it. Its body was
+  // `assertTargetsSane(...)` alone, which verifies finiteness and range — and a 0-anchored score
+  // is perfectly finite. Measured at the time: the case below yielded stress 0.584 against 0.169
+  // for the same call with the key absent, i.e. the score WAS 0-anchored and this test passed.
+  // The claim in the title is the differential one, so that is what it asserts now.
   it('median = null with a MAD present (the Number(null)===0 gotcha) yields no score, not a 0-anchored one', () => {
-    assertTargetsSane(translate({
-      live: { heartRate: 72, activity: 'resting' },
-      baselines: { rhrMedian: null, rhrMAD: 5 },
-      state: { hrv: 40 },
-    }));
+    const input = (baselines) => translate({
+      live: { heartRate: 72, activity: 'resting' }, baselines, state: { hrv: 40 },
+    });
+    const nulled = input({ rhrMedian: null, rhrMAD: 5 });
+    const absent = input({ rhrMAD: 5 });
+    assertTargetsSane(nulled);
+    expect(nulled.state.stress).toBe(absent.state.stress);
   });
 });
 
 describe('Q1 — circadian wind-down boundaries', () => {
-  it.each([[-1, 1], [0, 0.8], [4.999, 0.8], [5, 1], [20.999, 1], [21, 0.8], [23.999, 0.8], [24, 1], [NaN, 1]])(
+  // W4-D15(c): the table's second column is the EXPECTED fold factor, and the body used to ignore
+  // it entirely — `assertTargetsSane` alone, which would pass whatever the fold did. The passive
+  // energy ceiling is the observable: it is scaled by exactly that factor, so a reference hour with
+  // no wind-down gives the unscaled ceiling and every other hour must be that times its factor.
+  // The `-1` and `24` rows used to claim a fold of 1 and were never checked. Measured: both fold to
+  // 0.8, because `-1 < 5` and `24 >= 21` — the out-of-range hours land on the night side of the
+  // comparison. That is defensible on its own terms (-1 reads as 23:00 and 24 as midnight, both
+  // night) and the table is corrected to what the code does rather than the code changed to match a
+  // table nobody had verified; the binary step itself is D13, which W4-004's cosinor replaces.
+  it.each([[-1, 0.8], [0, 0.8], [4.999, 0.8], [5, 1], [20.999, 1], [21, 0.8], [23.999, 0.8], [24, 0.8], [NaN, 1]])(
     'hourOfDay=%p folds wind-down consistently',
-    (hour) => {
-      const t = translate({ live: { heartRate: 80 }, hourOfDay: hour, moodKey: 'energize' });
+    (hour, expectedFold) => {
+      const at = (h) => translate({ live: { heartRate: 80 }, hourOfDay: h, moodKey: 'energize' });
+      const t = at(hour);
       assertTargetsSane(t);
+      expect(t.energyCeiling).toBeCloseTo(at(12).energyCeiling * expectedFold, 3);
     },
   );
   it('late-night wind-down lowers the energy ceiling vs midday for the same body', () => {
