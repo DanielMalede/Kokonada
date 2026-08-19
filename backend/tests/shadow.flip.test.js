@@ -220,10 +220,17 @@ describe('ATTACK 3 — final concurrency stress (the budget must hold LIVE)', ()
   // work one call after another, which is precisely "queueing, not collapse" — and unlike a
   // millisecond constant it does not age with the hardware or flake on a busy box.
   //
-  // 1.5 is derived from the measured overhead ratio of 1.07 (run C: burst 6236 ms against a
-  // 292 ms per-call min), leaving ~40% headroom for noise in BOTH the calibration and the
-  // burst, while a genuine collapse — thrashing, lost queueing — runs 2-5x serial and trips.
-  const BURST_OVERHEAD_RATIO = 1.5;
+  // 2.0 is derived from the ratio MEASURED across five runs in two conditions, not guessed:
+  // isolated 1.022 / 1.052 / 0.996, full-suite 1.222 and 1.139. The full-suite figures are the
+  // high ones because a loaded heap makes GC, not concurrency, the marginal cost — and because
+  // the min-of-3 calibration can itself land low there (233 ms in the run that produced 1.222),
+  // which inflates the ratio from the denominator. A first cut of 1.5 was rejected on this
+  // evidence: it left only 23% headroom over the worst observed pairing, which is the same thin
+  // margin that made the ORIGINAL constant flake, at a different number. 2.0 leaves ~64% and
+  // still trips the failure it guards — a real concurrency collapse (thrashing, lost queueing)
+  // runs 2.5-5x serial, not 1.2x. The record line prints the realised burst every run, so drift
+  // toward the ceiling is visible long before it fails.
+  const BURST_OVERHEAD_RATIO = 2.0;
 
   it('pathological 20-user burst: zero failures, correct playlists, bounded throughput (queueing, not collapse)', async () => {
     // Calibrate on THIS machine, this run. min-of-3 for the same one-sided-noise reason the
