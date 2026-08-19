@@ -156,6 +156,15 @@ const REST_GATE_CLOSE = ZONE_FRACTIONS[0];
 const STRESS_LEVEL_MASS = 0.6;
 
 /**
+ * How much a diffuse posterior discounts the reported confidence. At 0.6 a maximally-uncertain
+ * posterior (entropy 1, every state equally likely) keeps 40% of the evidential confidence:
+ * the axes are still measured and still useful downstream even when no single LABEL fits, so
+ * the term damps rather than erases. A sharp posterior over guessed axes remains the dangerous
+ * case, and it is already handled on the other side of the product.
+ */
+const ENTROPY_CONFIDENCE_WEIGHT = 0.6;
+
+/**
  * Recovery's weights, explicit and summing to 1 — `translate()` took an unweighted mean of
  * whatever happened to be present, which silently made a body-battery percentage worth as much
  * as a whole night of sleep staging. Sleep and HRV are the two measurements with actual
@@ -206,6 +215,7 @@ function finite(x) {
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const clamp01 = (x) => clamp(x, 0, 1);
+const round3 = (x) => Math.round(x * 1000) / 1000;
 
 const isExercise = (activity) => EXERCISE_ACTIVITIES.has(String(activity ?? '').toLowerCase());
 
@@ -690,19 +700,501 @@ function sleepDebtFrom(sleep) {
   return sleepDebt(history);
 }
 
+// ── the temporal layer: §M.5's HMM over an INJECTED state set ───────────────────────────
+
+/**
+ * The taxonomy is a PORT, not a table in this file. W4-006 owns `stateTaxonomy.js` and its ~32
+ * states; this engine owns the machinery that runs over any valid state set — and degrades to
+ * axes-only, with `topState: null`, when given none. That separation is why the two tasks can
+ * land independently without either becoming the other's source of truth, and it is why the
+ * suite drives a 6-state fixture: a change here that only works against the real taxonomy is a
+ * change in the wrong file.
+ *
+ * The contract a state entry must satisfy is `validateStateSet` below, enforced at the seam and
+ * not merely written down. Note one consequence worth W4-006 knowing: a region's `width` is not
+ * only a tolerance, it is a PRIOR. A narrow state claims more and is rewarded more when it is
+ * right (the `−log σ` term), which is correct Bayesian behaviour and also a lever — a state
+ * authored with an implausibly tight width will dominate whenever it happens to fit.
+ */
+const AFFECT_STATE_VERSION = 1;
+const AXIS_NAMES = Object.freeze(Object.keys(NEUTRAL));
+const HALF_LOG_2PI = 0.5 * Math.log(2 * Math.PI);
+
+/** §M.5's off-diagonal split: a body is far likelier to move within a domain than across one. */
+const WITHIN_DOMAIN_SHARE = 0.7;
+const CROSS_DOMAIN_SHARE = 0.3;
+
+/** §M.5's dwell prior, 3–30 minutes. `τ` is an expected residence time, not a minimum. */
+const DWELL_TAU_MIN_SEC = 180;
+const DWELL_TAU_MAX_SEC = 1800;
+
+/** §M.5's hysteresis constants. */
+const SWITCH_MARGIN = 0.1;
+const STRONG_SWITCH_ALPHA = 0.5;
+
+const DEFAULT_ENTER_THRESHOLD = 0.35;
+const DEFAULT_EXIT_THRESHOLD = 0.15;
+const DEFAULT_MIN_DWELL_SEC = 180;
+
+const tauOf = (s) => clamp(
+  finite(s?.dwellTauSec) ?? finite(s?.minDwellSec) ?? DWELL_TAU_MIN_SEC,
+  DWELL_TAU_MIN_SEC, DWELL_TAU_MAX_SEC,
+);
+const enterOf = (s) => clamp01(finite(s?.enterThreshold) ?? DEFAULT_ENTER_THRESHOLD);
+const exitOf = (s) => clamp01(finite(s?.exitThreshold) ?? DEFAULT_EXIT_THRESHOLD);
+const minDwellOf = (s) => Math.max(0, finite(s?.minDwellSec) ?? DEFAULT_MIN_DWELL_SEC);
+
+/**
+ * The contract W4-006's table has to satisfy, checked mechanically so a malformed state cannot
+ * quietly become a label a user's music is steered by. Returns every error rather than the
+ * first, because a taxonomy author wants the whole list in one pass.
+ */
+function validateStateSet(states) {
+  const errors = [];
+  if (!Array.isArray(states)) return { ok: false, errors: ['state set must be an array'] };
+  if (states.length === 0) return { ok: false, errors: ['state set must not be empty'] };
+
+  const seen = new Set();
+  states.forEach((s, i) => {
+    const at = `state[${i}]`;
+    const id = typeof s?.id === 'string' ? s.id.trim() : '';
+    if (!id) errors.push(`${at}: id must be a non-empty string`);
+    else if (seen.has(id)) errors.push(`${at}: duplicate id "${id}"`);
+    else seen.add(id);
+
+    if (typeof s?.domain !== 'string' || !s.domain.trim()) errors.push(`${at}: domain must be a non-empty string`);
+
+    const region = s?.region;
+    const keys = region && typeof region === 'object' && !Array.isArray(region) ? Object.keys(region) : null;
+    if (!keys || keys.length === 0) {
+      // A state that constrains nothing has emission 1 everywhere and therefore wins every tie
+      // on the transition prior alone — a silent catch-all, which is worse than a missing state.
+      errors.push(`${at}: region must constrain at least one axis`);
+    } else {
+      for (const k of keys) {
+        if (!AXIS_NAMES.includes(k)) { errors.push(`${at}: region axis "${k}" is not an affect axis`); continue; }
+        const c = finite(region[k]?.center);
+        const w = finite(region[k]?.width);
+        if (c == null || c < 0 || c > 1) errors.push(`${at}.${k}: center must be a number in [0,1]`);
+        if (w == null || !(w > 0)) errors.push(`${at}.${k}: width must be > 0`);
+      }
+    }
+
+    const enter = s?.enterThreshold;
+    const exit = s?.exitThreshold;
+    if (enter !== undefined && (finite(enter) == null || finite(enter) < 0 || finite(enter) > 1)) errors.push(`${at}: enterThreshold must be in [0,1]`);
+    if (exit !== undefined && (finite(exit) == null || finite(exit) < 0 || finite(exit) > 1)) errors.push(`${at}: exitThreshold must be in [0,1]`);
+    if (finite(enter) != null && finite(exit) != null && finite(exit) > finite(enter)) {
+      errors.push(`${at}: exitThreshold must not exceed enterThreshold (hysteresis inverted)`);
+    }
+
+    if (s?.minDwellSec !== undefined && (finite(s.minDwellSec) == null || finite(s.minDwellSec) < 0)) errors.push(`${at}: minDwellSec must be >= 0`);
+    if (s?.dwellTauSec !== undefined && (finite(s.dwellTauSec) == null || !(finite(s.dwellTauSec) > 0))) errors.push(`${at}: dwellTauSec must be > 0`);
+
+    if (s?.requiredSignals !== undefined) {
+      if (!Array.isArray(s.requiredSignals)) errors.push(`${at}: requiredSignals must be an array`);
+      else {
+        for (const r of s.requiredSignals) {
+          if (!keys || !keys.includes(r)) errors.push(`${at}: requiredSignals names "${r}", which the region does not constrain`);
+        }
+      }
+    }
+  });
+
+  return { ok: errors.length === 0, errors };
+}
+
+/**
+ * A short, stable token for a state set — FNV-1a over the ids and domains. Its only job is to
+ * notice that the taxonomy CHANGED, so a persisted forward vector is reset rather than replayed
+ * against indices that now mean something else. Deliberately tiny: this travels inside an
+ * AES-256-GCM Redis blob (W4-009) alongside the vector itself.
+ */
+function stateSetSignature(states) {
+  if (!Array.isArray(states) || states.length === 0) return null;
+  let h = 0x811c9dc5;
+  for (const s of states) {
+    for (const ch of `${s?.id}|${s?.domain};`) {
+      h ^= ch.charCodeAt(0);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+  }
+  return `s${states.length}:${h.toString(16)}`;
+}
+
+/** The engine state the caller owns and persists. Uniform posterior, no label, no time. */
+function createAffectState({ states } = {}) {
+  const list = Array.isArray(states) ? states : [];
+  return {
+    v: AFFECT_STATE_VERSION,
+    sig: stateSetSignature(list),
+    alpha: list.map(() => 1 / list.length),
+    label: null,
+    labelSinceMs: null,
+    lastAtMs: null,
+    updates: 0,
+  };
+}
+
+/**
+ * §M.5's forward step.
+ *
+ *   emission    b_s(e) = Π_a N(e_a; μ_{s,a}, σ_{s,a})^{m_a}   over the axes s constrains
+ *   transition  A(s,s) = exp(−Δt/τ_s), the remainder split 70% within-domain / 30% across
+ *   posterior   α_t(s) ∝ b_s(e_t) · Σ_{s'} A(s',s)·α_{t−1}(s'),  renormalised
+ *
+ * The exponent `m_a` is the axis MASS, and it is the whole anti-fabrication mechanism carried
+ * into the temporal layer: at m = 0 the factor is exactly 1, which is §M.5's "missing axis →
+ * factor 1" reached continuously rather than by a special case — a half-measured axis pulls half
+ * as hard, and an unmeasured one cannot pull at all. The suite pins that two contradictory
+ * mass-0 claims produce a bit-identical posterior.
+ *
+ * Emissions are accumulated in log space and shifted by their maximum before exponentiating, so
+ * a 32-state set with sharp regions cannot underflow to an all-zero posterior. O(|S|²) by
+ * construction — ~1k multiplications at |S| = 32, which §M.5 budgets for explicitly.
+ */
+function forward({ states, alpha, axes, dtSec } = {}) {
+  const list = Array.isArray(states) ? states : [];
+  const n = list.length;
+  if (n === 0) return { alpha: [], excluded: [], exclusionLifted: false };
+
+  // ── prior, defensively normalised ──
+  let prior;
+  if (Array.isArray(alpha) && alpha.length === n) {
+    prior = alpha.map((a) => Math.max(0, finite(a) ?? 0));
+  } else {
+    prior = list.map(() => 1);
+  }
+  const priorSum = prior.reduce((a, b) => a + b, 0);
+  prior = priorSum > 0 ? prior.map((a) => a / priorSum) : list.map(() => 1 / n);
+
+  // ── requiredSignals: a state that NEEDS a signal it does not have is not a candidate ──
+  const excludedIdx = new Set();
+  for (let i = 0; i < n; i++) {
+    const req = list[i]?.requiredSignals;
+    if (!Array.isArray(req) || req.length === 0) continue;
+    for (const r of req) {
+      if (!(clamp01(finite(axes?.[r]?.mass) ?? 0) > 0)) { excludedIdx.add(i); break; }
+    }
+  }
+  // Excluding everything would leave no distribution at all. A blind engine reports a uniform
+  // posterior with maximal entropy — which downstream reads as "no idea" — rather than NaN.
+  let exclusionLifted = false;
+  if (excludedIdx.size === n) { excludedIdx.clear(); exclusionLifted = true; }
+
+  // ── log emissions ──
+  const logB = new Array(n).fill(-Infinity);
+  for (let i = 0; i < n; i++) {
+    if (excludedIdx.has(i)) continue;
+    let acc = 0;
+    const region = list[i]?.region;
+    if (region && typeof region === 'object') {
+      for (const name of Object.keys(region)) {
+        const ax = axes?.[name];
+        const m = clamp01(finite(ax?.mass) ?? 0);
+        if (!(m > 0)) continue;
+        const mu = finite(region[name]?.center);
+        const sd = finite(region[name]?.width);
+        if (mu == null || sd == null || !(sd > 0)) continue;
+        const d = (clamp01(finite(ax?.value) ?? 0.5) - mu) / sd;
+        acc += m * (-0.5 * d * d - Math.log(sd) - HALF_LOG_2PI);
+      }
+    }
+    logB[i] = acc;
+  }
+
+  // ── transition prediction ──
+  const dt = Math.max(0, finite(dtSec) ?? 0);
+  const byDomain = new Map();
+  list.forEach((s, i) => {
+    const d = String(s?.domain ?? '');
+    if (!byDomain.has(d)) byDomain.set(d, []);
+    byDomain.get(d).push(i);
+  });
+
+  const pred = new Array(n).fill(0);
+  for (let j = 0; j < n; j++) {
+    const aj = prior[j];
+    if (!(aj > 0)) continue;
+    const selfP = Math.exp(-dt / tauOf(list[j]));
+    pred[j] += aj * selfP;
+    const off = aj * (1 - selfP);
+    if (!(off > 0)) continue;
+
+    const group = byDomain.get(String(list[j]?.domain ?? '')) || [j];
+    const withinN = group.length - 1;
+    const crossN = n - group.length;
+
+    // A domain of one has nowhere to go within itself, and a taxonomy of one domain has nowhere
+    // to go outside it. In either case the orphaned share joins the other rather than vanishing.
+    let wShare = WITHIN_DOMAIN_SHARE;
+    let cShare = CROSS_DOMAIN_SHARE;
+    if (withinN === 0) { cShare += wShare; wShare = 0; }
+    if (crossN === 0) { wShare += cShare; cShare = 0; }
+    if (withinN === 0 && crossN === 0) { pred[j] += off; continue; }
+
+    if (wShare > 0) for (const k of group) { if (k !== j) pred[k] += (off * wShare) / withinN; }
+    if (cShare > 0) {
+      const inGroup = new Set(group);
+      for (let k = 0; k < n; k++) if (!inGroup.has(k)) pred[k] += (off * cShare) / crossN;
+    }
+  }
+
+  // ── posterior ──
+  let maxLog = -Infinity;
+  for (let i = 0; i < n; i++) if (pred[i] > 0 && logB[i] > maxLog) maxLog = logB[i];
+
+  let post;
+  if (Number.isFinite(maxLog)) {
+    post = pred.map((p, i) => (p > 0 && Number.isFinite(logB[i]) ? p * Math.exp(logB[i] - maxLog) : 0));
+  } else {
+    post = pred.slice(); // no usable emission anywhere — the transition prior is all we have
+  }
+
+  let total = post.reduce((a, b) => a + b, 0);
+  if (!(total > 0) || !Number.isFinite(total)) {
+    post = pred.slice();
+    total = post.reduce((a, b) => a + b, 0);
+  }
+  if (!(total > 0) || !Number.isFinite(total)) {
+    post = list.map(() => 1 / n);
+    total = 1;
+  }
+
+  return {
+    alpha: post.map((p) => p / total),
+    excluded: [...excludedIdx].map((i) => list[i].id),
+    exclusionLifted,
+  };
+}
+
+/** Shannon entropy of the posterior, normalised by log|S| so it reads as "how unsure", 0..1. */
+function posteriorEntropy(alpha) {
+  const a = (Array.isArray(alpha) ? alpha : []).map((x) => finite(x) ?? 0).filter((x) => x >= 0);
+  if (a.length <= 1) return 0;
+  const total = a.reduce((x, y) => x + y, 0);
+  if (!(total > 0)) return 0;
+  let h = 0;
+  for (const p of a) {
+    const q = p / total;
+    if (q > 0) h -= q * Math.log(q);
+  }
+  return clamp01(h / Math.log(a.length));
+}
+
+/**
+ * The reported label, with hysteresis — §M.5's projection, and the reason the label is something
+ * a person would recognise rather than a reading. A raw argmax over a noisy posterior re-labels
+ * several times a minute, and every re-label is a music change nobody asked for.
+ *
+ * Four gates, in order of how often they bite:
+ *   ENTER   the winner must clear its own `enterThreshold`. A label nobody has entered is never
+ *           adopted, however far ahead it is of the others.
+ *   DWELL   the incumbent holds for `minDwellSec` unless something below overrides.
+ *   MARGIN  after the dwell, the winner must lead by `SWITCH_MARGIN` — a photo finish is noise.
+ *   EXIT    an incumbent that has collapsed below its own `exitThreshold` is released early;
+ *           holding a state nobody believes any more is worse than switching.
+ *
+ * DELIBERATE, DOCUMENTED DEVIATION FROM §M.5's LITERAL WORDING. §M.5 allows an immediate switch
+ * on `α(s*) > 0.5` alone. That clause exists for responsiveness — a person who starts running
+ * should not wait out a five-minute dwell — but as a bare absolute bar it re-admits exactly the
+ * flap the dwell exists to prevent: two states straddling 0.5 alternate freely. So the strong
+ * clause here ALSO requires the switch margin over the incumbent, AND that the switch be a
+ * genuine regime change — a different domain or a different musical band.
+ *
+ * The second condition was added because the first was measurably not enough. With the margin
+ * alone, a signal genuinely oscillating between two ADJACENT states (deep-rest ↔ resting-content,
+ * a 6-minute swing) relabelled 20 times an hour — identical to a memoryless labeller, with the
+ * dwell contributing nothing, because each swing carried α past 0.5 with a wide margin. Gating
+ * the bypass on a regime change costs nothing in the case §M.5 wrote the clause for (someone
+ * starting to run crosses from a resting band to a peak one, and is detected inside a minute)
+ * and restores the dwell as a real product guarantee for everything else: two adjacent states
+ * are the same music, so waiting is free, and relabelling is not.
+ *
+ * The suite pins all three halves — a run detected inside 3 minutes, zero transitions across an
+ * hour of boundary-hugging noise where a memoryless labeller flips 24 times, and an oscillating
+ * signal rate-limited to the dwell rather than tracked.
+ */
+function projectLabel({ states, alpha, prior, now } = {}) {
+  const list = Array.isArray(states) ? states : [];
+  const held = { label: prior?.label ?? null, labelSinceMs: prior?.labelSinceMs ?? null };
+  const nowMs = finite(now);
+
+  if (list.length === 0 || !Array.isArray(alpha) || alpha.length !== list.length) {
+    return { ...held, transitioned: false, from: null, to: null };
+  }
+
+  let best = 0;
+  for (let i = 1; i < alpha.length; i++) if (alpha[i] > alpha[best]) best = i;
+  const winner = list[best];
+  const enterOk = alpha[best] >= enterOf(winner);
+
+  // A label from a taxonomy that no longer contains it is a ghost — dropped, not carried.
+  const curIdx = held.label ? list.findIndex((s) => s.id === held.label) : -1;
+  if (curIdx < 0) {
+    if (!enterOk) return { label: null, labelSinceMs: null, transitioned: false, from: null, to: null };
+    return { label: winner.id, labelSinceMs: nowMs, transitioned: true, from: null, to: winner.id };
+  }
+
+  const from = list[curIdx].id;
+  const stay = { label: from, labelSinceMs: held.labelSinceMs ?? nowMs, transitioned: false, from, to: from };
+  if (best === curIdx || !enterOk) return stay;
+
+  const since = finite(held.labelSinceMs);
+  const dwellSec = since != null && nowMs != null ? (nowMs - since) / 1000 : Infinity;
+  const margin = alpha[best] > alpha[curIdx] + SWITCH_MARGIN;
+  const dwellMet = dwellSec >= minDwellOf(list[curIdx]);
+  // A regime change is one the LISTENER is living through: a different musical band or a
+  // different domain of experience. Adjacent states inside one band (deep-rest to
+  // resting-content) are the same music, so nothing is lost by making them wait out the dwell
+  // — and everything is lost by not, because a signal oscillating across the strong bar then
+  // relabels at the oscillation frequency (measured: a 6-minute swing produced 20 reported
+  // transitions an hour, the SAME count as a memoryless labeller, with the dwell contributing
+  // nothing at all). The bands and domains come from the taxonomy itself, so this stays a
+  // property of the state set rather than a rule hardcoded about particular states.
+  const adjacent = list[curIdx].domain === winner.domain && list[curIdx].band === winner.band;
+  const strong = alpha[best] > STRONG_SWITCH_ALPHA && margin && !adjacent;
+  const collapsed = alpha[curIdx] < exitOf(list[curIdx]);
+
+  // The guarantee this yields, and the one the suite pins: the reported label never changes
+  // faster than the incumbent's own minDwellSec UNLESS the change is a genuine regime change.
+  // Both bypasses are gated the same way for the same reason — an incumbent that has collapsed
+  // below its exit threshold is still, musically, the same band as its adjacent successor, so
+  // nothing is served by switching early and the dwell guarantee is worth more.
+  if (strong || (collapsed && !adjacent) || (dwellMet && margin)) {
+    return { label: winner.id, labelSinceMs: nowMs, transitioned: true, from, to: winner.id };
+  }
+  return stay;
+}
+
+/**
+ * One full update: evidence → posterior → label → DTO. Mirrors `anomalyFilter.filterReading`'s
+ * `(state, input, opts) → {state, result}` convention deliberately, so the two runtime engines
+ * are held and persisted the same way by their callers.
+ *
+ * The returned `affect` is the zero-knowledge projection (§0.2.2): unit-interval axes, coarse
+ * band, state id, entropy and confidence. No bpm, no RMSSD, no percentage, at any depth — the
+ * suite walks the whole object and asserts it.
+ */
+function updateAffect(state, input = {}, opts = {}) {
+  const nowMs = finite(opts?.now);
+  if (nowMs == null) {
+    throw new TypeError('affectEngine.updateAffect: `now` is required (epoch ms) — engines never read the clock (S9)');
+  }
+
+  const list = Array.isArray(opts?.states) ? opts.states : [];
+  if (list.length > 0) {
+    const v = validateStateSet(list);
+    if (!v.ok) {
+      throw new TypeError(`affectEngine.updateAffect: invalid state set — ${v.errors.join('; ')}`);
+    }
+  }
+
+  const evidence = computeAxes({ ...input, now: nowMs });
+
+  const sig = stateSetSignature(list);
+  const stateSetChanged = Boolean(state?.sig && sig && state.sig !== sig);
+  const usable = state
+    && Array.isArray(state.alpha)
+    && state.alpha.length === list.length
+    && !stateSetChanged;
+  const base = usable ? state : createAffectState({ states: list });
+
+  const dtSec = finite(base.lastAtMs) == null ? 0 : Math.max(0, (nowMs - base.lastAtMs) / 1000);
+  const step = forward({ states: list, alpha: base.alpha, axes: evidence.axes, dtSec });
+  const projected = projectLabel({ states: list, alpha: step.alpha, prior: base, now: nowMs });
+
+  const nextState = {
+    v: AFFECT_STATE_VERSION,
+    sig,
+    alpha: step.alpha,
+    label: projected.label,
+    labelSinceMs: projected.labelSinceMs,
+    lastAtMs: nowMs,
+    updates: (finite(base.updates) ?? 0) + 1,
+  };
+
+  let topState = null;
+  if (list.length > 0 && step.alpha.length === list.length) {
+    let best = 0;
+    for (let i = 1; i < step.alpha.length; i++) if (step.alpha[i] > step.alpha[best]) best = i;
+    if (step.alpha[best] > 0) {
+      topState = {
+        id: list[best].id,
+        domain: list[best].domain,
+        band: list[best].band ?? null,
+        alpha: round3(step.alpha[best]),
+      };
+    }
+  }
+
+  const entropy = posteriorEntropy(step.alpha);
+  // A confident label needs BOTH confident evidence and a peaked posterior. A sharp posterior
+  // over guessed axes is a confident guess, which is the most dangerous output this engine has.
+  const confidence = clamp01(evidence.confidence * (1 - entropy * ENTROPY_CONFIDENCE_WEIGHT));
+
+  const axes = {};
+  for (const [k, a] of Object.entries(evidence.axes)) {
+    axes[k] = { value: round3(a.value), mass: round3(a.mass) };
+  }
+
+  // NOTE: no elapsed-ms field anywhere below. `affect` is a VALUE OBJECT — it is persisted,
+  // replayed and compared byte-for-byte by the soak harness, and a wall-clock duration inside it
+  // makes two identical inputs produce two different results (this session's determinism pin
+  // caught exactly that). Stage timing belongs to the caller, which owns the clock; `computeAxes`
+  // still returns `ms` for the caller's own R11 line, where it is not part of a stored artifact.
+  const telemetry = `[affect] v=${AFFECT_ENGINE_VERSION} state=${projected.label ?? 'none'} `
+    + `top=${topState ? topState.id : 'none'} band=${topState?.band ?? 'none'} `
+    + `entropy=${band(entropy, 1)} conf=${band(confidence, 1)} `
+    + `taps=${evidence.declared.n} degraded=${evidence.degraded ?? 'none'} `
+    + `transitioned=${projected.transitioned} states=${list.length} excluded=${step.excluded.length}`;
+
+  return {
+    state: nextState,
+    affect: {
+      v: AFFECT_ENGINE_VERSION,
+      axes,
+      declared: {
+        valence: round3(evidence.declared.valence),
+        arousal: round3(evidence.declared.arousal),
+        n: evidence.declared.n,
+        mass: round3(evidence.declared.mass),
+      },
+      topState,
+      label: projected.label,
+      transitioned: projected.transitioned,
+      from: projected.from,
+      to: projected.to,
+      posteriorEntropy: round3(entropy),
+      confidence: round3(confidence),
+      degraded: evidence.degraded,
+      stateSetChanged,
+      exclusionLifted: step.exclusionLifted,
+      computedAt: new Date(nowMs).toISOString(),
+      telemetry,
+    },
+  };
+}
+
 module.exports = {
-  AFFECT_ENGINE_VERSION,
+  AFFECT_ENGINE_VERSION, AFFECT_STATE_VERSION,
   // primitives
-  finite, robustZ, rise, squash, blend, hourBinFor, evidenceMass, weightedNight, band,
+  finite, robustZ, rise, squash, blend, hourBinFor, evidenceMass, weightedNight, band, round3,
   // declared mood
   fuseDeclared,
   // axes
   arousalAxis, stressAxis, recoveryAxis, exertionAxis, fatigueAxis, alertnessAxis,
   computeAxes,
+  // temporal layer (the taxonomy is an injected port — W4-006 supplies it)
+  validateStateSet, stateSetSignature, createAffectState,
+  forward, projectLabel, posteriorEntropy, updateAffect,
   // constants — exported so the suite pins the DERIVATION, not a copy of it
   Z_SCALE, AXIS_PRIOR_MASS, NEUTRAL, MIN_SIGMA, BIN_PRIOR_MASS, HRV_BASELINE_PRIOR_MASS,
   COSINOR_PRIOR_MASS, ACTIVITY_EXERTION_PRIOR, ACTIVITY_PRIOR_MASS, HRMAX_SOURCE_RELIABILITY,
-  REST_GATE_OPEN, REST_GATE_CLOSE, STRESS_LEVEL_MASS, RECOVERY_WEIGHTS, FATIGUE_WEIGHTS, TREND_Z_SCALE,
-  DECLARED_PRIOR_COUNT, DECLARED_DISPERSION_SIGMA, DEFAULT_NIGHT, SLEEP_STAGE_WEIGHTS,
-  BAND_CUTS, BAND_LABELS,
+  REST_GATE_OPEN, REST_GATE_CLOSE, STRESS_LEVEL_MASS, RECOVERY_WEIGHTS, FATIGUE_WEIGHTS,
+  TREND_Z_SCALE, DECLARED_PRIOR_COUNT, DECLARED_DISPERSION_SIGMA, DEFAULT_NIGHT,
+  SLEEP_STAGE_WEIGHTS, BAND_CUTS, BAND_LABELS, AXIS_NAMES,
+  WITHIN_DOMAIN_SHARE, CROSS_DOMAIN_SHARE, DWELL_TAU_MIN_SEC, DWELL_TAU_MAX_SEC,
+  SWITCH_MARGIN, STRONG_SWITCH_ALPHA, DEFAULT_ENTER_THRESHOLD, DEFAULT_EXIT_THRESHOLD,
+  DEFAULT_MIN_DWELL_SEC, ENTROPY_CONFIDENCE_WEIGHT,
 };
