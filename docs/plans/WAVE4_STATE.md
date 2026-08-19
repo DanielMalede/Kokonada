@@ -774,7 +774,7 @@ signal per R6. S11's "full inventory in WAVE4_REPORT" stays W4-015's job.
 
 | PR | cluster(s) | url | status |
 |----|-----------|-----|--------|
-| #179 | W4-000, W4-001, W4-D01/D02/D05/D06, W4-002, W4-D09 | https://github.com/DanielMalede/Kokonada/pull/179 | open — RUNNING PR for the whole branch (body appended session 12 with the W4-D09 cluster) |
+| #179 | W4-000, W4-001, W4-D01/D02/D05/D06, W4-002, W4-D09, W4-D08 | https://github.com/DanielMalede/Kokonada/pull/179 | open — RUNNING PR for the whole branch (body appended session 13 with the W4-D08 cluster) |
 
 > Choice recorded per §1: ONE running PR for `feat/intelligence-wave`, updated per cluster, rather than a PR per
 > cluster off a single branch (which would stack noisy, overlapping diffs). Later clusters append to #179's body.
