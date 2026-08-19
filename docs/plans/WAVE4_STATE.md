@@ -76,6 +76,47 @@ Session 1 (2026-08-18, plan tier) â€” full-repo validation of the mission. 
 
   **VERDICT 2026-08-19 18:00 (manual out-of-band maintenance session; H5 CLOSED, no code change).** **(1) The mutex HOLDS - tested end-to-end, not read.** With the live loop (PID 13256, `run-mission.ps1` started 09:23:39) genuinely holding `Global\KokonadaWave4Loop`, a second `powershell -ExecutionPolicy Bypass -File scripts\run-mission.ps1 -MaxIterations 0` printed `[wave4] another run-mission.ps1 is already running on this machine - exiting.` and returned **exit code 1**. That is the real script against the real holder, not a stub (`-MaxIterations 0` guaranteed no session could launch even had the gate failed). A direct `Mutex.WaitOne(0)` probe on the same name returned `false` - held, not abandoned - and `Global\` creation succeeds **unelevated** on this box, so the privilege failure mode that would have silently voided the guard does not exist here. **(2) The two 17:00 processes were never Claude Code sessions.** `Win32_Process` shows PID 30736 (17:00:11) and PID 27424 (17:00:12) are both `--type=renderer` CHILDREN of PID 31104 = `C:\Program Files\WindowsApps\Claude_1.32885.1.0_x64__pzs8sxrjxfjjc\app\claude.exe`, alive since 03:24:14, whose other children are the ordinary Electron set (crashpad-handler, gpu-process, network/audio/video utility). They are two renderer windows of the Claude **desktop app** - exactly the Cowork device bridge Daniel used to make the 17:03:19 mission-file edit. Corroborated independently by the loop own ledger: `run-mission.ps1` writes a `session N/40` line for every launch (line 294), and `logs/wave4/usage.log` has **no entry at all** between `16:10:47  session 10/40` and `17:05:33  WAVE4_SESSION_RESULT`. The loop launched nothing at 17:00. **H2 did not recur; there was no rogue loop, and no second writer besides the Cowork bridge Daniel was driving himself.** **(3) What actually failed is the DETECTOR, not the guard.** `scripts/wave4-doctor.ps1` matches `Name=node.exe` with "claude" in the command line, but `claude` on this box resolves to `C:\Users\danie\.local\bin\claude.exe` - a **native binary**. So it reports "none running" even while a loop session is live, and it reported "none running" during this very session while a live `run-mission.ps1` (PID 13256) was sleeping between sessions. Every claude-process count taken with a node-only filter is unreliable, and that false negative is what made H5 look like a mutex failure. **(4) The mitigation this row proposes is deliberately NOT implemented, because it would now do harm.** Refusing to launch when "any `claude` process is alive" would count the desktop app idle Electron renderers and Daniel own editor session, and would therefore block the loop permanently on this machine while fixing a collision that never happened. The honest fix is to repair the doctor process match first; any launch guard should key on `claude.exe` processes descended from the loop own `cmd.exe`, not on the bare image name. Left for Daniel to decide rather than changed unilaterally, since it alters launch behaviour.
 
+- **H7 - RUN HALTED MID-SESSION by an EMPTY `docs/plans/WAVE4_HALT`, and the reason is unknown to
+  this session.** Measured, not inferred. At session start (2026-08-19 18:47 UTC) the first thing
+  this session did was check for the halt file: **it did not exist**. It exists now, created
+  **19:12:17 UTC** (22:12:17 local), and it is **0 bytes** - so it carries no reason, which the
+  mission's own S-section says a halt should. Seven minutes earlier, at **19:05:10 UTC**,
+  `scripts/wave4-doctor.ps1` acquired an **uncommitted** 34-insertion/11-deletion edit that this
+  session did not make. Neither timestamp is this session's work.
+
+  **The most likely explanation, stated as a hypothesis rather than a finding:** this is the H5
+  pattern recurring benignly - a human at the machine via the Cowork bridge, editing the doctor
+  script (which H5's verdict identified as genuinely broken: it matches `Name=node.exe` while
+  `claude` on this box is a native `claude.exe`, so it reports "none running" even with a live
+  loop) and then stopping the loop deliberately. That would make this halt intentional and
+  correct. It is a hypothesis because an empty file cannot say.
+
+  **What this session did about it, and why.**
+  - **Respected it.** W4-006 was already complete, committed and pushed when the halt was noticed;
+    no new task was started, and none should be until Daniel clears this.
+  - **Did NOT delete it.** Removing a stop signal is Daniel's call (the H2 precedent assigns
+    exactly that step to him), and deleting a tracked stop file on a guess is the one action that
+    could restart a run somebody deliberately stopped.
+  - **Did NOT commit or revert the `wave4-doctor.ps1` edit.** It is another writer's in-flight
+    work; S2 and Section 2.5 R2 both say never build on leftovers you do not understand. Left in place.
+  - **Did NOT update PR #179's body**, which Section 1 would otherwise ask for now that the W4-006
+    cluster is complete. The diff is already public (the branch is pushed), so nothing is lost -
+    but posting a large summary outward while a stop signal is up, with no way to know what the
+    stop is about, is the wrong side of "when in doubt, halt is the safe move". **This is the one
+    piece of W4-006's reporting that is owed**, and it is a single action for whoever resumes:
+    prepend the session-26 cluster note recorded in the PR queue section below to #179's body.
+
+  **Steps for Daniel:** (1) if you created this halt deliberately, nothing is wrong - finish
+  whatever prompted it, then delete `docs/plans/WAVE4_HALT` and relaunch exactly one loop; (2) if
+  you did NOT create it, treat it as a genuine incident: check `logs/wave4/usage.log` for a session
+  launch between 19:00 and 19:15 UTC, since `run-mission.ps1` writes a `session N/40` line for
+  every launch and H5's investigation used exactly that ledger to prove the loop had launched
+  nothing; (3) either way, consider writing a REASON into any future halt - an empty halt stops
+  the run without telling the next session what it is stopping for, which is the one thing a halt
+  file exists to communicate; (4) decide the `wave4-doctor.ps1` edit's fate (commit or discard).
+  **Blocked on this: the entire remaining queue** (W4-007 onward). Nothing is wrong with the
+  product code - W4-006 landed green at 192/2749 and is pushed.
+
 - **H1 â€” DISCOVERED (not in roadmap): scheduled Secret-scan workflow failing on main.** The weekly "Secret scan (full history)" GitHub Action has failed every scheduled run since at least 2026-07-27 (runs last ~10â€“13s â†’ likely a setup/config error, not a found secret; push CI is green). Steps: (1) GitHub â†’ Actions â†’ "Secret scan (full history)" â†’ open the latest failed run; (2) read the failing step's log â€” if it's a tooling/setup error (e.g. action version, token perms), fix the workflow file; (3) if it actually reports a secret hit, treat as an incident. Nothing in Wave-4 is blocked on this; the wave was instructed not to chase it.
 
 - **H3 â€” DISCOVERED (session 12): ten stale `worker.test.js` node processes have been running on this box
