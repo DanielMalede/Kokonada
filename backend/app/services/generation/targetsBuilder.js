@@ -5,6 +5,7 @@ const { peekBaselines } = require('../biosonic/baselines');
 const { translate } = require('../biosonic/translate');
 const { resolveAffect, resolveHourContext } = require('../biosonic/affectService');
 const wellbeingRegulator = require('../../agents/runtime/translation/wellbeingRegulator');
+const { explainFor } = require('../../agents/runtime/knowledge/explain');
 
 // Assemble the biosonic targets from everything the system knows: cached personal
 // baselines (never the heavy compute — request path), the profile's encrypted
@@ -95,7 +96,19 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
   // own pins behind it. A second guard that can never fire is not defence in depth, it is a line
   // nobody can test — so the guarantee is pinned at THIS seam (object identity on a failed affect)
   // rather than duplicated in code.
-  return wellbeingRegulator.apply(targets, affect, { disabled: trajectoryDisabled() });
+  const decorated = wellbeingRegulator.apply(targets, affect, { disabled: trajectoryDisabled() });
+
+  // S13: the "why this mix" line is resolved HERE, where the axes are, and travels onward as a
+  // vetted string. `explainFor` withholds it whenever the sentence would claim an axis that
+  // abstained, so the socket layer cannot render something the evidence does not support — it has
+  // no evidence to check against, which is exactly why the decision does not belong there.
+  //
+  // Only on a target the regulator actually decorated: if it declined (no state, or a confidence
+  // too low to act on), the mix was not shaped by a state and a line explaining one would be
+  // describing something that never happened.
+  if (decorated === targets) return targets;
+  const explain = explainFor(affect);
+  return explain ? { ...decorated, explain } : decorated;
 }
 
 // `resolveHourContext` is re-exported (it lives in affectService, next to the engine that

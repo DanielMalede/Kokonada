@@ -528,6 +528,63 @@ describe('emotion taps are threaded through to the engine', () => {
   });
 });
 
+// ── S13: the explain line is resolved where the evidence is ─────────────────────────────────
+
+describe('the explain line is attached at the seam, not at the DTO', () => {
+  test('a decorated target carries a line drawn from its own state', async () => {
+    peekBaselines.mockResolvedValue(personalBaselines());
+    MedicalProfile.findOne.mockResolvedValue(profileDoc());
+
+    const t = await buildTargets({ userId: 'u1', live: { heartRate: 66, activity: 'resting' }, now: NOW });
+
+    expect(typeof t.explain).toBe('string');
+    // It is that state's own sentence, not a generic one — and never the state's name (HITL H6).
+    const { byId } = require('../app/agents/runtime/knowledge/stateTaxonomy');
+    expect(t.explain).toBe(byId(t.stateId).explainTemplate.text);
+    expect(t.explain).not.toContain(t.stateId);
+  });
+
+  test('an UNDECORATED target never carries one', async () => {
+    // No regulation happened, so there is no state to explain. A line here would be describing
+    // something that did not take part in choosing the music.
+    const t = await buildTargets({ userId: 'u1', live: {}, now: NOW });
+    expect(t.explain).toBeUndefined();
+  });
+
+  test('the kill switch takes the line with it', async () => {
+    peekBaselines.mockResolvedValue(personalBaselines());
+    MedicalProfile.findOne.mockResolvedValue(profileDoc());
+    process.env.WAVE4_TRAJECTORY_DISABLED = '1';
+
+    const t = await buildTargets({ userId: 'u1', live: { heartRate: 66, activity: 'resting' }, now: NOW });
+    expect(t.explain).toBeUndefined();
+  });
+
+  test('a line is withheld when the claimed axes of a state are not all evidenced', async () => {
+    peekBaselines.mockResolvedValue(personalBaselines());
+    MedicalProfile.findOne.mockResolvedValue(profileDoc());
+    const live = { heartRate: 66, activity: 'resting' };
+
+    const full = await buildTargets({ userId: 'u1', live, now: NOW });
+    expect(full.explain).toBeDefined();
+
+    // Same reading, but the sensor is reporting a degraded run — every HR-derived axis withholds
+    // its value, so any sentence claiming one becomes a fabrication.
+    const degraded = await buildTargets({
+      userId: 'u1', live: { ...live, degraded: 'mood-only' }, now: NOW,
+    });
+    if (degraded.stateId) {
+      const { byId } = require('../app/agents/runtime/knowledge/stateTaxonomy');
+      const claims = byId(degraded.stateId).explainTemplate.claims;
+      const hrDerived = ['arousal', 'stress', 'exertion'];
+      // Either the surviving state claims no HR-derived axis (and may speak), or it does and
+      // must not. Asserted as the implication rather than as a fixed outcome, because WHICH
+      // state survives a degraded run is the engine's business, not this test's.
+      if (claims.some((c) => hrDerived.includes(c))) expect(degraded.explain).toBeUndefined();
+    }
+  });
+});
+
 // ── the regulator is reached with what it needs ─────────────────────────────────────────────
 
 describe('the seam hands the regulator a real AffectState, not a stub', () => {
@@ -561,6 +618,12 @@ describe('the seam hands the regulator a real AffectState, not a stub', () => {
       tzOffsetMinutes: resolveHourContext(NOW, blob).tzOffsetMinutes,
     }, { now: NOW, states: STATES });
 
-    expect(seam).toEqual(regulator.apply(plain, affect, {}));
+    // The seam is the regulator PLUS S13's explain line, and nothing else. Written out rather
+    // than loosened to `objectContaining`, so a future field appearing on the serving path
+    // without a decision behind it fails here instead of shipping.
+    const { explainFor } = require('../app/agents/runtime/knowledge/explain');
+    const decorated = regulator.apply(plain, affect, {});
+    const explain = explainFor(affect);
+    expect(seam).toEqual(explain ? { ...decorated, explain } : decorated);
   });
 });

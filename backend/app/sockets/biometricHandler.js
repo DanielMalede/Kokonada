@@ -122,7 +122,7 @@ function log(...args) { if (DEBUG) console.log(...args); }
 // candidatePool) and the playlist-level trigger + LLM targets (aiResult.params). No new
 // scoring, no guessing — honest, already-present data. Shape: { label, detail? }.
 function buildReceipt(t, context = {}) {
-  const { trigger, params, source } = context || {};
+  const { trigger, params, source, targets } = context || {};
   const label = t?.isDiscovery ? 'New discovery' : 'Familiar favorite';
   const parts = [];
   if (source === 'favorites') {
@@ -142,6 +142,15 @@ function buildReceipt(t, context = {}) {
   // Familiar tracks NEVER get one; a blank caption is omitted (the client strips unknowns).
   if (t?.isDiscovery && typeof t.caption === 'string' && t.caption.trim()) {
     receipt.caption = t.caption.trim();
+  }
+  // W4-006 / S13: the honest "why this mix" line. Already vetted by `explainFor` at the seam —
+  // it is only present on the targets when every axis its sentence claims carried real evidence,
+  // and it is the state's TONE, never the state's name (HITL H6). ADDITIVE: `label` and `detail`
+  // are untouched, so no existing receipt string changes. Withheld on the favorites
+  // double-failure path, which deliberately claims nothing about mood or heart rate (L1) and
+  // where no state took part in choosing the track.
+  if (source !== 'favorites' && typeof targets?.explain === 'string' && targets.explain.trim()) {
+    receipt.why = targets.explain.trim();
   }
   return receipt;
 }
@@ -1021,7 +1030,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // Normalize to the client contract (and reconstruct/validate uris). Guard on
     // the PLAYABLE result: never push an empty/unplayable playlist — it would blank
     // the queue and spin the overlay forever. Surface a recoverable error instead.
-    const clientTracks = toClientTracks(playlist?.merged, provider, { trigger, params: aiResult.params });
+    const clientTracks = toClientTracks(playlist?.merged, provider, { trigger, params: aiResult.params, targets: playlist?.targets });
     if (clientTracks.length === 0) {
       // Always-on diagnostic: show WHY the playlist is empty (library size, discovery
       // candidates, post-mix bucket sizes, and the mood filters) so prod logs pinpoint
