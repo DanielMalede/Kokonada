@@ -21,6 +21,15 @@ process.env.NODE_ENV       = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 
+// W4-003: handleBiometricReading fire-and-forgets a D10 persistence attempt against
+// BiometricLog. This suite is pure trigger-logic under test with no real Mongo connection
+// and a non-ObjectId fixture userId — mocked so that attempt is a harmless no-op instead of
+// a noisy cast-error console.error on every reading.
+jest.mock('../app/models/BiometricLog', () => ({
+  exists:     jest.fn().mockResolvedValue(false),
+  insertMany: jest.fn().mockResolvedValue({ acknowledged: true, insertedCount: 1, insertedIds: {}, mongoose: { validationErrors: [] } }),
+}));
+
 const {
   _shouldRecalibrate, _debounceMap, _resetDebounceState, handleBiometricReading,
   HR_NOISE_FLOOR, HR_BAND_RELEASE_MARGIN, RECAL_HYSTERESIS_FLAG,

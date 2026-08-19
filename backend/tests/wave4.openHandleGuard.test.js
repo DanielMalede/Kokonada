@@ -21,6 +21,16 @@ process.env.NODE_ENV       = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 
+// W4-003: handleBiometricReading fire-and-forgets a D10 persistence attempt against
+// BiometricLog. The seam tests below drive it directly with a non-ObjectId fixture userId
+// and no real Mongo connection — mocked so that attempt is a harmless no-op rather than an
+// unresolved buffered command, which is exactly the kind of lingering handle this file's
+// own guard exists to catch.
+jest.mock('../app/models/BiometricLog', () => ({
+  exists:     jest.fn().mockResolvedValue(false),
+  insertMany: jest.fn().mockResolvedValue({ acknowledged: true, insertedCount: 1, insertedIds: {}, mongoose: { validationErrors: [] } }),
+}));
+
 const fs   = require('fs');
 const path = require('path');
 
@@ -286,7 +296,16 @@ describe('_resetDebounceState — release and clear are ONE operation', () => {
 
   const liveTimeouts = () => process.getActiveResourcesInfo().filter((t) => t === 'Timeout').length;
   const socketFor    = (id) => ({ id, emit: jest.fn(), data: { user: { _id: 'u-w4d06' } } });
-  const RAW = (heartRate) => ({ heartRate, activityType: 0, startTimeLocal: '2026-01-01T10:00:00' });
+  // W4-003: a fixed historical date is now genuinely stale against the anomaly filter's S6
+  // gate (>90 days) and would be rejected rather than arming the debounce timer this file
+  // exists to test. Recent + 6-minute spacing keeps the Kalman gain near pass-through.
+  const RAW_BASE_MS = Date.now() - 3 * 3600_000;
+  const RAW_STEP_MS = 6 * 60_000;
+  let rawSeq = 0;
+  const RAW = (heartRate) => {
+    rawSeq += 1;
+    return { heartRate, activityType: 0, startTimeLocal: new Date(RAW_BASE_MS + rawSeq * RAW_STEP_MS).toISOString() };
+  };
 
   // Arms the streaming lane's real 60 s debounce: a baseline reading, then one past the gate.
   const armDebounce = (id) => {

@@ -122,6 +122,15 @@ jest.mock('../app/repositories/trackCatalogRepo', () => ({
   getMany:               jest.fn(async () => new Map()),
 }));
 
+// W4-D07: gives the mock the REAL adapter's shape — including `recordedAt`, derived from
+// `raw.startTimeLocal` exactly the way `fromGarmin` does — rather than omitting the field
+// outright. Every fixture in this file that does not set `startTimeLocal` gets `recordedAt:
+// undefined`, byte-identical to before (handleBiometricReading's pass-through path for a
+// caller with no usable device timestamp — see W4-003), so none of this file's ~150 existing
+// pins change behaviour. A fixture that DOES set `startTimeLocal` — including a garbage one —
+// now exercises the same `new Date(...)` conversion the real adapter performs, closing the
+// divergence: this mock could never before prove an unparseable provider timestamp is
+// rejected end-to-end, because the field it would be rejected ON did not exist.
 jest.mock('../app/services/wearable/adapter', () => ({
   normalize: jest.fn((source, raw) => {
     const KNOWN = ['garmin', 'apple_watch', 'fitbit'];
@@ -131,6 +140,7 @@ jest.mock('../app/services/wearable/adapter', () => ({
       heartRate: raw.heartRate,
       activity:  raw.activity || ACTIVITY_MAP[raw.activityType] || 'running',
       source,
+      recordedAt: raw.startTimeLocal !== undefined ? new Date(raw.startTimeLocal) : undefined,
     };
   }),
 }));
@@ -1739,6 +1749,22 @@ describe('handleBiometricReading (direct)', () => {
     expect(socket.emit).toHaveBeenCalledWith('biometric_ack', {
       normalized: expect.objectContaining({ heartRate: 90, activity: 'walking', source: 'garmin' }),
     });
+  });
+
+  // W4-D07: the mock now derives `recordedAt` from `startTimeLocal` the same way the real
+  // `fromGarmin` adapter does, so a garbage provider timestamp can finally be proven
+  // rejected END-TO-END through this suite instead of only being reasoned about against
+  // the real adapter in isolation. `isValidReading` has rejected an unparseable Date since
+  // W4-001; what was missing was a seam that could ever reach that branch here.
+  it('rejects an unparseable provider timestamp end-to-end (W4-D07)', () => {
+    const { handleBiometricReading } = require('../app/sockets/biometricHandler');
+    const socket = { id: 'direct-test-1b', emit: jest.fn(), data: { user: { _id: 'u1b' } } };
+    const raw = { heartRate: 90, activityType: 6, startTimeLocal: 'not-a-real-timestamp' };
+
+    handleBiometricReading(socket, 'garmin', raw);
+
+    expect(socket.emit).toHaveBeenCalledWith('connection_error', { message: 'Invalid biometric reading' });
+    expect(socket.emit).not.toHaveBeenCalledWith('biometric_ack', expect.anything());
   });
 
   it('emits connection_error on unknown source', () => {

@@ -20,6 +20,8 @@ const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const { logBiometricAccess } = require('../utils/biometricAudit');
+const { createFilterState, filterReading } = require('../agents/runtime/ingestion/anomalyFilter');
+const { insertManyAccounted } = require('../services/wearable/insertAccounted');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
@@ -56,11 +58,22 @@ const _hysteresisDisabled = () => {
   const v = String(process.env[RECAL_HYSTERESIS_FLAG] ?? '').trim().toLowerCase();
   return v !== '' && v !== 'false' && v !== '0';
 };
-// Smoothing factor for the streaming observation trace. α = 0.2 ⇒ ~5-sample memory:
-// fast enough to track a real ramp well inside the 60 s debounce window, slow enough
-// that one spike cannot move it far. This is an OBSERVATION only — it never confirms
-// a heart rate (D7). W4-003 replaces it with the Kalman/Hampel filter.
-const HR_EWMA_ALPHA = 0.2;
+// §0.4 S11 escape hatch for the whole A0 wiring (W4-003): set it and every socket reading
+// reverts to the pre-filter, pre-persistence W4-001 behaviour byte-for-byte — the raw
+// normalized heart rate drives the debounce/trigger machinery directly (no Hampel/slew/
+// Kalman, no live BiometricLog write). Same forgiving parse as RECAL_HYSTERESIS_FLAG: a
+// kill-switch that only understands `=true` is a kill-switch that fails at 2am on `=1`.
+const ANOMALY_FILTER_FLAG = 'WAVE4_ANOMALY_FILTER_DISABLED';
+const _anomalyFilterDisabled = () => {
+  const v = String(process.env[ANOMALY_FILTER_FLAG] ?? '').trim().toLowerCase();
+  return v !== '' && v !== 'false' && v !== '0';
+};
+// D10 (W4-003): the live socket lane finally persists what it sees. Capped at one row per
+// minute per socket — a live stream can push every few seconds, and BiometricLog is a
+// history/baseline input, not a raw firehose; the batch lane already owns high-density
+// backfill. RAW (not filtered) values are stored, matching the batch lane's convention —
+// this table is the ground-truth device record, not a derived estimate.
+const LIVE_PERSIST_MIN_INTERVAL_MS = 60_000;
 const DEBOUNCE_MS        = 60_000;
 // Watch (5-min cadence) path: each ping is trusted as the new sustained HR, so it skips
 // the debounce entirely. It used to need its own 25 bpm gate to avoid churning Spotify on
@@ -257,11 +270,15 @@ function getState(socketId) {
     debounceMap.set(socketId, {
       stableHR:         null,
       pendingHR:        null,
-      // Smoothed observation trace (D7). Every accepted reading updates it; it never
-      // confirms a heart rate on its own. Sub-threshold movement lands HERE instead of
-      // silently overwriting stableHR, which is how 9 bpm steps used to walk 60 -> 150
-      // without ever tripping the 10 bpm gate.
-      hrEwma:           null,
+      // A0 signal-integrity state (W4-003): Hampel -> slew -> Kalman, owned by the caller
+      // (§0.4 S9) and JSON-round-trippable. Lazily created on the first usable reading.
+      // This IS the D7 observation trace now — a rejected/sub-threshold reading updates
+      // the Kalman estimate without ever confirming stableHR, which is what used to let
+      // 9 bpm steps walk 60 -> 150 silently.
+      filterState:      null,
+      // D10 throttle: last wall-clock time (Date.now(), not the reading's own recordedAt)
+      // this socket wrote a BiometricLog row. null = never written yet.
+      lastPersistedAtMs: null,
       // The heart rate the last recalibration was TRIGGERED at — the latched output of the
       // Schmitt trigger (W4-D05), i.e. the band this socket is being served. Distinct from
       // stableHR, which on the watch lane tracks every 5-minute ping: comparing a crossing
@@ -1132,11 +1149,65 @@ function isValidReading(n) {
   return true;
 }
 
-// Smoothed observation trace. Never confirms a heart rate on its own (D7).
-function _updateEwma(prev, next) {
-  if (!Number.isFinite(next)) return prev;
-  if (prev == null) return next;
-  return Math.round((HR_EWMA_ALPHA * next + (1 - HR_EWMA_ALPHA) * prev) * 10) / 10;
+// ── A0 signal integrity (W4-003) ────────────────────────────────────────────────
+//
+// Run one reading through the shared Hampel -> slew -> Kalman filter and return the
+// FILTERED estimate the debounce/trigger machinery is entitled to trust — the raw value
+// never drives a decision directly again (D6). PURE apart from the env-flag read; the
+// caller owns `state.filterState` (S9: `now` is a required, explicit parameter here too).
+//
+// PASS-THROUGH is deliberate, not a shortcut: a reading with no USABLE device timestamp
+// (a source predating this contract, or a synthetic caller that never set recordedAt) has
+// no `dt` for the model to reason about, so a `now`-derived one would corrupt the slew/
+// Kalman gates with an arrival-time artifact instead of a sampling-time one. Falling back
+// to the raw value — exactly today's behaviour — is honester than inventing a timestamp.
+// Every REAL adapter (garmin/apple_health/suunto — see wearable/adapter.js) always sets
+// recordedAt, so this path is inert in production; it exists for forward/backward
+// compatibility with a caller that predates the anomaly filter (the telemetry DTO's own
+// stated policy — see _shared/dto/telemetry.js).
+function _filterHeartRate(state, normalized, now) {
+  const passthrough = () => ({
+    level: normalized.heartRate, trend: 0, confidence: 1, accepted: true, degraded: null,
+    reason: null, passthrough: true,
+  });
+
+  if (_anomalyFilterDisabled()) return passthrough();
+  const recordedAt = normalized.recordedAt;
+  if (!(recordedAt instanceof Date) || Number.isNaN(recordedAt.getTime())) return passthrough();
+
+  const prior = state.filterState ?? createFilterState('heartRate');
+  const { state: nextFilterState, result } = filterReading(
+    prior, { value: normalized.heartRate, atMs: recordedAt.getTime() }, { now },
+  );
+  state.filterState = nextFilterState;
+  return { ...result, passthrough: false };
+}
+
+// D10: persist an ACCEPTED, genuinely-timestamped live reading to BiometricLog — the raw
+// device value, not the filtered estimate (this table is the ground-truth record; baseline
+// engines are the ones entitled to smooth it). Throttled to LIVE_PERSIST_MIN_INTERVAL_MS
+// per socket and deduped on the batch lane's own `source@recordedAt` convention so a
+// reconnect replaying the same reading cannot double-write. Fire-and-forget: a persistence
+// failure must never block the trigger/generation pipeline it is downstream of.
+async function _maybePersistLiveReading(userId, normalized, filtered, state, nowMs) {
+  if (filtered.passthrough || !filtered.accepted) return;
+  if (state.lastPersistedAtMs !== null && nowMs - state.lastPersistedAtMs < LIVE_PERSIST_MIN_INTERVAL_MS) return;
+  state.lastPersistedAtMs = nowMs;
+
+  try {
+    const recordedAt = normalized.recordedAt;
+    const exists = await BiometricLog.exists({ userId, source: normalized.source, recordedAt });
+    if (exists) return;
+    await insertManyAccounted(BiometricLog, [{
+      userId,
+      heartRate:  normalized.heartRate,
+      activity:   normalized.activity ?? 'unknown',
+      source:     normalized.source,
+      recordedAt,
+    }], { label: 'BiometricLog.live' });
+  } catch (e) {
+    console.error('[biometricHandler] live persistence failed:', e.message);
+  }
 }
 
 // The CONFIRMED-transition trigger (D11). Recalibration serves a shadow buffer keyed
@@ -1196,12 +1267,21 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   socket.emit('biometric_ack', { normalized });
 
   const state = getState(socket.id);
+  const now   = Number.isFinite(opts.now) ? opts.now : Date.now();
+  // A0 (W4-003): every downstream decision — trigger, debounce, persistence — is driven by
+  // the FILTERED estimate, never the raw value (D6). `filtered.level === null` means this
+  // is the FIRST-EVER reading on this socket and it failed a hard gate (S6: future/stale) —
+  // there is nothing to seed a confirmed HR from, so the payload is acked (it was well-
+  // formed) and otherwise ignored rather than fabricating a baseline from bad data.
+  const filtered = _filterHeartRate(state, normalized, now);
+  _maybePersistLiveReading(
+    socket.data.user._id.toString(), normalized, filtered, state, now,
+  ).catch(() => {}); // logged inside; never blocks the trigger pipeline
+  if (filtered.level === null) return;
+  const effectiveHR = filtered.level;
+
   state.consecutiveSkips = 0;
   state.latestActivity   = normalized.activity;
-  // D7: EVERY accepted reading feeds the smoothed observation, on both lanes. The
-  // CONFIRMED heart rate only ever moves through the trigger paths below, so
-  // sub-threshold noise can no longer latch it one silent step at a time.
-  state.hrEwma           = _updateEwma(state.hrEwma, normalized.heartRate);
 
   // Immediate (trusted) mode for the 5-minute watch ingest path: no 60s debounce.
   // First reading (no baseline), a change >= 25 bpm, OR a new activity state
@@ -1210,7 +1290,7 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   if (opts.immediate) {
     const prev = state.stableHR;
     const activityChanged = state.stableActivity !== null && normalized.activity !== state.stableActivity;
-    state.stableHR       = normalized.heartRate;
+    state.stableHR       = effectiveHR;
     state.stableActivity = normalized.activity;
     // D11: the trigger is the BAND — what the buffer is actually keyed by — not a bare
     // ±25 bpm delta, which fired on same-band jumps and missed real band crossings.
@@ -1219,28 +1299,28 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     // across a cut and a re-serve every five minutes.
     const latchHR = _hysteresisDisabled() ? prev : (state.servedHR ?? prev);
     const bandChanged = prev !== null &&
-      _shouldRecalibrate({ prevHR: latchHR, nextHR: normalized.heartRate, activityChanged: false });
+      _shouldRecalibrate({ prevHR: latchHR, nextHR: effectiveHR, activityChanged: false });
     if (prev === null || bandChanged || activityChanged) {
-      log(`[handleBiometric] immediate hr=${normalized.heartRate} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
-      state.servedHR = normalized.heartRate;
+      log(`[handleBiometric] immediate hr=${effectiveHR} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
+      state.servedHR = effectiveHR;
       recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
     }
     return;
   }
 
   if (state.stableHR === null) {
-    state.stableHR       = normalized.heartRate;
+    state.stableHR       = effectiveHR;
     state.stableActivity = normalized.activity;
     return;
   }
 
-  const delta = Math.abs(normalized.heartRate - state.stableHR);
+  const delta = Math.abs(effectiveHR - state.stableHR);
   const activityChanged = normalized.activity !== state.stableActivity;
   // A band crossing is a candidate even below the 10 bpm gate (D11): the buffer is keyed by
   // band, so 115→121 changes the serve while the old gate saw "only 6 bpm" and ignored it.
   // The noise floor inside _shouldRecalibrate keeps jitter at the 90/120 cuts from arming.
   const bandCrossed = _shouldRecalibrate({
-    prevHR: state.stableHR, nextHR: normalized.heartRate, activityChanged: false,
+    prevHR: state.stableHR, nextHR: effectiveHR, activityChanged: false,
   });
   const meaningful = delta >= HR_DELTA_THRESHOLD || activityChanged || bandCrossed;
 
@@ -1257,12 +1337,12 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   // discarded, so the timer confirms where the body actually ended up. The old code captured
   // pendingHR once and threw away every larger change that followed within the same minute.
   if (state.timer) {
-    state.pendingHR       = normalized.heartRate;
+    state.pendingHR       = effectiveHR;
     state.pendingActivity = normalized.activity;
     return;
   }
 
-  state.pendingHR       = normalized.heartRate;
+  state.pendingHR       = effectiveHR;
   state.pendingActivity = normalized.activity;
   state.timer = setTimeout(() => {
     const s = debounceMap.get(socket.id);
@@ -1394,6 +1474,8 @@ module.exports = {
   HR_NOISE_FLOOR,
   HR_BAND_RELEASE_MARGIN,
   RECAL_HYSTERESIS_FLAG,
+  ANOMALY_FILTER_FLAG,
+  LIVE_PERSIST_MIN_INTERVAL_MS,
   toClientTrack,
   toClientTracks,
   resolveBiometricContext,

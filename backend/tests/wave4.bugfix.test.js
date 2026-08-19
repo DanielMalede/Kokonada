@@ -8,6 +8,16 @@ process.env.NODE_ENV       = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 
+// This suite drives handleBiometricReading directly with no real Mongo connection (it is
+// pure debounce/trigger logic under test, not persistence). W4-003's D10 write is
+// fire-and-forget from the handler's point of view, but with no mock it would attempt a
+// real query against `makeSocket`'s non-ObjectId user id on every reading — noisy and
+// beside this suite's point. `sim.replay.integration.test.js` covers real persistence.
+jest.mock('../app/models/BiometricLog', () => ({
+  exists:     jest.fn().mockResolvedValue(false),
+  insertMany: jest.fn().mockResolvedValue({ acknowledged: true, insertedCount: 1, insertedIds: {}, mongoose: { validationErrors: [] } }),
+}));
+
 const fs   = require('fs');
 const path = require('path');
 
@@ -45,7 +55,20 @@ const events = (socket) => socket.emit.mock.calls.map((c) => c[0]);
 afterEach(() => { _resetDebounceState(); });
 
 // A garmin push carries a real timestamp; the adapter turns startTimeLocal into recordedAt.
-const RAW = (heartRate, activityType = 0) => ({ heartRate, activityType, startTimeLocal: '2026-01-01T10:00:00' });
+// W4-003: the socket lane now runs every reading through the anomaly filter (Hampel/slew/
+// Kalman + the S6 timestamp gate), so a fixed historical date is no longer inert — it is
+// >90 days stale against a real clock and would be rejected outright. Anchored well in the
+// past (so 18 file-wide calls can never drift into the future) and spaced 6 minutes apart —
+// the watch cadence the filter's own header documents as "essentially pass-through"
+// (K ≈ 0.998) — so these pins keep testing W4-001's debounce/trigger mechanics rather than
+// accidentally exercising the Kalman gain.
+const RAW_BASE_MS = Date.now() - 3 * 3600_000;
+const RAW_STEP_MS = 6 * 60_000;
+let rawSeq = 0;
+const RAW = (heartRate, activityType = 0) => {
+  rawSeq += 1;
+  return { heartRate, activityType, startTimeLocal: new Date(RAW_BASE_MS + rawSeq * RAW_STEP_MS).toISOString() };
+};
 
 // ── D5 · LLM prompt axis swap ─────────────────────────────────────────────────
 describe('D5 — the emotion prompt describes the axes the code actually uses', () => {
@@ -110,15 +133,19 @@ describe('D7 — sub-threshold readings can no longer walk the confirmed HR', ()
     expect(_debounceMap.get(socket.id).stableHR).toBe(60);
   });
 
-  it('feeds an EWMA observation instead, so the signal is not thrown away', () => {
+  it('feeds the A0 filter estimate instead, so the signal is not thrown away (W4-003)', () => {
     const socket = makeSocket('d7-ewma');
     handleBiometricReading(socket, 'garmin', RAW(60));
     handleBiometricReading(socket, 'garmin', RAW(69));
-    const { hrEwma, stableHR } = _debounceMap.get(socket.id);
+    const { filterState, stableHR } = _debounceMap.get(socket.id);
 
     expect(stableHR).toBe(60);
-    expect(hrEwma).toBeGreaterThan(60);
-    expect(hrEwma).toBeLessThan(69); // smoothed, not latched
+    // The Kalman estimate tracked the reading (it was ACCEPTED, not rejected) even though
+    // it never confirmed stableHR — this is the D7 observation trace now, replacing the
+    // retired EWMA.
+    expect(filterState.level).toBeGreaterThan(60);
+    expect(filterState.acceptedCount).toBe(2);
+    expect(filterState.rejectedCount).toBe(0);
   });
 
   it('the accumulated drift eventually CROSSES the gate and arms a real recalibration', () => {
@@ -139,10 +166,13 @@ describe('D8 — the debounce confirms the LATEST reading, not a stale snapshot'
   it('refreshes the pending value on every reading inside the window', () => {
     const socket = makeSocket('d8-refresh');
     handleBiometricReading(socket, 'garmin', RAW(70));
-    handleBiometricReading(socket, 'garmin', RAW(85));  // arms, pending = 85
+    handleBiometricReading(socket, 'garmin', RAW(85));  // arms, pending ≈ 85
     handleBiometricReading(socket, 'garmin', RAW(130)); // mid-window, must not be discarded
 
-    expect(_debounceMap.get(socket.id).pendingHR).toBe(130);
+    // W4-003: pendingHR is now the FILTERED estimate, not the raw value — at this file's
+    // 6-minute reading cadence the Kalman gain is near 1 (the module's own "essentially
+    // pass-through" claim), so it lands close to but not necessarily bit-identical to 130.
+    expect(_debounceMap.get(socket.id).pendingHR).toBeCloseTo(130, 0);
   });
 
   it('confirms that latest value when the timer fires', () => {
@@ -153,7 +183,7 @@ describe('D8 — the debounce confirms the LATEST reading, not a stale snapshot'
 
     jest.advanceTimersByTime(60_000);
 
-    expect(_debounceMap.get(socket.id).stableHR).toBe(130); // was 85 — the stale snapshot
+    expect(_debounceMap.get(socket.id).stableHR).toBeCloseTo(130, 0); // was 85 — the stale snapshot
   });
 
   it('still arms exactly one timer per window', () => {
