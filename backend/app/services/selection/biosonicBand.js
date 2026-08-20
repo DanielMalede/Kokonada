@@ -24,6 +24,19 @@ const DANCE_CEIL    = () => parseFloat(process.env.BAND_DANCE_CEIL ?? '0.6');
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
+// W4-007: read every feature value through the shared measurement predicate. A dim the store
+// never measured is stored as `null`, and `Number(null)` is 0 — a finite value outside every
+// band — so the gate used to DROP a track for having an unmeasured tempo while letting a
+// fully featureless track through. Knowing more about a track got it excluded, permanently:
+// this band is the un-relaxable one, so the relaxation ladder never recovered those tracks.
+// Abstention is per-DIM: the dims that were measured are still judged exactly as before.
+const { measured } = require('../features/featureProvider');
+// S11 escape hatch — restores the whole pre-W4-007 selection behaviour (this gate's
+// null handling, score v2 and MMR similarity v2) without a revert. Read per call so
+// flipping it needs no restart.
+const legacySelection = () => Boolean(process.env.WAVE4_SCORING_V2_DISABLED);
+const feat = (x) => (legacySelection() ? (Number.isFinite(Number(x)) ? Number(x) : null) : measured(x));
+
 function tolerance(confidence) {
   const c = Number.isFinite(confidence) ? clamp01(confidence) : 0;
   const sig = 1 / (1 + Math.exp(-K() * (C0() - c)));
@@ -38,33 +51,33 @@ function withinBand(track, targets = {}) {
   // Tempo tolerance: a WIDE fixed window for an explicit activity (energy-primary — the
   // stress-narrowed, confidence-scaled window would exclude the library's energetic mass
   // that sits below the step cadence); the narrow window still governs mood requests.
-  const bpm = Number(f.bpm);
-  const center = Number(targets.bpmCenter);
-  const width = Number(targets.bpmWidth);
+  const bpm = feat(f.bpm);
+  const center = feat(targets.bpmCenter);
+  const width = feat(targets.bpmWidth);
   const half = targets.activityDriven
     ? INTENT_BPM_SPAN()
-    : (Number.isFinite(width) ? tau * Math.max(4, width) : null);
-  if (Number.isFinite(bpm) && Number.isFinite(center) && half != null) {
+    : (width != null ? tau * Math.max(4, width) : null);
+  if (bpm != null && center != null && half != null) {
     if (bpm < center - half || bpm > center + half) return false;
   }
 
   // Energy — the PRIMARY gate for activity-driven requests (a workout means high energy);
   // one and the same window for mood requests.
-  const energy = Number(f.energy);
-  const floor = Number(targets.energyFloor);
-  const ceil = Number(targets.energyCeiling);
-  if (Number.isFinite(energy) && Number.isFinite(floor) && Number.isFinite(ceil)) {
+  const energy = feat(f.energy);
+  const floor = feat(targets.energyFloor);
+  const ceil = feat(targets.energyCeiling);
+  if (energy != null && floor != null && ceil != null) {
     const margin = (tau - W_MIN()) * E_TOL();
     if (energy < floor - margin || energy > ceil + margin) return false;
   }
 
   // Texture outlier rejection — un-relaxable, orthogonal to energy/tempo, gated by exertion intent.
   if (targets.activityIntensity === 'high') {
-    const acoustic = Number(f.acousticness);
-    if (Number.isFinite(acoustic) && acoustic > ACOUSTIC_CEIL()) return false; // acoustic double-time
+    const acoustic = feat(f.acousticness);
+    if (acoustic != null && acoustic > ACOUSTIC_CEIL()) return false; // acoustic double-time
   } else if (targets.activityIntensity === 'low') {
-    const dance = Number(f.danceability);
-    if (Number.isFinite(dance) && dance > DANCE_CEIL()) return false; // intensity bleed into calm
+    const dance = feat(f.danceability);
+    if (dance != null && dance > DANCE_CEIL()) return false; // intensity bleed into calm
   }
   return true;
 }
