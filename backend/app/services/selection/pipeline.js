@@ -11,10 +11,11 @@ const { select } = require('./mmr');
 // object. Destructuring here would make that path untestable and therefore unexercised.
 const shadowCompare = require('./shadowCompare');
 const { filterBand } = require('./biosonicBand');
+const { planTrajectory, DISABLE_ENV_VAR: TRAJECTORY_DISABLED } = require('../../agents/runtime/delivery/trajectoryPlanner');
 const { recordingKeyOf, featuresOf } = require('../features/featureProvider');
 const vectorIndex = require('../vector/vectorIndex');
 
-// The Phase-5 selection pipeline: pool → exclusions → features → score → MMR.
+// The Phase-5 selection pipeline: pool → exclusions → features → score → MMR → trajectory.
 // Zero LLM in the path. When filters would starve the playlist, a relaxation
 // ladder loosens the gates one level at a time. The global serve window holds
 // through L3; only the L4 LAST RESORT drops it, so a user with a non-empty
@@ -213,9 +214,24 @@ async function selectPlaylist({
   const picks = select(scored, { k });
   mark('mmr', t);
 
+  // Stage 6: trajectory sequencing (W4-008). MMR chose WHICH tracks; this chooses the ORDER,
+  // laying them along the arc `wellbeingRegulator` attached to the targets — meet the listener
+  // where they are, then guide them. STRICTLY order-only: the planner returns a permutation of
+  // `picks` and nothing else, so the band, the ladder and the serve ledger all still decide
+  // membership exactly as they did. With no arc in the targets (a Manual request with every band
+  // null) it is a no-op and the pick order comes through untouched.
+  t = Date.now();
+  const { ordered, stats: trajectory } = planTrajectory(picks, {
+    targets,
+    // S11: one flag for the whole trajectory feature, shared with the regulator that publishes
+    // the arc. Read per call so no restart is needed, matching the WAVE4_SCORING_V2_DISABLED seam.
+    disabled: Boolean(process.env[TRAJECTORY_DISABLED]),
+  });
+  mark('trajectory', t);
+
   stageMs.total = Date.now() - t0;
   return {
-    tracks: picks.map(p => p.track),
+    tracks: ordered.map(p => p.track),
     telemetry: {
       poolSize: pool.length,
       afterFilters: filtered.length,
@@ -224,6 +240,14 @@ async function selectPlaylist({
       featured,
       banded: banded.length,
       bandWidened,
+      // W4-008: which arc the playlist was laid along, and how well it fits. `planned:false`
+      // means there was no arc to follow (or the kill switch is set), not that one failed.
+      trajectory: {
+        archetype: trajectory.archetype,
+        planned: trajectory.planned,
+        cost: trajectory.cost,
+        folded: trajectory.folded,
+      },
       stageMs,
       // Present ONLY under SCORING_V2_SHADOW, so the default telemetry object is unchanged.
       ...(shadowStats ? { shadow: shadowStats } : {}),
