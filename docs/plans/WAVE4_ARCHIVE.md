@@ -1757,3 +1757,38 @@ and S11's named inventory in the mission has no baselines flag, so it is easy to
 (the two numeric-vital log lines) remain correctly parked behind MUST-tier work per R6's ordering, and no new defect
 class surfaced. Per Â§2.5, an interval this clean gets said in one line rather than padded â€” **one row queued, not five.**
 
+
+## 2026-08-20 - archived by reflection #6 (R1.5; STATE had reached 176KB)
+
+> Moved verbatim from `docs/plans/WAVE4_STATE.md`, in append order, per S2.5 R1.5. Backlog rows are
+> deliberately NOT archived: `state-guard.js` reads their removal as a stale rewrite (W4-D16, still open).
+
+### Reflection log entries #3 and #4
+
+| # | at | interval covered | suite | verified / reopened / queued | headline |
+|---|----|------------------|-------|------------------------------|----------|
+| 3 | 2026-08-19 (session 19, `exec`) | `962acb2` â†’ `9ba207e` â€” 19 commits; tasks W4-D08 (reopen), W4-D11, W4-003 (wiring), W4-004 (pure core) | **179 suites / 2357 tests (2356 passed + 1 todo), exit 0, 191.7 s** â€” exactly the recorded baseline; lint 0 errors / 22 warnings | **4 verified / 0 reopened / 1 queued** (+ W4-D12 closed by ruling) | The code is in good shape â€” the interval's four claims all held under execution and stub-out, including the reopened Suunto lane, which now runs and reports truthfully. The one thing that did not hold is a *paper* surface: S5 names five registration places for a new collection and W4-004 wrote four, counting an in-code comment as "the retention-windows documentation" while the real one (`docs/PRIVACY_DECLARATIONS.md`) still describes a nine-collection erasure cascade the code outgrew (W4-D13) |
+| 4 | 2026-08-19 (session 23, `exec`) | `60b8a4d` -> `ae3937a` - 16 commits; tasks W4-004 (wiring), W4-D13, W4-005, W4-D14, W4-016 added, W4-006 started | **184 suites / 2549 tests (2548 passed + 1 todo), exit 0, 209.5 s** - exactly the recorded baseline; PR #179 all GitHub checks green | **4 verified / 0 reopened / 2 queued** | The interval's claims all held, and the defect is in code none of them touched: `translate._robustZ` anchors an explicitly-null baseline median at ZERO, so W4-004's deliberate cold-start `rhrMedian: null` saturates stress to 1.0 for every resting reading - and the test named for that exact gotcha only asserts structural sanity |
+
+### Session log rows for sessions more than 24h old (1-17 and the Cowork row)
+
+| # | started | result line (`WAVE4_SESSION_RESULT: ...`) |
+|---|---------|--------------------------------------------|
+| 1 | 2026-08-18 22:56 | WAVE4_SESSION_RESULT: W4-000 in_progress review pass complete â€” 6 unknowns resolved, mission amended, phaseâ†’execute |
+| 2 | 2026-08-19 00:29 | WAVE4_SESSION_RESULT: W4-000 in_progress HALT â€” 3 concurrent sessions on one working tree (R7); preflight S1 verified green, HITL H2 raised |
+| 3 | 2026-08-19 00:20 | WAVE4_SESSION_RESULT: W4-000 in_progress halted by WAVE4_HALT (3 concurrent sessions); worker.test.js leak root-caused and fixed, baseline 163/1767 green, ADR-0012 + tripwire landed in d1db088, STATE intentionally not written |
+| 4 | 2026-08-19 00:28 | WAVE4_SESSION_RESULT: W4-000 in_progress halted on WAVE4_HALT - three concurrent sessions on one tree (HITL H2); preflight passed, no docker, no work committed |
+| 5 | 2026-08-19 01:0x | WAVE4_SESSION_RESULT: W4-001 done â€” 10 surgical fixes (D3,D4,D5,D7,D8,D9,D11i,D14,D17,W8/W9), 34 new pins, suite 164/1802 green |
+| 6 | 2026-08-19 01:27 | WAVE4_SESSION_RESULT: W4-D01 done â€” reflect-marker module + loop backstop, 27 new pins, suite 165/1829 green |
+| 7 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-D02 done â€” STATE row-clobber guard + loop backstop, 36 new pins, suite 166/1865 green |
+| 8 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: REFLECT done 4 verified, 0 reopened, 2 queued â€” suite 166/1865 green; W4-D05 band-flap + W4-D06 open-handle leak found, W4-D04 closed by ruling |
+| 9 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-D05 done â€” asymmetric band release margin + served-band latch, 26 new pins, suite 167/1891 green |
+| 10 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-D06 done â€” standing open-handle guard + one-step debounce reset, 53 new pins, suite 168/1944 green |
+| 12 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-D09 done â€” min-of-N perf-budget helper + relative burst budget, 45 new pins, suite 171/2073 green twice (first bankable green baseline since W4-002). Reflection SKIPPED per Â§2 step 4 (marker DUE 7.25h, but `class: repair` rows were pending â€” fix the tree first). S2: adopted the prior session's untracked RED test after verifying it red. |
+| 11 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-002 done â€” seeded simulator (rng, 5 personas + 2 holdouts, generator, replay harness, soak), 84 new pins, suite 170/2028 with 1 pre-existing wall-clock flake (W4-D09); found W4-D08 |
+| 13 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-D08 done â€” truthful bulk-insert accounting across all three wearable ingest lanes, 17 new pins + 1, suite 172/2091 green twice. Reflection SKIPPED per Â§2 step 4 (marker DUE 7.86h, but `class: repair` W4-D08 was pending â€” fix the tree first). Found W4-D10. |
+| 14 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: REFLECT done 5 verified, 1 reopened, 1 queued â€” suite 172/2091 green (exact baseline); W4-D08 REOPENED: `suunto.js:50` calls an unimported `insertManyAccounted`, proven by executing the real function (`ReferenceError`), invisible because every suunto test mocks the module; scope analysis over all 147 production files shows it is the only one; W4-D11 queued (no linter exists, so `lint clean` has never gated anything) |
+| 15 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-D08 done â€” suunto lane requires the helper it calls; both untested ingest lanes pinned against the real modules (16 pins); W4-D11 landed with it: eslint `no-undef` gate + in-suite guard (10 pins), stub-out verified; suite 174/2117 green twice |
+| 16 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-003 in_progress â€” pure core landed (telemetry DTO + anomaly filter, 82 pins, suite 175/2199 green); constants derived from one wander envelope; stub-out battery found 4 of 12 mechanisms initially unfalsifiable and pinned all of them; wiring + D10 persistence owed next session |
+| â€” | 2026-08-19 (Cowork) | H2 closed after direct git verification (clean, non-conflicting history) + run-mission.ps1 single-instance mutex fix; phaseâ†’execute; W4-000â†’done; rows 2-4 are the three colliding launches (00:20/00:28/00:29), numbered in write-order not start-order |
+| 17 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-003 done â€” wiring half landed (filter drives debounce/trigger, D10 live persistence throttled+deduped, S6 gate real at the seam, WAVE4_ANOMALY_FILTER_DISABLED kill-switch, W4-D07 closed), 15 new pins (14 in wave4.liveWiring.test.js + 1 in biometricHandler.pipeline.test.js), suite 176/2213 green twice; 3 deliberate re-pins + 1 tolerance widening, all documented; PR #179 body updated, branch pushed |
