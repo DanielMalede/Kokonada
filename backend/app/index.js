@@ -171,6 +171,12 @@ async function start() {
       .then((r) => console.log(`[youtubeRetention] repeatable scheduled: ${JSON.stringify(r)}`))
       .catch((e) => console.error('[youtubeRetention] schedule failed:', e.message));
 
+    // Nightly per-user consolidation (W4-012, A6): baselines refresh, cosinor snapshot,
+    // sleep-debt update, CUSUM change-point flags — persisted to MorningState.
+    scheduleRepeatable(QUEUES.DAILY_ANALYSIS, process.env.DAILY_ANALYSIS_CRON || '0 5 * * *', {})
+      .then((r) => console.log(`[dailyAnalysis] repeatable scheduled: ${JSON.stringify(r)}`))
+      .catch((e) => console.error('[dailyAnalysis] schedule failed:', e.message));
+
     // Global seed ingestion — DARK by default (GLOBAL_SEED_INGEST_ENABLED). Grows the
     // provider-agnostic CC0 discovery corpus from AcousticBrainz records on a daily cron.
     if (process.env.GLOBAL_SEED_INGEST_ENABLED === 'true') {

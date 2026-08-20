@@ -16,6 +16,7 @@ const DEFAULT_PROCESSORS = {
   [QUEUES.GLOBAL_SEED_INGEST]: require('./globalSeedIngest.worker').process,
   [QUEUES.SESSION_TRIM]: require('./sessionTrim.worker').process,
   [QUEUES.YOUTUBE_RETENTION]: require('./youtubeRetention.worker').process,
+  [QUEUES.DAILY_ANALYSIS]: require('./dailyAnalysis.worker').process,
 };
 
 function startWorkers(processors = DEFAULT_PROCESSORS) {

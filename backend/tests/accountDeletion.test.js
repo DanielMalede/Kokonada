@@ -10,6 +10,7 @@ jest.mock('../app/models/User',            () => ({ deleteOne:  jest.fn().mockRe
 jest.mock('../app/models/BiometricLog',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 42 }) }));
 jest.mock('../app/models/VitalSample',     () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 11 }) }));
 jest.mock('../app/models/MedicalProfile',  () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
+jest.mock('../app/models/MorningState',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 5 }) }));
 jest.mock('../app/models/MusicProfile',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/PlaylistSession', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 7 }) }));
 jest.mock('../app/models/ServeEvent',      () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 9 }) }));
@@ -35,6 +36,7 @@ jest.mock('apple-signin-auth',   () => ({ verifyIdToken: jest.fn() }));
 const User            = require('../app/models/User');
 const BiometricLog    = require('../app/models/BiometricLog');
 const MedicalProfile  = require('../app/models/MedicalProfile');
+const MorningState    = require('../app/models/MorningState');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent      = require('../app/models/ServeEvent');
@@ -62,6 +64,7 @@ describe('deleteAccount (GDPR hard-delete)', () => {
 
     expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId });
     expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(MorningState.deleteMany).toHaveBeenCalledWith({ userId });
     expect(MusicProfile.deleteMany).toHaveBeenCalledWith({ userId });
     expect(PlaylistSession.deleteMany).toHaveBeenCalledWith({ userId });
     expect(ServeEvent.deleteMany).toHaveBeenCalledWith({ userId });

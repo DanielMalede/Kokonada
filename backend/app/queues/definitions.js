@@ -19,6 +19,9 @@ const QUEUES = Object.freeze({
   // Enforces the YouTube 30-day data-retention ToS: refreshes connected users' library rows,
   // purges disconnected/stale youtube_music rows (Spotify + mbid corpus untouched). (T3.5)
   YOUTUBE_RETENTION: 'youtube-retention',
+  // Nightly per-user consolidation (W4-012, A6): baseline refresh, cosinor snapshot, sleep-debt
+  // update, CUSUM change-point detection — persisted to MorningState.
+  DAILY_ANALYSIS: 'daily-analysis',
 });
 
 const QUEUE_NAMES = new Set(Object.values(QUEUES));

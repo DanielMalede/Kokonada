@@ -9,6 +9,7 @@
 const BiometricLog = require('../../models/BiometricLog');
 const VitalSample = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
+const MorningState = require('../../models/MorningState');
 const MusicProfile = require('../../models/MusicProfile');
 const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
@@ -38,6 +39,9 @@ async function eraseUserChildData(userId) {
     // same task that created the collection.
     VitalSample.deleteMany({ userId }),
     MedicalProfile.deleteMany({ userId }),
+    // Nightly consolidated readiness/sleep-debt/cosinor/CUSUM history (W4-012, S5) — registered
+    // in the same task that created the collection.
+    MorningState.deleteMany({ userId }),
     MusicProfile.deleteMany({ userId }),
     PlaylistSession.deleteMany({ userId }),
     ServeEvent.deleteMany({ userId }),

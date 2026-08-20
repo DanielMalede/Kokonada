@@ -9,6 +9,7 @@
 const BiometricLog   = require('../../models/BiometricLog');
 const VitalSample    = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
+const MorningState   = require('../../models/MorningState');
 const garmin         = require('../wearable/garmin');
 const { getRedis }   = require('../../config/redis');
 
@@ -42,12 +43,20 @@ async function purgeWearableData(userId, provider) {
   //    "Derived solely from the purged provider" now means no HR samples AND no vital samples
   //    remain — counting only BiometricLog would delete a profile still backed by another
   //    wearable's VitalSample rows.
+  //
+  //    MorningState (W4-012, S5) is the SAME category of derived aggregate — a nightly
+  //    consolidation of exactly the vitals MedicalProfile/BiometricLog/VitalSample carry, with
+  //    no per-source attribution of its own — so it rides the identical all-or-nothing rule
+  //    rather than a fourth, disagreeing scoping scheme.
   let medicalProfiles = 0;
+  let morningStates = 0;
   const remaining = await BiometricLog.countDocuments({ userId })
     + await VitalSample.countDocuments({ userId });
   if (remaining === 0) {
     const med = await MedicalProfile.deleteMany({ userId });
     medicalProfiles = med?.deletedCount ?? 0;
+    const morning = await MorningState.deleteMany({ userId });
+    morningStates = morning?.deletedCount ?? 0;
   }
 
   // 3. Invalidate the derived Redis baseline blob so the next generation recomputes from
@@ -65,7 +74,9 @@ async function purgeWearableData(userId, provider) {
     if (redis) await redis.del(_affectKey(userId));
   } catch { /* best-effort */ }
 
-  return { biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles };
+  return {
+    biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles, morningStates,
+  };
 }
 
 // Null out the User-doc credential fields for a provider. Does NOT persist — the caller

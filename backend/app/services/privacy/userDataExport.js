@@ -12,6 +12,7 @@
 const BiometricLog      = require('../../models/BiometricLog');
 const VitalSample       = require('../../models/VitalSample');
 const MedicalProfile    = require('../../models/MedicalProfile');
+const MorningState      = require('../../models/MorningState');
 const MusicProfile      = require('../../models/MusicProfile');
 const PlaylistSession   = require('../../models/PlaylistSession');
 const ServeEvent        = require('../../models/ServeEvent');
@@ -28,6 +29,7 @@ const COLLECTIONS = [
   { model: BiometricLog },
   { model: VitalSample },                              // per-metric vitals (W4-004, S5)
   { model: MedicalProfile },
+  { model: MorningState },                             // nightly consolidation history (W4-012, S5)
   { model: MusicProfile },
   { model: PlaylistSession },
   { model: ServeEvent },
