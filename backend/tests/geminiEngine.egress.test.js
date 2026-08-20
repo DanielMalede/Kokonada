@@ -83,6 +83,22 @@ describe('outbound body — no special-category vitals (T0.1)', () => {
     expect(body).not.toMatch(/heart rate|resting/i);
   });
 
+  // W4-016: the biometric branch now reads stateLabel/hrRatio (routed through biometricBand)
+  // instead of raw HR alone — the same egress boundary must hold for the new inputs too.
+  it('the BIOMETRIC request carries no state label / hrRatio digit either (W4-016)', async () => {
+    mockLLM();
+    await adjustBiometricPlaylist({
+      musicProfile: SENTINEL_PROFILE, biometric: SENTINEL_BIO,
+      fetchTracks: jest.fn().mockResolvedValue([]),
+    });
+    const body = outboundBody();
+    expect(body).not.toContain('SENTINEL_STATE_LABEL');
+    expect(body).not.toContain('1.53'); // hrRatio
+    for (const n of [913, 471, 917, 771, 733, 883, 425, 611, 522]) {
+      expect(body).not.toContain(String(n));
+    }
+  });
+
   it('still applies the vitals as deterministic target bands AFTER the LLM returns', async () => {
     mockLLM({ ...VALID, target_bpm: 128, target_energy: 0.85 });
     const fetchTracks = jest.fn().mockResolvedValue([]);

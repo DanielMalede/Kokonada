@@ -73,6 +73,13 @@ jest.mock('../app/services/generation/orchestrator', () => ({
   buildTargets: jest.fn(async () => ({ bpmCenter: 120 })),
 }));
 
+// W4-016: the personal-baseline source for hrRatio on the HR branch. Defaulted to null
+// (no cached baseline) so every pre-existing test in this file — none of which mocked this
+// module before W4-016 — stays byte-identical unless a test opts in.
+jest.mock('../app/services/biosonic/baselines', () => ({
+  peekBaselines: jest.fn(),
+}));
+
 jest.mock('../app/services/discovery/discoveryFetch', () => ({
   vectorDiscoveryFetch: jest.fn(async () => []),
 }));
@@ -167,6 +174,7 @@ const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
 const captionService   = require('../app/services/discovery/captionService');
 const crossPlatform    = require('../app/services/crossPlatform');
 const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
+const baselines        = require('../app/services/biosonic/baselines');
 
 const {
   registerBiometricHandler,
@@ -297,6 +305,7 @@ beforeEach(() => {
   geminiEngine.adjustBiometricPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.critiqueTrackVibe.mockImplementation(async ({ tracks }) => tracks);
+  baselines.peekBaselines.mockResolvedValue(null);
   playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
   PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
@@ -2301,5 +2310,65 @@ describe('band-aware discovery threading (DISCOVERY_BAND_AWARE)', () => {
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
     expect(orchestrator.buildTargets).not.toHaveBeenCalled();
     expect(orchestrator.generateV2).toHaveBeenCalledWith(expect.objectContaining({ targets: null }));
+  });
+});
+
+// ── W4-016: LLM band context sourced from the real state/baseline (HR branch) ──────────────
+// The heart-rate branch's `biometric` context now carries stateLabel (the taxonomy state this
+// wave maintains, via bandTargets.stateId) and hrRatio (this user's HR relative to their OWN
+// resting baseline) instead of raw HR alone — closing the "same HR, same band for everyone"
+// defect (geminiEngine.js routes it through biometricBand's real preference chain). Both
+// additions are best-effort; the emotion branch already had richer context and is untouched.
+describe('W4-016 — LLM band context (HR branch)', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  afterEach(() => {
+    delete process.env.DISCOVERY_BAND_AWARE;
+    delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
+  });
+
+  it('populates stateLabel from bandTargets.stateId when band-aware discovery has resolved one', async () => {
+    process.env.DISCOVERY_BAND_AWARE = 'true';
+    orchestrator.buildTargets.mockResolvedValue({ bpmCenter: 120, stateId: 'acute-stress' });
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ stateLabel: 'acute-stress' }) }),
+    );
+  });
+
+  it('populates hrRatio from the personal baseline (peekBaselines rhrMedian)', async () => {
+    baselines.peekBaselines.mockResolvedValue({ rhrMedian: 65 });
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 130 }));
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ hrRatio: 2 }) }),
+    );
+  });
+
+  it('cold start (no baseline, no resolved state) degrades to exactly heartRate + activity — dormancy invariant', async () => {
+    baselines.peekBaselines.mockResolvedValue(null);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 95, latestActivity: 'running' }));
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        biometric: { heartRate: 95, activity: 'running', stateLabel: null, hrRatio: null },
+      }),
+    );
+  });
+
+  it('kill switch: WAVE4_LLM_BAND_FROM_STATE_DISABLED skips the baseline/state lookup entirely', async () => {
+    process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = 'true';
+    process.env.DISCOVERY_BAND_AWARE = 'true';
+    orchestrator.buildTargets.mockResolvedValue({ bpmCenter: 120, stateId: 'acute-stress' });
+    baselines.peekBaselines.mockResolvedValue({ rhrMedian: 65 });
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 130 }));
+    expect(baselines.peekBaselines).not.toHaveBeenCalled();
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        biometric: expect.objectContaining({ stateLabel: null, hrRatio: null }),
+      }),
+    );
   });
 });

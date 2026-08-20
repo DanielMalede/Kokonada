@@ -26,6 +26,7 @@ const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 const captionService = require('../services/discovery/captionService');
+const { peekBaselines } = require('../services/biosonic/baselines');
 // Art.9 consent gate (audit H-9 follow-up) for the live socket biometric_push path.
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
 
@@ -908,14 +909,34 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
         // Wave-0 HR branch maps the CURRENT heart rate to a coarse band server-side
-        // (adjustBiometricPlaylist → applyBiometricBands); it no longer consumes a resting-HR
-        // baseline, so no MedicalProfile read is needed here. The resting baseline still feeds
-        // the emotion branch via resolveBiometricContext (encrypted MedicalProfile). (T3.3 + Wave-0)
+        // (adjustBiometricPlaylist → applyBiometricBands). W4-016: that band now routes
+        // through biometricBand's real preference chain — stateLabel (the taxonomy state this
+        // wave maintains, from bandTargets.stateId when band-aware discovery has resolved a
+        // confident one) then hrRatio (this user's HR relative to THEIR OWN resting baseline,
+        // W4-004's peekBaselines) then raw HR — instead of the fixed population ladder that
+        // scored an athlete and a sedentary user identically at the same raw HR. Both reads
+        // are best-effort and gated by the same kill switch geminiEngine.js honours, so a
+        // cold-start user (no baseline, no resolved state) or a disabled flag degrades this
+        // object to exactly {heartRate, activity} — today's behaviour byte-for-byte.
+        let stateLabel = null;
+        let hrRatio = null;
+        if (process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED !== 'true') {
+          stateLabel = bandTargets?.stateId || null;
+          try {
+            const personalBaselines = await peekBaselines(userId);
+            const rhr = Number(personalBaselines?.rhrMedian);
+            if (Number.isFinite(rhr) && rhr > 0 && isPhysiologicalHR(state.stableHR)) {
+              hrRatio = Math.round((state.stableHR / rhr) * 100) / 100;
+            }
+          } catch { /* degrade to raw-HR band */ }
+        }
         aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
           biometric: {
             heartRate:  state.stableHR,
             activity:   state.latestActivity,
+            stateLabel,
+            hrRatio,
           },
           fetchTracks,
         }), AI_BUDGET_MS, 'adjustBiometricPlaylist');
