@@ -70,6 +70,16 @@ const _anomalyFilterDisabled = () => {
   const v = String(process.env[ANOMALY_FILTER_FLAG] ?? '').trim().toLowerCase();
   return v !== '' && v !== 'false' && v !== '0';
 };
+// §0.4 S11 escape hatch for the W4-D34 duplicate-serve latch: set it and a recalibration
+// serves whatever key it computes, every time, exactly as before the latch existed. Its OWN
+// flag on purpose — W4-D35 is the standing complaint that RECAL_HYSTERESIS_FLAG already
+// reverts two unrelated behaviours, and a third would make it unusable as a kill-switch:
+// disabling the latch to debug a missing serve must not also disable the band hysteresis.
+const SERVE_LATCH_FLAG = 'WAVE4_SERVE_LATCH_DISABLED';
+const _serveLatchDisabled = () => {
+  const v = String(process.env[SERVE_LATCH_FLAG] ?? '').trim().toLowerCase();
+  return v !== '' && v !== 'false' && v !== '0';
+};
 // D10 (W4-003): the live socket lane finally persists what it sees. Capped at one row per
 // minute per socket — a live stream can push every few seconds, and BiometricLog is a
 // history/baseline input, not a raw firehose; the batch lane already owns high-density
@@ -298,6 +308,14 @@ function getState(socketId) {
       // decision, not on the serve — the Manual-mode gate lives inside recalibrateForBand,
       // and a latch that only warmed in Live mode would flap on the first switch into it.
       servedHR:         null,
+      // The bio moodKey (`bio:<band>:<activity>`) whose buffer this socket is currently being
+      // served (W4-D34). `servedHR` latches the HR-band TRIGGER; this latches the SERVE, and the
+      // two are not the same question now that W4-009 fires recalibration on taxonomy-state
+      // transitions: 20 of the 34 states share `band: resting`, so most confirmed transitions
+      // leave the key — and therefore the buffer, which §0.2.6 freezes at this coarse shape —
+      // completely unchanged. null = nothing served under a keyed buffer yet (also the value
+      // after an UNKEYED legacy serve, which is deliberately never latched).
+      servedBioMoodKey: null,
       latestActivity:   null,
       // Last sustained activity state — drives activity-change-triggered regen
       // (resting→running etc.) independently of the HR delta gate.
@@ -533,10 +551,19 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
   // D-1: a playlist_ready first gets the session-playlist contextUri attached (absolute
   // queue parity on App Remote); the attach is fail-open — no context, same payload.
   let readyEmitSettled = Promise.resolve(); // awaited in finally so the deferred ready lands before the lock frees
+  // Set once the mood is resolved (see below); non-null only for the heart-rate branch's
+  // synthetic `bio:<band>:<activity>` key. Declared out here because `emit` is, and a run that
+  // dies before resolving a mood must latch nothing.
+  let bioServeKey = null;
   const emit = (event, payload) => {
     if (state.genSeq !== myGen) return;
     if (payload && 'reqId' in payload) payload = { ...payload, reqId: state.lastReqId ?? payload.reqId };
     if (event === 'playlist_ready') {
+      // W4-D34: the latch answers "is this key's buffer what is playing", so a playlist that is
+      // NOT a bio serve (the emotion branch, bioServeKey null) clears it rather than leaving a
+      // stale claim behind — otherwise a mood request would strand the socket, every later
+      // resting-band transition reading as a duplicate of music that stopped playing.
+      state.servedBioMoodKey = bioServeKey;
       readyEmitSettled = attachSessionContext(socket, payload)
         .then((p) => { if (state.genSeq === myGen) emitToUser(socket, event, p); })
         .catch(() => {});
@@ -642,6 +669,13 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     const moodKey   = useEmotion
       ? resolveMoodKey(state.lastEmotionTaps)
       : syntheticBioMoodKey(state.stableHR, state.latestActivity);
+    // W4-D34: the other half of the duplicate-serve latch. A generation that actually delivers
+    // a playlist under a synthetic bio key IS that key's buffer starting to play (it warms the
+    // buffer on the way out), so a policy-only taxonomy transition arriving straight afterwards
+    // would re-serve music the listener already has. Read by `emit` below on every
+    // playlist_ready this generation emits — main path, deterministic fallback, no-sink
+    // familiar path alike. Null on the emotion branch: that key is not a bio buffer.
+    bioServeKey = (typeof moodKey === 'string' && moodKey.startsWith('bio:')) ? moodKey : null;
     // The activity CHIP the user tapped is in lastActivity; latestActivity is watch-detected
     // motion. On the emotion path the chosen chip MUST drive translate()'s biosonic target
     // (running→162bpm cadence, workout→high energy) — otherwise a Run/Workout stays calm.
@@ -1111,6 +1145,41 @@ async function recalibrateForBand(socket, state) {
   const userId     = socket.data.user._id.toString();
   const bioMoodKey = syntheticBioMoodKey(state.stableHR, state.latestActivity);
 
+  // W4-D34 duplicate-serve latch. A recalibration is now triggered by two independent things:
+  // an HR-band/activity crossing (which always moves this key) and a CONFIRMED taxonomy-state
+  // transition (W4-009, which usually does not — 20 of the 34 states are `band: resting`, so
+  // the common transition changes only the state's musicPolicy). The buffer is keyed
+  // `bio:<band>:<activity>` and §0.2.6 freezes that shape, so on a policy-only transition
+  // there is literally nothing different to serve: re-emitting is the same playlist pushed at
+  // the listener again, and — worse — a second `recordServes` batch through an append-only
+  // ledger, inflating exposure for exactly the tracks that fit this user best (`score`
+  // subtracts `w_exp * exposure`). So a key already being served is a no-op.
+  //
+  // A NULL key is never latched: it means "no usable HR", which degrades to the legacy
+  // unkeyed generation rather than to a buffer. Treating `null === null` as "already serving
+  // it" would silence that path for the rest of the socket's life. Assigning it here instead
+  // CLEARS the latch, which is correct — what is playing is no longer any key's buffer.
+  const duplicateServe = bioMoodKey !== null && state.servedBioMoodKey === bioMoodKey;
+  if (duplicateServe && !_serveLatchDisabled()) return;
+  // Claimed BEFORE the first await: both callers are fire-and-forget, so two regime changes
+  // arriving in the same tick would otherwise both read the pre-serve latch and both serve.
+  const previousServedKey = state.servedBioMoodKey;
+  state.servedBioMoodKey  = bioMoodKey;
+
+  try {
+    await _serveForBand(socket, state, userId, bioMoodKey);
+  } catch (err) {
+    // Nothing reached the listener, so the claim was not earned — release it, or a later
+    // legitimate transition back to this key would be swallowed by a serve that never was.
+    if (state.servedBioMoodKey === bioMoodKey) state.servedBioMoodKey = previousServedKey;
+    throw err;
+  }
+}
+
+// The serve itself, split out of `recalibrateForBand` only so the latch above reads as one
+// decision rather than a flag threaded through the body. Unchanged behaviour: warm → play the
+// buffer + record the serves; cold → loader + exactly one live generation.
+async function _serveForBand(socket, state, userId, bioMoodKey) {
   let buffer = null;
   if (bioMoodKey) {
     try { buffer = await shadowBufferRepo.getBuffer(userId, bioMoodKey); }

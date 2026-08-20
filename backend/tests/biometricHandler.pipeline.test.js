@@ -2254,6 +2254,174 @@ describe('W4-009 — state-triggered recalibration (liveStateAdapter wiring)', (
   });
 });
 
+// ── W4-D34: the duplicate-serve latch ─────────────────────────────────────────
+// W4-009 made a CONFIRMED taxonomy-state transition a recalibration trigger, and 20 of the
+// taxonomy's 34 states sit in `band: resting` — so the DOMINANT transition class changes only
+// the state's `musicPolicy`, not the band. `recalibrateForBand` is keyed by
+// `syntheticBioMoodKey(stableHR, latestActivity)` = `bio:<band>:<activity>`, which such a
+// transition leaves IDENTICAL, so it re-emitted the same buffer as a fresh `playlist_ready` and
+// re-recorded the same tracks through the append-only serve ledger. Exposure is what `score`
+// subtracts (`w_exp*exposure`), so the tracks that fit the user best were the ones being
+// suppressed. §0.2.6 freezes the buffer key at `bio:<band>:<activity>`, so the buffer mechanism
+// cannot express a different mix for a policy-only change — suppressing the duplicate is the fix,
+// re-keying the buffer is out of scope.
+describe('W4-D34 — duplicate-serve latch on the bio moodKey', () => {
+  const serveLedger  = require('../app/services/ledger/serveLedger');
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  const BUFFER_TRACKS = [
+    { id: 'd34a', uri: 'spotify:track:d34a', title: 'Latched One', artist: 'Artist L' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 0, targets: { bpmCenter: 90 }, builtAt: Date.now(),
+    });
+  }
+  const readyCalls = (socket) => socket.emit.mock.calls.filter((c) => c[0] === 'playlist_ready');
+
+  afterEach(() => {
+    delete process.env.WAVE4_SERVE_LATCH_DISABLED;
+    delete process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED;
+  });
+
+  it('(a) a policy-only regime change re-serving the SAME key produces ONE serve and ONE ledger write', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    // ONE state object across both calls — that is the point: the two transitions are
+    // `deep-rest -> resting-content` style, same band, same activity, so the key never moves.
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+  });
+
+  it('(b) a real BAND change still serves — the latch guards the key, not the trigger', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    state.stableHR = 150; // resting -> peak: a genuinely different buffer
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(2);
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(2);
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:resting:resting');
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:peak:resting');
+  });
+
+  it('(b) an ACTIVITY change at constant heart rate still serves', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    state.latestActivity = 'walking';
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(2);
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:resting:walking');
+  });
+
+  it('a COLD key costs ONE generation across repeated policy-only transitions, not one each', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null); // cold: the fallback is a full live gen
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(orchestrator.generateV2).toHaveBeenCalledTimes(1);
+  });
+
+  it('no usable heart rate (null key) is never latched — the unkeyed legacy path still runs each time', async () => {
+    // syntheticBioMoodKey returns null without a usable HR and the caller degrades to a legacy
+    // unkeyed generation. `null === null` must NOT read as "already serving that key", or the
+    // legacy path would fire once and then go silent for the rest of the socket's life.
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: null, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(orchestrator.generateV2).toHaveBeenCalledTimes(2);
+  });
+
+  it('a generation serving under a bio key latches it, so a following policy-only transition is a no-op', async () => {
+    // The other half of the same regression: a `heart` generation IS the key's music starting to
+    // play, so a policy-only transition straight after it is just as duplicate as two
+    // recalibrations in a row.
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await generateAndEmitPlaylist(socket, 'heart', state);
+    expect(readyCalls(socket)).toHaveLength(1);
+
+    await recalibrateForBand(socket, state);
+    expect(readyCalls(socket)).toHaveLength(1); // the buffer for this key is already playing
+  });
+
+  it('an EMOTION generation clears the latch — the bio buffer is no longer what is playing', async () => {
+    // The latch answers "is this key's buffer already playing", not "was it ever served". A mood
+    // request in between replaced the music, so the next transition back to the bio key is a
+    // genuine serve. Without this the user could be stranded on a mood playlist for the rest of
+    // the socket, because every resting-band transition would read as a duplicate.
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({
+      liveMode: true, stableHR: 65, latestActivity: 'resting', lastEmotionTaps: [{ x: 0.2, y: 0.3 }],
+    });
+
+    await recalibrateForBand(socket, state);      // bio buffer plays, key latched
+    await generateAndEmitPlaylist(socket, 'emotion', state); // a mood playlist replaces it
+    await recalibrateForBand(socket, state);      // ...so the bio key is servable again
+
+    expect(readyCalls(socket).filter((c) => c[1].buffered)).toHaveLength(2);
+  });
+
+  it('S11 kill-switch: WAVE4_SERVE_LATCH_DISABLED restores the pre-W4-D34 duplicate serve', async () => {
+    process.env.WAVE4_SERVE_LATCH_DISABLED = 'true';
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(2);
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(2);
+  });
+
+  it('wiring: two consecutive taxonomy regime changes at a constant key serve the buffer ONCE', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue({
+      ok: true, transitioned: true, from: 'deep-rest', to: 'simmering-tension', band: 'resting', regimeChanged: true,
+    });
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // A second confirmed transition between two OTHER resting-band states, same activity, same
+    // heart rate — `regimeChanged` again, identical `bio:resting:running` key.
+    liveStateAdapter.onlineUpdate.mockResolvedValue({
+      ok: true, transitioned: true, from: 'simmering-tension', to: 'resting-content', band: 'resting', regimeChanged: true,
+    });
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(2); // the posterior still advanced
+    expect(readyCalls(socket)).toHaveLength(1);                     // ...but the listener is not re-served
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('live_mode socket event', () => {
   it('sets the per-socket liveMode flag (default is Manual/false)', () => {
     const socket = makeSocket();
