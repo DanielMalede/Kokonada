@@ -4,11 +4,19 @@
 // hashed genre bag, L2-normalized. Cheap (zero LLM), stable, and good enough
 // for MMR similarity; a text-embedding v2 slots in behind the same VectorIndex.
 
+const { measured } = require('../features/featureProvider');
+
 const GENRE_DIMS = 64;
 const DIM = 6 + GENRE_DIMS;
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
-const fin = (x, fallback) => (Number.isFinite(Number(x)) ? Number(x) : fallback);
+// measured() (not Number.isFinite(Number(x))) — Number(null) is 0, and 0 is finite, so the
+// naive guard read an unmeasured dim as "measured as zero" instead of falling back to the
+// neutral fill below.
+const fin = (x, fallback) => {
+  const m = measured(x);
+  return m === null ? fallback : m;
+};
 
 function _fnv1a(str) {
   let h = 2166136261 >>> 0;
