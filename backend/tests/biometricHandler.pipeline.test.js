@@ -2383,6 +2383,27 @@ describe('W4-D34 — duplicate-serve latch on the bio moodKey', () => {
     expect(readyCalls(socket).filter((c) => c[1].buffered)).toHaveLength(2);
   });
 
+  it('a FAILED bio generation clears the latch — a key that never started playing is not latched', async () => {
+    // The claim is released on a thrown serve, but a generation that fails does not throw: it
+    // emits playlist_error and returns. Without clearing here, a cold key whose one generation
+    // errored would stay claimed, and the next transition back to it would be suppressed as a
+    // duplicate of a playlist the listener never received.
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state); // K's buffer plays, key latched
+
+    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ library: [] })));
+    await generateAndEmitPlaylist(socket, 'heart', state);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.any(Object));
+
+    await recalibrateForBand(socket, state); // ...so K is servable again
+
+    expect(readyCalls(socket).filter((c) => c[1].buffered)).toHaveLength(2);
+  });
+
   it('S11 kill-switch: WAVE4_SERVE_LATCH_DISABLED restores the pre-W4-D34 duplicate serve', async () => {
     process.env.WAVE4_SERVE_LATCH_DISABLED = 'true';
     warmBuffer();

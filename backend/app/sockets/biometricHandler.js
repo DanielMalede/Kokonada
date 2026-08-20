@@ -569,6 +569,12 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         .catch(() => {});
       return;
     }
+    // W4-D34: a bio generation that ERRORS does not throw — it emits this and returns — so the
+    // claim `recalibrateForBand` made on its behalf has to be released here or a cold key whose
+    // one generation failed would stay claimed forever, and the next transition back to it would
+    // be suppressed as a duplicate of a playlist the listener never received. Scoped to runs that
+    // resolved a bio key: an emotion request failing says nothing about the bio buffer.
+    if (event === 'playlist_error' && bioServeKey) state.servedBioMoodKey = null;
     emitToUser(socket, event, payload);
   };
 
