@@ -229,20 +229,33 @@ const r4 = (x) => (x == null ? null : Math.round(x * 10000) / 10000);
 
 function summarize(scenario, result) {
   const picks = result.tracks;
-  const masses = picks.map(t => _featureFitV2(t.features, scenario.targets).mass);
+  // Summed in SORTED order, not serve order. Floating-point addition is not associative, and with
+  // W4-008 sequencing the playlist the same 20 masses now arrive in a different order — enough to
+  // move this mean by one unit in the 4th decimal (0.5102 → 0.5103 on calm-recovery.v1) with an
+  // identical pick set. A set statistic that twitches when only the ORDER changed defeats the
+  // whole point of separating `pickSet` from `picks`.
+  const masses = picks.map(t => _featureFitV2(t.features, scenario.targets).mass).sort((x, y) => x - y);
   const classes = {};
   for (const t of picks) {
     const name = CLASS_NAMES[CORPUS.classOf.get(t.id)];
     classes[name] = (classes[name] ?? 0) + 1;
   }
   return {
+    // W4-008 split this in two. `picks` is SERVE ORDER, which the trajectory planner now owns;
+    // `pickSet` is the same tracks sorted, which only SELECTION can change. Before the split a
+    // re-sequencing and a re-scoring produced the same kind of diff — a churned `picks` array —
+    // and a reviewer could not tell which had happened without re-deriving it by hand. Keeping
+    // both means a future diff says WHICH stage moved: `pickSet` steady with `picks` churned is a
+    // sequencing change; `pickSet` moving is a selection change, and that is the one to argue about.
     picks: picks.map(t => t.id),
+    pickSet: picks.map(t => t.id).sort(),
     banded: result.telemetry.banded,
     afterFilters: result.telemetry.afterFilters,
     relaxLevel: result.telemetry.relaxLevel,
     distinctArtists: new Set(picks.map(t => t.artist)).size,
     meanFeatureMass: r4(masses.reduce((a, b) => a + b, 0) / Math.max(1, masses.length)),
     pickedByClass: Object.fromEntries(Object.entries(classes).sort(([a], [b]) => a.localeCompare(b))),
+    trajectory: result.telemetry.trajectory,
   };
 }
 
