@@ -1117,3 +1117,643 @@ repo-wide â€” `suunto.js:50`. So the defect is live but isolated, and no si
 missing control: the check that found it in one second is `no-undef`, and this repo has no linter, so Â§2 step 7's "lint clean"
 has never gated anything. Queued as W4-D11 (one row, not five â€” this is one theme).
 
+
+## Archived 2026-08-20 (reflection #5, session 28)
+
+> Four completed-task evidence sections moved verbatim out of STATE (W4-004 wiring, W4-005,
+> W4-006 pure core, W4-006 seam). All four tasks are `done`; their cluster notes also live in PR #179.
+> Backlog rows were again NOT archived - `state-guard.js` still refuses them (W4-D16, still open).
+
+## W4-004 evidence â€” the wiring half: D1 reaches the serving path (session 20)
+
+Second half of the L task, split the way W4-003 was. Commits `143632d` (W4-D13), `ea447a2` (ingest),
+`b6118a3` (baselines). Suite **182 suites / 2416 tests (2415 passed + 1 todo), exit 0** â€” two consecutive
+full runs at that exact count, per Â§0.4 S1a. Lint 0 errors / 22 warnings. Secret scan clean. No attribution.
+
+**The headline, stated precisely.** After session 18 the engine existed and nothing called it:
+`computeBaselines` still returned `{rhrMedian, rhrMAD}` and `translate()` still z-scored every user's HRV
+against the population constant `{45, 8}`. It now returns the SUPERSET blob, so **D1 is fixed on the serving
+path with zero `translate()` edits**, exactly as the mission designed. Pinned by the kill shot
+`D1: a user with real HRV history is scored against THEIR median, not the {45, 8} constant`.
+
+### What landed
+
+1. **`baselines.computeBaselines` delegates to `baselineEngine.computeBaselineBlob`** â€” pages BiometricLog
+   (now carrying `recordedAt`/`activity`/`tzOffsetMinutes`, not just the value) AND VitalSample through the
+   decrypting getters, reads `MedicalProfile.maxHeartRate`, resolves the user's habitual timezone as the
+   MODAL non-null offset, and returns the superset. ONE ADR-0005 audit line still covers the whole bulk
+   decryption, count-only.
+2. **Stale-while-revalidate (`peekBaselines`)** â€” `FRESH_TTL_S` (6 h) and `CACHE_TTL_S` (24 h) are now two
+   different ideas. Previously the key simply EXPIRED at 6 h, so the first generation in every 6-hour window
+   ran with no personal baseline at all; a stale blob is now served and refreshed behind the request.
+3. **`metricStore` writes VitalSample rows** â€” the fuel D1 needs. Allowlist `VITAL_METRICS_PERSISTED`
+   (`hrv`, `restingHeartRate`), `metric@source@recordedAt` dedupe (S6), truthful `insertManyAccounted`
+   reporting (W4-D08), and best-effort isolation so a vitals failure never costs the heart-rate ingest.
+4. **`tzOffsetMinutes` end to end** â€” both batch lanes (health-store passthrough, Garmin's
+   `startTimeOffsetInSeconds`) and all three LIVE normalizers, plus a new optional
+   `BiometricLog.tzOffsetMinutes`. Absent stays **null, never 0** â€” 0 is a real timezone, and coercing would
+   silently place every legacy client in UTC. Out-of-band offsets are dropped, not clamped (S6).
+5. **D16 + steps, dormant** â€” `stressDetails` no longer discards `timeOffsetStressLevelValues`, and `dailies`
+   can emit `steps`, both behind `WAVE4_CONSENT_V2_METRICS` which is **empty by default**. Garmin's -1/-2
+   "unmeasurable" sentinels are rejected as data. Â§0.2.3 holds: collection is NOT widened.
+6. **Karvonen zones + HRmax written back** via `doc.save()` (never `findOneAndUpdate($set)` â€” R9's encryption
+   trap), from the stateVector worker, on the same blob it just cached. A user-provided max is never
+   overwritten by an estimate.
+7. **S11 kill-switch `WAVE4_BASELINE_ENGINE_DISABLED`** restores the pre-delegation blob â€” legacy keys only,
+   MIN_SAMPLES cliff back, VitalSample never touched.
+
+### The judgement call worth reviewing: zero evidence still returns null
+
+The engine always returns a NUMBER â€” with no data that number is the population prior, tagged `confidence: 0`.
+Handing that straight to `translate()` through the legacy `rhrMedian` key would have been a real regression,
+and the full suite caught it: **ATTACK 2** (`shadow.fullSystem`) asserts an all-workout history "yields null
+baselines, never a fabricated resting HR". Checked at the consumer rather than argued about:
+`translate()`'s `restingElevation` passes `fallback = null`, so a null baseline makes the resting-elevation
+stress term ABSTAIN, while `62` would have scored the user against a stranger's physiology.
+
+So the legacy keys keep their exact MEANING, not merely their names: **no non-exercise observation at all â†’
+`rhrMedian`/`rhrMAD` stay null**, and the superset keys still carry the prior plus `coverage.rhrDays: 0` for
+engines that want one. This is NOT the cliff D15 killed â€” that cliff discarded nine perfectly good readings
+for not being ten. One resting day now yields a shrunk, low-confidence estimate; only genuine zero yields null.
+
+### Stub-out battery (mechanisms proven load-bearing, not decorative)
+
+| mechanism | stubbed to | result |
+|---|---|---|
+| the whole engine delegation | forced `_computeBaselinesLegacy` | **7 pins RED** incl. the D1 kill shot |
+| `VitalSample` row in the retention table | removed | 3 pins RED (W4-D13 guard) |
+| `VITAL_METRICS_PERSISTED` | `+ 'spO2'` | 4 pins RED across 2 suites |
+| D2/D3 persona (first draft) | â€” | pin passed against the OLD estimator â†’ persona rewritten so the nocturnal trough is the MINORITY of the day; the old estimator now returns 73 where < 60 is required |
+
+### Two defects this session's tests found in this session's own code
+
+1. **`metricStore.test.js` was silently exercising the FAILURE path.** The new VitalSample write ran against
+   an unmocked model, the best-effort catch swallowed the CastError, and the suite stayed green â€” the exact
+   false-green class this run keeps finding. The model is now mocked there and the vital write is asserted.
+2. **A "best-effort" call that was not.** `stateVector.worker` called `persistDerivedProfile` with a comment
+   promising a failure could never cost the refresh; a rejection propagated and failed the job. Caught by the
+   pin written for that claim, then made true with a `.catch(() => {})` at the call site as well as inside â€”
+   "the callee catches" is a property that quietly stops being true.
+
+Also fixed on review: two NEW failure logs interpolated `e.message`, which on a validation error quotes the
+rejected VALUE â€” on the vitals path that value IS the vital. Both now log the error TYPE and a count (Â§0.2.2),
+pinned by a zero-knowledge test.
+
+### Six deliberate re-pins (no test lost: 2357 + 58 + 1 = 2416)
+
+| file | what changed | why it is not a weakening |
+|---|---|---|
+| `healthStoreAdapter.test.js` | `+ tzOffsetMinutes: null` in one exact record | still `toEqual`, so an unexpected field still fails |
+| `garminAdapter.test.js` | 8 expectations via new `rec()`/`recs()` helpers | helper declares the additive default ONCE; strictness kept (deliberately NOT `toMatchObject`) |
+| `integrations.test.js` | 3 live-normalize shapes | same, exact match retained |
+| `baselines.test.js` | 3 legacy-arithmetic pins moved behind the kill-switch, arithmetic UNCHANGED | the legacy estimator still exists and is what the flag restores â€” a kill-switch nobody executes is one that does not work |
+| `baselines.test.js` | cache TTL literal `6*3600` â†’ the RELATIONSHIP `CACHE_TTL_S > FRESH_TTL_S`; corrupt-cache pin asserts the fall-through rather than the legacy median | pins the guarantee instead of a number that SWR deliberately changed |
+| `shadow.fullSystem.test.js` | ATTACK-3 fixture timestamped; exact 70 â†’ a range on userB's side of the prior | without timestamps the recompute could only return the prior â€” the attack would have passed for the wrong reason |
+
+`metricStore.test.js` and `shadow.fullSystem.test.js` also gained VitalSample mocks with no assertion changing
+meaning (the W4-004 pure-core precedent).
+
+### What is NOT done (carried forward, honestly)
+
+`chronobiology` is wired only as far as `computeBaselineBlob`'s cosinor fit â€” the personal alertness curve does
+NOT yet replace translate's binary `windDown` (that is W4-006's serving-path seam, and doing it here would
+break the "no unrelated serving-path change" discipline). Sleep-debt accumulation still has no persistent
+nightly store (W4-012's `MorningState`). Mobile emission of `tzOffsetMinutes` is an on-device checklist item â€”
+the backend accepts and stores it, but every shipped client sends null today, so the hour-of-day table falls
+back to server hour for real users until that ships. HITL **H4** (prod index builds for `vitalsamples`) is now
+ACTIONABLE rather than theoretical: this commit is the one that starts writing rows.
+
+
+## W4-005 evidence â€” the affect engine: axes, HMM and the state-set port (session 21)
+
+An L task that landed in one session because, unlike W4-003 and W4-004, **W4-005 has no wiring half**:
+`translate()` and `targetsBuilder` are untouched, by design â€” W4-006 owns that seam. What shipped is one
+pure module (1173 lines), two suites (133 pins), and ADR-0013.
+
+### What landed
+
+- **`app/agents/runtime/physiology/affectEngine.js`** â€” PURE, clock-free, randomness-free (asserted
+  mechanically: the suite greps the source for `Date.now()`, `Math.random()` and `new Date()`).
+  - **Six evidence axes**, each a `{value, mass}` pair rather than a number. `mass` is
+    `evidence/(evidence + 0.35)` â€” the fraction of the answer that is DATA â€” and it is the mechanism by
+    which an axis says *I do not know*. No evidence returns the neutral prior at mass 0, and every layer
+    above reads mass 0 as "this axis constrains nothing", never as "this axis says 0.5".
+  - **Â§M.8 Karvonen exertion** `(HRâˆ’RHR)/(HRmaxâˆ’RHR)` against the user's own zones, replacing
+    `translate()`'s `(HRâˆ’60)/100`. Pinned as measurably wrong for the simulator's athlete.
+  - **Arousal against the personal 24-bin hour table** â€” 78 bpm at 03:00 and 78 bpm at 18:00 are
+    different statements, and only one is remarkable.
+  - **Declared-mood fusion over ALL taps**: centroid plus RMS dispersion, confidence
+    `n/(n+1)Â·exp(âˆ’dÂ²/2ÏƒÂ²)`. Scattered taps fall toward zero confidence rather than averaging into a
+    confident-looking neutral. Replaces every fixed 50/50 blend at the numeric level.
+  - **Â§M.5 HMM** â€” sticky `A(s,s)=exp(âˆ’Î”t/Ï„)`, 70/30 within/cross split, emissions tempered by axis mass
+    so Â§M.5's "missing axis â†’ factor 1" is reached continuously rather than by special case.
+  - **Four-gate hysteresis** (enter / dwell / margin / exit) and the `AffectState` DTO.
+- **`docs/adr/0013-state-model.md`** + README index â€” the 4-layer stack, both Â§M deviations, the
+  regulator-not-mirror rule, and the **CUT BorbÃ©ly two-process formula** written out with its time
+  constants and the reason it was cut, so W4-012's implementer does not re-derive it from a search.
+- **`app/services/biosonic/translate.js`** â€” ONE line: `ACTIVITY_EXERTION_FLOOR` is now exported. The
+  affect engine reads that exact table as a Bayesian PRIOR instead of copying it. No behaviour change
+  (verified: the three translate-consumer suites pass untouched).
+
+### The two decisions worth reviewing
+
+**1. The taxonomy state set is an injected PORT, not a table in this engine.** W4-006 owns
+`stateTaxonomy.js` and its ~32 states. `affectEngine` takes `states` as a parameter, validates it
+mechanically (`validateStateSet` â€” 11 rejection cases pinned, including the subtle one: a state with an
+EMPTY region constrains nothing, so its emission is 1 everywhere and it silently wins every tie), and
+degrades to axes-only with `topState: null` when given none. The suite therefore drives a deliberately
+small 6-state / 3-domain FIXTURE: a change to this engine that only passes against the real taxonomy is
+a change in the wrong file. A `stateSetSignature` (FNV-1a, ~12 chars â€” this blob goes into an encrypted
+Redis value in W4-009) detects a changed taxonomy and RESETS the forward vector rather than replaying it
+against indices that now mean something else.
+
+One consequence W4-006 needs to know, recorded in the ADR: **a region's `width` is not only a tolerance,
+it is a prior.** The `âˆ’log Ïƒ` term means a narrow state claims more and is rewarded more when it is
+right â€” correct Bayesian behaviour, and also a lever an implausibly tight width will pull.
+
+**2. Both Â§M deviations were forced by measurement, not preference.** Documented in code and in the ADR:
+
+- **Â§M.5's strong-switch clause is narrowed.** Â§M.5 permits an immediate switch on `Î±(s*) > 0.5` alone.
+  Measured, that is not merely imperfect â€” it makes the dwell contribute *nothing*: a signal oscillating
+  between two adjacent states every 6 minutes produced **20 reported transitions an hour, exactly equal
+  to the memoryless control**. The bypass now also requires the switch margin AND that the change be a
+  genuine regime change (different domain or different musical band). Adjacent states inside one band are
+  the same music, so waiting is free; crossing into a peak band is someone starting to run, and making
+  them wait five minutes is the failure the clause exists to prevent. After the fix the same stream
+  reports 9. The exit-threshold bypass is gated identically, for the same reason.
+- **The affect DTO carries no elapsed-time field.** It is a value object â€” persisted, replayed and
+  compared byte-for-byte â€” so a wall-clock duration inside it makes identical inputs produce different
+  results. Timing belongs to the caller, which owns the clock.
+
+### Six defects this session's tests found in this session's own code
+
+Three are real product bugs, one is dead code, two are test defects â€” all found by a test failing, none
+by reading.
+
+1. **The rest gate was self-defeating (product).** The first cut placed D3's gate at 0.30 HRR. Measured
+   on the `stressedProfessional` persona, a genuine 2.4Ïƒ resting elevation kept only **11% of a possible
+   53% mass** â€” because stress raises heart rate, heart rate raises Karvonen exertion, and the gate then
+   shut on exactly the elevation it existed to weigh. **Any gate that is a monotone function of heart
+   rate has this defect, W4-001's flat 110 bpm ceiling included.** The bounds are now read off tables
+   that already exist: fully open below `ACTIVITY_EXERTION_FLOOR.walking` (0.35 HRR), fully shut at
+   `ZONE_FRACTIONS[0]` (0.5 HRR, the bottom of Karvonen zone 1, above which an elevated heart rate is
+   aerobic work by definition). Pinned as a boundary case in its own right.
+2. **Â§M.5's strong clause defeated the dwell (product).** See above â€” found by the anti-flap test
+   measuring `reported == memoryless`.
+3. **The DTO broke replay determinism (product).** Found by the determinism pin: two identical calls
+   differed only in `ms`.
+4. **Two redundant `degraded` guards (dead code).** `heartRate = degraded ? null` and
+   `readingConfidence = degraded ? 0` each independently killed every HR-derived part, so **neither was
+   falsifiable** â€” the stub-out battery removed one and the suite stayed green. Collapsed to one, with
+   the comment explaining why a second guard would be unfalsifiable by construction. This is the R4
+   "dead/duplicated logic" class, caught by the battery rather than by review.
+5. **The anti-flap control was not a control (test).** The first version compared reported transitions
+   against the argmax of the FORWARD posterior â€” but the forward recursion has already done the
+   smoothing, so the "control" measured 0 flips and the test was silently asserting nothing. The honest
+   baseline is a MEMORYLESS labeller (match current evidence to the nearest region, no temporal state),
+   which is what an implementation without this layer does. It flips **24 times an hour** on the same
+   stream where the engine reports **0**.
+6. **The transition-matrix pin was measuring two mechanisms (test).** `A(s,s) = exp(âˆ’Î”t/Ï„)` came out
+   0.7484 against an expected 0.7165; the difference was exactly the share of two states excluded by
+   `requiredSignals` under zero-mass evidence. Isolating the transition matrix means stripping every
+   other mechanism, so the pin now uses a `requiredSignals`-free copy of the fixture.
+
+### Stub-out battery â€” 20 mechanisms, all verified load-bearing
+
+Every mechanism was removed one at a time and the suite re-run. Two were initially NOT falsifiable and
+both were fixed rather than banked:
+
+| Mechanism removed | pins RED |
+| :-- | :-- |
+| soft rest gate (D3) | 2 |
+| activity floor back to an OVERRIDE | 1 |
+| Karvonen replaced by `(HRâˆ’60)/100` | 2 |
+| physiology allowed to write valence | 12 |
+| degraded no longer withholds the heart rate | 1 *(0 before the redundant guard was collapsed)* |
+| `finite()` coerces `null` to 0 (the W4-004 trap) | 5 |
+| hour-bin RHR fallback deleted (old cached blob) | 1 |
+| dispersion ignored in declared confidence | 1 |
+| abstention removed (empty blend claims at full mass) | 6 |
+| mass tempering removed (missing axis no longer factor 1) | 1 |
+| stickiness removed (`A(s,s)=0`) | 6 |
+| within/cross split flattened to uniform | 1 |
+| dwell gate removed | 3 |
+| switch margin removed | 1 |
+| enterThreshold gate removed | 2 |
+| regime-change gate removed (Â§M.5 literal) | 3 |
+| `requiredSignals` exclusion removed | 2 |
+| taxonomy-change reset removed (stale indices) | 1 |
+| state-set validation removed | 1 |
+| log-space max shift removed | 1 *(0 until a genuinely underflowing case was added)* |
+
+The log-space shift is the numerical guard for the REAL 32-state taxonomy, where tight regions produce
+likelihoods around `exp(âˆ’1200)` â€” zero in float64, so an implementation that exponentiates before
+shifting gets an all-zero posterior, silently falls back to the transition prior, and loses every
+distinction the emissions carried. The 6-state fixture never underflows, so the mechanism was invisible
+until a sharp-region case was written for it.
+
+### A finding worth recording, not a defect
+
+`stressedProfessional` has a stress episode every weekday and, over a 30-day run, **zero** unstressed
+days â€” so its measured HRV median IS the suppressed value (23.6 vs the persona's nominal 32), and asked
+"is this unusual for you?" the engine correctly answers *no*. That is the designed meaning of a personal
+baseline, and it is now pinned as an invariant with a comment, so nobody later "fixes" it. Detecting that
+a person's NORMAL has drifted somewhere unhealthy is a different question on a different timescale â€”
+W4-012's CUSUM over chronic-vs-acute residuals (Â§M.13). The absolute stress claim is therefore tested
+non-circularly, against an HRV constructed at 2Ïƒ below that person's OWN measured baseline.
+
+### What is NOT done (carried forward, honestly)
+
+- **Nothing reaches the serving path yet.** `translate()`, `targetsBuilder`, `biosonicBand`, `score` and
+  the shadow buffer are untouched; `targets` is byte-identical to what it was before this task. That is
+  W4-006's job (`affectPeek` + `wellbeingRegulator` + the taxonomy table), and it is why W4-005 needs no
+  S11 kill-switch: there is no behaviour to switch off. **W4-006's seam DOES owe one.**
+- **No `stateTaxonomy.js`.** Deliberate â€” W4-006 owns it. Until then `topState` is null in production
+  and the engine is an axes calculator with a validated port waiting for a table.
+- **`requiredSignals` semantics are this engine's reading of the mission's one-word field.** A state
+  naming a signal whose axis has mass 0 is excluded outright (unless every state would be, in which case
+  exclusion is lifted rather than returning NaN). W4-006 may want the `degraded` flag to mean
+  "reachable anyway"; the contract is enforced in `validateStateSet` and easy to extend.
+- Mobile emission of anything new: out of scope this wave (backend-only).
+
+## W4-006 evidence - the pure core: taxonomy + regulator (session 25)
+
+`knowledge/stateTaxonomy.js` (~640 lines) and `translation/wellbeingRegulator.js` (~300 lines), plus
+`tests/stateTaxonomy.test.js` (34 pins), `tests/stateTaxonomy.reachability.test.js` (9) and
+`tests/wellbeingRegulator.test.js` (24). Suite 188/2656 green twice. Nothing is wired to a serving
+path yet - the seam is the follow-up session - so the `targets` object every existing consumer sees
+is byte-identical today and no kill-switch is owed here (the W4-005 precedent); both modules NAME
+their future flag and neither reads `process.env`, which a test asserts by reading their source.
+
+### The three design decisions worth reviewing
+
+**1. Widths are SOLVED, not authored.** §M.5's emission carries a `-log sigma` term, so a state
+written with tighter widths beats an equally-well-fitting state on precision alone - the affect
+engine's own header flags this as a lever ("a state authored with an implausibly tight width will
+dominate whenever it happens to fit"). Across 34 states, hand-tuned widths drift into that within a
+few edits, silently, because the symptom never points at the cause. So the author declares a
+per-axis ROLE (`defining` / `supporting` / `contextual` / `agnostic`) and the module solves
+`sigma_a = exp(-k*w_a)` with `k` fixed so every state spends an IDENTICAL precision budget. Peak
+emissions are then equal by construction, a state can only win by being closer, and a second
+property falls out free: a state that claims more axes must claim each of them more loosely.
+Specificity is conserved structurally rather than by the author's restraint. The budget is one
+honest number - the geometric mean of a state's seven widths is a quarter of each axis's range.
+
+**2. Every state constrains every axis ("no free passes").** The engine skips axes a region omits,
+so an omitted axis is a FREE PASS: a state silent about valence pays nothing when valence
+contradicts it, and can out-score a state that models valence and is right. This was not
+theoretical - the first draft lost `creative-flow` to `deep-focus` AT CREATIVE-FLOW'S OWN CENTRE,
+because the only axis separating them was the one `deep-focus` had declined to have an opinion
+about. Every state now constrains all seven; an axis it has no opinion about is `agnostic`, which
+comes out wider than `1/sqrt(2*pi)` - the point where the precision term turns NEGATIVE. Saying
+"I do not know" costs a little. It should.
+
+**3. Confusable states must be musically harmless, not far apart.** 34 states over 7 axes cannot all
+be well separated, and pretending otherwise ships a confusion a listener hears. So the suite
+measures every pair's separation in nats and requires that any pair close enough to be confused
+agrees on band, on arc DIRECTION and on energy bias to within 0.25. The direction check is about
+OPPOSING arcs, not merely different ones: flat-instead-of-falling is a difference nobody can name,
+while rising-instead-of-falling hands the listener the opposite of what the state asked for - the
+mirror failure VISION §6 exists to prevent. `morning-sluggish` gave up its `gentle-lift` for a flat
+arc to satisfy this, and that is the right trade rather than a concession: see W4-D18.
+
+### The measured finding that changed the module (and would have shipped silently)
+
+The first draft authored regions in RAW axis units. Eight states were consequently **unreachable** -
+not wrong, SILENT. `blend()` fuses every axis with the engine's NEUTRAL prior at `AXIS_PRIOR_MASS`,
+so an axis whose evidence mass tops out at `m` can only reach `m*1 + (1-m)*neutral`; exertion is
+dragged further toward the stated activity's prior, and fatigue carries `FATIGUE_WEIGHTS.debt`.
+`peak-effort` asked for exertion 0.94 from an engine whose ceiling is 0.78. Every heavily-fatigued
+state sat above a fatigue ceiling of 0.48. `low-mood-low-energy` asked for valence 0.14 against a
+floor of 0.14.
+
+The envelope is now MEASURED, not assumed: min/max over **5,843,675 evidence vectors** - five
+personas x a coherent grid of heart rate (-0.15 to 1.05 of reserve), activity label, HRV ratio,
+sleep, multi-week debt, battery, readiness, hour and saturated mood taps - through the real
+`computeAxes` against real `computeBaselineBlob` baselines.
+
+| axis | min | max | span |
+|------|-----|-----|------|
+| arousal | 0.102 | 0.899 | 0.798 |
+| stress | 0.038 | 0.846 | 0.808 |
+| recovery | 0.189 | 0.896 | 0.707 |
+| exertion | 0.031 | 0.780 | 0.749 |
+| fatigue | 0.059 | 0.482 | **0.424** |
+| circadianAlertness | 0.137 | 0.837 | 0.700 |
+| valence | 0.141 | 0.859 | 0.717 |
+
+Regions are now authored in NORMALISED units and mapped through an affine transform per axis.
+Because both centres AND widths go through the same map, every geometric property the suite pins -
+peak equality, separation in units of sigma, argmax-at-centre - is invariant under it, so the table
+can be reasoned about in normalised space and still speak the engine's units. **Verified
+load-bearing by stub-out:** reverting `AXIS_RANGE` to the identity map turns 3 of the 9 reachability
+tests RED and restoring it turns them green again.
+
+### Reachability: the hard DoD, and how the scripts were obtained
+
+All **34/34** states are reached. Nothing is mocked: each script drives `sim/generator` for 21 days
+of that persona, folds it through the real `computeBaselineBlob`, and runs `updateAffect` over the
+real taxonomy, asserting the REPORTED label (which also has to clear the state's own
+`enterThreshold` - reachability is not "the argmax happened to be this"). The only authored part is
+the moment: heart rate as a fraction of THAT PERSONA'S own reserve, activity label, HRV relative to
+their own median, sleep, debt, battery, readiness, local hour, mood taps.
+
+The scripts were found by search rather than guessed, and then constrained: a first randomised sweep
+reached 27/34 but produced physiologically incoherent moments (a 186 bpm workout paired with a
+declared low-arousal tap), so the grid was tied to coherence bands and re-run, and the eight
+clock-named states were re-searched under their OWN hours and body-clock-appropriate personas
+(the shift worker's acrophase is +8h, so their "morning" is not 07:00). A suite test now pins that
+coherence - activity plausible for the heart-rate band - so a future edit cannot restore
+reachability by pairing a sprinting heart rate with the label "resting".
+
+### A defect this session's tests found in this session's own code
+
+`degraded` was derived from the wrong axis set. It was defined as "requires no HR-derived axis",
+listing `arousal` and `exertion` - and the reachability suite falsified it immediately: under a
+degraded (mood-only) run, `arousal` still carries mass from the user's own mood taps and `exertion`
+still carries the activity prior, so states requiring them were NOT excluded and the flag was
+asserting something untrue. What actually separates the two classes is the SOURCE: arousal, exertion
+and stress are statements about the live wrist signal; recovery, fatigue, circadian alertness and
+valence come from sleep, the clock and the person's own word and survive a dead sensor. The flag is
+now derived from that set, and the guarantee it buys is pinned: given ONLY passive evidence - no
+heart rate, no HRV, no taps, no activity chip - every label the engine reports is degraded-safe. It
+never names a bodily state on the strength of a clock. The companion pin is the interesting half:
+a user who taps "Running" HAS made a true statement about their exertion, so an exertion-requiring
+state stays a live candidate with a dead sensor. That is why the passive test has to strip the chip
+to mean what it says.
+
+### A defect the fuzz found, at 1e-9
+
+`round3` moves a value by up to 5e-4 in either direction, and it was being applied AFTER the
+monotonicity clamp - so on an input `acousticnessBias` of `1.0000000000000003e-9` the regulator
+raised nothing and rounded to 0, violating "never lowers acousticness" by a hair. A near-invisible
+breach of the one property the module exists to guarantee is still a breach. Rounding now happens
+inside `tightenDown`/`tightenUp`, which re-clamp against the original in both directions.
+
+### Stub-out battery - six mechanisms, one initially unfalsifiable
+
+| # | mechanism removed | result |
+|---|-------------------|--------|
+| S1 | the `activityDriven` product gate | **23/23 STILL GREEN - the test was passing for the wrong reason** |
+| S2 | `tightenDown` monotonicity | 1 RED (the fuzz) |
+| S3 | `tightenUp` monotonicity | 1 RED (the fuzz) |
+| S4 | the `MIN_REGULATION_CONFIDENCE` floor | 1 RED |
+| S5 | the idempotence guard | 1 RED |
+| S6 | clamping the arc's start into the hard band | 1 RED |
+| - | `AXIS_RANGE` reverted to the identity map | 3 RED in the reachability suite |
+
+**S1 is the one worth reading.** The test asserting §0.2.6's "user intent wins" used
+`obligated-workout-low-recovery`, which is ALREADY exempt from the energy cap through its own
+activating direction and positive energy bias - so deleting the product gate entirely left the suite
+green. The test has been rewritten around `cooldown` (down-regulating, negative energy bias), which
+genuinely reaches the gate, and now asserts both halves: the chip wins on an activity-driven target,
+and the SAME state against a passive target IS capped, which is what proves the gate is the
+discriminator rather than some other exemption. Deleting the gate now turns it RED.
+
+### What is NOT done (carried forward, honestly)
+
+- **The whole seam half.** Nothing in this session reaches a serving path. `targetsBuilder` does not
+  call `affectPeek`, `upsertStateVector` does not write taxonomy labels, `_STATE_TO_BAND` is not yet
+  extended from `stateBandTable()`, `stateVector.worker` does not refresh affect, `buildReceipt`
+  (S13) has no explain lines, and the two S11 kill-switches are named but unread. The task stays
+  `in_progress` for exactly this reason.
+- **The display-copy compliance item.** `explainTemplate.text` is INTERNAL vocabulary, pinned
+  digit-free and clinical-vocabulary-free, but the user-facing wording is a separate
+  compliance-reviewed layer (mission R10 / S13). Raised as HITL H6 below.
+- **The affect engine's axis set is untouched**, deliberately: this task owns the taxonomy, not the
+  engine. The two limitations it ran into are queued as W4-D18 and W4-D19 rather than patched here.
+
+
+## W4-006 evidence - the seam half: the affect layer reaches the serving path (session 26)
+
+The half W4-006 was `in_progress` for. Before this session `affectEngine` was a 1200-line module
+with **no caller**, and the taxonomy and regulator were a table and a decorator nothing invoked;
+the whole W4-005/006 stack computed nothing anybody could hear. Three new modules and seven wired
+files later, it does. Suite **192 suites / 2749 tests**, lint 0 errors / 22 warnings.
+
+### The shape of the seam, and the measurement that chose it
+
+    peek carried posterior -> updateAffect(live evidence) -> translate() -> regulator.apply -> save
+
+The mission's wording (`const affect = await affectPeek(userId)`) also permits a PURE peek of a
+blob the nightly worker writes. That reading was rejected on measurement rather than taste: the
+worker holds no live heart rate, so arousal, stress and exertion all abstain, overall confidence
+lands under the regulator's own `MIN_REGULATION_CONFIDENCE` floor of 0.25, and the entire seam
+would have been a decorative no-op **that reported success** - the exact false-green class this
+run keeps finding. Read-update-write makes the state a statement about NOW, and it is precisely
+the `(state, input, opts) -> {state, result}` contract `updateAffect` was written against.
+
+What is cached is therefore only the HMM posterior - the one quantity a single reading cannot
+reconstruct. The axes are recomputed every call because they are cheap and they are about now.
+
+### What landed
+
+1. **`services/biosonic/affectCache.js`** - the posterior at rest: AES-256-GCM, AAD-bound to the
+   userId, read through `auditedDecrypt`, 2 h TTL, best-effort throughout.
+2. **`services/biosonic/affectService.js`** - the ONE composition both lanes use. The serving path
+   and the nightly worker arrive from opposite directions (live reading vs none) and giving each
+   its own peek/update/save would let the stored state and the served state disagree about the
+   same person within a minute - the drift the pure core's injected-state-set port was designed to
+   prevent, undone at the wiring layer where nobody would look for it. `WAVE4_AFFECT_DISABLED` is
+   honoured here rather than per call site, so the switch cannot be half-wired.
+3. **`agents/runtime/knowledge/explain.js`** (S13) - the claim-gated "why this mix" line.
+4. **`targetsBuilder.buildTargets`** - the seam itself, plus `taps` threaded from both real call
+   sites (the socket handler and the fallback ladder). Without that thread the valence axis
+   abstains forever and every state separated from a rival only by valence is unreachable at serve
+   time - the failure mode the pure core hit between `creative-flow` and `deep-focus`.
+5. **`moodDescriptors._STATE_TO_BAND`** - now DERIVED from `stateTaxonomy.stateBandTable()`.
+6. **`medicalProfileService.upsertStateVector`** - an additive encrypted `stateId`/`stateConfidence`.
+7. **`stateVector.worker`** - the nightly affect refresh, on the blob it just cached.
+8. **S5 registration** for the new `bio:affect:<userId>` key family, which §0.4 S5 names explicitly:
+   the `userRedisPurge` registry (which the account-erasure cascade iterates) and per-wearable
+   erasure, since the posterior is derived from heart rate and HRV even though it stores neither.
+
+### Four decisions worth Daniel's eye
+
+**1. A carried posterior EXPIRES; a baseline does not.** The baseline cache serves stale blobs on
+purpose (D15's stale-while-revalidate) because a 30-day median is not wrong at six hours and one
+second. A STATE is the opposite kind of quantity, and it does not fail quietly: the hysteresis
+gate holds an incumbent label against fresh evidence unless it clears `SWITCH_MARGIN`, so a stale
+label actively RESISTS the reading that would correct it. Past `MAX_CARRY_AGE_S` (2 h, matching the
+TTL W4-009 specifies for the same blob) the posterior is dropped and the engine starts clean.
+
+**2. `stateId` is stored ALONGSIDE `status`, not instead of it - and that is a compliance call, not
+a schema preference.** `pulseController` decrypts `stateVector.status` and serves it to the owner.
+Changing that field's vocabulary would have started rendering `acute-stress` on the Pulse screen,
+which is **HITL H6** - Daniel's open decision, pending a compliance pass. So the legacy pair keeps
+its exact vocabulary and its exact meaning, the taxonomy pair is additive and internal, and the
+Pulse DTO's explicit whitelist is pinned to prove the new field cannot appear by accident.
+
+**3. D13's serving-path half landed, and its fallback is the bug that nearly shipped.**
+`buildTargets` now takes hour-of-day from the user's habitual `tzOffsetMinutes` (W4-004 put it on
+the blob) instead of the server's clock. The interesting half is the UNKNOWN case - every shipped
+client today, since mobile does not emit the offset. The obvious default of `0` is **UTC**, which
+is a different hour from the server's for most of the world, so it would have silently moved every
+existing user's wind-down window while looking like a no-op. The fallback is the SERVER's own
+offset, which makes `localHour` reproduce `new Date(now).getHours()` exactly. Stubbing it back to
+zero turns a pin RED.
+
+**4. S13 lines are gated on the axes they CLAIM, not on confidence.** Each `explainTemplate` names
+the axes its sentence leans on. "Coming down from effort" is a statement about a person's exertion,
+and the HMM will report `post-exertion-recovery` on thin evidence because most-probable is not the
+same as well-evidenced - so if that axis abstained, the sentence is a fabrication that happens to
+fit. A line is emitted only when every claimed axis carries real mass; otherwise silence. The
+receipt already says "Tuned to your heart rate"; a missing line costs a nicety, a fabricated one
+costs the user's reason to believe any of it. Per H6's recorded safe default the line carries the
+state's TONE and never its NAME, and it arrives as an ADDITIVE `receipt.why` so no existing receipt
+string changes. A pin hands the receipt builder the WHOLE decorated target - state id, arc,
+telemetry - and asserts that only the vetted line reaches the wire.
+
+### A defect the module graph found
+
+`moodDescriptors` requiring `stateTaxonomy` closes a **cycle**: taxonomy -> affectEngine ->
+translate -> moodDescriptors -> back. An eager top-level require resolves to a half-initialised
+taxonomy and `stateBandTable` is `undefined` at load time - the suite failed to run at all, which
+is the good version of this bug. Fixed with a lazily-required, memoized build (the precedent
+`baselines._scheduleRefresh` and `affectEngine`'s chronobiology import already set in this tree),
+and the export became a getter returning a COPY, so a caller cannot mutate a closed-vocabulary
+lookup through it.
+
+### A test that passed for the wrong reason, on this box specifically
+
+The equivalence pin (`the decoration matches applying the regulator directly to the same inputs`)
+reconstructed the affect with a hardcoded `tzOffsetMinutes: 0`, while the seam resolves the server
+offset - **180** on this machine. It passed anyway: 14:00 UTC and 17:00 local happened to land in
+hour bins that produced the same posterior. Caught by asking why a 27-test suite went green on the
+first implementation pass rather than by a failure. It now calls the builder's own
+`resolveHourContext`, so the equivalence is exact by construction and honest on any machine.
+
+### Stub-out battery - 14 mechanisms, one initially unfalsifiable
+
+| # | mechanism removed | result |
+|---|---|---|
+| 1 | the posterior staleness guard | 1 RED |
+| 2 | the AAD binding on the cache blob | 4 RED |
+| 3 | the future-date (S6) guard | 1 RED |
+| 4 | the `bio-affect` purge-registry entry | 3 RED |
+| 5 | the affect key in per-wearable erasure | 2 RED |
+| 6 | the `WAVE4_AFFECT_DISABLED` gate | 3 RED |
+| 7 | `WAVE4_TRAJECTORY_DISABLED` not passed to the regulator | 1 RED |
+| 8 | the server-offset fallback -> UTC zero | 1 RED |
+| 9 | the posterior write-back | 4 RED |
+| 10 | the posterior read-back (cold start every call) | 2 RED |
+| 11 | the affect label ignored in `upsertStateVector` | 1 RED |
+| 12 | `stateId` stored in PLAINTEXT | 5 RED |
+| 13 | the S13 claim gate | 4 RED |
+| 14 | `explain` attached to an UNdecorated target | 1 RED |
+| - | the `if (!affect) return targets` guard | **0 RED - unfalsifiable** |
+
+The last row is the one worth reading. `wellbeingRegulator.apply` already returns the SAME object
+for a null affect, an unknown label or a sub-threshold confidence, as a documented contract with
+its own pins behind it - so a second guard at the seam could never fire. It was DELETED rather than
+kept as decoration, and the guarantee it was supposed to provide is now pinned at the seam instead
+(`a failed affect layer returns targets untouched`, asserted field-for-field against the kill
+switch). A line nobody can test is not defence in depth.
+
+### Test accounting (exact)
+
++4 suites - `affectCache.test.js` 25, `wave4.affectSeam.test.js` 33, `wave4.stateSeam.test.js` 15,
+`wave4.explainReceipt.test.js` 14 = **87** - plus **6** appended (`wearableErasure` 16 -> 18,
+`stateVector.worker` 5 -> 9). 2656 + 87 + 6 = **2749** exactly, so no pre-existing test was lost.
+
+**Two deliberate re-pins, neither a weakening, both with no count change:**
+
+| file | what changed | why it is not a weakening |
+|---|---|---|
+| `stateTaxonomy.test.js` (3 tests) | read `moodDescriptors._STATE_TO_BAND` -> a written-out `LEGACY_BAND_RECORD` | that table is now DERIVED from `stateBandTable()`, so reading it would compare the taxonomy against itself and pass unconditionally. The record is a source the code can no longer move. |
+| `stateVector.worker.test.js` (1 assertion) | `upsertStateVector('u1', anyObject)` -> the exact 3-arg call | kept EXACT rather than relaxed to `expect.anything()` - a loosened matcher would stop noticing if the worker silently stopped passing the affect at all |
+
+### What is NOT done (carried forward, honestly)
+
+- **`translate`'s binary `windDown` still exists.** W4-004's evidence assigned the personal
+  alertness curve to this seam. It is reached differently than that note assumed: the cosinor now
+  drives the affect engine's `circadianAlertness` axis, which selects clock-named taxonomy states
+  (`evening-unwind`, `afternoon-dip`, `pre-sleep`, `night-owl-alert`) whose policies shape the
+  target through the regulator. That is the architecturally right place for it, and `windDown`
+  stays as the degraded path for users with no affect. Replacing the constant INSIDE `translate`
+  was deliberately not done - it is a heavily-pinned file and the behaviour is already personal
+  through the taxonomy. Worth a reflection's eye rather than silent closure.
+- **Mobile still sends no `tzOffsetMinutes`**, so real users are on the server-hour fallback until
+  the on-device checklist item ships. The backend accepts and uses it today.
+- **W4-009 owns the live socket lane.** The posterior advances on generation and on the nightly
+  refresh; per-reading `onlineUpdate` and the state-triggered recalibration are that task's, and it
+  shares this same Redis blob by design (one user, one posterior).
+- **The display-copy compliance item stands** - `receipt.why` ships the tone under H6's safe
+  default, but the vocabulary question is still Daniel's.
+
+
+### Archived 2026-08-20 (reflection #5, session 28) - reflection #3 evidence
+
+### Reflection #3 (session 19) â€” evidence
+
+**R1 Â· Health check.** Full suite `cd backend && npm test`: **179 suites / 2357 tests, 2356 passed + 1 todo, exit 0,
+191.7 s** â€” matches the recorded `testBaseline` exactly, zero failing assertions. (The 191.7 s vs session 18's ~150 s is
+machine load, not regression: HITL H3's ten stale `worker.test.js` processes are still resident and this pass ran lint and
+two isolated jest invocations alongside it.) `npm run lint`: **0 errors, 22 warnings** â€” the same count for the fifth
+consecutive session. Tree clean apart from the standing intentional `mobile/src/health/config.ts` (S2, session 1).
+`origin/main` still `1a1657e` = STATE's `lastMainSha` (no drift); `feat/intelligence-wave` is level with `origin` at
+`9ba207e`, so S3's offsite backup is real rather than assumed. Secret scan of `962acb2..HEAD`: one hit, and it is the same
+self-referential false positive reflection #2 recorded â€” STATE prose containing "`Task-`", which matches the `sk-` pattern.
+No attribution anywhere in the 19 commits or the diff.
+
+**R2 Â· Verifying the interval's claims â€” all four held, and three were checked by EXECUTION rather than by reading.**
+
+1. **W4-D08's reopen is genuinely closed.** The defect was a `ReferenceError` from an unimported helper, so the only
+   honest check is to run the real function. `suunto.handleWebhook('u1', '[{"hr":72,...}]', '')` executed directly against
+   the production module: **resolves**, `{"ingested":0,"rejected":{"count":1,"reasons":[{"path":"userId","reason":"objectid"},{"path":"heartRate","reason":"string"}]}}`.
+   That is not merely "no longer throws" â€” it is W4-D08's actual promise (report what the database took, surface the
+   rejects) demonstrated on a real payload. `insertManyAccounted` is imported in all three lanes (`suunto.js:5`,
+   `appleHealth.js:20`, `metricStore.js:13`). The `[insertAccounted]` line carries model, counts and (path, validator-kind)
+   pairs â€” no submitted values, so zero-knowledge holds.
+2. **W4-D11's linter is a real gate, proven by stub-out.** A throwaway `app/__reflect_probe.js` containing one undefined
+   identifier was created and both controls were run against it: `npx eslint` â†’ **1 error, `no-undef`**, and
+   `wave4.lintGuard.test.js` â†’ **3 pins RED**. Probe deleted, tree re-verified clean. So the control that would have caught
+   W4-D08 in one second now genuinely fires â€” the DoD line "lint clean" has stopped being vacuous.
+3. **W4-003's wiring does what it claims (D6).** Read at source: `effectiveHR = filtered.level` is what reaches *every*
+   downstream decision â€” the immediate/watch lane, the first-reading seed, the `delta` computation, `bandCrossed`, and both
+   `pendingHR` writes. The raw value survives in exactly two places, both correct by design: the `biometric_ack` echo and
+   the `BiometricLog` row (the device record, deliberately unsmoothed). D7's EWMA was removed rather than orphaned â€”
+   `hrEwma`/`_updateEwma`/`HR_EWMA_ALPHA` have **zero** occurrences left anywhere under `backend/`. Contract audited for a
+   trap that would have been easy to miss: a hard-gated FIRST reading returns `accepted:false, level:null`, and
+   `_maybePersistLiveReading` tests `!filtered.accepted` **before** consuming the throttle slot, so a rejected reading
+   neither persists nor burns the â‰¤1/min budget.
+4. **W4-004's S5 registration is load-bearing where it exists.** Stub-out: deleting `{ model: VitalSample }` from
+   `userDataExport.COLLECTIONS` turned **4 pins RED across 2 suites** (`userDataExport.test.js`,
+   `shadow.qa4.crypto.test.js`); file restored and re-verified. This is the claim that matters most for a
+   special-category collection, and it is real. What is NOT complete is the documentation surface â€” see R3.
+
+**R3 Â· Constraint audit â€” one violation, queued as W4-D13.** Clean: `adr0012.tripwire.test.js` PASS; targets contract
+untouched this interval (no `translate`/`targetsBuilder` edits in the diff, so the 13-key superset is trivially intact);
+Art.9 consent gates untouched; S9 holds â€” `grep` for `Date.now|Math.random|new Date()` across `anomalyFilter`,
+`baselineEngine` and `chronobiology` returns **only a comment**, every engine takes `now` as a parameter; zero-knowledge
+holds for the new code â€” the three new modules contain no `console`/`log` call at all (the sole `log` match is
+`Math.log`), and the pre-existing numeric-vital lines remain tracked as W4-D03/W4-D10; S11 kill-switch present for the
+interval's one serving-path change (`WAVE4_ANOMALY_FILTER_DISABLED`, with a forgiving `=1`/`=true` parse).
+**The violation:** Â§0.4 S5's fifth surface, "the retention-windows documentation", was never written â€” full detail and
+DoD in W4-D13 above. Recorded as `class: repair` because S5 is binding and names that surface explicitly; recorded with
+its true severity because inflating it would be its own kind of dishonesty â€” the erasure CODE is complete and correct,
+the collection is empty, and no writer for `spO2`/`respirationRate` exists, so nothing leaks today. What is stale is a
+**store-facing** declaration (the Play data-safety deletion answer) that now under-reports the cascade by one collection.
+
+**R4 Â· Quality sweep â€” the math was re-derived, not re-read.** The interval's headline risk was W4-004's deliberate
+departure from Â§M.4, which session 18 flagged against itself as W4-D12. That row nominated "a reviewer" as its decider;
+this pass was that reviewer and **confirmed the deviation is correct** â€” the algebra, the MADâ†’SD unit check that could
+have hidden a 1.4826Â² error, and the athlete numbers are all in the W4-D12 row, which is now closed by ruling with the
+mission's Â§M.4 amended by one clarifying line. Other engine checks, all passing: Â§M.3's cosinor matches the spec
+(`A=âˆš(Î²Â²+Î³Â²)`, `Ï†=atan2(Î³,Î²)/Ï‰`, count-weighted LSQ) and encodes "â‰¥6 bins â‰¥2 h apart" as `MIN_SPREAD_BINS = 6` against a
+circular-spread measure, which is stricter than the literal wording; `_solve3` returns null on a singular design rather
+than NaN; `r2` is guarded by `sst > 0`; the EWMA's `Math.log(2)/Math.max(halfLifeDays, 1e-9)` guards both the log domain
+and the division; and **S8's specifically-named Karvonen hazard is guarded** â€” `hrr = Math.max(1, hrMax - rhr)`, so the
+degenerate `HRmax â‰ˆ RHR` body yields ordered finite zone bounds instead of poisoning every downstream exertion figure.
+D2's decontamination was checked for the obvious hole and does not have it: unlabelled workout rows are not excluded by
+`isExercise`, but the P10 trough plus `MIN_DAY_SAMPLES` is what handles them, and the persona test asserting RHR within
+Â±3 bpm *despite* workout episodes passes.
+
+**R5 Â· Opportunity sweep â€” nothing new, and that is the finding.** One forward-looking note was worth recording and is
+attached to the W4-004 row rather than queued, because it belongs to that task's own remaining DoD: the wiring half is
+what finally puts D1 on the serving path (`translate()` stops reading the `{45, 8}` population constant and starts
+reading real personal HRV), which makes it a serving-path behaviour change and therefore owes an Â§0.4 S11 escape hatch â€”
+and S11's named inventory in the mission has no baselines flag, so it is easy to miss. Beyond that: W4-D03 and W4-D10
+(the two numeric-vital log lines) remain correctly parked behind MUST-tier work per R6's ordering, and no new defect
+class surfaced. Per Â§2.5, an interval this clean gets said in one line rather than padded â€” **one row queued, not five.**
+
