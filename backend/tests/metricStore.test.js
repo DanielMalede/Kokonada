@@ -14,7 +14,25 @@ jest.mock('../app/models/MedicalProfile', () => ({
 }));
 jest.mock('../app/models/BiometricLog', () => ({
   find: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }),
-  insertMany: jest.fn().mockResolvedValue([]),
+  // W4-D08: the real return is an accounting object, not an array of docs.
+  insertMany: jest.fn(async (docs) => ({
+      acknowledged: true,
+      insertedCount: docs.length,
+      insertedIds: {},
+      mongoose: { validationErrors: [], results: docs },
+    })),
+}));
+// W4-004 added a VitalSample write to this path. Without a mock the real model runs against no
+// connection, the best-effort catch swallows the CastError, and this suite goes green while
+// exercising the FAILURE path — the false-green class this run keeps finding. Mocked so the
+// write really happens here; no assertion below changes meaning.
+const mockVitalInsertMany = jest.fn(async (docs) => ({
+  acknowledged: true, insertedCount: docs.length, insertedIds: {},
+  mongoose: { validationErrors: [], results: docs },
+}));
+jest.mock('../app/models/VitalSample', () => ({
+  find: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }),
+  insertMany: (...a) => mockVitalInsertMany(...a),
 }));
 jest.mock('../app/queues/queue', () => ({ enqueue: jest.fn().mockResolvedValue(undefined) }));
 
@@ -36,6 +54,14 @@ describe('persistMetrics — RAW values into $set (Mongoose 9 setter encrypts on
 
     // The whole point: raw numbers, so the encryptedNumber setter encrypts exactly once.
     expect(update.$set.restingHeartRate).toBe(51);
+
+    // …and the SAME reading is now also kept as an individual VitalSample row, which is what
+    // gives the baseline engine a spread instead of a lone median (D1). The aggregated scalar
+    // above is deliberately KEPT — this is additive, not a replacement.
+    expect(mockVitalInsertMany).toHaveBeenCalledTimes(1);
+    expect(mockVitalInsertMany.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ userId: 'u1', metric: 'restingHeartRate', value: 51 }),
+    ]);
     expect(typeof update.$set.restingHeartRate).toBe('number');
     expect(update.$set['sleepStages.deep']).toBe(90);            // median baseline
     expect(update.$set['lastNightSleep.deep']).toBe(90);         // last-night total

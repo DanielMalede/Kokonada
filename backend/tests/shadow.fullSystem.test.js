@@ -9,11 +9,26 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 jest.mock('../app/models/BiometricLog', () => ({
   find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([]) }), sort: () => ({ limit: () => Promise.resolve([]) }) })),
-  insertMany: jest.fn().mockResolvedValue([]),
+  // W4-D08: the real return is an accounting object, not an array of docs.
+    insertMany: jest.fn(async (docs) => ({
+      acknowledged: true,
+      insertedCount: docs.length,
+      insertedIds: {},
+      mongoose: { validationErrors: [], results: docs },
+    })),
 }));
 jest.mock('../app/models/MedicalProfile', () => ({
   findOneAndUpdate: jest.fn().mockResolvedValue({}),
   findOne: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve(null) }) })),
+}));
+// W4-004: computeBaselines now also pages VitalSample. Mocked empty so these attack tests keep
+// driving the REAL code path — unmocked, the model raises a CastError before any assertion runs.
+jest.mock('../app/models/VitalSample', () => ({
+  find: jest.fn(() => ({ sort: () => ({ limit: () => Promise.resolve([]) }) })),
+  insertMany: jest.fn(async (docs) => ({
+    acknowledged: true, insertedCount: docs.length, insertedIds: {},
+    mongoose: { validationErrors: [], results: docs },
+  })),
 }));
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(() => null), createConnection: jest.fn() }));
 jest.mock('../app/queues/queue', () => ({
@@ -125,14 +140,26 @@ describe('ATTACK 3 — zero-knowledge leak hunting', () => {
       get: jest.fn().mockResolvedValue(stolenBlob), // poisoned under userB's key
       set: jest.fn().mockResolvedValue('OK'),
     });
+    // W4-004: the estimator is time-aware now (it finds the daily resting TROUGH), so the
+    // fixture carries real timestamps. Without them there is no day to take a trough over and
+    // the recompute could only return the population prior — which would make this attack test
+    // pass for the wrong reason.
+    const night = Date.parse('2026-08-18T01:00:00Z');
     BiometricLog.find.mockImplementationOnce(() => ({
-      sort: () => ({ limit: () => Promise.resolve(Array.from({ length: 12 }, (_, i) => ({ _id: i, heartRate: 70, activity: 'resting' }))) }),
+      sort: () => ({ limit: () => Promise.resolve(Array.from({ length: 12 }, (_, i) => ({
+        _id: i, heartRate: 70, activity: 'resting', recordedAt: new Date(night + i * 900000),
+      }))) }),
     }));
 
     const stats = await baselines.getBaselines('userB');
 
-    expect(stats.rhrMedian).toBe(70);      // fresh compute from userB's own data
-    expect(stats.rhrMedian).not.toBe(44);  // userA's stats never cross the boundary
+    // The claim is the BOUNDARY: the poisoned blob is refused and the number is rebuilt from
+    // userB's own rows. Pinned as a range rather than an exact median because the estimator
+    // shrinks toward a population prior — it must land on userB's side of that prior, and
+    // nowhere near userA's 44.
+    expect(stats.rhrMedian).toBeGreaterThan(66);   // userB's own resting data dominates
+    expect(stats.rhrMedian).toBeLessThanOrEqual(70);
+    expect(stats.rhrMedian).not.toBe(44);          // userA's stats never cross the boundary
   });
 
   it('translate() output carries only derived targets — no raw vital echoes in its shape', () => {

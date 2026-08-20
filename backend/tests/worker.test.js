@@ -5,6 +5,7 @@ process.env.NODE_ENV = 'test';
 // The worker entrypoint is dependency-injectable so the process wiring can be
 // unit-tested without booting real BullMQ workers, Mongo, or signal handlers.
 const { runWorker, makeShutdown } = require('../app/worker');
+const { QUEUES } = require('../app/queues/definitions');
 
 function silentLogger() {
   return { log: jest.fn(), error: jest.fn(), warn: jest.fn() };
@@ -13,15 +14,23 @@ function silentLogger() {
 describe('runWorker (worker entrypoint)', () => {
   const ORIGINAL_REDIS_URL = process.env.REDIS_URL;
   const ORIGINAL_ENC_KEY = process.env.ENCRYPTION_KEY;
+  const ORIGINAL_SEED_FLAG = process.env.GLOBAL_SEED_INGEST_ENABLED;
   const VALID_KEY = 'a'.repeat(64);
 
-  beforeEach(() => { process.env.ENCRYPTION_KEY = VALID_KEY; });
+  beforeEach(() => {
+    process.env.ENCRYPTION_KEY = VALID_KEY;
+    // app/worker.js loads a developer's local .env with override:true, so an opt-in
+    // production flag on the dev box must never steer a unit test. Pin it OFF.
+    delete process.env.GLOBAL_SEED_INGEST_ENABLED;
+  });
 
   afterEach(() => {
     if (ORIGINAL_REDIS_URL === undefined) delete process.env.REDIS_URL;
     else process.env.REDIS_URL = ORIGINAL_REDIS_URL;
     if (ORIGINAL_ENC_KEY === undefined) delete process.env.ENCRYPTION_KEY;
     else process.env.ENCRYPTION_KEY = ORIGINAL_ENC_KEY;
+    if (ORIGINAL_SEED_FLAG === undefined) delete process.env.GLOBAL_SEED_INGEST_ENABLED;
+    else process.env.GLOBAL_SEED_INGEST_ENABLED = ORIGINAL_SEED_FLAG;
     // runWorker registers real SIGTERM/SIGINT handlers on the success path —
     // strip them so they don't leak across tests / into the runner.
     process.removeAllListeners('SIGTERM');
@@ -117,6 +126,42 @@ describe('runWorker (worker entrypoint)', () => {
     expect(logger.error).toHaveBeenCalledWith(expect.stringMatching(/REDIS_URL/));
   });
 
+  // The GLOBAL_SEED_INGEST repeatable is the one step on the success path that talks to
+  // Redis. It must reach the caller through an injected seam like connectDB/startWorkers do,
+  // otherwise a unit test opens a REAL ioredis socket to whatever REDIS_URL says (the fake
+  // host 'example' -> ENOTFOUND -> 5s timeout + a leaked handle masked by --forceExit).
+  it('schedules the global-seed repeatable through an INJECTED seam (never a real queue connection)', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    process.env.GLOBAL_SEED_INGEST_ENABLED = 'true';
+    const scheduleRepeatable = jest.fn().mockResolvedValue({ scheduled: true });
+
+    const { workers } = await runWorker({
+      connectDB: jest.fn().mockResolvedValue(),
+      startWorkers: jest.fn().mockReturnValue([]),
+      scheduleRepeatable,
+      onFatal: jest.fn(), exit: jest.fn(), logger: silentLogger(),
+    });
+
+    expect(workers).toEqual([]);
+    expect(scheduleRepeatable).toHaveBeenCalledTimes(1);
+    expect(scheduleRepeatable).toHaveBeenCalledWith(
+      QUEUES.GLOBAL_SEED_INGEST, expect.any(String), {}
+    );
+  });
+
+  it('leaves the global-seed repeatable unscheduled when the flag is off (dark by default)', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const scheduleRepeatable = jest.fn().mockResolvedValue({ scheduled: true });
+
+    await runWorker({
+      connectDB: jest.fn().mockResolvedValue(),
+      startWorkers: jest.fn().mockReturnValue([]),
+      scheduleRepeatable,
+      onFatal: jest.fn(), exit: jest.fn(), logger: silentLogger(),
+    });
+
+    expect(scheduleRepeatable).not.toHaveBeenCalled();
+  });
   it('registers a shutdown handler that closes every worker on SIGTERM', async () => {
     process.env.REDIS_URL = 'redis://example:6379';
     const w1 = { close: jest.fn().mockResolvedValue() };

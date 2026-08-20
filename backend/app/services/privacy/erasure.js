@@ -7,6 +7,7 @@
 // retryable account, never an orphaned un-loginable one.
 
 const BiometricLog = require('../../models/BiometricLog');
+const VitalSample = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const MusicProfile = require('../../models/MusicProfile');
 const PlaylistSession = require('../../models/PlaylistSession');
@@ -33,6 +34,9 @@ const { purgeUserKeys } = require('../../utils/userRedisPurge');
 async function eraseUserChildData(userId) {
   await Promise.all([
     BiometricLog.deleteMany({ userId }),
+    // Per-metric physiological samples (W4-004, S5) — special-category, registered in the
+    // same task that created the collection.
+    VitalSample.deleteMany({ userId }),
     MedicalProfile.deleteMany({ userId }),
     MusicProfile.deleteMany({ userId }),
     PlaylistSession.deleteMany({ userId }),

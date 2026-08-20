@@ -13,6 +13,7 @@ const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 // Collection list MUST stay in lockstep with services/privacy/erasure.js (the
 // controller cascade) — this script only adds dry-run/count reporting on top.
 const BiometricLog    = require('../app/models/BiometricLog');
+const VitalSample     = require('../app/models/VitalSample');
 const MedicalProfile  = require('../app/models/MedicalProfile');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
@@ -86,6 +87,7 @@ async function main() {
       console.log(`[DRY RUN] GDPR deletion for userId: ${userId}`);
 
       const biometricCount    = await BiometricLog.countDocuments({ userId });
+      const vitalCount        = await VitalSample.countDocuments({ userId });
       const medicalExists     = await MedicalProfile.findOne({ userId }).lean();
       const musicExists       = await MusicProfile.findOne({ userId }).lean();
       const playlistCount     = await PlaylistSession.countDocuments({ userId });
@@ -97,6 +99,7 @@ async function main() {
       const userExists        = await User.findById(userId).lean();
 
       console.log(`  BiometricLog: ${biometricCount} document(s) would be deleted`);
+      console.log(`  VitalSample: ${vitalCount} document(s) would be deleted`);
       console.log(`  MedicalProfile: ${medicalExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
       console.log(`  MusicProfile: ${musicExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
       console.log(`  PlaylistSession: ${playlistCount} document(s) would be deleted`);
@@ -113,6 +116,9 @@ async function main() {
 
       const biometricResult = await BiometricLog.deleteMany({ userId });
       console.log(`  BiometricLog: deleted ${biometricResult.deletedCount} document(s)`);
+
+      const vitalResult = await VitalSample.deleteMany({ userId });
+      console.log(`  VitalSample: deleted ${vitalResult.deletedCount} document(s)`);
 
       const medicalResult = await MedicalProfile.deleteOne({ userId });
       if (medicalResult.deletedCount === 0) {

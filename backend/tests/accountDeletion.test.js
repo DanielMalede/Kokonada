@@ -8,6 +8,7 @@ process.env.NODE_ENV       = 'test';
 // ── Mock every collection the cascade touches + the auth side-effects ────────────
 jest.mock('../app/models/User',            () => ({ deleteOne:  jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/BiometricLog',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 42 }) }));
+jest.mock('../app/models/VitalSample',     () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 11 }) }));
 jest.mock('../app/models/MedicalProfile',  () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/MusicProfile',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/PlaylistSession', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 7 }) }));

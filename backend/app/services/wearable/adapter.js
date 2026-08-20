@@ -10,6 +10,37 @@
  * @property {string}  source      - garmin|apple_health|suunto
  */
 
+// ── consent-v2 capability flags (W4-004, §0.2.3) ────────────────────────────────
+//
+// This wave builds the engine ready for every metric a wearable can emit, and collects NONE of
+// the new ones. `WAVE4_CONSENT_V2_METRICS` is a comma-separated allowlist, EMPTY by default, and
+// it is the only thing that can turn a dormant lane on. Read at CALL time, not at module load, so
+// the flag is a runtime switch rather than a deploy-order puzzle.
+//
+// Until consent v2 actually ships, flipping this on would widen Art.9 processing beyond the scope
+// the user consented to — the flag exists so that day is a config change plus a consent record,
+// not a code change under time pressure.
+function consentV2Enabled(metric) {
+  const raw = process.env.WAVE4_CONSENT_V2_METRICS;
+  if (!raw) return false;
+  return raw.split(',').map((s) => s.trim()).includes(metric);
+}
+
+// A timezone offset the device asserts about itself. Anything outside the real range of UTC
+// offsets (UTC-14:00 .. UTC+12:00) is a corrupt or hostile value; we drop it and fall back to
+// server hour rather than storing a number that would silently rotate a user's whole circadian
+// table. Matches the VitalSample schema bounds and the telemetry DTO. (S6)
+const TZ_MIN_MINUTES = -840;
+const TZ_MAX_MINUTES = 720;
+
+function sanitizeTzOffset(value) {
+  if (value == null) return null; // Number(null) === 0, and 0 is a REAL offset (UTC)
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n < TZ_MIN_MINUTES || n > TZ_MAX_MINUTES) return null;
+  return Math.round(n);
+}
+
 const ACTIVITY_MAP = {
   // Garmin activity type IDs
   garmin: {
@@ -52,6 +83,7 @@ function fromGarmin(raw) {
     activity:   resolveActivity('garmin', raw.activityType),
     recordedAt: new Date(raw.startTimeLocal),
     source:     'garmin',
+    tzOffsetMinutes: sanitizeTzOffset(raw.tzOffsetMinutes),
   };
 }
 
@@ -65,6 +97,7 @@ function fromAppleHealth(raw) {
     activity:   resolveActivity('apple_health', raw.workoutType ?? null),
     recordedAt: new Date(raw.startDate),
     source:     'apple_health',
+    tzOffsetMinutes: sanitizeTzOffset(raw.tzOffsetMinutes),
   };
 }
 
@@ -78,6 +111,7 @@ function fromSuunto(raw) {
     activity:   resolveActivity('suunto', raw.sport ?? null),
     recordedAt: new Date(raw.timestamp),
     source:     'suunto',
+    tzOffsetMinutes: sanitizeTzOffset(raw.tzOffsetMinutes),
   };
 }
 
@@ -155,6 +189,11 @@ function normalizeHealthStoreSamples(platform, samples) {
       unit:       mapping.unit,
       recordedAt: new Date(raw.endDate || raw.startDate),
       source,
+      // Additive + optional (W4-004): the device knows its own UTC offset, the server only knows
+      // its own. Without this every hour-of-day baseline is computed in the server's timezone,
+      // which is D13 in a different costume. Absent stays null — the engines fall back to server
+      // hour explicitly rather than pretending the user lives in UTC.
+      tzOffsetMinutes: sanitizeTzOffset(raw.tzOffsetMinutes),
     });
   }
   return out;
@@ -186,10 +225,19 @@ const RANGES = {
   spO2:             [50, 100],
   respirationRate:  [4, 60],
   bodyBattery:      [0, 100],
+  // Garmin's 0-100 stress index. The API also emits -1 ("unmeasurable") and -2 ("off-wrist")
+  // sentinels on the SAME series; the range is what keeps those out of the data. (D16)
+  stressLevel:      [0, 100],
+  steps:            [0, 200000],
   sleepDeep:        [0, 960],
   sleepLight:       [0, 960],
   sleepRem:         [0, 960],
 };
+
+// Metrics where 0 is a genuine reading rather than a missing one. `isPos` is the right default
+// for a heart rate (0 bpm is not a measurement), and exactly wrong for a stress index or a step
+// count on a rest day.
+const ZERO_IS_VALID = new Set(['stressLevel', 'steps']);
 
 function inRange(metric, value) {
   const r = RANGES[metric];
@@ -198,12 +246,17 @@ function inRange(metric, value) {
 
 // Emit one canonical record per entry of a Garmin {offsetSeconds: value} map,
 // dropping (and counting via `drop`) physiologically implausible values.
-function fromOffsetMap(map, startSec, metric, unit, out, drop) {
+function fromOffsetMap(map, startSec, metric, unit, out, drop, tzOffsetMinutes = null) {
+  const admits = ZERO_IS_VALID.has(metric)
+    ? (v) => Number.isFinite(v) && v >= 0
+    : isPos;
   for (const [offset, raw] of Object.entries(map || {})) {
     const value = Number(raw);
-    if (!isPos(value)) continue;
+    if (!admits(value)) continue;
     if (!inRange(metric, value)) { drop.count += 1; continue; }
-    out.push({ metric, value, unit, recordedAt: SECONDS(startSec + Number(offset)), source: 'garmin' });
+    out.push({
+      metric, value, unit, recordedAt: SECONDS(startSec + Number(offset)), source: 'garmin', tzOffsetMinutes,
+    });
   }
 }
 
@@ -219,10 +272,15 @@ function normalizeGarminSummaries(type, s) {
   const at = SECONDS(start);
   const out = [];
   const drop = { count: 0 };
+  // Garmin stamps every summary with the wearer's own UTC offset for that summary — the one
+  // authoritative timezone signal on this lane. Seconds on the wire, minutes everywhere here.
+  const tz = Number.isFinite(s.startTimeOffsetInSeconds)
+    ? sanitizeTzOffset(Math.round(s.startTimeOffsetInSeconds / 60))
+    : null;
   // Push a single-value metric, dropping (and counting) an out-of-range reading.
   const add = (metric, value, unit) => {
     if (!inRange(metric, value)) { drop.count += 1; return; }
-    out.push({ metric, value, unit, recordedAt: at, source: 'garmin' });
+    out.push({ metric, value, unit, recordedAt: at, source: 'garmin', tzOffsetMinutes: tz });
   };
 
   switch (type) {
@@ -236,7 +294,13 @@ function normalizeGarminSummaries(type, s) {
     case 'dailies': {
       const rhr = Number(s.restingHeartRateInBeatsPerMinute);
       if (isPos(rhr)) add('restingHeartRate', rhr, 'bpm');
-      fromOffsetMap(s.timeOffsetHeartRateSamples, start, 'heartRate', 'bpm', out, drop);
+      fromOffsetMap(s.timeOffsetHeartRateSamples, start, 'heartRate', 'bpm', out, drop, tz);
+      // Dormant (consent v2): steps are an activity signal the affect engine's exertion axis
+      // would use as a prior. Normalized here so the lane is proven, OFF until consented.
+      if (consentV2Enabled('steps')) {
+        const steps = Number(s.steps);
+        if (Number.isFinite(steps) && steps >= 0) add('steps', steps, 'count');
+      }
       break;
     }
     case 'hrv': {
@@ -245,13 +309,19 @@ function normalizeGarminSummaries(type, s) {
       break;
     }
     case 'respiration':
-      fromOffsetMap(s.timeOffsetEpochToBreaths, start, 'respirationRate', 'brpm', out, drop);
+      fromOffsetMap(s.timeOffsetEpochToBreaths, start, 'respirationRate', 'brpm', out, drop, tz);
       break;
     case 'pulseox':
-      fromOffsetMap(s.timeOffsetSpo2Values, start, 'spO2', '%', out, drop);
+      fromOffsetMap(s.timeOffsetSpo2Values, start, 'spO2', '%', out, drop, tz);
       break;
     case 'stressDetails':
-      fromOffsetMap(s.timeOffsetBodyBatteryValues, start, 'bodyBattery', 'score', out, drop);
+      fromOffsetMap(s.timeOffsetBodyBatteryValues, start, 'bodyBattery', 'score', out, drop, tz);
+      // D16: the SAME payload carries Garmin's own stress index and this adapter read only the
+      // body-battery half of it, discarding a directly-measured stress signal the whole affect
+      // engine has to infer from HRV instead. Normalized now, dormant until consent v2.
+      if (consentV2Enabled('stressLevel')) {
+        fromOffsetMap(s.timeOffsetStressLevelValues, start, 'stressLevel', 'score', out, drop, tz);
+      }
       break;
     default:
       return []; // unhandled type — skip (Garmin pushes many types)
@@ -262,4 +332,8 @@ function normalizeGarminSummaries(type, s) {
   return out;
 }
 
-module.exports = { normalize, normalizeHealthStoreSamples, normalizeGarminSummaries };
+module.exports = {
+  normalize, normalizeHealthStoreSamples, normalizeGarminSummaries,
+  // shared with metricStore so the capability gate has ONE definition, not two that drift
+  consentV2Enabled, sanitizeTzOffset,
+};

@@ -547,7 +547,10 @@ describe('wearable adapter — normalize()', () => {
   describe('Garmin', () => {
     it('maps known activityType integer to canonical label', () => {
       const result = normalize('garmin', { heartRate: 75, activityType: 1, startTimeLocal: ts });
-      expect(result).toEqual({ heartRate: 75, activity: 'running', recordedAt: new Date(ts), source: 'garmin' });
+      // W4-004: the live reading shape gained one additive, optional field — the wearer's own UTC
+      // offset, null for every client shipped today. Kept as an EXACT match so an unexpected field
+      // still fails.
+      expect(result).toEqual({ heartRate: 75, activity: 'running', recordedAt: new Date(ts), source: 'garmin', tzOffsetMinutes: null });
     });
 
     it('maps activityType 0 to resting', () => {
@@ -566,7 +569,7 @@ describe('wearable adapter — normalize()', () => {
       const result = normalize('apple_health', {
         value: 130, workoutType: 'HKWorkoutActivityTypeRunning', startDate: ts,
       });
-      expect(result).toEqual({ heartRate: 130, activity: 'running', recordedAt: new Date(ts), source: 'apple_health' });
+      expect(result).toEqual({ heartRate: 130, activity: 'running', recordedAt: new Date(ts), source: 'apple_health', tzOffsetMinutes: null });
     });
 
     it('maps null workoutType to unknown', () => {
@@ -578,7 +581,7 @@ describe('wearable adapter — normalize()', () => {
   describe('Suunto', () => {
     it('maps known sport string to canonical label', () => {
       const result = normalize('suunto', { hr: 145, sport: 'CYCLING', timestamp: ts });
-      expect(result).toEqual({ heartRate: 145, activity: 'cycling', recordedAt: new Date(ts), source: 'suunto' });
+      expect(result).toEqual({ heartRate: 145, activity: 'cycling', recordedAt: new Date(ts), source: 'suunto', tzOffsetMinutes: null });
     });
 
     it('maps unknown sport to unknown', () => {

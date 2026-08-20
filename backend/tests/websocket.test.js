@@ -25,6 +25,15 @@ jest.mock('../app/services/spotify',       () => ({ getValidToken: jest.fn(), ge
 jest.mock('../app/services/youtube',       () => ({ getValidToken: jest.fn(), searchRecommendations: jest.fn() }));
 jest.mock('../app/services/geminiEngine',  () => ({ buildEmotionPlaylist: jest.fn(), adjustBiometricPlaylist: jest.fn() }));
 jest.mock('../app/services/playlistMixer', () => ({ mixPlaylist: jest.fn() }));
+// W4-003: handleBiometricReading now fire-and-forgets a D10 persistence attempt against
+// BiometricLog. This suite never connects to Mongo (it is a state-machine test over the
+// socket handler), so an unmocked model would buffer the command against no connection —
+// a lingering handle W4-D06's guard would (correctly) flag. Mocked resolved so persistence
+// is a harmless no-op here, exactly as the other DB models above are mocked.
+jest.mock('../app/models/BiometricLog', () => ({
+  exists:     jest.fn().mockResolvedValue(false),
+  insertMany: jest.fn().mockResolvedValue({ acknowledged: true, insertedCount: 1, insertedIds: {}, mongoose: { validationErrors: [] } }),
+}));
 // Art.9 consent gate for the socket biometric_push path (audit H-9 follow-up). Default to a current
 // grant so the existing state-machine tests are transparent to the gate; the dedicated no-consent
 // test overrides it. Mocking it also keeps the real consent service (mongoose) out of these tests.
@@ -146,7 +155,7 @@ describe('WebSocket auth', () => {
 // ── Biometric handler unit tests ───────────────────────────────────────────────
 // These tests use a mock socket object — no network needed.
 describe('biometricHandler — normalize + ack', () => {
-  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+  const { registerBiometricHandler, _debounceMap, _resetDebounceState } = require('../app/sockets/biometricHandler');
 
   function makeMockSocket(userId = 'user-abc') {
     const handlers = {};
@@ -159,7 +168,7 @@ describe('biometricHandler — normalize + ack', () => {
   }
 
   afterEach(() => {
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   it('emits biometric_ack with normalized data on valid garmin push', async () => {
@@ -246,7 +255,7 @@ describe('biometricHandler — normalize + ack', () => {
 });
 
 describe('biometricHandler — 60-second debounce', () => {
-  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+  const { registerBiometricHandler, _debounceMap, _resetDebounceState } = require('../app/sockets/biometricHandler');
 
   function makeMockSocket(userId = 'user-debounce') {
     const handlers = {};
@@ -258,19 +267,33 @@ describe('biometricHandler — 60-second debounce', () => {
     };
   }
 
-  const GARMIN_RAW = (hr, activityType = 0) => ({
-    source: 'garmin',
-    raw: { heartRate: hr, activityType, startTimeLocal: '2026-01-01T10:00:00' },
-  });
+  // W4-003: the socket lane now runs every reading through the anomaly filter, so a fixed
+  // historical date (>90 days stale against a real clock) is rejected outright rather than
+  // being inert. Recent + 6-minute spacing keeps the Kalman gain near pass-through (the
+  // filter's own documented behaviour at watch cadence), so these state-machine pins keep
+  // testing the debounce/trigger mechanics rather than the filter's math.
+  const GARMIN_RAW_BASE_MS = Date.now() - 3 * 3600_000;
+  const GARMIN_RAW_STEP_MS = 6 * 60_000;
+  let garminRawSeq = 0;
+  const GARMIN_RAW = (hr, activityType = 0) => {
+    garminRawSeq += 1;
+    return {
+      source: 'garmin',
+      raw: {
+        heartRate: hr, activityType,
+        startTimeLocal: new Date(GARMIN_RAW_BASE_MS + garminRawSeq * GARMIN_RAW_STEP_MS).toISOString(),
+      },
+    };
+  };
 
   beforeEach(() => {
     jest.useFakeTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   afterEach(() => {
     jest.useRealTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   it('does NOT emit recalibration_pending when delta < 10 BPM', async () => {
@@ -289,12 +312,15 @@ describe('biometricHandler — 60-second debounce', () => {
     registerBiometricHandler(socket);
 
     await socket._trigger('biometric_push', GARMIN_RAW(70));
-    await socket._trigger('biometric_push', GARMIN_RAW(85)); // delta = 15
+    await socket._trigger('biometric_push', GARMIN_RAW(85)); // delta ≈ 15
 
-    expect(socket.emit).toHaveBeenCalledWith('recalibration_pending', {
-      delta: 15,
-      secondsRemaining: 60,
-    });
+    // W4-003: delta is computed from the FILTERED estimate, not the raw value — at this
+    // fixture's 6-minute cadence the Kalman gain is near but not exactly 1, so the pin
+    // tolerates a fraction of a bpm rather than pinning bit-exact raw arithmetic.
+    const call = socket.emit.mock.calls.find(([e]) => e === 'recalibration_pending');
+    expect(call).toBeDefined();
+    expect(call[1].delta).toBeCloseTo(15, 0);
+    expect(call[1].secondsRemaining).toBe(60);
   });
 
   it('does NOT start a second timer if one is already running', async () => {
@@ -321,7 +347,11 @@ describe('biometricHandler — 60-second debounce', () => {
 
     // generateAndEmitPlaylist is called (pipeline starts); full output tested in biometricHandler.pipeline.test.js
     // MusicProfile.findOne returns null so the pipeline short-circuits with playlist_error — that's fine here
-    expect(socket.emit).toHaveBeenCalledWith('recalibration_pending', expect.objectContaining({ delta: 15 }));
+    // W4-003: delta is the FILTERED estimate (see the previous test) — close to but not
+    // bit-exact vs the raw 15 bpm jump.
+    const call = socket.emit.mock.calls.find(([e]) => e === 'recalibration_pending');
+    expect(call).toBeDefined();
+    expect(call[1].delta).toBeCloseTo(15, 0);
   });
 
   it('emits recalibration_cancelled and clears timer when HR returns below threshold', async () => {
@@ -361,7 +391,7 @@ describe('biometricHandler — 60-second debounce', () => {
 });
 
 describe('biometricHandler — skip loop', () => {
-  const { registerBiometricHandler, _debounceMap } = require('../app/sockets/biometricHandler');
+  const { registerBiometricHandler, _debounceMap, _resetDebounceState } = require('../app/sockets/biometricHandler');
 
   function makeMockSocket(userId = 'user-skip') {
     const handlers = {};
@@ -375,12 +405,12 @@ describe('biometricHandler — skip loop', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   afterEach(() => {
     jest.useRealTimers();
-    _debounceMap.clear();
+    _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
   });
 
   it('does NOT recalibrate on a single skip', () => {

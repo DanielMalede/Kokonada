@@ -10,6 +10,7 @@ const garminIngest = require('../services/wearable/garminIngest');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
 const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
 const { persistMetrics } = require('../services/wearable/metricStore');
+const { isPhysiologicalHR, HR_MIN, HR_MAX } = require('../services/wearable/hrRange');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
@@ -664,7 +665,8 @@ exports.healthBatchIngest = async (req, res, next) => {
     }
 
     const result = await healthStore.ingestBatch(req.user._id, platform, samples);
-    console.warn(`[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} profileMetrics=${JSON.stringify(result.profileMetrics || {})}`);
+    // W4-D08: `rejected` is a count plus (path, validator-kind) pairs — never a submitted value.
+    console.warn(`[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} rejected=${result.rejected?.count || 0} profileMetrics=${JSON.stringify(result.profileMetrics || {})}`);
 
     // Mark the wearable provider on first push so the web UI reflects the connection.
     const provider = platform === 'healthkit' ? 'apple_health' : 'health_connect';
@@ -809,8 +811,9 @@ exports.watchStatus = (req, res) => {
 // POST /api/integrations/watch/hr  (PUBLIC — device-token auth, not session)
 // The sideloaded watch app POSTs live HR here ~every 5 minutes. We authenticate
 // by hashing the Bearer token, look up the user's live browser socket, and feed
-// the reading into the biometric pipeline in immediate mode (each ping trusted
-// as the new sustained HR; see WATCH_HR_DELTA_THRESHOLD in biometricHandler).
+// the reading into the biometric pipeline in immediate mode (each ping trusted as
+// the new sustained HR; recalibration fires on a band/activity change — see
+// _shouldRecalibrate in biometricHandler).
 exports.watchHrIngest = async (req, res, next) => {
   try {
     const header = req.headers.authorization;
@@ -831,8 +834,11 @@ exports.watchHrIngest = async (req, res, next) => {
     if (consentStatus.staleVersion) return res.status(403).json({ error: 'consent_stale' });
 
     const { heartRate, activityType, ts } = req.body || {};
-    if (!Number.isFinite(heartRate) || heartRate < 30 || heartRate > 230) {
-      return res.status(400).json({ error: 'heartRate must be a finite number between 30 and 230' });
+    // ONE physiological range for the whole system (D9). This route used to accept
+    // 30-230 while the handler it feeds requires 30-220, so a 221-230 reading was
+    // accepted with a 202 and then silently dropped one call later.
+    if (!isPhysiologicalHR(heartRate)) {
+      return res.status(400).json({ error: `heartRate must be a finite number between ${HR_MIN} and ${HR_MAX}` });
     }
     const activity = Number.isInteger(activityType) ? activityType : 0;
     const startTimeLocal =

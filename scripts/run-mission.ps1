@@ -1,0 +1,401 @@
+# run-mission.ps1 — Wave 4 Runtime Intelligence autonomous loop (usage-aware)
+# Usage (from the repo root):
+#   powershell -ExecutionPolicy Bypass -File scripts\run-mission.ps1
+#
+# MODEL POLICY (Daniel's ruling):
+#   - phase "review" (the plan-review pass)  -> $PlanModel  (Fable, max reasoning)
+#   - execution                              -> $ExecModel  (Opus, max reasoning)
+#   - est. session-window usage >= 70%       -> $SaverModel (Sonnet) until the ~5h window resets
+#   - est. session-window usage >= 95%       -> WAIT until the window resets (no session launched)
+#   - weekly usage >= soft% -> Sonnet ; >= hard% -> WAIT (rechecks every 30 min)
+#   Usage is ESTIMATED locally from Claude Code's own logs via `ccusage` (Anthropic does not expose
+#   exact quota via API). Units are ccusage totalTokens (includes cache reads), so the estimate is a
+#   PROXY, not the real quota. Therefore: gating stays OFF ("uncalibrated") until either you pass
+#   -SessionTokenBudget / -WeeklyTokenBudget explicitly (recommended - compare logs\wave4\usage.log
+#   token counts against /usage in the app, then divide), or >=2 COMPLETED 5h windows of local
+#   history exist to calibrate from. The active window is never used to calibrate itself. Every wait
+#   FAILS OPEN after -MaxConsecutiveWaits, and real limit errors are always handled (20 min retry).
+#
+# Stop at any time: create an empty file  docs\plans\WAVE4_HALT , or Ctrl+C in this window.
+#
+# WHILE A SESSION RUNS: the log file (logs\wave4\session-*.log) stays at 0 bytes for the
+# WHOLE session - claude's output is buffered and only flushes when the process exits. Every
+# ~3 min this window prints '[wave4] session N alive - ...' - as long as that keeps appearing,
+# it is working normally. Do NOT close the window or Ctrl+C because the log looks empty; that
+# kills real work and burns real tokens for nothing, since nothing is saved until the session
+# ends on its own (max SessionTimeoutMin minutes, auto-killed and retried after that).
+
+param(
+    [int]$MaxIterations = 40,
+    [int]$SessionTimeoutMin = 100,
+    [int]$SleepBetweenSec = 60,
+
+    # --- model policy ---
+    [string]$PlanModel  = 'fable',    # review pass; if your CLI rejects the alias, set e.g. 'claude-fable-5'
+    [string]$ExecModel  = 'opus',
+    [string]$SaverModel = 'sonnet',
+    [int]$SessionSwitchPct = 70,      # >= this % of session budget -> SaverModel
+    [int]$SessionWaitPct   = 95,      # >= this % -> wait for window reset instead of launching
+    [long]$SessionTokenBudget = 0,    # 0 = auto (max totalTokens over recent 5h blocks)
+    [long]$WeeklyTokenBudget  = 0,    # 0 = monitor-only (no weekly gating, still logged)
+    [int]$WeeklySoftPct = 75,         # >= this % of weekly budget -> SaverModel
+    [int]$WeeklyHardPct = 90,         # >= this % -> pause (recheck every 30 min)
+    [int]$MaxThinkingTokens = 31999,  # exported as MAX_THINKING_TOKENS for max reasoning; 0 = don't set
+    [int]$MaxConsecutiveWaits = 2,    # after this many no-change waits, FAIL OPEN (never deadlock a 4-day run)
+    [int]$TransientFailSec = 180,     # a session dying faster than this = environmental, not a failed task
+    [int]$MaxTransientRetries = 12    # ~2h of transient retries before it counts as a real failure
+)
+
+$ErrorActionPreference = 'Continue'
+
+# --- locate repo root (this script lives in <repo>\scripts) ---------------------------------
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
+
+# --- single-instance guard -------------------------------------------------------------------
+# 2026-08-19 incident: three copies of this script were accidentally launched at once and all
+# three ran claude -p against the SAME working tree/branch/STATE file simultaneously (HITL H2).
+# One session caught it mid-run and halted safely, but it could have raced two commits or two
+# concurrent edits to WAVE4_STATE.md. A named mutex makes a second launch impossible instead of
+# relying on a human never double-launching the loop.
+$MissionMutex = New-Object System.Threading.Mutex($false, 'Global\KokonadaWave4Loop')
+$gotMutex = $false
+try {
+    $gotMutex = $MissionMutex.WaitOne(0)
+} catch [System.Threading.AbandonedMutexException] {
+    # the previous holder died without releasing (crash / Task Manager kill) - ownership passes
+    # to us safely; this is the self-healing case, not a collision.
+    $gotMutex = $true
+}
+if (-not $gotMutex) {
+    Write-Host '[wave4] another run-mission.ps1 is already running on this machine - exiting.'
+    Write-Host '[wave4] if you believe that is wrong, check Task Manager for a stray claude/node process before retrying.'
+    exit 1
+}
+
+$HaltFile = Join-Path $RepoRoot 'docs\plans\WAVE4_HALT'
+$StateFile = Join-Path $RepoRoot 'docs\plans\WAVE4_STATE.md'
+$LogDir   = Join-Path $RepoRoot 'logs\wave4'
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$UsageLog = Join-Path $LogDir 'usage.log'
+
+if ($MaxThinkingTokens -gt 0) { $env:MAX_THINKING_TOKENS = "$MaxThinkingTokens" }
+
+# --- the session prompt (must match docs/plans/WAVE4_KICKOFF.md) ----------------------------
+$Prompt = @'
+ultrathink. This is a Wave-4 Runtime Intelligence session for the Kokonada repo.
+Read docs/plans/WAVE4_INTELLIGENCE_MISSION.md fully, then docs/plans/WAVE4_STATE.md.
+Follow the per-session protocol in the mission (section 2) exactly:
+- If STATE phase is "review", run the W4-000 plan-mode review pass (read-only validation of the mission
+  against the full repo), update the mission + STATE with deltas, set phase to "execute", commit, and exit.
+- Otherwise execute exactly ONE next unblocked task from the queue under strict TDD, update STATE,
+  commit with short single-line messages (no attribution of any kind), cut a PR if the cluster is complete, and exit.
+- Model economy: env var WAVE4_MODEL_TIER tells you how you were launched (plan|exec|saver). On "saver",
+  prefer an S/M task or continuing an in_progress task over STARTING a new L design task, if one is unblocked.
+- Never merge PRs. Never touch cloud portals - write HITL tutorials into STATE instead and continue.
+- If docs/plans/WAVE4_HALT exists, stop immediately.
+End your final message with: WAVE4_SESSION_RESULT: <taskId> <done|in_progress|failed> <one-line summary>
+(If the whole queue including W4-015 is done, end instead with: WAVE4_SESSION_RESULT: DONE-ALL complete)
+'@
+
+$PromptFile = Join-Path $LogDir 'session-prompt.txt'
+Set-Content -Path $PromptFile -Value $Prompt -Encoding UTF8
+
+# --- helpers --------------------------------------------------------------------------------
+
+function Invoke-Ccusage([string]$SubArgs, [string]$OutFile) {
+    # runs: npx -y ccusage@latest <SubArgs> --json --offline   (offline = skip pricing fetch; token counts unaffected)
+    $cmd = "npx -y ccusage@latest $SubArgs --json --offline > `"$OutFile`" 2>nul"
+    $p = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/c', $cmd -WindowStyle Hidden -PassThru
+    if (-not $p.WaitForExit(120000)) { try { $p.Kill() } catch {}; return $null }
+    if (-not (Test-Path $OutFile)) { return $null }
+    try { return (Get-Content -Raw $OutFile | ConvertFrom-Json) } catch { return $null }
+}
+
+function Get-UsageSnapshot {
+    $snap = [pscustomobject]@{
+        SessionTokens = $null; SessionBudget = $null; SessionPct = $null; BlockEnd = $null
+        WeeklyTokens = $null; WeeklyPct = $null
+    }
+    # session window (5h blocks, ccusage default)
+    $bj = Invoke-Ccusage 'blocks --recent' (Join-Path $LogDir 'ccusage-blocks.json')
+    if ($bj -and $bj.blocks) {
+        $active = $bj.blocks | Where-Object { $_.isActive -eq $true } | Select-Object -First 1
+        if ($active) {
+            $snap.SessionTokens = [long]$active.totalTokens
+            try { $snap.BlockEnd = ([DateTimeOffset]::Parse($active.endTime)).UtcDateTime } catch {}
+        } else { $snap.SessionTokens = 0 }
+        $budget = $SessionTokenBudget
+        if ($budget -le 0) {
+            # AUTO-CALIBRATION - only from COMPLETED windows, NEVER the active one: including the
+            # active block makes the estimate self-referential (budget == current usage == 100%),
+            # which is exactly the false WAIT-BLOCK seen on a fresh machine. Needs >=2 completed
+            # windows of real history; below that stay UNCALIBRATED (monitor-only, no gating).
+            $done = @($bj.blocks | Where-Object { $_.isGap -ne $true -and $_.isActive -ne $true -and [long]$_.totalTokens -ge 1000000 })
+            if ($done.Count -ge 2) { $budget = [long](($done | Measure-Object -Property totalTokens -Maximum).Maximum) }
+        }
+        if ($budget -gt 0) {
+            $snap.SessionBudget = $budget
+            $snap.SessionPct = [math]::Round(100.0 * $snap.SessionTokens / $budget, 1)
+        }
+    }
+    # rolling 7-day estimate
+    $since = (Get-Date).AddDays(-6).ToString('yyyyMMdd')
+    $dj = Invoke-Ccusage "daily --since $since" (Join-Path $LogDir 'ccusage-daily.json')
+    if ($dj -and $dj.daily) {
+        $sum = 0L
+        foreach ($d in $dj.daily) {
+            if ($d.PSObject.Properties['totalTokens']) { $sum += [long]$d.totalTokens }
+            else { $sum += [long]$d.inputTokens + [long]$d.outputTokens + [long]$d.cacheCreationTokens + [long]$d.cacheReadTokens }
+        }
+        $snap.WeeklyTokens = $sum
+        if ($WeeklyTokenBudget -gt 0) { $snap.WeeklyPct = [math]::Round(100.0 * $sum / $WeeklyTokenBudget, 1) }
+    }
+    return $snap
+}
+
+function Get-Phase {
+    if (Test-Path $StateFile) {
+        $m = Select-String -Path $StateFile -Pattern 'phase:\s*(\w+)' | Select-Object -First 1
+        if ($m) { return $m.Matches[0].Groups[1].Value }
+    }
+    return 'execute'
+}
+
+function Log-Usage([string]$line) {
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Add-Content -Path $UsageLog -Value "$ts  $line"
+    Write-Host "[wave4] $line"
+}
+
+function Assert-ReflectMarkerStamped {
+    param([datetime]$Since)
+    # W4-D01. Mission section 2 step 4 latches the recurring-reflection trigger on ONE file,
+    # logs\wave4\last-reflect.txt: "if it is missing, or >= REFLECT_INTERVAL_HOURS have passed
+    # since it, this session is a REFLECTION session". Section 2.5 R7 asks the SESSION to stamp it
+    # on the way out - but a session that is killed, times out, or simply forgets that last step
+    # leaves the trigger latched ON forever: every later session reflects again and no queue task
+    # can ever be picked, which quietly kills a 4-day run. So the loop checks the invariant itself
+    # instead of trusting a session to have kept its own promise.
+    $markerFile = Join-Path $RepoRoot 'logs\wave4\last-reflect.txt'
+    if ((Test-Path $markerFile) -and ((Get-Item $markerFile).LastWriteTime -ge $Since)) { return }
+
+    Log-Usage 'WARN: reflection session left last-reflect.txt unstamped - loop stamping it (W4-D01 backstop)'
+    $tool = Join-Path $RepoRoot 'scripts\wave4\reflect-marker.js'
+    try { & node $tool stamp --root $RepoRoot | Out-Null } catch { }
+
+    if (-not (Test-Path $markerFile)) {
+        # Last resort, same format (ISO-8601 UTC on line 1): a missing or broken node must never be
+        # able to re-latch the trigger this function exists to clear.
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $markerFile) | Out-Null
+        Set-Content -Path $markerFile -Value (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd\THH:mm:ss\Z') -Encoding UTF8
+    }
+}
+
+function Assert-StateRowsNotClobbered {
+    param([string]$BaseSha)
+    # W4-D02. WAVE4_STATE.md is the run's SINGLE resume source, so a session that rebuilds the
+    # whole file from a read taken earlier silently reverts everything committed in between -
+    # ccecca3 reset W4-001 from in_progress back to pending exactly that way, and nothing noticed.
+    # The session is asked to run this same check before it commits STATE; the loop repeats it
+    # afterwards because the sessions most likely to have made a mess (killed, timed out, working
+    # from a stale copy) are precisely the ones that will not have run it themselves.
+    #
+    # This is a DETECTOR, not a repair: it cannot un-commit. Its whole job is to turn a silent
+    # erasure into a loud line in the usage log, next to the session that caused it.
+    if (-not $BaseSha) { return }
+    $tool = Join-Path $RepoRoot 'scripts\wave4\state-guard.js'
+    if (-not (Test-Path $tool)) { return }
+
+    $out = ''
+    try { $out = (& node $tool check --root $RepoRoot --base $BaseSha | Out-String) } catch { return }
+    if ($LASTEXITCODE -eq 0) { return }
+
+    foreach ($line in ($out -split "`n")) {
+        if ($line.Trim()) { Log-Usage "STATE-GUARD $($line.Trim())" }
+    }
+    Log-Usage "WARN: this session regressed a WAVE4_STATE row since $BaseSha - queue truth may be wrong, verify it before trusting the next pick (W4-D02)"
+}
+
+# --- main loop ------------------------------------------------------------------------------
+
+$consecutiveFailures = 0
+$transientRetries = 0
+$planModelBroken = $false
+$sessionsLaunched = 0
+$consecutiveWaits = 0
+$forceSaver = $false
+
+while ($sessionsLaunched -lt $MaxIterations) {
+
+    # 1. halt check
+    if (Test-Path $HaltFile) { Write-Host "[wave4] HALT file present - stopping. ($HaltFile)"; break }
+
+    # 2. usage snapshot -> model decision
+    $u = Get-UsageSnapshot
+    $phase = Get-Phase
+    $sessPctTxt = 'uncalibrated'
+    if ($u.SessionPct -ne $null) { $sessPctTxt = "$($u.SessionPct)%" }
+    if ($u.SessionTokens -ne $null) { $sessPctTxt = "$sessPctTxt [$([math]::Round($u.SessionTokens/1e6,1))M tok]" }
+    $weekTxt = 'n/a'
+    if ($u.WeeklyTokens -ne $null) {
+        $weekTxt = "$([math]::Round($u.WeeklyTokens/1e6,1))M tok"
+        if ($u.WeeklyPct -ne $null) { $weekTxt = "$weekTxt ($($u.WeeklyPct)%)" }
+    }
+
+    # --- wait gates. FAIL-OPEN by design: these run on a LOCAL ESTIMATE (ccusage token
+    # counts), not on the real quota, so a miscalibrated estimate must never deadlock a
+    # 4-day run. After $MaxConsecutiveWaits no-change waits we proceed anyway on the saver
+    # model; a genuine limit is still caught by the limit-error handler below (20 min retry).
+    $waitReason = $null
+    $waitSec = 900
+    if ($u.WeeklyPct -ne $null -and $u.WeeklyPct -ge $WeeklyHardPct) {
+        $waitReason = "weekly est $weekTxt >= $WeeklyHardPct%"; $waitSec = 1800
+    } elseif ($u.SessionPct -ne $null -and $u.SessionPct -ge $SessionWaitPct) {
+        if ($u.BlockEnd) {
+            $delta = ($u.BlockEnd - (Get-Date).ToUniversalTime()).TotalSeconds + 120
+            if ($delta -gt 0) { $waitSec = [int][math]::Min($delta, 3600) }
+        }
+        $waitReason = "session est $sessPctTxt >= $SessionWaitPct%"
+    }
+    if ($waitReason) {
+        $consecutiveWaits++
+        if ($consecutiveWaits -le $MaxConsecutiveWaits) {
+            Log-Usage "WAIT: $waitReason - sleeping $([int]($waitSec/60)) min (wait $consecutiveWaits/$MaxConsecutiveWaits)"
+            Start-Sleep -Seconds $waitSec
+            continue
+        }
+        Log-Usage "FAIL-OPEN: $waitReason persisted across $consecutiveWaits waits - estimate is likely miscalibrated; proceeding on $SaverModel"
+        $forceSaver = $true
+    } else {
+        $consecutiveWaits = 0
+        $forceSaver = $false
+    }
+
+    # model selection
+    $tier = 'exec'; $model = $ExecModel
+    if ($phase -eq 'review' -and -not $planModelBroken) { $tier = 'plan'; $model = $PlanModel }
+    $saverReason = $null
+    if ($u.SessionPct -ne $null -and $u.SessionPct -ge $SessionSwitchPct) { $saverReason = "session $sessPctTxt >= $SessionSwitchPct%" }
+    if ($u.WeeklyPct -ne $null -and $u.WeeklyPct -ge $WeeklySoftPct) { $saverReason = "weekly $($u.WeeklyPct)% >= $WeeklySoftPct%" }
+    if ($forceSaver) { $saverReason = 'fail-open guard' }
+    if ($saverReason -and $tier -ne 'plan') { $tier = 'saver'; $model = $SaverModel }   # the review pass stays on the plan model
+    $env:WAVE4_MODEL_TIER = $tier
+
+    # 3. freshen remote view (mission handles divergence policy inside the session)
+    try { git fetch origin 2>&1 | Out-Null } catch { Write-Host '[wave4] git fetch failed (offline?) - continuing' }
+
+    # 4. run one session
+    $sessionsLaunched++
+    $i = $sessionsLaunched
+    $stamp   = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $LogFile = Join-Path $LogDir ("session-{0:d3}-{1}.log" -f $i, $stamp)
+    $ErrFile = "$LogFile.err"
+    Log-Usage "session $i/$MaxIterations  model=$model tier=$tier phase=$phase  session-window=$sessPctTxt  weekly=$weekTxt"
+
+    # W4-D02: remember where the tree stood before this session touched it, so the STATE tables can
+    # be diffed against that exact point once it exits.
+    $sessionStartSha = $null
+    try { $sessionStartSha = (& git -C $RepoRoot rev-parse HEAD).Trim() } catch { }
+
+    $cmdLine = "claude -p --model $model --dangerously-skip-permissions < `"$PromptFile`" > `"$LogFile`" 2> `"$ErrFile`""
+    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/c', $cmdLine `
+              -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru
+
+    # Poll with a heartbeat instead of one blocking WaitForExit. IMPORTANT: the log file
+    # legitimately stays at 0 bytes for the ENTIRE session - claude's stdout is fully buffered
+    # once redirected to a file, so nothing flushes until the process exits. An empty log is
+    # NOT a hang. Only the timeout below (or Ctrl+C on this window) should ever stop a session -
+    # killing it early on a hunch wastes real tokens AND discards all progress, since nothing is
+    # committed until the session ends on its own.
+    $sessionStart = Get-Date
+    $deadline = $sessionStart.AddMinutes($SessionTimeoutMin)
+    $lastBeat = $sessionStart
+    while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 15
+        if (((Get-Date) - $lastBeat).TotalSeconds -ge 180) {
+            $lastBeat = Get-Date
+            $elapsedMin = [int]((Get-Date) - $sessionStart).TotalMinutes
+            $sz = 0
+            if (Test-Path $LogFile) { $sz = (Get-Item $LogFile).Length }
+            Write-Host "[wave4] session $i alive - ${elapsedMin}m/${SessionTimeoutMin}m elapsed, log=$sz bytes (0 is normal mid-session - do NOT close this window)"
+        }
+    }
+    if ($proc.HasExited) {
+        $finished = $true
+        $exitCode = $proc.ExitCode
+    } else {
+        $finished = $false
+        Write-Host "[wave4] session $i exceeded $SessionTimeoutMin min - killing"
+        try { $proc.Kill() } catch {}
+        $exitCode = 124
+    }
+
+    # Runs on EVERY outcome, before the classification below: a crashed or timed-out session can
+    # have committed a clobbered STATE just as easily as a clean one (W4-D02).
+    Assert-StateRowsNotClobbered -BaseSha $sessionStartSha
+
+    # 5. classify the outcome
+    $marker = $null
+    if (Test-Path $LogFile) {
+        $marker = Select-String -Path $LogFile -Pattern 'WAVE4_SESSION_RESULT:' -SimpleMatch | Select-Object -Last 1
+    }
+
+    if (($exitCode -eq 0) -and $marker) {
+        $consecutiveFailures = 0
+        $transientRetries = 0
+        Log-Usage "$($marker.Line.Trim())"
+        if ($marker.Line -match 'WAVE4_SESSION_RESULT:\s*REFLECT') { Assert-ReflectMarkerStamped -Since $sessionStart }
+        if ($marker.Line -match 'WAVE4_SESSION_RESULT:\s*DONE-ALL') { Write-Host '[wave4] queue reported complete - stopping.'; break }
+    } else {
+        # limit / overload errors are NOT failures - wait and retry.
+        # 2026-08-19 incident: the real message is "You've hit your session limit - resets 5:10am",
+        # which the old narrow pattern (usage limit|rate limit|limit reached|quota|overloaded|429)
+        # did NOT match. Three such launches in 11 minutes burned the 3-strike budget and auto-halted
+        # a perfectly healthy run for ~5 hours. The pattern is now deliberately BROAD - a bare
+        # \blimit\b is enough. False positives are harmless: this branch is only reached when the
+        # session already failed, so the worst case is "wait 20 min and retry" instead of "count a strike".
+        $errText = ''
+        foreach ($f in @($LogFile, $ErrFile)) { if (Test-Path $f) { $errText += (Get-Content -Raw $f) } }
+        $sessionRanSec = ((Get-Date) - $sessionStart).TotalSeconds
+        if ($errText -match '(?i)\blimit\b|quota|overloaded|too many requests|429|503|resets? (at )?\d') {
+            Log-Usage "session $i hit a usage/session limit - waiting 20 min (not counted as failure)"
+            $sessionsLaunched--   # this attempt doesn't consume the iteration budget
+            Start-Sleep -Seconds 1200
+            continue
+        }
+        # SHORT-RUN TRANSIENT GUARD - the general backstop behind the pattern above, so the loop
+        # never again depends on matching an exact error string. Real task work takes many minutes;
+        # a session that dies in under $TransientFailSec is an environmental problem (quota, auth,
+        # network, bad launch), not a failed task, and must not spend the 3-strike budget that halts
+        # an unattended run. Capped, so a genuinely broken environment still halts eventually.
+        if ($sessionRanSec -lt $TransientFailSec) {
+            $transientRetries++
+            if ($transientRetries -le $MaxTransientRetries) {
+                Log-Usage ("session $i died in {0:n0}s (< {1}s) - transient, waiting 10 min (transient {2}/{3}, no strike)" -f $sessionRanSec, $TransientFailSec, $transientRetries, $MaxTransientRetries)
+                $sessionsLaunched--
+                Start-Sleep -Seconds 600
+                continue
+            }
+            Log-Usage "session $i died fast again - $transientRetries transient retries exhausted, counting as a real failure"
+        }
+        # a model-flag rejection on the plan model -> fall back to the exec model for the review pass
+        if ($tier -eq 'plan' -and $errText -match '(?i)model') {
+            $planModelBroken = $true
+            Log-Usage "plan model '$PlanModel' rejected - review pass will retry on '$ExecModel'"
+        }
+        $consecutiveFailures++
+        Log-Usage "session $i FAILED (exit=$exitCode, marker=$([bool]$marker)) - consecutive failures: $consecutiveFailures"
+        if ($consecutiveFailures -ge 3) {
+            Set-Content -Path $HaltFile -Value "auto-halt: 3 consecutive failed sessions (last: session $i, exit $exitCode). See $LogDir."
+            Write-Host '[wave4] 3 consecutive failures - HALT file written, stopping.'
+            break
+        }
+    }
+
+    # 6. breathe
+    Start-Sleep -Seconds $SleepBetweenSec
+}
+
+Write-Host '[wave4] loop finished. State: docs\plans\WAVE4_STATE.md ; usage: logs\wave4\usage.log ; report (when closeout ran): docs\plans\WAVE4_REPORT.md'
+try { $MissionMutex.ReleaseMutex() } catch {}

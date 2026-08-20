@@ -13,7 +13,10 @@ describe('normalizeHealthStoreSamples — HealthKit (iOS)', () => {
       { type: 'heart_rate', value: 72, startDate: ts },
     ]);
     expect(out).toEqual([
-      { metric: 'heartRate', value: 72, unit: 'bpm', recordedAt: new Date(ts), source: 'apple_health' },
+      // W4-004 widened the record by ONE additive, optional field: the device's own UTC offset.
+      // null (not 0) when the client does not send one — 0 is a real offset, so coercing would
+      // silently place every legacy client in UTC. Every other field is unchanged.
+      { metric: 'heartRate', value: 72, unit: 'bpm', recordedAt: new Date(ts), source: 'apple_health', tzOffsetMinutes: null },
     ]);
   });
 

@@ -16,8 +16,13 @@ const vectorIndex = require('../vector/vectorIndex');
 // through L3; only the L4 LAST RESORT drops it, so a user with a non-empty
 // library can never get an empty playlist (a repeat beats a "try again" error).
 //
-//   L0 full · L1 drop energy ceiling · L2 drop genre excludes · L3 drop mood window
+//   L0 full · L1 drop genre excludes · L2 drop mood window
 //   L4 LAST RESORT: replay FAMILIAR library, dropping the serve window — never serve empty
+//
+// The ladder has THREE rungs. There is no energy rung: energy and tempo belong to the
+// un-relaxable biosonic band, which the ladder never touches. `relaxLevel` stays 0..2 for
+// the ladder and jumps to 4 for the last resort — 3 is deliberately unused so the telemetry
+// value keeps meaning what it has always meant to anything reading it.
 
 const MIN_FILL = (k) => Math.min(k, 10);
 

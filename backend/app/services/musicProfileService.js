@@ -296,18 +296,48 @@ const TAG_TO_GENRE = {
   reggae: 'reggae', latin: 'latin',
 };
 
+// YouTube affinity, on the SAME scale as the Spotify sources (D17).
+//
+// It used to be `n - i` over the merged list, so a 500-video account produced affinities up
+// to 500 while Spotify's `weight + positionBonus` tops out around 30. Both end up in ONE
+// array, normalised by a single global maxAffinity in the selection pipeline — so for any
+// user with both providers connected, every Spotify track collapsed toward 0 and their
+// Spotify taste effectively vanished from ranking.
+//
+// A liked video is a per-song save (SOURCE_WEIGHTS.saved); a playlist item is a deliberate
+// curation choice (SOURCE_WEIGHTS.playlist) — the same reading the Spotify side already
+// takes. The 0..1 position bonus stays a tie-breaker within the source.
+function _youtubeAffinity(liked, rank, total) {
+  const base = liked ? SOURCE_WEIGHTS.saved : SOURCE_WEIGHTS.playlist;
+  const positionBonus = total > 0 ? (total - rank) / total : 0;
+  return Number((base + positionBonus).toFixed(3));
+}
+
 /**
  * Analyses a flat list of YouTube video objects (liked videos + playlist items)
  * and extracts genre signals from tags and artist names from channelTitle.
  * Audio feature fields are null because YouTube has no audio-features API.
  *
+ * Affinity is on the SAME scale as the Spotify side (`SOURCE_WEIGHTS` + a 0..1 position
+ * bonus) — see the D17 note on `_youtubeAffinity`.
+ *
  * @param {{ id: string, snippet: { title?: string, channelTitle: string, tags?: string[] } }[]} videos
+ *        deduped video objects, liked first then playlist items (the caller's merge order)
+ * @param {{ likedIds?: Set<string>|null }} [opts]  which video ids came from the LIKED list;
+ *        every other video is a playlist item. Omitted → all treated as liked (back-compat).
  */
-function _analyzeYouTubeTracks(videos) {
+function _analyzeYouTubeTracks(videos, { likedIds = null } = {}) {
   const library    = [];
   const genrePool  = [];
   const artistPool = [];
-  const n = videos.length;
+
+  // Per-source totals + running ranks, so the position bonus measures rank WITHIN a source
+  // (as it does for Spotify) rather than position in the concatenated array.
+  const isLiked = (video) => !likedIds || likedIds.has(_videoIdOf(video));
+  const likedTotal = videos.reduce((c, v) => c + (isLiked(v) ? 1 : 0), 0);
+  const playlistTotal = videos.length - likedTotal;
+  let likedRank = 0;
+  let playlistRank = 0;
 
   videos.forEach((video, i) => {
     const snippet = video.snippet ?? video;
@@ -335,7 +365,9 @@ function _analyzeYouTubeTracks(videos) {
       artistIds:    [],
       popularity:   null,
       isrc:         null,
-      affinity:     n - i, // earlier in the liked/playlist list → higher affinity
+      affinity:     _youtubeAffinity(isLiked(video),
+        isLiked(video) ? likedRank++ : playlistRank++,
+        isLiked(video) ? likedTotal  : playlistTotal),
     };
     entry.canonicalKey = canonicalKey(entry);
     library.push(entry);
@@ -491,7 +523,10 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       // Dedupe by the real VIDEO id (not the playlist-item id) so the same song appearing
       // in likes AND one or more playlists collapses to a single library entry.
       const allVideos  = _deduplicateById([...likedVideos, ...playlistItems], _videoIdOf);
-      const ytAnalysis = _analyzeYouTubeTracks(allVideos);
+      // Which ids are LIKES decides the affinity weight (D17). Likes are merged first, so a
+      // song that is both liked and playlisted keeps its liked identity through the dedupe.
+      const likedIds   = new Set(likedVideos.map(_videoIdOf).filter(Boolean));
+      const ytAnalysis = _analyzeYouTubeTracks(allVideos, { likedIds });
 
       // ── Extra legal Data-API sources that enrich the taste signals ──────────────────
       // (a) Subscribed MUSIC channels → strong artist-affinity signal. Best-effort: a

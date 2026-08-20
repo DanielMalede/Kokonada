@@ -12,6 +12,7 @@ jest.mock('../app/config/redis', () => ({ getRedis: () => null })); // no real R
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const BiometricLog   = require('../app/models/BiometricLog');
+const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const { purgeWearableData } = require('../app/services/privacy/wearableErasure');
 
@@ -28,11 +29,15 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await BiometricLog.deleteMany({});
+  await VitalSample.deleteMany({});
   await MedicalProfile.deleteMany({});
 });
 
 const log = (userId, source, hr = 60) =>
   BiometricLog.create({ userId, heartRate: hr, source, activity: 'resting', recordedAt: new Date() });
+
+const vital = (userId, source, metric = 'hrv', value = 60) =>
+  VitalSample.create({ userId, metric, value, source, recordedAt: new Date() });
 
 describe('purgeWearableData (real Mongo)', () => {
   it('deletes EXACTLY the provider\'s samples — other providers and other users untouched', async () => {
@@ -65,5 +70,52 @@ describe('purgeWearableData (real Mongo)', () => {
     expect(res.medicalProfiles).toBe(1);
     expect(await BiometricLog.countDocuments({ userId: userC })).toBe(0);
     expect(await MedicalProfile.countDocuments({ userId: userC })).toBe(0); // orphaned → erased
+  });
+});
+
+// W4-004 / S5. The unit test above this one asserts against a MOCKED VitalSample, and W4-D08 is
+// the standing proof that a mocked model can keep a dead lane looking alive for two sessions.
+// These run the REAL collection against real query semantics.
+describe('purgeWearableData — VitalSample source scoping (real Mongo)', () => {
+  it("deletes EXACTLY the provider's vitals — other providers and other users untouched", async () => {
+    const userA = new mongoose.Types.ObjectId();
+    const userB = new mongoose.Types.ObjectId();
+    await vital(userA, 'garmin', 'hrv', 61);
+    await vital(userA, 'garmin', 'restingHeartRate', 52);
+    await vital(userA, 'apple_health', 'hrv', 58);
+    await vital(userB, 'garmin', 'hrv', 44);
+    await log(userA, 'apple_health'); // keeps the profile alive
+
+    const res = await purgeWearableData(userA, 'garmin');
+
+    expect(res.vitalSamples).toBe(2);
+    expect(await VitalSample.countDocuments({ userId: userA, source: 'garmin' })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: userA, source: 'apple_health' })).toBe(1);
+    expect(await VitalSample.countDocuments({ userId: userB })).toBe(1);
+  });
+
+  it("KEEPS the MedicalProfile when the user has no HR rows left but another provider's vitals remain", async () => {
+    const userD = new mongoose.Types.ObjectId();
+    await log(userD, 'garmin');                       // the only HR rows are garmin's...
+    await vital(userD, 'apple_health', 'hrv', 55);    // ...but Apple Health still reports vitals
+    await MedicalProfile.create({ userId: userD, restingHeartRate: 60 });
+
+    const res = await purgeWearableData(userD, 'garmin');
+
+    expect(await BiometricLog.countDocuments({ userId: userD })).toBe(0);
+    expect(res.medicalProfiles).toBe(0);
+    expect(await MedicalProfile.countDocuments({ userId: userD })).toBe(1); // NOT orphaned
+  });
+
+  it('still drops the profile when the purge leaves neither HR rows nor vitals', async () => {
+    const userE = new mongoose.Types.ObjectId();
+    await log(userE, 'garmin');
+    await vital(userE, 'garmin', 'hrv', 50);
+    await MedicalProfile.create({ userId: userE, restingHeartRate: 60 });
+
+    const res = await purgeWearableData(userE, 'garmin');
+
+    expect(res.medicalProfiles).toBe(1);
+    expect(await MedicalProfile.countDocuments({ userId: userE })).toBe(0);
   });
 });

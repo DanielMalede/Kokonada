@@ -18,6 +18,12 @@ const biometricLogSchema = new mongoose.Schema({
     required: true,
   },
   recordedAt: { type: Date, required: true, default: Date.now },
+  // The wearer's own UTC offset at the moment of the reading (W4-004). Additive and OPTIONAL:
+  // every row written before this field existed, and every client that does not send one, stays
+  // null and the baseline engine falls back to server hour explicitly. Not encrypted — an offset
+  // is a coarse locale hint, not a physiological value, and the hour-of-day table needs to be
+  // groupable by it. Bounds match VitalSample and the telemetry DTO. (S6)
+  tzOffsetMinutes: { type: Number, default: null, min: -840, max: 720 },
 }, {
   timestamps: false,
   toJSON:   { getters: true },

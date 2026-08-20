@@ -5,7 +5,18 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 // Mock the mongoose models (Node 21 / mongoose 9 incompatibility — same pattern as
 // the other backend suites). The adapter + aggregation it uses are real (pure).
-jest.mock('../app/models/BiometricLog', () => ({ insertMany: jest.fn().mockResolvedValue([]), find: jest.fn() }));
+// W4-D08: the real call is `insertMany(docs, { ordered:false, rawResult:true })`, which answers with
+// an accounting object. A mock resolving `[]` cannot express "one of these did not land" — that
+// divergence is what let the over-reporting bug live here. This one accepts everything, truthfully.
+jest.mock('../app/models/BiometricLog', () => ({
+  insertMany: jest.fn(async (docs) => ({
+      acknowledged: true,
+      insertedCount: docs.length,
+      insertedIds: {},
+      mongoose: { validationErrors: [], results: docs },
+    })),
+  find: jest.fn(),
+}));
 jest.mock('../app/models/MedicalProfile', () => ({ findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
 // ingestBatch now reads the consent version (Art.9 special-category gate). Mock the consent DB
 // so the unit test stays DB-free; these HC-lane-only batches carry no special category, so the

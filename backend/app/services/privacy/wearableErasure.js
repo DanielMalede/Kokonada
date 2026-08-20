@@ -7,6 +7,7 @@
 // (services/privacy/erasure.js) stays owned by Wave 1; consolidation happens later.
 
 const BiometricLog   = require('../../models/BiometricLog');
+const VitalSample    = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const garmin         = require('../wearable/garmin');
 const { getRedis }   = require('../../config/redis');
@@ -15,6 +16,11 @@ const WEARABLE_PROVIDERS = Object.freeze(['garmin', 'apple_health', 'health_conn
 
 // Mirrors baselines.js `_cacheKey` (not exported there) — the AAD-bound rolling-median blob.
 const _baselineKey = (userId) => `bio:baseline:${userId}`;
+// W4-006 (§0.4 S5): the carried affect posterior. It is DERIVED from heart rate and HRV, so it is
+// wearable data by provenance even though it stores neither — leaving a cached inference about
+// somebody's emotional state behind after they disconnect the sensor that produced it is exactly
+// the silent leak S5 exists to prevent.
+const { affectKey: _affectKey } = require('../biosonic/affectCache');
 
 // Remove a provider's DATA footprint (biometric samples + derived health profile), scoped
 // so nothing belonging to another still-connected wearable is touched.
@@ -22,12 +28,23 @@ async function purgeWearableData(userId, provider) {
   // 1. BiometricLog is source-attributed — delete exactly this provider's samples.
   const bio = await BiometricLog.deleteMany({ userId, source: provider });
 
+  // 1b. VitalSample carries the SAME `source` attribution (W4-004, S5), so the identical
+  //     scoping applies: disconnecting Garmin removes Garmin's HRV/SpO2/battery history and
+  //     leaves an Apple Health connection's rows alone. Registered here in the task that
+  //     created the collection rather than "later" — a wearable-derived collection missing
+  //     from per-provider erasure is a silent GDPR leak that nothing would surface.
+  const vitals = await VitalSample.deleteMany({ userId, source: provider });
+
   // 2. MedicalProfile is a single per-user AGGREGATE with no per-source attribution; it is
   //    derived from BiometricLog. Delete it ONLY when no biometric samples remain (i.e. it
   //    was derived solely from the purged provider). Otherwise it still reflects another
   //    connected wearable — leave it and let baselines recompute.
+  //    "Derived solely from the purged provider" now means no HR samples AND no vital samples
+  //    remain — counting only BiometricLog would delete a profile still backed by another
+  //    wearable's VitalSample rows.
   let medicalProfiles = 0;
-  const remaining = await BiometricLog.countDocuments({ userId });
+  const remaining = await BiometricLog.countDocuments({ userId })
+    + await VitalSample.countDocuments({ userId });
   if (remaining === 0) {
     const med = await MedicalProfile.deleteMany({ userId });
     medicalProfiles = med?.deletedCount ?? 0;
@@ -40,7 +57,15 @@ async function purgeWearableData(userId, provider) {
     if (redis) await redis.del(_baselineKey(userId));
   } catch { /* best-effort */ }
 
-  return { biometricLogs: bio?.deletedCount ?? 0, medicalProfiles };
+  // 3b. And the derived affect posterior (W4-006, S5). Separate try/catch on purpose: these are
+  //     two independent promises about the user's data, and a failure to invalidate one must not
+  //     skip the other.
+  try {
+    const redis = getRedis();
+    if (redis) await redis.del(_affectKey(userId));
+  } catch { /* best-effort */ }
+
+  return { biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles };
 }
 
 // Null out the User-doc credential fields for a provider. Does NOT persist — the caller

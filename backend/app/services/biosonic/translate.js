@@ -1,6 +1,10 @@
 'use strict';
 
 const { MOOD_DESCRIPTORS, moodCoords } = require('../moodDescriptors');
+// The lowest spread any robust z-score here may divide by. One definition, shared with the engine
+// that produces most of these baselines — see _robustZ. (No cycle: baselineEngine imports only
+// chronobiology, and neither imports this file.)
+const { MIN_SPREAD } = require('../../agents/runtime/physiology/baselineEngine');
 
 // The biometric→sonic translation function. PURE — zero I/O, fully deterministic,
 // every output finite and range-clamped for ANY input. This is the numeric layer
@@ -21,6 +25,23 @@ const STAGE_WEIGHTS = { deep: 1.5, light: 1.0, rem: 1.2 };
 const DEFAULT_NIGHT = { deep: 90, light: 300, rem: 90 };
 const HRV_FALLBACK = { median: 45, mad: 8 };
 const MAD_SCALE = 1.4826;
+// Above this, an UNLABELLED heart rate is exertion, not stress at rest (D3). ~110 bpm is
+// the low edge of Zone 2 for a typical adult (roughly 60% of a 190 HRmax) — sustained rates
+// above it are not produced by sitting still, whatever the missing activity label claims.
+// Personal Karvonen zones replace this fixed anchor in W4-004/005.
+const UNLABELLED_RESTING_HR_CEILING = 110;
+// Comfort bias under stress: at most +0.1 valence, reached at S≈0.67. A bias, never a floor —
+// VISION §6 makes the engine a REGULATOR, not a mirror, and forcing a distressed listener into
+// cheerful music is exactly the mirror failure (it also breaks the iso-principle: you meet the
+// state first, then move it). Structural down-regulation is the trajectory, added in W4-006.
+const COMFORT_BIAS_MAX = 0.1;
+const COMFORT_BIAS_SLOPE = 0.15;
+// Confidence: one step down per missing input group. 4 groups × 0.175 lands exactly on the
+// 0.3 floor, so a cold start is genuinely represented as "no idea" and biosonicBand can reach
+// its widest tolerance. The old 0.15 step bottomed out at 0.4 — the floor was unreachable and
+// a total stranger was served with the same band width as a half-known user. (D14)
+const CONFIDENCE_STEP = 0.175;
+const CONFIDENCE_FLOOR = 0.3;
 
 // Locked walking/running cadence bands (entrainment beats intent for locomotion).
 const CADENCE_BPM = { walking: 118, running: 162, cycling: 145 };
@@ -37,16 +58,54 @@ const ACTIVITY_ENERGY = {
   resting: 0.15, 'winding down': 0.15,
 };
 
+// S11 escape hatch for the whole W4-D15 repair: set it to restore the pre-repair behaviour
+// byte-for-byte, without a revert. It covers BOTH halves — the null/'' coercion and the MIN_SPREAD
+// floor — because they are one behaviour from an operator's point of view: whether a degenerate or
+// absent baseline makes the stress term abstain or saturate. Read per call, not at module load, so
+// toggling it needs no process restart.
+const ABSTENTION_FLAG = 'WAVE4_BASELINE_ABSTENTION_DISABLED';
+const abstentionDisabled = () => Boolean(process.env[ABSTENTION_FLAG]);
+
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const round3 = (x) => Math.round(x * 1000) / 1000;
-const finite = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+// `Number(null)`, `Number('')`, `Number(false)` and `Number([])` are all 0, and 0 is finite — so
+// the old guard (`Number.isFinite(Number(x)) ? Number(x) : null`) could not tell "nothing was
+// measured" from "zero was measured". For a vital those are opposite claims, and the coercion
+// always landed on the alarming one: a null resting-HR baseline became a resting pulse of ZERO,
+// against which every human heart rate z-scores as maximal stress (D3/D4's exact target profile,
+// re-created through a type coercion). A value is a measurement only if it is a finite number, or
+// a non-blank string that parses to one. (W4-D15 — the same guard baselineEngine.js and
+// chronobiology.js already carry; this is the copy on the serving path that never got it.)
+const finite = (x) => {
+  if (abstentionDisabled()) return Number.isFinite(Number(x)) ? Number(x) : null;
+  if (typeof x === 'number') return Number.isFinite(x) ? x : null;
+  if (typeof x === 'string' && x.trim() !== '') {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
+// `fallback` is the term's ABSTENTION CONTRACT, not a convenience: pass a population prior to say
+// "score this against the population when the person is unknown" (the HRV term does), or pass null
+// to say "produce no score at all when the person is unknown" (the resting-elevation term does —
+// scoring a stranger's resting HR against anything invented is what D3 exists to prevent, and
+// `baselines.computeBaselines` deliberately returns a null median to request exactly that).
 function _robustZ(x, median, mad, fallback) {
   const v = finite(x);
   const m = finite(median) ?? fallback?.median ?? null;
   if (v == null || m == null) return null;
-  const spread = finite(mad) > 0 ? Number(mad) : (fallback?.mad ?? 3);
+  // The spread must clear MIN_SPREAD, not merely be positive. A MAD of 1e-12 is not a person whose
+  // pulse never varies, it is numerical debris — and dividing by it explodes the z-score and hands
+  // that user maximal stress, which is the same saturation W4-D15 fixed one argument over. The
+  // engine has floored its own output at MIN_SPREAD since W4-004 for exactly this reason (its
+  // comment names D3 by name); the floor belongs here too, because `translate` accepts baselines
+  // the engine did not produce — pre-W4-004 cache blobs, the kill-switch legacy path, callers.
+  // Imported rather than copied: a safety floor that exists twice is a safety floor that drifts.
+  const observed = finite(mad);
+  const floor = abstentionDisabled() ? Number.MIN_VALUE : MIN_SPREAD;
+  const spread = observed != null && observed >= floor ? observed : (fallback?.mad ?? 3);
   return (v - m) / (MAD_SCALE * spread);
 }
 
@@ -84,7 +143,16 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   const R = mean(recoveryParts) ?? 0.6; // neutral default when the body is a stranger
 
   const hrvSuppression = hrvZ != null ? clamp01(0.4 * -hrvZ) : null;
-  const restingElevation = (heartRate != null && (activity === 'resting' || activity === 'unknown' || activity == null))
+  // Resting elevation only means something when the body is actually AT REST. Every batch
+  // HR row is written with activity 'unknown' (D2), so the old `unknown → treat as resting`
+  // branch scored a 165 bpm workout as z≈17 → S=1.0 → maximal stress: narrow window, forced
+  // acoustic/instrumental, forced-cheerful valence. An unlabelled reading is now only read
+  // as resting while it stays BELOW the exertion cut — above it, exertion explains the HR and
+  // stress is left to the HRV term rather than invented. (D3)
+  const restingElevation = (heartRate != null && (
+    activity === 'resting' ||
+    ((activity === 'unknown' || activity == null) && heartRate < UNLABELLED_RESTING_HR_CEILING)
+  ))
     ? (() => { const z = _robustZ(heartRate, baselines?.rhrMedian, baselines?.rhrMAD, null); return z != null ? clamp01(0.25 * z) : null; })()
     : null;
   const stressParts = [hrvSuppression, restingElevation].filter(v => v != null);
@@ -137,8 +205,11 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   const acousticnessBias = round3(Math.min(0.4, (S >= 0.6 ? 0.3 : S >= 0.35 ? 0.15 : 0) + (windDown < 1 ? 0.1 : 0)));
   const instrumentalBias = S >= 0.6 ? 0.2 : 0;
 
+  // Stress adds a bounded comfort bias — it never OVERRIDES the felt state (D4). The old
+  // Math.max(moodValence, 0.6) floor meant the more distressed the reading, the more forcibly
+  // cheerful the music: the exact "mirror" behaviour VISION §6 forbids.
   const moodValence = desc ? desc.valence_hint : moodCoords(moodKey).valence;
-  const valenceTarget = round3(S >= 0.6 ? Math.max(moodValence, 0.6) : S >= 0.35 ? Math.max(moodValence, 0.5) : moodValence);
+  const valenceTarget = round3(clamp01(moodValence + Math.min(COMFORT_BIAS_MAX, COMFORT_BIAS_SLOPE * S)));
 
   const tempoBand = bpmCenter < 100 ? 'resting' : bpmCenter <= 135 ? 'active' : 'peak';
 
@@ -152,14 +223,19 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
     : activityEnergy <= 0.2 ? 'low'
     : null;
 
-  // Confidence: one step down per missing input group; never below 0.3.
+  // Confidence: one step down per missing input group; never below the floor. The step is
+  // sized so ALL FOUR groups missing lands exactly on the floor (D14) — see CONFIDENCE_STEP.
   const groups = [
     finite(baselines?.rhrMedian) != null || finite(baselines?.hrvMedian) != null,
     sleepScore != null,
     heartRate != null,
     hrvScore != null || batteryScore != null || readinessScore != null,
   ];
-  const confidence = Math.max(0.3, Math.round((1 - 0.15 * groups.filter(g => !g).length) * 100) / 100);
+  const missing = groups.filter(g => !g).length;
+  const confidence = Math.max(
+    CONFIDENCE_FLOOR,
+    Math.round((1 - CONFIDENCE_STEP * missing) * 100) / 100,
+  );
 
   return {
     version: VERSION,
@@ -182,4 +258,14 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   };
 }
 
-module.exports = { translate, VERSION };
+// ACTIVITY_EXERTION_FLOOR is exported for the W4-005 affect engine, which reuses these exact
+// numbers as a Bayesian PRIOR rather than as a floor (see affectEngine.exertionAxis). One table,
+// two readings of it — a second copy would drift.
+// HRV_FALLBACK is exported so the equality with the engine's own population prior
+// (`POPULATION.hrv`) can be PINNED rather than left as a coincidence — `baselines.js` relies on it
+// when it nulls an unknown user's HRV pair. `_finite` is exported for the same reason: the guard
+// that separates "no measurement" from "a measurement of zero" is load-bearing enough to test
+// directly, not only through its consequences. (W4-D15)
+module.exports = {
+  translate, VERSION, ACTIVITY_EXERTION_FLOOR, HRV_FALLBACK, ABSTENTION_FLAG, MIN_SPREAD, _finite: finite,
+};

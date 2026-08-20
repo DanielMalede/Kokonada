@@ -264,7 +264,10 @@ describe('watchHrIngest', () => {
   });
 
   // ── Test 3: boundary values ──────────────────────────────────────────────
-  it('boundary: heartRate 30 and 230 → 202; 29.999 and 230.001 → 400', async () => {
+  // W4-001/D9 re-pin: this route used to accept 30-230 while the handler it feeds
+  // requires 30-220, so 221-230 was accepted with a 202 and then silently dropped.
+  // Both now delegate to the shared isPhysiologicalHR predicate.
+  it('boundary: heartRate 30 and 220 → 202; 29.999 and 220.001 → 400', async () => {
     const userId = 'u_boundary';
     User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: userId }) });
     const { io } = makeIo(userId);
@@ -274,9 +277,9 @@ describe('watchHrIngest', () => {
     await watchHrIngest(reqWith('whr_tok', { heartRate: 30 }), res30, next);
     expect(res30.statusCode).toBe(202);
 
-    const res230 = makeRes();
-    await watchHrIngest(reqWith('whr_tok', { heartRate: 230 }), res230, next);
-    expect(res230.statusCode).toBe(202);
+    const res220 = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 220 }), res220, next);
+    expect(res220.statusCode).toBe(202);
 
     User.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'u1' }) });
 
@@ -285,8 +288,13 @@ describe('watchHrIngest', () => {
     expect(resLow.statusCode).toBe(400);
 
     const resHigh = makeRes();
-    await watchHrIngest(reqWith('whr_tok', { heartRate: 230.001 }), resHigh, next);
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 220.001 }), resHigh, next);
     expect(resHigh.statusCode).toBe(400);
+
+    // The gap the old route left open: accepted at the route, unusable downstream.
+    const resGap = makeRes();
+    await watchHrIngest(reqWith('whr_tok', { heartRate: 225 }), resGap, next);
+    expect(resGap.statusCode).toBe(400);
   });
 
   // ── Test 4: wrong-type heartRate → 400 ─────────────────────────────────
