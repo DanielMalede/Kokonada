@@ -159,6 +159,25 @@ describe('W4-007 · a partially-measured track abstains per-dim instead of scori
     expect(withinBand({ features: { bpm: 40, energy: null } }, targets)).toBe(false);    // tempo out of band
   });
 
+  it('withinBand abstains from the tempo gate when the TARGET has a centre but no width', () => {
+    // An unmeasured width is not a width of zero. Both scorers already abstain when the key
+    // is ABSENT (`Number(undefined)` is NaN, which the old guard did reject) — the divergence
+    // is on an explicit `null`, which is the shape a stored document or a JSON payload
+    // actually produces. There legacy coerced to 0 and floored at 4, inventing a 4-bpm-wide
+    // band and dropping almost the entire library off a null field. Pinned because this is a
+    // deliberate choice between two defensible readings (the other being "fall back to
+    // translate's default width"), and fabricating a constraint is the worse of the two.
+    const absent = { bpmCenter: 120, confidence: 0.9 };
+    const nulled = { bpmCenter: 120, bpmWidth: null, confidence: 0.9 };
+    expect(withinBand({ features: { bpm: 200 } }, absent)).toBe(true);
+    expect(withV1(() => withinBand({ features: { bpm: 200 } }, absent))).toBe(true);
+    expect(withinBand({ features: { bpm: 200 } }, nulled)).toBe(true);
+    expect(withV1(() => withinBand({ features: { bpm: 200 } }, nulled))).toBe(false);
+    // A width that IS given still gates, in both scorers.
+    expect(withinBand({ features: { bpm: 200 } }, { ...absent, bpmWidth: 20 })).toBe(false);
+    expect(withV1(() => withinBand({ features: { bpm: 200 } }, { ...absent, bpmWidth: 20 }))).toBe(false);
+  });
+
   it('withinBand treats blank strings and booleans as unmeasured too, never as 0', () => {
     for (const bad of ['', '   ', false, true, null, undefined, NaN]) {
       expect(withinBand({ features: { bpm: bad, energy: 0.7 } }, targets)).toBe(true);
