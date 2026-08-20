@@ -45,6 +45,17 @@ const CONFIDENCE_FLOOR = 0.3;
 
 // Locked walking/running cadence bands (entrainment beats intent for locomotion).
 const CADENCE_BPM = { walking: 118, running: 162, cycling: 145 };
+
+/**
+ * The coarse tempo class of a band centre. Exported because W4-008's trajectory planner needs the
+ * SAME three cut points to pick a default arc when the regulator has not published one, and a
+ * second copy of `< 100 / <= 135` in another module is exactly the trigger/key divergence D11
+ * was: one table, two readings of it.
+ */
+function tempoBandOf(bpmCenter) {
+  return bpmCenter < 100 ? 'resting' : bpmCenter <= 135 ? 'active' : 'peak';
+}
+
 const ACTIVITY_EXERTION_FLOOR = {
   walking: 0.35, cycling: 0.5, swimming: 0.6, strength: 0.55, running: 0.65,
   workout: 0.7, commuting: 0.3, working: 0.25, focus: 0.3, resting: 0, 'winding down': 0,
@@ -211,7 +222,7 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
   const moodValence = desc ? desc.valence_hint : moodCoords(moodKey).valence;
   const valenceTarget = round3(clamp01(moodValence + Math.min(COMFORT_BIAS_MAX, COMFORT_BIAS_SLOPE * S)));
 
-  const tempoBand = bpmCenter < 100 ? 'resting' : bpmCenter <= 135 ? 'active' : 'peak';
+  const tempoBand = tempoBandOf(bpmCenter);
 
   // Intensity class for the un-relaxable texture gates (enforced, with env-tunable ceilings,
   // in biosonicBand). Derived from the explicit-activity energy intent only: a high-exertion
@@ -276,5 +287,6 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
 // that separates "no measurement" from "a measurement of zero" is load-bearing enough to test
 // directly, not only through its consequences. (W4-D15)
 module.exports = {
-  translate, VERSION, ACTIVITY_EXERTION_FLOOR, HRV_FALLBACK, ABSTENTION_FLAG, MIN_SPREAD, _finite: finite,
+  translate, tempoBandOf, VERSION, ACTIVITY_EXERTION_FLOOR, HRV_FALLBACK, ABSTENTION_FLAG, MIN_SPREAD,
+  _finite: finite,
 };
