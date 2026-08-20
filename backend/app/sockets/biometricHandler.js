@@ -514,13 +514,37 @@ async function attachSessionContext(socket, payload) {
   }
 }
 
+// W4-D41: release a serve claim that was never earned. `recalibrateForBand` claims the key
+// BEFORE the serve (both its callers are fire-and-forget, so two regime changes in one tick would
+// otherwise both read the pre-serve latch and both serve), which means every path that ends
+// without delivering music owes the claim back. `bioServeKey` cannot witness that: it is resolved
+// deep inside the generation, after four exits that precede it, so a claim released only when a
+// bio key exists strands the key for the life of the socket. The claim object IS the witness —
+// it knows what it claimed, what was there before, and whether the run ever served.
+// Idempotent by design: several exits can race (a wall-clock abort and the abandoned body's own
+// `finally`), and only the first release may act.
+function _releaseServeClaim(state, claim) {
+  if (!claim || claim.served || claim.released) return;
+  claim.released = true;
+  // Only if the claim is still the standing one: a newer generation that legitimately latched
+  // its own key must not be cleared by an older run settling late.
+  if (state.servedBioMoodKey === claim.key) state.servedBioMoodKey = claim.previousKey;
+}
+
 // ── Core pipeline ──────────────────────────────────────────────────────────────
 
-async function generateAndEmitPlaylist(socket, trigger, state) {
+// `opts.serveClaim` (W4-D41) — set only when this generation is the cold-key fallback of a
+// recalibration, i.e. when it runs to discharge a claim someone else already made.
+async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
+  const serveClaim = opts.serveClaim ?? null;
   // In-flight guard: collapse overlapping generations on one socket (rapid mode
   // toggles, a watch ping landing mid-generation, Listen-Live + Save pressed
   // together) so two pipelines never interleave and emit out-of-order playlists.
   if (state.generating) {
+    // W4-D41: the earliest exit of all — before the epoch, the emit wrapper or the timer exist.
+    // The run this collapses into is generating under whatever key IT resolved, so the claim made
+    // for this one was not earned by anybody.
+    _releaseServeClaim(state, serveClaim);
     log(`[generate] skipped — already in-flight trigger=${trigger}`);
     // D-6 heartbeat: the caller already adopted the newest reqId into state.lastReqId, and
     // the running generation replies to it (see the emit wrapper). Answer the retry with a
@@ -564,8 +588,19 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       // stale claim behind — otherwise a mood request would strand the socket, every later
       // resting-band transition reading as a duplicate of music that stopped playing.
       state.servedBioMoodKey = bioServeKey;
+      // W4-D41: the claim is earned when the playlist LANDS, not when it is queued — this emit is
+      // deferred behind the context attach, and a run superseded during that await (a wall-clock
+      // abort mid-Spotify-stall) drops it at the epoch guard below. Marking it here instead would
+      // let the abort's release read `served` and no-op, stranding the key on music nobody heard.
+      // Safe against the `finally`, which awaits `readyEmitSettled` before releasing anything.
+      // Marked on ANY ready: if the key moved mid-run, the assignment above already latched what
+      // is actually playing, and releasing would clobber it.
       readyEmitSettled = attachSessionContext(socket, payload)
-        .then((p) => { if (state.genSeq === myGen) emitToUser(socket, event, p); })
+        .then((p) => {
+          if (state.genSeq !== myGen) return;
+          emitToUser(socket, event, p);
+          if (serveClaim) serveClaim.served = true;
+        })
         .catch(() => {});
       return;
     }
@@ -610,6 +645,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       timer.unref?.();
       return;
     }
+    // W4-D41: release here, not in the abandoned body's `finally` — that runs whenever the stall
+    // finally settles (an LLM outage: minutes), and this exit bypasses the emit wrapper entirely,
+    // so nothing downstream could ever hand the claim back.
+    _releaseServeClaim(state, serveClaim);
     state.genSeq += 1;                     // supersede: void the in-flight run's emits + its release
     state.generating = false;              // free the lock now so the next request can generate
     console.warn(`[generate] TIMEOUT after ${Date.now() - startedAt}ms trigger=${trigger} reqId=${reqId} — released lock`);
@@ -1129,7 +1168,13 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     clearTimeout(timer);
     // Release only if we still own the lock: a timed-out run (epoch bumped) must not clear a
     // newer generation's in-flight flag when its abandoned body finally settles.
-    if (state.genSeq === myGen) state.generating = false;
+    if (state.genSeq === myGen) {
+      state.generating = false;
+      // W4-D41: the catch-all for every exit that returned without a playlist — `!user`,
+      // `!provider`, `!musicProfile` (a `playlist_building`, not even an error, so no release
+      // path could have fired), and any throw on the way out. A no-op once the run has served.
+      _releaseServeClaim(state, serveClaim);
+    }
   }
 }
 
@@ -1171,13 +1216,19 @@ async function recalibrateForBand(socket, state) {
   // arriving in the same tick would otherwise both read the pre-serve latch and both serve.
   const previousServedKey = state.servedBioMoodKey;
   state.servedBioMoodKey  = bioMoodKey;
+  // W4-D41: the claim travels WITH the serve. A thrown serve is one of six ways to end without
+  // delivering music, and it was one of only two that released — the other four live inside the
+  // generation, before it resolves any bio key, so they need a witness that predates it.
+  const claim = { key: bioMoodKey, previousKey: previousServedKey, served: false, released: false };
 
   try {
-    await _serveForBand(socket, state, userId, bioMoodKey);
+    await _serveForBand(socket, state, userId, bioMoodKey, claim);
   } catch (err) {
     // Nothing reached the listener, so the claim was not earned — release it, or a later
     // legitimate transition back to this key would be swallowed by a serve that never was.
-    if (state.servedBioMoodKey === bioMoodKey) state.servedBioMoodKey = previousServedKey;
+    // (Guarded by `served`: a throw AFTER the playlist landed — a failing side effect on the way
+    // out — must not un-latch music the listener is already hearing.)
+    _releaseServeClaim(state, claim);
     throw err;
   }
 }
@@ -1185,7 +1236,7 @@ async function recalibrateForBand(socket, state) {
 // The serve itself, split out of `recalibrateForBand` only so the latch above reads as one
 // decision rather than a flag threaded through the body. Unchanged behaviour: warm → play the
 // buffer + record the serves; cold → loader + exactly one live generation.
-async function _serveForBand(socket, state, userId, bioMoodKey) {
+async function _serveForBand(socket, state, userId, bioMoodKey, claim = null) {
   let buffer = null;
   if (bioMoodKey) {
     try { buffer = await shadowBufferRepo.getBuffer(userId, bioMoodKey); }
@@ -1196,7 +1247,9 @@ async function _serveForBand(socket, state, userId, bioMoodKey) {
   if (tracks.length === 0) {
     // COLD: no buffer for this band yet. Show the loader, then fall back to one live gen.
     emitToUser(socket, 'live_assembling', { message: 'assembling your live biometric soundscape' });
-    await generateAndEmitPlaylist(socket, 'biometric', state);
+    // W4-D41: hand the claim down. This generation is the only thing that can earn it, and it is
+    // also where every unreleased exit lives.
+    await generateAndEmitPlaylist(socket, 'biometric', state, { serveClaim: claim });
     return;
   }
 
@@ -1216,6 +1269,7 @@ async function _serveForBand(socket, state, userId, bioMoodKey) {
     buffered:  true,
   });
   emitToUser(socket, 'playlist_ready', readyPayload);
+  if (claim) claim.served = true; // W4-D41: the buffer is playing — the claim is earned.
 
   // Serve-on-play (§3.5): the buffer is now PLAYED, so its tracks enter the ledger here —
   // and ONLY here. A store/precompile never records serves (that would pollute the

@@ -2443,6 +2443,140 @@ describe('W4-D34 — duplicate-serve latch on the bio moodKey', () => {
   });
 });
 
+// ── W4-D41: the serve claim must be released on every exit that did not serve ──
+// W4-D34's latch is claimed BEFORE the serve (both callers of `recalibrateForBand` are
+// fire-and-forget, so two regime changes in one tick would otherwise both read the pre-serve
+// latch and both serve). Exactly two things released it: a THROWN serve, and a `playlist_error`
+// — and the second is gated on `bioServeKey`, which is not resolved until well past the
+// generation's four early exits. `generateAndEmitPlaylist` is `try {} finally {}` with no catch,
+// so an early `emit(...); return;` neither throws nor clears: the key stayed claimed for the life
+// of the socket and every later transition back to it read as a duplicate of a playlist the
+// listener never received. The key is `bio:<band>:<activity>` and 20 of the 34 taxonomy states
+// are `band: resting`, so the stranded key is normally the dominant one — a Live-mode user who
+// has disconnected Spotify, or whose MusicProfile is still building, simply stops getting music
+// once they fix it. The witness is the claim itself, handed down from the recalibration; it can
+// answer "did this run serve?" at exits that precede any bio key.
+describe('W4-D41 — the serve claim is released on every non-serving exit', () => {
+  const BUFFER_TRACKS = [
+    { id: 'd41a', uri: 'spotify:track:d41a', title: 'Servable Again', artist: 'Artist S' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 0, targets: { bpmCenter: 90 }, builtAt: Date.now(),
+    });
+  }
+  const readyCalls = (socket) => socket.emit.mock.calls.filter((c) => c[0] === 'playlist_ready');
+
+  // Every case is the same shape: a COLD key (so the recalibration falls back to a live
+  // generation), that generation exits without serving, the transient condition then clears, and
+  // the SAME key must still be servable. Before the fix each of these counted 0 serves, not 1.
+  const state = () => makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+  afterEach(() => { delete process.env.GENERATION_TIMEOUT_MS; });
+
+  it('(a) an exit at `!user` leaves the key servable', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null); // cold → live generation
+    User.findById.mockResolvedValue(null);
+    const socket = makeSocket();
+    const s = state();
+
+    await recalibrateForBand(socket, s);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: 'User not found' }));
+    expect(readyCalls(socket)).toHaveLength(0); // nothing reached the listener
+
+    User.findById.mockResolvedValue(SPOTIFY_USER); // the row is back
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(b) an exit at `!provider` leaves the key servable', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    // The everyday trigger: a Live-mode listener disconnected Spotify, then reconnects it.
+    User.findById.mockResolvedValue({
+      _id: 'user-123', spotifyToken: null, youtubeMusicToken: null,
+      getToken: jest.fn(), save: jest.fn().mockResolvedValue(true),
+    });
+    const socket = makeSocket();
+    const s = state();
+
+    await recalibrateForBand(socket, s);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: 'No music provider connected' }));
+    expect(readyCalls(socket)).toHaveLength(0);
+
+    User.findById.mockResolvedValue(SPOTIFY_USER); // provider reconnected
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(c) an exit at `!musicProfile` — a playlist_building, not even an error — leaves the key servable', async () => {
+    // No release path could ever have fired here: `playlist_building` is not `playlist_error`.
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(null));
+    const socket = makeSocket();
+    const s = state();
+
+    await recalibrateForBand(socket, s);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.any(Object));
+    expect(readyCalls(socket)).toHaveLength(0);
+
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile())); // build finished
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(d) an abandoned generation (wall-clock timeout) leaves the key servable', async () => {
+    // The timeout bypasses the `emit` wrapper entirely — it calls `emitToUser` directly and bumps
+    // `state.genSeq`, so no release could reach it and even a later `playlist_ready` from that run
+    // is voided at the wrapper's own epoch guard. Real timers on a tiny budget: the wall clock is
+    // read from env inside the generation, and fake timers cannot flush the microtasks that get
+    // the run there in the first place.
+    process.env.GENERATION_TIMEOUT_MS = '20';
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    User.findById.mockReturnValue(new Promise(() => {})); // hangs past the wall clock
+    const socket = makeSocket();
+    const s = state();
+
+    recalibrateForBand(socket, s); // fire-and-forget, exactly as both production callers do
+    await new Promise((r) => setTimeout(r, 120));
+
+    expect(s.generating).toBe(false); // the run was abandoned, not completed
+    expect(readyCalls(socket)).toHaveLength(0);
+
+    User.findById.mockResolvedValue(SPOTIFY_USER);
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(e) a generation swallowed by the in-flight guard leaves the key servable', async () => {
+    // The earliest exit of all — it returns before the epoch, the emit wrapper and the timer even
+    // exist, and for a background trigger it is completely silent.
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    const socket = makeSocket();
+    const s = state();
+    s.generating = true; // another generation is already in flight on this socket
+
+    await recalibrateForBand(socket, s);
+    expect(readyCalls(socket)).toHaveLength(0);
+    // ...and for a background trigger the guard itself is completely silent: the loader emitted
+    // by the cold path is the only thing the listener saw, with no playlist behind it.
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_building', expect.anything());
+
+    s.generating = false; // the other run settled — under some other key
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+});
+
 describe('live_mode socket event', () => {
   it('sets the per-socket liveMode flag (default is Manual/false)', () => {
     const socket = makeSocket();
