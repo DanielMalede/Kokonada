@@ -165,9 +165,15 @@ describe('ATTACK 3 — zero-knowledge leak hunting', () => {
   it('translate() output carries only derived targets — no raw vital echoes in its shape', () => {
     const out = translate({ live: { heartRate: 105, activity: 'walking' }, state: { hrv: 25 } });
 
+    // DELIBERATE RE-PIN (W4-007): `cadenceLocked` joins the allow-list. It is a BOOLEAN
+    // derived from the activity LABEL alone — true for exactly walking/running/cycling, the
+    // three activities whose bpmCenter is a step cadence — and the label is already published
+    // here through activityDriven/activityIntensity/tempoBand. It echoes no vital, numeric or
+    // otherwise. This list is exhaustive on purpose: it is what forces a new target key to be
+    // argued against the zero-knowledge boundary instead of just appearing.
     expect(Object.keys(out).sort()).toEqual([
-      'acousticnessBias', 'activityDriven', 'activityIntensity', 'bpmCenter', 'bpmWidth', 'confidence',
-      'energyCeiling', 'energyFloor', 'instrumentalBias', 'state', 'tempoBand', 'valenceTarget', 'version',
+      'acousticnessBias', 'activityDriven', 'activityIntensity', 'bpmCenter', 'bpmWidth', 'cadenceLocked',
+      'confidence', 'energyCeiling', 'energyFloor', 'instrumentalBias', 'state', 'tempoBand', 'valenceTarget', 'version',
     ]);
     expect(Object.keys(out.state).sort()).toEqual(['exertion', 'recovery', 'stress']);
   });

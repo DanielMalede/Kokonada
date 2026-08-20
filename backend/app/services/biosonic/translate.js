@@ -254,6 +254,15 @@ function translate({ live = {}, baselines = {}, sleep = {}, state = {}, hourOfDa
     // Intensity class for the texture gates: 'high' → acousticness ceiling, 'low' → danceability
     // ceiling, null → no texture gate (mid-exertion or mood-only).
     activityIntensity,
+    // W4-007 (§M.10): is `bpmCenter` a STEP CADENCE rather than an ordinary tempo centre?
+    // The scorer folds octaves by default, because half/double-time is a known beat-tracker
+    // artefact and 87 and 174 are the same groove. Footfall, though, has no octave: an 81-bpm
+    // track is not a 162-spm run. Only this function knows which of its two branches produced
+    // the centre, so the distinction is published here rather than re-derived downstream.
+    // `activityDriven` is deliberately NOT that predicate — it is true for 'resting' and
+    // 'winding down' too, and a workout's centre is a physiology/intent blend with no
+    // footfall in it. Additive key: the 13 legacy target keys are untouched (§0.2.5).
+    cadenceLocked: CADENCE_BPM[activity] != null,
     state: { recovery: round3(R), stress: round3(S), exertion: round3(E) },
   };
 }
