@@ -4,8 +4,12 @@ const ledger = require('../ledger/serveLedger');
 const featureRepo = require('../../repositories/audioFeatureRepo');
 const { buildPool } = require('./candidatePool');
 const { applyHardFilters } = require('./hardFilters');
-const { scoreTrack } = require('./score');
+const { scoreTrack, activeVersion } = require('./score');
 const { select } = require('./mmr');
+// Namespace import, not a destructure: the S12 block below is a DIAGNOSTIC whose failure must
+// be provable to be non-fatal, and a test can only stub a throwing compare through the module
+// object. Destructuring here would make that path untestable and therefore unexercised.
+const shadowCompare = require('./shadowCompare');
 const { filterBand } = require('./biosonicBand');
 const { recordingKeyOf, featuresOf } = require('../features/featureProvider');
 const vectorIndex = require('../vector/vectorIndex');
@@ -172,6 +176,38 @@ async function selectPlaylist({
   }));
   mark('score', t);
 
+  // Stage 4b: S12 scoring shadow-compare — OFF by default, telemetry only.
+  //
+  // Scores the SAME survivors with the other scorer and records how far apart the two
+  // rankings land. It runs after the served scoring and feeds nothing back into it: `scored`
+  // is not read from here, MMR never sees `shadowStats`, and the whole block is wrapped —
+  // a diagnostic that can take generation down is a liability, not evidence.
+  let shadowStats = null;
+  if (shadowCompare.shadowEnabled(process.env)) {
+    const tShadow = Date.now();
+    try {
+      const servedVersion = activeVersion();
+      const shadowVersion = servedVersion === 'v2' ? 'v1' : 'v2';
+      const entries = scored.map((s, i) => ({
+        // canonicalKey is unique post-dedup; the index is the fallback so a track without one
+        // still occupies its own slot rather than colliding into a fake tie.
+        key: s.track.canonicalKey ?? recordingKeyOf(s.track) ?? `#${i}`,
+        served: s.total,
+        shadow: scoreTrack(s.track, {
+          targets, maxAffinity, allowGenres: aiParams.allow_genres || [],
+          exposure, targetMoodKey: moodKey, now, version: shadowVersion,
+        }).total,
+      }));
+      const stats = shadowCompare.compare(entries, { k });
+      mark('shadow', tShadow);
+      console.log(shadowCompare.summarizeLine(stats, { served: servedVersion, shadow: shadowVersion, ms: stageMs.shadow }));
+      shadowStats = { ...stats, servedVersion, shadowVersion };
+    } catch (e) {
+      mark('shadow', tShadow);
+      console.error('[selection.shadow] compare failed, generation unaffected:', e.message);
+    }
+  }
+
   // Stage 5: MMR diversity selection.
   t = Date.now();
   const picks = select(scored, { k });
@@ -189,6 +225,8 @@ async function selectPlaylist({
       banded: banded.length,
       bandWidened,
       stageMs,
+      // Present ONLY under SCORING_V2_SHADOW, so the default telemetry object is unchanged.
+      ...(shadowStats ? { shadow: shadowStats } : {}),
     },
   };
 }

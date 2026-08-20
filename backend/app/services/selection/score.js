@@ -53,6 +53,8 @@ const { tempoKernel } = require('./tempo');
 // note pins the constraint for the learning tasks.
 
 const legacyScoring = () => Boolean(process.env.WAVE4_SCORING_V2_DISABLED);
+/** Which scorer this process is currently serving — the S12 shadow needs to name it. */
+const activeVersion = () => (legacyScoring() ? 'v1' : 'v2');
 
 // Per-dim measurement confidence by provenance (§M.9). These are the tiers the store already
 // writes: 'api' is a real measurement, 'acousticbrainz' is a CC0 analysis whose energy/
@@ -312,8 +314,13 @@ function scoreTrack(track, {
   exposure = new Map(),
   targetMoodKey = null,
   now = Date.now(),
+  version = null,
 } = {}) {
-  const legacy = legacyScoring();
+  // An EXPLICIT version is how S12 scores a pool both ways without mutating process.env
+  // mid-generation (which would be a global, racy side effect on the serving path for the
+  // sake of a diagnostic). Anything other than the two known names falls back to the flag —
+  // an unrecognised version must not invent a third scoring.
+  const legacy = version === 'v1' || version === 'v2' ? version === 'v1' : legacyScoring();
   const intent = Boolean(targets.activityDriven);
   const W = legacy
     ? (intent ? _resolveIntentWeights() : _resolveWeights())
@@ -405,6 +412,6 @@ function scoreTrack(track, {
 }
 
 module.exports = {
-  scoreTrack, _resetWeights, _featureFitV2,
+  scoreTrack, _resetWeights, _featureFitV2, activeVersion,
   SOURCE_CONFIDENCE, MISSING_MASS, MISSING_PRIOR, DIM_WEIGHTS,
 };
