@@ -1792,3 +1792,186 @@ class surfaced. Per Â§2.5, an interval this clean gets said in one line rather
 | 16 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-003 in_progress â€” pure core landed (telemetry DTO + anomaly filter, 82 pins, suite 175/2199 green); constants derived from one wander envelope; stub-out battery found 4 of 12 mechanisms initially unfalsifiable and pinned all of them; wiring + D10 persistence owed next session |
 | â€” | 2026-08-19 (Cowork) | H2 closed after direct git verification (clean, non-conflicting history) + run-mission.ps1 single-instance mutex fix; phaseâ†’execute; W4-000â†’done; rows 2-4 are the three colliding launches (00:20/00:28/00:29), numbered in write-order not start-order |
 | 17 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-003 done â€” wiring half landed (filter drives debounce/trigger, D10 live persistence throttled+deduped, S6 gate real at the seam, WAVE4_ANOMALY_FILTER_DISABLED kill-switch, W4-D07 closed), 15 new pins (14 in wave4.liveWiring.test.js + 1 in biometricHandler.pipeline.test.js), suite 176/2213 green twice; 3 deliberate re-pins + 1 tolerance widening, all documented; PR #179 body updated, branch pushed |
+
+## 2026-08-20 - archived by reflection #7 (R1.5; STATE had reached 231KB)
+
+Moved verbatim, in append order, per S2.5 R1.5. STATE keeps the Run header, the full Task table, all open
+backlog/HITL rows, the PR queue, and the two most recent reflection entries (#6 and #7).
+
+### Reflection log entry #5
+
+| # | at | interval covered | suite | verified / reopened / queued | headline |
+|---|----|------------------|-------|------------------------------|----------|
+| 5 | 2026-08-20 (session 28, `exec`) | `832bcdc` -> `6ffe47c` - 13 commits; tasks W4-D15, W4-006 (pure core + seam) | **192 / 2749 green, exit 0** (exact baseline) | 3 verified / 0 reopened / 1 queued (+1 HITL) | Every claim in the interval held under stub-out; the one finding is that the personal circadian curve can only ever tighten the wind-down constant, never lift it (W4-D20). PR #179's owed seam-half note posted; STATE 170KB -> 121KB. |
+
+### Reflection #4 and #5 evidence sections
+
+### Reflection #4 (session 23) - evidence
+
+**R1 - Health check.** Full suite `cd backend && npm test`: **184 suites / 2549 tests, 2548 passed + 1 todo,
+exit 0, 209.5 s** - exactly the banked baseline, no drift. Attribution scan of `60b8a4d..HEAD`: clean (the only
+hits are STATE prose quoting the policy itself and the H5 discussion of process names). Secret scan of the same
+range: clean (the standing `Task-` substring and the mission's own quoted grep pattern). **CI checked, not just
+the local run:** `gh pr checks 179` is GREEN on every check - Backend lint & test 1m34s, Frontend typecheck,
+Mobile compile + jest, gitleaks, GitGuardian; PR #179 OPEN and MERGEABLE. **One S3 gap:** `ae3937a` (session 22)
+was never pushed - `origin/feat/intelligence-wave` sat at `8351d3b`. Pushed by this reflection. Session 22 also
+left no Session-log row; its work is one commit and the W4-006 row records it, so nothing was lost.
+
+**R1.5 - STATE housekeeping.** STATE was **204,535 bytes**, past the 150KB trigger. Archived verbatim into the new
+`docs/plans/WAVE4_ARCHIVE.md`: the 12 per-task evidence sections for sessions 5-18 (every one already verified by
+reflections #1-#3) and reflection entries #1 and #2 with their evidence sections. **204,535 -> 104,115 bytes.**
+The closed backlog rows R1.5 also nominates were deliberately NOT archived - see W4-D16, the guard refuses them.
+
+**R2 - Verifying the interval's claims: all four held.** Checked by execution and stub-out, not by reading prose.
+(1) **W4-004 wiring** - `computeBaselines` really does delegate to `computeBaselineBlob` and return the superset;
+executed it on a zero-evidence user and got `hrvMedian: 45, hrvMAD: 8, rhrMedian: null, confidence: 0`, so D1's
+key genuinely reaches `translate()` (`translate.js:95` reads it) with zero translate edits, as claimed. The
+`WAVE4_BASELINE_ENGINE_DISABLED` kill-switch S11 owed exists (`baselines.js:41`) and gates the legacy path at
+`:149`. Stale-while-revalidate is real (FRESH_TTL_S vs the longer cache TTL). (2) **W4-D13** - the retention
+guard `wave4.retentionDocs.test.js` exists with 7 pins and passes. (3) **W4-005** - `affectEngine.js` exists with
+78 pins in `affectEngine.test.js`; the arithmetic in the baseline sentence reconciles exactly (2416 + 133 = 2549)
+and the full green run at 2549 is itself the check. (4) **W4-D14** - the flaky oracle is genuinely replaced:
+`wave4.baselineWiring.test.js` now asserts `not.toContain('rhrMedian')` on the ciphertext, with the round-trip
+decrypt left intact. **Nothing reopened.**
+
+**R3 - Constraint audit: clean.** Zero-knowledge: the interval adds exactly three log statements to
+`backend/app`, and all three are value-free - `logBiometricAccess(userId, 'baseline-aggregation', {count})`,
+`[baselines] derived-profile write failed: <ErrorName>`, `[metricStore] vital persist failed for N row(s):
+<ErrorName>` (type only, deliberately, because a validation message would quote the rejected heart rate).
+ADR-0011/0012 tripwire green in the full run. Targets remain a strict superset - W4-005 wired nothing into the
+serving path, so the `targets` object is untouched this interval. Attribution and secrets clean (R1). The
+`Number(null) === 0` hazard session 18 fixed in its own engines was re-probed in the NEW code and is genuinely
+guarded there (`baselineEngine.median([null,null])` returns `null`) - it survives only in `translate.js`, which
+is W4-D15.
+
+**R4 - Quality sweep: the finding, and how it was reached.** The interval's headline risk was W4-004's decision to
+return `rhrMedian: null` for a user with no non-exercise evidence, on the stated ground that null makes the
+resting-elevation term ABSTAIN. Rather than accept the comment, the claim was executed. It is false: `finite()`
+in `translate.js` is `Number.isFinite(Number(x)) ? Number(x) : null` and `Number(null) === 0`, so `finite(null)`
+is **0**, the `?? fallback` in `_robustZ` never fires, and the user is scored against a resting heart rate of
+**zero**. A calm user at HR 70 gets `stress = 1.0`; at HR 55 he still gets `1.0`; with the key merely absent he
+gets `0.2`. Then the natural next question - "surely something pins this?" - found the pin, named for this exact
+gotcha, asserting only `assertTargetsSane`, which checks finiteness and ranges and nothing about abstention. So
+the guard for the bug is green while the bug fires. Queued as **W4-D15** (repair, MUST).
+
+**R5 - Opportunity sweep: nothing new, and that is the honest result.** The interval's own code is in good shape;
+the one real defect found is in code it did not touch, and the second row (W4-D16) came out of doing R1.5 rather
+than from a sweep. W4-006 is `in_progress` on session 22 with the row claimed and no product code yet (the
+commit lands only `scripts/wave4-doctor.ps1`); that is 1 of the 3 sessions S4 allows, so it is noted, not
+actioned. Per S2.5 this is written as one line rather than padded to five rows.
+
+**R6.5 - Pace check: comfortable, no HITL needed.** `day4CutoffAt` is 2026-08-22 22:56 local, ~75h out. Remaining
+MUST-tier work is W4-006 (L, in_progress), W4-007 (L), W4-008 (L), W4-016 (M) and W4-015 (M) - at the observed
+2-sessions-per-L pace that is ~8 owner-sessions. 22 sessions have run in ~20.7h of wall clock (~56 min each), so
+~80 sessions fit in the remaining window; even subtracting ~18 reflections at the 4h cadence, the MUST queue
+finishes with a wide margin and SHOULD/STRETCH are reachable. Trending correct; nothing for Daniel to decide.
+
+
+### Reflection #5 (session 28) - evidence
+
+**R1 · Health check.** Full suite `cd backend && npm test`: **192 suites / 2749 tests, 2748 passed
++ 1 todo, exit 0, 243.5 s** - the exact `testBaseline`. Verified the W4-D15 way: `grep -c "^FAIL"`
+over the COMPLETE captured log returned **0**, rather than reading a summary line or a tail. Lint
+`npx eslint .`: **0 errors**, 22 pre-existing warnings. Secret scan of `832bcdc..HEAD` and of the
+working tree: clean. **Real CI, not only the local run:** `gh pr checks 179` - all ten checks pass
+at `6ffe47c` (backend lint & test, frontend, both mobile jobs, gitleaks, GitGuardian, Vercel).
+H1's scheduled secret-scan failure on `main` is unchanged and still out of scope, named here so it
+does not silently drift out of view.
+
+**S2 · Dirty tree.** Two modified files at session start. `scripts/wave4-doctor.ps1` carried the
+34-insertion edit H7 recorded as another writer's in-flight work; it is coherent and finished (a
+complete fix for the H5 false-POSITIVE - the widened WMI filter was catching the desktop app's own
+main process, so it now matches on `ExecutablePath` and lists non-matching candidates separately),
+it had not moved in 13h and it survived a stop/restart boundary, so per S2 it was **committed**
+(`1cc1200`) rather than discarded. That discharges H7 step (4). `mobile/src/health/config.ts` stays
+uncommitted per the session-1 ruling (Daniel's local deployment config; mobile out of scope).
+
+**R1.5 · Housekeeping.** STATE was **170,642 bytes**, past the 150KB threshold. Archived verbatim
+into `WAVE4_ARCHIVE.md` under a dated heading: the four completed-task evidence sections (W4-004
+wiring, W4-005, W4-006 pure core, W4-006 seam - 41,218 bytes) and reflection #3's evidence section
+(7,742 bytes), keeping the last two reflections (#4, #5). **STATE 170,642 -> ~126KB.** Backlog rows
+were again NOT archived: **W4-D16 is still open and `state-guard.js` still refuses them**, so the
+same ruling as reflection #4 applies rather than a workaround. The session log was left intact this
+pass too - it is the input to R6.5's pace math and is 27 single lines, and the evidence archival
+alone cleared the threshold with room. `state-guard.js check`: **OK 36 rows, no regressions.**
+
+**R2 · Verify the interval's claims.** Three `done` claims since `832bcdc`: W4-D15 (session 24) and
+W4-006's two halves (sessions 25, 26). All three **hold**, and each was tested by removing the fix
+rather than by reading it:
+
+| claim | how it was falsified | result |
+|---|---|---|
+| W4-D15: null/degenerate baselines abstain instead of saturating stress | `WAVE4_BASELINE_ABSTENTION_DISABLED=1` restores the pre-fix coercion | **22 of 38 pins go red** |
+| W4-006 seam: the regulator actually shapes the served target | stubbed `const decorated = wellbeingRegulator.apply(...)` to `= targets` in `targetsBuilder`, then restored | **8 pins go red** in `wave4.affectSeam` |
+| W4-006 reachability (the hard DoD) | read the assertion rather than the count: `expect(new Set(SCRIPTS.map(s => s.target)).size).toBe(STATES.length)` plus exact set equality on the sorted ids | **no escape hatch** - a 35th state without a script fails the suite |
+
+Two notes on method. Flipping `WAVE4_AFFECT_DISABLED` / `WAVE4_TRAJECTORY_DISABLED` from the shell
+did **not** turn the seam suite red - that is correct hermetic design, not a false green: the suite
+saves and `delete`s both flags in `beforeEach` and pins their behaviour explicitly, so ambient env
+cannot reach it. The code stub-out above was needed instead. And one claim I expected to fail did
+not: `explainTemplate.claims` naming `valence` looked like a claim on a non-existent axis (the
+engine's axes read as six), which would have made those why-lines permanently dead and silent.
+Executed against the real `AXIS_NAMES`: there are **seven**, `valence` is real, and **0 templates
+claim a missing axis**. Inference said defect; execution said no.
+
+**R3 · Constraint audit.** No violations. ADR-0011/0012 tripwire green in-suite; nothing in the
+interval is learned, fitted or persisted from Content. Zero-knowledge: both new error paths log the
+error **type** only (`e?.name`) precisely because a validation message can quote the reading that
+failed it; `stateId` is written with an explicit `encrypt()`, is absent from the client DTO (pinned),
+and the `[gen.targets]` log line enumerates fields individually so no new key can reach it. Superset
+§0.2.5 holds (the regulator returns `{...targets, ...}`; new keys additive). Regulator-not-mirror is
+**structural** - there is no path in `wellbeingRegulator` that writes `valenceTarget`. Consent gates
+untouched (no consent file in the diff). Kill-switches present for the new serving-path behaviour
+(`WAVE4_AFFECT_DISABLED`, `WAVE4_TRAJECTORY_DISABLED`), and their split is deliberate. **S5 checked
+surface-by-surface** (the W4-D13 lesson, not by trusting the claim): `bio:affect:<userId>` is
+registered explicitly in `userRedisPurge` and `wearableErasure`, and transitively in the account
+cascade (`erasure.js` requires `purgeUserKeys`). It is absent from `gdprExportController` and from
+the per-row retention table - and so is every other Redis family including `bio:baseline:`, all of
+them covered by the cascade's generic "user-scoped Redis state". The new key follows the established
+convention consistently, so this is a **no-finding**, recorded because the same check produced a
+genuine defect two reflections ago.
+
+**R4/R5 · Quality + opportunity sweep. One finding, queued as W4-D20.** W4-006's own carry-forward
+note flagged `translate`'s binary `windDown` as "worth a reflection's eye rather than silent
+closure"; taking it up produced a sharper result than the note assumed. The note argues the
+behaviour is now personal through the taxonomy. It is not, and structurally cannot be:
+`wellbeingRegulator` is monotone-tightening by construction, so a taxonomy state can wind a listener
+down further but can never restore what the 21:00 constant already took. Measured, not argued -
+through the real `translate` at one fixed resting reading, `energyCeiling` drops 0.71 -> 0.568 and
+`acousticnessBias` rises 0 -> 0.1 the moment the *local* hour hits 21, identically for every
+listener, and `night-owl-alert` can move neither number. Full row and DoD in the backlog.
+
+**R6 · Triage.** One new row (W4-D20), well inside the max-5 cap; checked against every existing
+`W4-D<nn>` by file:line rather than by title - W4-D18 is the adjacent one (the affect engine drops
+the cosinor's *phase*) and is genuinely a different defect in a different module, so this is a new
+row rather than a line appended to it. No `class: repair` was found, so nothing outranks the MUST
+queue and **W4-007 is the next task**. One HITL raised (**H8**): whether ~272KB of wave scaffolding
+merges into `main` with #179, and whether the attribution policy covers the doctor script's
+`claude.exe` process-name match - a decision, not work, and nothing is blocked on it.
+
+**R6.5 · Pace check: comfortable, no HITL needed.** `day4CutoffAt` is 2026-08-22 22:56 local; now is
+2026-08-20 09:00, so **~62h remain**. Remaining MUST-tier §3 work: W4-007 (L), W4-008 (L, serial
+after 007), W4-016 (M) and W4-015 (M) - about **6 owner-sessions** at the observed split (L tasks
+have run 2-3 owner-sessions each: 003 = 16,17; 004 = 18,20; 006 = 22,25,26). Observed pace is ~34h
+elapsed over 27 sessions = **~1.26h/session**, so ~7.6h of task work, and even at a pessimistic
+2h/session it is ~12h. Reflections at the 4h cadence add roughly 15 more sessions; priced generously
+at 1.5h each that is ~22h. **~34h of work against ~62h available** - the MUST tier finishes with
+margin and part of the SHOULD tier is reachable. Trending correct; nothing for Daniel.
+
+**Also done this session (R6's inline exception - reporting, not implementation).** PR #179's body
+was genuinely stale: its last section was W4-006's *pure core*, with zero mentions of the seam half.
+That is the single action H7 recorded as owed and deferred only because a stop signal was up; the
+halt is gone and §1 authorises appending cluster notes to #179, so the seam-half section was
+appended (scope table, 188/2656 -> 192/2749, both re-pins, the four reviewer notes, both
+kill-switches, compliance, and what is carried forward). Body scanned for attribution before
+posting: clean.
+
+### Session log rows for sessions more than 24h old (18-21, 23)
+
+| # | started | result line (`WAVE4_SESSION_RESULT: ...`) |
+|---|---------|--------------------------------------------|
+| 18 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-004 in_progress â€” pure core + storage landed (VitalSample with full S5 registration and an EXTENDED completeness guard, baselineEngine, chronobiology), 136 new pins + 7 appended, suite 179/2357 green twice; four defects found in this session's own code by its own tests (Mongoose-9 pre-hook signature, `Number(null)===0` in both engines, non-robust cosinor LSQ, an unfalsifiable shift-worker test); Â§M.4 k-constant deviation derived and flagged as W4-D12; wiring half owed |
+| 19 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: REFLECT done 4 verified, 0 reopened, 1 queued â€” suite 179/2357 green (exact baseline), lint 0 errors; W4-D08's reopened Suunto lane verified by executing the real webhook (resolves with truthful reject accounting), W4-D11's linter verified load-bearing by probe (1 eslint error + 3 guard pins RED), W4-004's export registration verified load-bearing by stub-out (4 pins RED across 2 suites); W4-D13 queued â€” S5 names five registration surfaces and W4-004 wrote four, leaving `VitalSample` out of `docs/PRIVACY_DECLARATIONS.md` while the Play data-safety answer still lists a nine-collection cascade the code outgrew; W4-D12 closed by ruling (k=1 is the variance decomposition, MADâ†’SD conversion verified consistent), mission Â§M.4 amended with the unit note |
+| 20 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-004 done â€” wiring half landed (baselines delegate to the engine so D1 finally reaches the serving path, superset blob, stale-while-revalidate, VitalSample writes, tzOffsetMinutes on all five ingest paths, D16 + steps dormant behind a consent-v2 flag, Karvonen zones via doc.save(), WAVE4_BASELINE_ENGINE_DISABLED kill-switch); W4-D13 discharged in the same PR with a standing retention-doc guard; 58 new pins + 1, suite 182/2416 green twice; six deliberate re-pins, all documented; two defects found in this session's own code by its own tests (a suite silently exercising the swallowed-failure path, and a "best-effort" worker call that was not); ATTACK-2 caught a real regression â€” the engine's population prior would have replaced translate's abstain-when-unknown, so the legacy keys now stay null on zero evidence |
+| 21 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: W4-005 done â€” affect engine complete in one session (six {value,mass} evidence axes with real abstention, Karvonen exertion, personal hour-bin arousal, a SOFT rest gate that kills D3 structurally, all-taps declared fusion, the M.5 HMM and four-gate hysteresis, the AffectState DTO, ADR-0013 with the cut Borbely formula); the taxonomy is an INJECTED PORT so W4-006 stays the single source of truth for the state table; 133 new pins + ZERO re-pins, suite 184/2549 green twice; 20 mechanisms verified load-bearing by stub-out; six defects found by this session tests in its own code â€” three real (a rest gate that shut on the signal it was weighing, M.5 strong clause defeating the dwell at 20 transitions/hour == memoryless, a wall-clock field breaking replay determinism), one dead-code pair, two test defects including an anti-flap control that was measuring nothing |
+| 23 | 2026-08-19 (exec) | WAVE4_SESSION_RESULT: REFLECT done 4 verified, 0 reopened, 2 queued - suite 184/2549 green (exact baseline), PR #179 CI green; W4-D15 found by execution: a null `rhrMedian` is scored as 0 bpm so stress saturates to 1.0 for any no-baseline user at rest (still 1.0 at HR 55), the profile D3/D4 exist to prevent, and `shadow.qa4`'s pin for that exact gotcha asserts only `assertTargetsSane`; W4-D16 queued after R1.5 archival collided with `state-guard`; STATE archived 204,535 -> 104,115 bytes |
