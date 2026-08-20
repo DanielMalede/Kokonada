@@ -6,10 +6,28 @@ on:
   pull_request:
     branches: [main]
 
+# GITHUB_TOKEN scopes are pinned HERE rather than inherited from the repository's
+# Settings → Actions → General → "Workflow permissions" default. On 2026-08-20 that default
+# stopped granting `pull-requests` and three jobs went red on `Resource not accessible by
+# integration` — including the gitleaks secret scan — with no change to this repo at all.
+# A setting that never appears in a diff must not decide what CI may do.
+# NOTE: `permissions:` REPLACES, it does not merge — naming any scope sets every unnamed scope
+# to `none`, so each job-level block below repeats `contents: read` for actions/checkout.
+# Pinned by backend/tests/ciWorkflowPermissions.test.js.
+permissions:
+  contents: read
+
 jobs:
   secret-scan:
     name: Security — gitleaks secret scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # gitleaks-action needs pull-requests READ to enumerate the PR's commit range
+      # (GET /repos/:owner/:repo/pulls/:number/commits) and WRITE to annotate the finding
+      # (src/gitleaks.js → octokit.rest.pulls.createReviewComment). With read only, a real
+      # leak surfaces as an opaque 403 instead of as the leak.
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,6 +113,11 @@ jobs:
     # installDebug in the Squad-6 re-pass, so we skip it here to keep the PR gate fast.
     # The job always starts (so it can be a required check) but the paths-filter below skips
     # the costly steps on PRs that don't touch the Android surface.
+    permissions:
+      contents: read
+      # dorny/paths-filter resolves the changed-file set through listFiles(pull_number) on
+      # pull_request events; without this scope the filter 403s and the job dies at step 2.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
       - name: Detect Android-affecting changes
