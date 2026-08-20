@@ -100,6 +100,13 @@ jest.mock('../app/repositories/shadowBufferRepo', () => ({
   setBuffer: jest.fn().mockResolvedValue(true),
 }));
 
+// W4-009: the taxonomy-state adapter is mocked so the WIRING (does a reported regime change
+// trigger recalibrateForBand?) can be pinned in isolation from the affect engine's own math,
+// which affectEngine.test.js / liveStateAdapter.test.js already cover in depth. Defaulted to a
+// no-op result in the shared beforeEach below so the other ~150 pre-existing pins in this file —
+// none of which know this adapter exists — stay byte-for-byte unaffected.
+jest.mock('../app/agents/runtime/physiology/liveStateAdapter', () => ({ onlineUpdate: jest.fn() }));
+
 // Error monitor — mocked so a test can assert a swallowed generateV2 failure is reported (captured),
 // not silently dropped. The real captureException is a no-op without a DSN, so this changes no behavior.
 jest.mock('../app/config/sentry', () => ({
@@ -171,6 +178,7 @@ const geminiEngine    = require('../app/services/geminiEngine');
 const playlistMixer   = require('../app/services/playlistMixer');
 
 const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
+const liveStateAdapter = require('../app/agents/runtime/physiology/liveStateAdapter');
 const captionService   = require('../app/services/discovery/captionService');
 const crossPlatform    = require('../app/services/crossPlatform');
 const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
@@ -312,6 +320,11 @@ beforeEach(() => {
   MedicalProfile.findOne.mockResolvedValue(null);
   shadowBufferRepo.getBuffer.mockResolvedValue(null); // default: cold buffer
   shadowBufferRepo.setBuffer.mockResolvedValue(true);
+  // W4-009 default: no carried posterior / no regime change, matching a Redis-down or freshly
+  // cold-started user — every existing pin in this file is transparent to this by construction.
+  liveStateAdapter.onlineUpdate.mockResolvedValue({
+    ok: false, transitioned: false, from: null, to: null, band: null, regimeChanged: false,
+  });
   captionService.captionDiscovery.mockResolvedValue(new Map());
   delete process.env.DISCOVERY_CAPTION_LLM; // caption path OFF by default (dark launch)
   mockRecentSessions([]);
@@ -2123,6 +2136,121 @@ describe('Live-mode band recalibration (slice 4)', () => {
       message: expect.stringMatching(/assembling your live biometric soundscape/i),
     }));
     expect(orchestrator.generateV2).toHaveBeenCalled(); // the one-time live fallback ran
+  });
+});
+
+// ── W4-009: taxonomy-state-triggered recalibration (D11's full fix) ────────────
+// `liveStateAdapter.onlineUpdate` is mocked (see the top-of-file jest.mock) so these pins drive
+// the WIRING deterministically: does a reported regime change reach `recalibrateForBand`, is the
+// Manual-mode gate still the one gate that decides whether anything is ever SERVED, and does the
+// S11 kill-switch really stop the adapter from being called at all. The engine's own dwell/
+// hysteresis math is `liveStateAdapter.test.js`'s job, not this file's.
+
+describe('W4-009 — state-triggered recalibration (liveStateAdapter wiring)', () => {
+  const BUFFER_TRACKS = [
+    { id: 'ws1', uri: 'spotify:track:ws1', title: 'Warm State One', artist: 'Artist Z' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 0, targets: { bpmCenter: 90 }, builtAt: Date.now(),
+    });
+  }
+  const regimeChange = (over = {}) => ({
+    ok: true, transitioned: true, from: 'deep-rest', to: 'simmering-tension', band: 'resting', regimeChanged: true, ...over,
+  });
+
+  afterEach(() => { delete process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED; });
+
+  it('a taxonomy regime change recalibrates even with NO HR-band crossing at all', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange());
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    // A single resting-band reading — the OLD HR-band gate alone fires nothing on a first ping
+    // with no confirmed prior band, so this proves the STATE path, not a coincidence of the band gate.
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+      'user-123',
+      expect.objectContaining({ level: 65 }),
+      expect.objectContaining({ activity: 'running', now: expect.any(Number) }),
+    );
+    const call = socket.emit.mock.calls.find((c) => c[0] === 'playlist_ready');
+    expect(call).toBeDefined();
+    expect(call[1]).toMatchObject({ buffered: true });
+  });
+
+  it('no regime change → the adapter is consulted but nothing extra is served', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalled();
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+  });
+
+  it('Manual mode: the posterior still advances (kept warm) but the mode-gate still blocks the serve', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange());
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket); // liveMode defaults false — never toggled on
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalled();
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('Redis-down degradation (adapter reports ok:false) never recalibrates from this path', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue({
+      ok: false, transitioned: false, from: null, to: null, band: null, regimeChanged: false,
+    });
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+  });
+
+  it('S11 kill-switch: WAVE4_RECAL_STATE_TRIGGER_DISABLED stops the adapter from being called at all', async () => {
+    process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED = 'true';
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange());
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).not.toHaveBeenCalled();
+  });
+
+  it('a rejected/unusable reading (filtered.level === null) never reaches the adapter', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    // A future-dated reading fails the S6 gate on a first-ever reading (no confirmed HR to
+    // propagate), so handleBiometricReading returns before this call's own W4-009 hook runs.
+    const future = { heartRate: 90, activityType: 0, startTimeLocal: new Date(Date.UTC(2099, 0, 1)).toISOString() };
+    await socket._trigger('biometric_push', { source: 'garmin', raw: future });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).not.toHaveBeenCalled();
   });
 });
 

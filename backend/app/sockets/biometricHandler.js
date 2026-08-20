@@ -21,6 +21,7 @@ const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const { logBiometricAccess } = require('../utils/biometricAudit');
 const { createFilterState, filterReading } = require('../agents/runtime/ingestion/anomalyFilter');
+const { onlineUpdate: liveStateOnlineUpdate } = require('../agents/runtime/physiology/liveStateAdapter');
 const { insertManyAccounted } = require('../services/wearable/insertAccounted');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
@@ -1259,7 +1260,11 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
 // the music ignores a real activation (the exact D11 complaint), while leaving one early
 // abandons a mix the body has not actually left. So: fast attack, slow release.
 //
-// PURE — exported for unit testing. State-transition triggering proper lands in W4-009.
+// PURE — exported for unit testing. W4-009 landed the taxonomy-state-transition trigger
+// (`liveStateOnlineUpdate`, above the immediate/debounce branch below) as an ADDITIONAL signal
+// rather than a replacement of this function: this HR-band gate stays the fast, Redis-free
+// fallback — degrading to it is exactly what a disabled affect layer or a down Redis client
+// falls back to (fail-soft, §0.4 S11).
 function _shouldRecalibrate({ prevHR, nextHR, activityChanged = false }) {
   if (activityChanged) return true;
   const nextBand = bandFromHeartRate(nextHR);
@@ -1315,6 +1320,26 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
 
   state.consecutiveSkips = 0;
   state.latestActivity   = normalized.activity;
+
+  // W4-009 (D11's full fix): advance the shared taxonomy-state posterior for EVERY filtered
+  // reading, live or manual — recalibrateForBand's own liveMode gate decides whether a regime
+  // change is ever SERVED, the posterior itself stays current for the next serving-path read
+  // either way (the servedHR-latch precedent above: warm the state, gate the serve). Fire-and-
+  // forget, like every other live-lane side effect (_maybePersistLiveReading): the socket owes
+  // an ack, not a Redis round trip. Disabled together with the interim W4-D05 hysteresis fix
+  // under the SAME S11-reserved flag (it was reserved for exactly this task), restoring the
+  // pure HR-band trigger byte-for-byte — the Redis-down fail-soft this degrades to either way,
+  // since `liveStateAdapter` itself refuses to run without a live Redis client.
+  if (!_hysteresisDisabled()) {
+    const uid = socket.data.user._id.toString();
+    liveStateOnlineUpdate(
+      uid,
+      { level: effectiveHR, confidence: filtered.confidence, degraded: filtered.degraded },
+      { activity: normalized.activity, now },
+    ).then((result) => {
+      if (result.regimeChanged) recalibrateForBand(socket, state);
+    }).catch(() => {});
+  }
 
   // Immediate (trusted) mode for the 5-minute watch ingest path: no 60s debounce.
   // First reading (no baseline), a change >= 25 bpm, OR a new activity state
