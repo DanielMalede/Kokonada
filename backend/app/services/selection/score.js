@@ -3,6 +3,7 @@
 const { exposurePenalty } = require('../ledger/exposureScore');
 const { measured } = require('../features/featureProvider');
 const { tempoKernel } = require('./tempo');
+const { sameFamilyAny } = require('./genreFamilies');
 
 // Weighted candidate scoring.
 //
@@ -172,6 +173,26 @@ function _allowSet(allowGenres) {
     _allowSets.set(allowGenres, set);
   }
   return set;
+}
+
+// W4-010 (d): the genre term's rungs. v1 knows two — an exact allow-list hit (1) and
+// everything else (0.3) — so "deep house" against an allow-list of "house" is judged exactly
+// as wrong as "death metal". v2 inserts a SAME-FAMILY rung at 0.7 from the static taxonomy in
+// `genreFamilies`, and leaves the other three rungs where they were, so no track's genre fit
+// can ever DROP relative to v1 (pinned): the change is strictly additive credit.
+//
+// UNKNOWN (0.5) stays reserved for "no genre evidence on one side or the other". A track
+// whose genres are present but unmapped is still a miss at 0.3 — the map returning null is
+// an admission of ignorance about that genre, not evidence that the track is a near-fit.
+//
+// S11 escape hatch: `WAVE4_GENRE_FAMILIES_DISABLED` drops v2 back to the two-rung step
+// without reverting the rest of W4-007's scorer (which `WAVE4_SCORING_V2_DISABLED` would).
+const familiesDisabled = () => Boolean(process.env.WAVE4_GENRE_FAMILIES_DISABLED);
+function _moodGenreFit(genres, allow, allowGenres, legacy) {
+  if (!allow.size || !genres.length) return 0.5;
+  if (genres.some(g => allow.has(g))) return 1;
+  if (legacy || familiesDisabled()) return 0.3;
+  return sameFamilyAny(genres, allowGenres) ? 0.7 : 0.3;
 }
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
@@ -350,9 +371,7 @@ function scoreTrack(track, {
 
   const allow = _allowSet(allowGenres);
   const genres = (track.genres || []).map(g => String(g).toLowerCase().trim());
-  const moodGenreFit = !allow.size || !genres.length
-    ? 0.5
-    : genres.some(g => allow.has(g)) ? 1 : 0.3;
+  const moodGenreFit = _moodGenreFit(genres, allow, allowGenres, legacy);
 
   const serves = exposure.get(track.canonicalKey) ?? [];
   const rawExposure = serves.length
