@@ -20,9 +20,12 @@ process.env.NODE_ENV = 'test';
 const {
   octaveDistance,
   tempoKernel,
+  toLog2,
+  foldedDistanceLog2,
   OFF_OCTAVE_PENALTY,
   DEFAULT_SIGMA_OCT,
 } = require('../app/services/selection/tempo');
+const { createRng } = require('../sim/rng');
 
 describe('W4-007 · tempo.octaveDistance — §M.10 folded log-tempo distance', () => {
   it('is zero for an exact match and symmetric in its arguments', () => {
@@ -156,6 +159,53 @@ describe('W4-007 · tempo.tempoKernel — the Gaussian over folded distance', ()
       expect(Number.isFinite(k)).toBe(true);
       expect(k).toBeGreaterThanOrEqual(0);
       expect(k).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+// ── the log-domain entry point (W4-007 evidence half) ──────────────────────────
+//
+// MMR asks for the same track's tempo once per PAIR — ~250k times per generation at k=50 —
+// and every one of those was re-deriving `Math.log2`. `toLog2` + `foldedDistanceLog2` let a
+// caller hoist that to once per TRACK. The pins that matter are not the arithmetic (that is
+// the same fold as before) but the EQUIVALENCE: the moment the two entry points disagree,
+// the scorer and MMR are back to two different notions of "close", which is the exact
+// divergence this module exists to prevent.
+
+describe('W4-007 · tempo.toLog2 / foldedDistanceLog2 — the hoisted path', () => {
+  it('carries the same usability guard as the bpm path', () => {
+    expect(toLog2(120)).toBeCloseTo(Math.log2(120), 12);
+    expect(toLog2('120')).toBeCloseTo(Math.log2(120), 12);
+    for (const bad of [null, undefined, 0, -1, NaN, Infinity, '', '  ', true, false, {}, []]) {
+      expect(toLog2(bad)).toBeNull();
+    }
+  });
+
+  it('abstains when either side is unusable, exactly as the bpm path does', () => {
+    expect(foldedDistanceLog2(null, Math.log2(120))).toBeNull();
+    expect(foldedDistanceLog2(Math.log2(120), null)).toBeNull();
+  });
+
+  it('EQUIVALENCE: agrees with octaveDistance over 300 seeded tempo pairs, both modes', () => {
+    // Log-uniform draws over the corpus range, so half/double pairs occur naturally rather
+    // than only at the hand-picked values the cases above use.
+    const rng = createRng(0x7E3B0);
+    for (let i = 0; i < 300; i++) {
+      const a = 40 * Math.pow(2, rng.next() * 2.5);
+      const b = 40 * Math.pow(2, rng.next() * 2.5);
+      for (const cadenceLocked of [false, true]) {
+        const viaBpm = octaveDistance(a, b, { cadenceLocked });
+        const viaLog = foldedDistanceLog2(toLog2(a), toLog2(b), { cadenceLocked });
+        expect(viaLog).toBeCloseTo(viaBpm, 12);
+      }
+    }
+  });
+
+  it('is the ONE implementation: octaveDistance delegates rather than duplicating the fold', () => {
+    // A copy would drift silently; this asserts the delegation itself at the exact octave,
+    // where a duplicated implementation is most likely to diverge.
+    for (const [a, b] of [[87, 174], [174, 87], [162, 81], [120, 120], [70, 160]]) {
+      expect(octaveDistance(a, b)).toBe(foldedDistanceLog2(toLog2(a), toLog2(b)));
     }
   });
 });

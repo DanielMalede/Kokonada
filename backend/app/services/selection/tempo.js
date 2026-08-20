@@ -59,6 +59,42 @@ function _bpm(x) {
 }
 
 /**
+ * A tempo in LOG₂ SPACE, or null if it is unusable.
+ *
+ * Exists so a caller that compares the same tempo against many others — MMR's greedy loop
+ * runs O(k²·window) pair comparisons per generation — can pay the `log₂` once per TRACK
+ * instead of twice per PAIR. Measured on the 500-track golden corpus, recomputing it per pair
+ * cost 558 ms in the MMR stage against v1's 287 ms; hoisting it took the stage below v1.
+ * The point of this module is that one metric serves every call site, so the cheap path is
+ * published HERE rather than reimplemented — a hand-rolled fold in mmr.js would be exactly
+ * the divergence the module exists to prevent.
+ */
+function toLog2(bpm) {
+  const b = _bpm(bpm);
+  return b == null ? null : Math.log2(b);
+}
+
+/**
+ * The fold itself, over tempi already in log₂ space. This is the ONE place the octave
+ * arithmetic lives; `octaveDistance` is its bpm-domain wrapper.
+ */
+function foldedDistanceLog2(l2a, l2b, { cadenceLocked = false } = {}) {
+  if (l2a == null || l2b == null) return null;
+  const delta = l2a - l2b;
+  const penalty = cadenceLocked ? Math.max(0, OFF_OCTAVE_PENALTY) : 0;
+
+  // The penalty is added BEFORE the min, not after: charging the winner would let a
+  // half-time match beat a genuine near-miss at the same octave (170 vs a 162 anchor is
+  // 0.069 away and must stay ahead of the 0.15-priced twin).
+  let best = Math.abs(delta);
+  const down = Math.abs(delta + 1) + penalty;
+  if (down < best) best = down;
+  const up = Math.abs(delta - 1) + penalty;
+  if (up < best) best = up;
+  return best;
+}
+
+/**
  * Folded log₂ distance in OCTAVES between a candidate tempo and a target tempo.
  *
  * @param {number} bpm            candidate tempo
@@ -66,23 +102,8 @@ function _bpm(x) {
  * @param {{cadenceLocked?: boolean}} [opts]  cadence anchor → off-octave matches are charged
  * @returns {number|null} distance in octaves, or null when either side is unusable
  */
-function octaveDistance(bpm, centerBpm, { cadenceLocked = false } = {}) {
-  const b = _bpm(bpm);
-  const c = _bpm(centerBpm);
-  if (b == null || c == null) return null;
-
-  const delta = Math.log2(b) - Math.log2(c);
-  const penalty = cadenceLocked ? Math.max(0, OFF_OCTAVE_PENALTY) : 0;
-
-  // The penalty is added BEFORE the min, not after: charging the winner would let a
-  // half-time match beat a genuine near-miss at the same octave (170 vs a 162 anchor is
-  // 0.069 away and must stay ahead of the 0.15-priced twin).
-  let best = Math.abs(delta);
-  for (const o of [-1, 1]) {
-    const d = Math.abs(delta - o) + penalty;
-    if (d < best) best = d;
-  }
-  return best;
+function octaveDistance(bpm, centerBpm, opts = {}) {
+  return foldedDistanceLog2(toLog2(bpm), toLog2(centerBpm), opts);
 }
 
 /**
@@ -102,4 +123,7 @@ function tempoKernel(bpm, centerBpm, { cadenceLocked = false, sigmaOct } = {}) {
   return Math.exp(-0.5 * z * z);
 }
 
-module.exports = { octaveDistance, tempoKernel, DEFAULT_SIGMA_OCT, OFF_OCTAVE_PENALTY };
+module.exports = {
+  octaveDistance, tempoKernel, toLog2, foldedDistanceLog2,
+  DEFAULT_SIGMA_OCT, OFF_OCTAVE_PENALTY,
+};
