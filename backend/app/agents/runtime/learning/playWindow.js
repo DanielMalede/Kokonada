@@ -2,6 +2,7 @@
 
 const { BANDS } = require('../knowledge/stateTaxonomy');
 const { recordingKeyOf } = require('../../../services/features/featureProvider');
+const { PERSONAL_TERMS } = require('./personalization');
 
 /**
  * W4-011 · the play-window tracker.
@@ -57,6 +58,14 @@ const MAX_SAMPLE_AGE_MS = 20 * 60 * 1000;
  */
 const MAX_DISCOVERY_KEYS = 200;
 
+/**
+ * W4-013 (B7) · the same bound, for the same reason, on the per-socket gradient table. Kept as
+ * its OWN constant rather than an alias: the two tables are populated from different sources (one
+ * from the served tracks, one from the pipeline's scoring capture) and a later change to either
+ * bound should not silently move the other.
+ */
+const MAX_GRADIENT_KEYS = 200;
+
 /** One of each scoreable type is the most a single play can honestly contribute. */
 const MAX_PENDING_EVENTS = 3;
 
@@ -91,6 +100,59 @@ function discoveryKeysOf(tracks) {
     if (out.size >= MAX_DISCOVERY_KEYS) break;
   }
   return out;
+}
+
+/**
+ * W4-013 (B7) · what the RANKING thought of each track it just served.
+ *
+ * The mirror of `discoveryKeysOf`, and it exists for the same reason: §M.15's `∂` is a residual of
+ * the scorer's own per-term values against the weight table that was in force, and neither of
+ * those survives the request. The pipeline computes it at the only moment both are in hand
+ * (`_gradientsOf`), and this turns that bounded list into the lookup a `playback_event` needs.
+ *
+ * Fail-closed on a malformed entry: a gradient that is not four finite numbers is dropped whole
+ * rather than repaired, so the track reads back as UNKNOWN. Admitting a half-filled one would let
+ * a defaulted zero pose as a measurement — the coercion class W4-D15 and W4-D21 both were.
+ *
+ * The list arrives keyed the way the client names tracks, so this deliberately does NOT re-derive
+ * a key: one projection (`canonicalKey`, else `recordingKeyOf`), decided once in the pipeline
+ * beside the discovery roles.
+ */
+function gradientsOf(list) {
+  const out = new Map();
+  if (!Array.isArray(list)) return out;
+  for (const entry of list) {
+    const key = entry?.key;
+    if (typeof key !== 'string' || !key) continue;
+    const g = entry.g;
+    if (!g || typeof g !== 'object') continue;
+    const clean = {};
+    let ok = true;
+    for (const term of PERSONAL_TERMS) {
+      const v = g[term];
+      if (typeof v !== 'number' || !Number.isFinite(v)) { ok = false; break; }
+      clean[term] = v;
+    }
+    if (!ok) continue;
+    out.set(key, clean);
+    if (out.size >= MAX_GRADIENT_KEYS) break;
+  }
+  return out;
+}
+
+/**
+ * W4-013 (B7) · the gradient for the track this play belongs to, as a TRI-state.
+ *
+ * `null` carries the `wasDiscovery` lesson exactly: a zero gradient is a real answer ("no term
+ * distinguished this track"), and "the serve never told me" is not an answer at all. The second
+ * one is also the COMMON one — the overlay is opt-in, so on every deployment that has not switched
+ * it on the pipeline captures nothing and every play lands here. That is what makes the write lane
+ * dormant by construction and not merely by flag.
+ */
+function _gradientOf(context, trackKey) {
+  const table = context?.gradients;
+  if (!(table instanceof Map) || typeof trackKey !== 'string' || !trackKey) return null;
+  return table.get(trackKey) ?? null;
 }
 
 /**
@@ -226,6 +288,7 @@ function noteEvent(state, event, nowMs) {
     hourOfDay: s.context?.hourOfDay ?? null,
     recordingKey: trackKey,
     wasDiscovery: _roleOf(s.context, trackKey),
+    gradient: _gradientOf(s.context, trackKey),
   };
 
   // The next track starts the moment this one ended.
@@ -239,6 +302,8 @@ module.exports = {
   MAX_SAMPLES,
   MAX_DISCOVERY_KEYS,
   discoveryKeysOf,
+  MAX_GRADIENT_KEYS,
+  gradientsOf,
   MAX_SAMPLE_AGE_MS,
   MAX_PENDING_EVENTS,
   TERMINAL_EVENT_TYPES,

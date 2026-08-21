@@ -1,6 +1,7 @@
 'use strict';
 
 const rewardRepo = require('../repositories/rewardRepo');
+const personalWeightsRepo = require('../repositories/personalWeightsRepo');
 
 /**
  * W4-011 · the write side of the feedback loop.
@@ -22,10 +23,10 @@ const rewardRepo = require('../repositories/rewardRepo');
  * context bucket.
  */
 async function process(job) {
-  const { userId, bucket = null, reward = null, posterior = null, novelty = null, at = null } = job?.data ?? {};
+  const { userId, bucket = null, reward = null, posterior = null, novelty = null, weightStep = null, at = null } = job?.data ?? {};
 
   const when = typeof at === 'number' && Number.isFinite(at) ? new Date(at) : null;
-  if (!when || Number.isNaN(when.valueOf())) return { bucket: false, posterior: false, novelty: false };
+  if (!when || Number.isNaN(when.valueOf())) return { bucket: false, posterior: false, novelty: false, weights: false };
 
   const bucketWritten = bucket
     ? await rewardRepo.recordBucketReward({ userId, bucket, reward, at: when })
@@ -47,7 +48,15 @@ async function process(job) {
     ? await rewardRepo.recordNoveltyOutcome({ userId, bucket, delta: novelty, at: when })
     : false;
 
-  return { bucket: bucketWritten, posterior: posteriorWritten, novelty: noveltyWritten };
+  // W4-013 (B7). A FOURTH independent write, and the only one addressed by the user alone —
+  // it carries no bucket and no recording, so it is the one write a play can produce when the
+  // taxonomy could not name a state. `applyUpdate` validates the step fail-closed and does the
+  // decay-then-step-then-clamp in a single aggregation pipeline, so nothing here re-states it.
+  const weightsWritten = weightStep
+    ? await personalWeightsRepo.applyUpdate({ userId, step: weightStep, at: when })
+    : false;
+
+  return { bucket: bucketWritten, posterior: posteriorWritten, novelty: noveltyWritten, weights: weightsWritten };
 }
 
 module.exports = { process };

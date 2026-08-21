@@ -2,6 +2,7 @@
 
 const { evaluatePlay, FEEDBACK_LOOP_VERSION } = require('../../agents/runtime/learning/feedbackLoop');
 const { outcomeDelta } = require('../../agents/runtime/knowledge/noveltyController');
+const personalization = require('../../agents/runtime/learning/personalization');
 const { QUEUES } = require('../../queues/definitions');
 const { enqueue } = require('../../queues/queue');
 
@@ -46,7 +47,7 @@ function feedbackDisabled() {
 }
 
 /** The closed payload contract. Pinned by test; see the header for why it matters. */
-const REWARD_JOB_KEYS = Object.freeze(['v', 'userId', 'bucket', 'reward', 'posterior', 'novelty', 'at']);
+const REWARD_JOB_KEYS = Object.freeze(['v', 'userId', 'bucket', 'reward', 'posterior', 'novelty', 'weightStep', 'at']);
 
 const REWARD_JOB_VERSION = FEEDBACK_LOOP_VERSION;
 
@@ -70,7 +71,29 @@ async function dispatchReward({ userId, play, atMs } = {}) {
     // are the two failure modes a dark-launched loop has, and they look identical without this.
     console.warn(verdict.telemetry);
 
-    if (!verdict.usable && !verdict.posterior) {
+    // W4-013 (B7): the same play, read as an answer to a THIRD question — which scoring
+    // dimension does this listener actually respond to. `0.02 · r · ∂`, computed here because the
+    // gradient is serve-time evidence and the reward is event-time evidence, and this is the only
+    // place both exist.
+    //
+    // DELIBERATELY NOT `verdict.reward`. That field is forced to exactly 0 when the play cannot be
+    // filed under a bucket, which is a TRACK-A rule: the bucket store is addressed by
+    // (stateDomain, targetBand, hourBin), so a reward with no bucket has nowhere to go. The
+    // overlay is addressed by the USER and carries no bucket coordinates at all, so that rule does
+    // not apply to it — and reading it here would mean "listeners whose taxonomy state cannot be
+    // resolved never learn", which is precisely the degraded-signal population most in need of a
+    // ranking that adapts. `components.combined` is the verdict BEFORE Track A's addressability is
+    // applied, and it is bounded to [-1, 1] by `combineReward` exactly as `reward` is.
+    const combined = verdict.components?.combined;
+    const weightStep = personalization.stepFrom({
+      gradient: play.gradient,
+      reward: combined?.usable === true ? combined.value : 0,
+    });
+
+    // The guard admits a job that teaches ONLY the overlay (the orphan case above). It stays a
+    // guard: `stepFrom` returns null rather than a zero step for a play with no verdict or no
+    // gradient, so "nothing to write" still means nothing is queued.
+    if (!verdict.usable && !verdict.posterior && !weightStep) {
       return { dispatched: false, reason: verdict.reason ?? 'no-signal', verdict };
     }
 
@@ -97,6 +120,10 @@ async function dispatchReward({ userId, play, atMs } = {}) {
       reward: verdict.usable ? verdict.reward : 0,
       posterior: verdict.posterior,
       novelty,
+      // Four music-RANKING coefficients bounded by the learning rate, naming no recording, no
+      // provider and no vital — strictly less sensitive than the HR-slope-derived `reward` this
+      // payload already carries, which is the bar §0.2.2 sets for anything crossing Redis.
+      weightStep,
       at: atMs,
     });
 

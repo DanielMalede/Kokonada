@@ -26,7 +26,7 @@ const { onlineUpdate: liveStateOnlineUpdate } = require('../agents/runtime/physi
 // play window, hand the verdict to the write lane. The kill switch is READ from the dispatcher
 // rather than re-declared here: one flag, one reading of it (D11's lesson, again).
 const { sanitizePlaybackEvent, createRateLimitState, admitPlaybackEvent } = require('../agents/runtime/learning/playbackEvent');
-const { createPlayWindowState, contextFromTargets, discoveryKeysOf, openWindow, recordSample, noteEvent } = require('../agents/runtime/learning/playWindow');
+const { createPlayWindowState, contextFromTargets, discoveryKeysOf, gradientsOf, openWindow, recordSample, noteEvent } = require('../agents/runtime/learning/playWindow');
 const { dispatchReward, feedbackDisabled, FEEDBACK_FLAG } = require('../services/learning/rewardDispatch');
 const { insertManyAccounted } = require('../services/wearable/insertAccounted');
 const featureService = require('../services/features/featureService');
@@ -825,13 +825,17 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
       // music somebody is listening to, and excluding it would teach the learner only about the
       // days when everything worked.
       //
-      // W4-013 (B5) adds ONE more serve-time fact to that context: which of these tracks were
+      // W4-013 (B5) adds one more serve-time fact to that context: which of these tracks were
       // discovery. It has to be captured here because it is only knowable here — a `playback_event`
       // names a track, and by then nothing remembers whether the system gambled a slot on it.
       if (!feedbackDisabled()) {
         const context = {
           ...contextFromTargets(builtPlaylist.targets),
           discoveryKeys: discoveryKeysOf(builtPlaylist.merged),
+          // W4-013 (B7) adds a SECOND serve-time fact, for the same reason and with the same
+          // shape: §M.15's `∂` per served track. It is null unless the overlay is switched on,
+          // which is what keeps the write lane dormant by construction and not merely by flag.
+          gradients: gradientsOf(builtPlaylist.gradients),
         };
         state.playWindow = openWindow(state.playWindow, context, Date.now());
       }

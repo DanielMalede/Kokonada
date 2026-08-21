@@ -102,8 +102,11 @@ describe('W4-013 · wasDiscovery on a finished play', () => {
   test('W4-011 play contract is otherwise untouched', () => {
     const opened = openWith(new Set(['mbid:new-one']));
     const { play } = playWindow.noteEvent(opened, { type: 'complete', positionMs: 200000, trackKey: 'mbid:new-one' }, T0 + 200000);
+    // DELIBERATE ADDITIVE RE-PIN (W4-013 B7): `gradient` joins the play contract, the same shape
+    // of serve-time fact as `wasDiscovery` beside it and carrying the same tri-state rule. The
+    // list stays exhaustive on purpose — it is what forces a new key onto a play to be argued.
     expect(Object.keys(play).sort()).toEqual(
-      ['archetype', 'events', 'expectedSlope', 'hourOfDay', 'recordingKey', 'samples', 'stateId', 'targetBand', 'wasDiscovery'],
+      ['archetype', 'events', 'expectedSlope', 'gradient', 'hourOfDay', 'recordingKey', 'samples', 'stateId', 'targetBand', 'wasDiscovery'],
     );
   });
 });
@@ -220,14 +223,15 @@ describe('W4-013 · the reward worker writes the novelty posterior', () => {
     const repo = spyRepo();
     const worker = load(repo);
     const out = await worker.process({ data: { userId: 'u1', bucket, reward: 0.5, at: T0 } });
-    expect(out).toEqual({ bucket: true, posterior: false, novelty: false });
+    // DELIBERATE ADDITIVE RE-PIN (W4-013 B7): the worker reports a FOURTH independent write.
+    expect(out).toEqual({ bucket: true, posterior: false, novelty: false, weights: false });
   });
 
   test('a bad clock writes nothing at all, novelty included', async () => {
     const repo = spyRepo();
     const worker = load(repo);
     const out = await worker.process({ data: { userId: 'u1', bucket, reward: -1, novelty: { alpha: 0, beta: 1 }, at: 'yesterday' } });
-    expect(out).toEqual({ bucket: false, posterior: false, novelty: false });
+    expect(out).toEqual({ bucket: false, posterior: false, novelty: false, weights: false });
     expect(repo.calls).toHaveLength(0);
   });
 });
