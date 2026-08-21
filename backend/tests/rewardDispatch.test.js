@@ -156,7 +156,10 @@ describe('rewardIngest.worker — the write side', () => {
       at: AT,
     }));
 
-    expect(out).toEqual({ bucket: true, posterior: true });
+    // W4-013 re-pin: the worker now reports a THIRD independent write (the novelty posterior).
+    // Additive — the bucket/posterior guarantees below are unchanged, and a job that carries no
+    // novelty observation reports `false` exactly the way a job with no posterior always has.
+    expect(out).toEqual({ bucket: true, posterior: true, novelty: false });
     expect(rewardRepo.recordBucketReward).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'u1', reward: 0.42, at: new Date(AT) }),
     );
@@ -170,14 +173,15 @@ describe('rewardIngest.worker — the write side', () => {
       v: 1, userId: 'u1', bucket: null, reward: 0, posterior: { recordingKey: 'mbid:9f4a', alpha: 0, beta: 1 }, at: AT,
     }));
 
-    expect(out).toEqual({ bucket: false, posterior: true });
+    expect(out).toEqual({ bucket: false, posterior: true, novelty: false });
     expect(rewardRepo.recordBucketReward).not.toHaveBeenCalled();
   });
 
   test('an empty or malformed job writes nothing rather than throwing', async () => {
-    await expect(rewardIngestWorker.process(undefined)).resolves.toEqual({ bucket: false, posterior: false });
-    await expect(rewardIngestWorker.process(job({}))).resolves.toEqual({ bucket: false, posterior: false });
-    await expect(rewardIngestWorker.process(job({ userId: 'u1', at: 'not-a-time' }))).resolves.toEqual({ bucket: false, posterior: false });
+    const nothing = { bucket: false, posterior: false, novelty: false };
+    await expect(rewardIngestWorker.process(undefined)).resolves.toEqual(nothing);
+    await expect(rewardIngestWorker.process(job({}))).resolves.toEqual(nothing);
+    await expect(rewardIngestWorker.process(job({ userId: 'u1', at: 'not-a-time' }))).resolves.toEqual(nothing);
     expect(rewardRepo.recordBucketReward).not.toHaveBeenCalled();
     expect(rewardRepo.recordTrackOutcome).not.toHaveBeenCalled();
   });

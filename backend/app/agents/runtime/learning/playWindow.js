@@ -1,6 +1,7 @@
 'use strict';
 
 const { BANDS } = require('../knowledge/stateTaxonomy');
+const { recordingKeyOf } = require('../../../services/features/featureProvider');
 
 /**
  * W4-011 · the play-window tracker.
@@ -49,6 +50,13 @@ const MAX_SAMPLES = 300;
  */
 const MAX_SAMPLE_AGE_MS = 20 * 60 * 1000;
 
+/**
+ * W4-013 · a bound on the per-socket role table. Real playlists are `PLAYLIST_SIZE` (50 by
+ * default); 200 is far above any of them and still keeps the set flat under a caller that hands
+ * over something unbounded (§0.4 S10).
+ */
+const MAX_DISCOVERY_KEYS = 200;
+
 /** One of each scoreable type is the most a single play can honestly contribute. */
 const MAX_PENDING_EVENTS = 3;
 
@@ -59,6 +67,44 @@ const isFiniteNumber = (x) => typeof x === 'number' && Number.isFinite(x);
 
 function createPlayWindowState() {
   return { openedAtMs: null, context: null, samples: [], pendingEvents: [], trackKey: null };
+}
+
+/**
+ * W4-013 (B5) · which of the tracks just served were a GAMBLE.
+ *
+ * The novelty bandit's whole question is whether spending a slot on music the listener has never
+ * heard pays off in this context, and only the serve knows which slots those were — by the time a
+ * `playback_event` arrives, the track is just a key. So the roles are captured once, at serve
+ * time, and read back per play.
+ *
+ * Keyed the way the client names tracks: `canonicalKey` when the pipeline attached one, otherwise
+ * the shared `recordingKeyOf` projection — imported rather than re-derived, so this is not a
+ * fourth place that decides what a track is called.
+ */
+function discoveryKeysOf(tracks) {
+  const out = new Set();
+  if (!Array.isArray(tracks)) return out;
+  for (const t of tracks) {
+    if (!t || t.isDiscovery !== true) continue;
+    const key = typeof t.canonicalKey === 'string' && t.canonicalKey ? t.canonicalKey : recordingKeyOf(t);
+    if (typeof key === 'string' && key) out.add(key);
+    if (out.size >= MAX_DISCOVERY_KEYS) break;
+  }
+  return out;
+}
+
+/**
+ * W4-013 · the role of the track this play belongs to, as a TRI-state.
+ *
+ * `null` is the load-bearing one. Today's shipped client forwards `track_skipped` with no track
+ * key at all, so which track ended is genuinely unknown — and a window opened before this feature
+ * existed (or by a socket that reconnected mid-playlist) knows no roles either. Collapsing either
+ * case to `false` would let silence vote, over and over, that novelty was not involved.
+ */
+function _roleOf(context, trackKey) {
+  const keys = context?.discoveryKeys;
+  if (!(keys instanceof Set) || typeof trackKey !== 'string' || !trackKey) return null;
+  return keys.has(trackKey);
 }
 
 /**
@@ -179,6 +225,7 @@ function noteEvent(state, event, nowMs) {
     targetBand: s.context?.targetBand ?? null,
     hourOfDay: s.context?.hourOfDay ?? null,
     recordingKey: trackKey,
+    wasDiscovery: _roleOf(s.context, trackKey),
   };
 
   // The next track starts the moment this one ended.
@@ -190,6 +237,8 @@ function noteEvent(state, event, nowMs) {
 
 module.exports = {
   MAX_SAMPLES,
+  MAX_DISCOVERY_KEYS,
+  discoveryKeysOf,
   MAX_SAMPLE_AGE_MS,
   MAX_PENDING_EVENTS,
   TERMINAL_EVENT_TYPES,

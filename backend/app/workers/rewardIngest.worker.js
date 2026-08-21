@@ -22,10 +22,10 @@ const rewardRepo = require('../repositories/rewardRepo');
  * context bucket.
  */
 async function process(job) {
-  const { userId, bucket = null, reward = null, posterior = null, at = null } = job?.data ?? {};
+  const { userId, bucket = null, reward = null, posterior = null, novelty = null, at = null } = job?.data ?? {};
 
   const when = typeof at === 'number' && Number.isFinite(at) ? new Date(at) : null;
-  if (!when || Number.isNaN(when.valueOf())) return { bucket: false, posterior: false };
+  if (!when || Number.isNaN(when.valueOf())) return { bucket: false, posterior: false, novelty: false };
 
   const bucketWritten = bucket
     ? await rewardRepo.recordBucketReward({ userId, bucket, reward, at: when })
@@ -39,7 +39,15 @@ async function process(job) {
     })
     : false;
 
-  return { bucket: bucketWritten, posterior: posteriorWritten };
+  // W4-013 (B5). A third independent write, for the same reason Track A and Track B are
+  // independent: a play can teach the novelty bandit without producing a usable Beta delta for a
+  // recording, and vice versa. It shares Track A's bucket address, so a job with no bucket has
+  // nowhere to file it and `recordNoveltyOutcome` refuses it fail-closed.
+  const noveltyWritten = novelty
+    ? await rewardRepo.recordNoveltyOutcome({ userId, bucket, delta: novelty, at: when })
+    : false;
+
+  return { bucket: bucketWritten, posterior: posteriorWritten, novelty: noveltyWritten };
 }
 
 module.exports = { process };

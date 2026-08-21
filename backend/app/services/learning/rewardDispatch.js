@@ -1,6 +1,7 @@
 'use strict';
 
 const { evaluatePlay, FEEDBACK_LOOP_VERSION } = require('../../agents/runtime/learning/feedbackLoop');
+const { outcomeDelta } = require('../../agents/runtime/knowledge/noveltyController');
 const { QUEUES } = require('../../queues/definitions');
 const { enqueue } = require('../../queues/queue');
 
@@ -45,7 +46,7 @@ function feedbackDisabled() {
 }
 
 /** The closed payload contract. Pinned by test; see the header for why it matters. */
-const REWARD_JOB_KEYS = Object.freeze(['v', 'userId', 'bucket', 'reward', 'posterior', 'at']);
+const REWARD_JOB_KEYS = Object.freeze(['v', 'userId', 'bucket', 'reward', 'posterior', 'novelty', 'at']);
 
 const REWARD_JOB_VERSION = FEEDBACK_LOOP_VERSION;
 
@@ -73,6 +74,15 @@ async function dispatchReward({ userId, play, atMs } = {}) {
       return { dispatched: false, reason: verdict.reason ?? 'no-signal', verdict };
     }
 
+    // W4-013 (B5): the same play, read as an answer to a DIFFERENT question — was gambling a
+    // slot on unfamiliar music worth it here. The rule is the bandit's own (`outcomeDelta`), not
+    // a second copy of it: if the controller changes its mind about what counts as evidence, this
+    // lane changes with it. Gated on `verdict.usable` because the posterior is stored ON the
+    // bucket row, so a play that cannot be filed under a bucket has nowhere to teach.
+    const novelty = verdict.usable
+      ? outcomeDelta({ wasDiscovery: play.wasDiscovery, reward: verdict.reward })
+      : null;
+
     const result = await enqueue(QUEUES.REWARD_INGEST, {
       v: REWARD_JOB_VERSION,
       userId: String(userId),
@@ -82,6 +92,7 @@ async function dispatchReward({ userId, play, atMs } = {}) {
       bucket: verdict.usable ? verdict.bucket : null,
       reward: verdict.usable ? verdict.reward : 0,
       posterior: verdict.posterior,
+      novelty,
       at: atMs,
     });
 
