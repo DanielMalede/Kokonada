@@ -14,6 +14,11 @@ const { filterBand } = require('./biosonicBand');
 const { planTrajectory, DISABLE_ENV_VAR: TRAJECTORY_DISABLED } = require('../../agents/runtime/delivery/trajectoryPlanner');
 const { recordingKeyOf, featuresOf } = require('../features/featureProvider');
 const vectorIndex = require('../vector/vectorIndex');
+const rewardRepo = require('../../repositories/rewardRepo');
+const { bucketOf } = require('../../agents/runtime/learning/feedbackLoop');
+// Namespace import for the same reason `shadowCompare` uses one: this is an OPTIONAL layer whose
+// failure must be provably non-fatal, and a test can only stub a throwing read through the module.
+const novelty = require('../../agents/runtime/knowledge/noveltyController');
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR → trajectory.
 // Zero LLM in the path. When filters would starve the playlist, a relaxation
@@ -209,9 +214,40 @@ async function selectPlaylist({
     }
   }
 
+  // Stage 4c: W4-013 (B5) — the novelty quota.
+  //
+  // This is the ONE place the pipeline has ever actually SET a discovery ratio. Before it, the
+  // discovery share was emergent: candidates were fetched, given a flat `W.discovery` bonus, and
+  // whatever survived MMR survived. That is a fine default and it is still what happens whenever
+  // the bandit abstains — the quota is a CEILING laid over the existing ranking, never a floor
+  // and never a re-ranking.
+  //
+  // It is applied BEFORE MMR rather than after, because trimming afterwards would leave holes:
+  // dropping three discovery picks from a finished playlist of k serves k−3 tracks. Cutting the
+  // candidate pool instead lets MMR fill those slots with the next-best familiar tracks, so the
+  // listener gets a full playlist either way. Discovery candidates are ranked by the score they
+  // just earned, so a quota of 3 keeps the three BEST gambles rather than the first three seen.
+  let noveltyStats = null;
+  let selectable = scored;
+  if (novelty.enabled(process.env)) {
+    const tNovelty = Date.now();
+    noveltyStats = await _planNoveltyQuota({ userId, targets, k, scored });
+    if (noveltyStats.budget != null) {
+      const discovery = scored.filter((s) => s.track?.isDiscovery);
+      if (discovery.length > noveltyStats.budget) {
+        const keep = new Set(
+          [...discovery].sort((a, b) => b.total - a.total).slice(0, noveltyStats.budget).map((s) => s.track),
+        );
+        selectable = scored.filter((s) => !s.track?.isDiscovery || keep.has(s.track));
+      }
+      noveltyStats.kept = Math.min(discovery.length, noveltyStats.budget);
+    }
+    mark('novelty', tNovelty);
+  }
+
   // Stage 5: MMR diversity selection.
   t = Date.now();
-  const picks = select(scored, { k });
+  const picks = select(selectable, { k });
   mark('mmr', t);
 
   // Stage 6: trajectory sequencing (W4-008). MMR chose WHICH tracks; this chooses the ORDER,
@@ -249,10 +285,47 @@ async function selectPlaylist({
         folded: trajectory.folded,
       },
       stageMs,
+      // W4-013: present ONLY when the bandit is switched on, so the default telemetry object is
+      // unchanged for every deployment that has not opted in (the S12 shadow precedent).
+      ...(noveltyStats ? { novelty: noveltyStats } : {}),
       // Present ONLY under SCORING_V2_SHADOW, so the default telemetry object is unchanged.
       ...(shadowStats ? { shadow: shadowStats } : {}),
     },
   };
+}
+
+/**
+ * W4-013 · resolve this generation's novelty budget, or abstain.
+ *
+ * Every abstention is NAMED rather than collapsed into a bare null, because the three reasons are
+ * operationally different things: `no-bucket` means this generation has no context to learn about
+ * (a Manual request with no band), `no-evidence` means the bandit has never seen this context, and
+ * `error` means the store is unwell. A dark-launched feature whose telemetry cannot tell those
+ * apart is indistinguishable from one that is silently doing nothing.
+ *
+ * Wrapped, and deliberately so: this is an optional overlay on the serving path, and a learner
+ * that can turn a Mongo hiccup into a failed playlist is a liability, not an improvement (the
+ * `shadowCompare` precedent one stage above).
+ */
+async function _planNoveltyQuota({ userId, targets, k, scored }) {
+  const considered = scored.reduce((n, s) => n + (s.track?.isDiscovery ? 1 : 0), 0);
+  const base = { budget: null, theta: null, reason: null, considered, kept: 0 };
+
+  const bucket = bucketOf({
+    stateId: targets.stateId ?? null,
+    targetBand: targets.tempoBand ?? null,
+    hourOfDay: targets.hourOfDay ?? null,
+  });
+  if (!bucket || !userId) return { ...base, reason: 'no-bucket' };
+
+  try {
+    const posterior = await rewardRepo.readNoveltyPosterior({ userId, bucket });
+    const plan = novelty.planNovelty({ posterior, k, rng: Math.random });
+    return { ...base, budget: plan.budget, theta: plan.theta, reason: plan.reason };
+  } catch (e) {
+    console.error('[selection.novelty] posterior read failed, generation unaffected:', e.message);
+    return { ...base, reason: 'error' };
+  }
 }
 
 module.exports = { selectPlaylist };

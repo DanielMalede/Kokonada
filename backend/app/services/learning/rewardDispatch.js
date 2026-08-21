@@ -77,11 +77,15 @@ async function dispatchReward({ userId, play, atMs } = {}) {
     // W4-013 (B5): the same play, read as an answer to a DIFFERENT question — was gambling a
     // slot on unfamiliar music worth it here. The rule is the bandit's own (`outcomeDelta`), not
     // a second copy of it: if the controller changes its mind about what counts as evidence, this
-    // lane changes with it. Gated on `verdict.usable` because the posterior is stored ON the
-    // bucket row, so a play that cannot be filed under a bucket has nowhere to teach.
-    const novelty = verdict.usable
-      ? outcomeDelta({ wasDiscovery: play.wasDiscovery, reward: verdict.reward })
-      : null;
+    // lane changes with it.
+    //
+    // There is deliberately NO `verdict.usable` guard here, though the first draft had one. It was
+    // provably dead: `evaluatePlay` already reports `reward: 0` for any play it could not file
+    // under a bucket, and `outcomeDelta` treats an exactly-neutral reward as no evidence — so the
+    // guard could not change an outcome, and a mutation removing it was undetectable by any test.
+    // The real containment is downstream and fail-closed: the novelty posterior lives ON the
+    // bucket row, so `rewardRepo.recordNoveltyOutcome` refuses a write it cannot address.
+    const novelty = outcomeDelta({ wasDiscovery: play.wasDiscovery, reward: verdict.reward });
 
     const result = await enqueue(QUEUES.REWARD_INGEST, {
       v: REWARD_JOB_VERSION,
