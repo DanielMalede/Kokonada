@@ -138,3 +138,81 @@ Centring also fixes the ~0.99 collapse: cosine now spans `[-1, 1]` and discrimin
   touching a single stored feature value.
 - **Keeping one jointly-normalised block and simply capping tag count.** Caps the symptom; two
   tracks with 1 and 3 tags still disagree about their own energy.
+
+---
+
+## Addendum — the wiring half (session 55)
+
+The core above decided the geometry. This addendum records the three decisions the plumbing forced,
+because each of them is invisible in the diff and expensive to rediscover.
+
+### 1. One resolver decides which space is live, and it decides for everyone
+
+A vector search compares two things that must live in the same space: the **query vector** we build
+and the **index + path** we search it against. Those were two independent decisions in two modules
+(`discovery/targetVector.js` and `vector/mongoAtlasVectorAdapter.js`), and the failure when they
+disagree is the worst kind available here:
+
+- **dims differ (70 vs 135)** — `$vectorSearch` throws, the adapter's `catch` degrades to `[]`, and
+  discovery is silently OFF with no error anywhere;
+- **dims coincide** (a future v3 sized like v1) — no failure at all, just a coordinate-wise
+  comparison of two unrelated geometries returning confident nonsense.
+
+So neither module reads the flag. `services/vector/embeddingSpace.js` owns a frozen record per space
+binding the four things that must move together — path, dim, model tag, index-name env — and
+`discoveryVectorService.find()` resolves it **once per call** and passes the same value to the query
+builder and to `queryNear`. `pipeline`'s MMR embedding load reads the same resolver, so a single
+generation can never judge similarity in one space while retrieving from another. A half-flipped
+cutover is now structurally impossible rather than merely unlikely.
+
+`EMBEDDING_V2_READ` on while `EMBEDDING_V2_WRITE` is off is honoured (an operator may be mid-cutover
+with a finished backfill) but warned about once: it is the one misconfiguration that looks like
+success — new tracks stop entering the index, which goes stale with no symptom but slowly thinner
+discovery.
+
+### 2. The backfill re-enqueues; it does not build vectors itself
+
+The obvious backfill reads features and genres and writes vectors directly. That would create a
+second place that builds a stored vector, with its own copy of the `spotify:`/`youtube:` ToS gate,
+its own genre lookup and its own model tag — and a second place is a second thing to drift. The repo
+already made this call once for the same reason (`reembedCorpus.js`), so `backfillEmbeddingV2.js`
+scans for rows with no `vectorV2` and re-enqueues them onto `EMBEDDING_BUILD`, where the one writer
+writes. Resumability is the filter itself (`{vectorV2: {$exists: false}}`), so a killed run resumes
+with no bookkeeping and a finished run scans to zero.
+
+The cost of that choice, stated honestly: the worker resolves the IDF table through `idfStats.peek()`
+(6h cache), so a long run rebuilds the table a few times instead of once. Accepted, and bounded by
+the maths — document frequencies over a near-static catalogue move by `O(1/N)` between refreshes, the
+genre block is L2-normalised per vector so a uniform weight shift divides straight back out, and what
+survives is far below the scale at which cosine discriminates. Re-running is idempotent, so any row
+built against a stale table can simply be rebuilt.
+
+The script refuses to start when `EMBEDDING_V2_WRITE` is off, because otherwise it would re-embed the
+whole corpus, write no v2 vector, and report a confident "done".
+
+### 3. Annotation MATCH is worth exactly 0.8 — the second cutover prerequisite
+
+Measured, not derived after the fact (`tests/wave4.embeddingV2Wiring.test.js`, section 7):
+
+| query | vs untagged candidate | vs tagged candidate |
+|---|---|---|
+| feature-only (`DISCOVERY_FEATURE_ONLY_TARGET` default) | **1.00** | **0.80** |
+| genre-seeded | 0.80 | 1.00 |
+
+A v2 vector's genre block is `0.6` of a unit vector when the track is tagged and **exactly zero**
+when it is not, so the query and the candidate must agree about whether genre evidence exists. The
+`0.8` is not an estimate — it is the composition weight.
+
+Neither direction is a defect, and neither is fixable by tuning a weight: it is what cosine length
+normalisation *means* when a document carries a field the query does not. Giving untagged tracks a
+synthetic "unknown" bin would cancel the factor and is rejected for the reason the core rejects
+everywhere else — it fabricates a genre direction, and it would make all untagged tracks mutually
+similar in genre space.
+
+What it changes is the cutover. The corpus is ~98% genre-less, so a genre-seeded v2 query hands ~98%
+of the corpus a flat `0.8` handicap — the PR #135 starvation mechanism wearing a different hat —
+while a feature-only v2 query systematically buries the annotated slice v2 exists to exploit.
+`DISCOVERY_FEATURE_ONLY_TARGET` and `DISCOVERY_MIN_COSINE` therefore **stop being independent
+settings** the moment `EMBEDDING_V2_READ` flips, and must be swept together with
+`app/scripts/measureDiscoveryComposition.js` rather than one at a time. Recorded in H13 next to the
+floor retune.
