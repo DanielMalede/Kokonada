@@ -71,6 +71,16 @@ async function purgeWearableData(userId, provider) {
   //     that is not wearable-derived, which is over-erasure, not caution. It stays; account
   //     deletion still removes it in full (`erasure.js`).
   //
+  // 2c. PersonalWeights (W4-013 B7, S5) is registered here as a DELIBERATE EXCLUSION for the
+  //     SAME reason as RewardEvent above, and it is worth stating rather than inheriting. The
+  //     overlay is four MUSIC-RANKING coefficients, not a physiological aggregate: it is moved by
+  //     the same combined reward, whose behavioural half (skip / complete / save) no wearable ever
+  //     touched, and whose biometric half is only ever one of two contributions. It also has no
+  //     `source` field to scope a delete by, because a scoring weight has no provider. Dropping a
+  //     listener's whole learned ranking because they unpaired one watch would be over-erasure of
+  //     data that is not wearable-derived. It stays; account deletion still removes it in full
+  //     (`erasure.js`), and §M.15's shrink-to-global takes it back to the default on its own.
+  //
   // 3. Invalidate the derived Redis baseline blob so the next generation recomputes from
   //    whatever remains (best-effort — a Redis outage must not fail the erasure; TTL cleans up).
   try {

@@ -11,6 +11,7 @@ const VitalSample = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const MorningState = require('../../models/MorningState');
 const { RewardEvent } = require('../../models/RewardEvent');
+const { PersonalWeights } = require('../../models/PersonalWeights');
 const MusicProfile = require('../../models/MusicProfile');
 const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
@@ -48,6 +49,11 @@ async function eraseUserChildData(userId) {
     // collection `TrackPosterior` is deliberately NOT here: it is a GLOBAL, CC0-only,
     // userId-less corpus artifact on the same footing as the caches named above.
     RewardEvent.deleteMany({ userId }),
+    // The listener's learned scoring overlay (W4-013 B7, S5) — four music-ranking coefficients,
+    // registered in the same task that created the collection. Erasing it is also the cleanest
+    // possible reset: a missing row IS the cold start, so the account comes back to exactly the
+    // global weights a brand-new listener gets.
+    PersonalWeights.deleteMany({ userId }),
     MusicProfile.deleteMany({ userId }),
     PlaylistSession.deleteMany({ userId }),
     ServeEvent.deleteMany({ userId }),
