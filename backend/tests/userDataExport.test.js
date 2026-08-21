@@ -12,6 +12,7 @@ const BiometricLog    = require('../app/models/BiometricLog');
 const VitalSample     = require('../app/models/VitalSample');
 const MedicalProfile  = require('../app/models/MedicalProfile');
 const MorningState    = require('../app/models/MorningState');
+const { RewardEvent } = require('../app/models/RewardEvent');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent      = require('../app/models/ServeEvent');
@@ -35,6 +36,7 @@ beforeEach(() => {
   stubFind(VitalSample, [new VitalSample({ userId: OID, metric: 'hrv', value: 63, source: 'garmin', recordedAt: new Date() })]);
   stubFind(MedicalProfile, []);
   stubFind(MorningState, []);
+  stubFind(RewardEvent, []);   // W4-011, ADR-0012 Track A
   stubFind(MusicProfile, []);
   stubFind(PlaylistSession, [new PlaylistSession({
     userId: OID, emotionTaps: [{ x: 0, y: 0 }], contextPrompt: 'private note', musicProvider: 'spotify',
@@ -55,7 +57,7 @@ afterEach(() => jest.restoreAllMocks());
 describe('exportUserData', () => {
   it('scopes every collection query to the subject userId (never another user)', async () => {
     await exportUserData(OID);
-    for (const model of [BiometricLog, VitalSample, MedicalProfile, MorningState, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
+    for (const model of [BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
       expect(model.find).toHaveBeenCalledWith({ userId: OID });
     }
     expect(User.findById).toHaveBeenCalledWith(OID);
@@ -89,7 +91,7 @@ describe('exportUserData', () => {
     const out = await exportUserData(OID);
     expect(Object.keys(out.collections).sort()).toEqual([
       'biometriclogs', 'consentrecords', 'identities', 'medicalprofiles', 'morningstates', 'musicprofiles',
-      'vitalsamples',
+      'vitalsamples', 'rewardevents',
       'playlistsessions', 'refreshtokens', 'serveevents', 'unclassifiedtracks',
     ].sort());
   });

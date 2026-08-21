@@ -59,6 +59,18 @@ async function purgeWearableData(userId, provider) {
     morningStates = morning?.deletedCount ?? 0;
   }
 
+  // 2b. RewardEvent (W4-011, ADR-0012 Track A, S5) is registered here as a DELIBERATE
+  //     EXCLUSION, and the reasoning is the point rather than the omission. It looks like the
+  //     same category as MorningState — a per-user derived aggregate with no `source` field —
+  //     but it is not derived solely from the wearable. A bucket's coordinates are
+  //     {stateDomain, targetBand, hourBin}, and the taxonomy resolves a state DEGRADED (from
+  //     mood taps and the clock alone) when no wrist signal exists at all — `stateTaxonomy`'s
+  //     own `degraded` flag is exactly that guarantee. Half of each bucket's evidence is
+  //     behavioural (skip / complete / save), which no wearable ever touched. So dropping a
+  //     user's whole learned personalization because they unpaired one watch would erase data
+  //     that is not wearable-derived, which is over-erasure, not caution. It stays; account
+  //     deletion still removes it in full (`erasure.js`).
+  //
   // 3. Invalidate the derived Redis baseline blob so the next generation recomputes from
   //    whatever remains (best-effort — a Redis outage must not fail the erasure; TTL cleans up).
   try {

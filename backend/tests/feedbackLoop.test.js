@@ -225,6 +225,24 @@ describe('W4-011 · feedbackLoop — biometric reward abstention (never over-cor
     expect(r2.value).toBe(-1);
   });
 
+  // The σ FLOOR, pinned on its own because the "noisy window" pin below does NOT catch its
+  // removal (both sides just saturate). Without the floor σ is the pure OLS standard error,
+  // which a long clean window drives toward zero — so a physiologically trivial 0.2 bpm/min
+  // departure would score a MAXIMAL +1 and the reward would collapse into a sign bit.
+  it('does not celebrate a trivial divergence just because it was measured precisely', () => {
+    const r = fb.biometricReward({
+      samples: window({ n: 41, spanSec: 600, slope: -0.2 / 60 }),
+      expectedSlope: 0,
+      archetype: 'meet-then-lower',
+    });
+    expect(r.usable).toBe(true);
+    expect(r.value).toBeGreaterThan(0);
+    expect(r.value).toBeLessThan(0.25);
+    // …and the floor is what holds it there, not the measurement.
+    expect(r.sigma).toBeGreaterThan(fb.SLOPE_SCALE_BPM_PER_SEC);
+    expect(r.sigma).toBeLessThan(fb.SLOPE_SCALE_BPM_PER_SEC * 1.1);
+  });
+
   it('discounts a noisy window: the same divergence earns LESS when the slope is badly measured', () => {
     const clean = fb.biometricReward({ samples: window({ n: 41, spanSec: 240, slope: -0.02 }), expectedSlope: 0, archetype: 'meet-then-lower' });
     const thin = fb.biometricReward({ samples: window({ n: 5, spanSec: 120, slope: -0.02 }), expectedSlope: 0, archetype: 'meet-then-lower' });

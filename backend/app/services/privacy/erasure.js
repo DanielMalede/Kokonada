@@ -10,6 +10,7 @@ const BiometricLog = require('../../models/BiometricLog');
 const VitalSample = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const MorningState = require('../../models/MorningState');
+const { RewardEvent } = require('../../models/RewardEvent');
 const MusicProfile = require('../../models/MusicProfile');
 const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
@@ -42,6 +43,11 @@ async function eraseUserChildData(userId) {
     // Nightly consolidated readiness/sleep-debt/cosinor/CUSUM history (W4-012, S5) — registered
     // in the same task that created the collection.
     MorningState.deleteMany({ userId }),
+    // Learned context-bucket rewards (W4-011, ADR-0012 Track A, S5) — the user's OWN
+    // personalization, registered in the same task that created the collection. Its sibling
+    // collection `TrackPosterior` is deliberately NOT here: it is a GLOBAL, CC0-only,
+    // userId-less corpus artifact on the same footing as the caches named above.
+    RewardEvent.deleteMany({ userId }),
     MusicProfile.deleteMany({ userId }),
     PlaylistSession.deleteMany({ userId }),
     ServeEvent.deleteMany({ userId }),
