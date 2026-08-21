@@ -14,6 +14,7 @@ const { filterBand } = require('./biosonicBand');
 const { planTrajectory, DISABLE_ENV_VAR: TRAJECTORY_DISABLED } = require('../../agents/runtime/delivery/trajectoryPlanner');
 const { recordingKeyOf, featuresOf } = require('../features/featureProvider');
 const vectorIndex = require('../vector/vectorIndex');
+const embeddingSpace = require('../vector/embeddingSpace');
 const rewardRepo = require('../../repositories/rewardRepo');
 const { bucketOf } = require('../../agents/runtime/learning/feedbackLoop');
 // Namespace import for the same reason `shadowCompare` uses one: this is an OPTIONAL layer whose
@@ -95,7 +96,11 @@ async function selectPlaylist({
       featureRepo.getMany(recordingKeys),
       ledger.getExposure(userId, canonicalKeys, now),
       // Embeddings are an MMR enhancement — a vector-index failure never blocks.
-      vectorIndex.getMany(recordingKeys).catch(() => new Map()),
+      // Read from the SAME space discovery queries (W4-014): if MMR compared v1 vectors while
+      // discovery retrieved from the v2 index, one generation would be judging similarity in two
+      // unrelated geometries at once. A track with no vector in the live space simply has no
+      // embedding, and MMR falls back to feature distance — which it already handles.
+      vectorIndex.getMany(recordingKeys, { version: embeddingSpace.readVersion() }).catch(() => new Map()),
     ]);
   } catch (e) {
     console.error('[selection] feature/exposure load degraded:', e.message);

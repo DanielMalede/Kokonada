@@ -9,8 +9,10 @@ let _adapter = null;
 function use(adapter) { _adapter = adapter; }
 const _a = () => _adapter ?? mongoAdapter;
 
-const upsertMany = (docs)          => _a().upsertMany(docs);
-const getMany    = (recordingKeys) => _a().getMany(recordingKeys);
-const queryNear  = (vector, opts)  => _a().queryNear(vector, opts);
+// `opts` (W4-014: `{version}`) is forwarded verbatim — the port stays a pass-through and never
+// decides which embedding space is live; `embeddingSpace` does, at the call site.
+const upsertMany = (docs)                => _a().upsertMany(docs);
+const getMany    = (recordingKeys, opts) => _a().getMany(recordingKeys, opts);
+const queryNear  = (vector, opts)        => _a().queryNear(vector, opts);
 
 module.exports = { use, upsertMany, getMany, queryNear };

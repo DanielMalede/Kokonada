@@ -29,19 +29,18 @@
 // ZERO-KNOWLEDGE (§0.2.2): everything here is a scoring statistic. No vitals, no track
 // identity, no userId enters the emitted line — the key set is closed and pinned by test.
 
-/** Enable-flag spellings that mean OFF. Anything else non-empty means ON. */
-const FALSEY = /^(0|false|no|off)$/i;
+const { enabled: enableFlag } = require('../../utils/envFlag');
 
 /**
  * S12's flag. Deliberately NOT `Boolean(env.X)` like the S11 kill-switches: those are DISABLE
  * flags, where any spelling erring toward "old behaviour" is safe. This is an ENABLE flag, and
  * `SCORING_V2_SHADOW=0` turning the diagnostic ON would be the W4-D05 failure in reverse.
+ *
+ * The spelling table moved to `utils/envFlag` in W4-014 so this flag and the two embedding-v2
+ * flags cannot disagree about what "off" means; the behaviour here is unchanged.
  */
 function shadowEnabled(env = process.env) {
-  const raw = env?.SCORING_V2_SHADOW;
-  if (typeof raw !== 'string') return false;
-  const v = raw.trim();
-  return v !== '' && !FALSEY.test(v);
+  return enableFlag(env?.SCORING_V2_SHADOW);
 }
 
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);

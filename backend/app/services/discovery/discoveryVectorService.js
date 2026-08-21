@@ -2,6 +2,8 @@
 'use strict';
 
 const vectorIndex = require('../vector/vectorIndex');
+const embeddingSpace = require('../vector/embeddingSpace');
+const idfStats = require('../vector/idfStats');
 const trackCatalogRepo = require('../../repositories/trackCatalogRepo');
 const audioFeatureRepo = require('../../repositories/audioFeatureRepo');
 const { buildTargetVector } = require('./targetVector');
@@ -118,9 +120,20 @@ async function find(opts = {}) {
     } catch { /* metric must never affect delivery */ }
   };
   try {
-    const target = buildTargetVector(targetFeatures, seedGenres);
+    // ONE resolution of the live space, used for BOTH the query vector and the index it is
+    // searched against (W4-014). Reading the flag twice — once here, once inside the adapter —
+    // would be a latent half-flip: a 135-dim vector against a 70-dim index throws, the catch
+    // below degrades to [], and discovery is silently OFF with no error anywhere.
+    const version = embeddingSpace.readVersion();
+    // The IDF table is only meaningful in v2 and only when the caller seeded genres; resolving
+    // it otherwise would be a corpus read on the serving path for nothing.
+    const idf = version === 'v2' && seedGenres?.length ? await idfStats.peek() : null;
+    const target = buildTargetVector(targetFeatures, seedGenres, { version, idf });
+    // v2 abstains (null) on a target with no evidence at all. Searching with a zero/absent
+    // vector would rank the corpus arbitrarily rather than not at all.
+    if (!Array.isArray(target) || !target.length) { emit([], [], []); return []; }
     const hits = await withVectorBudget(
-      vectorIndex.queryNear(target, { k: Math.max(1, k * effOverfetch) }), budgetMs, []
+      vectorIndex.queryNear(target, { k: Math.max(1, k * effOverfetch), version }), budgetMs, []
     );
     // Threshold + exclude familiar (by canonicalKey).
     const kept = (hits || []).filter(h =>

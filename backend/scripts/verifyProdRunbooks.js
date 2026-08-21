@@ -6,6 +6,8 @@
 //
 //   Runbook 1: Atlas Vector Search index `track_embedding_index` exists on
 //              `trackembeddings`, path `vector`, numDimensions 70, cosine.
+//   Runbook 4: the v2 vector index `track_embedding_index_v2` on `trackembeddings`,
+//              path `vectorV2`, numDimensions 135, cosine - SKIPPED while v2 is dark.
 //   Runbook 2: the legacy compound index on `playlistsessions` is DROPPED.
 //   Runbook 3: Redis is reachable (PING) so the three queues can be consumed.
 
@@ -13,10 +15,13 @@ const { QUEUES } = require('../app/queues/definitions');
 // Bind the expected dimension to the REAL embedding contract rather than a magic
 // number — if buildVector's DIM ever changes, this verifier follows it and the
 // dedicated test fails loudly instead of silently checking the wrong value.
-const { DIM } = require('../app/services/vector/embedding');
+const { DIM, DIM_V2 } = require('../app/services/vector/embedding');
+const embeddingSpace = require('../app/services/vector/embeddingSpace');
 
 const EXPECTED_DIM = DIM; // 6 feature dims + 64-dim genre bag = 70
+const EXPECTED_DIM_V2 = DIM_V2; // 7-dim audio block + 128-dim IDF genre block = 135 (W4-014)
 const DEFAULT_VECTOR_INDEX = 'track_embedding_index';
+const DEFAULT_VECTOR_INDEX_V2 = 'track_embedding_index_v2';
 const LEGACY_PLAYLIST_INDEX = 'userId_1_moodKey_1_createdAt_-1';
 const EMBEDDINGS_COLLECTION = 'trackembeddings';
 const PLAYLIST_COLLECTION = 'playlistsessions';
@@ -29,7 +34,7 @@ const PLAYLIST_COLLECTION = 'playlistsessions';
 //   [] or no match  → FAIL (index genuinely missing; distinct from empty docs)
 //   present+valid   → PASS (holds even for an empty collection — we inspect index
 //                     metadata, not documents, so there is no [] false-green)
-function checkVectorIndex(searchIndexes, { indexName = DEFAULT_VECTOR_INDEX, expectedDim = EXPECTED_DIM } = {}) {
+function checkVectorIndex(searchIndexes, { indexName = DEFAULT_VECTOR_INDEX, expectedDim = EXPECTED_DIM, expectedPath = 'vector' } = {}) {
   if (searchIndexes == null) {
     return {
       status: 'SKIPPED',
@@ -50,8 +55,8 @@ function checkVectorIndex(searchIndexes, { indexName = DEFAULT_VECTOR_INDEX, exp
     return { status: 'FAIL', message: `index "${indexName}" exists but declares no vector-type field` };
   }
   const problems = [];
-  if (vectorField.path !== 'vector') {
-    problems.push(`path is "${vectorField.path}" (expected "vector")`);
+  if (vectorField.path !== expectedPath) {
+    problems.push(`path is "${vectorField.path}" (expected "${expectedPath}")`);
   }
   if (Number(vectorField.numDimensions) !== Number(expectedDim)) {
     problems.push(`numDimensions is ${vectorField.numDimensions} (expected ${expectedDim})`);
@@ -64,8 +69,39 @@ function checkVectorIndex(searchIndexes, { indexName = DEFAULT_VECTOR_INDEX, exp
   }
   return {
     status: 'PASS',
-    message: `index "${indexName}" is a vector index on path "vector" with ${expectedDim} dims (cosine)`,
+    message: `index "${indexName}" is a vector index on path "${expectedPath}" with ${expectedDim} dims (cosine)`,
   };
+}
+
+// Runbook 4 (W4-014) - the v2 vector index. Deliberately NOT the same check as Runbook 1,
+// because a MISSING v2 index means something completely different from a missing v1 one.
+//
+//   v2 is dark by default: EMBEDDING_V2_READ is off, nothing serves from that index, and it does
+//   not exist until Daniel performs the H13 portal action. Reporting FAIL for a deliberately
+//   absent index would teach the operator that this verifier is red in normal operation - which
+//   is how a genuinely red check gets ignored. So: absent + read OFF is SKIPPED (with the
+//   instruction), absent + read ON is a FAIL, because then discovery is querying an index that
+//   is not there and the adapter's catch is silently returning nothing.
+//
+//   An index that EXISTS but is wrong is ALWAYS a FAIL, flag or no flag: that is not an absence,
+//   it is a mistake, and it is cheapest to catch before the cutover rather than after.
+function checkVectorIndexV2(searchIndexes, { indexName = embeddingSpace.indexNameFor('v2'), expectedDim = EXPECTED_DIM_V2 } = {}) {
+  const readingV2 = embeddingSpace.readVersion() === 'v2';
+  if (searchIndexes == null) {
+    return { status: 'SKIPPED', message: `listSearchIndexes unsupported here (non-Atlas / older Mongo) - cannot verify "${indexName}"` };
+  }
+  const present = searchIndexes.some((i) => i && i.name === indexName);
+  if (!present && !readingV2) {
+    return {
+      status: 'SKIPPED',
+      message: `v2 index "${indexName}" is absent and EMBEDDING_V2_READ is OFF - embedding v2 is shipped dark, so this is expected. Create it (H13) before turning the read on.`,
+    };
+  }
+  const r = checkVectorIndex(searchIndexes, { indexName, expectedDim, expectedPath: embeddingSpace.V2.path });
+  if (r.status === 'FAIL' && !present) {
+    return { ...r, message: `${r.message} - EMBEDDING_V2_READ is ON, so discovery is querying an index that does not exist and is silently returning nothing.` };
+  }
+  return r;
 }
 
 // indexes: the array from collection.indexes(). The legacy compound index must be
@@ -117,6 +153,18 @@ async function runVectorIndexCheck(db) {
   return { name: `Runbook 1 — Atlas vector index "${indexName}" on ${EMBEDDINGS_COLLECTION}`, ...r };
 }
 
+async function runVectorIndexV2Check(db) {
+  const indexName = embeddingSpace.indexNameFor('v2');
+  let searchIndexes = null;
+  try {
+    searchIndexes = await db.collection(EMBEDDINGS_COLLECTION).listSearchIndexes().toArray();
+  } catch (err) {
+    searchIndexes = null;
+  }
+  const r = checkVectorIndexV2(searchIndexes, { indexName });
+  return { name: `Runbook 4 - Atlas v2 vector index "${indexName}" on ${EMBEDDINGS_COLLECTION}`, ...r };
+}
+
 async function runLegacyIndexCheck(db) {
   const indexes = await db.collection(PLAYLIST_COLLECTION).indexes();
   const r = checkLegacyIndexAbsent(indexes);
@@ -142,7 +190,7 @@ async function main() {
   const db = mongoose.connection.db;
 
   // Each runbook is isolated so one failure still reports the others.
-  for (const runner of [() => runVectorIndexCheck(db), () => runLegacyIndexCheck(db)]) {
+  for (const runner of [() => runVectorIndexCheck(db), () => runVectorIndexV2Check(db), () => runLegacyIndexCheck(db)]) {
     try {
       results.push(await runner());
     } catch (err) {
@@ -185,13 +233,17 @@ if (require.main === module) {
 
 module.exports = {
   checkVectorIndex,
+  checkVectorIndexV2,
   checkLegacyIndexAbsent,
   checkRedis,
   runVectorIndexCheck,
+  runVectorIndexV2Check,
   runLegacyIndexCheck,
   runRedisCheck,
   EXPECTED_DIM,
+  EXPECTED_DIM_V2,
   DEFAULT_VECTOR_INDEX,
+  DEFAULT_VECTOR_INDEX_V2,
   LEGACY_PLAYLIST_INDEX,
   EMBEDDINGS_COLLECTION,
   PLAYLIST_COLLECTION,
