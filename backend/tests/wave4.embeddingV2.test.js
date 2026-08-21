@@ -239,9 +239,15 @@ describe('W4-014 · D19 (a) tag-count invariance — the crush is structurally i
   });
 
   it('a duplicated genre does not double-weight its bin', () => {
-    const once = buildVectorV2(FEATURES, ['house'], { idf: STATS });
-    const twice = buildVectorV2(FEATURES, ['house', 'HOUSE', ' house '], { idf: STATS });
-    expect(twice).toEqual(once);
+    // A SECOND distinct genre is load-bearing here, and the mutation pass is what proved it:
+    // with `house` alone, the block L2-normalisation divides any duplication straight back out,
+    // so the pin passed even with the dedupe deleted. Duplication only bends the block's
+    // DIRECTION once there is another genre for it to out-vote.
+    const once = buildVectorV2(FEATURES, ['house', 'techno'], { idf: STATS });
+    const dup = buildVectorV2(FEATURES, ['house', 'HOUSE', ' house ', 'techno'], { idf: STATS });
+    expect(dup).toEqual(once);
+    // and the two genres really do land in different bins, so the fixture can discriminate
+    expect(genreOf(once).filter(x => x !== 0)).toHaveLength(2);
   });
 });
 
