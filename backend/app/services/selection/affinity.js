@@ -40,7 +40,9 @@ function tauDays() {
   return _tau;
 }
 
-/** S11 escape hatch: restores pre-W4-010 behaviour (no decay) with no revert and no restart. */
+// S11 escape hatch: restores pre-W4-010 behaviour (no decay) without a revert or a redeploy.
+// Read ONCE and memoized (like tauDays above, and like the scorer's weights), so a running
+// process picks the flag up on restart, not mid-process — `_resetDecayConfig()` is the test seam.
 function decayDisabled() {
   if (_disabled == null) _disabled = Boolean(process.env.WAVE4_AFFINITY_DECAY_DISABLED);
   return _disabled;
