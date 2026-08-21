@@ -4,7 +4,7 @@ const ledger = require('../ledger/serveLedger');
 const featureRepo = require('../../repositories/audioFeatureRepo');
 const { buildPool } = require('./candidatePool');
 const { applyHardFilters } = require('./hardFilters');
-const { scoreTrack, activeVersion } = require('./score');
+const { scoreTrack, activeVersion, resolveWeights } = require('./score');
 const { select } = require('./mmr');
 // Namespace import, not a destructure: the S12 block below is a DIAGNOSTIC whose failure must
 // be provable to be non-fatal, and a test can only stub a throwing compare through the module
@@ -19,6 +19,11 @@ const { bucketOf } = require('../../agents/runtime/learning/feedbackLoop');
 // Namespace import for the same reason `shadowCompare` uses one: this is an OPTIONAL layer whose
 // failure must be provably non-fatal, and a test can only stub a throwing read through the module.
 const novelty = require('../../agents/runtime/knowledge/noveltyController');
+// Namespace import for the same reason: W4-013's B7 overlay is an OPTIONAL layer on the serving
+// path whose failure must be provably non-fatal, and a test can only stub a throwing read through
+// the module object.
+const personalization = require('../../agents/runtime/learning/personalization');
+const personalWeightsRepo = require('../../repositories/personalWeightsRepo');
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR → trajectory.
 // Zero LLM in the path. When filters would starve the playlist, a relaxation
@@ -166,6 +171,14 @@ async function selectPlaylist({
   }
   mark('filters', t);
 
+  // Stage 3.5: W4-013 (B7) — this listener's scoring overlay, resolved ONCE.
+  //
+  // It costs a Mongo read, and the alternative — resolving it inside `scoreTrack` — would repeat
+  // that read for every candidate in the pool. The table it produces is then in force for the
+  // whole generation, which is also what makes the gradients below meaningful: a gradient has to
+  // be centred on the weights that actually ranked the track.
+  const personal = await _resolveOverlay({ userId, targets, now });
+
   // Stage 4: score.
   t = Date.now();
   const maxAffinity = filtered.reduce((m, tr) => Math.max(m, tr.affinity ?? 0), 0);
@@ -178,6 +191,7 @@ async function selectPlaylist({
       exposure,
       targetMoodKey: moodKey,
       now,
+      weights: personal.weights,
     }),
   }));
   mark('score', t);
@@ -268,6 +282,10 @@ async function selectPlaylist({
   stageMs.total = Date.now() - t0;
   return {
     tracks: ordered.map(p => p.track),
+    // W4-013 (B7) · the serve-time half of the write lane. NULL unless the overlay is switched
+    // on — the same posture as the novelty telemetry, so a deployment that has not opted in sees
+    // the pre-W4-013 return shape exactly. See `_gradientsOf` for why it is captured HERE.
+    gradients: personal.stats ? _gradientsOf(ordered, personal.table) : null,
     telemetry: {
       poolSize: pool.length,
       afterFilters: filtered.length,
@@ -288,6 +306,8 @@ async function selectPlaylist({
       // W4-013: present ONLY when the bandit is switched on, so the default telemetry object is
       // unchanged for every deployment that has not opted in (the S12 shadow precedent).
       ...(noveltyStats ? { novelty: noveltyStats } : {}),
+      // W4-013 (B7): likewise present ONLY when the overlay is switched on.
+      ...(personal.stats ? { personal: personal.stats } : {}),
       // Present ONLY under SCORING_V2_SHADOW, so the default telemetry object is unchanged.
       ...(shadowStats ? { shadow: shadowStats } : {}),
     },
@@ -326,6 +346,85 @@ async function _planNoveltyQuota({ userId, targets, k, scored }) {
     console.error('[selection.novelty] posterior read failed, generation unaffected:', e.message);
     return { ...base, reason: 'error' };
   }
+}
+
+/**
+ * W4-013 (B7) · resolve this listener's scoring overlay, or serve the global table.
+ *
+ * Returns `{weights, table, stats}`:
+ *   · `weights` is what `scoreTrack` should use — NULL means "use your own defaults", which is
+ *     the cold-start path and costs the scorer nothing;
+ *   · `table` is the weight table actually in force either way, which the gradient capture needs
+ *     (a gradient centred on weights that did not rank the track points the wrong direction);
+ *   · `stats` is telemetry, and is NULL when the feature is off so the returned telemetry object
+ *     stays byte-identical for every deployment that has not opted in.
+ *
+ * Every abstention is NAMED, for the reason the novelty stage names its own: `cold-start` means
+ * this listener has no row, `no-evidence` means they have one that has decayed back into global
+ * weights, and `error` means the store is unwell. A dark-launched learner whose telemetry cannot
+ * tell those apart is indistinguishable from one that is silently doing nothing.
+ *
+ * Wrapped, deliberately: an optional overlay that can turn a Mongo hiccup into a failed playlist
+ * is a liability, not an improvement (the `shadowCompare` / novelty precedent).
+ */
+async function _resolveOverlay({ userId, targets, now }) {
+  const { weights: table, legacy } = resolveWeights({ targets });
+  // The S11 scoring kill-switch restores the pre-W4-007 behaviour WHOLE. An overlay still running
+  // on top of the legacy tables would make that promise false, and §M.15's re-allocation is not
+  // even defined over them (they do not sum to 1).
+  if (legacy || !personalization.enabled(process.env)) return { weights: null, table, stats: null };
+
+  const base = { applied: false, reason: null, updates: 0 };
+  if (!userId) return { weights: null, table, stats: { ...base, reason: 'no-user' } };
+
+  try {
+    const row = await personalWeightsRepo.readWeights({ userId });
+    if (!row) return { weights: null, table, stats: { ...base, reason: 'cold-start' } };
+
+    const deltas = personalization.effectiveDeltas(row, { now });
+    const overlaid = personalization.overlay(table, deltas);
+    // Identity, not equality: `overlay` hands back the caller's OWN object when there is nothing
+    // to apply, which is what makes the dormancy invariant exact rather than approximate.
+    if (overlaid === table) {
+      return { weights: null, table, stats: { ...base, reason: 'no-evidence', updates: row.updates } };
+    }
+    const stats = { applied: true, reason: null, updates: row.updates };
+    console.warn(personalization.telemetryLine({ deltas, reason: null, updates: row.updates }));
+    return { weights: overlaid, table: overlaid, stats };
+  } catch (e) {
+    console.error('[selection.personal] overlay read failed, generation unaffected:', e.message);
+    return { weights: null, table, stats: { ...base, reason: 'error' } };
+  }
+}
+
+/**
+ * W4-013 (B7) · §M.15's `∂` for each track that was actually SERVED.
+ *
+ * Captured here, at serve time, for the same reason B5 captures the discovery role here: by the
+ * time a `playback_event` names a track, nothing remembers what the ranking thought of it. The
+ * gradient is a residual of the scorer's own output against the weights in force, and neither of
+ * those survives the request.
+ *
+ * Only the served tracks, so the list is bounded by `k` rather than by the candidate pool — a
+ * pool can be thousands of rows and none of the ones nobody heard can ever produce a reward.
+ *
+ * Keyed the way the client names tracks (`canonicalKey`, else the shared `recordingKeyOf`
+ * projection), so `playWindow` can look one up from a `playback_event` without a fourth opinion
+ * about what a track is called.
+ */
+function _gradientsOf(picks, table) {
+  const out = [];
+  for (const p of picks) {
+    const track = p?.track;
+    if (!track) continue;
+    const key = typeof track.canonicalKey === 'string' && track.canonicalKey
+      ? track.canonicalKey
+      : recordingKeyOf(track);
+    if (typeof key !== 'string' || !key) continue;
+    const g = personalization.gradientOf({ terms: p.terms, weights: table });
+    if (g) out.push({ key, g });
+  }
+  return out;
 }
 
 module.exports = { selectPlaylist };

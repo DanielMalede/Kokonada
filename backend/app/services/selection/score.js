@@ -163,6 +163,22 @@ function _resetWeights() {
   _weightsV2 = null; _intentWeightsV2 = null;
 }
 
+/** The four memoized tables, indexed by the two things that choose between them. */
+const _tableFor = (legacy, intent) => (legacy
+  ? (intent ? _resolveIntentWeights() : _resolveWeights())
+  : (intent ? _resolveIntentWeightsV2() : _resolveWeightsV2()));
+
+/**
+ * W4-013 (B7): the weight table this scorer WOULD use for these targets, exported so a caller can
+ * lay a per-user overlay over it once per generation and hand the result back through
+ * `scoreTrack({weights})`. Returns the memoized object itself — callers must not mutate it, and
+ * `personalization.overlay` is careful to return a new frozen table rather than editing this one.
+ */
+function resolveWeights({ targets = {}, version = null } = {}) {
+  const legacy = version === 'v1' || version === 'v2' ? version === 'v1' : legacyScoring();
+  return { weights: _tableFor(legacy, Boolean(targets.activityDriven)), legacy };
+}
+
 // The allow-genre Set is identical for every track in a generation — memoize per
 // array reference instead of rebuilding it hundreds of times.
 const _allowSets = new WeakMap();
@@ -336,6 +352,7 @@ function scoreTrack(track, {
   targetMoodKey = null,
   now = Date.now(),
   version = null,
+  weights = null,
 } = {}) {
   // An EXPLICIT version is how S12 scores a pool both ways without mutating process.env
   // mid-generation (which would be a global, racy side effect on the serving path for the
@@ -343,9 +360,17 @@ function scoreTrack(track, {
   // an unrecognised version must not invent a third scoring.
   const legacy = version === 'v1' || version === 'v2' ? version === 'v1' : legacyScoring();
   const intent = Boolean(targets.activityDriven);
-  const W = legacy
-    ? (intent ? _resolveIntentWeights() : _resolveWeights())
-    : (intent ? _resolveIntentWeightsV2() : _resolveWeightsV2());
+  // W4-013 (B7): an EXPLICIT weight table is the seam this file's ADR-0011 header reserved for
+  // the learning tasks. The caller resolves the per-user overlay ONCE per generation (it costs a
+  // Mongo read) and hands the finished table down; resolving it here would repeat that read for
+  // every candidate in the pool.
+  //
+  // v2 ONLY, deliberately. `WAVE4_SCORING_V2_DISABLED` promises the entire pre-W4-007 behaviour
+  // back with no revert, and an overlay still running on top of the legacy weights would make
+  // that promise false — §M.15's re-allocation is not even defined over them, since the v1 tables
+  // do not sum to 1.
+  const overlaid = !legacy && weights && typeof weights === 'object' ? weights : null;
+  const W = overlaid ?? _tableFor(legacy, intent);
 
   const taste = maxAffinity > 0 ? clamp01((fin(track.affinity) ?? 0) / maxAffinity) : 0;
 
@@ -431,6 +456,6 @@ function scoreTrack(track, {
 }
 
 module.exports = {
-  scoreTrack, _resetWeights, _featureFitV2, activeVersion,
+  scoreTrack, _resetWeights, _featureFitV2, activeVersion, resolveWeights,
   SOURCE_CONFIDENCE, MISSING_MASS, MISSING_PRIOR, DIM_WEIGHTS,
 };
