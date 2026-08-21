@@ -77,14 +77,24 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
 
   const { hourOfDay, tzOffsetMinutes } = resolveHourContext(now, baselines);
 
-  const targets = translate({
-    live,
-    baselines: baselines ?? {},
-    sleep,
-    state,
+  // `hourOfDay` is published ADDITIVELY (§0.2.5) rather than kept local, because it is now needed
+  // twice: `translate()` reasons with it here, and W4-011's learner files a reward under the hour
+  // bin the mix was chosen in. Resolving it a second time downstream would reintroduce D13 by the
+  // back door — the socket has no access to the listener's habitual offset, so its "hour" would be
+  // the SERVER's, and an Auckland evening would be learned as a Frankfurt one. One reading,
+  // published. A clock reading is not a vital: §0.2.2 bars numeric physiology, and this is neither
+  // derived from nor predictive of any.
+  const targets = {
+    ...translate({
+      live,
+      baselines: baselines ?? {},
+      sleep,
+      state,
+      hourOfDay,
+      moodKey,
+    }),
     hourOfDay,
-    moodKey,
-  });
+  };
 
   const affect = await resolveAffect({
     userId, live, baselines, state, sleep, taps, tzOffsetMinutes, now,

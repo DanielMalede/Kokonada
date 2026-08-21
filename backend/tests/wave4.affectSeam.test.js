@@ -231,6 +231,28 @@ describe('§0.2.5 — the targets object stays a strict superset', () => {
     for (const key of LEGACY_TARGET_KEYS) expect(t).toHaveProperty(key);
   });
 
+  // W4-011 (wiring half): the learner's bucket needs the LISTENER's hour, not the server's — D13's
+  // whole complaint. `resolveHourContext` already resolves it here from the user's habitual offset,
+  // so publishing it additively costs one read and means the reward and the wind-down cannot
+  // disagree about what time it is. A clock reading, never a vital (§0.2.2).
+  test('the listener\'s own hour is published additively, on the undecorated target too', async () => {
+    const t = await buildTargets({ userId: 'u1', live: {}, now: NOW });
+    expect(t.stateId).toBeUndefined();                       // genuinely undecorated
+    expect(Number.isInteger(t.hourOfDay)).toBe(true);
+    expect(t.hourOfDay).toBeGreaterThanOrEqual(0);
+    expect(t.hourOfDay).toBeLessThan(24);
+  });
+
+  test('the published hour is the one translate() actually reasoned with, not a second reading', async () => {
+    peekBaselines.mockResolvedValue({ ...personalBaselines(), tzOffsetMinutes: 720 });
+    MedicalProfile.findOne.mockResolvedValue(profileDoc());
+
+    const t = await buildTargets({ userId: 'u1', live: { heartRate: 70, activity: 'resting' }, now: NOW });
+    const { hourOfDay } = require('../app/services/biosonic/affectService')
+      .resolveHourContext(NOW, { tzOffsetMinutes: 720 });
+    expect(t.hourOfDay).toBe(hourOfDay);
+  });
+
   test('a confident-sounding guess buys nothing — below the confidence floor there is no decoration', async () => {
     // Baselines exist but nothing else does, so every axis abstains and confidence collapses.
     peekBaselines.mockResolvedValue(personalBaselines());
@@ -443,7 +465,13 @@ describe('hour-of-day comes from the user\'s habitual timezone when it is known 
       hourOfDay: new Date(NOW).getHours(), // the server hour, as it has always been
       moodKey: null,
     });
-    expect(t).toEqual(expected);
+    // DELIBERATE RE-PIN (W4-011 wiring half): `buildTargets` now PUBLISHES the hour it resolved,
+    // additively, so an exact match against translate's output alone would fail on the new key
+    // rather than on the behaviour this test exists to guard. Re-pinned as a superset with the
+    // hour asserted explicitly, which is strictly stronger than the original: every
+    // translate-owned key is still byte-identical AND the published hour is proven to be the
+    // server's on the no-tz-data path.
+    expect(t).toEqual({ ...expected, hourOfDay: new Date(NOW).getHours() });
   });
 });
 

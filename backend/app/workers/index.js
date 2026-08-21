@@ -17,6 +17,7 @@ const DEFAULT_PROCESSORS = {
   [QUEUES.SESSION_TRIM]: require('./sessionTrim.worker').process,
   [QUEUES.YOUTUBE_RETENTION]: require('./youtubeRetention.worker').process,
   [QUEUES.DAILY_ANALYSIS]: require('./dailyAnalysis.worker').process,
+  [QUEUES.REWARD_INGEST]: require('./rewardIngest.worker').process,
 };
 
 function startWorkers(processors = DEFAULT_PROCESSORS) {

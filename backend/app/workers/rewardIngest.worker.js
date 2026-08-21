@@ -1,0 +1,45 @@
+'use strict';
+
+const rewardRepo = require('../repositories/rewardRepo');
+
+/**
+ * W4-011 · the write side of the feedback loop.
+ *
+ * Deliberately thin. The judgement already happened in the socket process (see
+ * `services/learning/rewardDispatch` for why it has to), and `rewardRepo` already validates every
+ * argument fail-closed before touching Mongo — a bucket the taxonomy does not contain, a
+ * non-finite reward, a recording key that is not CC0. Re-stating those rules here would create a
+ * second, drifting copy of the ADR-0012 boundary; the repository (and behind it the schema's own
+ * query pre-hook) is the one place that decision lives.
+ *
+ * What this file owns is the ONE thing the queue erases: the boundary between a JSON payload and
+ * a domain call. `at` crosses BullMQ as a number and has to become a `Date` again, and a payload
+ * with a bad clock must write nothing rather than stamp a row with `Invalid Date`.
+ *
+ * Track A and Track B are written independently on purpose. ADR-0012 keeps them in separate
+ * collections precisely so one can exist without the other: a play with no resolvable state still
+ * teaches a CC0 recording's posterior, and a play of a Spotify recording still teaches the user's
+ * context bucket.
+ */
+async function process(job) {
+  const { userId, bucket = null, reward = null, posterior = null, at = null } = job?.data ?? {};
+
+  const when = typeof at === 'number' && Number.isFinite(at) ? new Date(at) : null;
+  if (!when || Number.isNaN(when.valueOf())) return { bucket: false, posterior: false };
+
+  const bucketWritten = bucket
+    ? await rewardRepo.recordBucketReward({ userId, bucket, reward, at: when })
+    : false;
+
+  const posteriorWritten = posterior
+    ? await rewardRepo.recordTrackOutcome({
+      recordingKey: posterior.recordingKey,
+      delta: { alpha: posterior.alpha, beta: posterior.beta },
+      at: when,
+    })
+    : false;
+
+  return { bucket: bucketWritten, posterior: posteriorWritten };
+}
+
+module.exports = { process };
