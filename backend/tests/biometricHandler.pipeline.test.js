@@ -80,6 +80,14 @@ jest.mock('../app/services/biosonic/baselines', () => ({
   peekBaselines: jest.fn(),
 }));
 
+// W4-011: only the DISPATCH is mocked. `feedbackDisabled` stays real so the S11 kill-switch pins
+// below exercise the actual env read, and the play window / boundary modules stay real so these
+// pins prove the WIRING rather than a mock talking to a mock.
+jest.mock('../app/services/learning/rewardDispatch', () => {
+  const actual = jest.requireActual('../app/services/learning/rewardDispatch');
+  return { ...actual, dispatchReward: jest.fn(async () => ({ dispatched: true })) };
+});
+
 jest.mock('../app/services/discovery/discoveryFetch', () => ({
   vectorDiscoveryFetch: jest.fn(async () => []),
 }));
@@ -2821,5 +2829,194 @@ describe('W4-016 — LLM band context (HR branch)', () => {
         biometric: expect.objectContaining({ stateLabel: null, hrRatio: null }),
       }),
     );
+  });
+});
+
+// ── W4-011 (wiring half): the feedback loop's socket seam ─────────────────────
+//
+// The pure halves are pinned in `playbackEvent.test.js`, `playWindow.test.js` and
+// `feedbackLoop.test.js`. What is only provable HERE is that the three of them are actually
+// joined to a live socket: that a serve opens a window under the context that chose the mix, that
+// filtered readings land in it, that a client's verdict closes it, and that the whole lane
+// vanishes under its kill switch.
+
+describe('W4-011 — playback_event reaches the reward lane', () => {
+  const {
+    registerBiometricHandler, handleBiometricReading, generateAndEmitPlaylist, _debounceMap, FEEDBACK_FLAG,
+  } = require('../app/sockets/biometricHandler');
+  const { dispatchReward } = require('../app/services/learning/rewardDispatch');
+  const orchestrator = require('../app/services/generation/orchestrator');
+  const { RATE_LIMIT_MAX } = require('../app/agents/runtime/learning/playbackEvent');
+
+  const T0 = Date.parse('2026-06-21T19:00:00.000Z');
+
+  /** Register the handler and hand back the socket plus its REAL internal state object. */
+  const wired = () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: false }); // forces the state entry into existence
+    return { socket, state: _debounceMap.get(socket.id) };
+  };
+
+  /** Serve a playlist whose targets carry the full bucket context. */
+  const serveWithContext = async (socket, state) => {
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar: [{ id: 'lib-1' }],
+      discovery: [{ id: 'd1' }],
+      merged: [{ id: 'lib-1' }, { id: 'd1' }],
+      targets: {
+        bpmCenter: 80, tempoBand: 'resting', stateId: 'acute-stress', hourOfDay: 21,
+        trajectory: { archetype: 'meet-then-lower' },
+      },
+    });
+    await generateAndEmitPlaylist(socket, 'biometric', state);
+  };
+
+  const push = (socket, hr, atMs) => handleBiometricReading(
+    socket, 'garmin', { heartRate: hr, startTimeLocal: new Date(atMs).toISOString() }, { now: atMs },
+  );
+
+  afterEach(() => { delete process.env[FEEDBACK_FLAG]; });
+
+  it('a serve, live readings and a completed play arrive at the lane as ONE judgement', async () => {
+    const { socket, state } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+    await serveWithContext(socket, state);
+
+    for (let i = 0; i < 8; i++) push(socket, 100 - i * 2, T0 + i * 30_000);
+
+    Date.now.mockReturnValue(T0 + 210_000);
+    socket._trigger('playback_event', { type: 'complete', positionMs: 210_000, trackKey: 'mbid:9f4a' });
+
+    expect(dispatchReward).toHaveBeenCalledTimes(1);
+    const { play, userId } = dispatchReward.mock.calls[0][0];
+    expect(userId).toBe('user-123');
+    // The context that CHOSE the mix, carried from the serve rather than re-read at event time.
+    expect(play).toMatchObject({
+      stateId: 'acute-stress', targetBand: 'resting', hourOfDay: 21,
+      archetype: 'meet-then-lower', recordingKey: 'mbid:9f4a',
+    });
+    expect(play.events).toEqual([{ type: 'complete', positionMs: 210_000 }]);
+    // The readings are the RAW device values, and the counterfactual is a real Kalman trend.
+    expect(play.samples).toHaveLength(8);
+    expect(play.samples.map((s) => s.value)).toEqual([100, 98, 96, 94, 92, 90, 88, 86]);
+    expect(Number.isFinite(play.expectedSlope)).toBe(true);
+  });
+
+  it('a `save` does not close the play — it rides along to the terminal event', async () => {
+    const { socket, state } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+    await serveWithContext(socket, state);
+
+    Date.now.mockReturnValue(T0 + 40_000);
+    socket._trigger('playback_event', { type: 'save', positionMs: 40_000, trackKey: 'mbid:9f4a' });
+    expect(dispatchReward).not.toHaveBeenCalled();
+
+    Date.now.mockReturnValue(T0 + 200_000);
+    socket._trigger('playback_event', { type: 'complete', positionMs: 200_000, trackKey: 'mbid:9f4a' });
+    expect(dispatchReward.mock.calls[0][0].play.events.map((e) => e.type)).toEqual(['save', 'complete']);
+  });
+
+  it.each([
+    ['an unknown type', { type: 'like' }],
+    ['no payload at all', undefined],
+    ['a bare string', 'skip'],
+    ['a type smuggled through the prototype', Object.create({ type: 'skip' })],
+  ])('%s never reaches the lane', (_label, raw) => {
+    const { socket } = wired();
+    socket._trigger('playback_event', raw);
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+
+  it('the S7 budget bounds how often one socket can teach', () => {
+    const { socket } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+
+    for (let i = 0; i < RATE_LIMIT_MAX + 25; i++) {
+      socket._trigger('playback_event', { type: 'complete', positionMs: 1_000 });
+    }
+    expect(dispatchReward).toHaveBeenCalledTimes(RATE_LIMIT_MAX);
+  });
+
+  it('the budget is ONE allowance across both doors — track_skipped spends the same units', () => {
+    const { socket } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) socket._trigger('playback_event', { type: 'complete', positionMs: 1_000 });
+    dispatchReward.mockClear();
+    socket._trigger('track_skipped');
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+
+  it('a malformed payload spends budget too — a flood costs the same either way', () => {
+    const { socket } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) socket._trigger('playback_event', { type: 'garbage' });
+    socket._trigger('playback_event', { type: 'complete', positionMs: 1_000 });
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+});
+
+describe('W4-011 — track_skipped forwards without changing what it already did', () => {
+  const { registerBiometricHandler, FEEDBACK_FLAG } = require('../app/sockets/biometricHandler');
+  const { dispatchReward } = require('../app/services/learning/rewardDispatch');
+
+  afterEach(() => { delete process.env[FEEDBACK_FLAG]; });
+
+  it('forwards the skip as the MILDER late skip — a client that did not say when cannot be punished for it', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('track_skipped');
+
+    expect(dispatchReward).toHaveBeenCalledTimes(1);
+    expect(dispatchReward.mock.calls[0][0].play.events).toEqual([{ type: 'skip', positionMs: null }]);
+  });
+
+  it('the skip-loop regeneration is untouched — two skips still regenerate', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('track_skipped');
+    socket._trigger('track_skipped');
+    await new Promise((r) => setImmediate(r));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({ trigger: 'skip_loop' }));
+  });
+});
+
+describe('W4-011 — S11: WAVE4_FEEDBACK_DISABLED restores the pre-wave socket byte-for-byte', () => {
+  const {
+    registerBiometricHandler, handleBiometricReading, _debounceMap, FEEDBACK_FLAG,
+  } = require('../app/sockets/biometricHandler');
+  const { dispatchReward } = require('../app/services/learning/rewardDispatch');
+
+  beforeEach(() => { process.env[FEEDBACK_FLAG] = 'true'; });
+  afterEach(() => { delete process.env[FEEDBACK_FLAG]; });
+
+  it('playback_event becomes inert', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('playback_event', { type: 'complete', positionMs: 200_000, trackKey: 'mbid:9f4a' });
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+
+  it('track_skipped forwards nothing and still counts toward the skip loop', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('track_skipped');
+    socket._trigger('track_skipped');
+    await new Promise((r) => setImmediate(r));
+
+    expect(dispatchReward).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({ trigger: 'skip_loop' }));
+  });
+
+  it('no heart-rate sample is collected at all — the window stays empty', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    const now = Date.parse('2026-06-21T19:00:00.000Z');
+    handleBiometricReading(socket, 'garmin', { heartRate: 92, startTimeLocal: new Date(now).toISOString() }, { now });
+
+    expect(_debounceMap.get(socket.id).playWindow).toBeNull();
   });
 });

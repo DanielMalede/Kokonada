@@ -22,6 +22,12 @@ const { canonicalKey } = require('../services/identity/trackIdentity');
 const { logBiometricAccess } = require('../utils/biometricAudit');
 const { createFilterState, filterReading } = require('../agents/runtime/ingestion/anomalyFilter');
 const { onlineUpdate: liveStateOnlineUpdate } = require('../agents/runtime/physiology/liveStateAdapter');
+// W4-011 (wiring half): the feedback loop's three socket-side jobs — bound the payload, hold the
+// play window, hand the verdict to the write lane. The kill switch is READ from the dispatcher
+// rather than re-declared here: one flag, one reading of it (D11's lesson, again).
+const { sanitizePlaybackEvent, createRateLimitState, admitPlaybackEvent } = require('../agents/runtime/learning/playbackEvent');
+const { createPlayWindowState, contextFromTargets, openWindow, recordSample, noteEvent } = require('../agents/runtime/learning/playWindow');
+const { dispatchReward, feedbackDisabled, FEEDBACK_FLAG } = require('../services/learning/rewardDispatch');
 const { insertManyAccounted } = require('../services/wearable/insertAccounted');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
@@ -297,6 +303,16 @@ function getState(socketId) {
       // the Kalman estimate without ever confirming stableHR, which is what used to let
       // 9 bpm steps walk 60 -> 150 silently.
       filterState:      null,
+      // W4-011: what is playing, since when, and the readings since then. IN MEMORY and
+      // socket-scoped on purpose — the window holds heart-rate samples, and §0.2.2 keeps numeric
+      // vitals out of Redis, so the only place they may sit is the process that already receives
+      // them raw. Bounded by `playWindow`'s own age and count caps (§0.4 S10), and gone with the
+      // rest of this socket's state on disconnect. Lazily created on the first serve or reading.
+      playWindow:       null,
+      // §0.4 S7 per-socket feedback budget. ONE budget shared by `playback_event` and the legacy
+      // `track_skipped`, because they are the same signal arriving by two doors — a client that
+      // exhausted its budget on one must not get a second allowance on the other.
+      playbackRate:     null,
       // D10 throttle: last wall-clock time (Date.now(), not the reading's own recordedAt)
       // this socket wrote a BiometricLog row. null = never written yet.
       lastPersistedAtMs: null,
@@ -800,6 +816,17 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // divergence that would silently drop anti-repetition/history for a served no-playback playlist.
     // All fire-and-forget: a failed side effect is reported but never fails generation.
     const recordServeSideEffects = (builtPlaylist, clientTracks, params) => {
+      // W4-011: a serve starts a track, so it starts a play window. The window carries the
+      // coordinates the reward will be FILED under — the state, the band and the listener's hour
+      // that CHOSE this mix, not whatever they happen to be when the skip finally arrives. Reading
+      // them again at event time would file a play under a context that never produced it.
+      //
+      // On EVERY ready path, including the deterministic fallback: a fallback playlist is still
+      // music somebody is listening to, and excluding it would teach the learner only about the
+      // days when everything worked.
+      if (!feedbackDisabled()) {
+        state.playWindow = openWindow(state.playWindow, contextFromTargets(builtPlaylist.targets), Date.now());
+      }
       // Warm the live-biometric buffer (Part 3): an HR-driven generation is cached under its bio-mood
       // key so a Live-mode toggle plays instantly. Storing records NO serves (§3.5). Emotion → skip.
       if (!useEmotion && isPhysiologicalHR(state.stableHR)) {
@@ -1447,6 +1474,27 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   if (filtered.level === null) return;
   const effectiveHR = filtered.level;
 
+  // W4-011: feed the play window, if one is open.
+  //
+  // The RAW device value, not the filtered level — and that is load-bearing, not incidental.
+  // `feedbackLoop` sizes its σ_slope from the OLS standard error `σ_meas/√Sxx`, which is only the
+  // right scale for INDEPENDENT observations carrying the wrist noise σ_meas describes. A
+  // Kalman-smoothed series has had exactly that noise removed, so scoring it against σ_meas would
+  // read a smoothed line as an implausibly precise measurement and saturate every reward. (Same
+  // reasoning `_maybePersistLiveReading` states for BiometricLog: the record is the observation,
+  // smoothing is the consumer's privilege.)
+  //
+  // The filter still contributes the two things only it knows: whether the reading is trustworthy
+  // at all, and the trend it held going in — the M.12 counterfactual, which cannot be recovered
+  // later because there is no way to ask the filter what it believed three minutes ago.
+  if (!feedbackDisabled() && !filtered.passthrough && filtered.accepted) {
+    state.playWindow = recordSample(
+      state.playWindow ?? createPlayWindowState(),
+      { atMs: normalized.recordedAt.getTime(), value: normalized.heartRate, trend: filtered.trend },
+      now,
+    );
+  }
+
   state.consecutiveSkips = 0;
   state.latestActivity   = normalized.activity;
 
@@ -1560,6 +1608,28 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   socket.emit('recalibration_pending', { delta, secondsRemaining: Math.round(DEBOUNCE_MS / 1000) });
 }
 
+// W4-011: advance the play window with one already-sanitized event and, when it closes a play,
+// hand the judgement to the write lane. Fire-and-forget — a learning failure has no business
+// interrupting playback, which is why `dispatchReward` is documented as never rejecting.
+function _notePlaybackEvent(socket, state, event, nowMs) {
+  const { state: next, play } = noteEvent(state.playWindow ?? createPlayWindowState(), event, nowMs);
+  state.playWindow = next;
+  if (!play) return;
+
+  const userId = socket?.data?.user?._id;
+  if (!userId) return;
+  dispatchReward({ userId: userId.toString(), play, atMs: nowMs }).catch(() => {});
+}
+
+// W4-011: spend one unit of this socket's S7 feedback budget. Shared by both doors the signal
+// arrives through, and spent BEFORE the payload is parsed so a flood of malformed events costs no
+// more than a flood of valid ones.
+function _admitFeedback(state, nowMs) {
+  const admitted = admitPlaybackEvent(state.playbackRate ?? createRateLimitState(), nowMs);
+  state.playbackRate = admitted.state;
+  return admitted.allowed;
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
@@ -1629,8 +1699,41 @@ function registerBiometricHandler(socket) {
     generateAndEmitPlaylist(socket, 'heart', state);
   });
 
+  // W4-011: the listener's own verdict on what they were served — the ONLY signal in this wave
+  // that measures the music rather than the body. §0.4 S7 gives it the tap buffer's hard-allowlist
+  // treatment (closed enum, bounded position, capped payload, unknown fields dropped by
+  // reconstruction) plus a per-socket budget, because it is the first socket event whose payload
+  // can reach a PERSISTED learned artifact (`TrackPosterior`, via `trackKey`).
+  //
+  // ADR-0012 is deliberately NOT enforced here: a `spotify:` key is admitted at the boundary and
+  // refused twice downstream, at the engine and fail-closed at the model's own query pre-hook. A
+  // third copy of that rule, furthest from the write, would be a third thing to keep in sync.
+  socket.on('playback_event', (raw) => {
+    if (feedbackDisabled()) return;
+    const state = getState(socketId);
+    const nowMs = Date.now();
+    if (!_admitFeedback(state, nowMs)) return;
+    const event = sanitizePlaybackEvent(raw);
+    if (!event) return;
+    _notePlaybackEvent(socket, state, event, nowMs);
+  });
+
   socket.on('track_skipped', () => {
     const state = getState(socketId);
+
+    // W4-011: the shipped client's only feedback signal, forwarded into the SAME lane as
+    // `playback_event` so the two can never diverge. BEFORE the skip-loop regeneration below, on
+    // purpose: that regeneration serves a new playlist, which re-opens the very window this skip
+    // is measured in. It carries no `positionMs`, so `behavioralReward` scores it as the milder
+    // LATE skip — the honest reading of a client that never said when it skipped, and the reason
+    // an early-skip penalty cannot be inferred from a client's silence.
+    if (!feedbackDisabled()) {
+      const nowMs = Date.now();
+      if (_admitFeedback(state, nowMs)) {
+        _notePlaybackEvent(socket, state, { type: 'skip', positionMs: null, trackKey: null }, nowMs);
+      }
+    }
+
     state.consecutiveSkips += 1;
 
     if (state.consecutiveSkips >= 2) {
@@ -1662,6 +1765,7 @@ module.exports = {
   HR_BAND_RELEASE_MARGIN,
   RECAL_HYSTERESIS_FLAG,
   ANOMALY_FILTER_FLAG,
+  FEEDBACK_FLAG,
   LIVE_PERSIST_MIN_INTERVAL_MS,
   toClientTrack,
   toClientTracks,
