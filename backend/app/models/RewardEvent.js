@@ -81,6 +81,15 @@ const CC0_KEY_RE = /^mbid:/;
 
 // ── Track A ─────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * W4-013's novelty posterior. `_id: false` because it is a value on the bucket, not a document
+ * with an identity, and an `_id` here would appear in the closed key set as noise.
+ */
+const noveltyPosteriorSchema = new mongoose.Schema({
+  alpha: { type: Number, required: true, min: 0 },
+  beta:  { type: Number, required: true, min: 0 },
+}, { _id: false });
+
 const rewardEventSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
@@ -96,6 +105,24 @@ const rewardEventSchema = new mongoose.Schema({
   // and two concurrent playback events updating a mean would lose one of them.
   rewardSum: { type: Number, default: 0 },
   count:     { type: Number, default: 0, min: 0 },
+
+  // W4-013 (B5) · the novelty bandit's Beta posterior for THIS bucket: how well did serving music
+  // the listener had never heard actually go, here, at this hour, in this state.
+  //
+  // It rides on the bucket row rather than in a collection of its own because it has the same
+  // address, the same lifetime and the same privacy story as the aggregate beside it. A separate
+  // collection keyed by {userId, stateDomain, targetBand, hourBin} would be a second table
+  // holding the counterpart of a row that already exists — the D11 / W4-D42 class — and would
+  // need all five §0.4 S5 surfaces re-registered to say exactly what this one already says.
+  //
+  // Absent by default (`default: undefined`), which is what makes "this bucket has never taught
+  // the bandit anything" distinguishable from "the bandit has learned it is a 50/50". The
+  // controller reads the first as ABSTAIN, and that is the dormancy invariant's foundation.
+  //
+  // It does NOT widen the row's disclosure: two counters about a DECISION (serve novelty or not)
+  // in a coarse context, with no recording, provider or vital anywhere in them — the same class
+  // of outcome statistic as `rewardSum`/`count`, argued against the closed-key paragraph above.
+  novelty: { type: noveltyPosteriorSchema, default: undefined },
 
   updatedAt: { type: Date, required: true },
 
