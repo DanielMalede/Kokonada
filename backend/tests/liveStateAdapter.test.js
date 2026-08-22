@@ -14,10 +14,17 @@ process.env.NODE_ENV = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(), createConnection: jest.fn() }));
-jest.mock('../app/services/biosonic/affectService', () => ({ resolveAffect: jest.fn() }));
+// Only `resolveAffect` is stubbed. `resolveHourContext` is the REAL one on purpose: it is the
+// clock rule all three affect callers must share (W4-D56), so a test that mocked it could not
+// tell agreement from coincidence.
+jest.mock('../app/services/biosonic/affectService', () => ({
+  ...jest.requireActual('../app/services/biosonic/affectService'),
+  resolveAffect: jest.fn(),
+}));
 
 const { getRedis } = require('../app/config/redis');
-const { resolveAffect } = require('../app/services/biosonic/affectService');
+const { resolveAffect, resolveHourContext } = require('../app/services/biosonic/affectService');
+const { computeAxes } = require('../app/agents/runtime/physiology/affectEngine');
 const { onlineUpdate, policyDiffers } = require('../app/agents/runtime/physiology/liveStateAdapter');
 
 // ── fake Redis, matching the affectCache.test.js precedent ─────────────────────────────────────
@@ -130,6 +137,111 @@ describe('regime-change decision', () => {
     resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
     await onlineUpdate('u44', { level: 90 }, { activity: 'resting', now: 6000 });
     expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({ baselines: null }));
+  });
+});
+
+// ── W4-D56: WHICH HOUR IS IT ON THE LIVE LANE? ─────────────────────────────────────────────────
+//
+// `resolveAffect` defaults `tzOffsetMinutes = 0` and this adapter was the one caller of three
+// that took that default, so every reading was scored against the UTC bin of the user's own
+// 24-bin hourly table. `targetsBuilder` and `stateVector.worker` both resolve the offset through
+// `resolveHourContext(now, baselines)` first; this lane now does the same.
+//
+// The pins below are INVARIANTS — "the three callers agree" — not copies of a measured number.
+// A magic-number pin would go green again the moment someone changed the hourly table, which is
+// exactly the wrong sensitivity: what must hold is that the LANES agree, whatever the table says.
+
+// A nocturnal-trough hourly baseline, the shape W4-004 actually produces: cosinor-ish, trough
+// ~50 bpm around 03:00, peak ~74 around 15:00. It is what makes the wrong bin cost something —
+// against a flat table every offset agrees and the defect is invisible.
+function nocturnalHourlyBaselines() {
+  const hourly = Array.from({ length: 24 }, (_, h) => ({
+    value: Math.round(62 + 12 * Math.cos((2 * Math.PI * (h - 15)) / 24)),
+    mad: 4,
+    n: 30,
+    confidence: 0.75,
+  }));
+  return {
+    rhrMedian: 52, rhrMAD: 4, hourly, confidence: 0.8, hrvMedian: 60, hrvMAD: 10,
+  };
+}
+
+describe('hour-of-day context (W4-D56)', () => {
+  // 03:30 UTC is the load-bearing instant: it is the nocturnal trough in UTC and mid-morning at
+  // +08:00, so the two offsets land in bins ~18 bpm apart.
+  const NOW = Date.parse('2026-08-22T03:30:00Z');
+  const READING = { level: 70, confidence: 0.9 };
+
+  beforeEach(() => { getRedis.mockReturnValue(fakeRedis()); });
+
+  test('forwards the offset DECLARED on the baseline blob, not the UTC default', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+    const baselines = { ...nocturnalHourlyBaselines(), tzOffsetMinutes: 480 };
+
+    await onlineUpdate('u45', READING, { activity: 'resting', now: NOW, baselines });
+
+    expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({ tzOffsetMinutes: 480 }));
+  });
+
+  test('no declared offset → the SERVER offset the two sibling callers resolve, never a bare 0', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+    const baselines = nocturnalHourlyBaselines(); // no tzOffsetMinutes on the blob
+
+    await onlineUpdate('u46', READING, { activity: 'resting', now: NOW, baselines });
+
+    // Expressed against `resolveHourContext` rather than a literal, so this pin stays true on a
+    // CI box in any timezone AND fails the moment the lanes stop sharing the rule.
+    expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({
+      tzOffsetMinutes: resolveHourContext(NOW, baselines).tzOffsetMinutes,
+    }));
+  });
+
+  test('no baselines at all → still the shared rule, applied to a null blob', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+
+    await onlineUpdate('u47', READING, { activity: 'resting', now: NOW });
+
+    expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({
+      tzOffsetMinutes: resolveHourContext(NOW, null).tzOffsetMinutes,
+    }));
+  });
+
+  test('INVARIANT: the live lane scores the same axes as the generation path for the same user, baselines and instant', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+    const baselines = { ...nocturnalHourlyBaselines(), tzOffsetMinutes: 480 };
+
+    await onlineUpdate('u48', READING, { activity: 'resting', now: NOW, baselines });
+    const [liveArgs] = resolveAffect.mock.calls[0];
+
+    // What THIS lane would produce, using the evidence and offset it actually forwarded…
+    const viaLiveLane = computeAxes({
+      live: liveArgs.live, baselines, now: NOW, tzOffsetMinutes: liveArgs.tzOffsetMinutes,
+    });
+    // …versus what `targetsBuilder`/`stateVector.worker` produce for the same person at the same
+    // instant, resolving the offset the way they do.
+    const viaGenerationPath = computeAxes({
+      live: liveArgs.live,
+      baselines,
+      now: NOW,
+      tzOffsetMinutes: resolveHourContext(NOW, baselines).tzOffsetMinutes,
+    });
+
+    expect(viaLiveLane.hourOfDay).toBe(viaGenerationPath.hourOfDay);
+    expect(viaLiveLane.axes).toEqual(viaGenerationPath.axes);
+  });
+
+  test('and the UTC default it used to take is NOT equivalent — the divergence the invariant closes is real', () => {
+    const baselines = { ...nocturnalHourlyBaselines(), tzOffsetMinutes: 480 };
+    const live = { heartRate: 70, confidence: 0.9, activity: 'resting' };
+
+    const utcDefault = computeAxes({ live, baselines, now: NOW, tzOffsetMinutes: 0 });
+    const usersOwnHour = computeAxes({ live, baselines, now: NOW, tzOffsetMinutes: 480 });
+
+    // Guards the invariant above against going vacuous: if a future change made every offset
+    // score alike, the invariant would pass for the wrong reason and this pin would catch it.
+    // Stress is the axis that picks the taxonomy state, hence the band, hence the music.
+    expect(Math.abs(utcDefault.axes.stress.value - usersOwnHour.axes.stress.value)).toBeGreaterThan(0.2);
+    expect(Math.abs(utcDefault.axes.arousal.value - usersOwnHour.axes.arousal.value)).toBeGreaterThan(0.2);
   });
 });
 

@@ -1,7 +1,7 @@
 'use strict';
 
 const { getRedis } = require('../../../config/redis');
-const { resolveAffect } = require('../../../services/biosonic/affectService');
+const { resolveAffect, resolveHourContext } = require('../../../services/biosonic/affectService');
 const { bandOf, policyOf } = require('../knowledge/stateTaxonomy');
 
 /**
@@ -63,11 +63,29 @@ function policyDiffers(a, b) {
  *   abstains — the soak that found this ran every persona through a whole simulated day and
  *   watched them all settle into the SAME low-confidence default state, because nothing had ever
  *   passed a baseline through this seam. Omitted → forwarded as `null`, exactly today's shape.
+ *   It also carries the listener's habitual `tzOffsetMinutes`, which is where this lane's
+ *   hour-of-day comes from (W4-D56) — the same rule `targetsBuilder` and `stateVector.worker`
+ *   apply, so all three lanes bin the same person's reading into the same hour.
  */
 async function onlineUpdate(userId, filteredReading = {}, opts = {}) {
   if (!getRedis()) return EMPTY_RESULT;
 
   const { activity = null, now, baselines = null } = opts;
+
+  // W4-D56: WHICH HOUR IS IT FOR THIS LISTENER?
+  //
+  // `resolveAffect` defaults `tzOffsetMinutes` to 0, and this lane was the one caller of three
+  // that took the default — so every reading was scored against the UTC bin of the user's own
+  // 24-bin hourly table while `targetsBuilder` and `stateVector.worker` both resolved the offset
+  // properly first. Measured on the real `computeAxes`: one resting reading at 03:30Z against a
+  // nocturnal-trough table scores stress 0.70 at UTC and 0.18 at the listener's actual +08:00 —
+  // and stress is the axis that picks the state, hence the band, hence the music.
+  //
+  // It cost nothing until it did: with no baselines reaching this seam every hour-keyed axis
+  // abstained, so the wrong bin was never read. Passing baselines through is what made the wrong
+  // hour start counting, which is why the two arrive together.
+  const { tzOffsetMinutes } = resolveHourContext(now, baselines);
+
   const affect = await resolveAffect({
     userId,
     live: {
@@ -77,6 +95,7 @@ async function onlineUpdate(userId, filteredReading = {}, opts = {}) {
       activity,
     },
     baselines,
+    tzOffsetMinutes,
     now,
   });
   if (!affect) return EMPTY_RESULT;
