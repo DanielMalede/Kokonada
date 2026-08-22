@@ -44,6 +44,9 @@ const {
   parseTaskRows,
   taskRowList,
   duplicateIdViolations,
+  archiveViolations,
+  ARCHIVE_RELPATH,
+  ARCHIVE_POINTER_RE,
   diffTaskRows,
   formatViolations,
 } = require(MODULE_PATH);
@@ -326,6 +329,139 @@ describe('W4-D54 · state guard — one id, one row', () => {
   });
 });
 
+// ---------------------------------------------------------------------------------------------
+// W4-D16 — archival is not a stale rewrite.
+//
+// §2.5 R1.5 tells a reflection past 150KB to move closed backlog rows into WAVE4_ARCHIVE.md and
+// DELETE them from STATE. §2 step 6 requires this guard to pass, and it reports every deleted row
+// as `removed` — deliberately not suppressible, because there is no legitimate reason to drop a
+// task row. Two binding rules, in direct contradiction; sessions 23, 33, 39, 43, 47, 52, 58 and 64
+// each hit it, each deferred, and STATE grew from 175KB to 399KB while they did.
+//
+// The ruling (reflection #10's design, endorsed by #11 and #12): the guard is RIGHT to be strict,
+// so R1.5 gives up literal deletion. An archival leaves a STUB row — same id, same status, plus a
+// pointer — and moves the long evidence prose verbatim into the archive. The bulk leaves, the row
+// never stops existing, and the guard needs no exception at all.
+//
+// What the guard DOES gain is the half a stub cannot self-enforce: that the archive actually
+// received the prose. Without it, "stub the row and forget the archive write" loses the evidence
+// silently, which is the same class of failure the guard was built for. So a pointer must resolve.
+// The engine stays pure — two strings in, violations out; the CLI owns the file read.
+// ---------------------------------------------------------------------------------------------
+describe('W4-D16 · state guard — archival is not a stale rewrite', () => {
+  const FULL_ROW = '| W4-D07 | improve | Adapter mock semantics | SHOULD | S | — | done | session 12 | many KB of evidence prose |\n';
+  const STUB_ROW = '| W4-D07 | improve | Adapter mock semantics | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+
+  const archive = (body = 'W4-D07 — the full evidence prose, moved verbatim.') => `# WAVE4_ARCHIVE
+
+## Archived 2026-08-22 (session 65)
+
+${body}
+
+## Archived 2026-08-19 (reflection #4, session 23)
+
+Something older.
+`;
+
+  test('the pointer names the archive file the mission names', () => {
+    expect(ARCHIVE_RELPATH).toBe('docs/plans/WAVE4_ARCHIVE.md');
+  });
+
+  test('THE CONTRADICTION: deleting a closed row outright is still `removed`, exactly as before', () => {
+    // R1.5's literal instruction, run through the guard. This is the failure every deferring
+    // reflection saw, and it must keep failing — otherwise the stale-rewrite hole reopens.
+    const before = state({ extraBacklogRows: FULL_ROW });
+    const after = state();
+    const violations = diffTaskRows(before, after);
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('removed');
+  });
+
+  test('THE RULING: the same archival done as a STUB row passes the diff clean', () => {
+    // Same evidence moved to the same place, same bytes off STATE — but the row still exists, so
+    // there is nothing for the guard to object to. No exception, no new suppression token.
+    expect(diffTaskRows(state({ extraBacklogRows: FULL_ROW }), state({ extraBacklogRows: STUB_ROW }))).toEqual([]);
+  });
+
+  test('a stub whose prose really did reach the archive is clean', () => {
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive())).toEqual([]);
+  });
+
+  test('a document with no stubs at all needs no archive', () => {
+    expect(archiveViolations(state(), '')).toEqual([]);
+  });
+
+  test('a stub pointing at an archive section that does not exist is a violation', () => {
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive().replace('2026-08-22', '2026-08-21'));
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-missing');
+    expect(violations[0].anchor).toBe('2026-08-22');
+    expect(violations[0].message).toMatch(/2026-08-22/);
+  });
+
+  test('THE HOLE THE STUB CANNOT CLOSE: a stub whose section exists but never mentions the row', () => {
+    // Stub written, archive write forgotten. The row looks archived and the evidence is gone.
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive('Some other row entirely.'));
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-unbacked');
+    expect(violations[0].message).toMatch(/W4-D07/);
+  });
+
+  test('the heading LINE does not back a row — only the body does', () => {
+    // A heading like `## Archived 2026-08-22 (W4-D16, session 65)` names the task that did the
+    // archiving. Counting that as evidence would let the row that ordered the move back itself.
+    const violations = archiveViolations(
+      state({ extraBacklogRows: STUB_ROW }),
+      '# A\n\n## Archived 2026-08-22 (W4-D07, session 65)\n\nunrelated body\n',
+    );
+    expect(violations[0].kind).toBe('archive-unbacked');
+  });
+
+  test('the ARCHIVED token without a resolvable pointer is a violation, not a silent pass', () => {
+    const vague = FULL_ROW.replace('many KB of evidence prose', 'ARCHIVED (see the archive)');
+    const violations = archiveViolations(state({ extraBacklogRows: vague }), archive());
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-pointer');
+  });
+
+  test('an unreadable/absent archive fails every stub rather than passing them', () => {
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), '');
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('archive-missing');
+  });
+
+  test('the pointer is matched as a substring of the heading, so re-titling a section is safe', () => {
+    const retitled = archive().replace('## Archived 2026-08-22 (session 65)', '## Archived 2026-08-22 — backlog sweep (W4-D16)');
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), retitled)).toEqual([]);
+  });
+
+  test('ARCHIVE_POINTER_RE tolerates the spacing a human types and stops at the cell wall', () => {
+    expect('ARCHIVED->WAVE4_ARCHIVE.md#2026-08-22'.match(ARCHIVE_POINTER_RE)[1]).toBe('2026-08-22');
+    expect('ARCHIVED  ->  WAVE4_ARCHIVE.md#2026-08-22 |'.match(ARCHIVE_POINTER_RE)[1]).toBe('2026-08-22');
+    expect(ARCHIVE_POINTER_RE.test('archived -> wave4_archive.md#2026-08-22')).toBe(false); // uppercase on purpose
+  });
+
+  test('formatViolations renders archive kinds like every other kind', () => {
+    const line = formatViolations(archiveViolations(state({ extraBacklogRows: STUB_ROW }), ''));
+    expect(line).toMatch(/^VIOLATION W4-D07 archive-missing: /);
+  });
+
+  test('THE LIVE PIN: every stub in the real WAVE4_STATE.md is backed by the real archive', () => {
+    const realState = fs.readFileSync(path.join(REPO_ROOT, STATE_RELPATH), 'utf8');
+    const realArchive = fs.readFileSync(path.join(REPO_ROOT, ARCHIVE_RELPATH), 'utf8');
+    expect(archiveViolations(realState, realArchive)).toEqual([]);
+  });
+
+  test('detector self-test — the live pin must be able to fail', () => {
+    // A pin that cannot go red is decoration. Point a stub at a section that is not there.
+    const realArchive = fs.readFileSync(path.join(REPO_ROOT, ARCHIVE_RELPATH), 'utf8');
+    const sabotaged = state({
+      extraBacklogRows: '| W4-D999 | improve | fake | SHOULD | S | — | done | session 65 | ARCHIVED -> WAVE4_ARCHIVE.md#no-such-section |\n',
+    });
+    expect(archiveViolations(sabotaged, realArchive)).toHaveLength(1);
+  });
+});
+
 describe('W4-D02 · state guard — CLI', () => {
   let tmp;
   const run = (args) => {
@@ -391,6 +527,35 @@ describe('W4-D02 · state guard — CLI', () => {
     const res = run(['check', '--before', path.join(tmp, 'does-not-exist.md'), '--after', after]);
     expect(res.code).not.toBe(0);
     expect(res.stdout).toMatch(/duplicate-id/);
+    expect(res.stdout).not.toMatch(/^OK\b/m);
+  });
+
+  test('W4-D16 · an unbacked archival stub exits NON-ZERO — the CLI is what §2 step 6 runs', () => {
+    const stub = '| W4-D07 | improve | Adapter mock | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+    const before = write('before.md', state());
+    const after = write('after.md', state({ extraBacklogRows: stub }));
+    const archive = write('archive.md', '# A\n\n## Archived 2026-08-22\n\nsomething unrelated\n');
+    const res = run(['check', '--before', before, '--after', after, '--archive', archive]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/VIOLATION W4-D07 archive-unbacked/);
+  });
+
+  test('W4-D16 · the same stub with the evidence really archived exits 0', () => {
+    const stub = '| W4-D07 | improve | Adapter mock | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+    const before = write('before.md', state());
+    const after = write('after.md', state({ extraBacklogRows: stub }));
+    const archive = write('archive.md', '# A\n\n## Archived 2026-08-22\n\nW4-D07 — the evidence prose.\n');
+    const res = run(['check', '--before', before, '--after', after, '--archive', archive]);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toMatch(/^OK\b/m);
+  });
+
+  test('W4-D16 · an unbacked stub is caught with NO baseline too', () => {
+    const stub = '| W4-D07 | improve | Adapter mock | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#nope |\n';
+    const after = write('after.md', state({ extraBacklogRows: stub }));
+    const res = run(['check', '--before', path.join(tmp, 'does-not-exist.md'), '--after', after]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/archive-missing/);
     expect(res.stdout).not.toMatch(/^OK\b/m);
   });
 

@@ -18,6 +18,7 @@
 //   · regressed      — a row moved DOWN the status ladder (in_progress → pending, done → anything…)
 //   · removed        — a row that existed before is simply gone (the other half of a stale rewrite)
 //   · unknown-status — a known status was replaced by something unrecognisable (garbled cell)
+//   · archive-*      — an R1.5 archival stub whose evidence never reached WAVE4_ARCHIVE.md (W4-D16)
 //
 // What it deliberately allows: §2.5 R2 reopening. A rank decrease is fine when the row carries the
 // literal uppercase token REOPENED. That is the whole difference between the two cases — a reopen
@@ -30,7 +31,7 @@
 // no git. Git and the filesystem live in the CLI layer only.
 //
 // CLI:
-//   node scripts/wave4/state-guard.js check [--base <ref>] [--root <dir>]
+//   node scripts/wave4/state-guard.js check [--base <ref>] [--root <dir>] [--archive <file>]
 //   node scripts/wave4/state-guard.js check --before <file> --after <file>
 
 const fs = require('fs');
@@ -38,6 +39,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const STATE_RELPATH = 'docs/plans/WAVE4_STATE.md';
+const ARCHIVE_RELPATH = 'docs/plans/WAVE4_ARCHIVE.md';
 
 // `failed` sits level with `done`: both are terminal, and reviving either is a decision rather
 // than a routine step forward. Only a STRICT decrease is a regression, so done → failed (a
@@ -45,6 +47,22 @@ const STATE_RELPATH = 'docs/plans/WAVE4_STATE.md';
 const STATUS_RANK = Object.freeze({ pending: 0, in_progress: 1, done: 2, failed: 2 });
 
 const REOPEN_TOKEN = 'REOPENED';
+
+// §2.5 R1.5 archival (W4-D16). R1.5 used to say "move the row into WAVE4_ARCHIVE.md and DELETE it
+// from STATE", which this guard reports as `removed` — correctly, and deliberately not
+// suppressible. Eight consecutive reflections hit that contradiction and deferred, and STATE grew
+// from 175KB to 399KB while they did. The ruling keeps the guard strict and changes R1.5 instead:
+// an archival leaves a STUB row (same id, same status, notes cell replaced by a pointer) and moves
+// the evidence prose verbatim into the archive. Nothing is dropped, so there is no exception here.
+//
+// What IS new is the half a stub cannot self-enforce — that the archive actually received the
+// prose. "Stub the row, forget the archive write" loses the evidence silently, which is the same
+// failure class this guard exists for. Uppercase like REOPEN_TOKEN, and for the same reason:
+// STATE's prose says "archived" all the time, so a case-insensitive match would switch the check
+// off by accident. The anchor is matched as a SUBSTRING of an archive heading rather than as a
+// github slug, so re-titling a section does not silently unback every row pointing at it.
+const ARCHIVE_TOKEN = 'ARCHIVED';
+const ARCHIVE_POINTER_RE = /ARCHIVED\s*->\s*WAVE4_ARCHIVE\.md#([^\s|]+)/;
 
 // A table is a TASK table iff its header carries both an `id` and a `status` column. That is what
 // separates the two real task tables from the PR queue (status, but no id) and the reflection log
@@ -56,6 +74,10 @@ const PLACEHOLDER_RE = /^[—–-]*$/;
 
 function statePath(root) {
   return path.join(root, ...STATE_RELPATH.split('/'));
+}
+
+function archivePath(root) {
+  return path.join(root, ...ARCHIVE_RELPATH.split('/'));
 }
 
 function splitRow(line) {
@@ -125,7 +147,12 @@ function taskRowList(markdown) {
       const statusIdx = headers.indexOf(STATUS_HEADER);
       if (idIdx === -1 || statusIdx === -1) continue;
 
-      table = { idIdx, statusIdx, section };
+      // The notes cell is the LAST column the header declares — `notes` in the task table,
+      // `DoD / justification` in the backlog. Indexing by header count rather than by
+      // `cells.length - 1` is what makes this survive the pipes rows embed in their prose
+      // (W4-D16's own row quotes a pipe-delimited example): extra pipes push cells PAST the
+      // declared width, so the declared last index still lands on the start of that cell.
+      table = { idIdx, statusIdx, notesIdx: headers.length - 1, section };
       continue;
     }
 
@@ -136,6 +163,7 @@ function taskRowList(markdown) {
       id,
       status: normalizeStatus(cells[table.statusIdx]),
       rank: STATUS_RANK[normalizeStatus(cells[table.statusIdx])],
+      notes: stripEmphasis(cells[table.notesIdx]),
       table: table.section,
       reopened: line.includes(REOPEN_TOKEN),
       raw: line,
@@ -181,6 +209,93 @@ function duplicateIdViolations(markdown) {
       message: `${id} appears ${rows.length} times (${tables.join(', ')}) — one id must resolve to one row; `
         + 'renumber the LATER row to the next free id and note the change in the reflection log',
     });
+  }
+
+  return violations;
+}
+
+// → [{ heading, body }] for every markdown heading, body running to the next heading of the SAME
+// or a higher level. Sub-headings therefore stay INSIDE their section, which is what an archive
+// entry looks like: one dated `##` with `###` detail underneath it.
+function archiveSections(markdown) {
+  const sections = [];
+  if (typeof markdown !== 'string' || markdown === '') return sections;
+
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  const open = []; // sections still accepting body lines, innermost last
+
+  for (const line of lines) {
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      while (open.length && open[open.length - 1].level <= level) open.pop();
+      const section = { level, heading: heading[2].trim(), body: '' };
+      sections.push(section);
+      open.push(section);
+      continue;
+    }
+    for (const section of open) section.body += `${line}\n`;
+  }
+
+  return sections;
+}
+
+// → [{ id, kind: 'archive-pointer'|'archive-missing'|'archive-unbacked', anchor, table, message }]
+//
+// A property of ONE state document plus the archive, like duplicateIdViolations — so it runs even
+// when there is no baseline to diff against, which is exactly when an unbacked stub would sail
+// through. A row is a stub iff its NOTES cell starts with the uppercase token; prose that merely
+// mentions archiving mid-sentence is not a stub and is left alone.
+function archiveViolations(stateMarkdown, archiveMarkdown) {
+  const violations = [];
+  const rows = taskRowList(stateMarkdown).filter((row) => String(row.notes || '').startsWith(ARCHIVE_TOKEN));
+  if (rows.length === 0) return violations;
+
+  const sections = archiveSections(archiveMarkdown);
+
+  for (const row of rows) {
+    const match = ARCHIVE_POINTER_RE.exec(row.notes);
+    if (!match) {
+      violations.push({
+        id: row.id,
+        kind: 'archive-pointer',
+        anchor: null,
+        table: row.table,
+        message: `${row.id} is marked ${ARCHIVE_TOKEN} but carries no '-> ${path.basename(ARCHIVE_RELPATH)}#<anchor>' pointer `
+          + '— an archival must say where the evidence went',
+      });
+      continue;
+    }
+
+    const anchor = match[1];
+    const needle = anchor.toLowerCase();
+    const matching = sections.filter((section) => section.heading.toLowerCase().includes(needle));
+
+    if (matching.length === 0) {
+      violations.push({
+        id: row.id,
+        kind: 'archive-missing',
+        anchor,
+        table: row.table,
+        message: `${row.id} points at ${ARCHIVE_RELPATH}#${anchor}, and no heading there matches `
+          + '— the row was stubbed but its evidence never landed',
+      });
+      continue;
+    }
+
+    // The heading LINE does not count: a dated heading names the task that DID the archiving
+    // (`## Archived 2026-08-22 (W4-D16, session 65)`), so letting it back a row would let the
+    // row that ordered the move vouch for itself.
+    if (!matching.some((section) => section.body.includes(row.id))) {
+      violations.push({
+        id: row.id,
+        kind: 'archive-unbacked',
+        anchor,
+        table: row.table,
+        message: `${row.id} points at ${ARCHIVE_RELPATH}#${anchor}, which exists but never mentions ${row.id} `
+          + '— the stub was written and the archive write was skipped',
+      });
+    }
   }
 
   return violations;
@@ -265,15 +380,21 @@ function readStateWorktree(root) {
 
 module.exports = {
   STATE_RELPATH,
+  ARCHIVE_RELPATH,
   STATUS_RANK,
   REOPEN_TOKEN,
+  ARCHIVE_TOKEN,
+  ARCHIVE_POINTER_RE,
   statePath,
+  archivePath,
   splitRow,
   isSeparatorRow,
   normalizeStatus,
   taskRowList,
   parseTaskRows,
   duplicateIdViolations,
+  archiveSections,
+  archiveViolations,
   diffTaskRows,
   formatViolations,
   readStateAt,
@@ -310,22 +431,31 @@ if (require.main === module) {
   // without reading a single row, which is exactly when a silent duplicate would sail through.
   const duplicates = duplicateIdViolations(after);
 
+  // Same reasoning as duplicates: an archival stub is a property of the AFTER document plus the
+  // archive, so it must be checked before the no-baseline early return. Missing archive reads as
+  // an empty string, which fails every stub rather than excusing it (W4-D16).
+  const archiveFile = flag('archive') || archivePath(root);
+  const archive = (() => { try { return fs.readFileSync(archiveFile, 'utf8'); } catch { return ''; } })();
+  const unbacked = archiveViolations(after, archive);
+
   const beforeFile = flag('before');
   const before = beforeFile ? (() => { try { return fs.readFileSync(beforeFile, 'utf8'); } catch { return null; } })()
     : readStateAt(root, flag('base') || 'HEAD');
 
-  if (before === null && duplicates.length === 0) {
+  if (before === null && duplicates.length === 0 && unbacked.length === 0) {
     process.stdout.write('OK no-baseline (no earlier STATE to compare against)\n');
     process.exit(0);
   }
 
-  const violations = duplicates.concat(before === null ? [] : diffTaskRows(before, after));
+  const violations = duplicates
+    .concat(unbacked)
+    .concat(before === null ? [] : diffTaskRows(before, after));
   if (violations.length === 0) {
     process.stdout.write(`OK ${parseTaskRows(after).size} rows, no regressions\n`);
     process.exit(0);
   }
 
   process.stdout.write(`${formatViolations(violations)}\n`);
-  process.stdout.write(`FAILED ${violations.length} STATE row violation(s) — re-read WAVE4_STATE.md and re-apply your edit on top of it (W4-D02); a duplicate-id needs the LATER row renumbered (W4-D54)\n`);
+  process.stdout.write(`FAILED ${violations.length} STATE row violation(s) — re-read WAVE4_STATE.md and re-apply your edit on top of it (W4-D02); a duplicate-id needs the LATER row renumbered (W4-D54); an archive-* needs the row's evidence moved into ${ARCHIVE_RELPATH} under the heading its stub points at (W4-D16)\n`);
   process.exit(1);
 }
