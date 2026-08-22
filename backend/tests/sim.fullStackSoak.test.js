@@ -80,7 +80,7 @@ jest.mock('../app/services/ledger/serveLedger', () => ({
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
-const { runSoak } = require('../sim/soak');
+const { runSoak, soakPersonaScope } = require('../sim/soak');
 const { generate } = require('../sim/generator');
 const { listPersonaIds, listHoldoutIds } = require('../sim/personas');
 const {
@@ -202,9 +202,30 @@ describe('replaySocketLane — onEvent + injectSimTime (W4-015 additions)', () =
 });
 
 // ── the full-stack soak itself ────────────────────────────────────────────────────────────────
+//
+// W4-D60: the sweep is `soakPersonaScope()`, NOT a hardcoded persona list. Ungated that is one
+// core persona + one holdout; under `RUN_SOAK=1` it is the whole population, which is what this
+// suite always used to run — and what made it the slowest suite in the repo by 2x, inside a
+// default budget the mission says the soak never belongs in. The integration coverage is what
+// is worth keeping, so the SCALE moved and the coverage did not.
 describe('full-stack soak (W4-015)', () => {
-  test('every persona + holdout resolves a taxonomy-state dwell histogram with bounded transitions and memory', async () => {
-    const ids = [...listPersonaIds(), ...listHoldoutIds()];
+  test('the sweep is the RUN_SOAK-gated scope, not a hardcoded persona list', () => {
+    // Pins the wiring itself: without this, the scope could be re-widened by a one-line edit
+    // here and the gate in sim/soak.js would still pass all of its own tests.
+    const scope = soakPersonaScope();
+    expect(scope.ids).toEqual([...scope.personas, ...scope.holdouts]);
+    if (process.env.RUN_SOAK === '1') {
+      expect(scope.full).toBe(true);
+      expect(scope.ids).toEqual([...listPersonaIds(), ...listHoldoutIds()]);
+    } else {
+      expect(scope.full).toBe(false);
+      expect(scope.ids).toHaveLength(2);
+      expect(listHoldoutIds()).toContain(scope.holdouts[0]);
+    }
+  });
+
+  test('every persona in scope resolves a taxonomy-state dwell histogram with bounded transitions and memory', async () => {
+    const ids = soakPersonaScope().ids;
     const seedDwell = () => Object.fromEntries(STATES.map((s) => [s.id, 0]));
     const totalStateDwell = seedDwell();
     const perPersona = [];
@@ -269,6 +290,12 @@ describe('full-stack soak (W4-015)', () => {
         + `batchInserted=${p.batchInserted} states={${distinct}}`);
     }
 
+    // ── the scope was actually swept end to end — no persona silently skipped. Compared as a
+    //    SET: `runSoak` starts every persona's replay on the same tick (soak.js — the `pending`
+    //    array) and only awaits them together, so `perPersona` is in completion order, which is
+    //    not the scope order and was never promised to be.
+    expect([...perPersona.map((p) => p.personaId)].sort()).toEqual([...ids].sort());
+
     // ── every persona actually resolved a taxonomy state on at least some readings
     for (const p of perPersona) {
       expect(p.resolved).toBeGreaterThan(0);
@@ -287,16 +314,20 @@ describe('full-stack soak (W4-015)', () => {
     }
 
     // ── memory: soak's own report field (W4-002), unchanged shape — a full-stack replay across
-    //    7 personas must not balloon the process. Generous ceiling: the property under test is
-    //    boundedness, not a tight number this suite would need to keep re-tuning.
+    //    the whole scope must not balloon the process. Generous ceiling: the property under test
+    //    is boundedness, not a tight number this suite would need to keep re-tuning. Deliberately
+    //    NOT scaled down with the scope (W4-D60) — the ceiling exists to catch a leak, and a leak
+    //    that only shows under RUN_SOAK=1 is exactly the one worth catching there.
     expect(report.memory.heapUsedDeltaBytes).toBeLessThan(300 * 1024 * 1024);
 
     // ── coverage: record which of the ~34 taxonomy states this one simulated day actually hit.
-    //    NOT asserted as "all of them" — a single day across 7 personas is not expected to reach
-    //    every state (many need multi-day sleep-debt/episode combinations, stateTaxonomy.js's own
-    //    reachability notes) — but at least a handful of DISTINCT states must appear, or the
-    //    engine would be reporting one label for everyone regardless of persona.
+    //    NOT asserted as "all of them" — a single simulated day is not expected to reach every
+    //    state (many need multi-day sleep-debt/episode combinations, stateTaxonomy.js's own
+    //    reachability notes). The floor scales with the scope (W4-D60): ungated, the pair must
+    //    still resolve MORE THAN ONE distinct state or the engine is reporting one label for
+    //    everyone; the full population is held to a strictly higher bar than the pair, so
+    //    shrinking the default budget cannot quietly weaken what RUN_SOAK=1 proves.
     const hit = Object.entries(totalStateDwell).filter(([, n]) => n > 0).map(([id]) => id);
-    expect(hit.length).toBeGreaterThan(1);
+    expect(hit.length).toBeGreaterThan(soakPersonaScope().full ? 2 : 1);
   }, 150000);
 });
