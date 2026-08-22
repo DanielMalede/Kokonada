@@ -885,4 +885,62 @@ describe('sim/soak — the long-run harness and its gate', () => {
     expect(() => runSoak({ seed: 1, startAt: T0, personas: ['athlete', 'ghost'] }))
       .toThrow(/unknown persona/i);
   });
+
+  // ── W4-D60: the FULL-STACK soak's persona scope ────────────────────────────────────────────
+  // `isSoakEnabled` above gates the CLI. It could not gate `tests/sim.fullStackSoak.test.js`,
+  // which is a jest suite and so always runs — it swept all 7 personas through a real Mongo and
+  // the real socket stack inside the default budget (measured 67.8s in band, 19.1% of the suite).
+  // The mission's line is that the soak is never in the default CI budget, but deleting the
+  // full-stack sweep would delete real integration coverage, so the scope SCALES instead: a
+  // representative pair by default, everything under RUN_SOAK=1. These pins exist so that gate
+  // cannot rot the way the missing one did.
+  const { soakPersonaScope } = require('../sim/soak');
+
+  const withRunSoak = (value, fn) => {
+    const prev = process.env.RUN_SOAK;
+    try {
+      if (value === undefined) delete process.env.RUN_SOAK; else process.env.RUN_SOAK = value;
+      return fn();
+    } finally {
+      if (prev === undefined) delete process.env.RUN_SOAK; else process.env.RUN_SOAK = prev;
+    }
+  };
+
+  test('the full-stack persona scope reads RUN_SOAK at call time, not at import time', () => {
+    // Same property as the CLI gate above, and the same reason: a module-level constant would
+    // freeze the answer at require() and no wrapper script could ever widen the sweep.
+    expect(withRunSoak(undefined, () => soakPersonaScope().full)).toBe(false);
+    expect(withRunSoak('1', () => soakPersonaScope().full)).toBe(true);
+    expect(withRunSoak(undefined, () => soakPersonaScope().full)).toBe(false);
+  });
+
+  test('ungated, the scope is ONE persona plus ONE holdout — never zero holdouts', () => {
+    const scope = withRunSoak(undefined, () => soakPersonaScope());
+    expect(scope.personas).toHaveLength(1);
+    expect(scope.holdouts).toHaveLength(1);
+    expect(scope.ids).toEqual([...scope.personas, ...scope.holdouts]);
+    // R.10 / W4-002: the holdouts are a DIFFERENT noise family, and validating only against the
+    // family the engine was tuned on is the circular-validation trap the wave opened them for.
+    // A cheaper default budget may drop personas; it may never drop the holdout.
+    expect(listHoldoutIds()).toContain(scope.holdouts[0]);
+    expect(listPersonaIds()).toContain(scope.personas[0]);
+    expect(ALL_PERSONAS[scope.holdouts[0]].holdout).toBe(true);
+  });
+
+  test('under RUN_SOAK=1 the scope is every persona and every holdout — the pre-W4-D60 sweep', () => {
+    const scope = withRunSoak('1', () => soakPersonaScope());
+    expect(scope.personas).toEqual(listPersonaIds());
+    expect(scope.holdouts).toEqual(listHoldoutIds());
+    expect(scope.ids).toEqual([...listPersonaIds(), ...listHoldoutIds()]);
+    expect(scope.ids.length).toBe(Object.keys(ALL_PERSONAS).length);
+  });
+
+  test('the scope is a fresh, non-aliasing value each call — a caller cannot shrink the next one', () => {
+    const a = withRunSoak('1', () => soakPersonaScope());
+    a.ids.length = 0;
+    a.personas.length = 0;
+    const b = withRunSoak('1', () => soakPersonaScope());
+    expect(b.ids.length).toBe(Object.keys(ALL_PERSONAS).length);
+    expect(b.personas).toEqual(listPersonaIds());
+  });
 });
