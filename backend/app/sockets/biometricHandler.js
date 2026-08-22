@@ -121,6 +121,16 @@ const DISCOVERY_CAPTION_LLM = () => process.env.DISCOVERY_CAPTION_LLM === 'true'
 const DEBUG = process.env.DEBUG_PLAYLIST === '1' || process.env.NODE_ENV === 'development';
 function log(...args) { if (DEBUG) console.log(...args); }
 
+// W4-D03 — the projection a trace line may carry in place of a heart rate. §0.2.2 and ADR-0005
+// admit coarse bands and derived targets in a log, never the reading itself, and `DEBUG`-gating is
+// not an exemption: a dev box pointed at real watch data is exactly where an Art.9 value ends up in
+// a scrollback. `bandFromHeartRate` rather than a local cut table on purpose — it is the SAME
+// projection the shadow buffer is keyed by (`bio:<band>:<activity>`), the trigger fires on and the
+// targets turn on, so the trace still answers the only question it was ever asked ("which band did
+// this run on?"), and a moved cut moves the buffer and the trace together. Duplicating the cuts
+// instead is D11 exactly. Unusable reading → 'none', not "null", which reads like a value.
+const _hrBand = (hr) => bandFromHeartRate(hr) ?? 'none';
+
 // Normalize a track to the frontend contract { id, title, artist, uri } before
 // emitting. Library/"familiar" tracks are stored without a uri or title (only
 // id/artist/audio-features), and Spotify recommendation objects use name/artists
@@ -839,7 +849,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
       return;
     }
 
-    log(`[generate] start trigger=${trigger} hr=${state.stableHR} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
+    log(`[generate] start trigger=${trigger} band=${_hrBand(state.stableHR)} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
 
     // Serve-time side effects, recorded by EVERY playlist_ready (the normal LLM/discovery path AND
     // the no-playback familiar-only short-circuit): warm the live-biometric buffer, persist the
@@ -1586,7 +1596,7 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     const bandChanged = prev !== null &&
       _shouldRecalibrate({ prevHR: latchHR, nextHR: effectiveHR, activityChanged: false });
     if (prev === null || bandChanged || activityChanged) {
-      log(`[handleBiometric] immediate hr=${effectiveHR} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
+      log(`[handleBiometric] immediate band=${_hrBand(effectiveHR)} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
       state.servedHR = effectiveHR;
       recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
     }
@@ -1745,7 +1755,7 @@ function registerBiometricHandler(socket) {
     }
     state.stableHR       = ctx.heartRate;
     state.latestActivity = ctx.activity;
-    log(`[heart] generate hr=${ctx.heartRate} activity=${ctx.activity} source=${ctx.source} reqId=${reqId}`);
+    log(`[heart] generate band=${_hrBand(ctx.heartRate)} activity=${ctx.activity} source=${ctx.source} reqId=${reqId}`);
     generateAndEmitPlaylist(socket, 'heart', state);
   });
 
@@ -1812,6 +1822,7 @@ module.exports = {
   _debounceMap: debounceMap,
   // Exported for unit testing
   _resetDebounceState,
+  _hrBand,
   _shouldRecalibrate,
   HR_NOISE_FLOOR,
   HR_BAND_RELEASE_MARGIN,
