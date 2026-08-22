@@ -42,6 +42,8 @@ const {
   STATUS_RANK,
   REOPEN_TOKEN,
   parseTaskRows,
+  taskRowList,
+  duplicateIdViolations,
   diffTaskRows,
   formatViolations,
 } = require(MODULE_PATH);
@@ -254,6 +256,76 @@ describe('W4-D02 · state guard — deliberate reopening stays possible (§2.5 R
   });
 });
 
+// ---------------------------------------------------------------------------------------------
+// W4-D54 — an id that resolves to two different rows.
+//
+// The backlog carried `W4-D48` TWICE: session 49's "a pending queue job is user data that no
+// erasure path can reach" and session 55's "`TrackEmbedding.vector` never rejects a missing
+// vector". Unrelated findings, one id.
+//
+// The reason this went unnoticed for a session is INSIDE this guard. `parseTaskRows` returns a
+// Map keyed by id, so a repeat `rows.set(id, …)` silently overwrites — the first row stops
+// existing as far as every consumer is concerned. That is not a cosmetic clash:
+//   · the shadowed row can never be reported `removed`, because it was never in the map to begin
+//     with — delete it and the guard says OK;
+//   · a rank decrease on the shadowed row is invisible for the same reason;
+//   · the `OK <n> rows` line under-reports by one per duplicate, so the count cannot catch it.
+// A guard blind to a row is worse than no guard on that row, because the OK line reads as
+// coverage. So the repair is the W4-D01/W4-D02 shape once more: not just fix the instance,
+// but make the class fail loudly.
+//
+// The check is a property of ONE document, not of a diff, so it runs on the AFTER document — and
+// it has to run BEFORE the no-baseline early return, or the loop's first check on a fresh clone
+// would be exactly the one that skips it.
+// ---------------------------------------------------------------------------------------------
+describe('W4-D54 · state guard — one id, one row', () => {
+  const dupBacklog = '| W4-D02 | improve | A DIFFERENT finding that reused the id | SHOULD | S | — | pending | session 55 | unrelated work |\n';
+
+  test('a clean document has no duplicate ids', () => {
+    expect(duplicateIdViolations(state())).toEqual([]);
+  });
+
+  test('an id used twice in the SAME table is a violation naming the id and the count', () => {
+    const violations = duplicateIdViolations(state({ extraBacklogRows: dupBacklog }));
+    expect(idsOf(violations)).toEqual(['W4-D02']);
+    expect(violations[0].kind).toBe('duplicate-id');
+    expect(violations[0].count).toBe(2);
+    expect(violations[0].message).toMatch(/W4-D02/);
+  });
+
+  test('an id reused ACROSS the two tables is caught too — the tables share one id space', () => {
+    const violations = duplicateIdViolations(state({
+      extraBacklogRows: '| W4-001 | improve | Reused a §3 task id | SHOULD | S | — | pending | session 55 | oops |\n',
+    }));
+    expect(idsOf(violations)).toEqual(['W4-001']);
+  });
+
+  test('THE MECHANISM: a duplicate SHADOWS the earlier row, so the guard goes blind to it', () => {
+    // This is why W4-D54 existed at all. Pinned so the reason survives the fix.
+    const withDup = state({ extraBacklogRows: dupBacklog });
+    const rows = parseTaskRows(withDup);
+
+    expect(rows.get('W4-D02').raw).toMatch(/A DIFFERENT finding/); // last write wins
+    expect(taskRowList(withDup).filter((r) => r.id === 'W4-D02')).toHaveLength(2);
+    expect(rows.size).toBe(taskRowList(withDup).length - 1); // the OK line under-reports by one
+
+    // …and the concrete consequence: deleting the SHADOWED row is not reported as `removed`.
+    expect(diffTaskRows(withDup, state({ extraBacklogRows: dupBacklog.replace('W4-D02', 'W4-D99') }))).toEqual([]);
+  });
+
+  test('the real WAVE4_STATE.md has exactly one row per id', () => {
+    // The live pin: W4-D54's instance, and any future repeat of it.
+    const real = fs.readFileSync(path.join(REPO_ROOT, STATE_RELPATH), 'utf8');
+    expect(duplicateIdViolations(real)).toEqual([]);
+    expect(parseTaskRows(real).size).toBe(taskRowList(real).length);
+  });
+
+  test('formatViolations renders it like every other violation, so one log line covers all kinds', () => {
+    const line = formatViolations(duplicateIdViolations(state({ extraBacklogRows: dupBacklog })));
+    expect(line).toMatch(/^VIOLATION W4-D02 duplicate-id: /);
+  });
+});
+
 describe('W4-D02 · state guard — CLI', () => {
   let tmp;
   const run = (args) => {
@@ -297,6 +369,29 @@ describe('W4-D02 · state guard — CLI', () => {
     const res = run(['check', '--before', path.join(tmp, 'does-not-exist.md'), '--after', after]);
     expect(res.code).toBe(0);
     expect(res.stdout).toMatch(/no-baseline/);
+  });
+
+  test('W4-D54 · a duplicate id in AFTER exits NON-ZERO and names the id', () => {
+    const before = write('before.md', state());
+    const after = write('after.md', state({
+      extraBacklogRows: '| W4-D02 | improve | A DIFFERENT finding | SHOULD | S | — | pending | session 55 | unrelated |\n',
+    }));
+    const res = run(['check', '--before', before, '--after', after]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/VIOLATION W4-D02 duplicate-id/);
+  });
+
+  test('W4-D54 · a duplicate is caught even with NO baseline — the early return must not skip it', () => {
+    // The no-baseline branch returns OK before any diff runs. A duplicate is a property of the
+    // document alone, so on a fresh clone (or a base ref older than the file) it is precisely the
+    // check that would otherwise never fire.
+    const after = write('after.md', state({
+      extraBacklogRows: '| W4-D02 | improve | A DIFFERENT finding | SHOULD | S | — | pending | session 55 | unrelated |\n',
+    }));
+    const res = run(['check', '--before', path.join(tmp, 'does-not-exist.md'), '--after', after]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/duplicate-id/);
+    expect(res.stdout).not.toMatch(/^OK\b/m);
   });
 
   test('an unreadable AFTER file is a hard error, not a silent pass', () => {

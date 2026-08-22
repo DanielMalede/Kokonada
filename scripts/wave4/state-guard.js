@@ -86,9 +86,14 @@ function normalizeId(cell) {
   return stripEmphasis(cell);
 }
 
-// → Map<id, { id, status, rank, table, reopened, raw }> in document order.
-function parseTaskRows(markdown) {
-  const rows = new Map();
+// → [{ id, status, rank, table, reopened, raw }] in document order, DUPLICATES INCLUDED.
+//
+// This is the one parser; `parseTaskRows` is the keyed view of it. Keeping a single walk matters:
+// a second copy of "what is a task row?" is how two readers of the same table start disagreeing
+// (the defect class this wave keeps re-finding), and the duplicate check below is only meaningful
+// if it sees exactly the rows the diff sees.
+function taskRowList(markdown) {
+  const rows = [];
   if (typeof markdown !== 'string' || markdown === '') return rows;
 
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
@@ -127,7 +132,7 @@ function parseTaskRows(markdown) {
     const id = normalizeId(cells[table.idIdx]);
     if (!id || PLACEHOLDER_RE.test(id)) continue;
 
-    rows.set(id, {
+    rows.push({
       id,
       status: normalizeStatus(cells[table.statusIdx]),
       rank: STATUS_RANK[normalizeStatus(cells[table.statusIdx])],
@@ -138,6 +143,47 @@ function parseTaskRows(markdown) {
   }
 
   return rows;
+}
+
+// → Map<id, row> in document order. LAST row wins on a repeated id — see duplicateIdViolations
+// for why that is a hazard rather than a convention, and W4-D54 for the time it bit.
+function parseTaskRows(markdown) {
+  const rows = new Map();
+  for (const row of taskRowList(markdown)) rows.set(row.id, row);
+  return rows;
+}
+
+// → [{ id, kind: 'duplicate-id', count, table, message }] — a property of ONE document.
+//
+// W4-D54: the backlog carried `W4-D48` twice, for two unrelated findings. Because every consumer
+// reads the keyed view, the earlier row simply did not exist as far as this guard was concerned:
+// it could not be reported `removed`, a rank decrease on it was invisible, and `OK <n> rows`
+// quietly under-reported by one. An id is the only handle STATE gives a row, so one id must mean
+// one row — across BOTH tables, since they share a single id space and a session resolving
+// "W4-D48" does not know which table to look in.
+function duplicateIdViolations(markdown) {
+  const seen = new Map();
+  for (const row of taskRowList(markdown)) {
+    const prior = seen.get(row.id);
+    if (prior) prior.rows.push(row);
+    else seen.set(row.id, { rows: [row] });
+  }
+
+  const violations = [];
+  for (const [id, { rows }] of seen) {
+    if (rows.length < 2) continue;
+    const tables = [...new Set(rows.map((r) => r.table))];
+    violations.push({
+      id,
+      kind: 'duplicate-id',
+      count: rows.length,
+      table: tables.join(' + '),
+      message: `${id} appears ${rows.length} times (${tables.join(', ')}) — one id must resolve to one row; `
+        + 'renumber the LATER row to the next free id and note the change in the reflection log',
+    });
+  }
+
+  return violations;
 }
 
 // → [{ id, kind, before, after, table, message }]
@@ -225,7 +271,9 @@ module.exports = {
   splitRow,
   isSeparatorRow,
   normalizeStatus,
+  taskRowList,
   parseTaskRows,
+  duplicateIdViolations,
   diffTaskRows,
   formatViolations,
   readStateAt,
@@ -257,22 +305,27 @@ if (require.main === module) {
     process.exit(2);
   }
 
+  // Duplicate ids are a property of the AFTER document alone, so this runs BEFORE the no-baseline
+  // branch: on a fresh clone (or against a base ref older than the file) that branch returns OK
+  // without reading a single row, which is exactly when a silent duplicate would sail through.
+  const duplicates = duplicateIdViolations(after);
+
   const beforeFile = flag('before');
   const before = beforeFile ? (() => { try { return fs.readFileSync(beforeFile, 'utf8'); } catch { return null; } })()
     : readStateAt(root, flag('base') || 'HEAD');
 
-  if (before === null) {
+  if (before === null && duplicates.length === 0) {
     process.stdout.write('OK no-baseline (no earlier STATE to compare against)\n');
     process.exit(0);
   }
 
-  const violations = diffTaskRows(before, after);
+  const violations = duplicates.concat(before === null ? [] : diffTaskRows(before, after));
   if (violations.length === 0) {
     process.stdout.write(`OK ${parseTaskRows(after).size} rows, no regressions\n`);
     process.exit(0);
   }
 
   process.stdout.write(`${formatViolations(violations)}\n`);
-  process.stdout.write(`FAILED ${violations.length} STATE row regression(s) — re-read WAVE4_STATE.md and re-apply your edit on top of it (W4-D02)\n`);
+  process.stdout.write(`FAILED ${violations.length} STATE row violation(s) — re-read WAVE4_STATE.md and re-apply your edit on top of it (W4-D02); a duplicate-id needs the LATER row renumbered (W4-D54)\n`);
   process.exit(1);
 }
