@@ -543,6 +543,15 @@ Session 1 (2026-08-18, plan tier) â€” full-repo validation of the mission. 
 
 > **Session 55 (W4-014 wiring half):** W4-014 is COMPLETE and #180's body carries its close-out section - the one-resolver ruling and the two ways a half-flipped cutover fails, the re-enqueue backfill and the honest cost of its 6h IDF cache, the measured 0.8 annotation-match asymmetry named as a second hard cutover prerequisite alongside the `DISCOVERY_MIN_COSINE` retune, the non-destructive v2 write and the omit-rather-than-mix read, Runbook 4's deliberate SKIP-while-dark, and the compliance line that the genre lookup runs only over keys that survived the ToS gate. #180 stays the single running PR for `feat/intelligence-wave`. Never merged by an agent.
 
+> **Session 56 (W4-D43):** #180's body carries the W4-D43 close-out section - the disclosure rule and where it
+> came from (MorningState's own encryption ruling, enforced one-directionally as "no encrypted field leaves the
+> server except as a coarse bucket"), the schema-walk sentinel pin that makes it survive a later field addition,
+> the three design calls (stateVector over the Redis posterior and why the posterior cannot supply a confidence,
+> the state id never shipping because H6 owns that vocabulary, and stateConfidence staying null on the nine-rule
+> fallback), the latent `affectEngine.band()` finite-guard bug found and queued as W4-D53 rather than fixed in a
+> serving-path helper, the S11 flag, the two whitelist-widening re-pins in a before/after table, and 221/3506
+> green twice. #180 stays the single running PR for `feat/intelligence-wave`. Never merged by an agent.
+
 ## Error budget
 
 - consecutiveFailedSessions: 0
