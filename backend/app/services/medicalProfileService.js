@@ -299,4 +299,9 @@ function computeLastNightSleep(metrics) {
   return { ...nights.get(latest), date: latest };
 }
 
-module.exports = { computeStateVector, upsertStateVector, aggregateProfileMetrics, computeLastNightSleep };
+// PROFILE_SCALAR_METRICS is exported so a log line can NAME the metrics a batch touched without
+// naming their values — it is the closed vocabulary `summarizeMetricKeys` filters against (W4-D10).
+module.exports = {
+  computeStateVector, upsertStateVector, aggregateProfileMetrics, computeLastNightSleep,
+  PROFILE_SCALAR_METRICS,
+};
