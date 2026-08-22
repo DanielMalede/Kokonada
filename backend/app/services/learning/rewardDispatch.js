@@ -5,6 +5,7 @@ const { outcomeDelta } = require('../../agents/runtime/knowledge/noveltyControll
 const personalization = require('../../agents/runtime/learning/personalization');
 const { QUEUES } = require('../../queues/definitions');
 const { enqueue } = require('../../queues/queue');
+const { disabled } = require('../../utils/envFlag');
 
 /**
  * W4-011 · the lane from a finished play to the two ADR-0012 stores.
@@ -36,14 +37,15 @@ const { enqueue } = require('../../queues/queue');
 
 /**
  * §0.4 S11. Set it and the entire feedback lane reverts to pre-W4-011 behaviour with no deploy:
- * nothing is evaluated, nothing is logged, nothing is queued. The same forgiving parse the other
- * wave-4 switches use — a kill-switch that rejects `=1` because it wanted `=true` is a
- * kill-switch that fails at the moment it is finally needed.
+ * nothing is evaluated, nothing is logged, nothing is queued. The one house spelling every wave-4
+ * switch now shares (`utils/envFlag`, W4-D58): `=1`, `=true`, `=on` and any other non-empty value
+ * engage it — a kill-switch that rejects `=1` because it wanted `=true` fails at the moment it is
+ * finally needed — while `=false`, `=0`, `=off` and the empty string leave the lane running,
+ * because a switch that does the opposite of what its value says is worse than either default.
  */
 const FEEDBACK_FLAG = 'WAVE4_FEEDBACK_DISABLED';
 function feedbackDisabled() {
-  const v = String(process.env[FEEDBACK_FLAG] ?? '').trim().toLowerCase();
-  return v !== '' && v !== 'false' && v !== '0';
+  return disabled(process.env[FEEDBACK_FLAG]);
 }
 
 /** The closed payload contract. Pinned by test; see the header for why it matters. */

@@ -5,6 +5,7 @@ const axios            = require('axios');
 const { withRetry }    = require('../utils/retry');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
+const { disabled }     = require('../utils/envFlag');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, biometricBand, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
@@ -224,7 +225,7 @@ Analyse the emotional coordinates in the context of the user's taste profile and
 // W4-016 kill switch — true restores the pre-W4-016 behaviour (band from raw HR alone)
 // byte-for-byte, without a revert. Read per call (S11 convention — a switch that needs a
 // redeploy is not an escape hatch).
-const llmBandFromStateDisabled = () => process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED === 'true';
+const llmBandFromStateDisabled = () => disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED);
 
 // Routes the biometric branch's band through biometricBand's real preference chain
 // (stateLabel → hrRatio → raw HR) instead of a fixed population ladder, so two bodies at the

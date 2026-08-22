@@ -1,5 +1,7 @@
 'use strict';
 
+const { disabled } = require('../../utils/envFlag');
+
 // W4-010 (a) · Read-time recency decay for library affinity.
 //
 // `affinity` is computed ONCE, at profile build, from a snapshot of the user's listening
@@ -44,7 +46,7 @@ function tauDays() {
 // Read ONCE and memoized (like tauDays above, and like the scorer's weights), so a running
 // process picks the flag up on restart, not mid-process — `_resetDecayConfig()` is the test seam.
 function decayDisabled() {
-  if (_disabled == null) _disabled = Boolean(process.env.WAVE4_AFFINITY_DECAY_DISABLED);
+  if (_disabled == null) _disabled = disabled(process.env.WAVE4_AFFINITY_DECAY_DISABLED);
   return _disabled;
 }
 

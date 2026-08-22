@@ -9,10 +9,11 @@
 const { cosine } = require('../vector/embedding');
 const { measured } = require('../features/featureProvider');
 const { toLog2, foldedDistanceLog2 } = require('./tempo');
+const { disabled } = require('../../utils/envFlag');
 
 // S11 escape hatch — one flag for the whole W4-007 selection change (scorer, this
 // similarity, and biosonicBand's null handling). Read per call so no restart is needed.
-const legacySimilarity = () => Boolean(process.env.WAVE4_SCORING_V2_DISABLED);
+const legacySimilarity = () => disabled(process.env.WAVE4_SCORING_V2_DISABLED);
 
 // Relative contribution of each dim to perceived similarity; renormalised over the dims the
 // PAIR actually shares, so a partial comparison stays calibrated instead of scoring low

@@ -7,6 +7,7 @@ const { getRedis } = require('../../config/redis');
 const { encrypt } = require('../../utils/encryption');
 const { logBiometricAccess, auditedDecrypt } = require('../../utils/biometricAudit');
 const { computeBaselineBlob } = require('../../agents/runtime/physiology/baselineEngine');
+const { disabled } = require('../../utils/envFlag');
 
 // Personal biometric baselines: rolling 30-day median/MAD of resting heart rate.
 //
@@ -38,7 +39,7 @@ const FALLBACK_MAD = 3;
 // S11 kill-switch: set to restore the pre-W4-004 blob (population HRV constants, MIN_SAMPLES
 // cliff, no hourly/cosinor/zones) WITHOUT a revert. The delegation below is a real behaviour
 // change for every user with HRV history, so it ships with a way back.
-const engineDisabled = () => Boolean(process.env.WAVE4_BASELINE_ENGINE_DISABLED);
+const engineDisabled = () => disabled(process.env.WAVE4_BASELINE_ENGINE_DISABLED);
 
 const _cacheKey = (userId) => `bio:baseline:${userId}`;
 

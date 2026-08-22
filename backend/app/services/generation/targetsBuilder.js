@@ -6,6 +6,7 @@ const { translate } = require('../biosonic/translate');
 const { resolveAffect, resolveHourContext } = require('../biosonic/affectService');
 const wellbeingRegulator = require('../../agents/runtime/translation/wellbeingRegulator');
 const { explainFor } = require('../../agents/runtime/knowledge/explain');
+const { disabled } = require('../../utils/envFlag');
 
 // Assemble the biosonic targets from everything the system knows: cached personal
 // baselines (never the heavy compute — request path), the profile's encrypted
@@ -47,7 +48,7 @@ const { explainFor } = require('../../agents/runtime/knowledge/explain');
  * hearing the regulation while the posterior keeps advancing for W4-009 and the soak.
  * Read per call — a switch that needs a redeploy is not an escape hatch.
  */
-const trajectoryDisabled = () => Boolean(process.env[wellbeingRegulator.DISABLE_ENV_VAR]);
+const trajectoryDisabled = () => disabled(process.env[wellbeingRegulator.DISABLE_ENV_VAR]);
 
 async function buildTargets({ userId, live = {}, moodKey = null, taps = null, now = Date.now() } = {}) {
   let baselines = null;

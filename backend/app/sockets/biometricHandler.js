@@ -20,6 +20,7 @@ const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const { logBiometricAccess } = require('../utils/biometricAudit');
+const { disabled } = require('../utils/envFlag');
 const { createFilterState, filterReading } = require('../agents/runtime/ingestion/anomalyFilter');
 const { onlineUpdate: liveStateOnlineUpdate } = require('../agents/runtime/physiology/liveStateAdapter');
 // W4-011 (wiring half): the feedback loop's three socket-side jobs — bound the payload, hold the
@@ -59,33 +60,26 @@ const HR_NOISE_FLOOR = 3;
 // abandon the mix. MUST stay > HR_NOISE_FLOOR or the trigger is symmetric again.
 const HR_BAND_RELEASE_MARGIN = 6;
 // §0.4 S11 escape hatch: set it and the trigger reverts to W4-001's symmetric behaviour with
-// no revert and no deploy. Forgiving about its value on purpose — a kill-switch that ignores
-// `=1` because it demanded `=true` is a kill-switch that fails when it is finally needed.
+// no revert and no deploy. The hazard this used to warn about — a kill-switch that ignores `=1`
+// because it demanded `=true` — was real, and it was living in this very file at the
+// `WAVE4_LLM_BAND_FROM_STATE_DISABLED` gate below. W4-D58 moved the parse to the one house
+// spelling in `utils/envFlag`, which honours `=1` and every other ON spelling while still
+// reading the operator's `=false` as OFF.
 const RECAL_HYSTERESIS_FLAG = 'WAVE4_RECAL_STATE_TRIGGER_DISABLED';
-const _hysteresisDisabled = () => {
-  const v = String(process.env[RECAL_HYSTERESIS_FLAG] ?? '').trim().toLowerCase();
-  return v !== '' && v !== 'false' && v !== '0';
-};
+const _hysteresisDisabled = () => disabled(process.env[RECAL_HYSTERESIS_FLAG]);
 // §0.4 S11 escape hatch for the whole A0 wiring (W4-003): set it and every socket reading
 // reverts to the pre-filter, pre-persistence W4-001 behaviour byte-for-byte — the raw
 // normalized heart rate drives the debounce/trigger machinery directly (no Hampel/slew/
-// Kalman, no live BiometricLog write). Same forgiving parse as RECAL_HYSTERESIS_FLAG: a
-// kill-switch that only understands `=true` is a kill-switch that fails at 2am on `=1`.
+// Kalman, no live BiometricLog write). Same house spelling as every other switch (W4-D58).
 const ANOMALY_FILTER_FLAG = 'WAVE4_ANOMALY_FILTER_DISABLED';
-const _anomalyFilterDisabled = () => {
-  const v = String(process.env[ANOMALY_FILTER_FLAG] ?? '').trim().toLowerCase();
-  return v !== '' && v !== 'false' && v !== '0';
-};
+const _anomalyFilterDisabled = () => disabled(process.env[ANOMALY_FILTER_FLAG]);
 // §0.4 S11 escape hatch for the W4-D34 duplicate-serve latch: set it and a recalibration
 // serves whatever key it computes, every time, exactly as before the latch existed. Its OWN
 // flag on purpose — W4-D35 is the standing complaint that RECAL_HYSTERESIS_FLAG already
 // reverts two unrelated behaviours, and a third would make it unusable as a kill-switch:
 // disabling the latch to debug a missing serve must not also disable the band hysteresis.
 const SERVE_LATCH_FLAG = 'WAVE4_SERVE_LATCH_DISABLED';
-const _serveLatchDisabled = () => {
-  const v = String(process.env[SERVE_LATCH_FLAG] ?? '').trim().toLowerCase();
-  return v !== '' && v !== 'false' && v !== '0';
-};
+const _serveLatchDisabled = () => disabled(process.env[SERVE_LATCH_FLAG]);
 // D10 (W4-003): the live socket lane finally persists what it sees. Capped at one row per
 // minute per socket — a live stream can push every few seconds, and BiometricLog is a
 // history/baseline input, not a raw firehose; the batch lane already owns high-density
@@ -1077,7 +1071,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         // object to exactly {heartRate, activity} — today's behaviour byte-for-byte.
         let stateLabel = null;
         let hrRatio = null;
-        if (process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED !== 'true') {
+        if (!disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED)) {
           stateLabel = bandTargets?.stateId || null;
           try {
             const personalBaselines = await peekBaselines(userId);

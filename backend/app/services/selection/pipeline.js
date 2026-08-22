@@ -25,6 +25,11 @@ const novelty = require('../../agents/runtime/knowledge/noveltyController');
 // the module object.
 const personalization = require('../../agents/runtime/learning/personalization');
 const personalWeightsRepo = require('../../repositories/personalWeightsRepo');
+const { disabled } = require('../../utils/envFlag');
+
+// S11: one flag for the whole trajectory feature, shared with the regulator that publishes the
+// arc. Read per call so no restart is needed, matching the WAVE4_SCORING_V2_DISABLED seam.
+const trajectoryDisabled = () => disabled(process.env[TRAJECTORY_DISABLED]);
 
 // The Phase-5 selection pipeline: pool → exclusions → features → score → MMR → trajectory.
 // Zero LLM in the path. When filters would starve the playlist, a relaxation
@@ -278,9 +283,7 @@ async function selectPlaylist({
   t = Date.now();
   const { ordered, stats: trajectory } = planTrajectory(picks, {
     targets,
-    // S11: one flag for the whole trajectory feature, shared with the regulator that publishes
-    // the arc. Read per call so no restart is needed, matching the WAVE4_SCORING_V2_DISABLED seam.
-    disabled: Boolean(process.env[TRAJECTORY_DISABLED]),
+    disabled: trajectoryDisabled(),
   });
   mark('trajectory', t);
 

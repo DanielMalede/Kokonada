@@ -420,6 +420,32 @@ describe('_buildBiometricPrompt — W4-016 band-from-state', () => {
     expect(disabledPrompt).toBe(rawOnlyPrompt);
     expect(disabledPrompt.toLowerCase()).toContain('intensity band: peak'); // raw 170bpm wins; state/ratio ignored
   });
+
+  // W4-D58 — this flag used to be read as `=== 'true'`, so the one spelling an operator is most
+  // likely to reach for in an incident did nothing at all, silently. Every ON spelling must work.
+  it.each(['1', 'true', 'TRUE', ' 1 ', 'yes', 'on'])(
+    'WAVE4_LLM_BAND_FROM_STATE_DISABLED=%p engages the kill-switch (W4-D58: not just =true)',
+    (spelling) => {
+      const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
+      process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = spelling;
+      const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
+      delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
+      expect(prompt.toLowerCase()).toContain('intensity band: peak');
+    },
+  );
+
+  // ...and every OFF spelling must leave the new behaviour running. `=false` is the row that
+  // eleven other kill-switches used to get backwards (reading A).
+  it.each(['false', 'FALSE', '0', 'off', 'no', ''])(
+    'WAVE4_LLM_BAND_FROM_STATE_DISABLED=%p leaves band-from-state ON (W4-D58)',
+    (spelling) => {
+      const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
+      process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = spelling;
+      const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
+      delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
+      expect(prompt.toLowerCase()).toContain('intensity band: resting');
+    },
+  );
 });
 
 // ── adjustBiometricPlaylist — W4-016 prompt/band agreement ─────────────────────

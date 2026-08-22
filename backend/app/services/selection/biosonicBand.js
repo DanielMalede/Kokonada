@@ -31,10 +31,11 @@ const clamp01 = (x) => Math.min(1, Math.max(0, x));
 // this band is the un-relaxable one, so the relaxation ladder never recovered those tracks.
 // Abstention is per-DIM: the dims that were measured are still judged exactly as before.
 const { measured } = require('../features/featureProvider');
+const { disabled } = require('../../utils/envFlag');
 // S11 escape hatch — restores the whole pre-W4-007 selection behaviour (this gate's
 // null handling, score v2 and MMR similarity v2) without a revert. Read per call so
 // flipping it needs no restart.
-const legacySelection = () => Boolean(process.env.WAVE4_SCORING_V2_DISABLED);
+const legacySelection = () => disabled(process.env.WAVE4_SCORING_V2_DISABLED);
 const feat = (x) => (legacySelection() ? (Number.isFinite(Number(x)) ? Number(x) : null) : measured(x));
 
 function tolerance(confidence) {

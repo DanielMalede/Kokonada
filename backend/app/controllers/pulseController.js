@@ -5,6 +5,7 @@ const MorningState = require('../models/MorningState');
 const { decrypt } = require('../utils/encryption');
 const { byId } = require('../agents/runtime/knowledge/stateTaxonomy');
 const { band } = require('../agents/runtime/physiology/affectEngine');
+const { disabled } = require('../utils/envFlag');
 
 // GET /api/pulse/state — the owner's live physiological snapshot for the Pulse screen
 // (A11). Product ruling 2026-07-03: the OWNER may see their own decrypted numeric
@@ -54,7 +55,7 @@ const { band } = require('../agents/runtime/physiology/affectEngine');
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 /** S11 escape hatch. Read per call — a switch that needs a redeploy is not an escape hatch. */
-const supersetDisabled = () => Boolean(process.env.WAVE4_PULSE_SUPERSET_DISABLED);
+const supersetDisabled = () => disabled(process.env.WAVE4_PULSE_SUPERSET_DISABLED);
 
 const NULL_STATE = () => ({
   stateVector: { status: null, confidence: null, computedAt: null },

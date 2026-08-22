@@ -4,6 +4,7 @@ const { exposurePenalty } = require('../ledger/exposureScore');
 const { measured } = require('../features/featureProvider');
 const { tempoKernel } = require('./tempo');
 const { sameFamilyAny } = require('./genreFamilies');
+const { disabled } = require('../../utils/envFlag');
 
 // Weighted candidate scoring.
 //
@@ -53,7 +54,7 @@ const { sameFamilyAny } = require('./genreFamilies');
 // env weights + non-Spotify corpus features, so there is nothing to change here yet — this
 // note pins the constraint for the learning tasks.
 
-const legacyScoring = () => Boolean(process.env.WAVE4_SCORING_V2_DISABLED);
+const legacyScoring = () => disabled(process.env.WAVE4_SCORING_V2_DISABLED);
 /** Which scorer this process is currently serving — the S12 shadow needs to name it. */
 const activeVersion = () => (legacyScoring() ? 'v1' : 'v2');
 
@@ -203,7 +204,7 @@ function _allowSet(allowGenres) {
 //
 // S11 escape hatch: `WAVE4_GENRE_FAMILIES_DISABLED` drops v2 back to the two-rung step
 // without reverting the rest of W4-007's scorer (which `WAVE4_SCORING_V2_DISABLED` would).
-const familiesDisabled = () => Boolean(process.env.WAVE4_GENRE_FAMILIES_DISABLED);
+const familiesDisabled = () => disabled(process.env.WAVE4_GENRE_FAMILIES_DISABLED);
 function _moodGenreFit(genres, allow, allowGenres, legacy) {
   if (!allow.size || !genres.length) return 0.5;
   if (genres.some(g => allow.has(g))) return 1;

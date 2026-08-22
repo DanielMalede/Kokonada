@@ -5,6 +5,7 @@ const { MOOD_DESCRIPTORS, moodCoords } = require('../moodDescriptors');
 // that produces most of these baselines — see _robustZ. (No cycle: baselineEngine imports only
 // chronobiology, and neither imports this file.)
 const { MIN_SPREAD } = require('../../agents/runtime/physiology/baselineEngine');
+const { disabled } = require('../../utils/envFlag');
 
 // The biometric→sonic translation function. PURE — zero I/O, fully deterministic,
 // every output finite and range-clamped for ANY input. This is the numeric layer
@@ -75,7 +76,7 @@ const ACTIVITY_ENERGY = {
 // absent baseline makes the stress term abstain or saturate. Read per call, not at module load, so
 // toggling it needs no process restart.
 const ABSTENTION_FLAG = 'WAVE4_BASELINE_ABSTENTION_DISABLED';
-const abstentionDisabled = () => Boolean(process.env[ABSTENTION_FLAG]);
+const abstentionDisabled = () => disabled(process.env[ABSTENTION_FLAG]);
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const round3 = (x) => Math.round(x * 1000) / 1000;
