@@ -139,3 +139,81 @@ describe('MorningState — encryption at rest (audit F3, R9)', () => {
     expect(schemaKeys).toEqual(engineKeys);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// W4-D43 (§0.4 S14) — THE READER, against real Mongo.
+//
+// `tests/wave4.pulseSuperset.test.js` pins the projection with the model mocked, which cannot
+// see the two things that actually break a read: the sort direction, and whether the getters
+// decrypt on the document the query returns. Both are pinned here against real ciphertext, per
+// the mission's "never a green mock for an integration boundary".
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe('MorningState — /api/pulse/state reads it for real (W4-D43)', () => {
+  const MedicalProfile = require('../app/models/MedicalProfile');
+  const ctrl = require('../app/controllers/pulseController');
+
+  const buildRes = () => ({
+    statusCode: 200, body: null,
+    status(c) { this.statusCode = c; return this; },
+    json(b) { this.body = b; return this; },
+  });
+
+  afterEach(async () => { await MedicalProfile.deleteMany({}); });
+
+  it('serves the most recent row, decrypted and bucketed, for the calling user only', async () => {
+    const mine = uid();
+    const theirs = uid();
+
+    // Three of my days, deliberately inserted out of order, plus another user's better day.
+    await MorningState.create(sample(mine, { date: new Date('2026-08-03T00:00:00Z'), readiness: 0.31 }));
+    await MorningState.create(sample(mine, { date: new Date('2026-08-05T00:00:00Z'), readiness: 0.85, readinessConfidence: 0.9 }));
+    await MorningState.create(sample(mine, { date: new Date('2026-08-04T00:00:00Z'), readiness: 0.10 }));
+    await MorningState.create(sample(theirs, { date: new Date('2026-08-09T00:00:00Z'), readiness: 0.95 }));
+
+    const res = buildRes();
+    await ctrl.getPulseState({ user: { _id: mine } }, res, (e) => { throw e; });
+
+    expect(res.body.morning.date.toISOString()).toBe('2026-08-05T00:00:00.000Z');
+    expect(res.body.morning.readinessBucket).toBe('peak'); // 0.85 → the top band, decrypted
+    expect(res.body.morning.readinessConfidence).toBe(0.9);
+    expect(res.body.morning.sleepDebt).toEqual({ bucket: 'low', nights: 12, confidence: 0.7 }); // ratio 0.2
+    expect(res.body.morning.cosinor).toEqual({ confidence: 0.8, source: 'fit' });
+    expect(res.body.morning.v).toBe(MorningState.MORNING_STATE_VERSION);
+  });
+
+  it('the served block contains no plaintext magnitude from the row it was built from', async () => {
+    const userId = uid();
+    await MorningState.create(sample(userId, {
+      readiness: 0.62,
+      sleepDebt: { debt: 4211, ratio: 0.55, need: 5033, ceiling: 9077, nights: 7, confidence: 0.4 },
+      cosinor: { M: 6199, A: 5177, phi: 1633, confidence: 0.3, source: 'prior' },
+      night: { deep: 9011, light: 3055, rem: 9033 },
+      cusum: {
+        rhr: { cPlus: 4911, cMinus: 0, flagged: true, direction: 'up', referenceDays: 28 },
+        hrv: { cPlus: 0, cMinus: 2133, flagged: false, direction: null, referenceDays: 28 },
+      },
+    }));
+
+    const res = buildRes();
+    await ctrl.getPulseState({ user: { _id: userId } }, res, (e) => { throw e; });
+    const blob = JSON.stringify(res.body.morning);
+
+    for (const magnitude of [4211, 5033, 9077, 6199, 5177, 1633, 9011, 3055, 9033, 4911, 2133]) {
+      expect(blob).not.toContain(String(magnitude));
+    }
+    expect(res.body.morning.readinessBucket).toBe('high');       // 0.62, decrypted and banded
+    expect(res.body.morning.sleepDebt.bucket).toBe('mid');       // ratio 0.55
+    expect(res.body.morning.drift.rhr).toEqual({ flagged: true, direction: 'up', referenceDays: 28 });
+  });
+
+  it('a user with rows but no MedicalProfile still gets the whole superset', async () => {
+    const userId = uid();
+    await MorningState.create(sample(userId));
+    const res = buildRes();
+    await ctrl.getPulseState({ user: { _id: userId } }, res, (e) => { throw e; });
+
+    expect(res.body.vitals).toEqual({ hrv: null, bodyBattery: null, dailyReadiness: null, restingHeartRate: null });
+    expect(res.body.affect).toEqual({ domain: null, band: null, confidence: null, computedAt: null });
+    expect(res.body.morning.readinessBucket).toBe('high');
+  });
+});
