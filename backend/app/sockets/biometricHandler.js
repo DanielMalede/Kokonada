@@ -292,6 +292,38 @@ async function tagSpotifyDiscovery(accessToken, tracks) {
   });
 }
 
+// W4-D57: how long a socket may reuse the baseline blob it already read.
+//
+// `peekBaselines` is a Redis round trip + an AES-256-GCM decrypt + a `[biometric-access]` audit
+// line. On the generation path that is once per playlist; on the reading path (W4-015) it is once
+// per wearable sample. What it returns is a 30-day median whose own staleness horizon is six
+// HOURS, so re-reading it per reading buys nothing and costs one of each, per reading, per user.
+// 60 s matches `baselines.REFRESH_COOLDOWN_MS` by intent rather than by import: both say "the
+// underlying data cannot have moved meaningfully in less than this", and the handler must not
+// depend on the cache module's internal scheduling constant to state its own hold.
+const LIVE_BASELINE_HOLD_MS = 60 * 1000;
+
+/**
+ * The socket's held view of this user's baselines. Returns a PROMISE and stores the promise, not
+ * the resolved value, so a burst of readings arriving faster than one Redis round trip still
+ * produces exactly one read (single-flight) rather than one per reading in flight.
+ *
+ * A rejection is not an answer: the hold is dropped so the next reading retries, instead of the
+ * socket inheriting a 60 s hole because Redis blinked once. `peekBaselines` swallows its own
+ * errors today, so this is a guard on the seam, not on an observed failure mode.
+ */
+function _heldBaselines(state, userId, nowMs) {
+  const held = state.liveBaselines;
+  if (held && (nowMs - held.atMs) < LIVE_BASELINE_HOLD_MS) return held.promise;
+
+  const promise = peekBaselines(userId).catch(() => {
+    if (state.liveBaselines?.promise === promise) state.liveBaselines = null;
+    return null;
+  });
+  state.liveBaselines = { atMs: nowMs, promise };
+  return promise;
+}
+
 function getState(socketId) {
   if (!debounceMap.has(socketId)) {
     debounceMap.set(socketId, {
@@ -309,6 +341,12 @@ function getState(socketId) {
       // them raw. Bounded by `playWindow`'s own age and count caps (§0.4 S10), and gone with the
       // rest of this socket's state on disconnect. Lazily created on the first serve or reading.
       playWindow:       null,
+      // W4-D57: this user's baseline blob, held for LIVE_BASELINE_HOLD_MS so the live lane pays
+      // one Redis read + decrypt + audit line per minute instead of one per reading. IN MEMORY
+      // and socket-scoped for the same reason playWindow is: the blob carries numeric vitals
+      // (rhrMedian et al.) and §0.2.2 keeps those out of logs and out of any DTO. Shape:
+      // { atMs, promise } | null.
+      liveBaselines:    null,
       // §0.4 S7 per-socket feedback budget. ONE budget shared by `playback_event` and the legacy
       // `track_skipped`, because they are the same signal arriving by two doors — a client that
       // exhausted its budget on one must not get a second allowance on the other.
@@ -1525,8 +1563,9 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     // generation path a few lines above already uses — without it, every axis keyed to this
     // user's own hour-of-day baseline abstains, and the continuous posterior this call drives
     // never personalizes at all. A rejection degrades to `null` (today's byte-for-byte shape),
-    // never drops the reading.
-    peekBaselines(uid).catch(() => null).then((personalBaselines) => liveStateOnlineUpdate(
+    // never drops the reading. W4-D57 bounds it: the generation path pays that read once per
+    // playlist, this one would pay it once per SAMPLE, so the blob is held per socket.
+    _heldBaselines(state, uid, now).then((personalBaselines) => liveStateOnlineUpdate(
       uid,
       { level: effectiveHR, confidence: filtered.confidence, degraded: filtered.degraded },
       { activity: normalized.activity, now, baselines: personalBaselines ?? null },
@@ -1774,6 +1813,8 @@ module.exports = {
   generateAndEmitPlaylist,
   recalibrateForBand,
   handleBiometricReading,
+  // exported so the suite pins the hold WINDOW itself rather than a copy of the number
+  LIVE_BASELINE_HOLD_MS,
   _debounceMap: debounceMap,
   // Exported for unit testing
   _resetDebounceState,

@@ -2232,6 +2232,85 @@ describe('W4-009 — state-triggered recalibration (liveStateAdapter wiring)', (
     );
   });
 
+  // W4-D57: `peekBaselines` is a Redis round trip + an AES-256-GCM decrypt + a
+  // `[biometric-access]` audit line. The GENERATION path pays that once per playlist; the pin
+  // above put it on the READING path, where a live socket pays it several times a minute — for a
+  // 30-day median whose own freshness window is six HOURS. So the blob is held on the socket for
+  // `LIVE_BASELINE_HOLD_MS` and the cost tracks wall-clock instead of reading rate.
+  describe('the per-reading baseline read is bounded (W4-D57)', () => {
+    const { handleBiometricReading, LIVE_BASELINE_HOLD_MS } = require('../app/sockets/biometricHandler');
+    const T0 = Date.parse('2026-06-21T19:00:00.000Z');
+    const push = (socket, hr, atMs) => handleBiometricReading(
+      socket, 'garmin', { heartRate: hr, startTimeLocal: new Date(atMs).toISOString() }, { now: atMs },
+    );
+    const settled = () => new Promise((r) => setTimeout(r, 50));
+
+    it('peeks ONCE for a burst of readings, and forwards the same blob to every one', async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines.mockResolvedValue({ rhrMedian: 48, rhrMAD: 3 });
+      const socket = makeSocket();
+
+      // Five readings inside one hold window — a minute of a 12 s watch stream.
+      for (let i = 0; i < 5; i++) push(socket, 65 + i, T0 + i * 12_000);
+      await settled();
+
+      // The MULTIPLICITY is the pin, not a raw call count: N readings, one read of the blob.
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(5);
+      for (const call of liveStateAdapter.onlineUpdate.mock.calls) {
+        expect(call[2]).toEqual(expect.objectContaining({ baselines: { rhrMedian: 48, rhrMAD: 3 } }));
+      }
+    });
+
+    it('re-reads once the hold window has elapsed, and not one tick sooner', async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines.mockResolvedValue({ rhrMedian: 48 });
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      push(socket, 66, T0 + LIVE_BASELINE_HOLD_MS - 1);   // still held
+      push(socket, 67, T0 + LIVE_BASELINE_HOLD_MS);       // window closed
+      await settled();
+
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(2);
+    });
+
+    it("holds the blob per SOCKET, so one user never inherits another user's baselines", async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines.mockImplementation(async (uid) => ({ rhrMedian: uid === 'user-123' ? 48 : 71 }));
+      const a = makeSocket('user-123');
+      const b = makeSocket('user-999');
+
+      push(a, 65, T0);
+      push(b, 65, T0);
+      await settled();
+
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(2);
+      const seen = new Map(liveStateAdapter.onlineUpdate.mock.calls.map((c) => [c[0], c[2].baselines]));
+      expect(seen.get('user-123')).toEqual({ rhrMedian: 48 });
+      expect(seen.get('user-999')).toEqual({ rhrMedian: 71 });
+    });
+
+    it('a FAILED peek is not held — the next reading retries instead of inheriting the hole', async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines
+        .mockRejectedValueOnce(new Error('redis down'))
+        .mockResolvedValue({ rhrMedian: 48 });
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();                       // let the rejection settle and clear the hold
+      push(socket, 66, T0 + 1000);           // still inside the window a SUCCESS would have held
+      await settled();
+
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(2);
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(0)[2])
+        .toEqual(expect.objectContaining({ baselines: null }));
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(-1)[2])
+        .toEqual(expect.objectContaining({ baselines: { rhrMedian: 48 } }));
+    });
+  });
+
   it('no regime change → the adapter is consulted but nothing extra is served', async () => {
     liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
     warmBuffer();

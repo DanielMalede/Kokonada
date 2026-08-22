@@ -101,6 +101,7 @@ beforeEach(() => {
   mockPages(BiometricLog, []);
   mockPages(VitalSample, []);
   jest.spyOn(Date, 'now').mockReturnValue(NOW);
+  baselines._resetRefreshCooldown();
 });
 afterEach(() => { Date.now.mockRestore?.(); });
 
@@ -414,6 +415,71 @@ describe('Karvonen zones written back to the dormant MedicalProfile fields (§M.
     });
 
     expect(doc.maxHeartRate).toBe(201);
+  });
+});
+
+describe('background-refresh cooldown (W4-D57: bounded by wall-clock, not by call rate)', () => {
+  const blobOf = (stats, userId = 'u1') => {
+    const { encrypt } = jest.requireActual('../app/utils/encryption');
+    return encrypt(JSON.stringify(stats), String(userId));
+  };
+
+  it('collapses a burst of misses for one user into a SINGLE enqueue', async () => {
+    getRedis.mockReturnValue({ get: jest.fn().mockResolvedValue(null), set: jest.fn() });
+
+    for (let i = 0; i < 10; i++) await baselines.peekBaselines('u1');
+
+    // Before W4-D57: 10 peeks -> 10 enqueues. The deterministic jobId only dedupes while the job
+    // still EXISTS, and `removeOnComplete: true` frees the id the moment it finishes — so the
+    // population that never gets a computable baseline (cold start, too few samples) drove a
+    // recompute treadmill at whatever rate its caller happened to peek.
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("is PER USER — one user's cooldown never suppresses another's first refresh", async () => {
+    getRedis.mockReturnValue({ get: jest.fn().mockResolvedValue(null), set: jest.fn() });
+
+    await baselines.peekBaselines('u1');
+    await baselines.peekBaselines('u2');
+
+    expect(enqueue).toHaveBeenCalledTimes(2);
+  });
+
+  it('schedules again once the cooldown has elapsed, and not one tick sooner', async () => {
+    getRedis.mockReturnValue({ get: jest.fn().mockResolvedValue(null), set: jest.fn() });
+
+    await baselines.peekBaselines('u1');
+    Date.now.mockReturnValue(NOW + baselines.REFRESH_COOLDOWN_MS - 1);
+    await baselines.peekBaselines('u1');
+    expect(enqueue).toHaveBeenCalledTimes(1);
+
+    Date.now.mockReturnValue(NOW + baselines.REFRESH_COOLDOWN_MS);
+    await baselines.peekBaselines('u1');
+    expect(enqueue).toHaveBeenCalledTimes(2);
+  });
+
+  it('covers the STALE-blob refresh too, not only the empty-cache one', async () => {
+    const stale = { rhrMedian: 52, rhrMAD: 3, computedAt: new Date(NOW - 8 * 3600000).toISOString() };
+    getRedis.mockReturnValue({ get: jest.fn().mockResolvedValue(blobOf(stale)), set: jest.fn() });
+
+    // SWR still SERVES the stale blob every time — the cooldown bounds the refresh, never the read.
+    for (let i = 0; i < 5; i++) expect((await baselines.peekBaselines('u1')).rhrMedian).toBe(52);
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays bounded: a flood of distinct users resets the table rather than growing it forever', async () => {
+    getRedis.mockReturnValue(null);
+    await baselines.peekBaselines('anchor');
+    enqueue.mockClear();
+
+    for (let i = 0; i <= baselines.REFRESH_COOLDOWN_MAX_KEYS; i++) await baselines.peekBaselines(`flood-${i}`);
+
+    // The anchor is still WELL inside its cooldown (the clock never moved), so the only way it can
+    // schedule again is if the table was bounded rather than grown — which is exactly the trade:
+    // bounded memory, paid for with at most one extra enqueue per evicted user.
+    await baselines.peekBaselines('anchor');
+    expect(enqueue).toHaveBeenCalledWith(expect.anything(), { userId: 'anchor' }, expect.anything());
   });
 });
 

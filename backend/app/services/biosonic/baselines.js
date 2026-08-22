@@ -300,7 +300,48 @@ async function cacheBaselines(userId, stats) {
 
 // Debounced background refresh. The deterministic jobId is load-bearing: a burst of generations
 // for one user coalesces into ONE heavy decrypt run rather than N.
-function _scheduleRefresh(userId) {
+//
+// W4-D57: the jobId is not enough on its own. It only suppresses a duplicate while the job still
+// EXISTS, and `removeOnComplete: true` frees the id the moment the recompute finishes — so a user
+// whose baseline stays uncomputable (cold start, or too few samples, which is exactly the
+// population that keeps missing the cache) re-enqueues on EVERY peek. That was tolerable while
+// peeking was a once-per-playlist thing; W4-015 put a peek on the live-reading path, where it
+// becomes a recompute treadmill at the wearable's sample rate. So the schedule is additionally
+// bounded in-process, per user, by wall-clock.
+//
+// 60 s is derived, not picked: the fastest cadence at which the underlying data can change is the
+// watch ingest path, which lands samples every 5 minutes, so a refresh scheduled more often than
+// that cannot see anything new. 60 s sits an order of magnitude under that floor — it never
+// delays a refresh that had something to find — while collapsing a per-reading live stream to at
+// most one enqueue a minute.
+//
+// Per process, deliberately: the jobId remains the cross-instance coalescer, and a shared cooldown
+// would need a Redis round trip to save a Redis round trip.
+const REFRESH_COOLDOWN_MS = 60 * 1000;
+// Bound on the cooldown table itself (§0.4 S10: the soak asserts flat memory). Past the cap the
+// table is pruned of expired rows and, failing that, cleared outright — bounded memory bought for
+// at most one extra enqueue per evicted user, which is strictly the safe direction.
+const REFRESH_COOLDOWN_MAX_KEYS = 10000;
+const _refreshCooldown = new Map();
+
+/** Test seam (like FRESH_TTL_S/CACHE_TTL_S below): process-lifetime state that suites must reset. */
+function _resetRefreshCooldown() { _refreshCooldown.clear(); }
+
+function _scheduleRefresh(userId, nowMs = Date.now()) {
+  const key = String(userId);
+  const last = _refreshCooldown.get(key);
+  if (Number.isFinite(last) && (nowMs - last) < REFRESH_COOLDOWN_MS) return false;
+
+  if (_refreshCooldown.size >= REFRESH_COOLDOWN_MAX_KEYS) {
+    for (const [k, at] of _refreshCooldown) {
+      if (!Number.isFinite(at) || (nowMs - at) >= REFRESH_COOLDOWN_MS) _refreshCooldown.delete(k);
+    }
+    if (_refreshCooldown.size >= REFRESH_COOLDOWN_MAX_KEYS) _refreshCooldown.clear();
+  }
+  // Stamped BEFORE the attempt, not after: the point is to bound the work, and a queue seam that
+  // is down should be retried on the cooldown too, not on every reading.
+  _refreshCooldown.set(key, nowMs);
+
   try {
     const { enqueue } = require('../../queues/queue');
     const { QUEUES } = require('../../queues/definitions');
@@ -311,6 +352,7 @@ function _scheduleRefresh(userId) {
       removeOnFail: true,
     }).catch(() => {});
   } catch { /* queue seam unavailable — fine */ }
+  return true;
 }
 
 // A blob is FRESH for FRESH_TTL_S after the moment it was computed. An unparseable or absent
@@ -330,18 +372,21 @@ function _isFresh(stats, nowMs) {
 // population constants. A 30-day median does not become wrong at 6 h and one second — so a stale
 // blob is now SERVED and refreshed behind the request. Only a genuinely empty cache degrades.
 async function peekBaselines(userId) {
+  // One clock read per peek, shared by the freshness test and the cooldown, so the two can never
+  // disagree about when this peek happened (§0.4 S9's spirit at an I/O seam).
+  const nowMs = Date.now();
   const redis = getRedis();
   if (redis) {
     try {
       const blob = await redis.get(_cacheKey(userId));
       if (blob) {
         const stats = auditedDecrypt(String(userId), 'baseline-cache-peek', blob, { parseJson: true });
-        if (stats && !_isFresh(stats, Date.now())) _scheduleRefresh(userId);
+        if (stats && !_isFresh(stats, nowMs)) _scheduleRefresh(userId, nowMs);
         return stats;
       }
     } catch { /* corrupt/tampered → treat as miss */ }
   }
-  _scheduleRefresh(userId);
+  _scheduleRefresh(userId, nowMs);
   return null;
 }
 
@@ -364,5 +409,5 @@ module.exports = {
   median, mad, robustZ,
   computeBaselines, cacheBaselines, getBaselines, peekBaselines, persistDerivedProfile,
   // exported so tests pin the SWR relationship itself, not a copy of the numbers
-  FRESH_TTL_S, CACHE_TTL_S,
+  FRESH_TTL_S, CACHE_TTL_S, REFRESH_COOLDOWN_MS, REFRESH_COOLDOWN_MAX_KEYS, _resetRefreshCooldown,
 };
