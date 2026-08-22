@@ -19,6 +19,13 @@ let mem;
 beforeAll(async () => {
   mem = await MongoMemoryServer.create();
   await mongoose.connect(mem.getUri(), { dbName: 'kokonada_wave4_morningstate' });
+  // Mongoose builds indexes ASYNCHRONOUSLY after connect, so without this the
+  // "one row per user per local day" case races the build of its own unique index: under full-suite
+  // load the second create() can land first and succeed, and the test fails claiming the constraint
+  // is missing when it is merely late. Observed as a real red in the session-55 full run, green in
+  // isolation. `syncIndexes()` (rather than `init()`) matches the neighbouring
+  // rewardEvent.integration.test.js, which already got this right.
+  await MorningState.syncIndexes();
 });
 afterAll(async () => {
   await mongoose.disconnect();

@@ -125,9 +125,15 @@ async function find(opts = {}) {
     // would be a latent half-flip: a 135-dim vector against a 70-dim index throws, the catch
     // below degrades to [], and discovery is silently OFF with no error anywhere.
     const version = embeddingSpace.readVersion();
-    // The IDF table is only meaningful in v2 and only when the caller seeded genres; resolving
-    // it otherwise would be a corpus read on the serving path for nothing.
-    const idf = version === 'v2' && seedGenres?.length ? await idfStats.peek() : null;
+    // The IDF table is only meaningful in v2 AND only when the caller seeded genres; resolving it
+    // otherwise would be a corpus read on the serving path for nothing. When it IS needed it is
+    // budget-bounded like every other query here: `peek` is cached for 6h, but the call that
+    // MISSES that cache computes document frequencies over the whole mbid slice, and that scan
+    // must never land on a user's generation unbounded. On timeout the genre block degrades to
+    // zero (an audio-only query, still a correct point in the space) rather than blocking.
+    const idf = version === 'v2' && seedGenres?.length
+      ? await withVectorBudget(idfStats.peek(), Math.min(budgetMs, 500), null)
+      : null;
     const target = buildTargetVector(targetFeatures, seedGenres, { version, idf });
     // v2 abstains (null) on a target with no evidence at all. Searching with a zero/absent
     // vector would rank the corpus arbitrarily rather than not at all.
