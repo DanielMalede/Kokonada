@@ -2191,6 +2191,47 @@ describe('W4-009 — state-triggered recalibration (liveStateAdapter wiring)', (
     expect(call[1]).toMatchObject({ buffered: true });
   });
 
+  // W4-015 (soak finding): without a personal baseline, every axis keyed to the user's own
+  // hour-of-day HR (arousal, exertion's measured term, stress, recovery, fatigue) has nothing to
+  // compare against and abstains — a full-day soak across every persona showed them all settling
+  // into the SAME low-confidence default state. `peekBaselines` (already used by the generation
+  // path a few lines above this seam) is the existing cheap, cached, best-effort read for exactly
+  // this.
+  it('fetches this user\'s personal baselines and forwards them to the adapter', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+    baselines.peekBaselines.mockResolvedValue({ rhrMedian: 48, rhrMAD: 3 });
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(baselines.peekBaselines).toHaveBeenCalledWith('user-123');
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+      'user-123',
+      expect.anything(),
+      expect.objectContaining({ baselines: { rhrMedian: 48, rhrMAD: 3 } }),
+    );
+  });
+
+  it('a peekBaselines rejection degrades to no baseline rather than losing the reading', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+    baselines.peekBaselines.mockRejectedValue(new Error('redis down'));
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+      'user-123',
+      expect.anything(),
+      expect.objectContaining({ baselines: null }),
+    );
+  });
+
   it('no regime change → the adapter is consulted but nothing extra is served', async () => {
     liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
     warmBuffer();

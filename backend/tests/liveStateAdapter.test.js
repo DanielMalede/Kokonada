@@ -114,6 +114,23 @@ describe('regime-change decision', () => {
       live: expect.objectContaining({ heartRate: 88, confidence: 0.7, activity: 'running' }),
     }));
   });
+
+  // W4-015 (soak finding): without this, EVERY axis that needs a personal hour-of-day baseline
+  // (arousal, exertion's measured term, stress, recovery, fatigue) abstains on the live lane —
+  // the continuous per-reading posterior this module drives runs blind to personalization even
+  // for a user with a fully computed W4-004 baseline, because nothing ever passed one in.
+  test('forwards `opts.baselines` through to `resolveAffect` untouched', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+    const baselines = { rhrMedian: 48, rhrMAD: 3, hourly: [] };
+    await onlineUpdate('u43', { level: 90 }, { activity: 'resting', now: 6000, baselines });
+    expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({ baselines }));
+  });
+
+  test('omitted `opts.baselines` forwards null, not undefined (resolveAffect\'s own `?? {}` default stays load-bearing)', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+    await onlineUpdate('u44', { level: 90 }, { activity: 'resting', now: 6000 });
+    expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({ baselines: null }));
+  });
 });
 
 // ── policyDiffers, unit-level ───────────────────────────────────────────────────────────────────

@@ -1521,11 +1521,16 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   // since `liveStateAdapter` itself refuses to run without a live Redis client.
   if (!_hysteresisDisabled()) {
     const uid = socket.data.user._id.toString();
-    liveStateOnlineUpdate(
+    // W4-015 (soak finding): peekBaselines is the same cheap, cached, best-effort read the
+    // generation path a few lines above already uses — without it, every axis keyed to this
+    // user's own hour-of-day baseline abstains, and the continuous posterior this call drives
+    // never personalizes at all. A rejection degrades to `null` (today's byte-for-byte shape),
+    // never drops the reading.
+    peekBaselines(uid).catch(() => null).then((personalBaselines) => liveStateOnlineUpdate(
       uid,
       { level: effectiveHR, confidence: filtered.confidence, degraded: filtered.degraded },
-      { activity: normalized.activity, now },
-    ).then((result) => {
+      { activity: normalized.activity, now, baselines: personalBaselines ?? null },
+    )).then((result) => {
       if (result.regimeChanged) recalibrateForBand(socket, state);
     }).catch(() => {});
   }

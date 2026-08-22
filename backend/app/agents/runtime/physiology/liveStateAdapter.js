@@ -56,12 +56,18 @@ function policyDiffers(a, b) {
  * @param {string} userId
  * @param {{level: number|null, confidence?: number, degraded?: string|null}} filteredReading —
  *   the A0 filter's own output shape (`anomalyFilter.filterReading`'s `result`).
- * @param {{activity?: string|null, now: number}} opts — S9: `now` is required (epoch ms).
+ * @param {{activity?: string|null, now: number, baselines?: object|null}} opts — S9: `now` is
+ *   required (epoch ms). `baselines` (W4-015) is the caller's best-effort `peekBaselines(userId)`
+ *   read: without it, every axis keyed to a personal hour-of-day baseline (arousal, exertion's
+ *   measured term, stress, recovery, fatigue) has nothing to compare the reading against and
+ *   abstains — the soak that found this ran every persona through a whole simulated day and
+ *   watched them all settle into the SAME low-confidence default state, because nothing had ever
+ *   passed a baseline through this seam. Omitted → forwarded as `null`, exactly today's shape.
  */
 async function onlineUpdate(userId, filteredReading = {}, opts = {}) {
   if (!getRedis()) return EMPTY_RESULT;
 
-  const { activity = null, now } = opts;
+  const { activity = null, now, baselines = null } = opts;
   const affect = await resolveAffect({
     userId,
     live: {
@@ -70,6 +76,7 @@ async function onlineUpdate(userId, filteredReading = {}, opts = {}) {
       degraded: filteredReading?.degraded ?? null,
       activity,
     },
+    baselines,
     now,
   });
   if (!affect) return EMPTY_RESULT;
