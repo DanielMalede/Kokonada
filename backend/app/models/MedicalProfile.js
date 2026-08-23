@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { encryptedNumber } = require('./encryptedField');
+const { encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField');
 
 const hrZoneSchema = new mongoose.Schema({
   label: { type: String }, // "easy", "fat-burn", "aerobic", "anaerobic", "max"
@@ -115,5 +115,10 @@ const medicalProfileSchema = new mongoose.Schema({
   // any code path; when they begin storing real values, wrap them with
   // encryptedNumber() the same way (and write via document .save(), not $set). (audit F3)
 });
+
+// Every encrypted leaf of this schema needs the W4-D76 pipeline refusal: an aggregation-pipeline
+// update runs server-side, so no setter fires and the value would be stored as plaintext.
+// Registered before `mongoose.model()` so the hook exists on every query.
+medicalProfileSchema.plugin(bindEncryptedAadOnUpdate);
 
 module.exports = mongoose.model('MedicalProfile', medicalProfileSchema);

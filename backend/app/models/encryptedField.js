@@ -425,21 +425,95 @@ function _rewriteBlock(update, blockName, targets, leaves) {
   return changed;
 }
 
+// ── W4-D76 · aggregation-pipeline updates ───────────────────────────────────────────────────
+//
+// An update pipeline runs SERVER-SIDE, so no setter executes and the literal value is what lands
+// in the collection: `[{$set: {garminUserId: 'x'}}]` stores the three characters, not a blob. That
+// is worse than the unbound ciphertext W4-D71/D75 chase, and it hits every encrypted leaf — the
+// top-level ones the query-context cast otherwise handles included. There is no dotted form to
+// rewrite it into, so the only repair is a refusal.
+//
+// MongoDB permits exactly six stages in an update pipeline. Three assign values, two replace the
+// whole document, one only removes:
+const PIPELINE_ASSIGN_STAGES = ['$set', '$addFields', '$project'];
+const PIPELINE_REPLACE_STAGES = ['$replaceRoot', '$replaceWith'];
+const PIPELINE_SAFE_STAGES = ['$unset']; // removing a field writes no ciphertext
+const PIPELINE_KNOWN_STAGES = [
+  ...PIPELINE_ASSIGN_STAGES, ...PIPELINE_REPLACE_STAGES, ...PIPELINE_SAFE_STAGES,
+];
+
+// `{$project: {f: 1}}` / `{f: 0}` select an existing value rather than assigning a new one, so
+// they leave the stored ciphertext alone. Anything else in that position is an expression.
+const _isProjectionFlag = (v) => v === 1 || v === 0 || v === true || v === false;
+
+/** Does an update-pipeline key assign into (or over) one of these encrypted leaves? */
+const _touchesEncryptedLeaf = (key, leaves) => {
+  const k = _unsubscript(key);
+  return leaves.some((l) => l === k || l.startsWith(`${k}.`) || k.startsWith(`${l}.`));
+};
+
+function _refuseEncryptedPipelineWrite(what, why) {
+  throw new Error(
+    `[encryptedField] refusing an aggregation-pipeline update: ${what} ${why}. A pipeline update `
+    + 'runs server-side, so no encrypting setter ever executes and the value would be stored as '
+    + 'READABLE PLAINTEXT (W4-D76). Use an ordinary update operator (`$set`), which is cast in the '
+    + 'query context and both encrypts and binds the owner AAD, or write through the document '
+    + '(`doc.save()`).',
+  );
+}
+
+/** Throw on any pipeline update that could write a plaintext value into an encrypted leaf. */
+function _assertNoEncryptedPipelineWrite(pipeline, leaves) {
+  for (const stage of pipeline) {
+    if (!_isPlainObject(stage)) continue;
+    for (const name of Object.keys(stage)) {
+      if (PIPELINE_SAFE_STAGES.includes(name)) continue;
+      if (PIPELINE_REPLACE_STAGES.includes(name)) {
+        _refuseEncryptedPipelineWrite(`\`${name}\``, 'can assign every leaf of this schema, including its encrypted ones');
+      }
+      if (!PIPELINE_KNOWN_STAGES.includes(name)) {
+        // Not one of the six MongoDB documents. Conservative by design: an unrecognised stage
+        // means this enumeration is stale, and the fields behind it are Art.9 health values and
+        // device secrets. Widening the list is a deliberate edit, not a silent pass.
+        _refuseEncryptedPipelineWrite(`the unrecognised stage \`${name}\``, 'is not one of the six update-pipeline stages this guard can reason about');
+      }
+      const block = stage[name];
+      if (!_isPlainObject(block)) continue;
+      for (const key of Object.keys(block)) {
+        if (name === '$project' && _isProjectionFlag(block[key])) continue;
+        if (_touchesEncryptedLeaf(key, leaves)) {
+          _refuseEncryptedPipelineWrite(`\`${name}.${key}\``, 'assigns an encrypted leaf');
+        }
+      }
+    }
+  }
+}
+
 /**
  * Mongoose plugin. Required on any schema with an encrypted leaf inside a sub-document OR inside
  * a document array; the `tests/wave4.aadUpdateBinding.test.js` guard fails the build for a schema
  * that needs it and does not install it, so this is a control rather than a convention.
+ * W4-D76 widened that requirement to ANY schema with ANY encrypted leaf, because the pipeline
+ * refusal it also installs protects top-level leaves that need no rewrite.
  */
 function bindEncryptedAadOnUpdate(schema) {
   schema.$encryptedAadBound = true;
   const targets = encryptedEmbeddedPaths(schema);
   const arrayTargets = _encryptedDocumentArrays(schema);
-  if (!targets.length && !arrayTargets.length) return;
+  const encryptedLeaves = encryptedLeafPaths(schema);
+  if (!targets.length && !arrayTargets.length && !encryptedLeaves.length) return;
   const leaves = _leafPaths(schema);
 
   schema.pre(OPERATOR_UPDATE_OPS, function bindEncryptedAad() {
     const raw = this.getUpdate();
-    if (!_isPlainObject(raw)) return; // an aggregation-pipeline update is an array — not ours
+    // Measured on Mongoose 9.7.1: query middleware DOES fire for `updatePipeline: true`, and
+    // `getUpdate()` hands back the stage array — so the shape no setter can reach is refusable
+    // here, at the same seam as the array refusal below. (W4-D76)
+    if (Array.isArray(raw)) {
+      if (encryptedLeaves.length) _assertNoEncryptedPipelineWrite(raw, encryptedLeaves);
+      return;
+    }
+    if (!_isPlainObject(raw)) return;
     const keys = Object.keys(raw);
     if (!keys.length) return;         // an empty update stays empty rather than becoming `{$set:{}}`
 

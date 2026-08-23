@@ -616,3 +616,203 @@ describe('W4-D75 · shorthand keys are normalised PER KEY, not per update', () =
     expect(raw.updatedAt.getTime()).toBeGreaterThan(before.getTime());
   });
 });
+
+// ── W4-D76 · an AGGREGATION-PIPELINE update stores PLAINTEXT ────────────────────────────────
+//
+// W4-D71/D75 are about ciphertext written without its owner AAD. This one is worse: a pipeline
+// update runs SERVER-SIDE, so no Mongoose setter executes at all and the literal value lands in
+// the collection — `garminUserId: 'x'` is stored as the five characters, not as a blob. It hits
+// EVERY encrypted leaf (top-level ones included, which the query-context cast otherwise handles),
+// so no rewrite can repair it; only a refusal can.
+//
+// The row that queued this assumed a `pre` hook cannot see a pipeline update. Measured against
+// Mongoose 9.7.1, that is WRONG — query middleware fires for `updateOne`/`findOneAndUpdate` with
+// `updatePipeline: true` and `this.getUpdate()` returns the stage array; the existing hook simply
+// returned early on `!_isPlainObject(raw)`. So this is a RUNTIME refusal at the same seam as D75,
+// which also covers callers that do not exist yet.
+//
+// `bulkWrite` is a genuinely different bypass and is handled by the static guard at the bottom:
+// it runs NO query middleware, but its casting DOES run setters, so it stores ciphertext with no
+// owner AAD (the D71 class) — or plaintext, when its own update is a pipeline.
+//
+//   REFUSED   $set/$addFields/$project naming an encrypted leaf (or an ancestor of one)
+//   REFUSED   $replaceRoot / $replaceWith on any schema with an encrypted leaf
+//   ALLOWED   a pipeline that touches no encrypted leaf · $unset (clearing writes no ciphertext)
+describe('W4-D76 · aggregation-pipeline updates that would write an encrypted leaf', () => {
+  const mkUser = () => User.create({
+    ssoProvider: 'google',
+    ssoId: `sso-${new mongoose.Types.ObjectId()}`,
+    email: `u${Date.now()}${Math.round(Math.random() * 1e6)}@example.com`,
+  });
+
+  it('refuses $set on a top-level encrypted leaf instead of storing the plaintext', async () => {
+    const user = await mkUser();
+    await expect(User.updateOne(
+      { _id: user._id },
+      [{ $set: { garminUserId: 'PLAINTEXT-CANARY' } }],
+      { updatePipeline: true },
+    )).rejects.toThrow(/garminUserId/);
+
+    // The refusal has to abort the write, not merely report it.
+    const raw = await rawUsers().findOne({ _id: user._id });
+    expect(raw.garminUserId == null).toBe(true);
+  });
+
+  it('refuses on findOneAndUpdate too, not just updateOne', async () => {
+    const user = await mkUser();
+    await expect(User.findOneAndUpdate(
+      { _id: user._id },
+      [{ $set: { garminUserId: 'PLAINTEXT-CANARY' } }],
+      { updatePipeline: true },
+    )).rejects.toThrow(/\[encryptedField\]/);
+  });
+
+  it('refuses $addFields and $project, the other two stages that assign a value', async () => {
+    const user = await mkUser();
+    for (const stage of [{ $addFields: { garminUserId: 'x' } }, { $project: { garminUserId: 'x' } }]) {
+      await expect(User.updateOne({ _id: user._id }, [stage], { updatePipeline: true }))
+        .rejects.toThrow(/garminUserId/);
+    }
+  });
+
+  it('refuses an ANCESTOR of an encrypted leaf, not just the leaf itself', async () => {
+    const userId = uid();
+    await MedicalProfile.create({ userId, restingHeartRate: 55 });
+    // `lastNightSleep.{deep,light,rem}` are encrypted; assigning the parent assigns all three.
+    await expect(MedicalProfile.updateOne(
+      { userId },
+      [{ $set: { lastNightSleep: { deep: 90, light: 300, rem: 90 } } }],
+      { updatePipeline: true },
+    )).rejects.toThrow(/lastNightSleep/);
+    // …and the numeric leaf itself, which would otherwise be stored as a readable number.
+    await expect(MedicalProfile.updateOne(
+      { userId },
+      [{ $set: { restingHeartRate: 61 } }],
+      { updatePipeline: true },
+    )).rejects.toThrow(/restingHeartRate/);
+    expect(typeof (await rawProfile().findOne({ userId })).restingHeartRate).toBe('string');
+  });
+
+  it('refuses $replaceRoot/$replaceWith, which can assign any leaf at all', async () => {
+    const user = await mkUser();
+    for (const stage of [{ $replaceWith: { email: 'x@y.z' } }, { $replaceRoot: { newRoot: {} } }]) {
+      await expect(User.updateOne({ _id: user._id }, [stage], { updatePipeline: true }))
+        .rejects.toThrow(/\[encryptedField\]/);
+    }
+  });
+
+  it('ALLOWS a pipeline that touches no encrypted leaf', async () => {
+    const user = await mkUser();
+    await User.updateOne({ _id: user._id }, [{ $set: { name: 'Renamed' } }], { updatePipeline: true });
+    expect((await rawUsers().findOne({ _id: user._id })).name).toBe('Renamed');
+  });
+
+  it('ALLOWS $unset of an encrypted leaf — clearing writes no ciphertext', async () => {
+    const user = await mkUser();
+    await User.updateOne({ _id: user._id }, { garminUserId: 'bound-first' });
+    await User.updateOne({ _id: user._id }, [{ $unset: ['garminUserId'] }], { updatePipeline: true });
+    expect((await rawUsers().findOne({ _id: user._id })).garminUserId).toBeUndefined();
+  });
+
+  it('leaves the ordinary operator path exactly as W4-D71/D75 left it', async () => {
+    const user = await mkUser();
+    await User.updateOne({ _id: user._id }, { $set: { garminUserId: 'still-bound' } });
+    expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'garminUserId', user._id, 'still-bound');
+  });
+});
+
+describe('W4-D76 · every schema with ANY encrypted leaf installs the refusal', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { encryptedLeafPaths } = require('../app/models/encryptedField');
+
+  const modelDir = path.join(__dirname, '..', 'app', 'models');
+  const modelFiles = fs.readdirSync(modelDir)
+    .filter((f) => f.endsWith('.js') && f !== 'encryptedField.js');
+
+  const schemaOf = (file) => {
+    const exported = require(path.join(modelDir, file));
+    return exported && exported.schema && exported.schema.paths ? exported.schema : null;
+  };
+
+  // W4-D71's guard asked only about the sub-document/array blind spots, because those were the
+  // only shapes that could go unbound. A pipeline update bypasses the setter for EVERY leaf, so
+  // the inventory question is now "does this schema encrypt anything at all".
+  it.each(modelFiles)('%s', (file) => {
+    const schema = schemaOf(file);
+    if (!schema) return; // not a model module (helpers, enums)
+
+    const leaves = encryptedLeafPaths(schema);
+    if (!leaves.length) return;
+
+    expect({ file, leaves, bound: schema.$encryptedAadBound === true })
+      .toEqual({ file, leaves, bound: true });
+  });
+
+  it('covers the models that carry ONLY top-level leaves (the guard is not vacuous)', () => {
+    const withLeaves = modelFiles
+      .filter((f) => { const s = schemaOf(f); return s && encryptedLeafPaths(s).length > 0; });
+    // If this list ever shrinks, a model stopped encrypting — that is a finding, not a fix.
+    expect(withLeaves.sort()).toEqual([
+      'BiometricLog.js', 'MedicalProfile.js', 'MorningState.js',
+      'PlaylistSession.js', 'User.js', 'VitalSample.js',
+    ]);
+  });
+});
+
+describe('W4-D76 · bulkWrite is out of reach of every hook, so it is guarded statically', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { encryptedLeafPaths } = require('../app/models/encryptedField');
+
+  const appDir = path.join(__dirname, '..', 'app');
+  const modelDir = path.join(appDir, 'models');
+
+  const encryptedModels = fs.readdirSync(modelDir)
+    .filter((f) => f.endsWith('.js') && f !== 'encryptedField.js')
+    .filter((f) => {
+      const exported = require(path.join(modelDir, f));
+      const schema = exported && exported.schema;
+      return schema && schema.paths && encryptedLeafPaths(schema).length > 0;
+    })
+    .map((f) => f.replace(/\.js$/, ''));
+
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return walk(full);
+    return e.isFile() && e.name.endsWith('.js') ? [full] : [];
+  });
+
+  /**
+   * Call sites where a model whose schema encrypts something is written through a bypass no
+   * middleware can see. Two independent readings, because either one alone is evadable: the
+   * receiver identifier immediately before the call, and "this file imports an encrypted model
+   * AND uses the bypass at all".
+   */
+  const bypassSites = (source, file) => {
+    const hits = [];
+    const imports = encryptedModels.filter((m) => new RegExp(`models/${m}\\b`).test(source));
+    for (const [, receiver] of source.matchAll(/(\w+)\s*\.\s*bulkWrite\s*\(/g)) {
+      if (encryptedModels.includes(receiver) || imports.length) {
+        hits.push(`${file}: ${receiver}.bulkWrite (imports: ${imports.join(',') || 'none'})`);
+      }
+    }
+    if (imports.length && /updatePipeline\s*:\s*true/.test(source)) {
+      hits.push(`${file}: updatePipeline in a file importing ${imports.join(',')}`);
+    }
+    return hits;
+  };
+
+  it('no encrypted model is written through bulkWrite or a pipeline update anywhere in app/', () => {
+    const found = walk(appDir)
+      .flatMap((f) => bypassSites(fs.readFileSync(f, 'utf8'), path.relative(appDir, f)));
+    expect(found).toEqual([]);
+  });
+
+  it('the detector finds the bypass it was built for (the guard is not vacuous)', () => {
+    expect(bypassSites("const User = require('../models/User');\nawait User.bulkWrite(ops);", 'x.js'))
+      .toHaveLength(1);
+    expect(bypassSites("const A = require('../models/AudioFeature');\nawait A.bulkWrite(ops);", 'x.js'))
+      .toEqual([]);
+  });
+});
