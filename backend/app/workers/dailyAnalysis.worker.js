@@ -9,6 +9,7 @@ const {
   consolidate, REFERENCE_DAYS, RECENT_DAYS,
 } = require('../agents/runtime/physiology/dailyAnalysis');
 const { localDayIndex } = require('../agents/runtime/physiology/baselineEngine');
+const { readNightHistory } = require('../repositories/sleepHistoryRepo');
 
 // A6 — daily analysis, WIRING half (W4-012). Nightly per-user consolidation: refresh baselines
 // (reuse, not a second decrypt-and-fuse path — the stateVector.worker precedent), page the
@@ -57,10 +58,18 @@ async function _pageVitals(userId, since) {
   return { rows, decryptedCount };
 }
 
+// W4-D68: delegated to the repository, which is now also the serving lane's reader — the same
+// nights, read one way, rather than a private copy here and a second one there.
+//
+// The repository also widens the projection from `'night'` to `'userId night'`. That is a LATENT
+// fix, not a live one, and the distinction is measured: this collection's rows are written by
+// `findOneAndUpdate($set)` below, whose setter runs with a Query as `this`, so the stage minutes
+// are encrypted UNBOUND and the narrow projection has always decrypted them fine. A row written
+// through a DOCUMENT instead (a backfill, a migration, a future `.save()`) is AAD-bound, and the
+// narrow projection would read every stage as null — silently zeroing this accumulator's history
+// while logging a crypto alarm per field. See the repository header for the side-by-side.
 async function _priorNights(userId, beforeDate) {
-  const rows = await MorningState.find({ userId, date: { $lt: beforeDate } })
-    .sort({ date: -1 }).limit(HISTORY_NIGHTS).select('night');
-  return rows.reverse().map((r) => r.night).filter(Boolean).map((n) => ({ deep: n.deep, light: n.light, rem: n.rem }));
+  return readNightHistory(userId, { before: beforeDate, limit: HISTORY_NIGHTS });
 }
 
 async function _eligibleUserIds(limit) {

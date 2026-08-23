@@ -4,6 +4,7 @@ const baselinesService = require('../services/biosonic/baselines');
 const MedicalProfile = require('../models/MedicalProfile');
 const { upsertStateVector } = require('../services/medicalProfileService');
 const { resolveAffect, resolveHourContext } = require('../services/biosonic/affectService');
+const { readNightHistory } = require('../repositories/sleepHistoryRepo');
 
 // BullMQ processor for state-vector-recompute {userId}: refresh the 30-day
 // personal baselines (fresh compute + encrypted cache) and re-derive the
@@ -43,6 +44,9 @@ async function process(job) {
   // Best-effort at the CALL as well as inside, on the W4-004 precedent: "the callee catches" is a
   // property that quietly stops being true, and a failure here must never cost the refresh above.
   const now = Date.now();
+  // Best-effort, like everything else on this lane: a history that will not read costs the
+  // fatigue axis its debt term, never the baseline refresh above.
+  const nightHistory = await readNightHistory(userId).catch(() => []);
   const affect = await resolveAffect({
     userId,
     live: {},
@@ -52,7 +56,13 @@ async function process(job) {
       bodyBattery: telemetry.bodyBattery,
       dailyReadiness: telemetry.dailyReadiness,
     },
-    sleep: telemetry.lastNightSleep ? { lastNight: telemetry.lastNightSleep } : {},
+    // W4-D68: the nightly lane gets the SAME sleep evidence the serving lane now gets. This is
+    // the one lane with no live reading at all, so the slow axes are most of what it can honestly
+    // say — and `fatigue`'s dominant term was abstaining here too, for want of a read.
+    sleep: {
+      ...(telemetry.lastNightSleep ? { lastNight: telemetry.lastNightSleep } : {}),
+      ...(nightHistory.length > 0 ? { history: nightHistory } : {}),
+    },
     tzOffsetMinutes: resolveHourContext(now, stats).tzOffsetMinutes,
     now,
   }).catch(() => null);
