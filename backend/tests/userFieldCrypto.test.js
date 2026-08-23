@@ -58,12 +58,17 @@ describe('blindIndexAll (rotation-safe lookup — H2)', () => {
 });
 
 describe('User field encryption at rest (T3.3)', () => {
-  it('encrypts garminUserId at rest but reads it back in plaintext', () => {
+  // Re-pinned by W4-D74: both of these read the stored ciphertext back with `decrypt(raw)` and no
+  // AAD, which was only possible because the value was written UNBOUND — the defect. The claim
+  // each test makes ("encrypted at rest, not plaintext, and transparent through the getter") is
+  // unchanged; the incidental "readable by anyone holding the key alone" is now its opposite.
+  it('encrypts garminUserId at rest, bound to its owner, but reads it back in plaintext', () => {
     const u = new User({ ...base, garminUserId: 'garmin-abc' });
     expect(u.garminUserId).toBe('garmin-abc'); // getter decrypts
     const raw = u.toObject({ getters: false }).garminUserId;
     expect(raw).not.toBe('garmin-abc');
-    expect(decrypt(raw)).toBe('garmin-abc');
+    expect(decrypt(raw, false, String(u._id))).toBe('garmin-abc');
+    expect(() => decrypt(raw)).toThrow(); // not replayable into another row
   });
 
   it('encrypts push-notification tokens at rest but reads/compares them transparently', () => {
@@ -73,7 +78,8 @@ describe('User field encryption at rest (T3.3)', () => {
     expect(u.pushTokens.some((t) => t.token === 'fcm-xyz')).toBe(true);
     const raw = u.toObject({ getters: false }).pushTokens[0].token;
     expect(raw).not.toBe('fcm-xyz');
-    expect(decrypt(raw)).toBe('fcm-xyz');
+    expect(decrypt(raw, false, String(u._id))).toBe('fcm-xyz');
+    expect(() => decrypt(raw)).toThrow();
   });
 
   it('backfills a deterministic HMAC index of garminUserId (queryable without decryption)', () => {
