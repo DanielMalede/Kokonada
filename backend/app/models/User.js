@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const { encrypt, blindIndex } = require('../utils/encryption');
-const { encryptedString, decryptOwned, declareEncryptedOwner } = require('./encryptedField');
+const {
+  encryptedString, decryptOwned, declareEncryptedOwner, bindEncryptedAadOnUpdate,
+} = require('./encryptedField');
 
 const encryptedTokenSchema = new mongoose.Schema({
   blob: { type: String, required: true }, // AES-256-GCM encrypted JSON
@@ -88,6 +90,13 @@ const userSchema = new mongoose.Schema({
 // row. Declaring the owner path binds them all. Reads stay tolerant of the legacy unbound blobs,
 // which migrate forward on the next write. (W4-D74)
 declareEncryptedOwner(userSchema, '_id');
+
+// `pushTokens[].token` is an encrypted leaf inside a document ARRAY. An update operator casts
+// array elements as detached sub-documents, so the setter cannot see the owner and would store a
+// device secret with no AAD binding at all. This plugin refuses those shapes; the bound paths
+// (`.push()` + `.save()`, which is what authController uses, and any write dotted through to the
+// leaf) are untouched. (W4-D75)
+bindEncryptedAadOnUpdate(userSchema);
 
 userSchema.index({ ssoProvider: 1, ssoId: 1 }, { unique: true });
 userSchema.index({ email: 1 });

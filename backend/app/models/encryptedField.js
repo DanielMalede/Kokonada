@@ -40,6 +40,16 @@
 // paired $unset) so the leaves are cast in the Query's context like every other path.
 // `tests/wave4.aadUpdateBinding.test.js` pins all of it against real Mongo.
 //
+// DOCUMENT ARRAYS (W4-D75). The same plugin covers the array case, but by REFUSAL rather than
+// rewrite: an array detaches its elements identically and there is no dotted form of "replace this
+// array" or "append this element" to rewrite into, so `$set`/`$setOnInsert` on the array (or on one
+// whole element), `$push`, `$push`+`$each` and `$addToSet` throw when the value carries an
+// encrypted leaf, instead of silently storing it unbound. Writes dotted THROUGH to the leaf
+// (`arr.$.x`, `arr.$[].x`, `arr.<i>.x`) and `.push()` + `.save()` bind and are untouched. Two
+// bypasses stay outside every query hook and are therefore NOT covered here — `Model.bulkWrite`
+// (no query middleware) and an aggregation-pipeline update (`updatePipeline: true`, which skips
+// setters entirely and would write PLAINTEXT for any encrypted field, array or not).
+//
 // Caveats (documented intentionally):
 //  - Mongoose 9 runs setters on findOneAndUpdate/updateOne($set) too — so pass the RAW
 //    value in an update operator and let the setter encrypt ONCE. Pre-encrypting into
@@ -285,6 +295,111 @@ function encryptedEmbeddedPaths(schema, prefix = '') {
   return out;
 }
 
+// ── Document arrays: the blind spot with no rewrite (W4-D75) ────────────────────────────────
+//
+// A document ARRAY detaches its elements exactly like a single-nested `$set` does — measured
+// against real Mongo, the element handed to the leaf setter is an `EmbeddedDocument` whose
+// `parentArray().$parent()` is `undefined` — but there is nothing to rewrite it INTO. No dotted
+// path replaces an array or appends to one, and `$set: {arr: […]}` cannot be combined with
+// `$set: {'arr.0.x': …}` in a single update (Mongo rejects the conflicting prefix). Measured
+// verdict per shape, which is what the enumeration below encodes:
+//
+//   UNBOUND  $set/$setOnInsert on the array (`arr`) or on one whole element (`arr.0`, `arr.$`),
+//            $push, $push+$each, $addToSet
+//   BOUND    a write dotted THROUGH to the leaf (`arr.0.x`, `arr.$.x`, `arr.$[].x`, `arr.$[el].x`)
+//            — cast in the Query context like any other path — and `.push()` + `.save()`
+//
+// So the unbindable half fails CLOSED rather than silently storing a secret with no owner. It
+// costs nothing today (the only such leaf in this repo is `User.pushTokens[].token`, and its one
+// writer — `authController` enrolling a device — is already on the bound path), and it costs a
+// named error rather than a silent downgrade the day a second writer appears. That asymmetry is
+// the whole point: "no caller does that today" is what this family of rows keeps disproving.
+
+const ARRAY_APPEND_OPS = ['$push', '$addToSet'];
+
+// `arr.0.x`, `arr.$.x`, `arr.$[].x` and `arr.$[el].x` all address the schema path `arr.x`.
+// Stripping the subscript is what lets one comparison tell "assigns the element" from
+// "assigns through to the leaf" without enumerating positional syntaxes at every call site.
+const _unsubscript = (key) => key.replace(/\.(?:\d+|\$|\$\[[^\]]*\])(?=\.|$)/g, '');
+
+/** The element value(s) an append operator would add, `$each` unwrapped. */
+function _appendedElements(value) {
+  if (_isPlainObject(value) && Array.isArray(value.$each)) return value.$each;
+  return Array.isArray(value) ? value : [value];
+}
+
+const _carriesEncrypted = (elements, leaves) => elements.some(
+  (el) => _isPlainObject(el) && leaves.some((l) => _getAt(el, l) != null),
+);
+
+function _refuseUnbindableArrayWrite(arrayPath, where) {
+  throw new Error(
+    `[encryptedField] refusing \`${where}\`: it writes an encrypted value into the document array `
+    + `\`${arrayPath}\`, whose elements an update operator casts as detached sub-documents — the `
+    + 'ciphertext would be stored with NO owner AAD and be replayable into another user row '
+    + `(W4-D75). Write it through the document (\`doc.${arrayPath}.push(…)\` then \`save()\`), or `
+    + `address the leaf itself (\`${arrayPath}.$.<leaf>\`, \`${arrayPath}.$[].<leaf>\`, `
+    + `\`${arrayPath}.<i>.<leaf>\`) — those are cast in the query context and DO bind.`,
+  );
+}
+
+/** Throw on any update shape that would write an encrypted array leaf without its owner AAD. */
+function _assertBindableArrayWrites(update, arrayTargets) {
+  for (const { path, leaves } of arrayTargets) {
+    for (const blockName of ['$set', '$setOnInsert']) {
+      const block = update[blockName];
+      if (!_isPlainObject(block)) continue;
+      for (const key of Object.keys(block)) {
+        const norm = _unsubscript(key);
+        let value;
+        if (norm === path) value = block[key];              // the array, or one whole element
+        else if (path.startsWith(`${norm}.`)) value = _getAt(block[key], path.slice(norm.length + 1));
+        else continue;                                      // dotted through to a leaf → binds
+        if (value == null) continue;                        // clearing writes no ciphertext
+        if (_carriesEncrypted(Array.isArray(value) ? value : [value], leaves)) {
+          _refuseUnbindableArrayWrite(path, `${blockName}.${key}`);
+        }
+      }
+    }
+    for (const blockName of ARRAY_APPEND_OPS) {
+      const block = update[blockName];
+      if (!_isPlainObject(block)) continue;
+      for (const key of Object.keys(block)) {
+        if (_unsubscript(key) !== path) continue;
+        if (_carriesEncrypted(_appendedElements(block[key]), leaves)) {
+          _refuseUnbindableArrayWrite(path, `${blockName}.${key}`);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Document-array paths of this schema that carry at least one encrypted leaf, each with the
+ * ELEMENT-relative dotted paths of those leaves. Descends through sub-documents and through
+ * arrays, so an array nested under either is found too. (W4-D75)
+ */
+function _encryptedDocumentArrays(schema, prefix = '') {
+  const out = [];
+  for (const [p, type] of Object.entries(schema.paths)) {
+    if (p === '_id' || p === '__v' || !type.schema) continue;
+    const full = prefix ? `${prefix}.${p}` : p;
+    if (type.$isMongooseDocumentArray) {
+      const leaves = encryptedLeafPaths(type.schema);
+      if (leaves.length) out.push({ path: full, leaves });
+    }
+    if (type.$isMongooseDocumentArray || type.$isSingleNested) {
+      out.push(..._encryptedDocumentArrays(type.schema, full));
+    }
+  }
+  return out;
+}
+
+/** Document-array paths of this schema that carry at least one encrypted leaf. (W4-D75) */
+function encryptedDocumentArrayPaths(schema) {
+  return _encryptedDocumentArrays(schema).map((a) => a.path);
+}
+
 function _rewriteBlock(update, blockName, targets, leaves) {
   const block = update[blockName];
   let changed = false;
@@ -311,14 +426,15 @@ function _rewriteBlock(update, blockName, targets, leaves) {
 }
 
 /**
- * Mongoose plugin. Required on any schema with an encrypted leaf inside a sub-document; the
- * `tests/wave4.aadUpdateBinding.test.js` guard fails the build for a schema that needs it and
- * does not install it, so this is a control rather than a convention.
+ * Mongoose plugin. Required on any schema with an encrypted leaf inside a sub-document OR inside
+ * a document array; the `tests/wave4.aadUpdateBinding.test.js` guard fails the build for a schema
+ * that needs it and does not install it, so this is a control rather than a convention.
  */
 function bindEncryptedAadOnUpdate(schema) {
   schema.$encryptedAadBound = true;
   const targets = encryptedEmbeddedPaths(schema);
-  if (!targets.length) return;
+  const arrayTargets = _encryptedDocumentArrays(schema);
+  if (!targets.length && !arrayTargets.length) return;
   const leaves = _leafPaths(schema);
 
   schema.pre(OPERATOR_UPDATE_OPS, function bindEncryptedAad() {
@@ -328,11 +444,23 @@ function bindEncryptedAadOnUpdate(schema) {
     if (!keys.length) return;         // an empty update stays empty rather than becoming `{$set:{}}`
 
     // `{field: value}` is shorthand for `{$set: {field: value}}`. Normalise it so the rewrite has
-    // one shape to reason about — and somewhere to put the $unset replace semantics need.
-    const shorthand = !keys.some((k) => k.startsWith('$'));
-    const update = shorthand ? { $set: { ...raw } } : raw;
+    // one shape to reason about — and somewhere to put the $unset replace semantics need. The
+    // test is PER KEY, not per update: a schema with `timestamps: true` has Mongoose append its
+    // own `$set: {updatedAt}` before this hook runs, so a caller-shorthand update arrives MIXED
+    // and an update-level "does any key start with $" reads it as fully-operator form and leaves
+    // the bare key — the very one carrying the value — unexamined. (W4-D75)
+    const bare = keys.filter((k) => !k.startsWith('$'));
+    let update = raw;
+    if (bare.length) {
+      update = { ...raw, $set: { ...(_isPlainObject(raw.$set) ? raw.$set : {}) } };
+      for (const k of bare) { update.$set[k] = raw[k]; delete update[k]; }
+    }
 
-    let changed = shorthand;
+    // Refuse before rewriting: an unbindable array write has no repair, and the query must abort
+    // with the update untouched rather than half-normalised.
+    if (arrayTargets.length) _assertBindableArrayWrites(update, arrayTargets);
+
+    let changed = bare.length > 0;
     for (const blockName of ['$set', '$setOnInsert']) {
       if (_isPlainObject(update[blockName])) {
         changed = _rewriteBlock(update, blockName, targets, leaves) || changed;
@@ -351,4 +479,5 @@ module.exports = {
   encryptedLeafPaths,
   bindEncryptedAadOnUpdate,
   encryptedEmbeddedPaths,
+  encryptedDocumentArrayPaths,
 };

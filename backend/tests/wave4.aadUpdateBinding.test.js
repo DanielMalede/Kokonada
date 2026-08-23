@@ -25,6 +25,7 @@ const mongoose = require('mongoose');
 const { encrypt, decrypt } = require('../app/utils/encryption');
 const MorningState = require('../app/models/MorningState');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const User = require('../app/models/User');
 const { upsertStateVector } = require('../app/services/medicalProfileService');
 const { toPulseStateDTO } = require('../app/controllers/pulseController');
 const { byId } = require('../app/agents/runtime/knowledge/stateTaxonomy');
@@ -37,6 +38,7 @@ beforeAll(async () => {
   await mongoose.connect(mem.getUri(), { dbName: 'kokonada_wave4_aad_update' });
   await MorningState.syncIndexes();
   await MedicalProfile.syncIndexes();
+  await User.syncIndexes();
 });
 afterAll(async () => {
   await mongoose.disconnect();
@@ -45,11 +47,13 @@ afterAll(async () => {
 beforeEach(async () => {
   await MorningState.deleteMany({});
   await MedicalProfile.deleteMany({});
+  await User.deleteMany({});
 });
 
 const uid = () => new mongoose.Types.ObjectId();
 const rawMorning = () => mongoose.connection.db.collection('morningstates');
 const rawProfile = () => mongoose.connection.db.collection('medicalprofiles');
+const rawUsers = () => mongoose.connection.db.collection('users');
 
 /** Walk a dotted path on a plain driver document. */
 const at = (doc, path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), doc);
@@ -370,7 +374,7 @@ describe('W4-D71 · explicitly-encrypted stateVector binds the owner AAD', () =>
 describe('W4-D71 · every schema that needs the update binding installs it', () => {
   const fs = require('fs');
   const path = require('path');
-  const { encryptedEmbeddedPaths } = require('../app/models/encryptedField');
+  const { encryptedEmbeddedPaths, encryptedDocumentArrayPaths } = require('../app/models/encryptedField');
 
   const modelDir = path.join(__dirname, '..', 'app', 'models');
   const modelFiles = fs.readdirSync(modelDir)
@@ -381,7 +385,7 @@ describe('W4-D71 · every schema that needs the update binding installs it', () 
     const schema = exported && exported.schema;
     if (!schema || !schema.paths) return; // not a model module (helpers, enums)
 
-    const blindSpots = encryptedEmbeddedPaths(schema);
+    const blindSpots = [...encryptedEmbeddedPaths(schema), ...encryptedDocumentArrayPaths(schema)];
     if (!blindSpots.length) return;
 
     expect({ file, blindSpots, bound: schema.$encryptedAadBound === true })
@@ -391,5 +395,224 @@ describe('W4-D71 · every schema that needs the update binding installs it', () 
   it('finds the blind spot it was built for (the guard is not vacuous)', () => {
     expect(encryptedEmbeddedPaths(MorningState.schema).sort())
       .toEqual(['cusum.hrv', 'cusum.rhr', 'night']);
+  });
+});
+
+// ── W4-D75 · encrypted leaves inside a document ARRAY ───────────────────────────────────────
+//
+// W4-D71 solved the SINGLE-NESTED blind spot by rewriting a whole-object `$set` into dotted leaf
+// paths, which are cast in the Query context where the owner is. A document ARRAY has the same
+// detached cast and no such rewrite: measured against real Mongo (Mongoose 9), the element handed
+// to the leaf setter is an `EmbeddedDocument` whose `parentArray().$parent()` is `undefined`, so
+// the setter cannot reach the owner no matter how hard it looks — and unlike `$set: {night: {…}}`
+// there is no dotted form of "replace this array" or "append this element" to rewrite it into.
+//
+// So the answer here is not a rewrite but a REFUSAL: the shapes that cannot bind are rejected at
+// the seam instead of silently writing a device secret unbound. The enumeration below is measured,
+// not assumed — these shapes bind nothing, and these four bind correctly:
+//
+//   REJECTED  $set / $setOnInsert on the whole array · $push · $push+$each · $addToSet
+//   ALLOWED   `pushTokens.0.token` · `pushTokens.$.token` · `pushTokens.$[].token` · push()+save()
+//
+// The one real writer (`authController` enrolling a device) is on the allowed side already.
+describe('W4-D75 · encrypted leaves inside a document ARRAY', () => {
+  const baseUser = (over = {}) => ({
+    ssoProvider: 'google',
+    ssoId: `sso-${new mongoose.Types.ObjectId()}`,
+    email: `u${Date.now()}${Math.round(Math.random() * 1e6)}@example.com`,
+    ...over,
+  });
+  const mkUser = (over) => User.create(baseUser(over));
+  /** A user already holding one enrolled device, written the bound way. */
+  async function userWithToken(plaintext = 'seed-secret') {
+    const user = await mkUser();
+    user.pushTokens.push({ token: plaintext, platform: 'ios' });
+    await user.save();
+    return user;
+  }
+
+  describe('shapes that cannot bind are REJECTED, not written unbound', () => {
+    const cases = [
+      ['whole-array $set', (id) => User.updateOne({ _id: id }, { $set: { pushTokens: [{ token: 'x', platform: 'ios' }] } })],
+      ['whole-array shorthand $set', (id) => User.updateOne({ _id: id }, { pushTokens: [{ token: 'x', platform: 'ios' }] })],
+      ['findOneAndUpdate whole-array $set', (id) => User.findOneAndUpdate({ _id: id }, { $set: { pushTokens: [{ token: 'x', platform: 'ios' }] } })],
+      ['updateMany whole-array $set', (id) => User.updateMany({ _id: id }, { $set: { pushTokens: [{ token: 'x', platform: 'ios' }] } })],
+      ['$push of one element', (id) => User.updateOne({ _id: id }, { $push: { pushTokens: { token: 'x', platform: 'ios' } } })],
+      ['$push with $each', (id) => User.updateOne({ _id: id }, { $push: { pushTokens: { $each: [{ token: 'x', platform: 'ios' }] } } })],
+      ['$addToSet', (id) => User.updateOne({ _id: id }, { $addToSet: { pushTokens: { token: 'x', platform: 'ios' } } })],
+    ];
+
+    it.each(cases)('%s', async (_label, run) => {
+      const user = await mkUser();
+      await expect(run(user._id)).rejects.toThrow(/pushTokens/);
+
+      // The refusal is the point: nothing reached the collection.
+      const raw = await rawUsers().findOne({ _id: user._id });
+      expect(raw.pushTokens || []).toHaveLength(0);
+    });
+
+    it('names the path and the shapes that DO bind, so the message is actionable', async () => {
+      const user = await mkUser();
+      await expect(User.updateOne({ _id: user._id }, { $push: { pushTokens: { token: 'x', platform: 'ios' } } }))
+        .rejects.toThrow(/pushTokens[\s\S]*save\(\)/);
+    });
+
+    it('rejects an UPSERT that would insert the array through $setOnInsert', async () => {
+      const id = new mongoose.Types.ObjectId();
+      await expect(User.updateOne(
+        { _id: id },
+        { $setOnInsert: { ...baseUser(), pushTokens: [{ token: 'x', platform: 'ios' }] } },
+        { upsert: true },
+      )).rejects.toThrow(/pushTokens/);
+      expect(await rawUsers().findOne({ _id: id })).toBeNull();
+    });
+  });
+
+  describe('writes that carry no encrypted value are left alone', () => {
+    it('clears the array with an empty $set', async () => {
+      const user = await userWithToken();
+      await User.updateOne({ _id: user._id }, { $set: { pushTokens: [] } });
+      const raw = await rawUsers().findOne({ _id: user._id });
+      expect(raw.pushTokens).toEqual([]);
+    });
+
+    it('accepts an element with the encrypted leaf absent', async () => {
+      const user = await mkUser();
+      await User.updateOne({ _id: user._id }, { $push: { pushTokens: { platform: 'ios' } } });
+      const raw = await rawUsers().findOne({ _id: user._id });
+      expect(raw.pushTokens).toHaveLength(1);
+      expect(raw.pushTokens[0].token).toBeUndefined();
+    });
+
+    it('accepts $pull and $unset, which write no ciphertext at all', async () => {
+      const user = await userWithToken();
+      await User.updateOne({ _id: user._id }, { $pull: { pushTokens: { platform: 'ios' } } });
+      expect((await rawUsers().findOne({ _id: user._id })).pushTokens).toEqual([]);
+      await User.updateOne({ _id: user._id }, { $unset: { pushTokens: '' } });
+      expect((await rawUsers().findOne({ _id: user._id })).pushTokens).toBeUndefined();
+    });
+
+    it('leaves a NON-array encrypted field on the same model writable by $set', async () => {
+      // The refusal must be scoped to the array; W4-D74 made `garminUserId` bind through $set and
+      // that has to keep working.
+      const user = await mkUser();
+      await User.updateOne({ _id: user._id }, { $set: { garminUserId: 'garmin-abc' } });
+      expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'garminUserId', user._id, 'garmin-abc');
+    });
+  });
+
+  describe('the shapes that DO bind still bind', () => {
+    it('binds a numeric-index write (`pushTokens.0.token`)', async () => {
+      const user = await userWithToken();
+      await User.updateOne({ _id: user._id }, { $set: { 'pushTokens.0.token': 'rotated-0' } });
+      expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'pushTokens.0.token', user._id, 'rotated-0');
+    });
+
+    it('binds a positional write (`pushTokens.$.token`)', async () => {
+      const user = await userWithToken();
+      await User.updateOne(
+        { _id: user._id, 'pushTokens.platform': 'ios' },
+        { $set: { 'pushTokens.$.token': 'rotated-positional' } },
+      );
+      expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'pushTokens.0.token', user._id, 'rotated-positional');
+    });
+
+    it('binds an all-positional write (`pushTokens.$[].token`)', async () => {
+      const user = await userWithToken();
+      await User.updateOne({ _id: user._id }, { $set: { 'pushTokens.$[].token': 'rotated-all' } });
+      expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'pushTokens.0.token', user._id, 'rotated-all');
+    });
+
+    it('binds the path the ONE real writer uses (authController: push() + save())', async () => {
+      const user = await userWithToken('fcm-device-secret');
+      expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'pushTokens.0.token', user._id, 'fcm-device-secret');
+      // and the dedup read authController depends on still resolves
+      const read = await User.findById(user._id);
+      expect(read.pushTokens.some((t) => t.token === 'fcm-device-secret')).toBe(true);
+    });
+  });
+
+  describe('the inventory the guard walks', () => {
+    const { encryptedDocumentArrayPaths } = require('../app/models/encryptedField');
+
+    it('finds the document array it was built for (not vacuous)', () => {
+      expect(encryptedDocumentArrayPaths(User.schema)).toEqual(['pushTokens']);
+    });
+
+    it('reports nothing for a schema whose encrypted leaves are all single-nested', () => {
+      expect(encryptedDocumentArrayPaths(MorningState.schema)).toEqual([]);
+    });
+
+    it('User installs the plugin the walk now demands of it', () => {
+      expect(User.schema.$encryptedAadBound).toBe(true);
+    });
+  });
+});
+
+// Two further shapes measured against real Mongo while enumerating: assigning ONE WHOLE ELEMENT
+// detaches it exactly as assigning the array does, by numeric index and through the positional
+// operator alike. They normalise to the array path, which is why one comparison covers both.
+describe('W4-D75 · assigning a whole ELEMENT is the same blind spot', () => {
+  const mkSeeded = async () => {
+    const user = await User.create({
+      ssoProvider: 'google',
+      ssoId: `sso-${new mongoose.Types.ObjectId()}`,
+      email: `u${Date.now()}${Math.round(Math.random() * 1e6)}@example.com`,
+    });
+    user.pushTokens.push({ token: 'seed-secret', platform: 'ios' });
+    await user.save();
+    return user;
+  };
+
+  it('rejects a numeric-index whole-element $set (`pushTokens.0`)', async () => {
+    const user = await mkSeeded();
+    await expect(User.updateOne(
+      { _id: user._id },
+      { $set: { 'pushTokens.0': { token: 'replaced', platform: 'ios' } } },
+    )).rejects.toThrow(/pushTokens/);
+    // the element the refusal protected is still the bound one
+    expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'pushTokens.0.token', user._id, 'seed-secret');
+  });
+
+  it('rejects a positional whole-element $set (`pushTokens.$`)', async () => {
+    const user = await mkSeeded();
+    await expect(User.updateOne(
+      { _id: user._id, 'pushTokens.platform': 'ios' },
+      { $set: { 'pushTokens.$': { token: 'replaced', platform: 'ios' } } },
+    )).rejects.toThrow(/pushTokens/);
+    expectBoundTo(await rawUsers().findOne({ _id: user._id }), 'pushTokens.0.token', user._id, 'seed-secret');
+  });
+});
+
+// The normalisation the array check rides on. `timestamps: true` makes Mongoose append its own
+// `$set: {updatedAt}` BEFORE this hook runs, so a caller-shorthand update arrives as
+// `{pushTokens: […], $set: {updatedAt}}` — mixed. An update-level "does any key start with $"
+// reads that as operator form and never looks at the bare key, which is where the value is; that
+// is exactly how the shorthand case got through the first implementation of this row. The same
+// test is what the W4-D71 sub-document rewrite depends on, so it is pinned on its own.
+describe('W4-D75 · shorthand keys are normalised PER KEY, not per update', () => {
+  const mkUser = () => User.create({
+    ssoProvider: 'google',
+    ssoId: `sso-${new mongoose.Types.ObjectId()}`,
+    email: `u${Date.now()}${Math.round(Math.random() * 1e6)}@example.com`,
+  });
+
+  it('sees the bare key even when Mongoose has already added a $set of its own', async () => {
+    const user = await mkUser();
+    // `timestamps: true` is what makes this update mixed rather than pure shorthand.
+    expect(User.schema.options.timestamps).toBe(true);
+    await expect(User.updateOne({ _id: user._id }, { pushTokens: [{ token: 'x', platform: 'ios' }] }))
+      .rejects.toThrow(/pushTokens/);
+  });
+
+  it('moves a bare key into $set without dropping it or the timestamps beside it', async () => {
+    const user = await mkUser();
+    const before = (await rawUsers().findOne({ _id: user._id })).updatedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    await User.updateOne({ _id: user._id }, { garminUserId: 'garmin-shorthand' });
+
+    const raw = await rawUsers().findOne({ _id: user._id });
+    expectBoundTo(raw, 'garminUserId', user._id, 'garmin-shorthand');
+    expect(raw.updatedAt.getTime()).toBeGreaterThan(before.getTime());
   });
 });
