@@ -10,6 +10,15 @@
 // fails to decrypt under another user's id — defense against row-swap / replay. The
 // owning userId is read off the document (`this`) — subdocuments climb to the owner.
 //
+// WHICH FIELD NAMES THE OWNER (W4-D74). "Read `userId` off the owner" was hard-coded, and it is
+// true of every collection here except the one that holds credentials: a `User` document has no
+// `userId` — the owner id IS its `_id`. So the lookup resolved null and `garminUserId`,
+// `pushTokens[].token` and the three OAuth token blobs were all written UNBOUND, i.e. a lifted
+// `spotifyToken` was replayable into any other row. A schema whose owner sits elsewhere now
+// DECLARES it via `declareEncryptedOwner`; the default stays `userId`, so nothing else changes.
+// `tests/wave4.userAadBinding.test.js` fails the build for any schema with an encrypted leaf whose
+// owner path does not resolve — a control rather than a convention, which is what this needed.
+//
 // MIGRATION: existing ciphertexts were written WITHOUT AAD. Reads try the AAD-bound
 // decrypt first, then fall back to a no-AAD decrypt, then to legacy plaintext — so
 // nothing breaks. Writes always re-encrypt WITH AAD, so data migrates forward on any
@@ -59,25 +68,44 @@ function _scalarId(v) {
   return null;
 }
 
-// The owner of an UPDATE: its filter first (every encrypted collection here is keyed by userId),
+const _getAt = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+
+// The document path naming the owner of this schema's encrypted values. `userId` for every
+// collection keyed by one; `_id` for `User`, whose rows ARE the users. (W4-D74)
+const DEFAULT_OWNER_PATH = 'userId';
+
+/** Declare where a schema's owner id lives, when it is not the default `userId`. (W4-D74) */
+function declareEncryptedOwner(schema, ownerPath) {
+  schema.$encryptedOwnerPath = ownerPath;
+  return schema;
+}
+
+function encryptedOwnerPath(schema) {
+  return (schema && schema.$encryptedOwnerPath) || DEFAULT_OWNER_PATH;
+}
+
+// The owner of an UPDATE: its filter first (a keyed collection is normally queried by its owner),
 // then $setOnInsert / $set for an upsert that keys on something else.
 function _queryAad(query) {
+  const schema = query.schema || (query.model && query.model.schema) || null;
+  const ownerPath = encryptedOwnerPath(schema);
+
   let filter = null;
   try { filter = query.getFilter(); } catch { /* a query mid-construction has none */ }
-  const fromFilter = _scalarId(filter && filter.userId);
+  const fromFilter = _scalarId(filter && _getAt(filter, ownerPath));
   if (fromFilter != null) return fromFilter;
 
   let update = null;
   try { update = query.getUpdate(); } catch { /* ditto */ }
   if (!update || typeof update !== 'object') return null;
-  return _scalarId(update.$setOnInsert && update.$setOnInsert.userId)
-      ?? _scalarId(update.$set && update.$set.userId)
-      ?? _scalarId(update.userId);
+  return _scalarId(update.$setOnInsert && _getAt(update.$setOnInsert, ownerPath))
+      ?? _scalarId(update.$set && _getAt(update.$set, ownerPath))
+      ?? _scalarId(_getAt(update, ownerPath));
 }
 
-// The owning userId (string) for AAD, or null when unknown. Subdocuments climb to the
-// owner document via ownerDocument(); top-level documents expose userId directly; an
-// update operator arrives as a Query and is resolved through its filter. (W4-D71)
+// The owning id (string) for AAD, or null when unknown. Subdocuments climb to the owner
+// document via ownerDocument(); top-level documents expose the owner at their schema's owner
+// path; an update operator arrives as a Query and is resolved through its filter. (W4-D71/D74)
 function _ownerAad(doc) {
   if (!doc || typeof doc !== 'object') return null;
   if (typeof doc.getFilter === 'function') return _queryAad(doc);
@@ -85,7 +113,8 @@ function _ownerAad(doc) {
   if (typeof doc.ownerDocument === 'function') {
     try { owner = doc.ownerDocument() || doc; } catch { owner = doc; }
   }
-  return _scalarId(owner ? owner.userId : null);
+  if (!owner) return null;
+  return _scalarId(_getAt(owner, encryptedOwnerPath(owner.schema)));
 }
 
 // Read a ciphertext whose owner is known: try the AAD-bound decrypt (current writes), fall back to
@@ -223,6 +252,27 @@ const _isEncryptedLeaf = (schema, leaf) => {
   return !!(type && type.options && type.options.encrypted);
 };
 
+/**
+ * Every ENCRYPTED leaf of a schema, dotted, descending through sub-documents AND document arrays.
+ * Unlike `_leafPaths` (which serves the $set rewrite and therefore only walks the sub-documents
+ * that rewrite touches), this is the inventory question — "what does this schema encrypt?" — and a
+ * `pushTokens[].token` is exactly the kind of leaf that must not fall outside it. Array segments
+ * are reported unsubscripted (`pushTokens.token`), the shape `schema.path()` accepts. (W4-D74)
+ */
+function encryptedLeafPaths(schema, prefix = '') {
+  const out = [];
+  for (const [p, type] of Object.entries(schema.paths)) {
+    if (p === '_id' || p === '__v') continue;
+    const full = prefix ? `${prefix}.${p}` : p;
+    if ((type.$isSingleNested || type.$isMongooseDocumentArray) && type.schema) {
+      out.push(...encryptedLeafPaths(type.schema, full));
+    } else if (type.options && type.options.encrypted) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 /** Sub-document paths of this schema that carry at least one encrypted leaf — the blind spots. */
 function encryptedEmbeddedPaths(schema, prefix = '') {
   const out = [];
@@ -234,8 +284,6 @@ function encryptedEmbeddedPaths(schema, prefix = '') {
   }
   return out;
 }
-
-const _getAt = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 
 function _rewriteBlock(update, blockName, targets, leaves) {
   const block = update[blockName];
@@ -298,6 +346,9 @@ module.exports = {
   encryptedString,
   encryptedNumber,
   decryptOwned,
+  declareEncryptedOwner,
+  encryptedOwnerPath,
+  encryptedLeafPaths,
   bindEncryptedAadOnUpdate,
   encryptedEmbeddedPaths,
 };
