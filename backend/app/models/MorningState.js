@@ -1,7 +1,7 @@
 'use strict';
 
 const mongoose = require('mongoose');
-const { encryptedNumber } = require('./encryptedField');
+const { encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField');
 
 // Per-user, per-day consolidated nightly analysis (W4-012, A6). One row per LOCAL day — the
 // `dailyAnalysis.consolidate()` pure-core output, persisted so `/api/pulse/state` and later
@@ -90,6 +90,12 @@ const morningStateSchema = new mongoose.Schema({
   toJSON:   { getters: true },
   toObject: { getters: true },
 });
+
+// AAD BINDING ON UPDATES (W4-D71). `dailyAnalysis.worker` is this collection's only writer and it
+// upserts, so nothing here is ever written through a document `.save()` — without this plugin the
+// `night` and `cusum.*` sub-documents would be cast detached from any owner and their ciphertext
+// written unbound forever. Registered before `mongoose.model()` so the hook exists on every query.
+morningStateSchema.plugin(bindEncryptedAadOnUpdate);
 
 // One row per user per local day — the identity `dailyAnalysis.worker`'s upsert keys on.
 morningStateSchema.index({ userId: 1, date: 1 }, { unique: true });

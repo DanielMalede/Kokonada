@@ -209,20 +209,23 @@ async function upsertStateVector(userId, telemetry, { affect = null } = {}) {
     ? affect.confidence
     : null;
 
-  // The state label reveals the user's inferred emotional/physiological state, so
-  // it is encrypted at rest. Encrypt explicitly here because setters do not run on
-  // findOneAndUpdate($set). Read it back via decrypt(doc.stateVector.status). (audit F3)
+  // The state label reveals the user's inferred emotional/physiological state, so it is encrypted
+  // at rest. `stateVector.status`/`stateId` are plain Strings with no setter, so the encryption
+  // happens HERE — and so does the AAD binding (W4-D71): a field that encrypts itself has to bind
+  // itself, or it is the one Art.9 value in the row a blob from another user's row would satisfy.
+  // Read it back through `decryptOwned(blob, userId)`, which still resolves legacy unbound rows.
+  const aad = String(userId);
   return MedicalProfile.findOneAndUpdate(
     { userId },
     {
       $set: {
         stateVector: {
-          status: encrypt(status),
+          status: encrypt(status, aad),
           confidence,
           computedAt: new Date(),
           // `status`/`confidence` keep their exact prior meaning — they are the pair
           // pulseController serves to the owner. The taxonomy pair is additive and internal.
-          stateId: stateId ? encrypt(stateId) : null,
+          stateId: stateId ? encrypt(stateId, aad) : null,
           stateConfidence,
         },
       },

@@ -110,7 +110,7 @@ describe('upsertStateVector writes the taxonomy id ADDITIVELY', () => {
     // `pulseController` decrypts this field and serves it to the owner. Turning it into
     // `peak-effort` would be an agent deciding what a person is told they are, which is exactly
     // the call H6 reserves for Daniel and a compliance pass.
-    expect(decrypt(sv.status)).toBe('Peak Athletic Performance');
+    expect(decrypt(sv.status, false, 'u1')).toBe('Peak Athletic Performance');
     expect(sv.confidence).toBe(computeStateVector(telemetry).confidence);
   });
 
@@ -120,8 +120,8 @@ describe('upsertStateVector writes the taxonomy id ADDITIVELY', () => {
 
     expect(sv.stateId).toBeDefined();
     expect(sv.stateId).not.toBe('peak-effort');           // stored ciphertext, never plaintext
-    expect(decrypt(sv.stateId)).toBe('peak-effort');
-    expect(taxonomy.byId(decrypt(sv.stateId))).not.toBeNull();
+    expect(decrypt(sv.stateId, false, 'u1')).toBe('peak-effort');
+    expect(taxonomy.byId(decrypt(sv.stateId, false, 'u1'))).not.toBeNull();
   });
 
   test('an affect label supersedes the nine-rule classifier for the taxonomy id', async () => {
@@ -130,17 +130,17 @@ describe('upsertStateVector writes the taxonomy id ADDITIVELY', () => {
     });
     const sv = writtenStateVector();
 
-    expect(decrypt(sv.stateId)).toBe('creative-flow');
+    expect(decrypt(sv.stateId, false, 'u1')).toBe('creative-flow');
     expect(sv.stateConfidence).toBe(0.8);
     // …and the legacy pair is STILL the classifier's, so the two vocabularies never disagree
     // about which one produced which field.
-    expect(decrypt(sv.status)).toBe('Peak Athletic Performance');
+    expect(decrypt(sv.status, false, 'u1')).toBe('Peak Athletic Performance');
   });
 
   test('an affect label the taxonomy does not contain is ignored, not stored', async () => {
     await upsertStateVector('u1', telemetry, { affect: { label: 'vibes', confidence: 0.9 } });
     // Falls back to the legacy mapping rather than persisting a label nothing can resolve.
-    expect(decrypt(writtenStateVector().stateId)).toBe('peak-effort');
+    expect(decrypt(writtenStateVector().stateId, false, 'u1')).toBe('peak-effort');
   });
 
   test('every legacy label the classifier can emit maps to a real taxonomy state', () => {
@@ -158,11 +158,11 @@ describe('upsertStateVector writes the taxonomy id ADDITIVELY', () => {
   test('the neutral fallback stores the fallback state, not null', async () => {
     await upsertStateVector('u1', {});
     const sv = writtenStateVector();
-    expect(decrypt(sv.status)).toBe('Neutral');
-    expect(decrypt(sv.stateId)).toBe(taxonomy.fromLegacyLabel('Neutral'));
+    expect(decrypt(sv.status, false, 'u1')).toBe('Neutral');
+    expect(decrypt(sv.stateId, false, 'u1')).toBe(taxonomy.fromLegacyLabel('Neutral'));
   });
 
-  test('encryption is EXPLICIT — setters do not run on findOneAndUpdate($set) (R9)', async () => {
+  test('encryption is EXPLICIT and AAD-BOUND — setters do not run on findOneAndUpdate($set) (R9)', async () => {
     await upsertStateVector('u1', telemetry);
     const sv = writtenStateVector();
 
@@ -171,11 +171,16 @@ describe('upsertStateVector writes the taxonomy id ADDITIVELY', () => {
     // rest in plaintext, which R10 forbids outright. Asserted as a round trip rather than by the
     // shape of the envelope: the ciphertext format is the crypto util's business, and pinning it
     // here would make this test fail on a format change that broke nothing.
+    // W4-D71: the write also has to BIND the ciphertext to its owner. A field that encrypts
+    // itself is the one Art.9 value in the row that the `encryptedField` setter cannot bind for
+    // it, so "reads back only with the owner id" is asserted here rather than assumed.
     for (const [field, plain] of [['status', 'Peak Athletic Performance'], ['stateId', 'peak-effort']]) {
       expect(typeof sv[field]).toBe('string');
       expect(sv[field]).not.toBe(plain);
       expect(sv[field]).not.toContain(plain);
-      expect(decrypt(sv[field])).toBe(plain);
+      expect(decrypt(sv[field], false, 'u1')).toBe(plain);
+      expect(() => decrypt(sv[field])).toThrow();
+      expect(() => decrypt(sv[field], false, 'u2')).toThrow();
     }
   });
 

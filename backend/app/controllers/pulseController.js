@@ -2,7 +2,7 @@
 
 const MedicalProfile = require('../models/MedicalProfile');
 const MorningState = require('../models/MorningState');
-const { decrypt } = require('../utils/encryption');
+const { decryptOwned } = require('../models/encryptedField');
 const { byId } = require('../agents/runtime/knowledge/stateTaxonomy');
 const { band } = require('../agents/runtime/physiology/affectEngine');
 const { disabled } = require('../utils/envFlag');
@@ -115,12 +115,14 @@ const NULL_MORNING = () => ({
  * than it is. A label the taxonomy cannot resolve is no label — an id nothing can look up is
  * worse than a null, because a consumer would fall through while looking supplied.
  */
-function toAffectDTO(sv) {
+function toAffectDTO(sv, ownerId) {
   if (!sv || typeof sv !== 'object') return NULL_AFFECT();
 
+  // AAD-bound since W4-D71; `decryptOwned` still resolves rows written before the binding, and a
+  // blob that belongs to somebody else fails authentication here rather than being served.
   let stateId = null;
   if (typeof sv.stateId === 'string' && sv.stateId) {
-    try { stateId = decrypt(sv.stateId); } catch { stateId = null; }
+    try { stateId = decryptOwned(sv.stateId, ownerId); } catch { stateId = null; }
   }
   const entry = typeof stateId === 'string' ? byId(stateId) : null;
 
@@ -174,18 +176,18 @@ function toMorningDTO(doc) {
 function toPulseStateDTO(profile, { morning = null } = {}) {
   const base = toLegacyPulseDTO(profile);
   if (supersetDisabled()) return base;
-  return { ...base, affect: toAffectDTO(profile?.stateVector), morning: toMorningDTO(morning) };
+  return { ...base, affect: toAffectDTO(profile?.stateVector, profile?.userId), morning: toMorningDTO(morning) };
 }
 
 function toLegacyPulseDTO(profile) {
   if (!profile) return NULL_STATE();
 
   const sv = profile.stateVector || {};
-  // status is a plain String stored PRE-encrypted by medicalProfileService — decrypt
-  // it here; a corrupt/rotated blob degrades to null rather than throwing.
+  // status is a plain String stored PRE-encrypted by medicalProfileService — decrypt it here,
+  // bound to the owner (W4-D71); a corrupt/rotated/foreign blob degrades to null rather than throwing.
   let status = null;
   if (sv.status) {
-    try { status = decrypt(sv.status); } catch { status = null; }
+    try { status = decryptOwned(sv.status, profile.userId); } catch { status = null; }
   }
 
   const ln = profile.lastNightSleep || {};
