@@ -131,10 +131,17 @@ function measureStateCoverage({ lane = 'unknown', states = [], results = [] } = 
 
   const untargeted = states.map((s) => s.id).filter((id) => !targeted.has(id));
   const targetedCount = targeted.size;
-  // Coverage is over the TARGETED corpus, not the taxonomy: a smoke scope that runs two scripts
-  // has not proven the other 32 unreachable, and dividing by 34 would say exactly that.
+  // `reachedCount` is a fact about the LANE — every distinct real state it produced, including
+  // ones no script aimed at. `coverage` is a fact about the CORPUS, so it is the targeted states
+  // that were hit, which is `targeted - missed` and NOT `reached / targeted`.
+  //
+  // The two differ only when a run lands outside the targeted set, which is exactly what the
+  // strided smoke scope invites: six scripts whose runs all drift onto neighbouring states would
+  // give `reached = 6, targeted = 6` and report coverage 1.0 for a sweep that missed everything
+  // it aimed at. It can also exceed 1. Over the full 34-script sweep the two are identical, which
+  // is why the wrong one looks right until the day it is used on a subset.
   const reachedCount = reached.size;
-  const coverage = targetedCount === 0 ? 0 : reachedCount / targetedCount;
+  const coverage = targetedCount === 0 ? 0 : (targetedCount - missed.length) / targetedCount;
 
   const report = {
     lane,
@@ -154,6 +161,23 @@ function measureStateCoverage({ lane = 'unknown', states = [], results = [] } = 
 }
 
 /**
+ * How much of the corpus a run should sweep — W4-D60's rule (the soak's SCALE is what scales, not
+ * its coverage) applied to the 34 scripts instead of to the persona list.
+ *
+ * The default sample is STRIDED, not the first N. The corpus is grouped by domain — six rest
+ * scripts, then stress, focus, exertion, circadian, mood — so `slice(0, 6)` would run rest six
+ * times and report a confident number about a sixth of the taxonomy. A stride spans the groups,
+ * which is what makes the cheap default a genuine (if coarse) signal rather than a comforting one.
+ */
+function coverageScope(scripts = [], { full = false, sample = 6 } = {}) {
+  if (full || sample >= scripts.length) return [...scripts];
+  const stride = scripts.length / sample;
+  const out = [];
+  for (let i = 0; i < sample; i++) out.push(scripts[Math.floor(i * stride)]);
+  return out;
+}
+
+/**
  * The missed list as one line per state, for a soak log or a closeout appendix. Kept here rather
  * than in the test so the report and its rendering cannot drift apart.
  */
@@ -163,4 +187,4 @@ function formatMisses(report) {
     + `absent=${m.abstainedRequired.join('|') || 'none'} got=${m.reportedInstead ?? 'none'}`);
 }
 
-module.exports = { measureStateCoverage, formatMisses, MISS_REASONS };
+module.exports = { measureStateCoverage, coverageScope, formatMisses, MISS_REASONS };

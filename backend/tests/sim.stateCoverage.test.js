@@ -16,8 +16,9 @@
 // triples from the real seams.
 
 const {
-  measureStateCoverage, MISS_REASONS,
+  measureStateCoverage, coverageScope, MISS_REASONS,
 } = require('../sim/stateCoverage');
+const { SCRIPTS } = require('../sim/stateScripts');
 const { STATES, byId } = require('../app/agents/runtime/knowledge/stateTaxonomy');
 
 const AXES = ['arousal', 'stress', 'recovery', 'exertion', 'fatigue', 'circadianAlertness', 'valence'];
@@ -85,6 +86,24 @@ describe('measureStateCoverage — the number', () => {
     expect(r.missed).toEqual([]);
     expect(r.untargeted).toHaveLength(STATES.length - 2);
     expect(r.untargeted).not.toContain(STATES[0].id);
+  });
+
+  test('coverage counts TARGETS hit, not labels produced — a subset sweep cannot score 1.0 by drifting', () => {
+    // The two are identical over the full 34-script sweep and diverge only on a subset, which is
+    // precisely where the strided smoke scope lives: six scripts whose runs each drift onto a
+    // neighbouring state produce six distinct real labels while hitting nothing they aimed at.
+    // `reached / targeted` reports 1.0 for that sweep — and can exceed 1.0 outright.
+    const results = [
+      result(STATES[0].id, STATES[10].id),
+      result(STATES[1].id, STATES[11].id),
+      result(STATES[2].id, STATES[12].id),
+    ];
+    const r = measureStateCoverage({ lane: 'smoke', states: STATES, results });
+    expect(r.targetedCount).toBe(3);
+    expect(r.reachedCount).toBe(3);      // the lane really did produce three real states...
+    expect(r.missed).toHaveLength(3);    // ...none of them the ones the scripts aimed at
+    expect(r.coverage).toBe(0);
+    expect(r.coverage).toBeLessThanOrEqual(1);
   });
 
   test('an empty corpus is coverage 0, not a divide-by-zero (§0.4 S8)', () => {
@@ -207,5 +226,33 @@ describe('measureStateCoverage — hygiene', () => {
   test('it is pure: the same input twice gives a deep-equal report (S9 — no clock, no rng)', () => {
     const input = { lane: 'serving', states: STATES, results: perfectRun() };
     expect(measureStateCoverage(input)).toEqual(measureStateCoverage(input));
+  });
+});
+
+describe('coverageScope — what the default budget runs (the W4-D60 rule, applied to the corpus)', () => {
+  test('the full scope is every script, in corpus order', () => {
+    expect(coverageScope(SCRIPTS, { full: true })).toEqual(SCRIPTS);
+  });
+
+  test('the default scope is a small STRIDED sample, so it spans domains rather than one block', () => {
+    // The corpus is grouped by domain (rest, stress, focus, exertion, circadian, mood). Taking
+    // the first N would run six rest scripts and prove nothing about the rest of the taxonomy,
+    // which is the failure mode a cheap default is most likely to hide.
+    const scope = coverageScope(SCRIPTS, { full: false, sample: 6 });
+    expect(scope).toHaveLength(6);
+    expect(new Set(scope.map((s) => s.target)).size).toBe(6);
+    for (const s of scope) expect(SCRIPTS).toContain(s);
+    const domainsSpanned = new Set(scope.map((s) => SCRIPTS.indexOf(s) > 23 ? 'late' : 'early'));
+    expect(domainsSpanned.size).toBe(2);
+  });
+
+  test('a sample larger than the corpus is the corpus, never a padded or truncated list', () => {
+    expect(coverageScope(SCRIPTS, { full: false, sample: 999 })).toEqual(SCRIPTS);
+  });
+
+  test('it never returns the caller array, so a mutating caller cannot shrink the next sweep', () => {
+    const full = coverageScope(SCRIPTS, { full: true });
+    full.pop();
+    expect(coverageScope(SCRIPTS, { full: true })).toHaveLength(SCRIPTS.length);
   });
 });
