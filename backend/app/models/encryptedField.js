@@ -275,11 +275,13 @@ function bindEncryptedAadOnUpdate(schema) {
 
   schema.pre(OPERATOR_UPDATE_OPS, function bindEncryptedAad() {
     const raw = this.getUpdate();
-    if (!_isPlainObject(raw)) return;
+    if (!_isPlainObject(raw)) return; // an aggregation-pipeline update is an array — not ours
+    const keys = Object.keys(raw);
+    if (!keys.length) return;         // an empty update stays empty rather than becoming `{$set:{}}`
 
     // `{field: value}` is shorthand for `{$set: {field: value}}`. Normalise it so the rewrite has
     // one shape to reason about — and somewhere to put the $unset replace semantics need.
-    const shorthand = !Object.keys(raw).some((k) => k.startsWith('$'));
+    const shorthand = !keys.some((k) => k.startsWith('$'));
     const update = shorthand ? { $set: { ...raw } } : raw;
 
     let changed = shorthand;

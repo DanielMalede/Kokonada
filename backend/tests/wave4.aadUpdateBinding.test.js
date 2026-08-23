@@ -216,6 +216,31 @@ describe('W4-D71 · MorningState $set writes bind the owner AAD', () => {
     expectBoundTo(doc, 'readiness', userId, 0.33);
   });
 
+  // The operator-less shorthand `{field: value}` reaches the hook before Mongoose expands it into
+  // `$set`, so the rewrite has to expand it itself — otherwise a sub-document written that way is
+  // unbound again through a door nobody looked at.
+  it('binds a sub-document written through the operator-less shorthand update', async () => {
+    const userId = uid();
+    await MorningState.findOneAndUpdate(
+      { userId, date },
+      { readiness: 0.44, night: { deep: 70, light: 200, rem: 80 } },
+      { upsert: true, new: true },
+    );
+    const doc = await rawMorning().findOne({ userId });
+    expectBoundTo(doc, 'readiness', userId, 0.44);
+    expectBoundTo(doc, 'night.deep', userId, 70);
+    expectBoundTo(doc, 'night.rem', userId, 80);
+  });
+
+  it('an EMPTY update is left alone rather than rewritten into an empty $set', async () => {
+    const userId = uid();
+    await MorningState.create({ userId, date, readiness: 0.31 });
+    await expect(MorningState.updateOne({ userId, date }, {})).resolves.toBeDefined();
+
+    const doc = await MorningState.findOne({ userId });
+    expect(doc.readiness).toBeCloseTo(0.31, 6);
+  });
+
   it('a NON-SCALAR owner filter stays unbound rather than binding to "[object Object]"', async () => {
     const a = uid();
     const b = uid();
