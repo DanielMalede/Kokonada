@@ -56,7 +56,7 @@ function policyDiffers(a, b) {
  * @param {string} userId
  * @param {{level: number|null, confidence?: number, degraded?: string|null}} filteredReading —
  *   the A0 filter's own output shape (`anomalyFilter.filterReading`'s `result`).
- * @param {{activity?: string|null, now: number, baselines?: object|null}} opts — S9: `now` is
+ * @param {{activity?: string|null, now: number, baselines?: object|null, sleep?: object}} opts — S9: `now` is
  *   required (epoch ms). `baselines` (W4-015) is the caller's best-effort `peekBaselines(userId)`
  *   read: without it, every axis keyed to a personal hour-of-day baseline (arousal, exertion's
  *   measured term, stress, recovery, fatigue) has nothing to compare the reading against and
@@ -66,11 +66,22 @@ function policyDiffers(a, b) {
  *   It also carries the listener's habitual `tzOffsetMinutes`, which is where this lane's
  *   hour-of-day comes from (W4-D56) — the same rule `targetsBuilder` and `stateVector.worker`
  *   apply, so all three lanes bin the same person's reading into the same hour.
+ *
+ *   `sleep` (W4-D72) is the same kind of carried evidence: §M.6's multi-night debt is the
+ *   DOMINANT term of `fatigueAxis` (`FATIGUE_WEIGHTS.debt` = 0.6), and W4-D68 gave it a real
+ *   input on the two lanes that can afford a Mongo read per call while deliberately skipping
+ *   this one — a `MorningState` read per READING is the defect W4-D57 had just closed for
+ *   `peekBaselines`. What that left was an asymmetry inside ONE person: the same listener's
+ *   fatigue was debt-weighted while a playlist was being generated and an HRV trend alone one
+ *   second later on the socket. Fetching and HOLDING the nights is the caller's job, exactly as
+ *   it is for `baselines`; this module's job is to forward them untouched. Omitted → `{}`,
+ *   which is what `resolveAffect`'s own default already produced, so a listener with no
+ *   consolidated nights scores byte-for-byte as before.
  */
 async function onlineUpdate(userId, filteredReading = {}, opts = {}) {
   if (!getRedis()) return EMPTY_RESULT;
 
-  const { activity = null, now, baselines = null } = opts;
+  const { activity = null, now, baselines = null, sleep = {} } = opts;
 
   // W4-D56: WHICH HOUR IS IT FOR THIS LISTENER?
   //
@@ -95,6 +106,7 @@ async function onlineUpdate(userId, filteredReading = {}, opts = {}) {
       activity,
     },
     baselines,
+    sleep,
     tzOffsetMinutes,
     now,
   });

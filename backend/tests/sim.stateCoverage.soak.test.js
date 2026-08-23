@@ -17,7 +17,7 @@
 // carries mass when some lane supplied its evidence, and the two production lanes forward very
 // different bundles into the one composition (`affectService.resolveAffect`) they share:
 //
-//   live    → liveStateAdapter.onlineUpdate  → { live, baselines }
+//   live    → liveStateAdapter.onlineUpdate  → { live, baselines, sleep.history }   (W4-D72)
 //   serving → targetsBuilder.buildTargets    → { live, baselines, state, sleep, taps }
 //
 // THE EXPERIMENT IS CONTROLLED ON PURPOSE. Both lanes get the SAME 34 authored moments from
@@ -81,6 +81,7 @@ const affectService = require('../app/services/biosonic/affectService');
 const { cacheBaselines, peekBaselines } = require('../app/services/biosonic/baselines');
 const { buildTargets } = require('../app/services/generation/targetsBuilder');
 const { onlineUpdate } = require('../app/agents/runtime/physiology/liveStateAdapter');
+const { readNightHistory } = require('../app/repositories/sleepHistoryRepo');
 const MedicalProfile = require('../app/models/MedicalProfile');
 
 jest.setTimeout(300000);
@@ -152,6 +153,22 @@ async function seedWorld(script) {
   return { uid, moment, t0: startOfScript(script.persona, script.spec) };
 }
 
+/**
+ * Is this argument EVIDENCE, or merely a slot the seam always fills?
+ *
+ * W4-D72 made the live lane forward `sleep` unconditionally — `{}` when the listener has no
+ * consolidated nights, which is most of this corpus. An empty container is not a signal: counting
+ * it would grow the live bundle without a single new axis gaining mass, and the bundle is only
+ * interesting because it EXPLAINS the blind spots below. So a key counts when something arrived
+ * under it, not when the caller named it.
+ */
+function carriesEvidence(v) {
+  if (v == null) return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return true;
+}
+
 /** The last projection `resolveAffect` returned during this script's hold. */
 function lastAffect() {
   const calls = affectService.__calls;
@@ -174,7 +191,7 @@ async function runScript(script, drive) {
     persona: script.persona,
     label: affect?.label ?? null,
     axes: affect?.axes ?? null,
-    forwarded: Object.keys(forwarded).filter((k) => forwarded[k] != null && k !== 'userId' && k !== 'now'),
+    forwarded: Object.keys(forwarded).filter((k) => carriesEvidence(forwarded[k]) && k !== 'userId' && k !== 'now'),
   };
 }
 
@@ -183,13 +200,27 @@ const driveServing = ({ uid, moment }, now) => buildTargets({
   userId: uid, live: moment.live, taps: moment.taps, now,
 });
 
-/** The LIVE socket lane, exactly as `handleBiometricReading` calls it. */
+/**
+ * The LIVE socket lane, exactly as `handleBiometricReading` calls it — including the night
+ * history W4-D72 added, so this measurement keeps describing the real seam rather than the seam
+ * as it was. The handler holds both reads per socket; a hold is a cadence optimisation and cannot
+ * change WHAT crosses, so this drives the underlying reads directly.
+ *
+ * Nothing seeds `MorningState` in this corpus, so today the nights come back empty and the live
+ * lane's evidence is unchanged — which is the honest answer, and is why the blind-spot pins below
+ * still hold. Seeding them is [[W4-D69]]'s question, not this harness's.
+ */
 async function driveLive({ uid, moment }, now) {
-  const baselines = await peekBaselines(uid);
+  const [baselines, nights] = await Promise.all([peekBaselines(uid), readNightHistory(uid)]);
   return onlineUpdate(
     uid,
     { level: moment.live.heartRate, confidence: moment.live.confidence, degraded: moment.live.degraded },
-    { activity: moment.live.activity, now, baselines },
+    {
+      activity: moment.live.activity,
+      now,
+      baselines,
+      sleep: nights.length ? { history: nights } : {},
+    },
   );
 }
 
@@ -302,6 +333,12 @@ describe(`taxonomy coverage through the real seams (${FULL ? 'FULL' : 'default'}
   test('the live lane forwards a strictly SMALLER evidence bundle, which is why', () => {
     // Measured at the seam rather than read off the source, so a future lane that starts
     // forwarding sleep makes this test fail rather than quietly making its comment wrong.
+    //
+    // It did exactly that, and the answer was not to widen the list: W4-D72 gave the live lane a
+    // `sleep` SLOT that is `{}` for every listener with no consolidated nights, and this corpus
+    // seeds none. The bundle counts evidence (`carriesEvidence`), so an empty container does not
+    // enter it — a lane whose bundle grew without any axis gaining mass has learned nothing, and
+    // this pin exists to explain the blind spots, not to inventory argument names.
     const bundleOf = (r) => new Set(r.results.flatMap((x) => x.forwarded));
     const servingBundle = bundleOf(serving);
     const liveBundle = bundleOf(live);

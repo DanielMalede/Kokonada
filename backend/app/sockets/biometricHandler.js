@@ -35,6 +35,7 @@ const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 const captionService = require('../services/discovery/captionService');
 const { peekBaselines } = require('../services/biosonic/baselines');
+const { readNightHistory } = require('../repositories/sleepHistoryRepo');
 // Art.9 consent gate (audit H-9 follow-up) for the live socket biometric_push path.
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
 
@@ -307,26 +308,76 @@ async function tagSpotifyDiscovery(accessToken, tracks) {
 // depend on the cache module's internal scheduling constant to state its own hold.
 const LIVE_BASELINE_HOLD_MS = 60 * 1000;
 
+// W4-D72: how long a socket may reuse the night history it already read.
+//
+// A SEPARATE constant rather than a shared one, because the two reads cache things with very
+// different clocks. The baseline blob is refreshed on a six-hour horizon; a night history is
+// written by the nightly consolidation job and cannot change more than ONCE A LOCAL DAY. Holding
+// it for the baseline window would pay a Mongo round trip a minute for data that provably has
+// not moved. 30 minutes is 30x the baseline hold and still ~48x inside the once-a-day cadence of
+// what it caches, so the worst case is that a listener who is already connected when their
+// consolidation lands keeps yesterday's view of their sleep for at most half an hour — against a
+// debt accumulator that decays over fourteen nights, that is not a number anyone can hear.
+const LIVE_NIGHTS_HOLD_MS = 30 * 60 * 1000;
+
 /**
- * The socket's held view of this user's baselines. Returns a PROMISE and stores the promise, not
- * the resolved value, so a burst of readings arriving faster than one Redis round trip still
- * produces exactly one read (single-flight) rather than one per reading in flight.
+ * The socket's held view of ONE best-effort per-user read, as a `{atMs, promise, value}` entry.
+ *
+ * It stores the PROMISE, not just the resolved value, so a burst of readings arriving faster than
+ * one round trip still produces exactly one read (single-flight) rather than one per reading in
+ * flight. It stores the resolved VALUE alongside so a caller that must not wait can take whatever
+ * has already landed — see `_heldNights` for why one of the two callers must not.
  *
  * A rejection is not an answer: the hold is dropped so the next reading retries, instead of the
- * socket inheriting a 60 s hole because Redis blinked once. `peekBaselines` swallows its own
- * errors today, so this is a guard on the seam, not on an observed failure mode.
+ * socket inheriting a whole window's hole because Redis or Mongo blinked once. Both loaders
+ * swallow their own errors today, so this is a guard on the seam, not on an observed failure
+ * mode — and `empty` is what the caller gets meanwhile, never a throw.
  */
-function _heldBaselines(state, userId, nowMs) {
-  const held = state.liveBaselines;
-  if (held && (nowMs - held.atMs) < LIVE_BASELINE_HOLD_MS) return held.promise;
+function _heldRead(state, slot, holdMs, nowMs, load, empty) {
+  const held = state[slot];
+  if (held && (nowMs - held.atMs) < holdMs) return held;
 
-  const promise = peekBaselines(userId).catch(() => {
-    if (state.liveBaselines?.promise === promise) state.liveBaselines = null;
-    return null;
-  });
-  state.liveBaselines = { atMs: nowMs, promise };
-  return promise;
+  const entry = { atMs: nowMs, promise: null, value: empty };
+  entry.promise = load()
+    .then((v) => { entry.value = v ?? empty; return entry.value; })
+    .catch(() => {
+      if (state[slot] === entry) state[slot] = null;
+      return empty;
+    });
+  state[slot] = entry;
+  return entry;
 }
+
+/**
+ * This user's baseline blob — a Redis round trip, an AES-256-GCM decrypt and an audit line.
+ * AWAITED, and deliberately so: without it every hour-keyed axis abstains, so a reading scored
+ * without the blob is barely a reading at all (W4-015's soak finding).
+ */
+const _heldBaselines = (state, userId, nowMs) => _heldRead(
+  state, 'liveBaselines', LIVE_BASELINE_HOLD_MS, nowMs, () => peekBaselines(userId), null,
+).promise;
+
+/**
+ * This user's consolidated nights — one indexed `{userId, date}` read, `.limit(14)`.
+ *
+ * Returns the HOLD ENTRY, and the call site reads `.value`: the nights are taken as they land
+ * and are never waited for. That asymmetry with `_heldBaselines` is the point, not an oversight:
+ *
+ *   · this is a MONGO round trip on a lane that fires once per wearable sample, and mongoose
+ *     buffers for `bufferTimeoutMS` when the primary is unreachable — awaiting it would let a
+ *     slow or stalled database hold the taxonomy posterior hostage for seconds at a time, on the
+ *     one lane whose entire justification (W4-009) is being O(1) and immediate;
+ *   · what it buys is ONE term of ONE axis (§M.6's debt, 0.6 of `fatigue`) against a history
+ *     that decays over fourteen nights, so a reading or two scored before it lands is not a
+ *     difference a listener can hear — where a reading scored without BASELINES is.
+ *
+ * Consequence, stated plainly rather than discovered later: the first reading after a socket
+ * connects (and the first after each hold window turns over) scores with no sleep evidence,
+ * exactly as every reading did before W4-D72. At a 12 s watch cadence the second reading has it.
+ */
+const _heldNights = (state, userId, nowMs) => _heldRead(
+  state, 'liveNights', LIVE_NIGHTS_HOLD_MS, nowMs, () => readNightHistory(userId), [],
+);
 
 function getState(socketId) {
   if (!debounceMap.has(socketId)) {
@@ -351,6 +402,11 @@ function getState(socketId) {
       // (rhrMedian et al.) and §0.2.2 keeps those out of logs and out of any DTO. Shape:
       // { atMs, promise } | null.
       liveBaselines:    null,
+      // W4-D72: this user's consolidated nights, held for LIVE_NIGHTS_HOLD_MS. Socket-scoped for
+      // the same §0.2.2 reason as liveBaselines — sleep-stage minutes are Art.9 special-category
+      // values, so they live in the process that already handles this listener's vitals raw and
+      // nowhere else. Shape: { atMs, promise } | null.
+      liveNights:       null,
       // §0.4 S7 per-socket feedback budget. ONE budget shared by `playback_event` and the legacy
       // `track_skipped`, because they are the same signal arriving by two doors — a client that
       // exhausted its budget on one must not get a second allowance on the other.
@@ -1569,10 +1625,31 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     // never personalizes at all. A rejection degrades to `null` (today's byte-for-byte shape),
     // never drops the reading. W4-D57 bounds it: the generation path pays that read once per
     // playlist, this one would pay it once per SAMPLE, so the blob is held per socket.
+    // W4-D72: and the nights, alongside the blob. `fatigueAxis` weights §M.6's multi-night debt
+    // at 0.6 against the HRV downtrend's 0.4, so without a history the axis this lane computes
+    // per reading is a minority term of the one the generation path computes for the same person
+    // seconds earlier. Read in PARALLEL with the baselines — neither needs the other's answer —
+    // and held far longer, because a nightly job writes it (see LIVE_NIGHTS_HOLD_MS). Both holds
+    // absorb their own failures, so this `Promise.all` cannot reject and a lost read costs the
+    // evidence, never the reading.
+    // W4-D72: and the nights, alongside the blob. `fatigueAxis` weights §M.6's multi-night debt
+    // at 0.6 against the HRV downtrend's 0.4, so without a history the axis this lane computes
+    // per reading is a minority term of the one the generation path computes for the same person
+    // seconds earlier. Warmed HERE (so the read starts at the earliest possible moment) and read
+    // out of the entry inside the callback (so nights that land during the Redis peek are still
+    // used) — but never awaited. See `_heldNights` for why this one read is taken as-it-lands.
+    const nights = _heldNights(state, uid, now);
     _heldBaselines(state, uid, now).then((personalBaselines) => liveStateOnlineUpdate(
       uid,
       { level: effectiveHR, confidence: filtered.confidence, degraded: filtered.degraded },
-      { activity: normalized.activity, now, baselines: personalBaselines ?? null },
+      {
+        activity: normalized.activity,
+        now,
+        baselines: personalBaselines ?? null,
+        // Nothing in hand forwards the EMPTY shape, not `{history: []}`: `sleepDebtFrom` treats
+        // both the same, but only one of them is byte-identical to the pre-W4-D72 call.
+        sleep: nights.value.length ? { history: nights.value } : {},
+      },
     )).then((result) => {
       if (result.regimeChanged) recalibrateForBand(socket, state);
     }).catch(() => {});
@@ -1819,6 +1896,7 @@ module.exports = {
   handleBiometricReading,
   // exported so the suite pins the hold WINDOW itself rather than a copy of the number
   LIVE_BASELINE_HOLD_MS,
+  LIVE_NIGHTS_HOLD_MS,
   _debounceMap: debounceMap,
   // Exported for unit testing
   _resetDebounceState,

@@ -245,6 +245,96 @@ describe('hour-of-day context (W4-D56)', () => {
   });
 });
 
+// ── W4-D72: DOES THE LIVE LANE KNOW HOW THIS PERSON SLEPT? ─────────────────────────────────────
+//
+// W4-D68 gave §M.6's sleep-debt accumulator — `FATIGUE_WEIGHTS.debt` = 0.6, the DOMINANT term of
+// the fatigue axis — its actual input on the two lanes that can afford a Mongo read per call
+// (`targetsBuilder` and `stateVector.worker`). It deliberately left this one out, because this
+// lane runs per READING and a `MorningState` read per reading is precisely the defect W4-D57 had
+// just closed for `peekBaselines`. What survived was an asymmetry INSIDE ONE PERSON: the same
+// user's fatigue was debt-weighted the moment a playlist was generated and an HRV trend alone one
+// second later on the socket, with no reason a listener could ever perceive.
+//
+// The fetch and the hold belong to the CALLER, exactly as `baselines` does (pinned in
+// biometricHandler.pipeline.test.js). This module's contract is narrower and is what is pinned
+// here: it forwards the nights untouched, and it forwards the SAME empty shape as before when
+// there are none.
+describe('sleep history (W4-D72)', () => {
+  const NOW = Date.parse('2026-08-22T03:30:00Z');
+  const READING = { level: 70, confidence: 0.9 };
+
+  // Seven short nights (~4h20 weighted against a 543-min population need), the shape
+  // `sleepHistoryRepo.readNightHistory` returns: OLDEST-first `{deep, light, rem}` minutes.
+  const SHORT_NIGHTS = Array.from({ length: 7 }, () => ({ deep: 45, light: 170, rem: 40 }));
+
+  beforeEach(() => { getRedis.mockReturnValue(fakeRedis()); });
+
+  test('forwards `opts.sleep` through to `resolveAffect` untouched', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+    const sleep = { history: SHORT_NIGHTS };
+
+    await onlineUpdate('u49', READING, { activity: 'resting', now: NOW, sleep });
+
+    expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({ sleep }));
+  });
+
+  test('omitted `opts.sleep` forwards the empty shape, so a listener with no consolidated nights scores exactly as before', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+
+    await onlineUpdate('u50', READING, { activity: 'resting', now: NOW });
+
+    expect(resolveAffect).toHaveBeenCalledWith(expect.objectContaining({ sleep: {} }));
+  });
+
+  test('INVARIANT: given the same nights, the live lane scores the same fatigue as the generation path', async () => {
+    resolveAffect.mockResolvedValue({ transitioned: false, from: null, to: null });
+    const baselines = { ...nocturnalHourlyBaselines(), tzOffsetMinutes: 480 };
+    const sleep = { history: SHORT_NIGHTS };
+
+    await onlineUpdate('u51', READING, { activity: 'resting', now: NOW, baselines, sleep });
+    const [liveArgs] = resolveAffect.mock.calls[0];
+
+    const viaLiveLane = computeAxes({
+      live: liveArgs.live,
+      baselines,
+      sleep: liveArgs.sleep,
+      now: NOW,
+      tzOffsetMinutes: liveArgs.tzOffsetMinutes,
+    });
+    const viaGenerationPath = computeAxes({
+      live: liveArgs.live,
+      baselines,
+      sleep,
+      now: NOW,
+      tzOffsetMinutes: resolveHourContext(NOW, baselines).tzOffsetMinutes,
+    });
+
+    expect(viaLiveLane.axes).toEqual(viaGenerationPath.axes);
+  });
+
+  test('and a lane WITHOUT the nights is not equivalent — the asymmetry this closes is real', () => {
+    // A cosinor is on the blob here and NOT on the invariant's, deliberately: without a fitted
+    // clock `alertnessAxis` returns the neutral midpoint at mass 0 whatever the debt is, so the
+    // second half of this pin would be vacuous rather than false.
+    const baselines = {
+      ...nocturnalHourlyBaselines(), tzOffsetMinutes: 480, cosinor: { phi: 15, confidence: 0.7 },
+    };
+    const live = { heartRate: 70, confidence: 0.9, activity: 'resting' };
+    const args = { live, baselines, now: NOW, tzOffsetMinutes: 480 };
+
+    const blind = computeAxes({ ...args, sleep: {} });
+    const informed = computeAxes({ ...args, sleep: { history: SHORT_NIGHTS } });
+
+    // Guards the invariant above against going vacuous. `fatigue` is the axis §M.6 feeds
+    // directly; `circadianAlertness` is fed the same debt ratio through `alertnessAxis`, so a
+    // debt this lane cannot see costs two axes, not one.
+    expect(informed.axes.fatigue.mass).toBeGreaterThan(blind.axes.fatigue.mass);
+    expect(informed.axes.fatigue.value).toBeGreaterThan(blind.axes.fatigue.value + 0.05);
+    expect(informed.axes.circadianAlertness.value)
+      .toBeLessThan(blind.axes.circadianAlertness.value - 0.05);
+  });
+});
+
 // ── policyDiffers, unit-level ───────────────────────────────────────────────────────────────────
 
 describe('policyDiffers', () => {

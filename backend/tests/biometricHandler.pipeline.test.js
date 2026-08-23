@@ -80,6 +80,12 @@ jest.mock('../app/services/biosonic/baselines', () => ({
   peekBaselines: jest.fn(),
 }));
 
+// W4-D72: the live lane's night history. Defaulted to [] in beforeEach (no consolidated nights),
+// so every pre-existing pin in this file keeps forwarding the empty sleep shape it always did.
+jest.mock('../app/repositories/sleepHistoryRepo', () => ({
+  readNightHistory: jest.fn(),
+}));
+
 // W4-011: only the DISPATCH is mocked. `feedbackDisabled` stays real so the S11 kill-switch pins
 // below exercise the actual env read, and the play window / boundary modules stay real so these
 // pins prove the WIRING rather than a mock talking to a mock.
@@ -191,6 +197,7 @@ const captionService   = require('../app/services/discovery/captionService');
 const crossPlatform    = require('../app/services/crossPlatform');
 const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
 const baselines        = require('../app/services/biosonic/baselines');
+const sleepHistoryRepo = require('../app/repositories/sleepHistoryRepo');
 
 const {
   registerBiometricHandler,
@@ -322,6 +329,7 @@ beforeEach(() => {
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.critiqueTrackVibe.mockImplementation(async ({ tracks }) => tracks);
   baselines.peekBaselines.mockResolvedValue(null);
+  sleepHistoryRepo.readNightHistory.mockResolvedValue([]);
   playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
   PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
@@ -2308,6 +2316,195 @@ describe('W4-009 — state-triggered recalibration (liveStateAdapter wiring)', (
         .toEqual(expect.objectContaining({ baselines: null }));
       expect(liveStateAdapter.onlineUpdate.mock.calls.at(-1)[2])
         .toEqual(expect.objectContaining({ baselines: { rhrMedian: 48 } }));
+    });
+  });
+
+  // W4-D72: the nights, on the lane that updates per reading.
+  //
+  // W4-D68 wired §M.6's sleep-debt accumulator — the 0.6-weighted DOMINANT term of the fatigue
+  // axis — into `targetsBuilder` and `stateVector.worker` and deliberately skipped this one,
+  // because a `MorningState` read per READING is exactly the defect W4-D57 had just closed for
+  // `peekBaselines`. So the same user's fatigue was debt-weighted when a playlist was generated
+  // and an HRV trend alone one second later on the socket. The answer is the same one W4-D57
+  // built: fetch it here, HOLD it on the socket — and hold it far longer, because a night history
+  // is produced by a nightly job and cannot move more than once a day.
+  //
+  // Unlike the baseline blob, the nights are taken AS THEY LAND and never awaited: this is a
+  // Mongo round trip on a lane that fires per wearable sample, and a stalled primary must not be
+  // able to hold the taxonomy posterior hostage for one term of one axis. So the first reading of
+  // each hold window scores with no sleep evidence — exactly as every reading did before — and
+  // the next one carries it. The pins below assert that shape on purpose, not around it.
+  describe("the live lane's night history (W4-D72)", () => {
+    const { handleBiometricReading, LIVE_NIGHTS_HOLD_MS } = require('../app/sockets/biometricHandler');
+    const T0 = Date.parse('2026-06-21T19:00:00.000Z');
+    const NIGHTS = [{ deep: 45, light: 170, rem: 40 }, { deep: 50, light: 180, rem: 45 }];
+    const push = (socket, hr, atMs) => handleBiometricReading(
+      socket, 'garmin', { heartRate: hr, startTimeLocal: new Date(atMs).toISOString() }, { now: atMs },
+    );
+    const settled = () => new Promise((r) => setTimeout(r, 50));
+
+    beforeEach(() => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(
+        regimeChange({ transitioned: false, regimeChanged: false }),
+      );
+    });
+
+    it("reads this listener's consolidated nights and forwards them as the engine's sleep evidence", async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      // Two readings, because the FIRST is the one that warms the hold. Whether it also carries
+      // the nights depends on whether the read outran the Redis peek, which is a race this pin
+      // has no business asserting either way — by the second reading it has landed regardless.
+      push(socket, 65, T0);
+      await settled();
+      push(socket, 66, T0 + 12_000);
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledWith('user-123');
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenLastCalledWith(
+        'user-123',
+        expect.anything(),
+        expect.objectContaining({ sleep: { history: NIGHTS } }),
+      );
+    });
+
+    // The pin that encodes the design decision above, and the one the full-stack soak found:
+    // `sim/replay.js`'s `flush()` drains MICROTASKS ONLY (deliberately — it must work under fake
+    // timers), so a lane that awaits real Mongo I/O is a lane the harness can never see complete.
+    // A database that never answers must cost the sleep evidence and nothing else.
+    it('a night read that never settles does not delay the posterior by one reading', async () => {
+      sleepHistoryRepo.readNightHistory.mockReturnValue(new Promise(() => {}));  // never resolves
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+        'user-123', expect.anything(), expect.objectContaining({ sleep: {} }),
+      );
+    });
+
+
+    it('no consolidated nights → the empty shape, byte-identical to the pre-W4-D72 call', async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue([]);
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+        'user-123', expect.anything(), expect.objectContaining({ sleep: {} }),
+      );
+    });
+
+    it('a failed history read degrades to the empty shape rather than losing the reading', async () => {
+      sleepHistoryRepo.readNightHistory.mockRejectedValue(new Error('mongo down'));
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+        'user-123', expect.anything(), expect.objectContaining({ sleep: {} }),
+      );
+    });
+
+    it('reads ONCE for a burst of readings inside the window (single-flight)', async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      // Five readings inside one hold window — a minute of a 12 s watch stream.
+      for (let i = 0; i < 5; i++) push(socket, 65 + i, T0 + i * 12_000);
+      await settled();
+
+      // The MULTIPLICITY is the pin, not a raw call count: N readings, one read of the history.
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(5);
+      // …and once the read has landed, every subsequent reading in the window carries it.
+      push(socket, 70, T0 + 5 * 12_000);
+      await settled();
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(-1)[2])
+        .toEqual(expect.objectContaining({ sleep: { history: NIGHTS } }));
+    });
+
+    it('re-reads once the hold window has elapsed, and not one tick sooner', async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      push(socket, 66, T0 + LIVE_NIGHTS_HOLD_MS - 1);   // still held
+      push(socket, 67, T0 + LIVE_NIGHTS_HOLD_MS);       // window closed
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(2);
+    });
+
+    // The whole point of a SEPARATE constant: a night history is written once a night, a baseline
+    // blob refreshes every six hours. Holding the nights for only the baseline window would pay a
+    // Mongo round trip a minute for data that provably cannot have changed.
+    it('is held far longer than the baseline blob, because it moves far less often', () => {
+      const { LIVE_BASELINE_HOLD_MS } = require('../app/sockets/biometricHandler');
+      expect(LIVE_NIGHTS_HOLD_MS).toBeGreaterThan(LIVE_BASELINE_HOLD_MS);
+    });
+
+    it("holds the nights per SOCKET, so one listener never inherits another's sleep", async () => {
+      sleepHistoryRepo.readNightHistory.mockImplementation(async (uid) => (
+        uid === 'user-123' ? NIGHTS : [{ deep: 90, light: 240, rem: 90 }]
+      ));
+      const a = makeSocket('user-123');
+      const b = makeSocket('user-999');
+
+      push(a, 65, T0);
+      push(b, 65, T0);
+      await settled();
+      push(a, 66, T0 + 12_000);
+      push(b, 66, T0 + 12_000);
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(2);
+      // Built from every call in order, so the LAST one per user wins — by then both holds have
+      // certainly landed, whichever order the two reads resolved in.
+      const seen = new Map(liveStateAdapter.onlineUpdate.mock.calls.map((c) => [c[0], c[2].sleep]));
+      expect(seen.get('user-123')).toEqual({ history: NIGHTS });
+      expect(seen.get('user-999')).toEqual({ history: [{ deep: 90, light: 240, rem: 90 }] });
+    });
+
+    it('a FAILED read is not held — the next reading retries instead of inheriting the hole', async () => {
+      sleepHistoryRepo.readNightHistory
+        .mockRejectedValueOnce(new Error('mongo down'))
+        .mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+      push(socket, 66, T0 + 1000);           // still inside the window a SUCCESS would have held
+      await settled();
+      push(socket, 67, T0 + 2000);           // the retry has landed by now
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(2);
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(0)[2])
+        .toEqual(expect.objectContaining({ sleep: {} }));
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(-1)[2])
+        .toEqual(expect.objectContaining({ sleep: { history: NIGHTS } }));
+    });
+
+    it('the history read is not even attempted while the hysteresis kill switch is set', async () => {
+      const { RECAL_HYSTERESIS_FLAG } = require("../app/sockets/biometricHandler");
+      const prev = process.env[RECAL_HYSTERESIS_FLAG];
+      process.env[RECAL_HYSTERESIS_FLAG] = '1';
+      try {
+        const socket = makeSocket();
+        push(socket, 65, T0);
+        await settled();
+        expect(sleepHistoryRepo.readNightHistory).not.toHaveBeenCalled();
+      } finally {
+        if (prev === undefined) delete process.env[RECAL_HYSTERESIS_FLAG];
+        else process.env[RECAL_HYSTERESIS_FLAG] = prev;
+      }
     });
   });
 
