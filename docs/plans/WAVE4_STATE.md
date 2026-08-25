@@ -658,6 +658,19 @@ Session 1 (2026-08-18, plan tier) â€” full-repo validation of the mission. 
 > serving-path helper, the S11 flag, the two whitelist-widening re-pins in a before/after table, and 221/3506
 > green twice. #180 stays the single running PR for `feat/intelligence-wave`. Never merged by an agent.
 
+> **Reflection #14 (session 75) - THREE cluster sections are OWED on #180, measured rather than assumed.**
+  `gh pr view 180` shows the body's last `##` cluster heading is **W4-D74**; `W4-D75`, `W4-D76` and
+  `W4-D72` appear only inside other sections' "Carried forward" lines, not as sections of their own.
+  Cause: session 74 stopped at its close-out on the empty `WAVE4_HALT` and explicitly recorded that no PR
+  was cut, and sessions 72/73 pushed code without appending their sections either. **This reflection did
+  NOT write them** - reflection #13 appended ONE owed section under R6's inline exception, and three
+  argued cluster sections is close-out work, not a ten-minute fix; authoring outward-facing PR prose on a
+  reflection's budget is the drift §2.5 exists to prevent. **The next execute session discharges this
+  before picking its task**, in id order (W4-D75, W4-D76, W4-D72), from the evidence already in each row -
+  all three of which reflection #14 verified under mutation, so the prose has something true to stand on.
+  #180 is all-10-green on `54d1bb0` as of this pass; the two reflection commits land after that run, per
+  the established docs-only close-out pattern.
+
 ## Error budget
 
 - consecutiveFailedSessions: 0
