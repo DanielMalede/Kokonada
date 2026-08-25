@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { encryptedString, encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField');
 
-// A single AI-generated playlist session.
+// A single LLM-generated playlist session.
 const emotionTapSchema = new mongoose.Schema({
   x: { type: Number, required: true, min: -1, max: 1 }, // normalized emotion space
   y: { type: Number, required: true, min: -1, max: 1 },
