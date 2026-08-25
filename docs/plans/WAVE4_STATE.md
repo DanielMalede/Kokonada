@@ -53,6 +53,26 @@ Session 1 (2026-08-18, plan tier) â€” full-repo validation of the mission. 
 
 ## HITL queue (for Daniel â€” numbered tutorials, decisions, portal actions)
 
+- **H17 - RUN HALTED MID-SESSION by an EMPTY `docs/plans/WAVE4_HALT` (session 78, reflection #15). Fourth occurrence of the H7 / H11 / H12 pattern.**
+  **Measured, not inferred.** The file was ABSENT at this session step-1 preflight (recorded in the session-78 row) and
+  appeared at **19:05:15 local**, 0 bytes, between this session archive write (19:03:35) and its STATE write (19:10:06).
+  A full-tree scan of everything modified between 19:00 and 19:12, excluding `node_modules`, `.git` and `logs`, returns
+  exactly three files: the two this session wrote, and `WAVE4_HALT`. So nothing else on the box touched the repo, and no
+  Wave-4 code path writes that file - only `run-mission.ps1` and a human do.
+  **The one correlation worth recording, stated as correlation:** two further `claude` processes started at **18:46:47**
+  and **18:48:23**, ~17 minutes before the halt file appeared and ~1h15 into this session. That is the H5 / H2 shape -
+  a second session on one working tree - and it is the third time a mid-session halt has coincided with it. This session
+  did NOT delete the file: it is the run stop signal and removing it is the resume decision, which is Daniel.
+  **Nothing was lost.** Reflection #15 had already completed R1-R7 before the file was noticed: suite green at baseline,
+  R1.5 archival committed (`307f90d`), findings committed (`21088bd`), both pushed to `origin/feat/intelligence-wave`,
+  and the close-out marker stamped at 16:10:46Z - so the trigger is CLEAR and the next session is a queue session, not a
+  repeat reflection. The halt cost this run nothing except the next task.
+  **Steps for Daniel:** (1) if you or a tool created it deliberately, say why in the file - an empty halt is indistinguishable
+  from an accident and has now cost four sessions; (2) to resume, delete `docs/plans/WAVE4_HALT`; (3) the durable fix is still
+  the one H5 named - have `run-mission.ps1` refuse to launch while another session `claude` process is alive, because the
+  failure mode is not lost code but interleaved writes to the two files that ARE the run state.
+  **Blocked on this: the entire queue.** No task can be picked until the file is gone.
+
 - **H16 - DECISION: W4-015 DoD 1 ("every taxonomy state hit") is measurably unreachable, and the two rows that could change that are ordinary `improve` rows.**
   Measured, not inferred - the numbers are [[W4-D63]] own closure evidence (session 68, `RUN_SOAK=1`, 10/10 green, both pinned as FLOORS):
   the **serving** lane (`buildTargets`) reaches **21 of 34** states, coverage 0.618, with **ZERO structural blind spots** - every one of its 13
