@@ -27,6 +27,7 @@ const DATA_TYPE_LABELS: Record<(typeof CONSENT_DATA_CATEGORIES)[number], string>
   spo2: 'Blood oxygen (SpO₂) — from a connected Garmin device',
   respiratory_rate: 'Respiration rate — from a connected Garmin device',
   body_battery: 'Body Battery — from a connected Garmin device',
+  daily_readiness: 'Training Readiness — from a connected Garmin device',
 };
 
 interface Section { heading: string; body: string; }
