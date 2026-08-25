@@ -1628,13 +1628,6 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     // W4-D72: and the nights, alongside the blob. `fatigueAxis` weights §M.6's multi-night debt
     // at 0.6 against the HRV downtrend's 0.4, so without a history the axis this lane computes
     // per reading is a minority term of the one the generation path computes for the same person
-    // seconds earlier. Read in PARALLEL with the baselines — neither needs the other's answer —
-    // and held far longer, because a nightly job writes it (see LIVE_NIGHTS_HOLD_MS). Both holds
-    // absorb their own failures, so this `Promise.all` cannot reject and a lost read costs the
-    // evidence, never the reading.
-    // W4-D72: and the nights, alongside the blob. `fatigueAxis` weights §M.6's multi-night debt
-    // at 0.6 against the HRV downtrend's 0.4, so without a history the axis this lane computes
-    // per reading is a minority term of the one the generation path computes for the same person
     // seconds earlier. Warmed HERE (so the read starts at the earliest possible moment) and read
     // out of the entry inside the callback (so nights that land during the Redis peek are still
     // used) — but never awaited. See `_heldNights` for why this one read is taken as-it-lands.
