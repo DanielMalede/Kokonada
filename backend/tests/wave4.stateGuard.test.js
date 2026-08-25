@@ -45,6 +45,7 @@ const {
   taskRowList,
   duplicateIdViolations,
   archiveViolations,
+  archiveSections,
   ARCHIVE_RELPATH,
   ARCHIVE_POINTER_RE,
   diffTaskRows,
@@ -459,6 +460,111 @@ Something older.
       extraBacklogRows: '| W4-D999 | improve | fake | SHOULD | S | — | done | session 65 | ARCHIVED -> WAVE4_ARCHIVE.md#no-such-section |\n',
     });
     expect(archiveViolations(sabotaged, realArchive)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// W4-D77 — the archive sectioniser closed a `##` the moment a `###` opened.
+//
+// `archiveSections` popped open sections with `level <= level`, so a level-3 heading popped its
+// level-2 parent instead of nesting inside it — the exact inverse of that function's own comment
+// ("Sub-headings therefore stay INSIDE their section"). The consequence is a FALSE POSITIVE in the
+// direction that hurts most: `archiveViolations` backs a row by `section.body.includes(row.id)`,
+// so evidence filed under `### Discovered backlog rows` left the matched `##` body EMPTY and a
+// correctly-performed R1.5 archival failed as `archive-unbacked`. Reflection #14 hit it on seven
+// stubs at once and only got them through by repeating the ids in the `##`-level intro prose;
+// reflection #13's single stubbed row passed by luck, because its id happened to be named there.
+//
+// That matters beyond tidiness: R1.5 is a mission-mandated step, this made it fail on CORRECT
+// input, and a guard that cries wolf on good archivals is how the real signal — a stub whose
+// evidence never landed — gets buried.
+//
+// The repair is the pop condition: `>= level` (same level or deeper closes; strictly shallower
+// stays open). The boundary tests below are what make it the RIGHT fix rather than merely a
+// passing one — dropping the pop entirely would satisfy the first test and destroy the isolation
+// between sibling sections, which is the property the guard actually trades on.
+// ---------------------------------------------------------------------------------------------
+describe('W4-D77 · state guard — sub-headings nest inside their section', () => {
+  const STUB_ROW = '| W4-D07 | improve | Adapter mock semantics | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+
+  test('THE REPAIR: evidence filed ONLY under a `###` backs the stub', () => {
+    // The exact shape R1.5 prescribes and reflection #14 wrote: one dated `##`, the prose under a
+    // `###` detail heading, and NOTHING naming the row at the `##` level. Red before the fix.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      'Rows archived in this sweep:',
+      '',
+      '### Discovered backlog rows',
+      '',
+      'W4-D07 — the full evidence prose, moved verbatim.',
+      '',
+    ].join('\n');
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive)).toEqual([]);
+  });
+
+  test('BOUNDARY: a later sibling `##` still closes the previous one', () => {
+    // Without this, "never pop" passes the test above while making every section back every row.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      'nothing relevant here',
+      '',
+      '## Archived 2026-08-19 (reflection #4, session 23)',
+      '',
+      'W4-D07 — prose that landed under the WRONG heading.',
+      '',
+    ].join('\n');
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive);
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-unbacked');
+  });
+
+  test('BOUNDARY: sibling `###`s do not bleed into each other', () => {
+    // This is what separates `>= level` from `> level`: under `>`, a second `###` would nest
+    // inside the first, and the first sub-section would swallow the rest of the archive.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      '### Session log rows',
+      '',
+      'sessions 40-57, verbatim.',
+      '',
+      '### Discovered backlog rows',
+      '',
+      'W4-D07 — the full evidence prose, moved verbatim.',
+      '',
+    ].join('\n');
+    const sections = archiveSections(archive);
+    const byHeading = (needle) => sections.find((s) => s.heading.includes(needle));
+
+    expect(byHeading('Session log rows').body).not.toMatch(/W4-D07/);
+    expect(byHeading('Discovered backlog rows').body).toMatch(/W4-D07/);
+    // and the parent carries BOTH, which is what makes the anchor-matches-the-`##` case work
+    expect(byHeading('Archived 2026-08-22').body).toMatch(/sessions 40-57/);
+    expect(byHeading('Archived 2026-08-22').body).toMatch(/W4-D07/);
+  });
+
+  test('a nested heading LINE still does not back a row — only body prose does', () => {
+    // The existing rule at the `##` level (a heading names the task that DID the archiving) is not
+    // quietly widened by nesting: heading lines are appended to no body, at any depth.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      '### W4-D07',
+      '',
+      'prose that never names the row',
+      '',
+    ].join('\n');
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive)[0].kind).toBe('archive-unbacked');
   });
 });
 

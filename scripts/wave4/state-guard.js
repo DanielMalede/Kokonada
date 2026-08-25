@@ -228,7 +228,11 @@ function archiveSections(markdown) {
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
     if (heading) {
       const level = heading[1].length;
-      while (open.length && open[open.length - 1].level <= level) open.pop();
+      // `>= level`: a heading closes every open section at its own level or DEEPER, and stays
+      // nested inside a strictly shallower one. `<=` had it backwards — a `###` popped its `##`
+      // parent, so an archive entry filed as one dated `##` with `###` detail underneath left the
+      // `##` body empty and failed a CORRECT R1.5 archival as `archive-unbacked` (W4-D77).
+      while (open.length && open[open.length - 1].level >= level) open.pop();
       const section = { level, heading: heading[2].trim(), body: '' };
       sections.push(section);
       open.push(section);
