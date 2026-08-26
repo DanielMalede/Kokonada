@@ -17,6 +17,24 @@ end
 target 'KokonadaHealth' do
   config = use_native_modules!
 
+  # `pod install` fails outright without these two lines:
+  #   [!] The following Swift pods cannot yet be integrated as static libraries:
+  #   The Swift pod `AppCheckCore` depends upon `GoogleUtilities` and `RecaptchaInterop`,
+  #   which do not define modules.
+  #
+  # AppCheckCore arrives transitively through the Google Sign-In pod chain
+  # (@react-native-google-signin/google-signin -> GoogleSignIn -> AppCheckCore). It is a Swift
+  # pod, and Swift needs a module map for anything it imports. Pods here build as STATIC
+  # LIBRARIES — `use_frameworks!` above is opt-in via USE_FRAMEWORKS, which CI does not set — so
+  # the two dependencies must be told to generate module maps.
+  #
+  # Deliberately TARGETED rather than a global `use_modular_headers!`: the global switch changes
+  # how every pod in the graph is built, React Native's ~70 included, which is a far wider blast
+  # radius than this defect needs. These are transitive dependencies, so no version is pinned —
+  # the resolver keeps whatever GoogleSignIn already required.
+  pod 'GoogleUtilities', :modular_headers => true
+  pod 'RecaptchaInterop', :modular_headers => true
+
   use_react_native!(
     :path => config[:reactNativePath],
     # An absolute path to your application root.
