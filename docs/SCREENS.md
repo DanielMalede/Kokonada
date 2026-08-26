@@ -114,6 +114,16 @@
 - **Data:** player state (remote-as-truth), `nowPlayingStore`, queue cursor.
 - **Design notes:** art and motion carry it; controls recede until touched; must mirror Spotify-side changes (no phantom desync).
 
+## 7b. Mix receipt — "why this music"
+
+- **Purpose:** turn the set's reasoning into an object the user can inspect and argue with. Opened from §7's receipt sentence; the app's strongest trust surface, and the only place the regulator shows its working.
+- **Layout (three zones by permanence):** a **fixed verdict head** (the first-person receipt sentence + the state's confidence read) → a **scrolling evidence body** (what I read → what that set → where it goes → up next) → a **fixed trust foot** carrying the privacy line. Back affordance top-left; no tab bar (pushed from §7, not a tab).
+- **Components:** `CeilingBar` (a limit drawn as a limit, never a progress fill), the trajectory figure, `SectionRail` for position in the argument, session rows for Up next.
+- **States:** loaded · loading (skeleton, never a spinner) · partial (trajectory absent — render the first two sections only, never a drawn arc that means nothing) · offline (cached receipt, banner) · stale (the set was re-read since; say so).
+- **Interactions:** scroll; back to §7; tapping an Up-next row does nothing yet (do not draw an affordance the product lacks).
+- **Data:** the emitted `targets` object (`bpmCenter/bpmWidth`, `energyFloor/Ceiling`, `valenceTarget`, `acousticnessBias`, `instrumentalBias`, `confidence`, `state{recovery,stress,exertion}`), the resolved state name, and the queue. The lead sentence is emitted by the backend — **note: the mobile sanitizer currently discards it, so its delivery path must be restored before this screen can ship.**
+- **Design notes:** the argument's order *is* the layout. Every number carries its unit and its direction — a "ceiling" is an exclusion and must never be drawn as an attainment. The trajectory's slope must agree with the state, the caption and the engine; if they disagree, the figure is wrong. Confidence is shown, never implied: this screen hedges exactly as much as the engine does. Closing line, verbatim: *"Nothing here left your phone unencrypted. The engine sees the state name and the targets — never the raw readings."*
+
 ## 8. Pulse — the body dashboard (state vector)
 - **Purpose:** show how the app reads the body right now — the whole-body picture, honestly.
 - **Layout:** live tiles (HR, source, socket) → advanced gauges (HRV · resting HR · sleep · body battery · readiness) → a friendly **State** headline (e.g. "Resting / Calm").
