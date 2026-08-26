@@ -2,6 +2,7 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { WatchPairingCard } from '../WatchPairingCard';
 import { createWatchPairingFlow, type WatchPairingDeps } from '../watchPairingStore';
+import { haptics } from '../../../design/tokens';
 
 // T2 — the §10 watch pairing CARD. States render from the store; the code is large + selectable
 // with NO Copy button (you can't paste into a watch bezel — you read + type); the a11y label spells
@@ -48,6 +49,21 @@ describe('WatchPairingCard', () => {
     const { tree } = await renderCard(makeDeps());
     expect(has(tree, 'watch-set-up')).toBe(true);
     expect(allText(tree)).toMatch(/set up watch/i);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // END-TO-END haptic wiring. Nothing is stubbed between this tap and the native module: the
+  // card takes the real `fireHaptic` default (no triggerHaptic prop), fireHaptic does its real
+  // lazy require, and the assertion lands on the NATIVE trigger. Before jest.setup.js stubbed
+  // that module the whole chain was dead in every test in the suite and nothing said so, because
+  // fireHaptic swallows its own failure by design.
+  it('the set-up tap drives the real fireHaptic through to the native trigger', async () => {
+    const nativeTrigger = (jest.requireMock('react-native-haptic-feedback') as { trigger: jest.Mock }).trigger;
+    nativeTrigger.mockClear();
+    const { tree } = await renderCard(makeDeps());
+    await ReactTestRenderer.act(async () => { byLabel(tree, 'watch-set-up')[0].props.onPress(); });
+    await flush();
+    expect(nativeTrigger).toHaveBeenCalledWith(haptics.selection);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

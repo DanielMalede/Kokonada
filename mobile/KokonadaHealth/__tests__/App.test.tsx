@@ -6,8 +6,8 @@ import React from 'react';
 import { View } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
-// App's job is now pure COMPOSITION: it wraps the provider stack (Tamagui, gesture root,
-// Redux, SafeArea) around the AppFlow route machine. The boot/route behaviour it used to
+// App's job is now pure COMPOSITION: it wraps the provider stack (gesture root, Redux,
+// SafeArea) around the AppFlow route machine. The boot/route behaviour it used to
 // own (startApp + BootSplash hand-off + the auth gate) moved into AppFlow and is pinned in
 // src/navigation/__tests__/AppFlow.test.tsx. Here we only assert App mounts AppFlow inside
 // the providers without crashing.

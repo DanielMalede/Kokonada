@@ -138,19 +138,23 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     const ci = WORKFLOWS.find((w) => w.file === 'ci.yml');
     expect(ci.triggers.sort()).toEqual(['pull_request', 'push']);
     expect(ci.jobs.map((j) => j.id).sort()).toEqual([
-      'backend', 'deploy-frontend', 'frontend', 'mobile', 'mobile-android-compile', 'secret-scan',
+      'backend', 'deploy-frontend', 'frontend', 'mobile', 'mobile-android-compile',
+      'mobile-ios-build', 'secret-scan',
     ]);
     // Every job checks out, so every job needs `contents` named in any override it declares.
     expect(ci.jobs.filter((j) => j.checksOut).map((j) => j.id).sort()).toEqual([
-      'backend', 'deploy-frontend', 'frontend', 'mobile', 'mobile-android-compile', 'secret-scan',
+      'backend', 'deploy-frontend', 'frontend', 'mobile', 'mobile-android-compile',
+      'mobile-ios-build', 'secret-scan',
     ]);
 
-    // The two jobs that went red in the 403 incident are exactly the two the PR-API rule catches.
+    // Every job that touches the PR API is caught by the PR-API rule. secret-scan and
+    // mobile-android-compile are the two that went red in the 403 incident; mobile-ios-build
+    // joined them when it took the same dorny/paths-filter gating, and needs the same scope.
     const prApiJobs = ci.jobs
       .filter((j) => j.uses.some((u) => PR_API_ACTIONS.some((a) => a.match.test(u))))
       .map((j) => j.id)
       .sort();
-    expect(prApiJobs).toEqual(['mobile-android-compile', 'secret-scan']);
+    expect(prApiJobs).toEqual(['mobile-android-compile', 'mobile-ios-build', 'secret-scan']);
   });
 
   it.each(WORKFLOWS.map((w) => [w.file]))(

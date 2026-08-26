@@ -3,7 +3,7 @@ import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { MoodOnlyBar } from '../MoodOnlyBar';
 import { createConnectStore } from '../connectStore';
-import { colors, space } from '../../../design/tokens';
+import { colors, space, stroke } from '../../../design/tokens';
 
 // Designer REVISE guards for the pinned escape bar:
 //  1. The glow-OUTLINE secondary's LABEL must be AA-normal on surface.base in BOTH themes —
@@ -55,11 +55,11 @@ describe('MoodOnlyBar — AA label + bottom safe-area (designer REVISE)', () => 
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('the 1.5px brand-glow BORDER is retained (an equal-weight secondary ring, not a fill)', async () => {
+  it('the brand-glow BORDER is retained at the control stroke (an equal-weight secondary ring, not a fill)', async () => {
     const tree = await render(false);
     const btn = flatStyle(byLabel(tree, 'continue-mood-only'));
     expect(ACCENT_GLOWS).toContain(btn.borderColor);
-    expect(btn.borderWidth).toBe(1.5);
+    expect(btn.borderWidth).toBe(stroke.control);
     expect(btn.backgroundColor).toBe('transparent'); // outline, never a filled brand CTA here
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });

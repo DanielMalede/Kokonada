@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, Image, Alert, Linking, AppState, Mod
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, type as typography, elevation } from '../../design/tokens';
+import { space, radius, stroke, type as typography, elevation } from '../../design/tokens';
 import { fireHaptic } from '../../design/haptics';
 import { EMPTY_GLOW_OPACITY, Skeleton } from '../../design/system';
 import { SoftGlow } from '../aura/SoftGlow';
@@ -410,18 +410,18 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, padding: space.lg },
   divider: { height: StyleSheet.hairlineWidth },
   account: { gap: space.md, marginTop: space['3xl'] },
-  logout: { width: '100%', paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  logout: { width: '100%', paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   logoutLabel: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   deleteLink: { paddingVertical: space.md, alignItems: 'center' },
   deleteLinkText: { fontSize: typography.size.callout, fontWeight: typography.weight.semibold },
-  deleteConfirm: { gap: space.md, padding: space.lg, borderRadius: radius.lg, borderWidth: 1.5 },
+  deleteConfirm: { gap: space.md, padding: space.lg, borderRadius: radius.lg, borderWidth: stroke.control },
   deleteTitle: { fontSize: typography.size.callout, fontWeight: typography.weight.semibold },
   deleteBody: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },
   deleteBar: { flexDirection: 'row', gap: space.md },
-  deleteBtn: { flex: 1, paddingVertical: space.md, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  deleteBtn: { flex: 1, paddingVertical: space.md, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   deleteBtnText: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
   retryTitle: { fontSize: typography.size.subheading, fontWeight: typography.weight.semibold, textAlign: 'center' },
-  retryBtn: { marginTop: space.lg, paddingVertical: space.md, paddingHorizontal: space.xl, borderRadius: radius.pill, borderWidth: 1.5 },
+  retryBtn: { marginTop: space.lg, paddingVertical: space.md, paddingHorizontal: space.xl, borderRadius: radius.pill, borderWidth: stroke.control },
   retryLabel: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
 });

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, View, Text, Pressable, ScrollView, StyleSheet, Easing } from 'react-native';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, type as typography, elevation, motion, type HapticKey } from '../../design/tokens';
+import { space, radius, stroke, type as typography, elevation, motion, type HapticKey } from '../../design/tokens';
 import { fireHaptic } from '../../design/haptics';
 import { CONSENT_DATA_CATEGORIES } from '../../health/consentApi';
 import type { ConsentFlowStore, ConsentFlowState } from '../../health/consentStore';
@@ -268,13 +268,13 @@ const styles = StyleSheet.create({
   // Equal-weight buttons: identical geometry (flex, padding, radius, border box). Only the FILL
   // differs (filled primary vs. outlined) — an accessible primary/secondary that keeps Decline an
   // equal, real control.
-  btn: { flex: 1, paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  btn: { flex: 1, paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   btnText: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   skeleton: { flex: 1, gap: space.lg, paddingTop: space.xl },
   skelBlock: { height: space.xl, borderRadius: radius.sm },
   ack: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg },
   ackText: { fontSize: typography.size.heading, fontWeight: typography.weight.semibold },
   glyphWrap: { width: space['2xl'], height: space['2xl'], alignItems: 'center', justifyContent: 'flex-end', paddingBottom: space.xs },
-  glyphShackle: { width: space.lg, height: space.md, borderWidth: 2.5, borderBottomWidth: 0, borderTopLeftRadius: radius.pill, borderTopRightRadius: radius.pill },
+  glyphShackle: { width: space.lg, height: space.md, borderWidth: stroke.glyph, borderBottomWidth: 0, borderTopLeftRadius: radius.pill, borderTopRightRadius: radius.pill },
   glyphBody: { width: space.xl, height: space.lg, borderRadius: radius.xs, marginTop: -1 },
 });

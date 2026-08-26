@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../design/theme';
-import { space, radius, type as typography } from '../../design/tokens';
+import { space, radius, stroke, type as typography } from '../../design/tokens';
 import type { ConnectState } from './connectStore';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -79,7 +79,7 @@ export function MoodOnlyBar({ connect, onMoodOnly, onContinue }: MoodOnlyBarProp
 
 const styles = StyleSheet.create({
   bar: { paddingHorizontal: space.xl, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth },
-  button: { width: '100%', paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  button: { width: '100%', paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   outline: { backgroundColor: 'transparent' },
   label: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   subtext: { fontSize: typography.size.footnote, textAlign: 'center', marginTop: space.sm },

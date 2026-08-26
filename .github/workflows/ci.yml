@@ -100,6 +100,18 @@ jobs:
       - name: Run tests
         run: ./node_modules/.bin/jest --ci
         working-directory: mobile/KokonadaHealth
+      # The design-system gate: colour and scale values that bypass src/design/tokens.ts are
+      # ERRORS, and this step FAILS the build on them. It runs the same .eslintrc.js as
+      # `npm run lint`, keeps only the kokonada/* messages, and ratchets them against
+      # scripts/lint/design-system-baseline.json. Deliberately not plain `npm run lint`: that
+      # also carries unrelated pre-existing debt, and what gates this must be off-system values,
+      # not whichever lint error happens to be lying around. The baseline file holds the existing
+      # violations (recorded there, not fixed — that cleanup is its own reviewable change); the job
+      # goes red the moment any file goes ABOVE its recorded count, a new hex in an
+      # already-listed file included.
+      - name: Design-system lint
+        run: npm run lint:design-system
+        working-directory: mobile/KokonadaHealth
 
   mobile-android-compile:
     name: Mobile — Android compile check
@@ -153,6 +165,72 @@ jobs:
         # lays it down non-executable → exit 126. chmod it before invoking.
         run: chmod +x gradlew && ./gradlew :app:processDebugResources :app:compileDebugKotlin :app:compileDebugJavaWithJavac --console=plain
         working-directory: mobile/KokonadaHealth/android
+
+  mobile-ios-build:
+    name: Mobile — iOS build
+    runs-on: macos-latest
+    # jest and the Android compile job cannot see the iOS native surface at all, and neither can
+    # a Metro bundle check — a JS bundle builds fine with a native module half-removed. This job
+    # is the only thing in CI that actually compiles the iOS app, so it is what closes an
+    # autolinked-native-module change (react-native-vector-icons and lottie-react-native were
+    # both autolinked with codegen before they were dropped).
+    # Simulator SDK + CODE_SIGNING_ALLOWED=NO: no certificates or provisioning profiles needed,
+    # while still compiling every pod and every native module for real.
+    # macOS runners bill at 10x, so the costly steps are gated on the iOS surface actually
+    # changing — same shape as mobile-android-compile. The job always starts so it can be a
+    # required check.
+    permissions:
+      contents: read
+      # dorny/paths-filter resolves the changed-file set through listFiles(pull_number).
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect iOS-affecting changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ios:
+              - 'mobile/KokonadaHealth/ios/**'
+              - 'mobile/KokonadaHealth/package.json'
+              - 'mobile/KokonadaHealth/package-lock.json'
+              - 'mobile/KokonadaHealth/Gemfile'
+              - 'mobile/KokonadaHealth/react-native.config.js'
+              - '.github/workflows/ci.yml'
+      - uses: actions/setup-node@v4
+        if: steps.changes.outputs.ios == 'true'
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: mobile/KokonadaHealth/package-lock.json
+      # `pod install` reads react_native_pods.rb out of node_modules, so JS deps come first.
+      - name: Install JS dependencies
+        if: steps.changes.outputs.ios == 'true'
+        run: npm ci
+        working-directory: mobile/KokonadaHealth
+      - uses: ruby/setup-ruby@v1
+        if: steps.changes.outputs.ios == 'true'
+        with:
+          # The Gemfile pins cocoapods away from the versions that break the build; honour it
+          # rather than using whatever the runner image ships.
+          bundler-cache: true
+          working-directory: mobile/KokonadaHealth
+      - name: CocoaPods install
+        if: steps.changes.outputs.ios == 'true'
+        run: bundle exec pod install
+        working-directory: mobile/KokonadaHealth/ios
+      - name: Xcode build (simulator, unsigned)
+        if: steps.changes.outputs.ios == 'true'
+        run: |
+          xcodebuild \
+            -workspace KokonadaHealth.xcworkspace \
+            -scheme KokonadaHealth \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+        working-directory: mobile/KokonadaHealth/ios
 
   # The backend deploys via Railway's NATIVE GitHub integration: the service is
   # connected to this repo with Root Directory = /backend, branch = main, "auto-deploy

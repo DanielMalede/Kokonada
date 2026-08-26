@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useTheme } from '../../design/theme';
-import { space, radius, type as typography, elevation, type HapticKey } from '../../design/tokens';
+import { space, radius, stroke, type as typography, elevation, type HapticKey } from '../../design/tokens';
 import { fireHaptic } from '../../design/haptics';
 import type { WatchPairingStore, WatchPairingState } from './watchPairingStore';
 
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   check: { fontSize: typography.size.caption, fontWeight: typography.weight.bold },
   statusWord: { fontSize: typography.size.callout },
   actionRow: { flexDirection: 'row', gap: space.md },
-  neutralBtn: { paddingVertical: space.md, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  neutralBtn: { paddingVertical: space.md, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   neutralLabel: { fontSize: typography.size.footnote, fontWeight: typography.weight.semibold },
   codeZone: { gap: space.sm, alignItems: 'flex-start' },
   code: { fontSize: typography.size.display, fontWeight: typography.weight.bold, fontFamily: typography.family.mono, letterSpacing: typography.tracking.caption },
