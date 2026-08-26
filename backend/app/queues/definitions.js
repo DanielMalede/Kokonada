@@ -19,6 +19,13 @@ const QUEUES = Object.freeze({
   // Enforces the YouTube 30-day data-retention ToS: refreshes connected users' library rows,
   // purges disconnected/stale youtube_music rows (Spotify + mbid corpus untouched). (T3.5)
   YOUTUBE_RETENTION: 'youtube-retention',
+  // Nightly per-user consolidation (W4-012, A6): baseline refresh, cosinor snapshot, sleep-debt
+  // update, CUSUM change-point detection — persisted to MorningState.
+  DAILY_ANALYSIS: 'daily-analysis',
+  // W4-011: writes the two ADR-0012 learned artifacts from a finished play. The JUDGEMENT is not
+  // done here - the job payload carries a bucket address, a bounded reward and a CC0-only Beta
+  // delta, never heart-rate samples (a BullMQ payload is an unencrypted Redis blob; S0.2.2).
+  REWARD_INGEST: 'reward-ingest',
 });
 
 const QUEUE_NAMES = new Set(Object.values(QUEUES));

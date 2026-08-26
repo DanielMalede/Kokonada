@@ -223,10 +223,95 @@ describe('globalSetup / globalTeardown — executed, not just grepped', () => {
     }
   });
 
-  it('globalTeardown is silent when nothing leaked', async () => {
+  // ── W4-D24: the closing snapshot arrives through an INJECTED sampler ───────
+  //
+  // What used to stand here set the baseline to `process.getActiveResourcesInfo()` and then let the
+  // real teardown re-sample the LIVE process 250 ms later. That asserts nothing about the guard — it
+  // asserts that nothing anywhere in a shared `--runInBand` process armed a timer during those
+  // 250 ms, which is a claim about the machine, not about the code under test. At genuine
+  // end-of-run it holds (which is why the real teardown passes); mid-run it is decided by suite
+  // order and CPU speed. It failed on six consecutive CI runs of PR #180 with a byte-identical
+  // `Timeout: 1 still active at the end of the run (2 before, 3 after)`, and then passed on
+  // `2ae5e59` — a DOCS-ONLY commit that touched no file under `backend/`. Identical bytes, opposite
+  // verdict: flaky, not deterministic.
+  //
+  // The seam: jest 29.7 calls `globalModule(globalConfig, projectConfig)`
+  // (`@jest/core/build/runGlobalHook.js`) — exactly two arguments — so an optional THIRD `deps`
+  // parameter is one jest can never fill, and the production path keeps sampling the real process.
+  // That default path stays pinned by the sibling leak test above, which injects nothing at all.
+
+  it('globalTeardown measures the closing snapshot through the injected sampler', async () => {
     const teardown = require(teardownPath);
-    globalThis[SNAPSHOT_KEY] = process.getActiveResourcesInfo();
-    await expect(teardown()).resolves.toBeUndefined();
+    const sample   = jest.fn(() => ['WaveFourControlledResource']);
+    globalThis[SNAPSHOT_KEY] = ['WaveFourControlledResource'];
+    await expect(teardown(undefined, undefined, { sample })).resolves.toBeUndefined();
+    expect(sample).toHaveBeenCalledTimes(1);
+  });
+
+  it('globalTeardown is silent when the injected snapshot matches the baseline', async () => {
+    const teardown  = require(teardownPath);
+    const CONTROLLED = ['WaveFourControlledResource', 'WaveFourControlledResource'];
+    globalThis[SNAPSHOT_KEY] = CONTROLLED.slice();
+    await expect(
+      teardown(undefined, undefined, { sample: () => CONTROLLED.slice() }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('globalTeardown throws on a leak the injected sampler reports — the seam cannot silence the guard', async () => {
+    const teardown = require(teardownPath);
+    globalThis[SNAPSHOT_KEY] = [];
+    await expect(
+      teardown(undefined, undefined, { sample: () => ['WaveFourInjectedLeak'] }),
+    ).rejects.toThrow(/WaveFourInjectedLeak/);
+  });
+
+  it('an unrelated timer armed during the drain can no longer falsify the silent case', async () => {
+    // The CI failure, reproduced locally and DETERMINISTICALLY — the thing W4-D24 could not do by
+    // replaying CI's suite order. A 60 s timer stands in for the unrelated suite: it really does
+    // grow the live resource table (asserted, so this pin cannot rot into a tautology), and the
+    // guard's verdict is nonetheless unchanged, because the guard measures the snapshot it was
+    // given rather than the machine it happens to be running on.
+    const teardown   = require(teardownPath);
+    const liveTimers = () => process.getActiveResourcesInfo().filter((t) => t === 'Timeout').length;
+    const CONTROLLED = ['WaveFourControlledResource'];
+    globalThis[SNAPSHOT_KEY] = CONTROLLED.slice();
+
+    const before    = liveTimers();
+    const unrelated = setTimeout(() => {}, 60_000);
+    try {
+      expect(liveTimers()).toBeGreaterThan(before); // the interference is real, not notional
+      await expect(
+        teardown(undefined, undefined, { sample: () => CONTROLLED.slice() }),
+      ).resolves.toBeUndefined();
+    } finally {
+      clearTimeout(unrelated); // this suite does not get to leak the handle it tests with
+    }
+  });
+
+  it('globalTeardown ignores a non-function sampler rather than wedging the run', async () => {
+    // `openHandleGuard`'s house rule — the guard must never break the run it protects — extended to
+    // the new seam: a malformed injection falls back to the real sampler instead of throwing on its
+    // own input. Hardening pin: green both before and after the W4-D24 fix, recorded as such.
+    const teardown = require(teardownPath);
+    globalThis[SNAPSHOT_KEY] = [];
+    const leak = setTimeout(() => {}, 60_000);
+    try {
+      await expect(
+        teardown(undefined, undefined, { sample: 'not-a-function' }),
+      ).rejects.toThrow(/Timeout/);
+    } finally {
+      clearTimeout(leak);
+    }
+  });
+
+  it("jest's own call site passes two arguments, so it can never reach the deps seam", async () => {
+    // The whole seam rests on jest's arity. Pinned against the INSTALLED jest so an upgrade that
+    // grows it is caught here, loudly, rather than by a guard that has quietly stopped sampling the
+    // real process — the same reasoning as this file's other detector self-tests.
+    const hookPath = path.join(BACKEND_ROOT, 'node_modules', '@jest', 'core', 'build', 'runGlobalHook.js');
+    expect(fs.existsSync(hookPath)).toBe(true);
+    expect(fs.readFileSync(hookPath, 'utf8'))
+      .toMatch(/globalModule\(\s*globalConfig\s*,\s*projectConfig\s*\)/);
   });
 
   it('globalTeardown no-ops when no baseline was recorded — it never wedges a run', async () => {

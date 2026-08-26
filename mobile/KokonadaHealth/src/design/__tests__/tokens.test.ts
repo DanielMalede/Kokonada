@@ -1,4 +1,4 @@
-import { colors, space, radius, motion, type, emotionAnchors, glassAlpha, type ColorScheme, type ThemeName } from '../tokens';
+import { colors, space, radius, stroke, motion, type, emotionAnchors, glassAlpha, type ColorScheme, type ThemeName } from '../tokens';
 import { contrastRatio, passesAA, parseHex, flatten, relativeLuminance, AA_NORMAL, AA_LARGE } from '../contrast';
 import { resolveScheme } from '../theme';
 
@@ -146,6 +146,22 @@ describe('scales are coherent (no magic numbers leak — ascending, deduped)', (
   it('radius scale ascends to the pill', () => {
     expect(radius.xs).toBeLessThan(radius.lg);
     expect(radius.pill).toBeGreaterThan(radius.xl);
+  });
+  // The border-width vocabulary. The hairline deliberately does NOT live here: a true
+  // 1-device-pixel rule is StyleSheet.hairlineWidth, which is resolution-dependent and cannot
+  // be a fixed number in a file that imports nothing. These are the two strokes that were
+  // being re-typed by hand on every screen instead.
+  it('stroke scale ascends — none, a control outline, then a drawn glyph; no duplicates', () => {
+    expect(stroke.none).toBe(0);
+    expect(stroke.none).toBeLessThan(stroke.control);
+    expect(stroke.control).toBeLessThan(stroke.glyph);
+    const v = Object.values(stroke);
+    expect(v).toEqual([...v].sort((a, b) => a - b));
+    expect(new Set(v).size).toBe(v.length);
+  });
+  it('the control outline stays hairline-adjacent, not a heavy frame', () => {
+    expect(stroke.control).toBeGreaterThan(1);
+    expect(stroke.control).toBeLessThanOrEqual(2);
   });
   it('type sizes strictly descend display→caption', () => {
     const order = ['display', 'title', 'heading', 'subheading', 'body', 'callout', 'footnote', 'caption'] as const;

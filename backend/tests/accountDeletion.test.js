@@ -10,6 +10,10 @@ jest.mock('../app/models/User',            () => ({ deleteOne:  jest.fn().mockRe
 jest.mock('../app/models/BiometricLog',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 42 }) }));
 jest.mock('../app/models/VitalSample',     () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 11 }) }));
 jest.mock('../app/models/MedicalProfile',  () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
+jest.mock('../app/models/MorningState',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 5 }) }));
+// W4-011, ADR-0012 Track A. The module exports TWO models; only the user-scoped one is erased.
+jest.mock('../app/models/RewardEvent',     () => ({ RewardEvent: { deleteMany: jest.fn().mockResolvedValue({ deletedCount: 6 }) } }));
+jest.mock('../app/models/PersonalWeights', () => ({ PersonalWeights: { deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) } }));
 jest.mock('../app/models/MusicProfile',    () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }) }));
 jest.mock('../app/models/PlaylistSession', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 7 }) }));
 jest.mock('../app/models/ServeEvent',      () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 9 }) }));
@@ -35,6 +39,9 @@ jest.mock('apple-signin-auth',   () => ({ verifyIdToken: jest.fn() }));
 const User            = require('../app/models/User');
 const BiometricLog    = require('../app/models/BiometricLog');
 const MedicalProfile  = require('../app/models/MedicalProfile');
+const MorningState    = require('../app/models/MorningState');
+const { RewardEvent } = require('../app/models/RewardEvent');
+const { PersonalWeights } = require('../app/models/PersonalWeights');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent      = require('../app/models/ServeEvent');
@@ -62,6 +69,9 @@ describe('deleteAccount (GDPR hard-delete)', () => {
 
     expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId });
     expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(MorningState.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(RewardEvent.deleteMany).toHaveBeenCalledWith({ userId });
+    expect(PersonalWeights.deleteMany).toHaveBeenCalledWith({ userId }); // W4-013 B7, S5
     expect(MusicProfile.deleteMany).toHaveBeenCalledWith({ userId });
     expect(PlaylistSession.deleteMany).toHaveBeenCalledWith({ userId });
     expect(ServeEvent.deleteMany).toHaveBeenCalledWith({ userId });

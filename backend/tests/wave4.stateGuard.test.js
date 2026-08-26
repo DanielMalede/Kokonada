@@ -42,6 +42,12 @@ const {
   STATUS_RANK,
   REOPEN_TOKEN,
   parseTaskRows,
+  taskRowList,
+  duplicateIdViolations,
+  archiveViolations,
+  archiveSections,
+  ARCHIVE_RELPATH,
+  ARCHIVE_POINTER_RE,
   diffTaskRows,
   formatViolations,
 } = require(MODULE_PATH);
@@ -254,6 +260,314 @@ describe('W4-D02 · state guard — deliberate reopening stays possible (§2.5 R
   });
 });
 
+// ---------------------------------------------------------------------------------------------
+// W4-D54 — an id that resolves to two different rows.
+//
+// The backlog carried `W4-D48` TWICE: session 49's "a pending queue job is user data that no
+// erasure path can reach" and session 55's "`TrackEmbedding.vector` never rejects a missing
+// vector". Unrelated findings, one id.
+//
+// The reason this went unnoticed for a session is INSIDE this guard. `parseTaskRows` returns a
+// Map keyed by id, so a repeat `rows.set(id, …)` silently overwrites — the first row stops
+// existing as far as every consumer is concerned. That is not a cosmetic clash:
+//   · the shadowed row can never be reported `removed`, because it was never in the map to begin
+//     with — delete it and the guard says OK;
+//   · a rank decrease on the shadowed row is invisible for the same reason;
+//   · the `OK <n> rows` line under-reports by one per duplicate, so the count cannot catch it.
+// A guard blind to a row is worse than no guard on that row, because the OK line reads as
+// coverage. So the repair is the W4-D01/W4-D02 shape once more: not just fix the instance,
+// but make the class fail loudly.
+//
+// The check is a property of ONE document, not of a diff, so it runs on the AFTER document — and
+// it has to run BEFORE the no-baseline early return, or the loop's first check on a fresh clone
+// would be exactly the one that skips it.
+// ---------------------------------------------------------------------------------------------
+describe('W4-D54 · state guard — one id, one row', () => {
+  const dupBacklog = '| W4-D02 | improve | A DIFFERENT finding that reused the id | SHOULD | S | — | pending | session 55 | unrelated work |\n';
+
+  test('a clean document has no duplicate ids', () => {
+    expect(duplicateIdViolations(state())).toEqual([]);
+  });
+
+  test('an id used twice in the SAME table is a violation naming the id and the count', () => {
+    const violations = duplicateIdViolations(state({ extraBacklogRows: dupBacklog }));
+    expect(idsOf(violations)).toEqual(['W4-D02']);
+    expect(violations[0].kind).toBe('duplicate-id');
+    expect(violations[0].count).toBe(2);
+    expect(violations[0].message).toMatch(/W4-D02/);
+  });
+
+  test('an id reused ACROSS the two tables is caught too — the tables share one id space', () => {
+    const violations = duplicateIdViolations(state({
+      extraBacklogRows: '| W4-001 | improve | Reused a §3 task id | SHOULD | S | — | pending | session 55 | oops |\n',
+    }));
+    expect(idsOf(violations)).toEqual(['W4-001']);
+  });
+
+  test('THE MECHANISM: a duplicate SHADOWS the earlier row, so the guard goes blind to it', () => {
+    // This is why W4-D54 existed at all. Pinned so the reason survives the fix.
+    const withDup = state({ extraBacklogRows: dupBacklog });
+    const rows = parseTaskRows(withDup);
+
+    expect(rows.get('W4-D02').raw).toMatch(/A DIFFERENT finding/); // last write wins
+    expect(taskRowList(withDup).filter((r) => r.id === 'W4-D02')).toHaveLength(2);
+    expect(rows.size).toBe(taskRowList(withDup).length - 1); // the OK line under-reports by one
+
+    // …and the concrete consequence: deleting the SHADOWED row is not reported as `removed`.
+    expect(diffTaskRows(withDup, state({ extraBacklogRows: dupBacklog.replace('W4-D02', 'W4-D99') }))).toEqual([]);
+  });
+
+  test('the real WAVE4_STATE.md has exactly one row per id', () => {
+    // The live pin: W4-D54's instance, and any future repeat of it.
+    const real = fs.readFileSync(path.join(REPO_ROOT, STATE_RELPATH), 'utf8');
+    expect(duplicateIdViolations(real)).toEqual([]);
+    expect(parseTaskRows(real).size).toBe(taskRowList(real).length);
+  });
+
+  test('formatViolations renders it like every other violation, so one log line covers all kinds', () => {
+    const line = formatViolations(duplicateIdViolations(state({ extraBacklogRows: dupBacklog })));
+    expect(line).toMatch(/^VIOLATION W4-D02 duplicate-id: /);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// W4-D16 — archival is not a stale rewrite.
+//
+// §2.5 R1.5 tells a reflection past 150KB to move closed backlog rows into WAVE4_ARCHIVE.md and
+// DELETE them from STATE. §2 step 6 requires this guard to pass, and it reports every deleted row
+// as `removed` — deliberately not suppressible, because there is no legitimate reason to drop a
+// task row. Two binding rules, in direct contradiction; sessions 23, 33, 39, 43, 47, 52, 58 and 64
+// each hit it, each deferred, and STATE grew from 175KB to 399KB while they did.
+//
+// The ruling (reflection #10's design, endorsed by #11 and #12): the guard is RIGHT to be strict,
+// so R1.5 gives up literal deletion. An archival leaves a STUB row — same id, same status, plus a
+// pointer — and moves the long evidence prose verbatim into the archive. The bulk leaves, the row
+// never stops existing, and the guard needs no exception at all.
+//
+// What the guard DOES gain is the half a stub cannot self-enforce: that the archive actually
+// received the prose. Without it, "stub the row and forget the archive write" loses the evidence
+// silently, which is the same class of failure the guard was built for. So a pointer must resolve.
+// The engine stays pure — two strings in, violations out; the CLI owns the file read.
+// ---------------------------------------------------------------------------------------------
+describe('W4-D16 · state guard — archival is not a stale rewrite', () => {
+  const FULL_ROW = '| W4-D07 | improve | Adapter mock semantics | SHOULD | S | — | done | session 12 | many KB of evidence prose |\n';
+  const STUB_ROW = '| W4-D07 | improve | Adapter mock semantics | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+
+  const archive = (body = 'W4-D07 — the full evidence prose, moved verbatim.') => `# WAVE4_ARCHIVE
+
+## Archived 2026-08-22 (session 65)
+
+${body}
+
+## Archived 2026-08-19 (reflection #4, session 23)
+
+Something older.
+`;
+
+  test('the pointer names the archive file the mission names', () => {
+    expect(ARCHIVE_RELPATH).toBe('docs/plans/WAVE4_ARCHIVE.md');
+  });
+
+  test('THE CONTRADICTION: deleting a closed row outright is still `removed`, exactly as before', () => {
+    // R1.5's literal instruction, run through the guard. This is the failure every deferring
+    // reflection saw, and it must keep failing — otherwise the stale-rewrite hole reopens.
+    const before = state({ extraBacklogRows: FULL_ROW });
+    const after = state();
+    const violations = diffTaskRows(before, after);
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('removed');
+  });
+
+  test('THE RULING: the same archival done as a STUB row passes the diff clean', () => {
+    // Same evidence moved to the same place, same bytes off STATE — but the row still exists, so
+    // there is nothing for the guard to object to. No exception, no new suppression token.
+    expect(diffTaskRows(state({ extraBacklogRows: FULL_ROW }), state({ extraBacklogRows: STUB_ROW }))).toEqual([]);
+  });
+
+  test('a stub whose prose really did reach the archive is clean', () => {
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive())).toEqual([]);
+  });
+
+  test('a document with no stubs at all needs no archive', () => {
+    expect(archiveViolations(state(), '')).toEqual([]);
+  });
+
+  test('a stub pointing at an archive section that does not exist is a violation', () => {
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive().replace('2026-08-22', '2026-08-21'));
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-missing');
+    expect(violations[0].anchor).toBe('2026-08-22');
+    expect(violations[0].message).toMatch(/2026-08-22/);
+  });
+
+  test('THE HOLE THE STUB CANNOT CLOSE: a stub whose section exists but never mentions the row', () => {
+    // Stub written, archive write forgotten. The row looks archived and the evidence is gone.
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive('Some other row entirely.'));
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-unbacked');
+    expect(violations[0].message).toMatch(/W4-D07/);
+  });
+
+  test('the heading LINE does not back a row — only the body does', () => {
+    // A heading like `## Archived 2026-08-22 (W4-D16, session 65)` names the task that did the
+    // archiving. Counting that as evidence would let the row that ordered the move back itself.
+    const violations = archiveViolations(
+      state({ extraBacklogRows: STUB_ROW }),
+      '# A\n\n## Archived 2026-08-22 (W4-D07, session 65)\n\nunrelated body\n',
+    );
+    expect(violations[0].kind).toBe('archive-unbacked');
+  });
+
+  test('the ARCHIVED token without a resolvable pointer is a violation, not a silent pass', () => {
+    const vague = FULL_ROW.replace('many KB of evidence prose', 'ARCHIVED (see the archive)');
+    const violations = archiveViolations(state({ extraBacklogRows: vague }), archive());
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-pointer');
+  });
+
+  test('an unreadable/absent archive fails every stub rather than passing them', () => {
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), '');
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe('archive-missing');
+  });
+
+  test('the pointer is matched as a substring of the heading, so re-titling a section is safe', () => {
+    const retitled = archive().replace('## Archived 2026-08-22 (session 65)', '## Archived 2026-08-22 — backlog sweep (W4-D16)');
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), retitled)).toEqual([]);
+  });
+
+  test('ARCHIVE_POINTER_RE tolerates the spacing a human types and stops at the cell wall', () => {
+    expect('ARCHIVED->WAVE4_ARCHIVE.md#2026-08-22'.match(ARCHIVE_POINTER_RE)[1]).toBe('2026-08-22');
+    expect('ARCHIVED  ->  WAVE4_ARCHIVE.md#2026-08-22 |'.match(ARCHIVE_POINTER_RE)[1]).toBe('2026-08-22');
+    expect(ARCHIVE_POINTER_RE.test('archived -> wave4_archive.md#2026-08-22')).toBe(false); // uppercase on purpose
+  });
+
+  test('formatViolations renders archive kinds like every other kind', () => {
+    const line = formatViolations(archiveViolations(state({ extraBacklogRows: STUB_ROW }), ''));
+    expect(line).toMatch(/^VIOLATION W4-D07 archive-missing: /);
+  });
+
+  test('THE LIVE PIN: every stub in the real WAVE4_STATE.md is backed by the real archive', () => {
+    const realState = fs.readFileSync(path.join(REPO_ROOT, STATE_RELPATH), 'utf8');
+    const realArchive = fs.readFileSync(path.join(REPO_ROOT, ARCHIVE_RELPATH), 'utf8');
+    expect(archiveViolations(realState, realArchive)).toEqual([]);
+  });
+
+  test('detector self-test — the live pin must be able to fail', () => {
+    // A pin that cannot go red is decoration. Point a stub at a section that is not there.
+    const realArchive = fs.readFileSync(path.join(REPO_ROOT, ARCHIVE_RELPATH), 'utf8');
+    const sabotaged = state({
+      extraBacklogRows: '| W4-D999 | improve | fake | SHOULD | S | — | done | session 65 | ARCHIVED -> WAVE4_ARCHIVE.md#no-such-section |\n',
+    });
+    expect(archiveViolations(sabotaged, realArchive)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// W4-D77 — the archive sectioniser closed a `##` the moment a `###` opened.
+//
+// `archiveSections` popped open sections with `level <= level`, so a level-3 heading popped its
+// level-2 parent instead of nesting inside it — the exact inverse of that function's own comment
+// ("Sub-headings therefore stay INSIDE their section"). The consequence is a FALSE POSITIVE in the
+// direction that hurts most: `archiveViolations` backs a row by `section.body.includes(row.id)`,
+// so evidence filed under `### Discovered backlog rows` left the matched `##` body EMPTY and a
+// correctly-performed R1.5 archival failed as `archive-unbacked`. Reflection #14 hit it on seven
+// stubs at once and only got them through by repeating the ids in the `##`-level intro prose;
+// reflection #13's single stubbed row passed by luck, because its id happened to be named there.
+//
+// That matters beyond tidiness: R1.5 is a mission-mandated step, this made it fail on CORRECT
+// input, and a guard that cries wolf on good archivals is how the real signal — a stub whose
+// evidence never landed — gets buried.
+//
+// The repair is the pop condition: `>= level` (same level or deeper closes; strictly shallower
+// stays open). The boundary tests below are what make it the RIGHT fix rather than merely a
+// passing one — dropping the pop entirely would satisfy the first test and destroy the isolation
+// between sibling sections, which is the property the guard actually trades on.
+// ---------------------------------------------------------------------------------------------
+describe('W4-D77 · state guard — sub-headings nest inside their section', () => {
+  const STUB_ROW = '| W4-D07 | improve | Adapter mock semantics | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+
+  test('THE REPAIR: evidence filed ONLY under a `###` backs the stub', () => {
+    // The exact shape R1.5 prescribes and reflection #14 wrote: one dated `##`, the prose under a
+    // `###` detail heading, and NOTHING naming the row at the `##` level. Red before the fix.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      'Rows archived in this sweep:',
+      '',
+      '### Discovered backlog rows',
+      '',
+      'W4-D07 — the full evidence prose, moved verbatim.',
+      '',
+    ].join('\n');
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive)).toEqual([]);
+  });
+
+  test('BOUNDARY: a later sibling `##` still closes the previous one', () => {
+    // Without this, "never pop" passes the test above while making every section back every row.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      'nothing relevant here',
+      '',
+      '## Archived 2026-08-19 (reflection #4, session 23)',
+      '',
+      'W4-D07 — prose that landed under the WRONG heading.',
+      '',
+    ].join('\n');
+    const violations = archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive);
+    expect(idsOf(violations)).toEqual(['W4-D07']);
+    expect(violations[0].kind).toBe('archive-unbacked');
+  });
+
+  test('BOUNDARY: sibling `###`s do not bleed into each other', () => {
+    // This is what separates `>= level` from `> level`: under `>`, a second `###` would nest
+    // inside the first, and the first sub-section would swallow the rest of the archive.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      '### Session log rows',
+      '',
+      'sessions 40-57, verbatim.',
+      '',
+      '### Discovered backlog rows',
+      '',
+      'W4-D07 — the full evidence prose, moved verbatim.',
+      '',
+    ].join('\n');
+    const sections = archiveSections(archive);
+    const byHeading = (needle) => sections.find((s) => s.heading.includes(needle));
+
+    expect(byHeading('Session log rows').body).not.toMatch(/W4-D07/);
+    expect(byHeading('Discovered backlog rows').body).toMatch(/W4-D07/);
+    // and the parent carries BOTH, which is what makes the anchor-matches-the-`##` case work
+    expect(byHeading('Archived 2026-08-22').body).toMatch(/sessions 40-57/);
+    expect(byHeading('Archived 2026-08-22').body).toMatch(/W4-D07/);
+  });
+
+  test('a nested heading LINE still does not back a row — only body prose does', () => {
+    // The existing rule at the `##` level (a heading names the task that DID the archiving) is not
+    // quietly widened by nesting: heading lines are appended to no body, at any depth.
+    const archive = [
+      '# WAVE4_ARCHIVE',
+      '',
+      '## Archived 2026-08-22 (session 65)',
+      '',
+      '### W4-D07',
+      '',
+      'prose that never names the row',
+      '',
+    ].join('\n');
+    expect(archiveViolations(state({ extraBacklogRows: STUB_ROW }), archive)[0].kind).toBe('archive-unbacked');
+  });
+});
+
 describe('W4-D02 · state guard — CLI', () => {
   let tmp;
   const run = (args) => {
@@ -297,6 +611,58 @@ describe('W4-D02 · state guard — CLI', () => {
     const res = run(['check', '--before', path.join(tmp, 'does-not-exist.md'), '--after', after]);
     expect(res.code).toBe(0);
     expect(res.stdout).toMatch(/no-baseline/);
+  });
+
+  test('W4-D54 · a duplicate id in AFTER exits NON-ZERO and names the id', () => {
+    const before = write('before.md', state());
+    const after = write('after.md', state({
+      extraBacklogRows: '| W4-D02 | improve | A DIFFERENT finding | SHOULD | S | — | pending | session 55 | unrelated |\n',
+    }));
+    const res = run(['check', '--before', before, '--after', after]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/VIOLATION W4-D02 duplicate-id/);
+  });
+
+  test('W4-D54 · a duplicate is caught even with NO baseline — the early return must not skip it', () => {
+    // The no-baseline branch returns OK before any diff runs. A duplicate is a property of the
+    // document alone, so on a fresh clone (or a base ref older than the file) it is precisely the
+    // check that would otherwise never fire.
+    const after = write('after.md', state({
+      extraBacklogRows: '| W4-D02 | improve | A DIFFERENT finding | SHOULD | S | — | pending | session 55 | unrelated |\n',
+    }));
+    const res = run(['check', '--before', path.join(tmp, 'does-not-exist.md'), '--after', after]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/duplicate-id/);
+    expect(res.stdout).not.toMatch(/^OK\b/m);
+  });
+
+  test('W4-D16 · an unbacked archival stub exits NON-ZERO — the CLI is what §2 step 6 runs', () => {
+    const stub = '| W4-D07 | improve | Adapter mock | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+    const before = write('before.md', state());
+    const after = write('after.md', state({ extraBacklogRows: stub }));
+    const archive = write('archive.md', '# A\n\n## Archived 2026-08-22\n\nsomething unrelated\n');
+    const res = run(['check', '--before', before, '--after', after, '--archive', archive]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/VIOLATION W4-D07 archive-unbacked/);
+  });
+
+  test('W4-D16 · the same stub with the evidence really archived exits 0', () => {
+    const stub = '| W4-D07 | improve | Adapter mock | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#2026-08-22 |\n';
+    const before = write('before.md', state());
+    const after = write('after.md', state({ extraBacklogRows: stub }));
+    const archive = write('archive.md', '# A\n\n## Archived 2026-08-22\n\nW4-D07 — the evidence prose.\n');
+    const res = run(['check', '--before', before, '--after', after, '--archive', archive]);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toMatch(/^OK\b/m);
+  });
+
+  test('W4-D16 · an unbacked stub is caught with NO baseline too', () => {
+    const stub = '| W4-D07 | improve | Adapter mock | SHOULD | S | — | done | session 12 | ARCHIVED -> WAVE4_ARCHIVE.md#nope |\n';
+    const after = write('after.md', state({ extraBacklogRows: stub }));
+    const res = run(['check', '--before', path.join(tmp, 'does-not-exist.md'), '--after', after]);
+    expect(res.code).not.toBe(0);
+    expect(res.stdout).toMatch(/archive-missing/);
+    expect(res.stdout).not.toMatch(/^OK\b/m);
   });
 
   test('an unreadable AFTER file is a hard error, not a silent pass', () => {

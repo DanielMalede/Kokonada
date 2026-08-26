@@ -365,11 +365,14 @@ describe('upsertStateVector', () => {
       { upsert: true, new: true }
     );
 
-    // status is stored AES-256-GCM encrypted at rest (audit F3) — decrypt to verify
+    // status is stored AES-256-GCM encrypted at rest (audit F3) — decrypt to verify. Since W4-D71
+    // it is also AAD-BOUND to the owner, so the owner id is required to read it back and a blob
+    // lifted into another user's row fails authentication instead of resolving.
     const { decrypt } = require('../app/utils/encryption');
     const storedStatus = MedicalProfile.findOneAndUpdate.mock.calls[0][1].$set.stateVector.status;
     expect(storedStatus).not.toBe('Peak Athletic Performance'); // not plaintext
-    expect(decrypt(storedStatus)).toBe('Peak Athletic Performance');
+    expect(decrypt(storedStatus, false, 'user123')).toBe('Peak Athletic Performance');
+    expect(() => decrypt(storedStatus)).toThrow();
   });
 
   it('returns the document returned by findOneAndUpdate', async () => {

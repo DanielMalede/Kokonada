@@ -14,6 +14,7 @@ const mongoose = require('mongoose');
 const BiometricLog   = require('../app/models/BiometricLog');
 const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const MorningState   = require('../app/models/MorningState');
 const { purgeWearableData } = require('../app/services/privacy/wearableErasure');
 
 jest.setTimeout(120000);
@@ -31,6 +32,7 @@ beforeEach(async () => {
   await BiometricLog.deleteMany({});
   await VitalSample.deleteMany({});
   await MedicalProfile.deleteMany({});
+  await MorningState.deleteMany({});
 });
 
 const log = (userId, source, hr = 60) =>
@@ -117,5 +119,35 @@ describe('purgeWearableData — VitalSample source scoping (real Mongo)', () => 
 
     expect(res.medicalProfiles).toBe(1);
     expect(await MedicalProfile.countDocuments({ userId: userE })).toBe(0);
+  });
+});
+
+// W4-012 / S5. MorningState is the same category of derived aggregate as MedicalProfile (a
+// nightly consolidation with no per-source attribution of its own), so it rides the identical
+// all-or-nothing rule — pinned here rather than assumed from MedicalProfile's coverage above.
+describe('purgeWearableData — MorningState (real Mongo)', () => {
+  it('KEEPS MorningState when another provider still reports vitals', async () => {
+    const userF = new mongoose.Types.ObjectId();
+    await log(userF, 'garmin');
+    await vital(userF, 'apple_health', 'hrv', 55);
+    await MorningState.create({ userId: userF, date: new Date('2026-08-01T00:00:00Z'), readiness: 0.6 });
+
+    const res = await purgeWearableData(userF, 'garmin');
+
+    expect(res.morningStates).toBe(0);
+    expect(await MorningState.countDocuments({ userId: userF })).toBe(1);
+  });
+
+  it('drops MorningState when the purge leaves neither HR rows nor vitals', async () => {
+    const userG = new mongoose.Types.ObjectId();
+    await log(userG, 'garmin');
+    await vital(userG, 'garmin', 'hrv', 50);
+    await MorningState.create({ userId: userG, date: new Date('2026-08-01T00:00:00Z'), readiness: 0.6 });
+    await MorningState.create({ userId: userG, date: new Date('2026-08-02T00:00:00Z'), readiness: 0.4 });
+
+    const res = await purgeWearableData(userG, 'garmin');
+
+    expect(res.morningStates).toBe(2);
+    expect(await MorningState.countDocuments({ userId: userG })).toBe(0);
   });
 });

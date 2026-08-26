@@ -15,6 +15,9 @@ const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 const BiometricLog    = require('../app/models/BiometricLog');
 const VitalSample     = require('../app/models/VitalSample');
 const MedicalProfile  = require('../app/models/MedicalProfile');
+const MorningState    = require('../app/models/MorningState');
+const { RewardEvent } = require('../app/models/RewardEvent');
+const { PersonalWeights } = require('../app/models/PersonalWeights');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent      = require('../app/models/ServeEvent');
@@ -89,6 +92,9 @@ async function main() {
       const biometricCount    = await BiometricLog.countDocuments({ userId });
       const vitalCount        = await VitalSample.countDocuments({ userId });
       const medicalExists     = await MedicalProfile.findOne({ userId }).lean();
+      const morningCount      = await MorningState.countDocuments({ userId });
+      const rewardCount       = await RewardEvent.countDocuments({ userId });
+      const overlayCount      = await PersonalWeights.countDocuments({ userId });
       const musicExists       = await MusicProfile.findOne({ userId }).lean();
       const playlistCount     = await PlaylistSession.countDocuments({ userId });
       const serveCount        = await ServeEvent.countDocuments({ userId });
@@ -101,6 +107,9 @@ async function main() {
       console.log(`  BiometricLog: ${biometricCount} document(s) would be deleted`);
       console.log(`  VitalSample: ${vitalCount} document(s) would be deleted`);
       console.log(`  MedicalProfile: ${medicalExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
+      console.log(`  MorningState: ${morningCount} document(s) would be deleted`);
+      console.log(`  RewardEvent: ${rewardCount} document(s) would be deleted`);
+      console.log(`  PersonalWeights: ${overlayCount} document(s) would be deleted`);
       console.log(`  MusicProfile: ${musicExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
       console.log(`  PlaylistSession: ${playlistCount} document(s) would be deleted`);
       console.log(`  ServeEvent: ${serveCount} document(s) would be deleted`);
@@ -126,6 +135,20 @@ async function main() {
       } else {
         console.log('  MedicalProfile: deleted 1 document');
       }
+
+      const morningResult = await MorningState.deleteMany({ userId });
+      console.log(`  MorningState: deleted ${morningResult.deletedCount} document(s)`);
+
+      // W4-011, ADR-0012 Track A. `TrackPosterior` (the sibling collection in the same model
+      // file) is NOT deleted here: it is global, CC0-only and carries no userId, so there is no
+      // personal association in it to erase — the same reasoning as the global feature caches.
+      const rewardResult = await RewardEvent.deleteMany({ userId });
+      console.log(`  RewardEvent: deleted ${rewardResult.deletedCount} document(s)`);
+
+      // W4-013 (B7). The learned scoring overlay. Deleting it restores exactly the global
+      // weights a brand-new listener is served, so erasure and cold start are the same state.
+      const overlayResult = await PersonalWeights.deleteMany({ userId });
+      console.log(`  PersonalWeights: deleted ${overlayResult.deletedCount} document(s)`);
 
       const musicResult = await MusicProfile.deleteOne({ userId });
       if (musicResult.deletedCount === 0) {
@@ -168,6 +191,7 @@ async function main() {
         deleted: {
           biometricLogs:    biometricResult.deletedCount,
           medicalProfile:   medicalResult.deletedCount,
+          morningStates:    morningResult.deletedCount,
           musicProfile:     musicResult.deletedCount,
           playlistSessions: playlistResult.deletedCount,
           serveEvents:      serveResult.deletedCount,

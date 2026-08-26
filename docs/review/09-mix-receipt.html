@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>09 · Mix receipt — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+  blockquote{margin:10px 0;padding:9px 14px;border-left:3px solid var(--pgline);color:var(--pgink2);font-style:italic}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;--accent:#6E3FC4;--hue:#8B6FE8;--spotify:#191414}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;--accent:#C4A6FF;--hue:#8B6FE8;--spotify:#FFFFFF}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .spacer{height:44px;flex:none}
+  .top{display:flex;align-items:center;gap:6px;padding:0 12px;flex:none}
+  .top .icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--ink2)}
+  .top .eyebrow{font:500 11px var(--mono);letter-spacing:.16em;color:var(--ink2)}
+  .head{flex:none;padding:4px 22px 13px;border-bottom:1px solid var(--line)}
+  .verdict{margin:0 0 9px;font:600 21px/1.38 var(--disp);letter-spacing:-.01em;color:var(--ink)}
+  .statename{margin:0 0 6px;font:600 19px/1.3 var(--disp);color:var(--ink)}
+  .conf{display:flex;align-items:center;gap:8px}
+  .confbar{display:block;width:54px;height:8px;border-radius:999px;flex:none;position:relative;
+           background:color-mix(in srgb,var(--hue) 18%,transparent);outline:1px solid var(--track)}
+  .confbar i{position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px}
+  .conf span{font:500 11px var(--mono);color:var(--ink2)}
+  .body{flex:1;min-height:0;overflow:hidden;padding:16px 22px 0;position:relative}
+  .sec{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px}
+  .kv{border-top:1px solid var(--line);margin-bottom:20px}
+  .kv div{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);
+          font:400 13px var(--text);color:var(--ink)}
+  .kv div:last-child{border-bottom:0}
+  .kv em{color:var(--ink2);font-style:normal}
+  .metric{margin-bottom:12px}
+  .mrow{display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)}
+  .mrow b{font:500 11px var(--mono);color:var(--ink)}
+  .fillbar{display:block;height:8px;margin-top:5px;border-radius:999px;position:relative;
+           background:color-mix(in srgb,var(--hue) 18%,transparent);outline:1px solid var(--track)}
+  .fillbar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:999px}
+  .ceilbar{display:block;height:10px;margin-top:5px;border-radius:3px;position:relative;
+           background:transparent;border:1px solid var(--track)}
+  .ceilbar u{position:absolute;top:0;bottom:0;right:0;border-radius:0 2px 2px 0;
+             background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--ink) 16%,transparent) 0 3px,transparent 3px 6px)}
+  .ceilbar s{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--accent);border-radius:1px}
+  .axis{display:flex;justify-content:space-between;margin-top:3px;font:500 9.5px var(--mono);color:var(--ink3)}
+  .traj{display:block;margin-bottom:6px}
+  .note{margin:0 0 20px;font:400 12.5px/1.7 var(--text);color:var(--ink2)}
+  .upnext{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .rows{border-top:1px solid var(--line)}
+  .rows > div{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .rows > div:last-child{border-bottom:0}
+  .rows .t{font:400 14px var(--text);color:var(--ink)}
+  .rows .a{font:400 12px var(--text);color:var(--ink2)}
+  .rows .b{font:500 11px var(--mono);color:var(--ink2);flex:none}
+  .fade{position:absolute;left:0;right:0;bottom:0;height:34px;pointer-events:none;
+        background:linear-gradient(to top,var(--canvas),transparent)}
+  .foot{flex:none;padding:12px 22px 20px;border-top:1px solid var(--line);background:var(--canvas)}
+  .foot p{margin:0;font:400 11.5px/1.6 var(--text);color:var(--ink2)}
+  .skel{background:color-mix(in srgb,var(--ink) 9%,transparent);border-radius:6px;display:block}
+  .markslot{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;border:1px dashed var(--track);
+            font:600 9.5px var(--mono);letter-spacing:.1em;color:var(--ink3)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>09 · Mix receipt</h1>
+<p class="sub">The product&rsquo;s strongest trust surface, and the only place the regulator shows its working. Three treatments, both themes, seven independent rows. This screen has a real spec — <code>SCREENS.md</code> §7b — and most of what follows is the board measured against it.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Three things I previously told you were wrong here, and are not</div>
+  <p>I computed the geometry rather than eyeballing it, because two of these were claims about a curve.</p>
+  <table style="margin:10px 0 0">
+    <tr><th>Old claim</th><th>Computed</th></tr>
+    <tr><td>&ldquo;The arc rises while its caption, the state and the engine all say it falls&rdquo;</td><td class="pass">The path runs y=30 &rarr; y=74. Larger y is <em>lower</em> on screen, so the arc <strong>falls</strong> — agreeing with the caption, the state and the engine.</td></tr>
+    <tr><td>&ldquo;SETTLE node 32px off its own curve&rdquo;</td><td class="pass">The cubic at t=0.5 evaluates to <strong>(130.75, 49.00)</strong>. The node is drawn at (131, 49) — off by a quarter of a pixel.</td></tr>
+    <tr><td>&ldquo;The Receipt has no spec; it needs a §7b entry&rdquo;</td><td class="pass">§7b exists and is detailed — purpose, three zones, components, five states, interactions, the data contract, and a verbatim closing line.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is actually wrong — measured against §7b</div>
+
+  <p><strong>The spec forbids, in words, precisely what the board draws.</strong> §7b: <em>&ldquo;a &lsquo;ceiling&rsquo; is an exclusion and must never be drawn as an attainment&rdquo;</em>, and names the component: <code>CeilingBar</code> &mdash; <em>&ldquo;a limit drawn as a limit, never a progress fill&rdquo;</em>. The board draws four identical left-anchored attainment fills. Two of them are ceilings. A tempo ceiling of 96 rendered as a 30%-full bar reads as &ldquo;you are 30% of the way to something&rdquo;, when it means &ldquo;nothing above this line was allowed in&rdquo;.</p>
+
+  <p><strong>The tempo bar has no denominator.</strong> The other three rows are 0&ndash;1 values mapped to percent, which is coherent. Tempo is 96 BPM drawn at 30% &mdash; which implies a scale that tops out at <strong>320 BPM</strong>. There is no axis, no maximum, and no unit on the bar. My earlier note said &ldquo;96 &rarr; 52%&rdquo;; the current board says 30%. The number changed, the defect did not.</p>
+
+  <p><strong>The verdict head shows a sentence the app cannot currently deliver.</strong> The backend emits it &mdash; <code>receipt.why = targets.explain.trim()</code> (<code>biometricHandler.js:176</code>), and it is carefully guarded: only present when every axis its sentence claims carried real evidence, and withheld entirely on the favourites path. But the mobile <code>sanitizeReceipt</code> keeps <code>label</code>, <code>detail</code> and <code>caption</code> only &mdash; <strong><code>why</code> is dropped on the floor</strong>. §7b already flags this as must-fix-before-ship, and it is still true today.</p>
+
+  <p><strong>The closing line is not the one the spec mandates.</strong> §7b gives it verbatim:</p>
+  <blockquote>&ldquo;Nothing here left your phone unencrypted. The engine sees the state name and the targets &mdash; never the raw readings.&rdquo;</blockquote>
+  <p>The board draws a longer, different line about a coarse intensity band, mood and genre tags. These are not stylistic variants &mdash; they make different factual claims about what the AI provider receives. One of them has to change, and I do not think it should be settled by whichever was typed last. My read is that the board&rsquo;s version is the more accurate one and the spec line is the one to update, but that is a compliance question, not a design one. Row three puts both in front of you.</p>
+
+  <p style="margin-bottom:0"><strong>One state of five, and the mark is hand-drawn again.</strong> §7b lists loaded &middot; loading (skeleton, never a spinner) &middot; partial (trajectory absent) &middot; offline &middot; stale. The board draws loaded. The Up-next header also redraws the Spotify logo rather than using the official asset, same as Now Playing. The Up-next rows correctly carry <em>no</em> tap affordance, which §7b explicitly requires — that one is right.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>verdict head</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>evidence rows</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>metric labels</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>section rails <span style="color:#5B5D77">(--ink3)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td>ceiling marker <span style="color:#5B5D77">(non-text, 3:1)</span></td><td class="pass">6.36 : 1</td><td class="pass">9.32 : 1</td></tr>
+      <tr><td>trust foot</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">Measured</div>
+    <table>
+      <tr><td>evidence body</td><td>491px box</td></tr>
+      <tr><td>its content</td><td>801px</td></tr>
+      <tr><td>visible at rest</td><td>61%, with a fade</td></tr>
+      <tr><td>tempo bar implied max</td><td class="fail">320 BPM</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'ceiling',name:'How a limit is drawn',hint:'§7b: a ceiling is an exclusion and must never be drawn as an attainment. This is the CeilingBar decision.',opts:[
+   ['limit','As a limit','A marked maximum with the excluded region hatched beyond it. Reads as &ldquo;nothing past here&rdquo;.'],
+   ['number','No bar at all','Value and unit only. Impossible to misread; nothing to compare at a glance.'],
+   ['fill','As a fill, as today','Left-anchored progress. What the spec forbids in so many words.']]},
+ {id:'tempo',name:'The tempo scale',hint:'96 BPM at 30% implies a 320 BPM maximum. The other three metrics are 0–1 and need no scale.',opts:[
+   ['scaled','A stated axis','40–180 BPM printed under the bar, so the position means something.'],
+   ['relative','Against your own usual','&ldquo;12 under your usual&rdquo; — the only comparison a listener actually has.'],
+   ['plain','Number only','&ldquo;≤ 96 BPM&rdquo; with no bar. Honest and flat.']]},
+ {id:'closing',name:'The trust line',hint:'The spec mandates one wording verbatim; the board draws another. They make different factual claims.',opts:[
+   ['current','The board&rsquo;s line','Names the coarse intensity band, mood and genre tags. More specific about what the provider sees.'],
+   ['spec','The §7b line, verbatim','&ldquo;…the engine sees the state name and the targets — never the raw readings.&rdquo;'],
+   ['both','Spec line, then the detail','The mandated sentence, with the specifics beneath it.']]},
+ {id:'mark',name:'Spotify on Up next',hint:'The board redraws the logo. The official asset exists in the repo.',opts:[
+   ['slot','Official asset','The mark as shipped, never redrawn.'],
+   ['text','Words only','&ldquo;Playing on Spotify&rdquo; with no mark. Fewest brand obligations.'],
+   ['none','Nothing here','Attribution lives on Now Playing; this is a sub-screen of it.']]},
+ {id:'head',name:'The verdict head',hint:'The lead sentence is emitted by the backend but discarded by the mobile sanitizer.',opts:[
+   ['sentence','The sentence','What §7b describes. Needs the delivery path restored first.'],
+   ['both','State name, then the sentence','The name always renders; the sentence appears when it arrives.'],
+   ['state','State name and confidence','No sentence at all — nothing that can fail to arrive.']]},
+ {id:'traj',name:'Where it goes',hint:'§7b: if the figure disagrees with the state, the figure is wrong. It currently agrees.',opts:[
+   ['arc','The arc','One continuous curve with three marked moments.'],
+   ['steps','Track by track','Discrete steps, one per track. Harder to misread, less elegant.'],
+   ['none','No figure','The paragraph carries it. Also what the `partial` state must fall back to.']]},
+ {id:'state',name:'Which state is drawn',hint:'§7b lists five. The board draws one.',opts:[
+   ['loaded','Loaded','The ordinary case.'],
+   ['partial','Partial','No trajectory available — the figure must not be drawn at all.'],
+   ['loading','Loading','Skeleton, never a spinner.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'What §7b asks for',tag:'SPEC-TRUE',
+  desc:'The board with the spec applied where it disagrees: ceilings drawn as limits, the tempo bar given an axis, the official mark. The closing line left as the board has it, because that is the one place I think the spec is the thing that should change.',
+  c:{ceiling:'limit',tempo:'scaled',closing:'current',mark:'slot',head:'sentence',traj:'arc',state:'loaded'}},
+ {key:'B',name:'Numbers, not bars',tag:'NOTHING TO MISREAD',
+  desc:'Drops the bars entirely. Every value carries its unit and its direction in text, which is what the spec is really protecting. Loses the at-a-glance comparison, and gains a page that cannot be misread by someone scanning it.',
+  c:{ceiling:'number',tempo:'plain',closing:'both',mark:'text',head:'both',traj:'steps',state:'loaded'}},
+ {key:'C',name:'Partial',tag:'THE STATE NEVER DRAWN',
+  desc:'The case where the trajectory is absent. §7b is explicit: render the first two sections only, never a drawn arc that means nothing. Worth seeing, because it is the state most likely to reach a real user on a poor connection and the one nobody has designed.',
+  c:{ceiling:'limit',tempo:'relative',closing:'current',mark:'slot',head:'both',traj:'none',state:'partial'}}
+];
+
+const SPEC_LINE='Nothing here left your phone unencrypted. The engine sees the state name and the targets &mdash; never the raw readings.';
+const BOARD_LINE='Your readings are encrypted on the way here and encrypted on our servers. The AI that shapes the music sees a coarse intensity band, your mood and genre tags &mdash; never a reading, never your name.';
+
+function metric(c,label,value,pct,isCeiling){
+  var h='<div class="metric"><div class="mrow"><span>'+label+'</span><b>'+value+'</b></div>';
+  if(c.ceiling==='number') return h+'</div>';
+  if(isCeiling && c.ceiling==='limit'){
+    h+='<span class="ceilbar"><u style="left:'+pct+'%"></u><s style="left:'+pct+'%"></s></span>';
+  } else {
+    h+='<span class="fillbar"><i style="width:'+pct+'%"></i></span>';
+  }
+  return h+'</div>';
+}
+
+function tempoNode(c){
+  if(c.tempo==='plain') return metric(c,'Tempo ceiling','&le; 96 BPM',30,true);
+  if(c.tempo==='relative') return metric(c,'Tempo ceiling','&le; 96 BPM · 12 under your usual',30,true);
+  // With no bar to hang an axis on, the scale has to live in the text — otherwise
+  // 'a stated axis' and 'number only' render the same line.
+  var label = c.ceiling==='number' ? '&le; 96 BPM of 40&ndash;180' : '&le; 96 BPM';
+  var h=metric(c,'Tempo ceiling',label,(96-40)/(180-40)*100,true);
+  if(c.ceiling!=='number') h=h.replace('</div>','<span class="axis"><span>40</span><span>180 BPM</span></span></div>');
+  return h;
+}
+
+function trajNode(c){
+  if(c.traj==='none') return '';
+  var h='<div class="sec">WHERE IT GOES</div>';
+  if(c.traj==='steps'){
+    var ys=[30,38,46,54,62,68,72,74];
+    var bars=ys.map(function(y,i){
+      var hgt=Math.round(88-y);
+      return '<span style="display:inline-block;width:30px;height:'+hgt+'px;background:var(--accent);opacity:'+(0.9-i*0.07).toFixed(2)+';border-radius:3px 3px 0 0"></span>';
+    }).join('');
+    h+='<div style="display:flex;align-items:flex-end;gap:6px;height:70px;margin-bottom:6px">'+bars+'</div>';
+  } else {
+    h+='<svg width="326" height="104" viewBox="0 0 326 104" class="traj" role="img" aria-label="Trajectory: meets you at your current arousal, brings it down across four tracks, then holds.">'+
+      '<line x1="0" y1="88" x2="326" y2="88" stroke="var(--line)"/>'+
+      '<path d="M4 30 C90 30 150 66 322 74" fill="none" stroke="var(--accent)" stroke-width="1.8"/>'+
+      '<circle cx="4" cy="30" r="4.5" fill="var(--accent)"/>'+
+      '<circle cx="131" cy="49" r="4.5" fill="var(--accent)" opacity=".65"/>'+
+      '<circle cx="322" cy="74" r="4.5" fill="none" stroke="var(--accent)" stroke-width="1.6"/>'+
+      '<text x="4" y="102" text-anchor="start" font-family="monospace" font-size="11" fill="var(--ink2)">MEET YOU</text>'+
+      '<text x="131" y="102" text-anchor="middle" font-family="monospace" font-size="11" fill="var(--ink2)">SETTLE</text>'+
+      '<text x="322" y="102" text-anchor="end" font-family="monospace" font-size="11" fill="var(--ink2)">HOLD</text></svg>';
+  }
+  return h+'<p class="note">Three tracks to meet you where you are, four to bring the pulse down, then it holds there. If you skip twice in the first stretch I take that as a no and re-read.</p>';
+}
+
+function markNode(c){
+  if(c.mark==='none') return '';
+  if(c.mark==='text') return '<span style="font:500 11px var(--text);color:var(--ink2)">Playing on Spotify</span>';
+  return '<span class="markslot">OFFICIAL SPOTIFY MARK</span>';
+}
+
+function headNode(c){
+  if(c.state==='loading')
+    return '<div class="head"><span class="skel" style="height:21px;width:92%;margin-bottom:7px"></span>'+
+      '<span class="skel" style="height:21px;width:64%;margin-bottom:11px"></span>'+
+      '<span class="skel" style="height:8px;width:150px"></span></div>';
+  var h='<div class="head">';
+  if(c.head==='state'||c.head==='both') h+='<p class="statename">Wired, but running on empty</p>';
+  if(c.head==='sentence'||c.head==='both')
+    h+='<p class="verdict"'+(c.head==='both'?' style="font:400 14px/1.55 var(--text);color:var(--ink2);margin-bottom:9px"':'')+
+       '>Your variability was low and you&rsquo;d been still for two hours, so I kept the tempo under 96 and leaned acoustic.</p>';
+  h+='<div class="conf"><span class="confbar"><i></i></span><span>FAIRLY SURE · 0.69</span></div>';
+  return h+'</div>';
+}
+
+function frame(theme,c){
+  var h='<div class="ph" data-t="'+theme+'"><div class="spacer"></div>';
+  h+='<div class="top"><span class="icon"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-5 6 5 6"/></svg></span>'+
+     '<span class="eyebrow">WHY THIS MUSIC</span></div>';
+  h+=headNode(c);
+  h+='<div class="body">';
+  if(c.state==='loading'){
+    h+='<span class="skel" style="height:14px;width:40%;margin-bottom:10px"></span>';
+    for(var i=0;i<3;i++) h+='<span class="skel" style="height:20px;width:100%;margin-bottom:9px"></span>';
+    h+='<span class="skel" style="height:14px;width:44%;margin:14px 0 10px"></span>';
+    var mh = c.ceiling==='number' ? 16 : c.ceiling==='limit' ? 29 : 27;
+    var mn = c.tempo==='scaled' && c.ceiling!=='number' ? 4 : 4;
+    for(var j=0;j<mn;j++) h+='<span class="skel" style="height:'+(j===0&&c.tempo==='scaled'&&c.ceiling!=='number'?mh+12:mh)+'px;width:100%;margin-bottom:10px"></span>';
+    if(c.traj!=='none'){
+      h+='<span class="skel" style="height:14px;width:38%;margin:14px 0 10px"></span>';
+      h+='<span class="skel" style="height:'+(c.traj==='steps'?70:104)+'px;width:100%;margin-bottom:10px"></span>';
+    }
+  } else {
+    h+='<div class="sec">WHAT I READ</div><div class="kv">'+
+      '<div><span>You placed</span><em>light, high energy ×3</em></div>'+
+      '<div><span>Your body said</span><em>HRV 29 ms · still 2 h</em></div>'+
+      '<div><span>So the state was</span><em>wired, running on empty</em></div></div>';
+    h+='<div class="sec">WHAT THAT SET</div>'+tempoNode(c)+
+      metric(c,'Energy ceiling','&le; 0.42',42,true)+
+      metric(c,'Warmth of mood','0.58',58,false)+
+      metric(c,'Acoustic','0.71',71,false)+
+      '<div style="height:10px"></div>';
+    // SCREENS.md 7b: partial = trajectory absent -> render the FIRST TWO sections only,
+    // never a drawn arc that means nothing. Up next depends on the same payload.
+    if(c.state==='partial'){
+      h+='<p class="note" style="margin-bottom:0">The trajectory for this set has not arrived. '+
+         'What the engine read and what it set are above; where it goes will appear when the rest of the receipt does.</p>';
+    } else {
+    h+=trajNode(c);
+    h+='<div class="upnext"><span class="sec" style="margin:0">UP NEXT</span>'+markNode(c)+'</div>'+
+      '<div class="rows">'+
+      '<div><div><div class="t">Teardrop</div><div class="a">Massive Attack</div></div><span class="b">88 BPM</span></div>'+
+      '<div><div><div class="t">Re: Stacks</div><div class="a">Bon Iver</div></div><span class="b">72 BPM</span></div>'+
+      '<div><div><div class="t">An Ending (Ascent)</div><div class="a">Brian Eno</div></div><span class="b">60 BPM</span></div>'+
+      '</div>';
+    }
+  }
+  h+='<div class="fade"></div></div>';
+  var line = c.closing==='spec' ? SPEC_LINE : c.closing==='both' ? (SPEC_LINE+' '+BOARD_LINE) : BOARD_LINE;
+  h+='<div class="foot"><p>'+line+'</p></div>';
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 09 — MIX RECEIPT — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-').replace(/&le;/g,'<=');
+    lines.push(row.name.padEnd(24,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

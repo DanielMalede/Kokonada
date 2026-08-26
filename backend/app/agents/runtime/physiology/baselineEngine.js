@@ -375,8 +375,12 @@ function _sourceScale(values, prior, k = 5) {
 /**
  * Per local day: `min(P10 over the nocturnal window, P10 over the day's non-exercise samples)`.
  * See idea (3) for why the min, and why a fixed nocturnal window alone is not enough.
+ *
+ * PUBLIC (W4-012): the CUSUM change-point detector needs the identical per-day RHR estimate
+ * this module already computes for the baseline itself — reusing it (rather than a second,
+ * disagreeing day-level RHR estimator) is the D11/W4-D42 one-definition-rule precedent.
  */
-function _troughSeries(hrSamples, tzOffsetMinutes) {
+function troughSeries(hrSamples, tzOffsetMinutes) {
   const byDay = new Map();
   for (const s of Array.isArray(hrSamples) ? hrSamples : []) {
     const value = finite(s?.value);
@@ -424,7 +428,7 @@ function estimateRestingHeartRate({
 } = {}) {
   const prior = POPULATION.restingHeartRate;
 
-  const trough = _troughSeries(hrSamples, tzOffsetMinutes);
+  const trough = troughSeries(hrSamples, tzOffsetMinutes);
   const device = dailySeries(deviceRestingHeartRate, { reduce: median, tzOffsetMinutes });
 
   const troughValues = trough.map((d) => d.value);
@@ -779,6 +783,7 @@ module.exports = {
   median, mad, quantile, shrink, fuse, localHour, localDayIndex, dailySeries,
   // estimators
   estimateRestingHeartRate, buildHourlyTable, estimateMetricBaseline, estimateHrMax, karvonenZones,
+  troughSeries,
   // composition
   computeBaselineBlob,
   // constants (exported so tests pin the derivation, not a copy of it)

@@ -5,7 +5,8 @@ const axios            = require('axios');
 const { withRetry }    = require('../utils/retry');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
-const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, extractIntent, normalizeActivity } = require('./moodDescriptors');
+const { disabled }     = require('../utils/envFlag');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, biometricBand, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -221,18 +222,34 @@ Analyse the emotional coordinates in the context of the user's taste profile and
 }${_strictMoodLine(emotionTaps)}${_variationLine(seed)}`;
 }
 
+// W4-016 kill switch — true restores the pre-W4-016 behaviour (band from raw HR alone)
+// byte-for-byte, without a revert. Read per call (S11 convention — a switch that needs a
+// redeploy is not an escape hatch).
+const llmBandFromStateDisabled = () => disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED);
+
+// Routes the biometric branch's band through biometricBand's real preference chain
+// (stateLabel → hrRatio → raw HR) instead of a fixed population ladder, so two bodies at the
+// same raw HR can land in different bands, and so the prompt and applyBiometricBands can
+// never disagree about which band the session is in (W4-016). biometricBand already falls
+// through to bandFromHeartRate(ctx.heartRate) with no richer fields present, so a cold-start
+// context (heartRate only) resolves identically to today either way.
+function _resolveHrBand(biometric) {
+  if (llmBandFromStateDisabled()) return bandFromHeartRate(biometric?.heartRate) || 'active';
+  return biometricBand(biometric) || 'active';
+}
+
 /**
  * Builds the lightweight prompt for the biometric-driven pipeline.
  * Wave-0 egress containment: the numeric heart rate and resting HR NEVER appear in the
- * prompt — only the COARSE physiological intensity band (derived server-side from HR).
- * The exact target BPM/energy is mapped from the HR deterministically AFTER the LLM
- * returns (adjustBiometricPlaylist → applyBiometricBands).
+ * prompt — only the COARSE physiological intensity band (derived server-side from HR, or,
+ * when available, from the user's personal baseline / real taxonomy state — W4-016). The
+ * exact target BPM/energy is mapped from the HR deterministically AFTER the LLM returns
+ * (adjustBiometricPlaylist → applyBiometricBands).
  */
 function _buildBiometricPrompt(musicProfile, biometric, seed = null) {
-  const { heartRate } = biometric;
   // H1: normalize the activity to the known preset enum before it enters the prompt.
   const activity = normalizeActivity(biometric.activity);
-  const band = bandFromHeartRate(heartRate) || 'active';
+  const band = _resolveHrBand(biometric);
 
   return `You are a music curator matching a listener's physiological intensity.
 
@@ -322,8 +339,10 @@ async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, s
   const rawParams = await _callLlm(prompt);
   // Wave-0 two-stage split: the numeric HR never crossed the LLM boundary — map it to the
   // audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here, after the
-  // LLM returns, reusing the moodDescriptors band machinery.
-  const params = applyBiometricBands(rawParams, { heartRate: biometric.heartRate });
+  // LLM returns, reusing the moodDescriptors band machinery. W4-016: the SAME context (and
+  // therefore the SAME resolved band) that built the prompt is passed here, so the prompt and
+  // the post-LLM mapping can never disagree — the kill switch strips it back to {heartRate}.
+  const params = applyBiometricBands(rawParams, llmBandFromStateDisabled() ? { heartRate: biometric.heartRate } : biometric);
   // Robustness: an empty genre seed makes Spotify discovery early-return [] — backfill
   // from the user's top genres so the heart-rate branch always has something to search.
   if (!Array.isArray(params.seed_genres) || params.seed_genres.length === 0) {

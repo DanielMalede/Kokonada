@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
-const { encrypt, decrypt, blindIndex } = require('../utils/encryption');
-const { encryptedString } = require('./encryptedField');
+const { encrypt, blindIndex } = require('../utils/encryption');
+const {
+  encryptedString, decryptOwned, declareEncryptedOwner, bindEncryptedAadOnUpdate,
+} = require('./encryptedField');
 
 const encryptedTokenSchema = new mongoose.Schema({
   blob: { type: String, required: true }, // AES-256-GCM encrypted JSON
@@ -82,6 +84,20 @@ const userSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// The owner of an encrypted value on THIS model is the document itself — a `User` has no `userId`
+// field, so the default lookup resolved null and every ciphertext here (garminUserId,
+// pushTokens[].token, and the token blobs below) was written UNBOUND: replayable into any other
+// row. Declaring the owner path binds them all. Reads stay tolerant of the legacy unbound blobs,
+// which migrate forward on the next write. (W4-D74)
+declareEncryptedOwner(userSchema, '_id');
+
+// `pushTokens[].token` is an encrypted leaf inside a document ARRAY. An update operator casts
+// array elements as detached sub-documents, so the setter cannot see the owner and would store a
+// device secret with no AAD binding at all. This plugin refuses those shapes; the bound paths
+// (`.push()` + `.save()`, which is what authController uses, and any write dotted through to the
+// leaf) are untouched. (W4-D75)
+bindEncryptedAadOnUpdate(userSchema);
+
 userSchema.index({ ssoProvider: 1, ssoId: 1 }, { unique: true });
 userSchema.index({ email: 1 });
 // Sparse: most users never enroll a watch, so watchToken.hash is null for them
@@ -107,13 +123,20 @@ userSchema.pre('save', function () {
   if (this.isModified('garminUserId')) this.syncGarminIndex();
 });
 
-// Helpers for encrypting/decrypting token objects on the document
+// Helpers for encrypting/decrypting token objects on the document. These blobs are stored as a
+// PLAIN String with no setter, so they are the explicit-encrypt case the encryptedField header
+// describes: pass the owner id as AAD on write, read back through `decryptOwned`. Without it an
+// OAuth refresh token lifted out of one row decrypted fine in another — an account takeover of
+// that integration. (W4-D74)
 userSchema.methods.setToken = function (field, tokenObj) {
-  this[field] = { blob: encrypt(tokenObj) };
+  this[field] = { blob: encrypt(tokenObj, String(this._id)) };
 };
 userSchema.methods.getToken = function (field) {
   if (!this[field]?.blob) return null;
-  return decrypt(this[field].blob, true);
+  // Tolerant read: bound first, then the legacy unbound blob, so no one is logged out by the
+  // migration. A blob that answers to NEITHER is a tamper/row-swap and still throws, as before —
+  // fail closed rather than degrade into "some token".
+  return decryptOwned(this[field].blob, this._id, true);
 };
 
 module.exports = mongoose.model('User', userSchema);

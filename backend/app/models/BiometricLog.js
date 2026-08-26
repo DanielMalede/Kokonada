@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { encryptedNumber } = require('./encryptedField');
+const { encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField');
 
 // Physiological readings are special-category health data — heartRate is stored
 // AES-256-GCM encrypted at rest (transparent via getter/setter). Range validation
@@ -42,5 +42,10 @@ biometricLogSchema.index({ userId: 1, recordedAt: -1 });
 // index build — a human-gated Pause & Guide action (see PR body); the code ships regardless.
 const RETENTION_DAYS = Number(process.env.BIOMETRIC_RETENTION_DAYS) || 90;
 biometricLogSchema.index({ recordedAt: 1 }, { expireAfterSeconds: RETENTION_DAYS * 24 * 3600 });
+
+// Every encrypted leaf of this schema needs the W4-D76 pipeline refusal: an aggregation-pipeline
+// update runs server-side, so no setter fires and the value would be stored as plaintext.
+// Registered before `mongoose.model()` so the hook exists on every query.
+biometricLogSchema.plugin(bindEncryptedAadOnUpdate);
 
 module.exports = mongoose.model('BiometricLog', biometricLogSchema);

@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>10 · Pulse — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+  blockquote{margin:10px 0;padding:9px 14px;border-left:3px solid var(--pgline);color:var(--pgink2);font-style:italic}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;--accent:#6E3FC4;--hue:#8B6FE8;--violet:#9B7BF0}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;--accent:#C4A6FF;--hue:#8B6FE8;--violet:#9B7BF0}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .fld{position:absolute;left:-20%;right:-20%;bottom:-26%;height:74%;
+       background:radial-gradient(ellipse 62% 100% at 50% 100%,color-mix(in srgb,var(--hue) 20%,transparent),transparent 72%)}
+  @keyframes brth{0%,100%{opacity:.5}50%{opacity:.9}}
+  .brth{animation:brth 4200ms ease-in-out infinite}
+  @media (prefers-reduced-motion: reduce){ .brth{animation:none!important;opacity:.7!important} }
+  .spacer{height:44px;flex:none}
+  .scroll{position:relative;flex:1;min-height:0;padding:8px 22px 12px;display:flex;flex-direction:column}
+  .state{margin:0 0 4px;font:600 28px/1.18 var(--disp);letter-spacing:-.02em;color:var(--ink)}
+  .state.small{font:600 19px/1.25 var(--disp)}
+  .conf{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+  .confbar{display:block;width:58px;height:8px;border-radius:999px;flex:none;position:relative;
+           background:color-mix(in srgb,var(--hue) 18%,transparent);outline:1px solid var(--track)}
+  .confbar i{position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px}
+  .conf span{font:500 11px var(--mono);color:var(--ink2)}
+  .tiles{display:flex;gap:8px;margin-bottom:16px}
+  .tile{flex:1;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)}
+  .tile .k{font:500 11px var(--mono);color:var(--ink3)}
+  .tile .n{font:600 36px/1 var(--disp);color:var(--ink)}
+  .tile .u{font:500 11px var(--mono);color:var(--ink2)}
+  .tile .s{margin-top:2px;font:400 11.5px var(--text);color:var(--ink2)}
+  .tile .v{margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink)}
+  .sec{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px}
+  .gauges{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+  .grow{display:flex;justify-content:space-between;gap:10px;font:400 13px var(--text);color:var(--ink)}
+  .grow em{font:500 11px var(--mono);color:var(--ink2);font-style:normal}
+  .cap{display:block;height:8px;margin-top:5px;border-radius:999px;position:relative;
+       background:color-mix(in srgb,var(--hue) 18%,transparent);outline:1px solid var(--track)}
+  .cap i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:999px}
+  .stack{display:flex;height:8px;margin-top:5px;border-radius:999px;overflow:hidden;gap:2px;
+         background:color-mix(in srgb,var(--hue) 18%,transparent);outline:1px solid var(--track)}
+  .stack span{display:block;background:var(--accent)}
+  .legend{margin-top:4px;display:flex;gap:12px;font:500 11px var(--mono);color:var(--ink2)}
+  .honest{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .honest .l{font:400 13px var(--text);color:var(--ink)}
+  .honest .r{text-align:right;flex:none;max-width:190px}
+  .honest .r b{display:block;font:500 12.5px var(--text);color:var(--ink2)}
+  .honest .r i{display:block;font:400 11px/1.35 var(--text);color:var(--ink3);font-style:normal;margin-top:1px}
+  .honest .r .one{font:400 12.5px/1.4 var(--text);color:var(--ink2)}
+  .lane{margin-top:auto;padding:12px 0 0;border-top:1px solid var(--line)}
+  .lane .t{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:7px}
+  .lane p{margin:0;font:400 12.5px/1.6 var(--text);color:var(--ink2)}
+  .player{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:8px 20px;
+          border-top:1px solid var(--line);background:var(--raised);flex:none}
+  .player .art{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);flex:none}
+  .player .m{flex:1;min-width:0}
+  .player .m b{display:block;font:500 13px var(--text);color:var(--ink)}
+  .player .m i{display:block;font:400 11.5px var(--text);color:var(--ink2);font-style:normal}
+  .tabs{position:relative;display:flex;justify-content:space-around;align-items:center;height:56px;flex:none;
+        border-top:1px solid var(--line);background:var(--canvas)}
+  .tab{width:8px;height:8px;border-radius:50%;background:var(--ink3);opacity:.45}
+  .tab.on{opacity:1;background:var(--accent)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>10 · Pulse</h1>
+<p class="sub">The body dashboard. Three treatments, both themes, seven independent rows, live assembly at the top. Everything below is measured against <code>pulsePresentation.ts</code>, the <code>PulseState</code> DTO and <code>SCREENS.md</code> §8.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Correcting your framing on the Sleep bar — because it changes the fix</div>
+  <p>You said the Sleep bar reads as <em>a different hue family</em> from the two bars above it. It isn&rsquo;t a different hue. Variability and Resting heart rate are single fills at <code>var(--accent)</code>. Sleep is the <strong>same</strong> accent, drawn as three stacked segments at opacity 1, .55 and .5. So the difference is <strong>grammar, not colour</strong> &mdash; one bar means &ldquo;how much of a range&rdquo;, the other means &ldquo;what this is made of&rdquo;, and they are drawn as if they meant the same thing.</p>
+  <p style="margin-bottom:0">That matters because re-tinting would not fix it. Unifying the grammar would. Row one is that decision, and it has a third option that follows the code: <code>GAUGES</code> lists <strong>Deep sleep</strong> and <strong>REM sleep</strong> as two separate gauges. There is no combined &ldquo;Sleep&rdquo; gauge in the shipped presentation layer at all.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Two things I previously told you were wrong here, and are not</div>
+  <table style="margin:6px 0 0">
+    <tr><th>Old claim</th><th>Checked</th></tr>
+    <tr><td>&ldquo;Fabricated device name — Forerunner 965&rdquo;</td><td class="pass">Gone. The board reads <code>Garmin [DEVICE MODEL]</code>, an explicit placeholder. <span style="color:#9E3346">Still true, though:</span> <code>PulseState</code> has <strong>no device field at all</strong>, and §8 specifies a <em>source</em> tile, not a model. The fabrication is fixed; the slot is unbacked.</td></tr>
+    <tr><td>&ldquo;Invented sleep denominator&rdquo;</td><td class="pass">The segments are 19.1 / 55.9 / 25%. Against the printed 1:05, 3:10 and 1:25 that is 65 / 190 / 85 minutes over a 340-minute total &mdash; exactly right. They are proportions of their own sum, so no external denominator is needed or invented.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is actually wrong</div>
+
+  <p><strong>The honest-empty line was flattened, and the code already has the fix.</strong> <code>pulsePresentation.ts:95</code> defines it as two fields: <code>{ text: 'Garmin-only', subnote: 'Not shared by Health Connect' }</code>. The board joins them with a middot into one right-aligned run-on string, which wraps in a narrow column and reads as an error. Restoring the two-part structure &mdash; a short label with a quieter second line &mdash; is the whole fix, and it is what the code was already describing. §8 also has a shorter variant for the no-read case: <em>&ldquo;Not shared by your watch.&rdquo;</em></p>
+
+  <p><strong>142px of dead canvas.</strong> Measured: the last gauge row ends at y=583 and the mini-player starts at y=725. My earlier note said 202px; it is 142.</p>
+
+  <p><strong>The payoff is outranked by a raw number, again.</strong> By computed size: <code>68</code> at 36px/600, the state headline &ldquo;Wired, but running on empty&rdquo; at 28px/600. Same defect as Generate, on the screen whose stated purpose is <em>&ldquo;show how the app reads the body&rdquo;</em> &mdash; the reading loses to the sensor.</p>
+
+  <p><strong>A third hue.</strong> The mini-player art placeholder paints <code>#9B7BF0</code> violet at every field setting, while the fused state paints its own hue. Identical to what Now Playing had before it was fixed.</p>
+
+  <p style="margin-bottom:0"><strong>The board shows a breakdown the app does not render.</strong> <code>GAUGES</code> is exactly six entries &mdash; HRV, Resting HR, Deep sleep, REM sleep, Body Battery, Readiness. <code>light</code> exists in the DTO and is deliberately not displayed. The board&rsquo;s three-segment bar shows deep, light <em>and</em> rem.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">One rule no option here will break</div>
+  <p style="margin-bottom:0"><code>pulsePresentation.ts</code> is explicit about why every gauge fill is the same colour:</p>
+  <blockquote>&ldquo;Display-normalization ranges &mdash; NOT medical thresholds. They only map a value to a fill magnitude 0..1; <strong>the fill&rsquo;s colour is fixed</strong>, so a low or high number is never coloured &lsquo;bad&rsquo; or &lsquo;good&rsquo;. Number carries meaning; the capsule only carries a proportion.&rdquo;</blockquote>
+  <p style="margin-bottom:0">So no option below tints a gauge by its value, and none should be added later. On a screen showing someone their own body, colouring a number as bad is the difference between a dashboard and a diagnosis. Worth also noting <strong>Readiness is still on this screen</strong> &mdash; that is the <code>dailyReadiness</code> consent item, and it is displayed today.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>state headline</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>gauge label</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>value / honest label</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>subnote <span style="color:#5B5D77">(--ink3)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td>capsule fill <span style="color:#5B5D77">(non-text, 3:1)</span></td><td class="pass">6.36 : 1</td><td class="pass">9.32 : 1</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">Measured</div>
+    <table>
+      <tr><td>dead gap</td><td class="fail">142px</td></tr>
+      <tr><td>loudest</td><td class="fail">68 — 36px</td></tr>
+      <tr><td>state headline</td><td>28px</td></tr>
+      <tr><td>gauges in code</td><td>6, in 3 groups</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'sleep',name:'The sleep row',hint:'Two grammars in one list. GAUGES has Deep sleep and REM sleep as separate entries, and no combined Sleep gauge.',opts:[
+   ['rows','Deep and REM, as gauges','Follows the code exactly. Three bars, one grammar, light sleep not shown.'],
+   ['single','One Sleep bar','Total only, drawn like the others. Loses the composition; keeps one grammar.'],
+   ['stack','Stacked segments, as today','The only bar on the screen that means composition rather than proportion.']]},
+ {id:'empty',name:'Honest-empty rows',hint:'The code stores a short label and a subnote separately. The board joins them into one line.',opts:[
+   ['stacked','Label, then a quieter note','&ldquo;Garmin-only&rdquo; with &ldquo;Not shared by Health Connect&rdquo; beneath. The structure the code already has.'],
+   ['short','&ldquo;Not shared by your watch&rdquo;','The §8 string. One line, no wrap, no provider names.'],
+   ['inline','One run-on line, as today','Wraps in a narrow column and reads like a failure.']]},
+ {id:'dead',name:'The 142px',hint:'Measured gap between the last gauge and the mini-player.',opts:[
+   ['lane','A consequence lane','State &rarr; reading &rarr; what it did to the music. Uses the space to close the loop.'],
+   ['breathe','Leave it','Deliberate quiet on a screen about rest. Defensible; currently reads as unfinished.'],
+   ['compress','Grow the tiles','Spend it upward — bigger live tiles, no new content.']]},
+ {id:'hierarchy',name:'What is loudest',hint:'Today the heart-rate number outranks the state this screen exists to report.',opts:[
+   ['state','The state','The reading is the headline; the number supports it.'],
+   ['balanced','Level','Both at the same size — the dashboard and the verdict as equals.'],
+   ['number','The number, as today','36px BPM over a 28px state name.']]},
+ {id:'source',name:'The source tile',hint:'PulseState carries no device field. §8 specifies a source tile.',opts:[
+   ['source','Source only','&ldquo;Health Connect&rdquo; or &ldquo;Garmin&rdquo; — what the DTO can actually answer.'],
+   ['model','Source and model','Adds the device name. Nothing in the payload supplies it.'],
+   ['socket','Source and freshness','&ldquo;Garmin · synced 4 min ago&rdquo; — lastAnalyzed is in the DTO.']]},
+ {id:'artph',name:'Mini-player artwork',hint:'Today it paints brand violet regardless of the fused state.',opts:[
+   ['fused','Tinted to the fused state','One hue on screen.'],
+   ['neutral','Neutral','No hue until real art arrives.'],
+   ['violet','Brand violet, as today','A second, unrelated hue.']]},
+ {id:'player',name:'The mini-player',hint:'It sits at the bottom of Pulse, History, Profile and the Vault. This is the first of those four.',opts:[
+   ['bar','Full row, as today','Art, title, artist, transport. Music stays one tap away everywhere.'],
+   ['compact','A thin line','Title and a play control only. Present without competing with the body reading.'],
+   ['none','Not on this screen','Pulse is about the body, not the set. The tab bar still reaches Now Playing.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Code-true',tag:'FOLLOW THE PRESENTATION LAYER',
+  desc:'The six gauges the app actually renders, in one grammar, with the honest-empty rows restored to the two-part structure the code already defines. The dead space becomes a consequence lane, which is the only thing on this screen that closes the loop back to music.',
+  c:{sleep:'rows',empty:'stacked',dead:'lane',hierarchy:'state',source:'socket',artph:'fused',player:'bar'}},
+ {key:'B',name:'The body, alone',tag:'NO PLAYER',
+  desc:'Answers the question you raised about the mini-player, on the first of the four screens that carries it. Pulse becomes only the body: no artwork, no transport, no third-party mark. Music is one tab away. The cost is that the loop back to the set is no longer visible from here.',
+  c:{sleep:'rows',empty:'short',dead:'breathe',hierarchy:'state',source:'source',artph:'neutral',player:'none'}},
+ {key:'C',name:'As it stands, corrected',tag:'MINIMAL CHANGE',
+  desc:'Keeps the layout, the stacked sleep bar and the loud number, and fixes only what is provably wrong: the flattened honest-empty line and the third hue. Useful as the baseline the other two are arguing against.',
+  c:{sleep:'stack',empty:'stacked',dead:'compress',hierarchy:'number',source:'model',artph:'fused',player:'bar'}}
+];
+
+function cap(pct){return '<span class="cap"><i style="width:'+pct+'%"></i></span>';}
+
+function gaugeRow(label,value,pct){
+  return '<div><div class="grow"><span>'+label+'</span><em>'+value+'</em></div>'+cap(pct)+'</div>';
+}
+
+function sleepNode(c){
+  if(c.sleep==='rows')
+    return gaugeRow('Deep sleep','65 min',54)+gaugeRow('REM sleep','85 min',71);
+  if(c.sleep==='single')
+    return gaugeRow('Sleep','5 h 40 m',68);
+  return '<div><div class="grow"><span>Sleep</span><em>5 h 40 m</em></div>'+
+    '<span class="stack"><span style="width:19.1%"></span>'+
+    '<span style="width:55.9%;opacity:.55"></span><span style="width:25%;opacity:.5"></span></span>'+
+    '<div class="legend"><span>deep 1:05</span><span>light 3:10</span><span>rem 1:25</span></div></div>';
+}
+
+function honest(label,c){
+  if(c.empty==='short')
+    return '<div class="honest"><span class="l">'+label+'</span><span class="r"><span class="one">Not shared by your watch</span></span></div>';
+  if(c.empty==='inline')
+    return '<div class="honest"><span class="l">'+label+'</span><span class="r"><span class="one">Garmin-only &middot; not shared by Health Connect</span></span></div>';
+  return '<div class="honest"><span class="l">'+label+'</span><span class="r"><b>Garmin-only</b><i>Not shared by Health Connect</i></span></div>';
+}
+
+function sourceNode(c){
+  if(c.source==='model') return '<div class="v">Garmin</div><div class="s">[DEVICE MODEL]</div>';
+  if(c.source==='socket') return '<div class="v">Garmin</div><div class="s">synced 4 min ago</div>';
+  return '<div class="v">Health Connect</div><div class="s">connected</div>';
+}
+
+function deadNode(c){
+  if(c.dead==='lane')
+    return '<div class="lane"><div class="t">WHAT IT DID</div>'+
+      '<p>Low variability and two hours still &rarr; tempo held under 96, leaning acoustic. That is the set playing now.</p></div>';
+  if(c.dead==='compress') return '';
+  return '<div class="lane" style="border-top:0"></div>';
+}
+
+function playerNode(c){
+  if(c.player==='none') return '';
+  var art = c.artph==='fused'
+      ? 'linear-gradient(140deg,color-mix(in srgb,var(--hue) 26%,transparent),color-mix(in srgb,var(--hue) 10%,transparent))'
+    : c.artph==='neutral' ? 'linear-gradient(140deg,var(--sunken),var(--raised))'
+      : 'linear-gradient(140deg,color-mix(in srgb,var(--hue) 20%,transparent),color-mix(in srgb,var(--violet) 18%,transparent))';
+  if(c.player==='compact')
+    return '<div class="player" style="min-height:44px;padding:6px 20px"><span class="m"><b>Holocene &middot; Bon Iver</b></span>'+
+      '<span style="flex:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px">'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg></span></div>';
+  return '<div class="player"><span class="art" style="background:'+art+'"></span>'+
+    '<span class="m"><b>Holocene</b><i>Bon Iver &middot; winding down</i></span>'+
+    '<span style="flex:none;display:flex;align-items:center;gap:12px">'+
+    '<svg width="18" height="18" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg>'+
+    '<svg width="18" height="18" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M15 4h-2.4v12H15zM4 4v12l8-6z"/></svg></span></div>';
+}
+
+function frame(theme,c){
+  var big = c.hierarchy==='state'||c.hierarchy==='balanced';
+  var nsize = c.hierarchy==='state' ? 22 : c.hierarchy==='balanced' ? 28 : 36;
+  var tileH = c.dead==='compress' ? 'padding:19px 14px' : 'padding:13px 14px';
+  var h='<div class="ph" data-t="'+theme+'"><div class="fld"></div><div class="spacer"></div><div class="scroll">';
+  h+='<h2 class="state'+(big?'':' small')+'">Wired, but running on empty</h2>';
+  h+='<div class="conf"><span class="confbar"><i></i></span><span>FAIRLY SURE · 0.69</span></div>';
+  h+='<div class="tiles"><div class="tile" style="'+tileH+'"><div class="k">HEART</div>'+
+     '<div style="margin-top:1px;display:flex;align-items:baseline;gap:5px">'+
+     '<span class="n" style="font-size:'+nsize+'px">68</span><span class="u">BPM</span></div>'+
+     '<div class="s">live</div></div>'+
+     '<div class="tile" style="'+tileH+'"><div class="k">SOURCE</div>'+sourceNode(c)+'</div></div>';
+  h+='<svg width="326" height="52" viewBox="0 0 326 52" style="display:block;margin-bottom:16px">'+
+     '<polyline points="0,30 26,31 52,29 78,33 104,32 130,35 156,34 182,37 208,36 234,38 260,37 286,39 312,38 320,38" '+
+     'fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"/>'+
+     '<circle cx="320" cy="38" r="3.4" fill="var(--accent)" class="brth"/></svg>';
+  h+='<div class="sec">THE WHOLE PICTURE</div><div class="gauges">'+
+     gaugeRow('Variability','29 ms · low for you',31)+
+     gaugeRow('Resting heart rate','61 bpm · usual',58)+
+     sleepNode(c)+
+     honest('Body Battery',c)+
+     honest('Readiness',c)+
+     '</div>';
+  h+=deadNode(c);
+  h+='</div>'+playerNode(c);
+  h+='<div class="tabs"><span class="tab"></span><span class="tab"></span><span class="tab on"></span><span class="tab"></span><span class="tab"></span></div>';
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 10 — PULSE — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-').replace(/&rarr;/g,'->');
+    lines.push(row.name.padEnd(24,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

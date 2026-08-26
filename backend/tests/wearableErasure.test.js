@@ -17,6 +17,9 @@ jest.mock('../app/models/VitalSample', () => ({
 jest.mock('../app/models/MedicalProfile', () => ({
   deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
 }));
+jest.mock('../app/models/MorningState', () => ({
+  deleteMany: jest.fn().mockResolvedValue({ deletedCount: 2 }),
+}));
 
 jest.mock('../app/config/redis', () => {
   const fake = { del: jest.fn().mockResolvedValue(1) };
@@ -32,6 +35,7 @@ jest.mock('../app/services/wearable/garmin', () => ({
 const BiometricLog   = require('../app/models/BiometricLog');
 const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const MorningState   = require('../app/models/MorningState');
 const garmin         = require('../app/services/wearable/garmin');
 const { getRedis, __fake: fakeRedis } = require('../app/config/redis');
 const {
@@ -47,6 +51,7 @@ beforeEach(() => {
   VitalSample.deleteMany.mockResolvedValue({ deletedCount: 3 });
   VitalSample.countDocuments.mockResolvedValue(0);
   MedicalProfile.deleteMany.mockResolvedValue({ deletedCount: 1 });
+  MorningState.deleteMany.mockResolvedValue({ deletedCount: 2 });
   getRedis.mockReturnValue(fakeRedis);
   garmin.getValidToken.mockResolvedValue('valid-access-token');
   garmin.deregisterUser.mockResolvedValue(undefined);
@@ -68,25 +73,32 @@ describe('purgeWearableData', () => {
     expect(res.vitalSamples).toBe(3);
   });
 
-  it('KEEPS the MedicalProfile when only VITAL samples remain (HR history exhausted)', async () => {
+  it('KEEPS the MedicalProfile (and MorningState) when only VITAL samples remain (HR history exhausted)', async () => {
     BiometricLog.countDocuments.mockResolvedValue(0);  // no HR rows left...
     VitalSample.countDocuments.mockResolvedValue(4);   // ...but another provider's vitals are
     const res = await purgeWearableData(USER, 'garmin');
     expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
+    expect(MorningState.deleteMany).not.toHaveBeenCalled();
     expect(res.medicalProfiles).toBe(0);
+    expect(res.morningStates).toBe(0);
   });
 
-  it('deletes the aggregated MedicalProfile only when NO biometric samples remain (orphaned)', async () => {
+  // W4-012 / S5: MorningState is the same category of derived aggregate as MedicalProfile — it
+  // rides the identical all-or-nothing rule.
+  it('deletes the aggregated MedicalProfile AND MorningState only when NO biometric samples remain (orphaned)', async () => {
     BiometricLog.countDocuments.mockResolvedValue(0); // nothing left → profile derived solely from this provider
     const res = await purgeWearableData(USER, 'garmin');
     expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId: USER });
+    expect(MorningState.deleteMany).toHaveBeenCalledWith({ userId: USER });
     expect(res.medicalProfiles).toBe(1);
+    expect(res.morningStates).toBe(2);
   });
 
-  it('KEEPS the MedicalProfile when another provider still has samples (removes nothing else)', async () => {
+  it('KEEPS the MedicalProfile and MorningState when another provider still has samples (removes nothing else)', async () => {
     BiometricLog.countDocuments.mockResolvedValue(12); // apple_health logs remain
     const res = await purgeWearableData(USER, 'garmin');
     expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
+    expect(MorningState.deleteMany).not.toHaveBeenCalled();
     expect(res.medicalProfiles).toBe(0);
   });
 

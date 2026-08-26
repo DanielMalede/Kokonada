@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useTheme } from '../../design/theme';
-import { space, radius, type as typography, elevation, type HapticKey } from '../../design/tokens';
+import { space, radius, stroke, type as typography, elevation, type HapticKey } from '../../design/tokens';
 import { fireHaptic } from '../../design/haptics';
 import { HEALTH_CONNECT_DATA_CATEGORIES } from '../../health/consentApi';
 import { WhyAccordion } from '../connect/WhyAccordion';
@@ -148,6 +148,6 @@ const styles = StyleSheet.create({
   microHeading: { fontSize: typography.size.footnote, fontWeight: typography.weight.semibold },
   microBody: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },
   actionBar: { flexDirection: 'row', gap: space.md, paddingTop: space.xs },
-  barBtn: { flex: 1, paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  barBtn: { flex: 1, paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   barBtnText: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
 });

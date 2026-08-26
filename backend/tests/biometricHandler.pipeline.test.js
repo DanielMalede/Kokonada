@@ -73,6 +73,27 @@ jest.mock('../app/services/generation/orchestrator', () => ({
   buildTargets: jest.fn(async () => ({ bpmCenter: 120 })),
 }));
 
+// W4-016: the personal-baseline source for hrRatio on the HR branch. Defaulted to null
+// (no cached baseline) so every pre-existing test in this file — none of which mocked this
+// module before W4-016 — stays byte-identical unless a test opts in.
+jest.mock('../app/services/biosonic/baselines', () => ({
+  peekBaselines: jest.fn(),
+}));
+
+// W4-D72: the live lane's night history. Defaulted to [] in beforeEach (no consolidated nights),
+// so every pre-existing pin in this file keeps forwarding the empty sleep shape it always did.
+jest.mock('../app/repositories/sleepHistoryRepo', () => ({
+  readNightHistory: jest.fn(),
+}));
+
+// W4-011: only the DISPATCH is mocked. `feedbackDisabled` stays real so the S11 kill-switch pins
+// below exercise the actual env read, and the play window / boundary modules stay real so these
+// pins prove the WIRING rather than a mock talking to a mock.
+jest.mock('../app/services/learning/rewardDispatch', () => {
+  const actual = jest.requireActual('../app/services/learning/rewardDispatch');
+  return { ...actual, dispatchReward: jest.fn(async () => ({ dispatched: true })) };
+});
+
 jest.mock('../app/services/discovery/discoveryFetch', () => ({
   vectorDiscoveryFetch: jest.fn(async () => []),
 }));
@@ -92,6 +113,13 @@ jest.mock('../app/repositories/shadowBufferRepo', () => ({
   getBuffer: jest.fn().mockResolvedValue(null),
   setBuffer: jest.fn().mockResolvedValue(true),
 }));
+
+// W4-009: the taxonomy-state adapter is mocked so the WIRING (does a reported regime change
+// trigger recalibrateForBand?) can be pinned in isolation from the affect engine's own math,
+// which affectEngine.test.js / liveStateAdapter.test.js already cover in depth. Defaulted to a
+// no-op result in the shared beforeEach below so the other ~150 pre-existing pins in this file —
+// none of which know this adapter exists — stay byte-for-byte unaffected.
+jest.mock('../app/agents/runtime/physiology/liveStateAdapter', () => ({ onlineUpdate: jest.fn() }));
 
 // Error monitor — mocked so a test can assert a swallowed generateV2 failure is reported (captured),
 // not silently dropped. The real captureException is a no-op without a DSN, so this changes no behavior.
@@ -164,9 +192,12 @@ const geminiEngine    = require('../app/services/geminiEngine');
 const playlistMixer   = require('../app/services/playlistMixer');
 
 const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
+const liveStateAdapter = require('../app/agents/runtime/physiology/liveStateAdapter');
 const captionService   = require('../app/services/discovery/captionService');
 const crossPlatform    = require('../app/services/crossPlatform');
 const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
+const baselines        = require('../app/services/biosonic/baselines');
+const sleepHistoryRepo = require('../app/repositories/sleepHistoryRepo');
 
 const {
   registerBiometricHandler,
@@ -297,12 +328,19 @@ beforeEach(() => {
   geminiEngine.adjustBiometricPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.buildEmotionPlaylist.mockResolvedValue({ params: AI_PARAMS, tracks: DISCOVERY_TRACKS });
   geminiEngine.critiqueTrackVibe.mockImplementation(async ({ tracks }) => tracks);
+  baselines.peekBaselines.mockResolvedValue(null);
+  sleepHistoryRepo.readNightHistory.mockResolvedValue([]);
   playlistMixer.personalizeWhitelist.mockImplementation((tracks) => tracks);
   BiometricLog.find.mockReturnValue({ sort: () => ({ limit: () => Promise.resolve([]) }) });
   PlaylistSession.countDocuments.mockResolvedValue(0); // default: no repeat → normal mode
   MedicalProfile.findOne.mockResolvedValue(null);
   shadowBufferRepo.getBuffer.mockResolvedValue(null); // default: cold buffer
   shadowBufferRepo.setBuffer.mockResolvedValue(true);
+  // W4-009 default: no carried posterior / no regime change, matching a Redis-down or freshly
+  // cold-started user — every existing pin in this file is transparent to this by construction.
+  liveStateAdapter.onlineUpdate.mockResolvedValue({
+    ok: false, transitioned: false, from: null, to: null, band: null, regimeChanged: false,
+  });
   captionService.captionDiscovery.mockResolvedValue(new Map());
   delete process.env.DISCOVERY_CAPTION_LLM; // caption path OFF by default (dark launch)
   mockRecentSessions([]);
@@ -2117,6 +2155,753 @@ describe('Live-mode band recalibration (slice 4)', () => {
   });
 });
 
+// ── W4-009: taxonomy-state-triggered recalibration (D11's full fix) ────────────
+// `liveStateAdapter.onlineUpdate` is mocked (see the top-of-file jest.mock) so these pins drive
+// the WIRING deterministically: does a reported regime change reach `recalibrateForBand`, is the
+// Manual-mode gate still the one gate that decides whether anything is ever SERVED, and does the
+// S11 kill-switch really stop the adapter from being called at all. The engine's own dwell/
+// hysteresis math is `liveStateAdapter.test.js`'s job, not this file's.
+
+describe('W4-009 — state-triggered recalibration (liveStateAdapter wiring)', () => {
+  const BUFFER_TRACKS = [
+    { id: 'ws1', uri: 'spotify:track:ws1', title: 'Warm State One', artist: 'Artist Z' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 0, targets: { bpmCenter: 90 }, builtAt: Date.now(),
+    });
+  }
+  const regimeChange = (over = {}) => ({
+    ok: true, transitioned: true, from: 'deep-rest', to: 'simmering-tension', band: 'resting', regimeChanged: true, ...over,
+  });
+
+  afterEach(() => { delete process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED; });
+
+  it('a taxonomy regime change recalibrates even with NO HR-band crossing at all', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange());
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    // A single resting-band reading — the OLD HR-band gate alone fires nothing on a first ping
+    // with no confirmed prior band, so this proves the STATE path, not a coincidence of the band gate.
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+      'user-123',
+      expect.objectContaining({ level: 65 }),
+      expect.objectContaining({ activity: 'running', now: expect.any(Number) }),
+    );
+    const call = socket.emit.mock.calls.find((c) => c[0] === 'playlist_ready');
+    expect(call).toBeDefined();
+    expect(call[1]).toMatchObject({ buffered: true });
+  });
+
+  // W4-015 (soak finding): without a personal baseline, every axis keyed to the user's own
+  // hour-of-day HR (arousal, exertion's measured term, stress, recovery, fatigue) has nothing to
+  // compare against and abstains — a full-day soak across every persona showed them all settling
+  // into the SAME low-confidence default state. `peekBaselines` (already used by the generation
+  // path a few lines above this seam) is the existing cheap, cached, best-effort read for exactly
+  // this.
+  it('fetches this user\'s personal baselines and forwards them to the adapter', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+    baselines.peekBaselines.mockResolvedValue({ rhrMedian: 48, rhrMAD: 3 });
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(baselines.peekBaselines).toHaveBeenCalledWith('user-123');
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+      'user-123',
+      expect.anything(),
+      expect.objectContaining({ baselines: { rhrMedian: 48, rhrMAD: 3 } }),
+    );
+  });
+
+  it('a peekBaselines rejection degrades to no baseline rather than losing the reading', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+    baselines.peekBaselines.mockRejectedValue(new Error('redis down'));
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+      'user-123',
+      expect.anything(),
+      expect.objectContaining({ baselines: null }),
+    );
+  });
+
+  // W4-D57: `peekBaselines` is a Redis round trip + an AES-256-GCM decrypt + a
+  // `[biometric-access]` audit line. The GENERATION path pays that once per playlist; the pin
+  // above put it on the READING path, where a live socket pays it several times a minute — for a
+  // 30-day median whose own freshness window is six HOURS. So the blob is held on the socket for
+  // `LIVE_BASELINE_HOLD_MS` and the cost tracks wall-clock instead of reading rate.
+  describe('the per-reading baseline read is bounded (W4-D57)', () => {
+    const { handleBiometricReading, LIVE_BASELINE_HOLD_MS } = require('../app/sockets/biometricHandler');
+    const T0 = Date.parse('2026-06-21T19:00:00.000Z');
+    const push = (socket, hr, atMs) => handleBiometricReading(
+      socket, 'garmin', { heartRate: hr, startTimeLocal: new Date(atMs).toISOString() }, { now: atMs },
+    );
+    const settled = () => new Promise((r) => setTimeout(r, 50));
+
+    it('peeks ONCE for a burst of readings, and forwards the same blob to every one', async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines.mockResolvedValue({ rhrMedian: 48, rhrMAD: 3 });
+      const socket = makeSocket();
+
+      // Five readings inside one hold window — a minute of a 12 s watch stream.
+      for (let i = 0; i < 5; i++) push(socket, 65 + i, T0 + i * 12_000);
+      await settled();
+
+      // The MULTIPLICITY is the pin, not a raw call count: N readings, one read of the blob.
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(5);
+      for (const call of liveStateAdapter.onlineUpdate.mock.calls) {
+        expect(call[2]).toEqual(expect.objectContaining({ baselines: { rhrMedian: 48, rhrMAD: 3 } }));
+      }
+    });
+
+    it('re-reads once the hold window has elapsed, and not one tick sooner', async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines.mockResolvedValue({ rhrMedian: 48 });
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      push(socket, 66, T0 + LIVE_BASELINE_HOLD_MS - 1);   // still held
+      push(socket, 67, T0 + LIVE_BASELINE_HOLD_MS);       // window closed
+      await settled();
+
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(2);
+    });
+
+    it("holds the blob per SOCKET, so one user never inherits another user's baselines", async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines.mockImplementation(async (uid) => ({ rhrMedian: uid === 'user-123' ? 48 : 71 }));
+      const a = makeSocket('user-123');
+      const b = makeSocket('user-999');
+
+      push(a, 65, T0);
+      push(b, 65, T0);
+      await settled();
+
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(2);
+      const seen = new Map(liveStateAdapter.onlineUpdate.mock.calls.map((c) => [c[0], c[2].baselines]));
+      expect(seen.get('user-123')).toEqual({ rhrMedian: 48 });
+      expect(seen.get('user-999')).toEqual({ rhrMedian: 71 });
+    });
+
+    it('a FAILED peek is not held — the next reading retries instead of inheriting the hole', async () => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+      baselines.peekBaselines
+        .mockRejectedValueOnce(new Error('redis down'))
+        .mockResolvedValue({ rhrMedian: 48 });
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();                       // let the rejection settle and clear the hold
+      push(socket, 66, T0 + 1000);           // still inside the window a SUCCESS would have held
+      await settled();
+
+      expect(baselines.peekBaselines).toHaveBeenCalledTimes(2);
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(0)[2])
+        .toEqual(expect.objectContaining({ baselines: null }));
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(-1)[2])
+        .toEqual(expect.objectContaining({ baselines: { rhrMedian: 48 } }));
+    });
+  });
+
+  // W4-D72: the nights, on the lane that updates per reading.
+  //
+  // W4-D68 wired §M.6's sleep-debt accumulator — the 0.6-weighted DOMINANT term of the fatigue
+  // axis — into `targetsBuilder` and `stateVector.worker` and deliberately skipped this one,
+  // because a `MorningState` read per READING is exactly the defect W4-D57 had just closed for
+  // `peekBaselines`. So the same user's fatigue was debt-weighted when a playlist was generated
+  // and an HRV trend alone one second later on the socket. The answer is the same one W4-D57
+  // built: fetch it here, HOLD it on the socket — and hold it far longer, because a night history
+  // is produced by a nightly job and cannot move more than once a day.
+  //
+  // Unlike the baseline blob, the nights are taken AS THEY LAND and never awaited: this is a
+  // Mongo round trip on a lane that fires per wearable sample, and a stalled primary must not be
+  // able to hold the taxonomy posterior hostage for one term of one axis. So the first reading of
+  // each hold window scores with no sleep evidence — exactly as every reading did before — and
+  // the next one carries it. The pins below assert that shape on purpose, not around it.
+  describe("the live lane's night history (W4-D72)", () => {
+    const { handleBiometricReading, LIVE_NIGHTS_HOLD_MS } = require('../app/sockets/biometricHandler');
+    const T0 = Date.parse('2026-06-21T19:00:00.000Z');
+    const NIGHTS = [{ deep: 45, light: 170, rem: 40 }, { deep: 50, light: 180, rem: 45 }];
+    const push = (socket, hr, atMs) => handleBiometricReading(
+      socket, 'garmin', { heartRate: hr, startTimeLocal: new Date(atMs).toISOString() }, { now: atMs },
+    );
+    const settled = () => new Promise((r) => setTimeout(r, 50));
+
+    beforeEach(() => {
+      liveStateAdapter.onlineUpdate.mockResolvedValue(
+        regimeChange({ transitioned: false, regimeChanged: false }),
+      );
+    });
+
+    it("reads this listener's consolidated nights and forwards them as the engine's sleep evidence", async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      // Two readings, because the FIRST is the one that warms the hold. Whether it also carries
+      // the nights depends on whether the read outran the Redis peek, which is a race this pin
+      // has no business asserting either way — by the second reading it has landed regardless.
+      push(socket, 65, T0);
+      await settled();
+      push(socket, 66, T0 + 12_000);
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledWith('user-123');
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenLastCalledWith(
+        'user-123',
+        expect.anything(),
+        expect.objectContaining({ sleep: { history: NIGHTS } }),
+      );
+    });
+
+    // The pin that encodes the design decision above, and the one the full-stack soak found:
+    // `sim/replay.js`'s `flush()` drains MICROTASKS ONLY (deliberately — it must work under fake
+    // timers), so a lane that awaits real Mongo I/O is a lane the harness can never see complete.
+    // A database that never answers must cost the sleep evidence and nothing else.
+    it('a night read that never settles does not delay the posterior by one reading', async () => {
+      sleepHistoryRepo.readNightHistory.mockReturnValue(new Promise(() => {}));  // never resolves
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+        'user-123', expect.anything(), expect.objectContaining({ sleep: {} }),
+      );
+    });
+
+
+    it('no consolidated nights → the empty shape, byte-identical to the pre-W4-D72 call', async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue([]);
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+        'user-123', expect.anything(), expect.objectContaining({ sleep: {} }),
+      );
+    });
+
+    it('a failed history read degrades to the empty shape rather than losing the reading', async () => {
+      sleepHistoryRepo.readNightHistory.mockRejectedValue(new Error('mongo down'));
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledWith(
+        'user-123', expect.anything(), expect.objectContaining({ sleep: {} }),
+      );
+    });
+
+    it('reads ONCE for a burst of readings inside the window (single-flight)', async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      // Five readings inside one hold window — a minute of a 12 s watch stream.
+      for (let i = 0; i < 5; i++) push(socket, 65 + i, T0 + i * 12_000);
+      await settled();
+
+      // The MULTIPLICITY is the pin, not a raw call count: N readings, one read of the history.
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(5);
+      // …and once the read has landed, every subsequent reading in the window carries it.
+      push(socket, 70, T0 + 5 * 12_000);
+      await settled();
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(1);
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(-1)[2])
+        .toEqual(expect.objectContaining({ sleep: { history: NIGHTS } }));
+    });
+
+    it('re-reads once the hold window has elapsed, and not one tick sooner', async () => {
+      sleepHistoryRepo.readNightHistory.mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      push(socket, 66, T0 + LIVE_NIGHTS_HOLD_MS - 1);   // still held
+      push(socket, 67, T0 + LIVE_NIGHTS_HOLD_MS);       // window closed
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(2);
+    });
+
+    // The whole point of a SEPARATE constant: a night history is written once a night, a baseline
+    // blob refreshes every six hours. Holding the nights for only the baseline window would pay a
+    // Mongo round trip a minute for data that provably cannot have changed.
+    it('is held far longer than the baseline blob, because it moves far less often', () => {
+      const { LIVE_BASELINE_HOLD_MS } = require('../app/sockets/biometricHandler');
+      expect(LIVE_NIGHTS_HOLD_MS).toBeGreaterThan(LIVE_BASELINE_HOLD_MS);
+    });
+
+    it("holds the nights per SOCKET, so one listener never inherits another's sleep", async () => {
+      sleepHistoryRepo.readNightHistory.mockImplementation(async (uid) => (
+        uid === 'user-123' ? NIGHTS : [{ deep: 90, light: 240, rem: 90 }]
+      ));
+      const a = makeSocket('user-123');
+      const b = makeSocket('user-999');
+
+      push(a, 65, T0);
+      push(b, 65, T0);
+      await settled();
+      push(a, 66, T0 + 12_000);
+      push(b, 66, T0 + 12_000);
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(2);
+      // Built from every call in order, so the LAST one per user wins — by then both holds have
+      // certainly landed, whichever order the two reads resolved in.
+      const seen = new Map(liveStateAdapter.onlineUpdate.mock.calls.map((c) => [c[0], c[2].sleep]));
+      expect(seen.get('user-123')).toEqual({ history: NIGHTS });
+      expect(seen.get('user-999')).toEqual({ history: [{ deep: 90, light: 240, rem: 90 }] });
+    });
+
+    it('a FAILED read is not held — the next reading retries instead of inheriting the hole', async () => {
+      sleepHistoryRepo.readNightHistory
+        .mockRejectedValueOnce(new Error('mongo down'))
+        .mockResolvedValue(NIGHTS);
+      const socket = makeSocket();
+
+      push(socket, 65, T0);
+      await settled();
+      push(socket, 66, T0 + 1000);           // still inside the window a SUCCESS would have held
+      await settled();
+      push(socket, 67, T0 + 2000);           // the retry has landed by now
+      await settled();
+
+      expect(sleepHistoryRepo.readNightHistory).toHaveBeenCalledTimes(2);
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(0)[2])
+        .toEqual(expect.objectContaining({ sleep: {} }));
+      expect(liveStateAdapter.onlineUpdate.mock.calls.at(-1)[2])
+        .toEqual(expect.objectContaining({ sleep: { history: NIGHTS } }));
+    });
+
+    it('the history read is not even attempted while the hysteresis kill switch is set', async () => {
+      const { RECAL_HYSTERESIS_FLAG } = require("../app/sockets/biometricHandler");
+      const prev = process.env[RECAL_HYSTERESIS_FLAG];
+      process.env[RECAL_HYSTERESIS_FLAG] = '1';
+      try {
+        const socket = makeSocket();
+        push(socket, 65, T0);
+        await settled();
+        expect(sleepHistoryRepo.readNightHistory).not.toHaveBeenCalled();
+      } finally {
+        if (prev === undefined) delete process.env[RECAL_HYSTERESIS_FLAG];
+        else process.env[RECAL_HYSTERESIS_FLAG] = prev;
+      }
+    });
+  });
+
+  it('no regime change → the adapter is consulted but nothing extra is served', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange({ transitioned: false, regimeChanged: false }));
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalled();
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+  });
+
+  it('Manual mode: the posterior still advances (kept warm) but the mode-gate still blocks the serve', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange());
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket); // liveMode defaults false — never toggled on
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalled();
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_ready', expect.anything());
+  });
+
+  it('Redis-down degradation (adapter reports ok:false) never recalibrates from this path', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue({
+      ok: false, transitioned: false, from: null, to: null, band: null, regimeChanged: false,
+    });
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(shadowBufferRepo.getBuffer).not.toHaveBeenCalled();
+  });
+
+  it('S11 kill-switch: WAVE4_RECAL_STATE_TRIGGER_DISABLED stops the adapter from being called at all', async () => {
+    process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED = 'true';
+    liveStateAdapter.onlineUpdate.mockResolvedValue(regimeChange());
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).not.toHaveBeenCalled();
+  });
+
+  it('a rejected/unusable reading (filtered.level === null) never reaches the adapter', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    // A future-dated reading fails the S6 gate on a first-ever reading (no confirmed HR to
+    // propagate), so handleBiometricReading returns before this call's own W4-009 hook runs.
+    const future = { heartRate: 90, activityType: 0, startTimeLocal: new Date(Date.UTC(2099, 0, 1)).toISOString() };
+    await socket._trigger('biometric_push', { source: 'garmin', raw: future });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).not.toHaveBeenCalled();
+  });
+});
+
+// ── W4-D34: the duplicate-serve latch ─────────────────────────────────────────
+// W4-009 made a CONFIRMED taxonomy-state transition a recalibration trigger, and 20 of the
+// taxonomy's 34 states sit in `band: resting` — so the DOMINANT transition class changes only
+// the state's `musicPolicy`, not the band. `recalibrateForBand` is keyed by
+// `syntheticBioMoodKey(stableHR, latestActivity)` = `bio:<band>:<activity>`, which such a
+// transition leaves IDENTICAL, so it re-emitted the same buffer as a fresh `playlist_ready` and
+// re-recorded the same tracks through the append-only serve ledger. Exposure is what `score`
+// subtracts (`w_exp*exposure`), so the tracks that fit the user best were the ones being
+// suppressed. §0.2.6 freezes the buffer key at `bio:<band>:<activity>`, so the buffer mechanism
+// cannot express a different mix for a policy-only change — suppressing the duplicate is the fix,
+// re-keying the buffer is out of scope.
+describe('W4-D34 — duplicate-serve latch on the bio moodKey', () => {
+  const serveLedger  = require('../app/services/ledger/serveLedger');
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  const BUFFER_TRACKS = [
+    { id: 'd34a', uri: 'spotify:track:d34a', title: 'Latched One', artist: 'Artist L' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 0, targets: { bpmCenter: 90 }, builtAt: Date.now(),
+    });
+  }
+  const readyCalls = (socket) => socket.emit.mock.calls.filter((c) => c[0] === 'playlist_ready');
+
+  afterEach(() => {
+    delete process.env.WAVE4_SERVE_LATCH_DISABLED;
+    delete process.env.WAVE4_RECAL_STATE_TRIGGER_DISABLED;
+  });
+
+  it('(a) a policy-only regime change re-serving the SAME key produces ONE serve and ONE ledger write', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    // ONE state object across both calls — that is the point: the two transitions are
+    // `deep-rest -> resting-content` style, same band, same activity, so the key never moves.
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+  });
+
+  it('(b) a real BAND change still serves — the latch guards the key, not the trigger', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    state.stableHR = 150; // resting -> peak: a genuinely different buffer
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(2);
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(2);
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:resting:resting');
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:peak:resting');
+  });
+
+  it('(b) an ACTIVITY change at constant heart rate still serves', async () => {
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    state.latestActivity = 'walking';
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(2);
+    expect(shadowBufferRepo.getBuffer).toHaveBeenCalledWith('user-123', 'bio:resting:walking');
+  });
+
+  it('a COLD key costs ONE generation across repeated policy-only transitions, not one each', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null); // cold: the fallback is a full live gen
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(orchestrator.generateV2).toHaveBeenCalledTimes(1);
+  });
+
+  it('no usable heart rate (null key) is never latched — the unkeyed legacy path still runs each time', async () => {
+    // syntheticBioMoodKey returns null without a usable HR and the caller degrades to a legacy
+    // unkeyed generation. `null === null` must NOT read as "already serving that key", or the
+    // legacy path would fire once and then go silent for the rest of the socket's life.
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: null, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(orchestrator.generateV2).toHaveBeenCalledTimes(2);
+  });
+
+  it('a generation serving under a bio key latches it, so a following policy-only transition is a no-op', async () => {
+    // The other half of the same regression: a `heart` generation IS the key's music starting to
+    // play, so a policy-only transition straight after it is just as duplicate as two
+    // recalibrations in a row.
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await generateAndEmitPlaylist(socket, 'heart', state);
+    expect(readyCalls(socket)).toHaveLength(1);
+
+    await recalibrateForBand(socket, state);
+    expect(readyCalls(socket)).toHaveLength(1); // the buffer for this key is already playing
+  });
+
+  it('an EMOTION generation clears the latch — the bio buffer is no longer what is playing', async () => {
+    // The latch answers "is this key's buffer already playing", not "was it ever served". A mood
+    // request in between replaced the music, so the next transition back to the bio key is a
+    // genuine serve. Without this the user could be stranded on a mood playlist for the rest of
+    // the socket, because every resting-band transition would read as a duplicate.
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({
+      liveMode: true, stableHR: 65, latestActivity: 'resting', lastEmotionTaps: [{ x: 0.2, y: 0.3 }],
+    });
+
+    await recalibrateForBand(socket, state);      // bio buffer plays, key latched
+    await generateAndEmitPlaylist(socket, 'emotion', state); // a mood playlist replaces it
+    await recalibrateForBand(socket, state);      // ...so the bio key is servable again
+
+    expect(readyCalls(socket).filter((c) => c[1].buffered)).toHaveLength(2);
+  });
+
+  it('a FAILED bio generation clears the latch — a key that never started playing is not latched', async () => {
+    // The claim is released on a thrown serve, but a generation that fails does not throw: it
+    // emits playlist_error and returns. Without clearing here, a cold key whose one generation
+    // errored would stay claimed, and the next transition back to it would be suppressed as a
+    // duplicate of a playlist the listener never received.
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state); // K's buffer plays, key latched
+
+    geminiEngine.adjustBiometricPlaylist.mockRejectedValue(new Error('Gemini timeout'));
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile({ library: [] })));
+    await generateAndEmitPlaylist(socket, 'heart', state);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.any(Object));
+
+    await recalibrateForBand(socket, state); // ...so K is servable again
+
+    expect(readyCalls(socket).filter((c) => c[1].buffered)).toHaveLength(2);
+  });
+
+  it('S11 kill-switch: WAVE4_SERVE_LATCH_DISABLED restores the pre-W4-D34 duplicate serve', async () => {
+    process.env.WAVE4_SERVE_LATCH_DISABLED = 'true';
+    warmBuffer();
+    const socket = makeSocket();
+    const state = makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+    await recalibrateForBand(socket, state);
+    await recalibrateForBand(socket, state);
+
+    expect(readyCalls(socket)).toHaveLength(2);
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(2);
+  });
+
+  it('wiring: two consecutive taxonomy regime changes at a constant key serve the buffer ONCE', async () => {
+    liveStateAdapter.onlineUpdate.mockResolvedValue({
+      ok: true, transitioned: true, from: 'deep-rest', to: 'simmering-tension', band: 'resting', regimeChanged: true,
+    });
+    warmBuffer();
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: true });
+
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // A second confirmed transition between two OTHER resting-band states, same activity, same
+    // heart rate — `regimeChanged` again, identical `bio:resting:running` key.
+    liveStateAdapter.onlineUpdate.mockResolvedValue({
+      ok: true, transitioned: true, from: 'simmering-tension', to: 'resting-content', band: 'resting', regimeChanged: true,
+    });
+    await socket._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 65 } });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(liveStateAdapter.onlineUpdate).toHaveBeenCalledTimes(2); // the posterior still advanced
+    expect(readyCalls(socket)).toHaveLength(1);                     // ...but the listener is not re-served
+    expect(serveLedger.recordServes).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── W4-D41: the serve claim must be released on every exit that did not serve ──
+// W4-D34's latch is claimed BEFORE the serve (both callers of `recalibrateForBand` are
+// fire-and-forget, so two regime changes in one tick would otherwise both read the pre-serve
+// latch and both serve). Exactly two things released it: a THROWN serve, and a `playlist_error`
+// — and the second is gated on `bioServeKey`, which is not resolved until well past the
+// generation's four early exits. `generateAndEmitPlaylist` is `try {} finally {}` with no catch,
+// so an early `emit(...); return;` neither throws nor clears: the key stayed claimed for the life
+// of the socket and every later transition back to it read as a duplicate of a playlist the
+// listener never received. The key is `bio:<band>:<activity>` and 20 of the 34 taxonomy states
+// are `band: resting`, so the stranded key is normally the dominant one — a Live-mode user who
+// has disconnected Spotify, or whose MusicProfile is still building, simply stops getting music
+// once they fix it. The witness is the claim itself, handed down from the recalibration; it can
+// answer "did this run serve?" at exits that precede any bio key.
+describe('W4-D41 — the serve claim is released on every non-serving exit', () => {
+  const BUFFER_TRACKS = [
+    { id: 'd41a', uri: 'spotify:track:d41a', title: 'Servable Again', artist: 'Artist S' },
+  ];
+  function warmBuffer() {
+    shadowBufferRepo.getBuffer.mockResolvedValue({
+      tracks: BUFFER_TRACKS, familiar: 1, discovery: 0, targets: { bpmCenter: 90 }, builtAt: Date.now(),
+    });
+  }
+  const readyCalls = (socket) => socket.emit.mock.calls.filter((c) => c[0] === 'playlist_ready');
+
+  // Every case is the same shape: a COLD key (so the recalibration falls back to a live
+  // generation), that generation exits without serving, the transient condition then clears, and
+  // the SAME key must still be servable. Before the fix each of these counted 0 serves, not 1.
+  const state = () => makeState({ liveMode: true, stableHR: 65, latestActivity: 'resting' });
+
+  afterEach(() => { delete process.env.GENERATION_TIMEOUT_MS; });
+
+  it('(a) an exit at `!user` leaves the key servable', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null); // cold → live generation
+    User.findById.mockResolvedValue(null);
+    const socket = makeSocket();
+    const s = state();
+
+    await recalibrateForBand(socket, s);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: 'User not found' }));
+    expect(readyCalls(socket)).toHaveLength(0); // nothing reached the listener
+
+    User.findById.mockResolvedValue(SPOTIFY_USER); // the row is back
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(b) an exit at `!provider` leaves the key servable', async () => {
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    // The everyday trigger: a Live-mode listener disconnected Spotify, then reconnects it.
+    User.findById.mockResolvedValue({
+      _id: 'user-123', spotifyToken: null, youtubeMusicToken: null,
+      getToken: jest.fn(), save: jest.fn().mockResolvedValue(true),
+    });
+    const socket = makeSocket();
+    const s = state();
+
+    await recalibrateForBand(socket, s);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_error', expect.objectContaining({ message: 'No music provider connected' }));
+    expect(readyCalls(socket)).toHaveLength(0);
+
+    User.findById.mockResolvedValue(SPOTIFY_USER); // provider reconnected
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(c) an exit at `!musicProfile` — a playlist_building, not even an error — leaves the key servable', async () => {
+    // No release path could ever have fired here: `playlist_building` is not `playlist_error`.
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(null));
+    const socket = makeSocket();
+    const s = state();
+
+    await recalibrateForBand(socket, s);
+    expect(socket.emit).toHaveBeenCalledWith('playlist_building', expect.any(Object));
+    expect(readyCalls(socket)).toHaveLength(0);
+
+    MusicProfile.findOne.mockReturnValue(musicProfileQuery(makeMusicProfile())); // build finished
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(d) an abandoned generation (wall-clock timeout) leaves the key servable', async () => {
+    // The timeout bypasses the `emit` wrapper entirely — it calls `emitToUser` directly and bumps
+    // `state.genSeq`, so no release could reach it and even a later `playlist_ready` from that run
+    // is voided at the wrapper's own epoch guard. Real timers on a tiny budget: the wall clock is
+    // read from env inside the generation, and fake timers cannot flush the microtasks that get
+    // the run there in the first place.
+    process.env.GENERATION_TIMEOUT_MS = '20';
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    User.findById.mockReturnValue(new Promise(() => {})); // hangs past the wall clock
+    const socket = makeSocket();
+    const s = state();
+
+    recalibrateForBand(socket, s); // fire-and-forget, exactly as both production callers do
+    await new Promise((r) => setTimeout(r, 120));
+
+    expect(s.generating).toBe(false); // the run was abandoned, not completed
+    expect(readyCalls(socket)).toHaveLength(0);
+
+    User.findById.mockResolvedValue(SPOTIFY_USER);
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+
+  it('(e) a generation swallowed by the in-flight guard leaves the key servable', async () => {
+    // The earliest exit of all — it returns before the epoch, the emit wrapper and the timer even
+    // exist, and for a background trigger it is completely silent.
+    shadowBufferRepo.getBuffer.mockResolvedValue(null);
+    const socket = makeSocket();
+    const s = state();
+    s.generating = true; // another generation is already in flight on this socket
+
+    await recalibrateForBand(socket, s);
+    expect(readyCalls(socket)).toHaveLength(0);
+    // ...and for a background trigger the guard itself is completely silent: the loader emitted
+    // by the cold path is the only thing the listener saw, with no playlist behind it.
+    expect(socket.emit).not.toHaveBeenCalledWith('playlist_building', expect.anything());
+
+    s.generating = false; // the other run settled — under some other key
+    warmBuffer();
+    await recalibrateForBand(socket, s);
+
+    expect(readyCalls(socket)).toHaveLength(1);
+  });
+});
+
 describe('live_mode socket event', () => {
   it('sets the per-socket liveMode flag (default is Manual/false)', () => {
     const socket = makeSocket();
@@ -2301,5 +3086,254 @@ describe('band-aware discovery threading (DISCOVERY_BAND_AWARE)', () => {
     await generateAndEmitPlaylist(socket, 'biometric', makeState());
     expect(orchestrator.buildTargets).not.toHaveBeenCalled();
     expect(orchestrator.generateV2).toHaveBeenCalledWith(expect.objectContaining({ targets: null }));
+  });
+});
+
+// ── W4-016: LLM band context sourced from the real state/baseline (HR branch) ──────────────
+// The heart-rate branch's `biometric` context now carries stateLabel (the taxonomy state this
+// wave maintains, via bandTargets.stateId) and hrRatio (this user's HR relative to their OWN
+// resting baseline) instead of raw HR alone — closing the "same HR, same band for everyone"
+// defect (geminiEngine.js routes it through biometricBand's real preference chain). Both
+// additions are best-effort; the emotion branch already had richer context and is untouched.
+describe('W4-016 — LLM band context (HR branch)', () => {
+  const orchestrator = require('../app/services/generation/orchestrator');
+
+  afterEach(() => {
+    delete process.env.DISCOVERY_BAND_AWARE;
+    delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
+  });
+
+  it('populates stateLabel from bandTargets.stateId when band-aware discovery has resolved one', async () => {
+    process.env.DISCOVERY_BAND_AWARE = 'true';
+    orchestrator.buildTargets.mockResolvedValue({ bpmCenter: 120, stateId: 'acute-stress' });
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState());
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ stateLabel: 'acute-stress' }) }),
+    );
+  });
+
+  it('populates hrRatio from the personal baseline (peekBaselines rhrMedian)', async () => {
+    baselines.peekBaselines.mockResolvedValue({ rhrMedian: 65 });
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 130 }));
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ hrRatio: 2 }) }),
+    );
+  });
+
+  it('cold start (no baseline, no resolved state) degrades to exactly heartRate + activity — dormancy invariant', async () => {
+    baselines.peekBaselines.mockResolvedValue(null);
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 95, latestActivity: 'running' }));
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        biometric: { heartRate: 95, activity: 'running', stateLabel: null, hrRatio: null },
+      }),
+    );
+  });
+
+  it('kill switch: WAVE4_LLM_BAND_FROM_STATE_DISABLED skips the baseline/state lookup entirely', async () => {
+    process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = 'true';
+    process.env.DISCOVERY_BAND_AWARE = 'true';
+    orchestrator.buildTargets.mockResolvedValue({ bpmCenter: 120, stateId: 'acute-stress' });
+    baselines.peekBaselines.mockResolvedValue({ rhrMedian: 65 });
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'biometric', makeState({ stableHR: 130 }));
+    expect(baselines.peekBaselines).not.toHaveBeenCalled();
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        biometric: expect.objectContaining({ stateLabel: null, hrRatio: null }),
+      }),
+    );
+  });
+});
+
+// ── W4-011 (wiring half): the feedback loop's socket seam ─────────────────────
+//
+// The pure halves are pinned in `playbackEvent.test.js`, `playWindow.test.js` and
+// `feedbackLoop.test.js`. What is only provable HERE is that the three of them are actually
+// joined to a live socket: that a serve opens a window under the context that chose the mix, that
+// filtered readings land in it, that a client's verdict closes it, and that the whole lane
+// vanishes under its kill switch.
+
+describe('W4-011 — playback_event reaches the reward lane', () => {
+  const {
+    registerBiometricHandler, handleBiometricReading, generateAndEmitPlaylist, _debounceMap, FEEDBACK_FLAG,
+  } = require('../app/sockets/biometricHandler');
+  const { dispatchReward } = require('../app/services/learning/rewardDispatch');
+  const orchestrator = require('../app/services/generation/orchestrator');
+  const { RATE_LIMIT_MAX } = require('../app/agents/runtime/learning/playbackEvent');
+
+  const T0 = Date.parse('2026-06-21T19:00:00.000Z');
+
+  /** Register the handler and hand back the socket plus its REAL internal state object. */
+  const wired = () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('live_mode', { enabled: false }); // forces the state entry into existence
+    return { socket, state: _debounceMap.get(socket.id) };
+  };
+
+  /** Serve a playlist whose targets carry the full bucket context. */
+  const serveWithContext = async (socket, state) => {
+    orchestrator.generateV2.mockResolvedValueOnce({
+      familiar: [{ id: 'lib-1' }],
+      discovery: [{ id: 'd1' }],
+      merged: [{ id: 'lib-1' }, { id: 'd1' }],
+      targets: {
+        bpmCenter: 80, tempoBand: 'resting', stateId: 'acute-stress', hourOfDay: 21,
+        trajectory: { archetype: 'meet-then-lower' },
+      },
+    });
+    await generateAndEmitPlaylist(socket, 'biometric', state);
+  };
+
+  const push = (socket, hr, atMs) => handleBiometricReading(
+    socket, 'garmin', { heartRate: hr, startTimeLocal: new Date(atMs).toISOString() }, { now: atMs },
+  );
+
+  afterEach(() => { delete process.env[FEEDBACK_FLAG]; });
+
+  it('a serve, live readings and a completed play arrive at the lane as ONE judgement', async () => {
+    const { socket, state } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+    await serveWithContext(socket, state);
+
+    for (let i = 0; i < 8; i++) push(socket, 100 - i * 2, T0 + i * 30_000);
+
+    Date.now.mockReturnValue(T0 + 210_000);
+    socket._trigger('playback_event', { type: 'complete', positionMs: 210_000, trackKey: 'mbid:9f4a' });
+
+    expect(dispatchReward).toHaveBeenCalledTimes(1);
+    const { play, userId } = dispatchReward.mock.calls[0][0];
+    expect(userId).toBe('user-123');
+    // The context that CHOSE the mix, carried from the serve rather than re-read at event time.
+    expect(play).toMatchObject({
+      stateId: 'acute-stress', targetBand: 'resting', hourOfDay: 21,
+      archetype: 'meet-then-lower', recordingKey: 'mbid:9f4a',
+    });
+    expect(play.events).toEqual([{ type: 'complete', positionMs: 210_000 }]);
+    // The readings are the RAW device values, and the counterfactual is a real Kalman trend.
+    expect(play.samples).toHaveLength(8);
+    expect(play.samples.map((s) => s.value)).toEqual([100, 98, 96, 94, 92, 90, 88, 86]);
+    expect(Number.isFinite(play.expectedSlope)).toBe(true);
+  });
+
+  it('a `save` does not close the play — it rides along to the terminal event', async () => {
+    const { socket, state } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+    await serveWithContext(socket, state);
+
+    Date.now.mockReturnValue(T0 + 40_000);
+    socket._trigger('playback_event', { type: 'save', positionMs: 40_000, trackKey: 'mbid:9f4a' });
+    expect(dispatchReward).not.toHaveBeenCalled();
+
+    Date.now.mockReturnValue(T0 + 200_000);
+    socket._trigger('playback_event', { type: 'complete', positionMs: 200_000, trackKey: 'mbid:9f4a' });
+    expect(dispatchReward.mock.calls[0][0].play.events.map((e) => e.type)).toEqual(['save', 'complete']);
+  });
+
+  it.each([
+    ['an unknown type', { type: 'like' }],
+    ['no payload at all', undefined],
+    ['a bare string', 'skip'],
+    ['a type smuggled through the prototype', Object.create({ type: 'skip' })],
+  ])('%s never reaches the lane', (_label, raw) => {
+    const { socket } = wired();
+    socket._trigger('playback_event', raw);
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+
+  it('the S7 budget bounds how often one socket can teach', () => {
+    const { socket } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+
+    for (let i = 0; i < RATE_LIMIT_MAX + 25; i++) {
+      socket._trigger('playback_event', { type: 'complete', positionMs: 1_000 });
+    }
+    expect(dispatchReward).toHaveBeenCalledTimes(RATE_LIMIT_MAX);
+  });
+
+  it('the budget is ONE allowance across both doors — track_skipped spends the same units', () => {
+    const { socket } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) socket._trigger('playback_event', { type: 'complete', positionMs: 1_000 });
+    dispatchReward.mockClear();
+    socket._trigger('track_skipped');
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+
+  it('a malformed payload spends budget too — a flood costs the same either way', () => {
+    const { socket } = wired();
+    jest.spyOn(Date, 'now').mockReturnValue(T0);
+
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) socket._trigger('playback_event', { type: 'garbage' });
+    socket._trigger('playback_event', { type: 'complete', positionMs: 1_000 });
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+});
+
+describe('W4-011 — track_skipped forwards without changing what it already did', () => {
+  const { registerBiometricHandler, FEEDBACK_FLAG } = require('../app/sockets/biometricHandler');
+  const { dispatchReward } = require('../app/services/learning/rewardDispatch');
+
+  afterEach(() => { delete process.env[FEEDBACK_FLAG]; });
+
+  it('forwards the skip as the MILDER late skip — a client that did not say when cannot be punished for it', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('track_skipped');
+
+    expect(dispatchReward).toHaveBeenCalledTimes(1);
+    expect(dispatchReward.mock.calls[0][0].play.events).toEqual([{ type: 'skip', positionMs: null }]);
+  });
+
+  it('the skip-loop regeneration is untouched — two skips still regenerate', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('track_skipped');
+    socket._trigger('track_skipped');
+    await new Promise((r) => setImmediate(r));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({ trigger: 'skip_loop' }));
+  });
+});
+
+describe('W4-011 — S11: WAVE4_FEEDBACK_DISABLED restores the pre-wave socket byte-for-byte', () => {
+  const {
+    registerBiometricHandler, handleBiometricReading, _debounceMap, FEEDBACK_FLAG,
+  } = require('../app/sockets/biometricHandler');
+  const { dispatchReward } = require('../app/services/learning/rewardDispatch');
+
+  beforeEach(() => { process.env[FEEDBACK_FLAG] = 'true'; });
+  afterEach(() => { delete process.env[FEEDBACK_FLAG]; });
+
+  it('playback_event becomes inert', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('playback_event', { type: 'complete', positionMs: 200_000, trackKey: 'mbid:9f4a' });
+    expect(dispatchReward).not.toHaveBeenCalled();
+  });
+
+  it('track_skipped forwards nothing and still counts toward the skip loop', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('track_skipped');
+    socket._trigger('track_skipped');
+    await new Promise((r) => setImmediate(r));
+
+    expect(dispatchReward).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.objectContaining({ trigger: 'skip_loop' }));
+  });
+
+  it('no heart-rate sample is collected at all — the window stays empty', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    const now = Date.parse('2026-06-21T19:00:00.000Z');
+    handleBiometricReading(socket, 'garmin', { heartRate: 92, startTimeLocal: new Date(now).toISOString() }, { now });
+
+    expect(_debounceMap.get(socket.id).playWindow).toBeNull();
   });
 });

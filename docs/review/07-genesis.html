@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>07 · Genesis — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--sunken:#F1F3FB;--plate:#FFFFFF;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;--accent:#6E3FC4;--hue:#8B6FE8}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--sunken:#090B1E;--plate:#11132F;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;--accent:#C4A6FF;--hue:#8B6FE8}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .fld{position:absolute;left:-20%;right:-20%;bottom:-26%;height:74%;
+       background:radial-gradient(ellipse 62% 100% at 50% 100%,color-mix(in srgb,var(--hue) 20%,transparent),transparent 72%)}
+  @keyframes brth{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:.8;transform:scale(1.03)}}
+  @keyframes dotb{0%,100%{opacity:.4}50%{opacity:.95}}
+  .brth{animation:brth 4200ms ease-in-out infinite}
+  .dotb{animation:dotb 2600ms ease-in-out infinite}
+  @media (prefers-reduced-motion: reduce){ .brth,.dotb{animation:none!important;opacity:.65!important} }
+
+  .stagewrap{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:300px;height:300px}
+  .ring{position:absolute;border-radius:50%;border:1px solid var(--track)}
+  .core{position:absolute;border-radius:50%;background:color-mix(in srgb,var(--hue) 22%,transparent)}
+  .foot{position:absolute;left:0;right:0;bottom:96px;padding:0 34px;text-align:center}
+  .say{font:600 19px/1.4 var(--disp);color:var(--ink)}
+  .slow{margin-top:8px;font:400 13px/1.5 var(--text);color:var(--ink2)}
+  .meter{margin-top:12px;display:flex;justify-content:center;gap:6px;align-items:center}
+  .tick{display:block;width:22px;height:8px;border-radius:999px;background:var(--accent)}
+  .tick.off{background:color-mix(in srgb,var(--hue) 18%,transparent);outline:1px solid var(--track)}
+  .breathdot{display:block;width:8px;height:8px;border-radius:50%;background:var(--track)}
+  .cancel{position:absolute;font:500 13px var(--text);color:var(--ink2);min-height:44px;
+          display:flex;align-items:center;padding:0 12px}
+  .play{display:flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:50%;
+        background:var(--accent);color:var(--onink);margin:0 auto}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:180px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>07 · Genesis</h1>
+<p class="sub">The wait between placing and playing. Three treatments, both themes, six independent rows, live assembly at the top. Frames drawn at <code>field=intense</code>.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Four things I previously told you were wrong here, and are not</div>
+  <p>The board was rebuilt in an earlier stage and most of my plan&rsquo;s complaints no longer describe it. One of these was a plain misreading on my part and I want to name it exactly.</p>
+  <table style="margin:10px 0 0">
+    <tr><th>Old claim</th><th>Checked</th></tr>
+    <tr><td>&ldquo;Fabricated trace in the real-data dialect&rdquo;</td><td class="pass">There is no trace on the board. Three breathing rings and a meter, nothing else.</td></tr>
+    <tr><td>&ldquo;dasharray 340 vs a ~287px path&rdquo;</td><td class="pass">No <code>dasharray</code> anywhere in the file.</td></tr>
+    <tr><td>&ldquo;3-tick meter over a <strong>~220s</strong> ceiling&rdquo;</td><td class="fail">The ceiling is <strong>30s</strong> &mdash; <code>AUTO_SETTLE_MS = 30_000</code> and <code>GENERATION_TIMEOUT_MS = 30_000</code> agree. My &ldquo;220s&rdquo; came from <code>biometricHandler.js:1437</code>, which is the <strong>heart-rate validation range, 30&ndash;220 bpm</strong>. I read a bpm range as seconds.</td></tr>
+    <tr><td>&ldquo;Arousal answered with more light &mdash; the ethic inverted&rdquo;</td><td class="pass"><code>heat()</code> ramps cyan&rarr;coral and is <strong>capped there</strong>, explicitly never reaching RED. And <code>emotionAnchors</code> is entirely cool-band now &mdash; sky, periwinkle, violet, indigo &mdash; with a never-red VALUE invariant pinned in <code>tokens.test.ts</code>.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is actually wrong</div>
+
+  <p><strong>It draws a determinate three-step meter over a process that has no steps.</strong> <code>generationStatusStore</code> holds exactly <code>generating: boolean</code> and an optional message. There is no stage, no index, no percentage &mdash; nothing that could fill tick two of three. The board also announces it: <code>role="progressbar" aria-valuenow="2" aria-valuemin="1" aria-valuemax="3"</code>, so a screen reader is told &ldquo;step 2 of 3&rdquo; of a process with one state.</p>
+  <p>This is the same problem you already ruled on at Splash, where you chose the breathing dot and said why: <em>&ldquo;it&rsquo;s indeterminate, so it&rsquo;s honest at any duration.&rdquo;</em> The honest duration range here is <strong>0 to 30 seconds</strong> &mdash; often under a second, occasionally the full ceiling. A three-step meter has to lie at both ends.</p>
+
+  <p><strong>The copy is invented.</strong> &ldquo;Sitting with the shape of it.&rdquo; appears nowhere in the codebase. The shipped strings are <code>ANALYZING_COPY = 'Reading your signal…'</code> and <code>RESOLVED_COPY = 'Found your sound'</code> &mdash; two states, and the second one is the moment the whole product is for.</p>
+
+  <p style="margin-bottom:0"><strong>Two different visuals exist for one moment and nothing says which survives.</strong> The board draws three concentric breathing rings. The app ships <code>NeuralAnalysisLoader</code> &mdash; a Skia node sphere on a golden-angle Fibonacci distribution with a depth-cued heat ramp, already unit-tested and already NaN-guarded. That is a real component doing a real job; the rings are a drawing. Row two puts them side by side.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">A code-hygiene item, not a design one</div>
+  <p style="margin-bottom:0"><code>neuralLoaderMath.ts</code> exports its ramp anchors as <code>CYAN</code>, <code>CORAL</code> and <code>RED</code>, annotated <code>#31E1C4</code>, <code>#FF8A73</code>, <code>#FF5A5A</code>. Those values are stale: they now resolve to <code>#3FB4F0</code>, <code>#8B6FE8</code> and <code>#4B6FD0</code> &mdash; sky, violet, indigo. The <em>code</em> is correct, because it derives from <code>emotionAnchors</code> rather than restating them. But the names and the comments describe a warm ramp that the values are not, on the one file where someone reasoning about the never-red ethic would look first. A future edit that &ldquo;restored&rdquo; the names&rsquo; meaning would break the ethic and read as a fix. Worth renaming; I have added it to the colour dev item rather than treating it as canvas work.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>the line</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>slow note</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>ring <span style="color:#5B5D77">(--track, non-text 3:1)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td>filled tick <span style="color:#5B5D77">(non-text 3:1)</span></td><td class="pass">6.36 : 1</td><td class="pass">9.32 : 1</td></tr>
+      <tr><td>cancel label</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>glyph on accent fill</td><td class="pass">6.36 : 1</td><td class="pass">9.32 : 1</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">The real duration</div>
+    <table>
+      <tr><td>client auto-settle</td><td><strong>30s</strong></td></tr>
+      <tr><td>backend timeout</td><td><strong>30s</strong></td></tr>
+      <tr><td>typical</td><td>well under 1s</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'progress',name:'The wait indicator',hint:'The honest range is 0 to 30 seconds. Whatever goes here has to be true at both ends.',opts:[
+   ['breath','An indeterminate breath','One settling dot. Cannot lie about duration. What you chose on Splash.'],
+   ['two','Two steps','Reading, then found — the two states the store actually has.'],
+   ['three','Three steps, as today','Announces &ldquo;step 2 of 3&rdquo; of a process with one state.']]},
+ {id:'visual',name:'What is on screen',hint:'Two visuals exist for this moment. This decides which one is real.',opts:[
+   ['rings','Three breathing rings','What the board draws. Calm, generic, and not a shipped component.'],
+   ['nodes','The node net','Represents the shipped NeuralAnalysisLoader — tested, NaN-guarded, already built.'],
+   ['plate','The plate, held','The disc they just placed on, breathing. Strongest continuity from Generate.']]},
+ {id:'copy',name:'The voice',hint:'Shipped strings are &ldquo;Reading your signal…&rdquo; and &ldquo;Found your sound&rdquo;. The board invented its own.',opts:[
+   ['shipped','As shipped','Plain, and already written. Says what is happening.'],
+   ['poetic','The board&rsquo;s voice','&ldquo;Sitting with the shape of it.&rdquo; Warmer, and currently fiction.'],
+   ['none','Wordless','The visual carries it. Nothing to translate, nothing to contradict.']]},
+ {id:'field',name:'The ambient field',hint:'The living background, carrying the fused quadrant hue.',opts:[
+   ['on','Present','Continuous with Generate. The hue is the answer arriving.'],
+   ['dim','Halved','Present but quieter, so the centre holds attention.'],
+   ['off','Absent','A still screen for a short wait. Nothing competing.']]},
+ {id:'cancel',name:'A way out',hint:'The wait can reach 30 seconds. Today there is no exit drawn.',opts:[
+   ['top','Back, top-left','Conventional and always reachable.'],
+   ['under','Under the line','Reads as part of the moment rather than chrome.'],
+   ['none','No exit','What the board does. Defensible only if the wait is always short.']]},
+ {id:'state',name:'Which state is drawn',hint:'Three exist. The board draws one.',opts:[
+   ['working','Working','The ordinary case, usually under a second.'],
+   ['slow','Near the ceiling','Approaching 30s. Says so rather than going quiet.'],
+   ['resolved','Found','The payoff, and the handoff into Now Playing.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Honest wait',tag:'THE SPLASH RULE, APPLIED',
+  desc:'Takes the ruling you already made at Splash and applies it here: an indeterminate breath instead of a step count, the shipped copy instead of invented copy, and a way out. Everything else left alone.',
+  c:{progress:'breath',visual:'rings',copy:'shipped',field:'on',cancel:'top',state:'working'}},
+ {key:'B',name:'The component that exists',tag:'USE WHAT SHIPS',
+  desc:'Retires the rings in favour of the node net that is already built, tested and guarded, and uses the two states the store genuinely has. The least new code and the most specific visual — it looks like this product and nothing else.',
+  c:{progress:'two',visual:'nodes',copy:'shipped',field:'dim',cancel:'under',state:'working'}},
+ {key:'C',name:'The plate, held',tag:'CONTINUITY',
+  desc:'The disc they just touched stays on screen and breathes while the answer resolves, so nothing is swapped out at the moment of handover. Wordless. The risk is that a held plate reads as unresponsive rather than working, which is exactly what the breath has to solve.',
+  c:{progress:'breath',visual:'plate',copy:'none',field:'on',cancel:'top',state:'working'}}
+];
+
+const SAY={
+ shipped:{working:'Reading your signal…',slow:'Reading your signal…',resolved:'Found your sound'},
+ poetic:{working:'Sitting with the shape of it.',slow:'Sitting with the shape of it.',resolved:'It&rsquo;s ready.'},
+ none:{working:'',slow:'',resolved:''}
+};
+
+function visualNode(c){
+  var h='<div class="stagewrap">';
+  if(c.visual==='rings'){
+    h+='<div class="ring brth" style="inset:0"></div>'+
+       '<div class="ring brth" style="inset:34px;opacity:.7;animation-delay:380ms"></div>'+
+       '<div class="core brth" style="inset:74px;animation-delay:760ms"></div>';
+  } else if(c.visual==='plate'){
+    h+='<svg width="300" height="300" viewBox="0 0 322 322" class="brth">'+
+      '<circle cx="161" cy="161" r="132" fill="var(--plate)" stroke="var(--line)" stroke-opacity=".55"/>'+
+      '<line x1="161" y1="112" x2="161" y2="210" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"/>'+
+      '<line x1="112" y1="161" x2="210" y2="161" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"/>'+
+      '<circle cx="225" cy="115" r="26" fill="color-mix(in srgb,var(--hue) 18%,transparent)"/>'+
+      '<circle cx="225" cy="115" r="13" fill="var(--accent)"/></svg>';
+  } else {
+    var pts='';
+    for(var i=0;i<44;i++){
+      var ga=Math.PI*(3-Math.sqrt(5));
+      var y=1-(i/43)*2, r=Math.sqrt(Math.max(0,1-y*y)), th=i*ga;
+      var x=Math.cos(th)*r, z=Math.sin(th)*r;
+      var depth=(z+1)/2;
+      var cx=161+x*120, cy=161+y*120;
+      var rr=(1.6+depth*2.6).toFixed(1);
+      pts+='<circle cx="'+cx.toFixed(1)+'" cy="'+cy.toFixed(1)+'" r="'+rr+'" fill="var(--accent)" opacity="'+(0.25+depth*0.6).toFixed(2)+'"/>';
+    }
+    h+='<svg width="300" height="300" viewBox="0 0 322 322" class="brth"><circle cx="161" cy="161" r="126" fill="none" stroke="var(--line)"/>'+pts+'</svg>';
+  }
+  return h+'</div>';
+}
+
+function meterNode(c){
+  if(c.progress==='breath'){
+    var settled = c.state==='resolved';
+    return '<div class="meter"><span class="breathdot'+(settled?'':' dotb')+'" style="'+
+      (settled?'background:var(--accent);width:10px;height:10px':'')+'"></span></div>';
+  }
+  var n = c.progress==='two' ? 2 : 3;
+  var done = c.state==='resolved' ? n : (c.state==='slow' ? n-1 : (n===2?1:2));
+  var h='<div class="meter">';
+  for(var i=0;i<n;i++) h+='<span class="tick'+(i<done?'':' off')+'"></span>';
+  return h+'</div>';
+}
+
+function frame(theme,c){
+  var h='<div class="ph" data-t="'+theme+'">';
+  if(c.field!=='off') h+='<div class="fld" style="opacity:'+(c.field==='dim'?'.5':'1')+'"></div>';
+  h+=visualNode(c);
+  if(c.cancel==='top') h+='<span class="cancel" style="left:10px;top:44px">&larr; Back</span>';
+  h+='<div class="foot">';
+  var line=SAY[c.copy][c.state];
+  if(line) h+='<div class="say">'+line+'</div>';
+  if(c.state==='slow') h+='<div class="slow">Still going. It can take up to half a minute.</div>';
+  if(c.state==='resolved'){
+    h+='<div style="margin-top:14px"><span class="play">'+
+      '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>';
+  }
+  h+=meterNode(c);
+  if(c.cancel==='under') h+='<div style="margin-top:6px"><span class="cancel" style="position:static;justify-content:center;text-decoration:underline;text-underline-offset:3px">Cancel</span></div>';
+  return h+'</div></div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 07 — GENESIS — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-');
+    lines.push(row.name.padEnd(24,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

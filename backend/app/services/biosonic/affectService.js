@@ -4,6 +4,7 @@ const { peekAffectState, saveAffectState } = require('./affectCache');
 const { localHour } = require('../../agents/runtime/physiology/baselineEngine');
 const { updateAffect } = require('../../agents/runtime/physiology/affectEngine');
 const { STATES } = require('../../agents/runtime/knowledge/stateTaxonomy');
+const { disabled } = require('../../utils/envFlag');
 
 /**
  * W4-006 (seam half) — THE ONE WAY AFFECT IS COMPUTED, ON EVERY LANE.
@@ -24,7 +25,7 @@ const { STATES } = require('../../agents/runtime/knowledge/stateTaxonomy');
  */
 
 /** S11 escape hatch. Read per call — a switch that needs a redeploy is not an escape hatch. */
-const affectDisabled = () => Boolean(process.env.WAVE4_AFFECT_DISABLED);
+const affectDisabled = () => disabled(process.env.WAVE4_AFFECT_DISABLED);
 
 const finite = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 

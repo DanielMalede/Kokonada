@@ -27,7 +27,7 @@ async function generateV2({
   // discovery threads the SAME object so discovery and the pipeline never drift);
   // otherwise compute it here (mood-fallback + legacy callers).
   const resolvedTargets = targets != null ? targets : await buildTargets({ userId, live, moodKey, now });
-  const { tracks, telemetry } = await selectPlaylist({
+  const { tracks, telemetry, gradients } = await selectPlaylist({
     userId, musicProfile, moodKey, provider, aiParams, targets: resolvedTargets, discoveryTracks, k, now, crossPlatform,
   });
 
@@ -36,6 +36,10 @@ async function generateV2({
     discovery: tracks.filter(t => t.isDiscovery),
     merged:    tracks,
     telemetry,
+    // W4-013 (B7): the serve-time half of the overlay's write lane — §M.15's `∂` for each track
+    // actually served, or NULL when the overlay is off. Threaded rather than recomputed because
+    // the scorer's per-term values and the weight table in force both die with the request.
+    gradients,
     targets: resolvedTargets,
   };
 }

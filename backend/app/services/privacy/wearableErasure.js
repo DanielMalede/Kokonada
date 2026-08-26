@@ -9,6 +9,7 @@
 const BiometricLog   = require('../../models/BiometricLog');
 const VitalSample    = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
+const MorningState   = require('../../models/MorningState');
 const garmin         = require('../wearable/garmin');
 const { getRedis }   = require('../../config/redis');
 
@@ -42,14 +43,44 @@ async function purgeWearableData(userId, provider) {
   //    "Derived solely from the purged provider" now means no HR samples AND no vital samples
   //    remain — counting only BiometricLog would delete a profile still backed by another
   //    wearable's VitalSample rows.
+  //
+  //    MorningState (W4-012, S5) is the SAME category of derived aggregate — a nightly
+  //    consolidation of exactly the vitals MedicalProfile/BiometricLog/VitalSample carry, with
+  //    no per-source attribution of its own — so it rides the identical all-or-nothing rule
+  //    rather than a fourth, disagreeing scoping scheme.
   let medicalProfiles = 0;
+  let morningStates = 0;
   const remaining = await BiometricLog.countDocuments({ userId })
     + await VitalSample.countDocuments({ userId });
   if (remaining === 0) {
     const med = await MedicalProfile.deleteMany({ userId });
     medicalProfiles = med?.deletedCount ?? 0;
+    const morning = await MorningState.deleteMany({ userId });
+    morningStates = morning?.deletedCount ?? 0;
   }
 
+  // 2b. RewardEvent (W4-011, ADR-0012 Track A, S5) is registered here as a DELIBERATE
+  //     EXCLUSION, and the reasoning is the point rather than the omission. It looks like the
+  //     same category as MorningState — a per-user derived aggregate with no `source` field —
+  //     but it is not derived solely from the wearable. A bucket's coordinates are
+  //     {stateDomain, targetBand, hourBin}, and the taxonomy resolves a state DEGRADED (from
+  //     mood taps and the clock alone) when no wrist signal exists at all — `stateTaxonomy`'s
+  //     own `degraded` flag is exactly that guarantee. Half of each bucket's evidence is
+  //     behavioural (skip / complete / save), which no wearable ever touched. So dropping a
+  //     user's whole learned personalization because they unpaired one watch would erase data
+  //     that is not wearable-derived, which is over-erasure, not caution. It stays; account
+  //     deletion still removes it in full (`erasure.js`).
+  //
+  // 2c. PersonalWeights (W4-013 B7, S5) is registered here as a DELIBERATE EXCLUSION for the
+  //     SAME reason as RewardEvent above, and it is worth stating rather than inheriting. The
+  //     overlay is four MUSIC-RANKING coefficients, not a physiological aggregate: it is moved by
+  //     the same combined reward, whose behavioural half (skip / complete / save) no wearable ever
+  //     touched, and whose biometric half is only ever one of two contributions. It also has no
+  //     `source` field to scope a delete by, because a scoring weight has no provider. Dropping a
+  //     listener's whole learned ranking because they unpaired one watch would be over-erasure of
+  //     data that is not wearable-derived. It stays; account deletion still removes it in full
+  //     (`erasure.js`), and §M.15's shrink-to-global takes it back to the default on its own.
+  //
   // 3. Invalidate the derived Redis baseline blob so the next generation recomputes from
   //    whatever remains (best-effort — a Redis outage must not fail the erasure; TTL cleans up).
   try {
@@ -65,7 +96,9 @@ async function purgeWearableData(userId, provider) {
     if (redis) await redis.del(_affectKey(userId));
   } catch { /* best-effort */ }
 
-  return { biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles };
+  return {
+    biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles, morningStates,
+  };
 }
 
 // Null out the User-doc credential fields for a provider. Does NOT persist — the caller

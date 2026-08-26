@@ -10,6 +10,9 @@ const garminIngest = require('../services/wearable/garminIngest');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
 const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
 const { persistMetrics } = require('../services/wearable/metricStore');
+// W4-D10: the ingest receipt log names the metrics a batch touched, never their values.
+const { summarizeMetricKeys } = require('../utils/biometricAudit');
+const { PROFILE_SCALAR_METRICS } = require('../services/medicalProfileService');
 const { isPhysiologicalHR, HR_MIN, HR_MAX } = require('../services/wearable/hrRange');
 const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
@@ -666,7 +669,18 @@ exports.healthBatchIngest = async (req, res, next) => {
 
     const result = await healthStore.ingestBatch(req.user._id, platform, samples);
     // W4-D08: `rejected` is a count plus (path, validator-kind) pairs — never a submitted value.
-    console.warn(`[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} rejected=${result.rejected?.count || 0} profileMetrics=${JSON.stringify(result.profileMetrics || {})}`);
+    // W4-D10: this line used to serialise the whole `profileMetrics` object, i.e. write the median
+    // resting HR / HRV / SpO2 / respiration and the night's sleep minutes to stdout on EVERY
+    // successful batch — Art.9 special-category numbers, which §0.2.2 forbids in any log. The
+    // receipt's job (#90: "did it reach the server, did it persist?") needs how many baselines
+    // moved and which metrics they were, not what they said. Values stay in `res.json` below,
+    // where they go to the authenticated owner over TLS rather than to the log stream.
+    const pm = summarizeMetricKeys(result.profileMetrics, PROFILE_SCALAR_METRICS);
+    console.warn(
+      `[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} `
+      + `rejected=${result.rejected?.count || 0} profileMetrics=${pm.count} profileMetricKeys=${pm.keys}`
+      + (pm.unknown ? ` unknownProfileKeys=${pm.unknown}` : ''),
+    );
 
     // Mark the wearable provider on first push so the web UI reflects the connection.
     const provider = platform === 'healthkit' ? 'apple_health' : 'health_connect';

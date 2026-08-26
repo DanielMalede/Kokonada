@@ -20,12 +20,22 @@ const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const { logBiometricAccess } = require('../utils/biometricAudit');
+const { disabled } = require('../utils/envFlag');
 const { createFilterState, filterReading } = require('../agents/runtime/ingestion/anomalyFilter');
+const { onlineUpdate: liveStateOnlineUpdate } = require('../agents/runtime/physiology/liveStateAdapter');
+// W4-011 (wiring half): the feedback loop's three socket-side jobs — bound the payload, hold the
+// play window, hand the verdict to the write lane. The kill switch is READ from the dispatcher
+// rather than re-declared here: one flag, one reading of it (D11's lesson, again).
+const { sanitizePlaybackEvent, createRateLimitState, admitPlaybackEvent } = require('../agents/runtime/learning/playbackEvent');
+const { createPlayWindowState, contextFromTargets, discoveryKeysOf, gradientsOf, openWindow, recordSample, noteEvent } = require('../agents/runtime/learning/playWindow');
+const { dispatchReward, feedbackDisabled, FEEDBACK_FLAG } = require('../services/learning/rewardDispatch');
 const { insertManyAccounted } = require('../services/wearable/insertAccounted');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 const captionService = require('../services/discovery/captionService');
+const { peekBaselines } = require('../services/biosonic/baselines');
+const { readNightHistory } = require('../repositories/sleepHistoryRepo');
 // Art.9 consent gate (audit H-9 follow-up) for the live socket biometric_push path.
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
 
@@ -51,23 +61,26 @@ const HR_NOISE_FLOOR = 3;
 // abandon the mix. MUST stay > HR_NOISE_FLOOR or the trigger is symmetric again.
 const HR_BAND_RELEASE_MARGIN = 6;
 // §0.4 S11 escape hatch: set it and the trigger reverts to W4-001's symmetric behaviour with
-// no revert and no deploy. Forgiving about its value on purpose — a kill-switch that ignores
-// `=1` because it demanded `=true` is a kill-switch that fails when it is finally needed.
+// no revert and no deploy. The hazard this used to warn about — a kill-switch that ignores `=1`
+// because it demanded `=true` — was real, and it was living in this very file at the
+// `WAVE4_LLM_BAND_FROM_STATE_DISABLED` gate below. W4-D58 moved the parse to the one house
+// spelling in `utils/envFlag`, which honours `=1` and every other ON spelling while still
+// reading the operator's `=false` as OFF.
 const RECAL_HYSTERESIS_FLAG = 'WAVE4_RECAL_STATE_TRIGGER_DISABLED';
-const _hysteresisDisabled = () => {
-  const v = String(process.env[RECAL_HYSTERESIS_FLAG] ?? '').trim().toLowerCase();
-  return v !== '' && v !== 'false' && v !== '0';
-};
+const _hysteresisDisabled = () => disabled(process.env[RECAL_HYSTERESIS_FLAG]);
 // §0.4 S11 escape hatch for the whole A0 wiring (W4-003): set it and every socket reading
 // reverts to the pre-filter, pre-persistence W4-001 behaviour byte-for-byte — the raw
 // normalized heart rate drives the debounce/trigger machinery directly (no Hampel/slew/
-// Kalman, no live BiometricLog write). Same forgiving parse as RECAL_HYSTERESIS_FLAG: a
-// kill-switch that only understands `=true` is a kill-switch that fails at 2am on `=1`.
+// Kalman, no live BiometricLog write). Same house spelling as every other switch (W4-D58).
 const ANOMALY_FILTER_FLAG = 'WAVE4_ANOMALY_FILTER_DISABLED';
-const _anomalyFilterDisabled = () => {
-  const v = String(process.env[ANOMALY_FILTER_FLAG] ?? '').trim().toLowerCase();
-  return v !== '' && v !== 'false' && v !== '0';
-};
+const _anomalyFilterDisabled = () => disabled(process.env[ANOMALY_FILTER_FLAG]);
+// §0.4 S11 escape hatch for the W4-D34 duplicate-serve latch: set it and a recalibration
+// serves whatever key it computes, every time, exactly as before the latch existed. Its OWN
+// flag on purpose — W4-D35 is the standing complaint that RECAL_HYSTERESIS_FLAG already
+// reverts two unrelated behaviours, and a third would make it unusable as a kill-switch:
+// disabling the latch to debug a missing serve must not also disable the band hysteresis.
+const SERVE_LATCH_FLAG = 'WAVE4_SERVE_LATCH_DISABLED';
+const _serveLatchDisabled = () => disabled(process.env[SERVE_LATCH_FLAG]);
 // D10 (W4-003): the live socket lane finally persists what it sees. Capped at one row per
 // minute per socket — a live stream can push every few seconds, and BiometricLog is a
 // history/baseline input, not a raw firehose; the batch lane already owns high-density
@@ -108,6 +121,16 @@ const DISCOVERY_CAPTION_LLM = () => process.env.DISCOVERY_CAPTION_LLM === 'true'
 // DEBUG_PLAYLIST=1 (always on in `development`; silent in test/production).
 const DEBUG = process.env.DEBUG_PLAYLIST === '1' || process.env.NODE_ENV === 'development';
 function log(...args) { if (DEBUG) console.log(...args); }
+
+// W4-D03 — the projection a trace line may carry in place of a heart rate. §0.2.2 and ADR-0005
+// admit coarse bands and derived targets in a log, never the reading itself, and `DEBUG`-gating is
+// not an exemption: a dev box pointed at real watch data is exactly where an Art.9 value ends up in
+// a scrollback. `bandFromHeartRate` rather than a local cut table on purpose — it is the SAME
+// projection the shadow buffer is keyed by (`bio:<band>:<activity>`), the trigger fires on and the
+// targets turn on, so the trace still answers the only question it was ever asked ("which band did
+// this run on?"), and a moved cut moves the buffer and the trace together. Duplicating the cuts
+// instead is D11 exactly. Unusable reading → 'none', not "null", which reads like a value.
+const _hrBand = (hr) => bandFromHeartRate(hr) ?? 'none';
 
 // Normalize a track to the frontend contract { id, title, artist, uri } before
 // emitting. Library/"familiar" tracks are stored without a uri or title (only
@@ -274,6 +297,88 @@ async function tagSpotifyDiscovery(accessToken, tracks) {
   });
 }
 
+// W4-D57: how long a socket may reuse the baseline blob it already read.
+//
+// `peekBaselines` is a Redis round trip + an AES-256-GCM decrypt + a `[biometric-access]` audit
+// line. On the generation path that is once per playlist; on the reading path (W4-015) it is once
+// per wearable sample. What it returns is a 30-day median whose own staleness horizon is six
+// HOURS, so re-reading it per reading buys nothing and costs one of each, per reading, per user.
+// 60 s matches `baselines.REFRESH_COOLDOWN_MS` by intent rather than by import: both say "the
+// underlying data cannot have moved meaningfully in less than this", and the handler must not
+// depend on the cache module's internal scheduling constant to state its own hold.
+const LIVE_BASELINE_HOLD_MS = 60 * 1000;
+
+// W4-D72: how long a socket may reuse the night history it already read.
+//
+// A SEPARATE constant rather than a shared one, because the two reads cache things with very
+// different clocks. The baseline blob is refreshed on a six-hour horizon; a night history is
+// written by the nightly consolidation job and cannot change more than ONCE A LOCAL DAY. Holding
+// it for the baseline window would pay a Mongo round trip a minute for data that provably has
+// not moved. 30 minutes is 30x the baseline hold and still ~48x inside the once-a-day cadence of
+// what it caches, so the worst case is that a listener who is already connected when their
+// consolidation lands keeps yesterday's view of their sleep for at most half an hour — against a
+// debt accumulator that decays over fourteen nights, that is not a number anyone can hear.
+const LIVE_NIGHTS_HOLD_MS = 30 * 60 * 1000;
+
+/**
+ * The socket's held view of ONE best-effort per-user read, as a `{atMs, promise, value}` entry.
+ *
+ * It stores the PROMISE, not just the resolved value, so a burst of readings arriving faster than
+ * one round trip still produces exactly one read (single-flight) rather than one per reading in
+ * flight. It stores the resolved VALUE alongside so a caller that must not wait can take whatever
+ * has already landed — see `_heldNights` for why one of the two callers must not.
+ *
+ * A rejection is not an answer: the hold is dropped so the next reading retries, instead of the
+ * socket inheriting a whole window's hole because Redis or Mongo blinked once. Both loaders
+ * swallow their own errors today, so this is a guard on the seam, not on an observed failure
+ * mode — and `empty` is what the caller gets meanwhile, never a throw.
+ */
+function _heldRead(state, slot, holdMs, nowMs, load, empty) {
+  const held = state[slot];
+  if (held && (nowMs - held.atMs) < holdMs) return held;
+
+  const entry = { atMs: nowMs, promise: null, value: empty };
+  entry.promise = load()
+    .then((v) => { entry.value = v ?? empty; return entry.value; })
+    .catch(() => {
+      if (state[slot] === entry) state[slot] = null;
+      return empty;
+    });
+  state[slot] = entry;
+  return entry;
+}
+
+/**
+ * This user's baseline blob — a Redis round trip, an AES-256-GCM decrypt and an audit line.
+ * AWAITED, and deliberately so: without it every hour-keyed axis abstains, so a reading scored
+ * without the blob is barely a reading at all (W4-015's soak finding).
+ */
+const _heldBaselines = (state, userId, nowMs) => _heldRead(
+  state, 'liveBaselines', LIVE_BASELINE_HOLD_MS, nowMs, () => peekBaselines(userId), null,
+).promise;
+
+/**
+ * This user's consolidated nights — one indexed `{userId, date}` read, `.limit(14)`.
+ *
+ * Returns the HOLD ENTRY, and the call site reads `.value`: the nights are taken as they land
+ * and are never waited for. That asymmetry with `_heldBaselines` is the point, not an oversight:
+ *
+ *   · this is a MONGO round trip on a lane that fires once per wearable sample, and mongoose
+ *     buffers for `bufferTimeoutMS` when the primary is unreachable — awaiting it would let a
+ *     slow or stalled database hold the taxonomy posterior hostage for seconds at a time, on the
+ *     one lane whose entire justification (W4-009) is being O(1) and immediate;
+ *   · what it buys is ONE term of ONE axis (§M.6's debt, 0.6 of `fatigue`) against a history
+ *     that decays over fourteen nights, so a reading or two scored before it lands is not a
+ *     difference a listener can hear — where a reading scored without BASELINES is.
+ *
+ * Consequence, stated plainly rather than discovered later: the first reading after a socket
+ * connects (and the first after each hold window turns over) scores with no sleep evidence,
+ * exactly as every reading did before W4-D72. At a 12 s watch cadence the second reading has it.
+ */
+const _heldNights = (state, userId, nowMs) => _heldRead(
+  state, 'liveNights', LIVE_NIGHTS_HOLD_MS, nowMs, () => readNightHistory(userId), [],
+);
+
 function getState(socketId) {
   if (!debounceMap.has(socketId)) {
     debounceMap.set(socketId, {
@@ -285,6 +390,27 @@ function getState(socketId) {
       // the Kalman estimate without ever confirming stableHR, which is what used to let
       // 9 bpm steps walk 60 -> 150 silently.
       filterState:      null,
+      // W4-011: what is playing, since when, and the readings since then. IN MEMORY and
+      // socket-scoped on purpose — the window holds heart-rate samples, and §0.2.2 keeps numeric
+      // vitals out of Redis, so the only place they may sit is the process that already receives
+      // them raw. Bounded by `playWindow`'s own age and count caps (§0.4 S10), and gone with the
+      // rest of this socket's state on disconnect. Lazily created on the first serve or reading.
+      playWindow:       null,
+      // W4-D57: this user's baseline blob, held for LIVE_BASELINE_HOLD_MS so the live lane pays
+      // one Redis read + decrypt + audit line per minute instead of one per reading. IN MEMORY
+      // and socket-scoped for the same reason playWindow is: the blob carries numeric vitals
+      // (rhrMedian et al.) and §0.2.2 keeps those out of logs and out of any DTO. Shape:
+      // { atMs, promise } | null.
+      liveBaselines:    null,
+      // W4-D72: this user's consolidated nights, held for LIVE_NIGHTS_HOLD_MS. Socket-scoped for
+      // the same §0.2.2 reason as liveBaselines — sleep-stage minutes are Art.9 special-category
+      // values, so they live in the process that already handles this listener's vitals raw and
+      // nowhere else. Shape: { atMs, promise } | null.
+      liveNights:       null,
+      // §0.4 S7 per-socket feedback budget. ONE budget shared by `playback_event` and the legacy
+      // `track_skipped`, because they are the same signal arriving by two doors — a client that
+      // exhausted its budget on one must not get a second allowance on the other.
+      playbackRate:     null,
       // D10 throttle: last wall-clock time (Date.now(), not the reading's own recordedAt)
       // this socket wrote a BiometricLog row. null = never written yet.
       lastPersistedAtMs: null,
@@ -296,6 +422,14 @@ function getState(socketId) {
       // decision, not on the serve — the Manual-mode gate lives inside recalibrateForBand,
       // and a latch that only warmed in Live mode would flap on the first switch into it.
       servedHR:         null,
+      // The bio moodKey (`bio:<band>:<activity>`) whose buffer this socket is currently being
+      // served (W4-D34). `servedHR` latches the HR-band TRIGGER; this latches the SERVE, and the
+      // two are not the same question now that W4-009 fires recalibration on taxonomy-state
+      // transitions: 20 of the 34 states share `band: resting`, so most confirmed transitions
+      // leave the key — and therefore the buffer, which §0.2.6 freezes at this coarse shape —
+      // completely unchanged. null = nothing served under a keyed buffer yet (also the value
+      // after an UNKEYED legacy serve, which is deliberately never latched).
+      servedBioMoodKey: null,
       latestActivity:   null,
       // Last sustained activity state — drives activity-change-triggered regen
       // (resting→running etc.) independently of the HR delta gate.
@@ -494,13 +628,37 @@ async function attachSessionContext(socket, payload) {
   }
 }
 
+// W4-D41: release a serve claim that was never earned. `recalibrateForBand` claims the key
+// BEFORE the serve (both its callers are fire-and-forget, so two regime changes in one tick would
+// otherwise both read the pre-serve latch and both serve), which means every path that ends
+// without delivering music owes the claim back. `bioServeKey` cannot witness that: it is resolved
+// deep inside the generation, after four exits that precede it, so a claim released only when a
+// bio key exists strands the key for the life of the socket. The claim object IS the witness —
+// it knows what it claimed, what was there before, and whether the run ever served.
+// Idempotent by design: several exits can race (a wall-clock abort and the abandoned body's own
+// `finally`), and only the first release may act.
+function _releaseServeClaim(state, claim) {
+  if (!claim || claim.served || claim.released) return;
+  claim.released = true;
+  // Only if the claim is still the standing one: a newer generation that legitimately latched
+  // its own key must not be cleared by an older run settling late.
+  if (state.servedBioMoodKey === claim.key) state.servedBioMoodKey = claim.previousKey;
+}
+
 // ── Core pipeline ──────────────────────────────────────────────────────────────
 
-async function generateAndEmitPlaylist(socket, trigger, state) {
+// `opts.serveClaim` (W4-D41) — set only when this generation is the cold-key fallback of a
+// recalibration, i.e. when it runs to discharge a claim someone else already made.
+async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
+  const serveClaim = opts.serveClaim ?? null;
   // In-flight guard: collapse overlapping generations on one socket (rapid mode
   // toggles, a watch ping landing mid-generation, Listen-Live + Save pressed
   // together) so two pipelines never interleave and emit out-of-order playlists.
   if (state.generating) {
+    // W4-D41: the earliest exit of all — before the epoch, the emit wrapper or the timer exist.
+    // The run this collapses into is generating under whatever key IT resolved, so the claim made
+    // for this one was not earned by anybody.
+    _releaseServeClaim(state, serveClaim);
     log(`[generate] skipped — already in-flight trigger=${trigger}`);
     // D-6 heartbeat: the caller already adopted the newest reqId into state.lastReqId, and
     // the running generation replies to it (see the emit wrapper). Answer the retry with a
@@ -531,15 +689,41 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
   // D-1: a playlist_ready first gets the session-playlist contextUri attached (absolute
   // queue parity on App Remote); the attach is fail-open — no context, same payload.
   let readyEmitSettled = Promise.resolve(); // awaited in finally so the deferred ready lands before the lock frees
+  // Set once the mood is resolved (see below); non-null only for the heart-rate branch's
+  // synthetic `bio:<band>:<activity>` key. Declared out here because `emit` is, and a run that
+  // dies before resolving a mood must latch nothing.
+  let bioServeKey = null;
   const emit = (event, payload) => {
     if (state.genSeq !== myGen) return;
     if (payload && 'reqId' in payload) payload = { ...payload, reqId: state.lastReqId ?? payload.reqId };
     if (event === 'playlist_ready') {
+      // W4-D34: the latch answers "is this key's buffer what is playing", so a playlist that is
+      // NOT a bio serve (the emotion branch, bioServeKey null) clears it rather than leaving a
+      // stale claim behind — otherwise a mood request would strand the socket, every later
+      // resting-band transition reading as a duplicate of music that stopped playing.
+      state.servedBioMoodKey = bioServeKey;
+      // W4-D41: the claim is earned when the playlist LANDS, not when it is queued — this emit is
+      // deferred behind the context attach, and a run superseded during that await (a wall-clock
+      // abort mid-Spotify-stall) drops it at the epoch guard below. Marking it here instead would
+      // let the abort's release read `served` and no-op, stranding the key on music nobody heard.
+      // Safe against the `finally`, which awaits `readyEmitSettled` before releasing anything.
+      // Marked on ANY ready: if the key moved mid-run, the assignment above already latched what
+      // is actually playing, and releasing would clobber it.
       readyEmitSettled = attachSessionContext(socket, payload)
-        .then((p) => { if (state.genSeq === myGen) emitToUser(socket, event, p); })
+        .then((p) => {
+          if (state.genSeq !== myGen) return;
+          emitToUser(socket, event, p);
+          if (serveClaim) serveClaim.served = true;
+        })
         .catch(() => {});
       return;
     }
+    // W4-D34: a bio generation that ERRORS does not throw — it emits this and returns — so the
+    // claim `recalibrateForBand` made on its behalf has to be released here or a cold key whose
+    // one generation failed would stay claimed forever, and the next transition back to it would
+    // be suppressed as a duplicate of a playlist the listener never received. Scoped to runs that
+    // resolved a bio key: an emotion request failing says nothing about the bio buffer.
+    if (event === 'playlist_error' && bioServeKey) state.servedBioMoodKey = null;
     emitToUser(socket, event, payload);
   };
 
@@ -575,6 +759,10 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       timer.unref?.();
       return;
     }
+    // W4-D41: release here, not in the abandoned body's `finally` — that runs whenever the stall
+    // finally settles (an LLM outage: minutes), and this exit bypasses the emit wrapper entirely,
+    // so nothing downstream could ever hand the claim back.
+    _releaseServeClaim(state, serveClaim);
     state.genSeq += 1;                     // supersede: void the in-flight run's emits + its release
     state.generating = false;              // free the lock now so the next request can generate
     console.warn(`[generate] TIMEOUT after ${Date.now() - startedAt}ms trigger=${trigger} reqId=${reqId} — released lock`);
@@ -640,6 +828,13 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     const moodKey   = useEmotion
       ? resolveMoodKey(state.lastEmotionTaps)
       : syntheticBioMoodKey(state.stableHR, state.latestActivity);
+    // W4-D34: the other half of the duplicate-serve latch. A generation that actually delivers
+    // a playlist under a synthetic bio key IS that key's buffer starting to play (it warms the
+    // buffer on the way out), so a policy-only taxonomy transition arriving straight afterwards
+    // would re-serve music the listener already has. Read by `emit` below on every
+    // playlist_ready this generation emits — main path, deterministic fallback, no-sink
+    // familiar path alike. Null on the emotion branch: that key is not a bio buffer.
+    bioServeKey = (typeof moodKey === 'string' && moodKey.startsWith('bio:')) ? moodKey : null;
     // The activity CHIP the user tapped is in lastActivity; latestActivity is watch-detected
     // motion. On the emotion path the chosen chip MUST drive translate()'s biosonic target
     // (running→162bpm cadence, workout→high energy) — otherwise a Run/Workout stays calm.
@@ -710,7 +905,7 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
       return;
     }
 
-    log(`[generate] start trigger=${trigger} hr=${state.stableHR} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
+    log(`[generate] start trigger=${trigger} band=${_hrBand(state.stableHR)} activity=${state.latestActivity} mode=${mode} reqId=${reqId}`);
 
     // Serve-time side effects, recorded by EVERY playlist_ready (the normal LLM/discovery path AND
     // the no-playback familiar-only short-circuit): warm the live-biometric buffer, persist the
@@ -719,6 +914,29 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     // divergence that would silently drop anti-repetition/history for a served no-playback playlist.
     // All fire-and-forget: a failed side effect is reported but never fails generation.
     const recordServeSideEffects = (builtPlaylist, clientTracks, params) => {
+      // W4-011: a serve starts a track, so it starts a play window. The window carries the
+      // coordinates the reward will be FILED under — the state, the band and the listener's hour
+      // that CHOSE this mix, not whatever they happen to be when the skip finally arrives. Reading
+      // them again at event time would file a play under a context that never produced it.
+      //
+      // On EVERY ready path, including the deterministic fallback: a fallback playlist is still
+      // music somebody is listening to, and excluding it would teach the learner only about the
+      // days when everything worked.
+      //
+      // W4-013 (B5) adds one more serve-time fact to that context: which of these tracks were
+      // discovery. It has to be captured here because it is only knowable here — a `playback_event`
+      // names a track, and by then nothing remembers whether the system gambled a slot on it.
+      if (!feedbackDisabled()) {
+        const context = {
+          ...contextFromTargets(builtPlaylist.targets),
+          discoveryKeys: discoveryKeysOf(builtPlaylist.merged),
+          // W4-013 (B7) adds a SECOND serve-time fact, for the same reason and with the same
+          // shape: §M.15's `∂` per served track. It is null unless the overlay is switched on,
+          // which is what keeps the write lane dormant by construction and not merely by flag.
+          gradients: gradientsOf(builtPlaylist.gradients),
+        };
+        state.playWindow = openWindow(state.playWindow, context, Date.now());
+      }
       // Warm the live-biometric buffer (Part 3): an HR-driven generation is cached under its bio-mood
       // key so a Live-mode toggle plays instantly. Storing records NO serves (§3.5). Emotion → skip.
       if (!useEmotion && isPhysiologicalHR(state.stableHR)) {
@@ -908,14 +1126,34 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
         // Wave-0 HR branch maps the CURRENT heart rate to a coarse band server-side
-        // (adjustBiometricPlaylist → applyBiometricBands); it no longer consumes a resting-HR
-        // baseline, so no MedicalProfile read is needed here. The resting baseline still feeds
-        // the emotion branch via resolveBiometricContext (encrypted MedicalProfile). (T3.3 + Wave-0)
+        // (adjustBiometricPlaylist → applyBiometricBands). W4-016: that band now routes
+        // through biometricBand's real preference chain — stateLabel (the taxonomy state this
+        // wave maintains, from bandTargets.stateId when band-aware discovery has resolved a
+        // confident one) then hrRatio (this user's HR relative to THEIR OWN resting baseline,
+        // W4-004's peekBaselines) then raw HR — instead of the fixed population ladder that
+        // scored an athlete and a sedentary user identically at the same raw HR. Both reads
+        // are best-effort and gated by the same kill switch geminiEngine.js honours, so a
+        // cold-start user (no baseline, no resolved state) or a disabled flag degrades this
+        // object to exactly {heartRate, activity} — today's behaviour byte-for-byte.
+        let stateLabel = null;
+        let hrRatio = null;
+        if (!disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED)) {
+          stateLabel = bandTargets?.stateId || null;
+          try {
+            const personalBaselines = await peekBaselines(userId);
+            const rhr = Number(personalBaselines?.rhrMedian);
+            if (Number.isFinite(rhr) && rhr > 0 && isPhysiologicalHR(state.stableHR)) {
+              hrRatio = Math.round((state.stableHR / rhr) * 100) / 100;
+            }
+          } catch { /* degrade to raw-HR band */ }
+        }
         aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
           biometric: {
             heartRate:  state.stableHR,
             activity:   state.latestActivity,
+            stateLabel,
+            hrRatio,
           },
           fetchTracks,
         }), AI_BUDGET_MS, 'adjustBiometricPlaylist');
@@ -1067,7 +1305,13 @@ async function generateAndEmitPlaylist(socket, trigger, state) {
     clearTimeout(timer);
     // Release only if we still own the lock: a timed-out run (epoch bumped) must not clear a
     // newer generation's in-flight flag when its abandoned body finally settles.
-    if (state.genSeq === myGen) state.generating = false;
+    if (state.genSeq === myGen) {
+      state.generating = false;
+      // W4-D41: the catch-all for every exit that returned without a playlist — `!user`,
+      // `!provider`, `!musicProfile` (a `playlist_building`, not even an error, so no release
+      // path could have fired), and any throw on the way out. A no-op once the run has served.
+      _releaseServeClaim(state, serveClaim);
+    }
   }
 }
 
@@ -1089,6 +1333,47 @@ async function recalibrateForBand(socket, state) {
   const userId     = socket.data.user._id.toString();
   const bioMoodKey = syntheticBioMoodKey(state.stableHR, state.latestActivity);
 
+  // W4-D34 duplicate-serve latch. A recalibration is now triggered by two independent things:
+  // an HR-band/activity crossing (which always moves this key) and a CONFIRMED taxonomy-state
+  // transition (W4-009, which usually does not — 20 of the 34 states are `band: resting`, so
+  // the common transition changes only the state's musicPolicy). The buffer is keyed
+  // `bio:<band>:<activity>` and §0.2.6 freezes that shape, so on a policy-only transition
+  // there is literally nothing different to serve: re-emitting is the same playlist pushed at
+  // the listener again, and — worse — a second `recordServes` batch through an append-only
+  // ledger, inflating exposure for exactly the tracks that fit this user best (`score`
+  // subtracts `w_exp * exposure`). So a key already being served is a no-op.
+  //
+  // A NULL key is never latched: it means "no usable HR", which degrades to the legacy
+  // unkeyed generation rather than to a buffer. Treating `null === null` as "already serving
+  // it" would silence that path for the rest of the socket's life. Assigning it here instead
+  // CLEARS the latch, which is correct — what is playing is no longer any key's buffer.
+  const duplicateServe = bioMoodKey !== null && state.servedBioMoodKey === bioMoodKey;
+  if (duplicateServe && !_serveLatchDisabled()) return;
+  // Claimed BEFORE the first await: both callers are fire-and-forget, so two regime changes
+  // arriving in the same tick would otherwise both read the pre-serve latch and both serve.
+  const previousServedKey = state.servedBioMoodKey;
+  state.servedBioMoodKey  = bioMoodKey;
+  // W4-D41: the claim travels WITH the serve. A thrown serve is one of six ways to end without
+  // delivering music, and it was one of only two that released — the other four live inside the
+  // generation, before it resolves any bio key, so they need a witness that predates it.
+  const claim = { key: bioMoodKey, previousKey: previousServedKey, served: false, released: false };
+
+  try {
+    await _serveForBand(socket, state, userId, bioMoodKey, claim);
+  } catch (err) {
+    // Nothing reached the listener, so the claim was not earned — release it, or a later
+    // legitimate transition back to this key would be swallowed by a serve that never was.
+    // (Guarded by `served`: a throw AFTER the playlist landed — a failing side effect on the way
+    // out — must not un-latch music the listener is already hearing.)
+    _releaseServeClaim(state, claim);
+    throw err;
+  }
+}
+
+// The serve itself, split out of `recalibrateForBand` only so the latch above reads as one
+// decision rather than a flag threaded through the body. Unchanged behaviour: warm → play the
+// buffer + record the serves; cold → loader + exactly one live generation.
+async function _serveForBand(socket, state, userId, bioMoodKey, claim = null) {
   let buffer = null;
   if (bioMoodKey) {
     try { buffer = await shadowBufferRepo.getBuffer(userId, bioMoodKey); }
@@ -1099,7 +1384,9 @@ async function recalibrateForBand(socket, state) {
   if (tracks.length === 0) {
     // COLD: no buffer for this band yet. Show the loader, then fall back to one live gen.
     emitToUser(socket, 'live_assembling', { message: 'assembling your live biometric soundscape' });
-    await generateAndEmitPlaylist(socket, 'biometric', state);
+    // W4-D41: hand the claim down. This generation is the only thing that can earn it, and it is
+    // also where every unreleased exit lives.
+    await generateAndEmitPlaylist(socket, 'biometric', state, { serveClaim: claim });
     return;
   }
 
@@ -1119,6 +1406,7 @@ async function recalibrateForBand(socket, state) {
     buffered:  true,
   });
   emitToUser(socket, 'playlist_ready', readyPayload);
+  if (claim) claim.served = true; // W4-D41: the buffer is playing — the claim is earned.
 
   // Serve-on-play (§3.5): the buffer is now PLAYED, so its tracks enter the ledger here —
   // and ONLY here. A store/precompile never records serves (that would pollute the
@@ -1238,7 +1526,11 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
 // the music ignores a real activation (the exact D11 complaint), while leaving one early
 // abandons a mix the body has not actually left. So: fast attack, slow release.
 //
-// PURE — exported for unit testing. State-transition triggering proper lands in W4-009.
+// PURE — exported for unit testing. W4-009 landed the taxonomy-state-transition trigger
+// (`liveStateOnlineUpdate`, above the immediate/debounce branch below) as an ADDITIONAL signal
+// rather than a replacement of this function: this HR-band gate stays the fast, Redis-free
+// fallback — degrading to it is exactly what a disabled affect layer or a down Redis client
+// falls back to (fail-soft, §0.4 S11).
 function _shouldRecalibrate({ prevHR, nextHR, activityChanged = false }) {
   if (activityChanged) return true;
   const nextBand = bandFromHeartRate(nextHR);
@@ -1292,8 +1584,69 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   if (filtered.level === null) return;
   const effectiveHR = filtered.level;
 
+  // W4-011: feed the play window, if one is open.
+  //
+  // The RAW device value, not the filtered level — and that is load-bearing, not incidental.
+  // `feedbackLoop` sizes its σ_slope from the OLS standard error `σ_meas/√Sxx`, which is only the
+  // right scale for INDEPENDENT observations carrying the wrist noise σ_meas describes. A
+  // Kalman-smoothed series has had exactly that noise removed, so scoring it against σ_meas would
+  // read a smoothed line as an implausibly precise measurement and saturate every reward. (Same
+  // reasoning `_maybePersistLiveReading` states for BiometricLog: the record is the observation,
+  // smoothing is the consumer's privilege.)
+  //
+  // The filter still contributes the two things only it knows: whether the reading is trustworthy
+  // at all, and the trend it held going in — the M.12 counterfactual, which cannot be recovered
+  // later because there is no way to ask the filter what it believed three minutes ago.
+  if (!feedbackDisabled() && !filtered.passthrough && filtered.accepted) {
+    state.playWindow = recordSample(
+      state.playWindow ?? createPlayWindowState(),
+      { atMs: normalized.recordedAt.getTime(), value: normalized.heartRate, trend: filtered.trend },
+      now,
+    );
+  }
+
   state.consecutiveSkips = 0;
   state.latestActivity   = normalized.activity;
+
+  // W4-009 (D11's full fix): advance the shared taxonomy-state posterior for EVERY filtered
+  // reading, live or manual — recalibrateForBand's own liveMode gate decides whether a regime
+  // change is ever SERVED, the posterior itself stays current for the next serving-path read
+  // either way (the servedHR-latch precedent above: warm the state, gate the serve). Fire-and-
+  // forget, like every other live-lane side effect (_maybePersistLiveReading): the socket owes
+  // an ack, not a Redis round trip. Disabled together with the interim W4-D05 hysteresis fix
+  // under the SAME S11-reserved flag (it was reserved for exactly this task), restoring the
+  // pure HR-band trigger byte-for-byte — the Redis-down fail-soft this degrades to either way,
+  // since `liveStateAdapter` itself refuses to run without a live Redis client.
+  if (!_hysteresisDisabled()) {
+    const uid = socket.data.user._id.toString();
+    // W4-015 (soak finding): peekBaselines is the same cheap, cached, best-effort read the
+    // generation path a few lines above already uses — without it, every axis keyed to this
+    // user's own hour-of-day baseline abstains, and the continuous posterior this call drives
+    // never personalizes at all. A rejection degrades to `null` (today's byte-for-byte shape),
+    // never drops the reading. W4-D57 bounds it: the generation path pays that read once per
+    // playlist, this one would pay it once per SAMPLE, so the blob is held per socket.
+    // W4-D72: and the nights, alongside the blob. `fatigueAxis` weights §M.6's multi-night debt
+    // at 0.6 against the HRV downtrend's 0.4, so without a history the axis this lane computes
+    // per reading is a minority term of the one the generation path computes for the same person
+    // seconds earlier. Warmed HERE (so the read starts at the earliest possible moment) and read
+    // out of the entry inside the callback (so nights that land during the Redis peek are still
+    // used) — but never awaited. See `_heldNights` for why this one read is taken as-it-lands.
+    const nights = _heldNights(state, uid, now);
+    _heldBaselines(state, uid, now).then((personalBaselines) => liveStateOnlineUpdate(
+      uid,
+      { level: effectiveHR, confidence: filtered.confidence, degraded: filtered.degraded },
+      {
+        activity: normalized.activity,
+        now,
+        baselines: personalBaselines ?? null,
+        // Nothing in hand forwards the EMPTY shape, not `{history: []}`: `sleepDebtFrom` treats
+        // both the same, but only one of them is byte-identical to the pre-W4-D72 call.
+        sleep: nights.value.length ? { history: nights.value } : {},
+      },
+    )).then((result) => {
+      if (result.regimeChanged) recalibrateForBand(socket, state);
+    }).catch(() => {});
+  }
 
   // Immediate (trusted) mode for the 5-minute watch ingest path: no 60s debounce.
   // First reading (no baseline), a change >= 25 bpm, OR a new activity state
@@ -1313,7 +1666,7 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     const bandChanged = prev !== null &&
       _shouldRecalibrate({ prevHR: latchHR, nextHR: effectiveHR, activityChanged: false });
     if (prev === null || bandChanged || activityChanged) {
-      log(`[handleBiometric] immediate hr=${effectiveHR} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
+      log(`[handleBiometric] immediate band=${_hrBand(effectiveHR)} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
       state.servedHR = effectiveHR;
       recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
     }
@@ -1385,6 +1738,28 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   socket.emit('recalibration_pending', { delta, secondsRemaining: Math.round(DEBOUNCE_MS / 1000) });
 }
 
+// W4-011: advance the play window with one already-sanitized event and, when it closes a play,
+// hand the judgement to the write lane. Fire-and-forget — a learning failure has no business
+// interrupting playback, which is why `dispatchReward` is documented as never rejecting.
+function _notePlaybackEvent(socket, state, event, nowMs) {
+  const { state: next, play } = noteEvent(state.playWindow ?? createPlayWindowState(), event, nowMs);
+  state.playWindow = next;
+  if (!play) return;
+
+  const userId = socket?.data?.user?._id;
+  if (!userId) return;
+  dispatchReward({ userId: userId.toString(), play, atMs: nowMs }).catch(() => {});
+}
+
+// W4-011: spend one unit of this socket's S7 feedback budget. Shared by both doors the signal
+// arrives through, and spent BEFORE the payload is parsed so a flood of malformed events costs no
+// more than a flood of valid ones.
+function _admitFeedback(state, nowMs) {
+  const admitted = admitPlaybackEvent(state.playbackRate ?? createRateLimitState(), nowMs);
+  state.playbackRate = admitted.state;
+  return admitted.allowed;
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
@@ -1450,12 +1825,45 @@ function registerBiometricHandler(socket) {
     }
     state.stableHR       = ctx.heartRate;
     state.latestActivity = ctx.activity;
-    log(`[heart] generate hr=${ctx.heartRate} activity=${ctx.activity} source=${ctx.source} reqId=${reqId}`);
+    log(`[heart] generate band=${_hrBand(ctx.heartRate)} activity=${ctx.activity} source=${ctx.source} reqId=${reqId}`);
     generateAndEmitPlaylist(socket, 'heart', state);
+  });
+
+  // W4-011: the listener's own verdict on what they were served — the ONLY signal in this wave
+  // that measures the music rather than the body. §0.4 S7 gives it the tap buffer's hard-allowlist
+  // treatment (closed enum, bounded position, capped payload, unknown fields dropped by
+  // reconstruction) plus a per-socket budget, because it is the first socket event whose payload
+  // can reach a PERSISTED learned artifact (`TrackPosterior`, via `trackKey`).
+  //
+  // ADR-0012 is deliberately NOT enforced here: a `spotify:` key is admitted at the boundary and
+  // refused twice downstream, at the engine and fail-closed at the model's own query pre-hook. A
+  // third copy of that rule, furthest from the write, would be a third thing to keep in sync.
+  socket.on('playback_event', (raw) => {
+    if (feedbackDisabled()) return;
+    const state = getState(socketId);
+    const nowMs = Date.now();
+    if (!_admitFeedback(state, nowMs)) return;
+    const event = sanitizePlaybackEvent(raw);
+    if (!event) return;
+    _notePlaybackEvent(socket, state, event, nowMs);
   });
 
   socket.on('track_skipped', () => {
     const state = getState(socketId);
+
+    // W4-011: the shipped client's only feedback signal, forwarded into the SAME lane as
+    // `playback_event` so the two can never diverge. BEFORE the skip-loop regeneration below, on
+    // purpose: that regeneration serves a new playlist, which re-opens the very window this skip
+    // is measured in. It carries no `positionMs`, so `behavioralReward` scores it as the milder
+    // LATE skip — the honest reading of a client that never said when it skipped, and the reason
+    // an early-skip penalty cannot be inferred from a client's silence.
+    if (!feedbackDisabled()) {
+      const nowMs = Date.now();
+      if (_admitFeedback(state, nowMs)) {
+        _notePlaybackEvent(socket, state, { type: 'skip', positionMs: null, trackKey: null }, nowMs);
+      }
+    }
+
     state.consecutiveSkips += 1;
 
     if (state.consecutiveSkips >= 2) {
@@ -1479,14 +1887,19 @@ module.exports = {
   generateAndEmitPlaylist,
   recalibrateForBand,
   handleBiometricReading,
+  // exported so the suite pins the hold WINDOW itself rather than a copy of the number
+  LIVE_BASELINE_HOLD_MS,
+  LIVE_NIGHTS_HOLD_MS,
   _debounceMap: debounceMap,
   // Exported for unit testing
   _resetDebounceState,
+  _hrBand,
   _shouldRecalibrate,
   HR_NOISE_FLOOR,
   HR_BAND_RELEASE_MARGIN,
   RECAL_HYSTERESIS_FLAG,
   ANOMALY_FILTER_FLAG,
+  FEEDBACK_FLAG,
   LIVE_PERSIST_MIN_INTERVAL_MS,
   toClientTrack,
   toClientTracks,

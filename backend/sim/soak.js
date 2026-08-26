@@ -51,6 +51,37 @@ function requireSoakEnabled() {
   }
 }
 
+/**
+ * The persona scope a FULL-STACK soak should sweep (W4-D60).
+ *
+ * Decision 2 above gates the CLI and deliberately leaves `runSoak()` callable, because a DRY
+ * soak is cheap. `tests/sim.fullStackSoak.test.js` is neither: it drives every persona through
+ * a real Mongo and the real socket stack, and being a jest suite it had no gate at all — 67.8s
+ * in band, 19.1% of the whole backend suite, paid on every session and every CI run, against a
+ * mission line that says the soak is never in the default CI budget.
+ *
+ * Deleting it would have deleted genuine integration coverage of
+ * `biometricHandler -> anomalyFilter -> liveStateAdapter -> affectEngine -> stateTaxonomy`,
+ * which is the same "a soak CI never executes quietly rots" argument decision 2 makes. So the
+ * scope SCALES rather than switching off: a representative pair in the default budget, the
+ * whole population under RUN_SOAK=1.
+ *
+ * The pair is one core persona + one HOLDOUT, never one alone. The holdouts exist because
+ * validating only against the noise family the engines were tuned on is circular (R.10), so a
+ * cheaper default may drop personas but may never drop the different noise family.
+ *
+ * Read at CALL time, for the same reason `requireSoakEnabled` is — and each call returns fresh
+ * arrays, so a caller that mutates one cannot shrink the next sweep.
+ */
+function soakPersonaScope() {
+  const personas = listPersonaIds();
+  const holdouts = listHoldoutIds();
+  if (isSoakEnabled()) return { full: true, personas, holdouts, ids: [...personas, ...holdouts] };
+  const core = personas.slice(0, 1);
+  const held = holdouts.slice(0, 1);
+  return { full: false, personas: core, holdouts: held, ids: [...core, ...held] };
+}
+
 function tally(map, key) { map[key] = (map[key] || 0) + 1; }
 
 function summarise(run) {
@@ -214,6 +245,7 @@ module.exports = {
   SOAK_DEFAULTS,
   isSoakEnabled,
   requireSoakEnabled,
+  soakPersonaScope,
   summarise,
   runSoak,
   main,

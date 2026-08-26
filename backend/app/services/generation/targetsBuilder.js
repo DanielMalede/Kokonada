@@ -1,11 +1,13 @@
 'use strict';
 
 const MedicalProfile = require('../../models/MedicalProfile');
+const { readNightHistory } = require('../../repositories/sleepHistoryRepo');
 const { peekBaselines } = require('../biosonic/baselines');
 const { translate } = require('../biosonic/translate');
 const { resolveAffect, resolveHourContext } = require('../biosonic/affectService');
 const wellbeingRegulator = require('../../agents/runtime/translation/wellbeingRegulator');
 const { explainFor } = require('../../agents/runtime/knowledge/explain');
+const { disabled } = require('../../utils/envFlag');
 
 // Assemble the biosonic targets from everything the system knows: cached personal
 // baselines (never the heavy compute — request path), the profile's encrypted
@@ -47,7 +49,7 @@ const { explainFor } = require('../../agents/runtime/knowledge/explain');
  * hearing the regulation while the posterior keeps advancing for W4-009 and the soak.
  * Read per call — a switch that needs a redeploy is not an escape hatch.
  */
-const trajectoryDisabled = () => Boolean(process.env[wellbeingRegulator.DISABLE_ENV_VAR]);
+const trajectoryDisabled = () => disabled(process.env[wellbeingRegulator.DISABLE_ENV_VAR]);
 
 async function buildTargets({ userId, live = {}, moodKey = null, taps = null, now = Date.now() } = {}) {
   let baselines = null;
@@ -75,16 +77,49 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
     }
   } catch { /* degrade */ }
 
+  // W4-D68 — the sleep-debt accumulator's actual input, on the lane that serves music.
+  //
+  // `affectEngine.fatigueAxis` weights §M.6's multi-night debt at 0.6 and the corroborating HRV
+  // downtrend at 0.4, but the debt part is gated on a non-empty `sleep.history` and NO production
+  // caller ever built one — so in production the dominant term abstained and `fatigue` was the
+  // HRV trend alone. The nights have been in Mongo since W4-012 (`MorningState.night`, persisted
+  // nightly for exactly this); what was missing was the read.
+  //
+  // Deliberately its own try/catch and not folded into the block above: a listener is owed a
+  // playlist whether or not their history is readable, and losing the profile read to a history
+  // failure would trade a whole axis set for one axis. An absent history is not an error state —
+  // `sleepDebtFrom` returns `nights: 0`, the part abstains, and the axis is exactly what it was
+  // before this commit (pinned as an equality against a no-history control, not as a vibe).
+  //
+  // One indexed read on `{userId, date}`, `.limit(14)`. Left sequential rather than folded into a
+  // `Promise.all` with the profile read above, which is itself already sequential after
+  // `peekBaselines`: parallelising the serving lane's three reads is a real improvement and a
+  // different change from this one.
+  try {
+    const history = await readNightHistory(userId);
+    if (history.length > 0) sleep = { ...sleep, history };
+  } catch { /* degrade — no history is a supported state, not a failure */ }
+
   const { hourOfDay, tzOffsetMinutes } = resolveHourContext(now, baselines);
 
-  const targets = translate({
-    live,
-    baselines: baselines ?? {},
-    sleep,
-    state,
+  // `hourOfDay` is published ADDITIVELY (§0.2.5) rather than kept local, because it is now needed
+  // twice: `translate()` reasons with it here, and W4-011's learner files a reward under the hour
+  // bin the mix was chosen in. Resolving it a second time downstream would reintroduce D13 by the
+  // back door — the socket has no access to the listener's habitual offset, so its "hour" would be
+  // the SERVER's, and an Auckland evening would be learned as a Frankfurt one. One reading,
+  // published. A clock reading is not a vital: §0.2.2 bars numeric physiology, and this is neither
+  // derived from nor predictive of any.
+  const targets = {
+    ...translate({
+      live,
+      baselines: baselines ?? {},
+      sleep,
+      state,
+      hourOfDay,
+      moodKey,
+    }),
     hourOfDay,
-    moodKey,
-  });
+  };
 
   const affect = await resolveAffect({
     userId, live, baselines, state, sleep, taps, tzOffsetMinutes, now,

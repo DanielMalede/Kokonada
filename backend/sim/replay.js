@@ -115,9 +115,25 @@ function closeReplaySocket(socket) {
  *        make the debounce fire. Omitted = no virtual time passes and the streaming lane's
  *        pending recalibrations never mature (which the report states rather than hides).
  * @param {number}   [opts.maxEvents]    cap for smoke runs
+ * @param {function} [opts.onEvent]      async (ev, index) => void; invoked after EVERY
+ *        delivered event's `flush()`, in order — the hook a soak uses to sample per-reading
+ *        state (e.g. `affectCache.peekAffectState`) instead of only the run's final counts.
+ * @param {boolean}  [opts.injectSimTime=false]  W4-015: for 'direct'/'watch', pass the EVENT's
+ *        own `atMs` through as `handleBiometricReading`'s `opts.now` (S9's documented override
+ *        seam, `biometricHandler.js:1476`), so the affect engine's Δt-based sticky transitions
+ *        (§M.5) advance in SIMULATED time rather than the real wall-clock time the test takes
+ *        to run — without it, a multi-day replay executes in milliseconds of real time and the
+ *        temporal layer sees a Δt of ~0 on every reading. Default off: it changes what `now`
+ *        downstream engines observe, so existing callers that rely on real-clock behaviour are
+ *        unaffected unless they opt in. Not available for `lane: 'stream'` — the production
+ *        `biometric_push` listener never accepts an opts override (`biometricHandler.js:1654`),
+ *        and a replay of that lane should observe exactly what production would.
  */
 async function replaySocketLane(opts) {
-  const { run, socket, lane = 'stream', liveMode = false, onAdvance = null, maxEvents = Infinity } = opts;
+  const {
+    run, socket, lane = 'stream', liveMode = false, onAdvance = null, maxEvents = Infinity,
+    onEvent = null, injectSimTime = false,
+  } = opts;
   if (!run || !socket) throw new TypeError('sim/replay: replaySocketLane needs { run, socket }');
   if (!['stream', 'watch', 'direct'].includes(lane)) {
     throw new RangeError(`sim/replay: lane must be 'stream', 'watch' or 'direct' (got ${lane})`);
@@ -137,14 +153,16 @@ async function replaySocketLane(opts) {
     }
     prevAtMs = Math.max(prevAtMs, ev.atMs);
 
+    const simNow = injectSimTime ? { now: ev.atMs } : null;
     if (lane === 'stream') {
       await socket._trigger('biometric_push', ev.payload);
     } else if (lane === 'direct') {
-      handleBiometricReading(socket, ev.payload.source, ev.payload.raw);
+      handleBiometricReading(socket, ev.payload.source, ev.payload.raw, simNow || undefined);
     } else {
-      handleBiometricReading(socket, ev.payload.source, ev.payload.raw, { immediate: true });
+      handleBiometricReading(socket, ev.payload.source, ev.payload.raw, { immediate: true, ...simNow });
     }
     await flush();
+    if (onEvent) await onEvent(ev, delivered);
     delivered += 1;
   }
 

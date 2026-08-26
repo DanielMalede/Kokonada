@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>06 · Generate — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--plate:#FFFFFF;--ink:#14163A;
+      --ink2:rgba(20,22,58,.74);--ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;
+      --accent:#6E3FC4;--hue:#8B6FE8;--gold:#F5B93A;--goldink:#241B45}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--plate:#11132F;--ink:#EEF1FC;
+      --ink2:rgba(238,241,252,.76);--ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;
+      --accent:#C4A6FF;--hue:#8B6FE8;--gold:#F5B93A;--goldink:#241B45}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .fld{position:absolute;left:-20%;right:-20%;bottom:-26%;height:74%;border-radius:50%;
+       background:radial-gradient(ellipse 62% 100% at 50% 100%,color-mix(in srgb,var(--hue) 20%,transparent),transparent 72%)}
+  @keyframes brth{0%,100%{opacity:.55}50%{opacity:.85}}
+  .brth{animation:brth 4200ms ease-in-out infinite}
+  @media (prefers-reduced-motion: reduce){ .brth{animation:none!important;opacity:.7!important} }
+
+  .spacer{height:44px;flex:none}
+  .strip{position:relative;flex:none;padding:6px 22px 9px;border-bottom:1px solid var(--line)}
+  .eyebrow{display:flex;justify-content:space-between;align-items:baseline;
+           font:500 11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+  .eyebrow b{font:500 11px var(--mono);color:var(--accent);letter-spacing:.05em;text-transform:none}
+  .vitals{display:flex;align-items:baseline;gap:14px;margin-top:3px}
+  .vitals .n{font:600 22px/1 var(--disp);color:var(--ink)}
+  .vitals .u{font:500 11px var(--mono);color:var(--ink2)}
+  .said{margin-top:4px;font:400 11.5px/1.45 var(--text);color:var(--ink2)}
+  .stage{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;
+         align-items:center;padding:0 22px;gap:8px}
+  .ask{font:600 20px/1.2 var(--disp);letter-spacing:-.02em;margin:0;align-self:flex-start}
+  .plate{position:relative;flex:none}
+  .axis{position:absolute;font:600 9.5px var(--mono);letter-spacing:1.3px;color:var(--ink);opacity:.65}
+  .axisout{position:absolute;font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink3);opacity:.8}
+  .dot{position:absolute;transform:translate(-50%,-50%);border-radius:50%;
+       background:color-mix(in srgb,var(--hue) 18%,transparent);display:flex;align-items:center;justify-content:center}
+  .dot i{border-radius:50%;background:var(--accent);color:var(--onink);
+         font:500 11px var(--mono);display:flex;align-items:center;justify-content:center;font-style:normal}
+  .read{position:relative;flex:none;padding:0 22px}
+  .state{font:600 15px/1.25 var(--disp)}
+  .state.big{font:600 21px/1.2 var(--disp);letter-spacing:-.01em}
+  .facets{margin-top:2px;display:flex;flex-wrap:wrap;gap:3px 10px;font:400 11.5px/1.35 var(--text);color:var(--ink2)}
+  .facets em{font:500 11px var(--mono);color:var(--accent);font-style:normal}
+  .conf{margin-top:4px;display:flex;align-items:center;gap:7px}
+  .bar{display:block;width:54px;height:8px;border-radius:999px;position:relative;flex:none;
+       background:color-mix(in srgb,var(--hue) 18%,transparent);outline:1px solid var(--track)}
+  .bar i{position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px}
+  .conf span{font:500 11px var(--mono);color:var(--ink2)}
+  .tools{display:flex;gap:6px;flex:none}
+  .tool{display:flex;align-items:center;justify-content:center;min-width:44px;height:44px;padding:0 10px;
+        border-radius:999px;font:500 11.5px var(--text);color:var(--ink2);white-space:nowrap}
+  .chips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:6px}
+  .chip{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 4px;border-radius:999px;
+        border:1px solid var(--track);color:var(--ink2);font:500 11px/1.2 var(--text);text-align:center}
+  .chip.on{border-color:var(--accent);background:var(--accent);color:var(--onink)}
+  .chip.gold{border:1.5px solid var(--gold);background:linear-gradient(120deg,color-mix(in srgb,var(--hue) 22%,transparent),var(--gold));color:var(--goldink);font-weight:600}
+  .chiprow{display:flex;justify-content:space-between;align-items:center;min-height:44px;margin-top:6px;
+           border-top:1px solid var(--line);font:400 13px var(--text);color:var(--ink3)}
+  .prompt{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:2px 0;margin-top:4px;
+          border-top:1px solid var(--line);font:400 13px var(--text);color:var(--ink3)}
+  .prompt span:last-child{font:500 11px var(--mono);flex:none}
+  .cta{flex:none;margin:6px 22px 0;display:flex;align-items:center;justify-content:center;min-height:54px;
+       border-radius:999px;background:var(--accent);color:var(--onink);font:700 19px var(--text)}
+  .tabs{flex:none;display:flex;justify-content:space-around;align-items:center;padding:6px 0 10px;
+        border-top:1px solid var(--line)}
+  .tab{width:8px;height:8px;border-radius:50%;background:var(--ink3);opacity:.45}
+  .tab.on{opacity:1;background:var(--accent)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>06 · Generate</h1>
+<p class="sub">The hero. Three treatments, both themes, seven independent rows, live assembly at the top. Frames are drawn at <code>field=intense</code>, so one hue is on screen — the fused state, never the placed one.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Three things I previously told you were wrong here, and are not</div>
+  <p>I measured before writing, because I repeated a stale defect on Connect. All three of these came off my earlier plan and <strong>do not reproduce</strong>:</p>
+  <table style="margin:10px 0 0">
+    <tr><th>Old claim</th><th>Measured</th></tr>
+    <tr><td>&ldquo;Overflows 15px&rdquo;</td><td class="pass">Frame is exactly 844. Nothing outside it but the two field layers, which are deliberately oversized and clipped.</td></tr>
+    <tr><td>&ldquo;Body line squashed 76.5% by a mismatched viewBox&rdquo;</td><td class="pass">viewBox <code>0 0 342 26</code>, rendered 342&times;26. Exact match, no squash.</td></tr>
+    <tr><td>&ldquo;Says 6 min, draws 5 beats, reads 68 bpm&rdquo;</td><td class="pass">29 points across 6 minutes &mdash; one sample per ~12s. A trend line, coherent with its caption.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is actually wrong</div>
+
+  <p><strong>The plate&rsquo;s axis labels fail contrast in the light theme: 3.50:1 against a 4.5:1 floor.</strong> They are <code>--ink3</code> at 80% opacity. This is the same defect you caught on Onboarding, where the fix was to fade with <code>--ink</code> instead of the already-pale <code>--ink3</code>. That fix was applied there and never carried here. Dark passes at 5.59:1, so it fails in exactly one face &mdash; which is why looking at one theme would have missed it.</p>
+
+  <p><strong>The hierarchy is inverted: the payoff is the fourth-loudest thing on screen.</strong> Enumerated by computed font size and weight:</p>
+  <table style="margin:8px 0 10px">
+    <tr><th>Rank</th><th>Element</th><th>Size / weight</th></tr>
+    <tr><td>1</td><td><code>68</code> &mdash; a raw sensor number</td><td>22px / 600</td></tr>
+    <tr><td>2</td><td>&ldquo;Anything else?&rdquo;</td><td>22px / 600</td></tr>
+    <tr><td>3</td><td>&ldquo;Generate&rdquo;</td><td>16.5px / 600</td></tr>
+    <tr><td class="fail">4</td><td class="fail">&ldquo;Wired, but running on empty&rdquo; &mdash; the fused state</td><td class="fail">15px / 600</td></tr>
+  </table>
+  <p>The whole product is the fusion of what you said with what your body says. The screen currently makes the heart-rate number louder than the answer it produced.</p>
+
+  <p><strong>The instrument is smaller than its own control panel.</strong> Measured region heights: the plate stage gets <strong>237px (28%)</strong>; the read card, chips and prompt below it get <strong>375px (44%)</strong>. The plate itself renders at 202px on a 390px-wide screen.</p>
+
+  <p style="margin-bottom:0"><strong>The selected activity chip contradicts the shipped component in three ways at once.</strong> The board draws it as a flat <code>--accent</code> fill &mdash; the <em>emotion</em> hue &mdash; on a control that has nothing to do with emotion. <code>ActivityChips.tsx:19-21</code> draws a neutral-aurora&rarr;<strong>gold <code>#F5B93A</code></strong> gradient with <code>#241B45</code> ink, and states the rule in the file: <em>&ldquo;Distinction is never colour alone &mdash; accent outline + gradient + accessibilityState.selected.&rdquo;</em> The board distinguishes by fill alone, loses the gold signature, and lets an activity borrow the fused state&rsquo;s colour.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What I want your eye on</div>
+  <p><strong>The axis labels are still outside the plate here.</strong> On Onboarding you asked for them inside and faded, and said it would look more settled. I have not assumed that carries &mdash; it is row one, with the corrected contrast either way.</p>
+  <p><strong>The re-tint moment is not on this screen yet.</strong> You asked that the dots re-tinting to the fused accent be &ldquo;a moment, not a repaint&rdquo;, with a real duration and easing token and a reduced-motion still. That is motion, so it cannot be judged in a static frame; it belongs on the Flow board and I will bring it there rather than fake it here.</p>
+  <p style="margin-bottom:0"><strong>The text alternative exists and is better than I implied on Onboarding.</strong> <code>EmotionListSelector.tsx</code> ships four quadrants with a label, a plain-language descriptor and a distinct glyph each &mdash; <code>Calm ◐ settled and easy</code>, <code>Joyful ☀ bright and lifted</code>, <code>Intense ◆ charged and strong</code>, <code>Reflective ☾ quiet and inward</code>. Never colour alone. The board&rsquo;s &ldquo;Words&rdquo; control is the entry point to it.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>axis label <span style="color:#5B5D77">(--ink3 @ .8, today)</span></td><td class="fail">3.50 : 1</td><td class="pass">5.59 : 1</td></tr>
+      <tr><td>axis label <span style="color:#5B5D77">(--ink @ .65, fixed)</span></td><td class="pass">5.31 : 1</td><td class="pass">7.43 : 1</td></tr>
+      <tr><td>state name</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>body copy</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>accent micro-labels</td><td class="pass">6.36 : 1</td><td class="pass">9.32 : 1</td></tr>
+      <tr><td>chip border <span style="color:#5B5D77">(non-text, 3:1)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td>label on accent fill</td><td class="pass">6.36 : 1</td><td class="pass">9.32 : 1</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">Measured layout</div>
+    <table>
+      <tr><td>body strip</td><td>122px</td></tr>
+      <tr><td>plate stage</td><td class="fail">237px (28%)</td></tr>
+      <tr><td>read + chips + prompt</td><td class="fail">375px (44%)</td></tr>
+      <tr><td>CTA</td><td>63px</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'labels',name:'Plate axis labels',hint:'Today: outside the plate, --ink3 at 80%, which measures 3.50:1 in light and fails. Every option below is contrast-fixed; this is about placement.',opts:[
+   ['inside','Inside the rim, faded','The Onboarding treatment: --ink at 65%, 5.31:1 / 7.43:1. Settled, and lets the plate grow.'],
+   ['outside','Outside, corrected','Keeps today&rsquo;s placement and raises the ink so it passes. Costs ~30px of width each side.'],
+   ['none','No labels','The list alternative teaches the map instead. Fastest, least self-explanatory.']]},
+ {id:'hierarchy',name:'What is loudest',hint:'Today the raw BPM number outranks the fused state. This is the product&rsquo;s claim about itself.',opts:[
+   ['state','The fused state','The answer is the biggest thing. BPM drops to a supporting figure.'],
+   ['balanced','State and body equal','Both at the same size — the fusion made visible as a pair.'],
+   ['number','The number, as today','Heart rate stays the loudest thing on the screen.']]},
+ {id:'plate',name:'How big the instrument is',hint:'Today 202px, in a stage of 237px, under a control block of 375px.',opts:[
+   ['large','Larger — 244px','Takes room back from the controls. The gesture becomes the screen.'],
+   ['today','As today — 202px','Leaves the control block intact.'],
+   ['huge','Largest — 276px','Activity chips move behind a single row to pay for it.']]},
+ {id:'chips',name:'Activity chips',hint:'ActivityChips.tsx uses a gradient to gold with a 1.5px outline, and says distinction is never colour alone.',opts:[
+   ['gold','Gold, as shipped','Outline + gradient + fill. The activity stops borrowing the emotion&rsquo;s colour.'],
+   ['row','Behind one row','&ldquo;What are you doing?&rdquo; opens them. Buys ~90px for the plate.'],
+   ['accent','Flat accent, as today','What the board draws. Distinction by fill alone.']]},
+ {id:'read',name:'The read card',hint:'State name, the YOU/BODY facets, and a confidence bar.',opts:[
+   ['full','State, facets, confidence','Everything the fusion produced. What the board draws.'],
+   ['compact','State and confidence','Drops the facet line; the detail lives on the Receipt.'],
+   ['fused','Folded onto the plate','State in the plate&rsquo;s centre, confidence on its rim. One instrument, not two blocks.']]},
+ {id:'body',name:'The body strip',hint:'Trace, BPM/HRV/still, and one sentence of interpretation.',opts:[
+   ['strip','Full strip, as today','Trace + numbers + the sentence. 122px.'],
+   ['said','The sentence only','&ldquo;Variability is low for you…&rdquo; without the numbers. Interpretation over telemetry.'],
+   ['rim','Trace on the plate rim','The body line wraps the instrument. Two readings, one object.']]},
+ {id:'dots',name:'The three placements',hint:'Up to three taps — the payload cap is MAX_TAPS = 3 in emotionSlice.ts and is not negotiable.',opts:[
+   ['numbered','Numbered 1 / 2 / 3','Order is explicit. What the board draws.'],
+   ['recency','Sized by recency','The latest is largest; order reads without numerals.'],
+   ['latest','Only the latest solid','Earlier taps become rings. Emphasises where you ended up.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Corrected, not redesigned',tag:'MINIMAL CHANGE',
+  desc:'The board as it stands with the two real defects fixed: axis labels pass contrast, and the selected chip matches the shipped gold treatment. Layout untouched, so the plate is still 202px and the BPM number is still the loudest thing.',
+  c:{labels:'outside',hierarchy:'number',plate:'today',chips:'gold',read:'full',body:'strip',dots:'numbered'}},
+ {key:'B',name:'The answer is the screen',tag:'HIERARCHY FIXED',
+  desc:'Puts the fused state at the top of the type scale and grows the plate by taking room from the control block. Labels move inside the rim, which is both the contrast fix and what makes the larger plate fit. This is the version that argues the product is the fusion rather than the sensor.',
+  c:{labels:'inside',hierarchy:'state',plate:'large',chips:'gold',read:'full',body:'said',dots:'recency'}},
+ {key:'C',name:'One instrument',tag:'THE PLAN&rsquo;S MOVE',
+  desc:'Folds the three readings into a single object: the body trace becomes the plate&rsquo;s rim, the state sits in its centre, and the chips retreat behind one row. The most coherent and the most work — and it puts the state name inside a 276px circle, where long names like &ldquo;Wired, but running on empty&rdquo; have to fit.',
+  c:{labels:'inside',hierarchy:'state',plate:'huge',chips:'row',read:'fused',body:'rim',dots:'latest'}}
+];
+
+const ACTS=['Running','Working','Resting','Walking','Commuting','Workout','Focus','Winding down'];
+const TAPS=[[64,32,'1'],[78,42,'2'],[60,18,'3']];
+
+function plateNode(c){
+  var size = c.plate==='large'?244:c.plate==='huge'?276:202;
+  var R=161, r=132;
+  var svg='<svg width="'+size+'" height="'+size+'" viewBox="0 0 322 322">'+
+    '<defs><radialGradient id="pf" cx="40%" cy="32%" r="80%">'+
+    '<stop offset="0%" stop-color="var(--plate)"/><stop offset="100%" stop-color="var(--sunken)"/>'+
+    '</radialGradient></defs>'+
+    '<circle cx="161" cy="161" r="132" fill="url(#pf)" stroke="var(--line)" stroke-opacity=".55"/>'+
+    '<line x1="161" y1="112" x2="161" y2="210" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"/>'+
+    '<line x1="112" y1="161" x2="210" y2="161" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"/>';
+  if(c.body==='rim'){
+    svg+='<circle cx="161" cy="161" r="146" fill="none" stroke="var(--line)" stroke-width="6" opacity=".5"/>'+
+         '<path d="M 161 15 a 146 146 0 0 1 126 73" fill="none" stroke="var(--accent)" stroke-width="'+(c.hierarchy==='state'?4:c.hierarchy==='balanced'?7:10)+'" stroke-linecap="round"/>';
+  }
+  if(c.labels==='inside'){
+    svg+='<g opacity=".65" style="fill:var(--ink);font:700 9.5px var(--mono);letter-spacing:1.3px">'+
+      '<text x="161" y="46" text-anchor="middle">HIGH ENERGY</text>'+
+      '<text x="161" y="288" text-anchor="middle">LOW ENERGY</text>'+
+      '<text x="28" y="165" text-anchor="start">UNPLEASANT</text>'+
+      '<text x="294" y="165" text-anchor="end">PLEASANT</text></g>';
+  }
+  if(c.read==='fused'){
+    svg+='<text x="161" y="150" text-anchor="middle" style="fill:var(--ink);font:600 '+(c.hierarchy==='state'?19:c.hierarchy==='balanced'?17:14)+'px var(--disp)">Wired, but</text>'+
+         '<text x="161" y="172" text-anchor="middle" style="fill:var(--ink);font:600 '+(c.hierarchy==='state'?19:c.hierarchy==='balanced'?17:14)+'px var(--disp)">running on empty</text>'+
+         '<text x="161" y="196" text-anchor="middle" style="fill:var(--ink3);font:500 10px var(--mono);letter-spacing:.1em">FAIRLY SURE · 0.69</text>';
+  }
+  svg+='</svg>';
+  var h='<div class="plate" style="width:'+size+'px;height:'+size+'px">'+svg;
+  if(c.labels==='outside'){
+    h+='<div class="axisout" style="left:50%;top:1px;transform:translateX(-50%);color:var(--ink);opacity:.65">HIGH ENERGY</div>'+
+       '<div class="axisout" style="left:50%;bottom:1px;transform:translateX(-50%);color:var(--ink);opacity:.65">LOW ENERGY</div>'+
+       '<div class="axisout" style="left:-30px;top:50%;transform:translateY(-50%) rotate(-90deg);color:var(--ink);opacity:.65">UNPLEASANT</div>'+
+       '<div class="axisout" style="right:-22px;top:50%;transform:translateY(-50%) rotate(-90deg);color:var(--ink);opacity:.65">PLEASANT</div>';
+  }
+  TAPS.forEach(function(t,i){
+    var last = i===TAPS.length-1;
+    var halo = c.dots==='recency' ? (36+i*10) : 52;
+    var core = c.dots==='recency' ? (18+i*5) : 26;
+    var solid = c.dots==='latest' ? last : true;
+    h+='<div class="dot" style="left:'+t[0]+'%;top:'+t[1]+'%;width:'+halo+'px;height:'+halo+'px">'+
+       '<i style="width:'+core+'px;height:'+core+'px;'+
+       (solid?'':'background:transparent;border:1.5px solid var(--accent);color:var(--accent)')+'">'+
+       (c.dots==='numbered'?t[2]:'')+'</i></div>';
+  });
+  return h+'</div>';
+}
+
+function stripNode(c){
+  if(c.body==='rim') return '';
+  var h='<div class="strip"><div class="eyebrow"><span>Your body · last 6 min</span><b>Garmin · live</b></div>';
+  if(c.body==='strip'){
+    h+='<svg width="342" height="26" viewBox="0 0 342 26" style="display:block;margin-top:4px">'+
+      '<polyline points="0,13 12,12.2 24,10.8 36,9.3 48,8.6 60,9.2 72,10.6 84,11.6 96,11.6 108,10.7 120,10 132,10.1 144,10.8 156,11.2 168,11.4 180,11.9 192,13.4 204,15.6 216,17.5 228,17.9 240,17.1 252,15.9 264,15.3 276,15.4 288,15.3 300,14.7 312,13.9 324,13.8 336,14.5" '+
+      'fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>'+
+      '<circle cx="336" cy="14.5" r="3.2" fill="var(--accent)" class="brth"/></svg>'+
+      '<div class="vitals"><span style="display:flex;align-items:baseline;gap:4px">'+
+      '<span class="n" style="font-size:'+(c.hierarchy==='state'?15:c.hierarchy==='balanced'?21:22)+'px">68</span><span class="u">BPM</span></span>'+
+      '<span class="u">HRV 29 ms</span><span class="u">still 2 h</span></div>';
+  }
+  return h+'<div class="said" style="font-size:'+(c.hierarchy==='balanced'?13.5:11.5)+'px;font-weight:'+(c.hierarchy==='balanced'?500:400)+'">Variability is low for you and you have not moved since 19:00. I will keep the ceiling down.</div></div>';
+}
+
+function readNode(c){
+  if(c.read==='fused') return '<div class="read"><div class="tools" style="justify-content:flex-end">'+
+    '<span class="tool">↺ Undo</span><span class="tool">Clear</span><span class="tool">Words</span></div></div>';
+  var big = c.hierarchy==='state'||c.hierarchy==='balanced';
+  var h='<div class="read"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 4px">'+
+    '<div style="min-width:0"><div class="state'+(big?' big':'')+'">Wired, but running on empty</div>';
+  if(c.read==='full')
+    h+='<div class="facets"><span><em>YOU</em> light, high energy</span><span><em>BODY</em> low reserves, still 2 h</span></div>';
+  h+='<div class="conf"><span class="bar"><i></i></span><span>FAIRLY SURE · 0.69</span></div></div>'+
+     '<div class="tools"><span class="tool">↺</span><span class="tool">Clear</span><span class="tool">Words</span></div></div></div>';
+  return h;
+}
+
+function chipsNode(c){
+  if(c.chips==='row') return '<div class="read"><div class="chiprow"><span>What are you doing?</span>'+
+    '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 5l5 5-5 5"/></svg></div></div>';
+  return '<div class="read"><div class="chips">'+ACTS.map(function(a){
+    var on = a==='Workout';
+    var cls = on ? (c.chips==='gold'?'chip gold':'chip on') : 'chip';
+    return '<span class="'+cls+'">'+a+'</span>';}).join('')+'</div></div>';
+}
+
+function frame(theme,c){
+  var h='<div class="ph" data-t="'+theme+'"><div class="fld"></div><div class="spacer"></div>';
+  h+=stripNode(c);
+  h+='<div class="stage"><h2 class="ask">Anything else?</h2>'+plateNode(c)+'</div>';
+  h+=readNode(c)+chipsNode(c);
+  h+='<div class="read"><div class="prompt"><span>Anything I should know?</span><span>0 / 500</span></div></div>';
+  h+='<div class="cta">Generate</div>';
+  h+='<div class="tabs"><span class="tab on"></span><span class="tab"></span><span class="tab"></span><span class="tab"></span><span class="tab"></span></div>';
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 06 — GENERATE — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-').replace(/&rarr;/g,'->');
+    lines.push(row.name.padEnd(26,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

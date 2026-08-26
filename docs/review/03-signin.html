@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>03 · Sign in — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:820px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+                      --track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;--danger:#B4322F}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+                      --track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;--danger:#FF9BA0}
+  .ph{background:var(--canvas);color:var(--ink)}
+  @keyframes brth{0%,100%{opacity:.5}50%{opacity:.85}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .brth{animation:brth 4200ms ease-in-out infinite}
+  .spin{animation:spin 900ms linear infinite;transform-origin:50% 50%}
+  @media (prefers-reduced-motion: reduce){ .brth,.spin{animation:none!important;opacity:.7!important} }
+
+  .spacer{height:44px;flex:none}
+  .hero{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 26px}
+  .hero.mid{justify-content:center}
+  .hero.top{justify-content:flex-start;padding-top:10px}
+  .h1{font:600 28px/1.2 var(--disp);letter-spacing:-.02em;margin:0 0 8px}
+  .lede{font:400 14px/1.6 var(--text);color:var(--ink2);margin:0;max-width:300px}
+  .foot{flex:none;padding:0 26px 30px}
+  .btnstack{display:flex;flex-direction:column;gap:10px}
+  .pbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;
+        border-radius:999px;font:500 15.5px var(--text);box-sizing:border-box}
+  .goog{border:1px solid #747775;background:#fff;color:#1f1f1f}
+  .appl{background:#000;color:#fff}
+  .glyph{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border-radius:50%;
+         border:1px solid currentColor;font:700 11px var(--mono);opacity:.75;flex:none}
+  .seclink{display:flex;align-items:center;justify-content:center;min-height:44px;margin-top:6px;
+           font:500 14px var(--text);color:var(--ink2);text-decoration:underline;text-underline-offset:3px}
+  .legal{margin:18px 0 0;font:400 12px/1.6 var(--text);color:var(--track)}
+  .legal u{text-underline-offset:3px}
+  .legalrow{display:flex;gap:22px;justify-content:center;margin-top:16px}
+  .legalrow span{min-height:44px;display:flex;align-items:center;font:500 12.5px var(--text);color:var(--track);
+                 text-decoration:underline;text-underline-offset:3px}
+  .ledger{margin-top:20px;border-top:1px solid var(--line)}
+  .lrow{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}
+  .lrow b{font:600 12.5px/1.5 var(--text);display:block}
+  .lrow span{font:400 12.5px/1.5 var(--text);color:var(--ink2)}
+  .ltick{flex:none;width:11px;height:1px;margin-top:9px;background:var(--track);opacity:.8}
+  .oneline{margin-top:16px;font:400 12.5px/1.55 var(--text);color:var(--ink2)}
+  .alert{margin-bottom:14px;padding:11px 14px;border-radius:12px;background:var(--sunken);
+         border:1px solid var(--danger);border-left-width:3px}
+  .alert b{color:var(--danger);font:600 13px var(--text)}
+  .alert span{display:block;font:400 12.5px/1.5 var(--text);color:var(--ink2);margin-top:1px}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:210px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:170px;
+       display:flex;gap:9px;align-items:flex-start;max-width:250px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>03 · Sign in</h1>
+<p class="sub">Three treatments, both themes, seven independent rows, live assembly at the top. Achromatic — no accent exists before an emotion does. Every provider shown is one the code can actually perform.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What I found on this screen</div>
+
+  <p><strong>The board offers three ways in. The product has two, and on Android it has one.</strong> <code>src/auth/auth.ts</code> exports exactly <code>signInWithGoogle</code> and <code>signInWithApple</code> — there is no email sign-in anywhere in the module. The <em>&ldquo;Continue with email&rdquo;</em> button is an action the app cannot perform, on the screen whose entire job is to perform it. <code>SCREENS.md</code> §3 lists an &ldquo;email flow&rdquo; too, so the doc is wrong alongside the canvas.</p>
+
+  <p><strong>Apple is drawn on an Android-first board where it never renders.</strong> <code>SignInScreen.tsx:48</code> gates it: <code>Platform.OS === 'ios' &amp;&amp; appleAuth.isSupported</code>. On our first shipping target the screen has <em>one</em> button. Two of the three drawn are wrong for the platform we ship first — which is also why the &ldquo;313px of empty flex&rdquo; reads worse than it measures: the stack was padded with buttons that do not exist.</p>
+
+  <p><strong>Both provider marks are dashed placeholders that were never replaced.</strong> The shipped code uses Apple&rsquo;s official <code>AppleButton</code> (<code>ASAuthorizationAppleIDButton</code>) and says so in a comment — <em>&ldquo;never a hand-drawn look-alike&rdquo;</em> — because HIG requires it. A hand-drawn Apple or Google button is a store-rejection surface, not a taste question. In the frames below both marks are <em>represented, not reproduced</em>: correct measure, correct fill, placeholder glyph. Dropping in the official assets is the <code>compliance-auditor</code>&rsquo;s gate, and I have not treated it as design work.</p>
+
+  <p><strong>Correcting my own record.</strong> I told you earlier that Login was the one pre-emotion board rendering no accent. That was wrong. Enumerated from computed styles, it paints <code>#4B6FD0</code> (chroma 133) as a gradient stop in the top wash, in <em>both</em> themes — the same defect as Onboarding. Five pre-emotion boards were affected, not four. Every frame below is achromatic.</p>
+
+  <p><strong>Zero of the four states are drawn.</strong> <code>SCREENS.md</code> §3 specifies idle · submitting · error · success, and the shipped screen implements a real inline error with <code>accessibilityRole="alert"</code> and a busy state that dims both buttons to <code>0.6</code>. The board draws idle only. The <em>State</em> row below draws the other two.</p>
+
+  <p style="margin-bottom:0"><strong>The legal line is text, not a link.</strong> &ldquo;By continuing you accept the Terms and the Privacy Notice&rdquo; has no target and no affordance, so the two documents it names are unreachable from the screen that binds you to them. Separately I checked the claim beside it — <em>&ldquo;free, with no ads and no paid tiers&rdquo;</em> — against <code>docs/adr/0001-100-percent-free-app.md</code>, which is Accepted and locked. <strong>That one is true</strong> and it stays.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Carried forward, and what I want your eye on</div>
+
+  <p><strong>Your Splash choice reaches this screen.</strong> You picked <em>wave alone</em> with <em>mark travels</em>, so the thing arriving here is the wave — but this board still draws the ring-and-wave lockup, which Splash no longer has. That is a cross-screen break created by the Splash decision, not a pre-existing one. The <em>Mark</em> row resolves it; <code>wave</code> is what continues the handoff.</p>
+
+  <p><strong>One question I am not deciding for you: is red allowed here?</strong> The error state uses <code>state.danger</code> — a token that <em>is</em> declared in <code>tokens.ts</code> (<code>#B4322F</code> light / <code>#FF9BA0</code> dark) and measures 5.87:1 and 9.50:1, so it is contrast-clean. But this is a pre-emotion screen under an achromatic rule. My read is that the rule governs the <em>accent</em> — the emotion colour — and that a declared error token is a different axis, so red for a genuine failure is fine. Set <em>State</em> to <code>error</code> and tell me if you disagree; if you do, the alternative is a neutral alert carrying the failure by border and weight alone.</p>
+
+  <p><strong>The promise line differs between the board and the app.</strong> Shipped copy is &ldquo;Music that moves with your body and mood.&rdquo; The board says &ldquo;Sign-in never asks for health data. That comes later, and it&rsquo;s optional.&rdquo; Both are defensible and they argue different things — one sells, one reassures. That is the <em>Promise</em> row, and it is a real fork, not a tidy-up.</p>
+
+  <p style="margin-bottom:0"><strong>Fonts.</strong> System faces, because this file runs offline. The real screen uses General Sans for headlines; tracking and letterform will differ, proportions will not.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:260px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>headline on canvas</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>promise line on canvas</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>legal microcopy <span style="color:#5B5D77">(--track)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td>error text <span style="color:#5B5D77">(state.danger)</span></td><td class="pass">5.87 : 1</td><td class="pass">9.50 : 1</td></tr>
+      <tr><td>Google label on white</td><td class="pass">16.48 : 1</td><td class="pass">16.48 : 1</td></tr>
+      <tr><td>Apple label on black</td><td class="pass">21.00 : 1</td><td class="pass">21.00 : 1</td></tr>
+      <tr><td>outline border <span style="color:#5B5D77">(non-text, 3:1)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+    </table>
+    <p style="font-size:12.5px;color:var(--pgink2);margin:10px 0 0">Provider buttons keep their own brand colours in both themes — that is required, not a theming miss.</p>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'platform',name:'Platform drawn',hint:'A truth question, not a taste one. Android is what we ship first, and there Apple never renders.',opts:[
+   ['android','Android — Google only','One button, because one is what the code offers. What we ship first.'],
+   ['ios','iOS — Google + Apple','Adds the official Apple button below. Required by Guideline 4.8 wherever Google is offered.']]},
+ {id:'arrange',name:'Arrangement',hint:'Where the weight sits, and what happens to the space the shipped screen leaves empty.',opts:[
+   ['hero','Centred hero','Mark and promise centred in the space, actions at the bottom. What ships today.'],
+   ['anchor','Top-anchored','Promise pinned to the top, the middle spent on the ledger, actions at the bottom.'],
+   ['single','One door','The real provider is a single centred action. Any second provider drops to a quiet link.']]},
+ {id:'mark',name:'The mark',hint:'What arrives from Splash. You chose wave alone there, with the mark travelling.',opts:[
+   ['wave','The wave','Continues the Splash handoff exactly. The lockup no longer exists to arrive.'],
+   ['lockup','Ring + wave','What this board draws today. Breaks continuity with the Splash you picked.'],
+   ['none','No mark','The wordmark carries it alone.']]},
+ {id:'promise',name:'Promise line',hint:'The one line under the title. A real fork: one sells the product, one draws a boundary.',opts:[
+   ['product','&ldquo;Music that moves with your body and mood.&rdquo;','The shipped copy. Says what the app is.'],
+   ['boundary','&ldquo;Sign-in never asks for health data.&rdquo;','What the board says. Answers the fear instead of the question.'],
+   ['none','No line','Title alone. Fastest, and says nothing to object to.']]},
+ {id:'ledger',name:'What signing in touches',hint:'The plan&rsquo;s answer to the empty space. Composes in all three arrangements.',opts:[
+   ['none','Nothing','Leave the space. Honest about how little this screen has to say.'],
+   ['touches','Three-line ledger','Name and email · nothing about your body · no ads or paid tiers.'],
+   ['oneline','One line','The same argument compressed to a sentence.']]},
+ {id:'legal',name:'Legal microcopy',hint:'Today it names two documents and links to neither.',opts:[
+   ['linked','Inline, underlined','Reads as a sentence; Terms and Privacy are real targets inside it.'],
+   ['row','A link row','Two 44px targets under the actions. Unmissable, less like prose.'],
+   ['none','Not on this screen','Only defensible if it is genuinely presented elsewhere before the account exists.']]},
+ {id:'state',name:'State',hint:'The screen has four. The board draws one. Composes with every row above.',opts:[
+   ['idle','Idle','The resting screen.'],
+   ['busy','Submitting','Provider sheet open: buttons dim to 0.6 and the primary shows progress, as shipped.'],
+   ['error','Error','Inline alert, role=&quot;alert&quot;, state.danger. As shipped, but drawn.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'The gate',tag:'SPEC-LITERAL',
+  desc:'What §3 describes, with the fiction removed: centred hero, providers stacked, legal beneath. The honest version of the board you have — same shape, minus the button the product cannot perform.',
+  c:{platform:'android',arrange:'hero',mark:'wave',promise:'product',ledger:'none',legal:'linked',state:'idle'}},
+ {key:'B',name:'What signing in touches',tag:'THE SPACE, SPENT',
+  desc:'The 313px of empty flex becomes the argument. The promise moves to the top, and the middle carries a short ledger of exactly what this gate does and does not reach. Trust-forward, and the only variant that uses the screen.',
+  c:{platform:'android',arrange:'anchor',mark:'wave',promise:'boundary',ledger:'touches',legal:'row',state:'idle'}},
+ {key:'C',name:'One door',tag:'THE HONEST MINIMUM',
+  desc:'On Android there is exactly one way in, so this stops pretending otherwise. A single centred action, everything else subordinate. The riskiest and the most truthful. Note what it costs: with one action and one line there is roughly 240px of unused screen below the content, which is the same dead space I criticised the shipped screen for &mdash; here it is deliberate rather than accidental, but it is still there, and you should pick it knowing that.',
+  c:{platform:'android',arrange:'single',mark:'wave',promise:'none',ledger:'oneline',legal:'linked',state:'idle'}}
+];
+
+const LEDGER=[
+ ['Your name and email','from Google, once — nothing else.'],
+ ['Nothing about your body','health comes later, and it stays optional.'],
+ ['No ads, no paid tiers','the app is free. Always.']
+];
+
+function markSvg(kind){
+  if(kind==='none') return '';
+  if(kind==='wave') return '<svg width="132" height="40" viewBox="0 0 150 40" style="display:block;margin-bottom:22px">'+
+    '<path d="M8 20 q14 -16 28 0 t28 0 t28 0 t28 0" fill="none" stroke="var(--ink)" stroke-width="2.2" stroke-linecap="round"/></svg>';
+  return '<svg width="104" height="104" viewBox="0 0 112 112" style="display:block;margin-bottom:20px">'+
+    '<circle cx="56" cy="56" r="34" fill="none" stroke="var(--line)" stroke-width="1.4"/>'+
+    '<path d="M14 56 q10.5 -17 21 0 t21 0 t21 0 t21 0" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linecap="round"/></svg>';
+}
+
+function promiseText(c){
+  if(c.promise==='none') return '';
+  if(c.promise==='boundary') return 'Sign-in never asks for health data. That comes later, and it&rsquo;s optional.';
+  return 'Music that moves with your body and mood.';
+}
+
+function ledgerNode(c){
+  if(c.ledger==='none') return '';
+  if(c.ledger==='oneline') return '<p class="oneline">Signing in touches your name and email. Nothing about your body.</p>';
+  return '<div class="ledger">'+LEDGER.map(function(l){
+    return '<div class="lrow"><span class="ltick"></span><div><b>'+l[0]+'</b><span>'+l[1]+'</span></div></div>';}).join('')+'</div>';
+}
+
+function googBtn(c,dim){
+  var busy = c.state==='busy';
+  return '<div class="pbtn goog" style="opacity:'+(dim?'.6':'1')+'">'+
+    (busy?'<svg width="17" height="17" viewBox="0 0 17 17" class="spin"><circle cx="8.5" cy="8.5" r="7" fill="none" stroke="#747775" stroke-width="2" stroke-dasharray="33" stroke-dashoffset="11"/></svg>'
+         :'<span class="glyph">G</span>')+
+    '<span>'+(busy?'Signing in&hellip;':'Sign in with Google')+'</span></div>';
+}
+function applBtn(c,dim){
+  return '<div class="pbtn appl" style="opacity:'+(dim?'.6':'1')+'">'+
+    '<span class="glyph">&#63743;</span><span>Sign in with Apple</span></div>';
+}
+
+function legalNode(c){
+  if(c.legal==='none') return '';
+  if(c.legal==='row') return '<div class="legalrow"><span>Terms</span><span>Privacy Notice</span></div>'+
+    '<p class="legal" style="text-align:center;margin-top:2px">Free, with no ads and no paid tiers.</p>';
+  return '<p class="legal">By continuing you accept the <u>Terms</u> and the <u>Privacy Notice</u>. '+
+    'Kokonada is free, with no ads and no paid tiers.</p>';
+}
+
+function alertNode(c){
+  if(c.state!=='error') return '';
+  return '<div class="alert" role="alert"><b>Sign-in didn&rsquo;t complete</b>'+
+    '<span>Check your connection and try again. Nothing was saved.</span></div>';
+}
+
+function frame(theme,c){
+  var dim = c.state==='busy';
+  var h='<div class="ph" data-t="'+theme+'"><div class="spacer"></div>';
+  var title = '<h1 class="h1">Kokonada</h1>';
+  var p = promiseText(c);
+  var pl = p?('<p class="lede">'+p+'</p>'):'';
+
+  if(c.arrange==='anchor'){
+    h += '<div class="hero top">'+markSvg(c.mark)+title+pl+ledgerNode(c)+'</div>';
+    h += '<div class="foot">'+alertNode(c)+'<div class="btnstack">'+googBtn(c,dim)+
+         (c.platform==='ios'?applBtn(c,dim):'')+'</div>'+legalNode(c)+'</div>';
+  } else if(c.arrange==='single'){
+    h += '<div class="hero mid" style="align-items:center;text-align:center">'+markSvg(c.mark)+title+
+         (p?('<p class="lede" style="max-width:270px">'+p+'</p>'):'')+
+         '<div style="width:100%;margin-top:26px">'+alertNode(c)+googBtn(c,dim)+
+         (c.platform==='ios'?'<div class="seclink">Sign in with Apple</div>':'')+'</div>'+
+         '<div style="width:100%">'+ledgerNode(c)+'</div></div>';
+    h += '<div class="foot">'+legalNode(c)+'</div>';
+  } else {
+    h += '<div class="hero mid">'+markSvg(c.mark)+title+pl+ledgerNode(c)+'</div>';
+    h += '<div class="foot">'+alertNode(c)+'<div class="btnstack">'+googBtn(c,dim)+
+         (c.platform==='ios'?applBtn(c,dim):'')+'</div>'+legalNode(c)+'</div>';
+  }
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive();
+    window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 03 — SIGN IN — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&quot;/g,'"');
+    lines.push(row.name.padEnd(26,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block';
+  out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive();
+  document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

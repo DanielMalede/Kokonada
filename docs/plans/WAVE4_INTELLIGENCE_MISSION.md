@@ -84,7 +84,7 @@ Quality bar (Daniel, verbatim intent): not "just a programmer's work" — senior
 - **S8** Numerical hygiene is part of DoD for every engine: every division zero-guarded (including Karvonen when `HRmax ≈ RHR`), every `log` domain-guarded, all outputs clamped; fuzz suites include `null`/`NaN`/`±Infinity`/zero-variance/empty-window inputs.
 - **S9** Every new engine takes `now` (and `rng` where randomness is used) as PARAMETERS — no direct `Date.now()`/`Math.random()` inside engine math (replay determinism; the `translate()`/`buildTargets` precedent).
 - **S10** Perf budgets as tests: affect forward update < 5 ms; trajectory planning < 30 ms at k=50; the golden harness asserts end-to-end selection wall-time within +10% of the pre-wave baseline; the soak asserts flat memory. SLO context: selection p95 < 300 ms.
-- **S11** Runtime kill-switches: every serving-path change ships an env escape hatch restoring prior behavior WITHOUT a revert — `WAVE4_AFFECT_DISABLED`, `WAVE4_TRAJECTORY_DISABLED`, `WAVE4_SCORING_V2_DISABLED`, `WAVE4_RECAL_STATE_TRIGGER_DISABLED` (flags default unset = new behavior ON; setting the flag = instant old behavior). Full inventory in WAVE4_REPORT. New workers/jobs register through the existing `RUN_WORKERS_IN_PROCESS` index and stay inert under test unless explicitly started.
+- **S11** Runtime kill-switches: every serving-path change ships an env escape hatch restoring prior behavior WITHOUT a revert — `WAVE4_AFFECT_DISABLED`, `WAVE4_TRAJECTORY_DISABLED`, `WAVE4_SCORING_V2_DISABLED`, `WAVE4_RECAL_STATE_TRIGGER_DISABLED` (flags default unset = new behavior ON; setting the flag = instant old behavior). **"Setting the flag" means an ON spelling, as parsed by `app/utils/envFlag.disabled()` — `1`, `true`, `yes`, `on`, or any other non-empty value engage it; `''`, `0`, `false`, `no`, `off` (any case, trimmed) do NOT.** Amended by reflection #12 at W4-D58's explicit request: the original wording predates a single parser and read as though ANY assignment engaged the switch, which is what let three incompatible readings of the same flag name coexist. One parse, two directional names (`enabled`/`disabled`), pinned by the `tests/wave4.killSwitchSpelling.test.js` tripwire. Full inventory in WAVE4_REPORT. New workers/jobs register through the existing `RUN_WORKERS_IN_PROCESS` index and stay inert under test unless explicitly started.
 
 **Sophistication upgrades (cheap, high value):**
 - **S12 Scoring shadow-compare (W4-007):** behind `SCORING_V2_SHADOW`, compute v1 and v2 side by side and log divergence stats (rank correlation, top-k overlap) per generation — telemetry only, zero user impact; soak + REPORT summarize the distribution. Evidence for the cutover decision.
@@ -145,10 +145,22 @@ limit R4–R5 to the diff since the last reflection rather than a broad sweep, a
   just gets named in the reflection log so it does not silently drift out of view.
 - **R1.5 · STATE housekeeping.** Every session reads all of `WAVE4_STATE.md` as step 1 of §2 — a growing file is a growing tax
   on every future session, reflection or not (it started ~7KB; by the first reflection after the concurrent-session incident it
-  had already reached 175KB). Check the file's size. Past **150KB**, archive what is no longer active: `Discovered backlog` rows
-  with status `done`/`closed`, `Reflection log` entries older than the 2 most recent, and `Session log` rows for sessions more
-  than 24h old — move them verbatim (do not summarize/lossy-compress a row; provenance matters) into `docs/plans/WAVE4_ARCHIVE.md`
-  under a dated heading, in append order, and delete them from STATE. STATE keeps: the Run header, the full Task table (never
+  had already reached 175KB). Check the file's size. Past **150KB**, archive what is no longer active — moving it verbatim (do not
+  summarize/lossy-compress; provenance matters) into `docs/plans/WAVE4_ARCHIVE.md` under a dated heading, in append order — in the
+  two shapes below. `Reflection log` entries older than the 2 most recent and `Session log` rows for sessions more than 24h old are
+  moved and then **deleted** from STATE; neither is a task table, so nothing tracks them.
+  **`Discovered backlog` rows with status `done`/`closed` are archived as STUBS, never deleted.** Amended by W4-D16 (session 65),
+  which is the ruling reflection #10 designed and #11/#12 endorsed: the original wording said "delete them from STATE", §2 step 6's
+  `state-guard.js` reports every deleted row as `removed` (deliberately not suppressible — there is no legitimate reason to drop a
+  task row), and eight consecutive reflections hit that contradiction, deferred, and watched STATE grow 175KB → 399KB. The guard is
+  the rule that is right to be strict, so this one gives way instead. To archive a closed backlog row: move its evidence prose
+  verbatim under the dated heading, then leave the row in place with `id`, `class`, `title`, `tier`, `size`, `deps`, `status` and
+  `found` **unchanged** and its `DoD / justification` cell replaced by exactly `ARCHIVED -> WAVE4_ARCHIVE.md#<anchor>`, where
+  `<anchor>` is any substring of that heading (a date works). ~90% of a closed row leaves, the id stays resolvable for R6's
+  duplicate check, and nothing is ever dropped — so the archival passes the guard unchanged rather than needing an exception.
+  Both halves are mechanical, not remembered: a real deletion is still `removed`, and a stub whose anchor matches no heading — or
+  matches one whose body never names the row — fails as `archive-missing` / `archive-unbacked`. Do not re-litigate this.
+  STATE keeps: the Run header, the full Task table (never
   archived — it is the live truth), open/pending backlog rows, open HITL items, the PR queue, and the last 2 reflection entries +
   last 24h of session log. Note the archival itself as one line in the Reflection log so the row count discontinuity is explained.
 - **R2 · Verify the last interval's claims.** For every task marked `done` since the last reflection, spot-check that its DoD is
