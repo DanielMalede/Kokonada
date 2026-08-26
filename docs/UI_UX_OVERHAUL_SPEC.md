@@ -118,6 +118,35 @@ Define the Kokonada mark end-to-end: **app icon, wordmark/logotype, splash (boot
 - **Color-blind safe:** never encode emotion/state by color alone — pair with shape/label.
 - Do this work **once**, folded into A12 (Wave 2.3), not twice.
 
+### 7.1 The disc rim — a standing SC 1.4.11 exemption (Daniel, 2026-08-26)
+
+**The emotion disc's rim is exempt from the 3:1 non-text floor and stays as drawn** (`--line`, low alpha). Decided once here so it is not re-litigated per screen.
+
+**Reasoning.** SC 1.4.11 (Non-text Contrast) binds *visual information required to identify user-interface components*. The rim is not required to identify the disc. Four other things do that, and each survives without it:
+
+1. the **fill differential** — the plate is a distinct surface (`--plate`/`--sunken`) against `--canvas`;
+2. the **four axis labels**, inside the rim, which carry the disc's meaning and are held to the full **4.5:1 text** floor;
+3. the **placement dot** and its ring (`--track`, measured 5.08:1 light / 8.09:1 dark);
+4. the **text/list alternative** selector required by §7 above.
+
+A softer rim is therefore a legitimate aesthetic choice, not a contrast failure.
+
+**Two conditions. Both bind; if either is unmet, the exemption does not apply to that board.**
+
+- **A board whose disc has no fill differential — one leaning on the ring alone to be seen — gets a fill, not a louder ring.** Restoring the rim is not the remedy.
+- **The text alternative must be real everywhere the disc appears.** A screen-reader user never perceives the rim at all, so the alternative is what actually carries this argument. A disc shipped without it loses the exemption.
+
+**Scope — do not generalise this to `--line`.** The test is *whether the visual is the only thing carrying the information*, not which token draws it. The onboarding pager dots used the same token and **failed**, correctly: they were the only signal that further panels existed, so nothing else carried it. They were raised to `--track`. Apply the test, not the token.
+
+### 7.2 Error colour is not accent colour (Daniel, 2026-08-26)
+
+**`state.danger` is permitted on every screen, including the pre-emotion ones.** The achromatic rule governs the **accent** — the emotion colour — and error state sits on a different axis. A screen that must not paint an accent before an emotion exists may still turn red when something has actually failed.
+
+This is a **principle, not a per-screen exception**: it applies to error states across the app. `state.danger` is declared in `tokens.ts` (`#B4322F` light / `#FF9BA0` dark) and measures **5.87:1** and **9.50:1** on `--canvas`, clearing the 4.5:1 text floor in both faces.
+
+**Not extended to destructive actions.** The Vault's *"Delete my account"* is red as a **destructive action**, not as an error — a different case with a different justification. This ruling does **not** settle it. It stays as drawn and gets decided on its own screen.
+
+
 ---
 
 ## 8. PROCESS, TESTING & GOVERNANCE
