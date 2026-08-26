@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>08 · Now Playing — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;
+      --accent:#1F6FA6;--hue:#3FB4F0;--spotify:#191414;--violet:#9B7BF0}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;
+      --accent:#7FCDF5;--hue:#3FB4F0;--spotify:#FFFFFF;--violet:#9B7BF0}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .fld{position:absolute;left:-20%;right:-20%;bottom:-26%;height:74%;
+       background:radial-gradient(ellipse 62% 100% at 50% 100%,color-mix(in srgb,var(--hue) 20%,transparent),transparent 72%)}
+  .spacer{height:44px;flex:none}
+  .top{position:relative;display:flex;justify-content:space-between;align-items:center;padding:0 12px;flex:none}
+  .icon{display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--ink2)}
+  .eyebrow{font:500 11px var(--mono);letter-spacing:.16em;color:var(--ink3)}
+  .stage{position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;
+         gap:14px;padding:0 24px;min-height:0}
+  .art{width:224px;height:224px;border-radius:20px;border:1px solid var(--line);display:flex;align-items:flex-end;
+       padding:12px;box-sizing:border-box}
+  .art span{font:500 11px var(--mono);letter-spacing:.1em;color:var(--ink3)}
+  .title{font:600 22px/1.25 var(--disp);letter-spacing:-.01em;color:var(--ink)}
+  .artist{margin-top:3px;font:400 14px var(--text);color:var(--ink2)}
+  .attr{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);display:flex;flex-direction:column;
+        align-items:center;gap:6px}
+  .attrrow{display:inline-flex;align-items:center;gap:10px;min-height:44px}
+  .fullmark{display:inline-flex;align-items:center;gap:6px}
+  .fullmark b{font:700 15px var(--text);letter-spacing:-.01em;color:var(--spotify)}
+  .attrcap{font:400 11px var(--text);color:var(--ink3)}
+  .linkback{font:500 12px var(--text);color:var(--ink2);text-decoration:underline;text-underline-offset:3px}
+  .foot{position:relative;padding:0 24px 8px;flex:none}
+  .timerow{display:flex;align-items:center;gap:10px}
+  .timerow span.t{font:500 11px var(--mono);color:var(--ink3)}
+  .barwrap{flex:1;position:relative}
+  .bar{display:block;height:6px;border-radius:999px;background:color-mix(in srgb,var(--hue) 18%,transparent);
+       outline:1px solid var(--track);position:relative}
+  .bar i{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--accent);border-radius:999px}
+  .thumb{position:absolute;left:34%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;
+         background:var(--accent);border:2px solid var(--canvas)}
+  .transport{display:flex;align-items:center;justify-content:center;gap:26px;margin-top:10px}
+  .tbtn{display:flex;align-items:center;justify-content:center;width:44px;height:44px}
+  .tmain{display:flex;align-items:center;justify-content:center;width:60px;height:60px;border-radius:50%;background:var(--accent)}
+  .fb{display:flex;gap:6px;margin-top:8px}
+  .fb span{flex:1;display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:999px;
+           border:1px solid var(--track);color:var(--ink2);font:500 12px var(--text)}
+  .receipt{display:flex;gap:10px;align-items:center;margin-top:8px;padding:11px 13px;border-radius:13px;
+           border:1px solid var(--line);background:var(--raised)}
+  .receipt p{flex:1;margin:0;font:400 12.5px/1.55 var(--text);color:var(--ink)}
+  .disc{font:600 10.5px var(--mono);letter-spacing:.12em;color:var(--accent);display:block;margin-bottom:3px}
+  .tabs{position:relative;display:flex;justify-content:space-around;align-items:center;height:62px;flex:none;
+        border-top:1px solid var(--line);background:var(--canvas)}
+  .tab{width:8px;height:8px;border-radius:50%;background:var(--ink3);opacity:.45}
+  .tab.on{opacity:1;background:var(--accent)}
+  .empty{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;color:var(--ink2)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>08 · Now Playing</h1>
+<p class="sub">Three treatments, both themes, seven independent rows, live assembly at the top. Drawn at <code>field=calm</code>, deliberately — that is the standing item this screen had to clear.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Two corrections to my own record, both in your favour</div>
+  <p><strong>The Calm hue item is resolved.</strong> You flagged that Now Playing labelled <code>field calm</code> was rendering blue rather than the locked Calm hue. Enumerated now, at <code>field=calm</code> it paints <code>#1F6FA6</code> ink over a <code>#3FB4F0</code> glow in light, and <code>#7FCDF5</code> in dark. That is the locked Calm pair. Fixed by the quadrant work, confirmed by measurement.</p>
+  <p style="margin-bottom:0"><strong>The Spotify attribution is not missing, and I was wrong to say it was.</strong> I told you no attribution component existed on mobile and listed it as a store-submission blocker to write up. <code>experience/player/SpotifyAttribution.tsx</code> exists and is careful: the <em>official</em> Full Logo PNGs (White for dark, Black for light), aspect ratio 3432:940 preserved from the asset so the mark is never distorted, height on a spacing token, the &ldquo;content from Spotify&rdquo; attribution line, and a link-back that foregrounds an installed Spotify or sends the user to get it. It is rendered on Now Playing at line 202, positioned between the metadata and the receipt so nothing implies Spotify authored the pick. That is not a gap; it is the reference for what the canvas should be drawing.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is actually wrong</div>
+
+  <p><strong>The board hand-draws the Spotify mark.</strong> It renders a reconstructed logo path with <code>fill="var(--spotify)"</code>. The shipped component uses the official PNG assets precisely because redrawing the mark is not allowed. This is the same defect as the hand-drawn Apple button on Sign in, and worse here, because the correct component already exists in the repo. The board also carries the link-back label (&ldquo;Listen on Spotify&rdquo;) but <strong>not the attribution line</strong> &mdash; those are two different obligations and only one is drawn.</p>
+
+  <p><strong>The progress bar shows a position the UI does not have.</strong> <code>nowPlayingStore</code> is <code>{ track, isPlaying }</code> &mdash; no position, no duration. So &ldquo;1:48&rdquo;, &ldquo;&minus;3:32&rdquo; and a 34% fill are drawn from nothing the screen can read. The nuance matters, though, and my earlier note got it wrong in both directions: <code>positionMs</code> and <code>durationMs</code> <em>do</em> arrive from the Spotify App Remote (<code>playbackServices.ts:49</code>), but they are consumed only by <code>isTrackFinished()</code> for end-of-track detection and never reach the store. So a read-only progress bar is <strong>plumbing</strong>, not fiction. A <em>draggable</em> one is fiction: <code>spotifyRemoteAdapter</code> exposes play, pause, resume, skipNext, skipPrevious, skipToIndex, getPlayerState, getTrackImage &mdash; and <strong>no seek</strong>. My earlier &ldquo;3px scrub target&rdquo; claim was stale; the bar is 8px and has no thumb at all.</p>
+
+  <p><strong>A third hue is on screen.</strong> At every field setting the cover-art placeholder paints <code>#9B7BF0</code> &mdash; brand violet &mdash; from <code>--artph</code>, while the fused state paints Calm. Two unrelated hues on the screen whose rule is that only the fused state is painted. I should say how this surfaced: before the colour centralisation <code>--artph</code> was undefined on this board, so the gradient was invalid and painted nothing. Making the token real made a latent intent visible, and the intent is wrong.</p>
+
+  <p style="margin-bottom:0"><strong>One state of several is drawn.</strong> The screen has at least playing, paused, no-track, cover-not-yet-resolved and error (<code>playbackErrorStore</code>). The board draws playing. It also draws two opposite-signal feedback controls 6px apart with no undo, which is a mis-tap waiting to happen on a control that trains the recommender.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces, field=calm</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>track title</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>artist</td><td class="pass">7.35 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>time / eyebrow</td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td>receipt copy on raised</td><td class="pass">17.42 : 1</td><td class="pass">15.32 : 1</td></tr>
+      <tr><td>Calm accent <span style="color:#5B5D77">(the locked pair)</span></td><td class="pass">5.20 : 1</td><td class="pass">10.87 : 1</td></tr>
+      <tr><td>Spotify mark <span style="color:#5B5D77">(non-text, 3:1)</span></td><td class="pass">17.53 : 1</td><td class="pass">19.09 : 1</td></tr>
+      <tr><td>progress fill <span style="color:#5B5D77">(non-text, 3:1)</span></td><td class="pass">5.20 : 1</td><td class="pass">10.87 : 1</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">What the client can actually do</div>
+    <table>
+      <tr><td>play / pause / resume</td><td class="pass">yes</td></tr>
+      <tr><td>skip next / previous</td><td class="pass">yes</td></tr>
+      <tr><td>read position</td><td>arrives, not stored</td></tr>
+      <tr><td>seek</td><td class="fail">no such method</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'attr',name:'The Spotify mark',hint:'Attribution and link-back are two separate obligations. The shipped component does both with the official asset.',opts:[
+   ['official','Full logo + attribution + link-back','What SpotifyAttribution.tsx already renders. The official asset, not a redraw.'],
+   ['linkback','Link-back only','&ldquo;Listen on Spotify&rdquo; with the mark. What the board does — and it drops the attribution line.'],
+   ['none','No mark here','Only defensible if attribution is genuinely carried elsewhere on the surface.']]},
+ {id:'progress',name:'The time bar',hint:'Position arrives from the App Remote but is never stored. There is no seek method at all.',opts:[
+   ['readonly','Read-only progress','Honest: shows elapsed, affords nothing. Needs the store plumbed, not new capability.'],
+   ['none','No bar','Nothing shown until the position reaches the store. Least to explain, least to look at.'],
+   ['scrub','A draggable scrubber','Drawn with a thumb. The adapter has no seek — this is an action the app cannot perform.']]},
+ {id:'artph',name:'Cover art, before it resolves',hint:'Today the placeholder paints brand violet regardless of the fused state.',opts:[
+   ['fused','Tinted to the fused state','One hue on screen. The placeholder becomes part of the reading.'],
+   ['neutral','Neutral','No hue at all until the real art arrives. Nothing to contradict.'],
+   ['violet','Brand violet, as today','A second, unrelated hue on a one-hue screen.']]},
+ {id:'feedback',name:'More like this / Less',hint:'Two opposite-signal controls, 6px apart, no undo. They train the recommender.',opts:[
+   ['pair','Side by side, as today','Both one tap away. Fastest, and the easiest to hit wrong.'],
+   ['confirm','Side by side, with undo','Same layout; the tap becomes reversible for a few seconds.'],
+   ['menu','Behind the ⋯ menu','Deliberate rather than incidental. Costs a tap for the people who use it most.']]},
+ {id:'receipt',name:'Why this track',hint:'The trust surface. The screen also has a distinct &ldquo;New discovery&rdquo; variant.',opts:[
+   ['card','The reason, as a card','One sentence naming what your body did to the music.'],
+   ['discovery','The discovery variant','Labelled as a new find, which is a different promise from a reason.'],
+   ['none','Not on this screen','It lives on the Mix receipt. Buys room; loses the moment it lands.']]},
+ {id:'state',name:'Which state is drawn',hint:'The board draws one of at least five.',opts:[
+   ['playing','Playing','The ordinary case.'],
+   ['paused','Paused','Transport flips; the reading does not go away.'],
+   ['empty','Nothing playing','What the tab looks like before a set exists.']]},
+ {id:'header',name:'The top bar',hint:'Today it reads MANUAL · WINDING DOWN — the mode and the activity.',opts:[
+   ['context','Mode and activity','Says where this set came from without opening the receipt.'],
+   ['plain','Just the chevron and menu','Nothing competing with the art.'],
+   ['title','&ldquo;Now playing&rdquo;','Conventional, and says the least of the three.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Compliant and honest',tag:'FIX WHAT IS WRONG',
+  desc:'The official attribution component instead of a redrawn mark, a read-only progress bar instead of an implied scrubber, and the cover placeholder tinted to the fused state so only one hue is on screen. Layout otherwise untouched.',
+  c:{attr:'official',progress:'readonly',artph:'fused',feedback:'pair',receipt:'card',state:'playing',header:'context'}},
+ {key:'B',name:'Quieter transport',tag:'FEWER IRREVERSIBLE TAPS',
+  desc:'Moves the two training controls behind the menu and drops the time bar entirely until the position is plumbed. What is left is the art, the reading and the transport — nothing on screen that can be tapped by accident or that shows a number the app has not got.',
+  c:{attr:'official',progress:'none',artph:'neutral',feedback:'menu',receipt:'card',state:'playing',header:'plain'}},
+ {key:'C',name:'The discovery moment',tag:'THE OTHER RECEIPT',
+  desc:'Draws the variant the board has never shown: a track presented as a new find rather than a match. Worth seeing side by side, because the two receipts make different promises and currently only one is designed.',
+  c:{attr:'official',progress:'readonly',artph:'fused',feedback:'confirm',receipt:'discovery',state:'playing',header:'context'}}
+];
+
+function artNode(c){
+  var bg = c.artph==='fused'
+      ? 'linear-gradient(140deg,color-mix(in srgb,var(--hue) 22%,transparent),color-mix(in srgb,var(--hue) 8%,transparent))'
+    : c.artph==='neutral'
+      ? 'linear-gradient(140deg,var(--sunken),var(--raised))'
+      : 'linear-gradient(140deg,color-mix(in srgb,var(--hue) 18%,transparent),color-mix(in srgb,var(--violet) 16%,transparent))';
+  return '<div class="art" style="background:'+bg+'"><span>COVER ART · PROVIDER</span></div>';
+}
+
+function attrNode(c){
+  if(c.attr==='none') return '';
+  var mark='<span class="fullmark"><svg width="19" height="19" viewBox="0 0 24 24" fill="var(--spotify)" aria-hidden="true">'+
+    '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.586 14.424a.623.623 0 0 1-.857.207c-2.348-1.435-5.304-1.76-8.785-.964a.623.623 0 1 1-.277-1.215c3.809-.871 7.077-.496 9.712 1.115a.623.623 0 0 1 .207.857zm1.223-2.722a.78.78 0 0 1-1.072.257c-2.687-1.652-6.785-2.131-9.965-1.166a.78.78 0 1 1-.452-1.492c3.632-1.102 8.147-.568 11.232 1.329a.78.78 0 0 1 .257 1.072zm.105-2.835c-3.223-1.914-8.54-2.09-11.617-1.156a.935.935 0 1 1-.542-1.79c3.532-1.072 9.404-.865 13.115 1.338a.936.936 0 0 1-.956 1.608z"/></svg>'+
+    '<b>Spotify</b></span>';
+  if(c.attr==='linkback')
+    return '<div class="attr"><span class="attrrow">'+mark+'<span class="linkback">Listen on Spotify</span></span></div>';
+  return '<div class="attr"><span class="attrrow">'+mark+'</span>'+
+    '<span class="attrcap">content from Spotify</span>'+
+    '<span class="linkback">Open Spotify</span></div>';
+}
+
+function barNode(c){
+  if(c.progress==='none') return '';
+  var thumb = c.progress==='scrub' ? '<span class="thumb"></span>' : '';
+  return '<div class="timerow"><span class="t">1:48</span>'+
+    '<span class="barwrap"><span class="bar"><i></i></span>'+thumb+'</span>'+
+    '<span class="t">&minus;3:32</span></div>';
+}
+
+function fbNode(c){
+  if(c.feedback==='menu') return '';
+  var extra = c.feedback==='confirm'
+    ? '<div style="text-align:center;margin-top:5px;font:400 11px var(--text);color:var(--ink3)">Tap again within 5s to undo</div>' : '';
+  return '<div class="fb"><span>More like this</span><span>Less</span></div>'+extra;
+}
+
+function receiptNode(c){
+  if(c.receipt==='none') return '';
+  if(c.receipt==='discovery')
+    return '<div class="receipt"><p><span class="disc">NEW DISCOVERY</span>'+
+      'You have not heard this before. It sits where your last three sets settled, so it should feel familiar even though it is new.</p>'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round"><path d="M8 4l5 6-5 6"/></svg></div>';
+  return '<div class="receipt"><p>Your variability was low and you&rsquo;d been still for two hours, so I kept the tempo under 96 and leaned acoustic.</p>'+
+    '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round"><path d="M8 4l5 6-5 6"/></svg></div>';
+}
+
+function frame(theme,c){
+  var h='<div class="ph" data-t="'+theme+'"><div class="fld"></div><div class="spacer"></div>';
+  h+='<div class="top"><span class="icon"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-5 6 5 6"/></svg></span>';
+  h+='<span class="eyebrow">'+(c.header==='context'?'MANUAL · WINDING DOWN':c.header==='title'?'NOW PLAYING':'')+'</span>';
+  h+='<span class="icon"><svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><circle cx="4.6" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="15.4" cy="10" r="1.5"/></svg></span></div>';
+
+  if(c.state==='empty'){
+    h+='<div class="stage"><div class="empty"><div style="font:600 19px var(--disp);color:var(--ink)">Nothing playing yet.</div>'+
+      '<div style="font:400 13.5px/1.55 var(--text);max-width:250px">Place how you feel and Kokonada will build you a set.</div>'+
+      '<span style="margin-top:6px;display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text)">Go to Generate</span></div></div>';
+    h+='<div class="foot"></div>';
+  } else {
+    h+='<div class="stage">'+artNode(c)+
+      '<div style="text-align:center"><div class="title">Holocene</div><div class="artist">Bon Iver</div>'+attrNode(c)+'</div></div>';
+    h+='<div class="foot">'+barNode(c);
+    var main = c.state==='paused'
+      ? '<svg width="22" height="22" viewBox="0 0 20 20" fill="var(--onink)"><path d="M5 3l11 7-11 7z"/></svg>'
+      : '<svg width="22" height="22" viewBox="0 0 20 20" fill="var(--onink)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg>';
+    h+='<div class="transport">'+
+      '<span class="tbtn"><svg width="20" height="20" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 4h2.4v12H5zM16 4v12l-8-6z"/></svg></span>'+
+      '<span class="tmain">'+main+'</span>'+
+      '<span class="tbtn"><svg width="20" height="20" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M15 4h-2.4v12H15zM4 4v12l8-6z"/></svg></span></div>';
+    h+=fbNode(c)+receiptNode(c)+'</div>';
+  }
+  h+='<div class="tabs"><span class="tab"></span><span class="tab on"></span><span class="tab"></span><span class="tab"></span><span class="tab"></span></div>';
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 08 — NOW PLAYING — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var nm=row.name.replace(/&ldquo;|&rdquo;/g,'"');
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-');
+    lines.push(nm.padEnd(28,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

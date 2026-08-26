@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>01 · Splash — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);
+       font-size:14px;line-height:1.6;padding:28px 30px 80px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:760px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px}
+  .card p:last-child{margin-bottom:0}
+  .grid{display:grid;gap:22px}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- the phone frame ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;
+      border:1px solid var(--pgline);flex:none;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+                      --track:#6A6589;--line:rgba(20,22,58,.14);--bloom:rgba(20,22,58,.055)}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+                      --track:#A7A6D0;--line:rgba(238,241,252,.16);--bloom:rgba(238,241,252,.07)}
+  .ph{background:var(--canvas)}
+  .g-flat{}
+  .g-grad{background:linear-gradient(180deg,var(--canvas) 0%,var(--sunken) 100%)!important}
+  .g-bloom::before{content:"";position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);
+     width:340px;height:340px;border-radius:50%;background:radial-gradient(circle,var(--bloom),transparent 66%)}
+
+  @keyframes brth{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:.75;transform:scale(1.04)}}
+  @keyframes brthOnce{0%{opacity:.45;transform:scale(1)}50%{opacity:.75;transform:scale(1.04)}100%{opacity:.75;transform:scale(1.04)}}
+  @keyframes dotb{0%,100%{opacity:.35}50%{opacity:.9}}
+  @keyframes fill{0%{width:6%}100%{width:64%}}
+  .m-loop{animation:brth 4200ms ease-in-out infinite}
+  .m-once{animation:brthOnce 4200ms cubic-bezier(.22,1,.36,1) forwards}
+  .m-none{opacity:.75}
+  @media (prefers-reduced-motion: reduce){
+    .m-loop,.m-once{animation:none!important;opacity:.6!important}
+    .rl-fill{animation:none!important}
+    .wdot{animation:none!important;opacity:.7!important}
+  }
+
+  .stack{display:flex;flex-direction:column;align-items:center;gap:26px;position:relative;z-index:1}
+  .wordmark{font:600 27px/1 var(--disp);letter-spacing:-.01em;color:var(--ink)}
+  .rule{display:block;margin:7px auto 0}
+  .restore{position:absolute;left:0;right:0;bottom:0;height:100%;pointer-events:none}
+  .rl-track{position:absolute;left:50%;transform:translateX(-50%);bottom:132px;width:150px;height:2px;
+            background:var(--line);border-radius:999px;overflow:hidden}
+  .rl-fill{position:absolute;left:0;top:0;bottom:0;background:var(--track);border-radius:999px;
+           animation:fill 2400ms cubic-bezier(.22,1,.36,1) forwards}
+  .wdot{position:absolute;left:50%;transform:translateX(-50%);bottom:130px;width:7px;height:7px;
+        border-radius:50%;background:var(--track);animation:dotb 2600ms ease-in-out infinite}
+
+  /* ---------- layout ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vcol{flex:none}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:820px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;
+        border:1px solid var(--pgline);border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+
+  /* ---------- decisions ---------- */
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;
+        grid-template-columns:186px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)}
+  .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;
+       background:#fff;min-width:150px;display:flex;gap:9px;align-items:flex-start}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px}
+  .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;
+         background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:150px;margin-top:14px;font-family:var(--mono);font-size:12.5px;
+       padding:13px;border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600}
+  .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>01 · Splash</h1>
+<p class="sub">Three treatments, both themes, then assemble the one you want from the rows below. The frame at the top is what you'd be approving — it rebuilds as you click.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What I found on this screen</div>
+  <p><strong>It isn't achromatic.</strong> Two elements carry the accent: the wave inside the wordmark rule (<code>var(--accent)</code>) and the 300px glow behind the mark (<code>var(--accentfill)</code>). Both resolve to <code>#3A5CCC</code> — the default I put in every board's base scope, which is also the undeclared blue you spotted on Profile's toggle and the Vault's withdraw button. My earlier sweep counted only <code>var(--accent)</code> and reported "1 use", so it under-reported this screen by one.</p>
+  <p><strong>The brand mark's ring fails the non-text contrast floor.</strong> It's drawn in <code>--line2</code>, which composites to 1.85 : 1 light and 2.64 : 1 dark against a 3 : 1 requirement. The ring is the outer half of the mark, so the identity is half-invisible on the primary theme. Every variant below moves it to <code>--track</code> (5.26 : 1 / 8.19 : 1).</p>
+  <p><strong>The spec asks for one brand element and the screen has three.</strong> <code>SCREENS.md</code> §1: "centered wordmark on a slow-breathing gradient; <em>nothing else</em>." Current screen has a 112px mark, a wordmark, and a 150px rule carrying a second, smaller copy of the same wave — the motif twice, at two scales, within 100px.</p>
+  <p><strong>Fixed already:</strong> the mark radius. It was r=45 in a 112 box (0.402 of the canvas) against Android 12's 0.3056 safe radius, so it would have been clipped as an adaptive icon. It's r=34 (0.3036) in all three variants.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What I want your eye on</div>
+  <p><strong>A determinate progress indicator is not buildable as the code stands, and I nearly designed one anyway.</strong> I read <code>src/appBootstrap.ts</code>: <code>bootstrapApp()</code> awaits exactly one thing — <code>bootstrapSession()</code>. <code>connectPlayer</code>, <code>connectSocket</code>, <code>startBiometrics</code> and cold persistence are synchronous or fire-and-forget. So there is one real stage, not four. Variant B's restore line is therefore honest only as a <em>time-based</em> fill against a known p95, or it needs <code>bootstrapSession</code> instrumented to emit sub-steps (keychain read → refresh → profile). That's a dev task. If you pick B, I'll write it up as one.</p>
+  <p><strong>How long is this screen actually up?</strong> The spec budgets ≤1.5s. If that's real, Variant A is right and an indicator is noise. If a cold start with a token refresh on a bad network can run several seconds, A is a frozen screen and B or C earns its place. I don't have a measured number and I'd be guessing.</p>
+  <p><strong>The native bootsplash seam.</strong> Android/iOS show a baked bootsplash before React mounts. It bakes the mark at <code>BREATH_OPACITY.rest</code> = .45. Whatever you pick has to start at .45 on its first frame or the handoff pops. Variant A and C both do; B holds at .75 and would need its first frame adjusted.</p>
+  <p><strong>Fonts.</strong> This file has to run offline, so it uses system faces. The real screen uses General Sans for the wordmark. Letterform and tracking will differ from what you see here; proportions and layout won't.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:260px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>wordmark on canvas</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>mark wave on canvas</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>mark ring on canvas <span style="color:#5B5D77">(--track)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td>restore line fill</td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td style="color:#9E3346">old ring <span style="color:#5B5D77">(--line2)</span></td><td class="fail">1.85 : 1</td><td class="fail">2.64 : 1</td></tr>
+    </table>
+    <p style="font-size:12.5px;color:var(--pgink2);margin-top:12px">Non-text floor is 3 : 1 (WCAG 2.2 SC 1.4.11). The bottom row is what ships today.</p>
+  </div>
+</div>
+
+<h2>Decisions</h2>
+<p class="sub" style="margin-bottom:6px">Each row is independent — nothing here fights anything else.</p>
+<div id="rows"></div>
+
+<div style="margin-top:22px;display:flex;gap:12px;align-items:center">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to Variant A</button>
+  <span id="msg" style="color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:38px">The three treatments</h2>
+<p class="sub">Same renderer as the assembled frame above — these are presets, not separate drawings, so what you see is what composes.</p>
+<div id="variants" class="grid"></div>
+
+<script>
+const CHOICES = [
+  { id:'lockup', name:'Brand lockup', hint:'What identifies the app while it waits.',
+    opts:[
+      ['mark-word','Mark + wordmark','The circle-and-wave glyph above the name. Most explicit, most furniture.'],
+      ['word-only','Wordmark alone','Closest to what SCREENS.md §1 actually asks for.'],
+      ['wave-only','Wave alone','The mark reduced to its line — no ring. The motif once, at one scale.']
+    ]},
+  { id:'wait', name:'The wait', hint:'What tells the user something is happening.',
+    opts:[
+      ['none','Nothing','One breath and it is gone. Correct if restore is genuinely under 1.5s.'],
+      ['line','Restore line','A 150px line fills while the session resolves. Needs a real signal to bind to.'],
+      ['dot','Breathing dot','An indeterminate mark below the lockup. Honest without claiming progress.']
+    ]},
+  { id:'ground', name:'Ground', hint:'Achromatic on this screen — no emotion exists yet.',
+    opts:[
+      ['flat','Flat canvas','No gradient at all. Quietest, and cheapest to render.'],
+      ['grad','Vertical gradient','Canvas settling into sunken. The "slow-breathing gradient" of the spec.'],
+      ['bloom','Centred bloom','A neutral radial behind the lockup, at 5.5% ink. No hue.']
+    ]},
+  { id:'motion', name:'Motion', hint:'Whatever you pick must start at .45 opacity to meet the bootsplash.',
+    opts:[
+      ['once','One breath, then hold','Inhale and stay. Ends on a held frame, so the cut out is calm.'],
+      ['loop','Continuous breath','The 4200ms loop, running until the router moves.'],
+      ['still','Still','No motion. The reduced-motion path, shown as a first-class option.']
+    ]},
+  { id:'rule', name:'Rule under the wordmark', hint:'Where the second copy of the wave motif currently lives.',
+    opts:[
+      ['wave','Hairline + wave','What ships now. The motif appears twice on one screen.'],
+      ['plain','Plain hairline','Keeps the baseline, drops the duplicate motif.'],
+      ['norule','No rule','Wordmark alone. Least furniture.']
+    ]},
+  { id:'handoff', name:'Handoff to the next screen', hint:'Cannot be drawn in a still — described, and specified on the Flow board if you pick it.',
+    opts:[
+      ['cut','Hard cut','Simplest. Risks a jolt if the next screen has a different ground.'],
+      ['fade','Cross-fade','240ms on ease/calm. Safe, unremarkable.'],
+      ['travel','Mark travels','The mark keeps its position into Onboarding or Sign in and becomes that screen’s mark. One shared element.']
+    ]}
+];
+
+const VARIANTS = [
+  { key:'A', name:'Held breath', tag:'SPEC-LITERAL',
+    desc:'The screen as SCREENS.md describes it and nothing more. One breath on a flat ground, a plain baseline, no indicator. Bets that restore really is under 1.5s — and if that bet is right, this is the correct answer and everything else is decoration.',
+    c:{lockup:'mark-word',wait:'none',ground:'flat',motion:'once',rule:'plain',handoff:'fade'} },
+  { key:'B', name:'Restore line', tag:'ANSWERS THE WAIT',
+    desc:'Accepts that a cold start with a token refresh can be slow and says so. The baseline rule stops being decoration and becomes the one moving thing on the screen; the mark holds still so there is a single motion, not two competing ones. Costs a dev task to bind the line to something real.',
+    c:{lockup:'mark-word',wait:'line',ground:'grad',motion:'still',rule:'norule',handoff:'fade'} },
+  { key:'C', name:'First light', tag:'THE BREATH BEGINS',
+    desc:'Treats the splash as the first beat of the product rather than a logo card. The ring is gone — the wave alone carries the identity at this size, so the motif appears exactly once. A neutral bloom gives it somewhere to sit, and the mark travels into the next screen rather than being replaced. (Corrected: this preset shipped with the waved rule, which drew the motif twice and contradicted the sentence above it.)',
+    c:{lockup:'wave-only',wait:'dot',ground:'bloom',motion:'loop',rule:'plain',handoff:'travel'} }
+];
+
+const state = Object.assign({}, VARIANTS[0].c);
+
+function markSvg(kind, motion){
+  const cls = motion==='loop' ? 'm-loop' : motion==='once' ? 'm-once' : 'm-none';
+  if(kind==='wave-only'){
+    return '<svg width="150" height="46" viewBox="0 0 150 46" class="'+cls+'" style="display:block">'+
+      '<path d="M8 23 q14 -19 28 0 t28 0 t28 0 t28 0" fill="none" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round"/></svg>';
+  }
+  return '<svg width="112" height="112" viewBox="0 0 112 112" class="'+cls+'" style="display:block">'+
+    '<circle cx="56" cy="56" r="34" fill="none" stroke="var(--track)" stroke-width="1.4"/>'+
+    '<path d="M22 56 q8.5 -14 17 0 t17 0 t17 0 t17 0" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linecap="round"/></svg>';
+}
+
+function ruleSvg(kind){
+  if(kind==='norule') return '';
+  if(kind==='plain') return '<svg width="150" height="10" viewBox="0 0 150 10" class="rule">'+
+    '<line x1="0" y1="5" x2="150" y2="5" stroke="var(--track)" stroke-width="1"/></svg>';
+  return '<svg width="150" height="12" viewBox="0 0 150 12" class="rule">'+
+    '<line x1="0" y1="6" x2="150" y2="6" stroke="var(--track)" stroke-width="1"/>'+
+    '<path d="M52 6 q6 -6 12 0 t12 0 t12 0" fill="none" stroke="var(--ink)" stroke-width="1.4"/></svg>';
+}
+
+function frame(theme, c){
+  const g = c.ground==='grad' ? 'g-grad' : c.ground==='bloom' ? 'g-bloom' : 'g-flat';
+  let inner = '<div class="stack">';
+  if(c.lockup !== 'word-only') inner += markSvg(c.lockup, c.motion);
+  inner += '<div style="text-align:center"><div class="wordmark">kokonada</div>'+ruleSvg(c.rule)+'</div>';
+  inner += '</div>';
+  let wait = '';
+  if(c.wait==='line') wait = '<div class="restore"><div class="rl-track"><div class="rl-fill"></div></div></div>';
+  if(c.wait==='dot')  wait = '<div class="restore"><div class="wdot"></div></div>';
+  return '<div class="ph '+g+'" data-t="'+theme+'">'+inner+wait+'</div>';
+}
+
+function renderLive(){
+  document.getElementById('live-light').innerHTML = frame('light', state);
+  document.getElementById('live-dark').innerHTML  = frame('dark',  state);
+}
+
+function renderRows(){
+  const host = document.getElementById('rows');
+  host.innerHTML = CHOICES.map(row => {
+    const opts = row.opts.map(([v,t,d]) =>
+      '<label class="opt"><input type="radio" name="'+row.id+'" value="'+v+'"'+(state[row.id]===v?' checked':'')+'>'+
+      '<span><span class="otitle">'+t+'</span><br><span class="odesc">'+d+'</span></span></label>').join('');
+    return '<div class="drow"><div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+           '<div class="opts">'+opts+'</div></div>';
+  }).join('');
+  host.querySelectorAll('input[type=radio]').forEach(r =>
+    r.addEventListener('change', e => { state[e.target.name] = e.target.value; renderLive(); }));
+}
+
+function renderVariants(){
+  document.getElementById('variants').innerHTML = VARIANTS.map(v =>
+    '<div class="vcol"><div class="vname">Variant '+v.key+' — '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+    '<p class="vdesc">'+v.desc+'</p>'+
+    '<div class="pair">'+
+      '<div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark', v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="flex:1;min-width:230px"><div class="lab" style="margin-bottom:8px">Composes as</div>'+
+        CHOICES.map(r=>{
+          const chosen = r.opts.find(o=>o[0]===v.c[r.id]);
+          return '<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--pgline)"><span style="color:var(--pgink2)">'+r.name+'</span> &middot; <strong>'+chosen[1]+'</strong></div>';
+        }).join('')+
+        '<button class="ghost" style="margin-top:14px;font-size:13px;padding:9px 15px" data-v="'+v.key+'">Load this into the assembler</button>'+
+      '</div>'+
+    '</div></div>').join('');
+  document.querySelectorAll('button[data-v]').forEach(b => b.addEventListener('click', () => {
+    const v = VARIANTS.find(x=>x.key===b.dataset.v);
+    Object.assign(state, v.c); renderRows(); renderLive();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }));
+}
+
+document.getElementById('copy').addEventListener('click', () => {
+  const lines = ['SCREEN 01 — SPLASH — my choices',''];
+  CHOICES.forEach(r => {
+    const o = r.opts.find(x=>x[0]===state[r.id]);
+    lines.push(r.name.padEnd(28,' ') + ': ' + o[1] + '   [' + r.id + '=' + o[0] + ']');
+  });
+  const match = VARIANTS.find(v => CHOICES.every(r => v.c[r.id]===state[r.id]));
+  lines.push('', match ? ('= Variant '+match.key+' unchanged') : '= a custom assembly');
+  const txt = lines.join('\n');
+  const ta = document.getElementById('out');
+  ta.style.display='block'; ta.value = txt; ta.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied — paste it back to me.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the text below and copy it.'; }
+});
+document.getElementById('reset').addEventListener('click', () => {
+  Object.assign(state, VARIANTS[0].c); renderRows(); renderLive();
+  document.getElementById('msg').textContent='';
+});
+
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

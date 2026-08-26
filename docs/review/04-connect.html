@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>04 · Connect — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+  blockquote{margin:10px 0;padding:9px 14px;border-left:3px solid var(--pgline);color:var(--pgink2);font-style:italic}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;
+      --glow:#8B6FE8;--glowink:#6E3FC4;--onaccent:#FFFFFF}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;
+      --glow:#9B7BF0;--glowink:#9B7BF0;--onaccent:#0E1030}
+  .ph{background:var(--canvas);color:var(--ink)}
+
+  .spacer{height:44px;flex:none}
+  .hd{flex:none;padding:4px 22px 16px}
+  .wm{font:700 11px var(--mono);letter-spacing:.18em;color:var(--track);margin:0 0 10px}
+  .h1{font:600 27px/1.18 var(--disp);letter-spacing:-.02em;margin:0 0 8px}
+  .subt{font:400 13.5px/1.6 var(--text);color:var(--ink2);margin:0}
+  .body{flex:1;min-height:0;padding:0 22px;display:flex;flex-direction:column;gap:13px}
+  .pcard{background:var(--raised);border:1px solid var(--line);border-radius:20px;padding:16px 17px 4px}
+  .ct{font:600 15px var(--disp);margin:0}
+  .cc{font:400 12.5px/1.5 var(--text);color:var(--ink2);margin:2px 0 10px}
+  .prow{display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+  .pg{display:block;width:32px;height:32px;border-radius:50%;border:1px solid var(--track);flex:none;opacity:.7}
+  .pn{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .pn b{font:500 14px var(--text)}
+  .pn i{font:500 12px var(--text);color:var(--ink2);font-style:normal;flex:none}
+  .pw{margin-top:3px;font:400 12px/1.5 var(--text);color:var(--ink2)}
+  .acc{display:flex;justify-content:space-between;align-items:center;min-height:44px;border-top:1px solid var(--line);
+       font:500 13px var(--text);color:var(--ink2)}
+  .accbody{font:400 12px/1.6 var(--text);color:var(--ink2);padding:0 0 12px;margin:0}
+  .wcta{display:flex;align-items:center;justify-content:center;width:100%;min-height:50px;border-radius:999px;
+        font:600 15px var(--text);margin:2px 0 12px}
+  .badge{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;color:var(--track);
+         border:1px solid var(--line);border-radius:999px;padding:3px 9px;margin:0 0 10px}
+  .bar{flex:none;padding:14px 22px 26px;border-top:1px solid var(--line);background:var(--canvas)}
+  .mo{display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;border-radius:999px;
+      font:600 15.5px var(--text)}
+  .monote{margin:9px 0 0;text-align:center;font:400 12px/1.5 var(--text);color:var(--ink2)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>04 · Connect</h1>
+<p class="sub">Three treatments, both themes, seven independent rows, live assembly at the top. This is the first screen where the achromatic rule and the shipped code actually disagree, so that disagreement is the first decision below.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What I found on this screen</div>
+
+  <p><strong>The board inverts the one ethical decision this screen makes.</strong> It draws &ldquo;Continue with mood only&rdquo; as a <em>filled accent button</em>. The shipped <code>MoodOnlyBar.tsx</code> deliberately draws it as an outline, and says why in the file:</p>
+  <blockquote>&ldquo;not resolved &rarr; &lsquo;Continue with mood only&rsquo; as a confident glow-OUTLINE secondary (an equal, legitimate choice &mdash; <strong>a filled brand CTA here would nudge users PAST connecting</strong>).&rdquo;</blockquote>
+  <p>The canvas takes an anti-dark-pattern stance the code went out of its way to encode and reverses it. This is the defect on this screen, and it is not cosmetic.</p>
+
+  <p><strong>It also paints the undeclared blue.</strong> Enumerated from computed styles, that same button paints <code>#3A5CCC</code> (chroma 146) in light and <code>#9DB4FF</code> (chroma 98) in dark, across five properties. Neither is a token from <code>tokens.ts</code>.</p>
+
+  <p><strong>Copy has drifted from the shipped screen almost everywhere.</strong> Title is &ldquo;Connect what you have.&rdquo; — shipped is <strong>&ldquo;Set up your sound.&rdquo;</strong> under a <code>KOKONADA</code> wordmark. The second card is headed &ldquo;Your body&rdquo; — shipped is <strong>&ldquo;Wearable &amp; Health&rdquo;</strong>. Both card captions are missing entirely (&ldquo;Where your soundtrack plays.&rdquo; / &ldquo;Let your body shape the music. Optional, always.&rdquo;). The status words are caps-mono <code>UNAVAILABLE</code> / <code>NOT YET AVAILABLE</code>; shipped <code>STATUS_WORD</code> is sentence case &mdash; <em>Unavailable</em> / <em>Not yet available</em>. And the <code>NEVER A GATE</code> eyebrow appears nowhere in the code; it is invented.</p>
+
+  <p><strong>The live action is drawn in the wrong place.</strong> The board hangs a small &ldquo;Connect&rdquo; pill on the wearable row. The shipped screen makes it a full-width filled <strong>&ldquo;Connect a wearable&rdquo;</strong> inside the card &mdash; described in the source as &ldquo;the protagonist: the ONE live filled CTA&rdquo;. On a screen where exactly one of three providers can be connected, that distinction is the whole hierarchy.</p>
+
+  <p><strong>Health Connect is Android-only and the board never says so.</strong> <code>ConnectServicesScreen.tsx:145</code> raises &ldquo;Connecting a wearable uses Health Connect, available on Android.&rdquo; &mdash; but only <em>after</em> a tap, on a screen the user may have reached from an iPhone.</p>
+
+  <p style="margin-bottom:0"><strong>Correcting the record twice, in the other direction.</strong> My earlier plan said Connect clipped its CTA and mood-only path off the frame (~939px into 844). I measured it: <strong>nothing is clipped, in either theme</strong> &mdash; that was fixed in Stage 2 and I should not have carried it forward. And the board's <code>isIntended</code> chip, which hides the aspirational Connect pills and the <code>REQUIRED</code> eyebrow behind a flag, is good practice: it keeps the end-state visible without letting it be mistaken for today. That stays.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">The decision I cannot make for you</div>
+
+  <p><strong>Connect is a pre-emotion screen, and the shipped code paints a brand accent on it.</strong> Your standing rule is that Splash, Onboarding, Sign in and Connect are achromatic &mdash; no accent before an emotion exists. But <code>MoodOnlyBar</code> and the wearable CTA both use the <em>fixed</em> brand accent (<code>accent.glow</code>, <code>accent.glowInk</code>), and the source is explicit that this is never the reactive <code>emotionAccent</code>. So the two are not the same colour doing the same job: one is the emotion, the other is the brand.</p>
+
+  <p>That is a genuine fork, not an oversight, so it is row one. What I can tell you is what each option measures &mdash; I computed these against the real token values rather than trusting the comment:</p>
+
+  <table style="margin:12px 0">
+    <tr><th>Pair</th><th>Light</th><th>Dark</th><th>Floor</th></tr>
+    <tr><td><code>accent.glow</code> as a <strong>label</strong></td><td class="fail">3.65 : 1</td><td class="pass">5.71 : 1</td><td>4.5 (text)</td></tr>
+    <tr><td><code>accent.glow</code> as a 1.5px <strong>ring</strong></td><td class="pass">3.65 : 1</td><td class="pass">5.71 : 1</td><td>3.0 (non-text)</td></tr>
+    <tr><td><code>content.primary</code> label on base</td><td class="pass">16.74 : 1</td><td class="pass">16.33 : 1</td><td>4.5</td></tr>
+    <tr><td><code>content.secondary</code> on raised</td><td class="pass">8.23 : 1</td><td class="pass">11.13 : 1</td><td>4.5</td></tr>
+    <tr><td><code>onAccent</code> on <code>accent.glowInk</code> fill</td><td class="pass">6.62 : 1</td><td class="pass">5.71 : 1</td><td>4.5</td></tr>
+  </table>
+
+  <p>This reproduces the claim in <code>MoodOnlyBar.tsx</code> exactly: the violet cannot carry the label in the light theme, but it can carry the ring. So the shipped arrangement &mdash; accent on the 1.5px boundary, <code>content.primary</code> on the word &mdash; is the only way the outline treatment passes. If you rule fully achromatic, the ring becomes <code>--track</code> and nothing is lost but the brand cue.</p>
+
+  <p style="margin-bottom:0"><strong>What I would not do either way:</strong> make the mood-only button a filled accent. That option is on the row so you can see it, and it is labelled as what it is.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Copy bound to source</div>
+    <table>
+      <tr><th>On screen</th><th>From</th></tr>
+      <tr><td>&ldquo;Set up your sound.&rdquo;</td><td><code>ConnectServicesScreen:198</code></td></tr>
+      <tr><td>Subtitle</td><td><code>DEFAULT_SUBTITLE</code></td></tr>
+      <tr><td>&ldquo;Where your soundtrack plays.&rdquo;</td><td><code>:205</code></td></tr>
+      <tr><td>Spotify reason</td><td><code>providers.ts</code> <code>why</code></td></tr>
+      <tr><td>YouTube reason</td><td><code>providers.ts</code> <code>why</code></td></tr>
+      <tr><td><em>Unavailable</em> / <em>Not yet available</em></td><td><code>ProviderRow STATUS_WORD</code></td></tr>
+      <tr><td>&ldquo;Connect a wearable&rdquo;</td><td><code>:227</code></td></tr>
+      <tr><td>Why-bodies</td><td><code>MUSIC_WHY_BODY</code>, <code>WEARABLE_WHY_BODY</code></td></tr>
+    </table>
+    <p style="font-size:12.5px;color:var(--pgink2);margin:10px 0 0">Provider names are plain text by policy — <code>providers.ts</code> requires &ldquo;NEVER an official colored logo/wordmark&rdquo;. The glyph slots stay neutral.</p>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'accent',name:'What carries the accent',hint:'The fork above. The brand accent is fixed here and is never the reactive emotion accent — which is why this is a real question and not a rule violation.',opts:[
+   ['none','Nothing — fully achromatic','The mood-only ring becomes --track. Consistent with Splash, Onboarding and Sign in.'],
+   ['ring','The outline ring only','accent.glow on the 1.5px boundary, content.primary on the word. What ships, and the only passing outline.'],
+   ['full','A filled mood-only button','What the board draws today. Shown so you can see it — it nudges users past connecting.']]},
+ {id:'header',name:'Header',hint:'How much preamble before the two cards.',opts:[
+   ['full','Wordmark + title + subtitle','KOKONADA above &ldquo;Set up your sound.&rdquo; What ships.'],
+   ['title','Title + subtitle','Drops the wordmark; the user just came from a screen that had it.'],
+   ['compact','Title only','Fastest to the cards. The subtitle&rsquo;s reassurance moves to the mood-only bar.']]},
+ {id:'music',name:'The music card',hint:'Neither music provider can be connected today. This decides how honestly that reads.',opts:[
+   ['rows','Two rows with reasons','Each provider named with its own compliance-cleared reason. What ships.'],
+   ['single','One collapsed line','&ldquo;Music connections aren&rsquo;t available yet.&rdquo; Less to read, less specific.'],
+   ['none','No music card','Show only what works today. Risks the user thinking music is never coming.']]},
+ {id:'wearcta',name:'The one live action',hint:'Exactly one of three providers can be connected. This is where that lives.',opts:[
+   ['card','Full-width in the card','&ldquo;Connect a wearable&rdquo; as the protagonist. What ships.'],
+   ['row','A pill on the row','What the board draws. Equal weight to rows that can do nothing.'],
+   ['quiet','Full-width outline','Present but unpushed. Consistent with never gating on a wearable.']]},
+ {id:'moodbar',name:'The mood-only escape',hint:'Never a gate. The only question is where it sits and whether it explains itself.',opts:[
+   ['note','Pinned, with sub-copy','Always visible, plus &ldquo;You can add a wearable later in Profile.&rdquo;'],
+   ['pinned','Pinned, bare','The action alone. Cleaner, and says nothing about reversibility.'],
+   ['inline','At the end of the content','Scrolls away. Weakest — it stops being one tap from anywhere.']]},
+ {id:'android',name:'Health Connect is Android-only',hint:'Today this is disclosed in an alert, after the tap.',opts:[
+   ['badge','A badge on the card','Says so before the tap. Costs a line.'],
+   ['caption','On the card caption','Always visible, no extra line: it rides on &ldquo;Optional, always.&rdquo;'],
+   ['tap','Only on tap','What ships. An iPhone user learns by hitting the wall.']]},
+ {id:'why',name:'The why-accordions',hint:'Two of them, one per card. GDPR-adjacent copy sits inside the wearable one.',opts:[
+   ['closed','Both closed','What ships. Available, not imposed.'],
+   ['open','Health one open','The health explanation is read before the ask, not after.'],
+   ['none','No accordions','The reasons live only on the consent screen. Shortest screen, least informed tap.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'As it ships',tag:'CODE-TRUE',
+  desc:'What the app actually does today, drawn correctly for the first time: the wordmark header, two honest music rows, the single filled wearable CTA, and the outline mood-only bar the code insists on. The baseline you are judging the other two against.',
+  c:{accent:'ring',header:'full',music:'rows',wearcta:'card',moodbar:'note',android:'tap',why:'closed'}},
+ {key:'B',name:'Achromatic and blunt',tag:'RULE-TRUE',
+  desc:'Applies your pre-emotion rule without exception: no brand accent anywhere, the ring in --track. It also stops spending two rows on two things that cannot happen, and discloses the Android constraint before the tap rather than after it.',
+  c:{accent:'none',header:'title',music:'single',wearcta:'card',moodbar:'note',android:'badge',why:'closed'}},
+ {key:'C',name:'One live action',tag:'THE MINIMUM TRUE THING',
+  desc:'Removes the music card entirely, because nothing in it can be acted on. What is left is one connectable thing and one way past it. The risk is real and I would not hide it: a user who never sees Spotify or YouTube named may conclude Kokonada has no music at all, which is worse than an honest &ldquo;not yet&rdquo;.',
+  c:{accent:'ring',header:'compact',music:'none',wearcta:'card',moodbar:'pinned',android:'badge',why:'none'}}
+];
+
+const MUSIC_ROWS=[
+ ['Spotify','Unavailable',"Connecting Spotify isn't available in Kokonada right now."],
+ ['YouTube Music','Not yet available','Coming once our Google review is complete.']
+];
+const MUSIC_WHY="Music streaming is where Kokonada plays your set. We'd only ever read what's needed to build and play a playlist — never post, never your social graph.";
+const WEAR_WHY="Kokonada turns how your body is doing — heart rate, HRV, sleep — into music tuned to you. It's read only with your explicit say-so, kept private (never sold, never ads), and you can withdraw anytime. Kokonada works in mood-only mode without it.";
+const ANDROID_LINE='Uses Health Connect — Android only.';
+
+function accordion(title,body,open){
+  var h='<div class="acc"><span>'+title+'</span>'+
+    '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"'+
+    (open?' style="transform:rotate(180deg)"':'')+'><path d="M6 8l4 4 4-4"/></svg></div>';
+  if(open) h+='<p class="accbody">'+body+'</p>';
+  return h;
+}
+
+function musicCard(c){
+  if(c.music==='none') return '';
+  var h='<div class="pcard"><p class="ct">Music</p><p class="cc">Where your soundtrack plays.</p>';
+  if(c.music==='single'){
+    h+='<div class="prow" style="border-top:1px solid var(--line)"><span class="pg"></span><div style="flex:1;min-width:0">'+
+       '<div class="pn"><b>Spotify &amp; YouTube Music</b><i>Not yet</i></div>'+
+       '<div class="pw">Music connections aren&rsquo;t available yet. Kokonada still plays.</div></div></div>';
+  } else {
+    h+=MUSIC_ROWS.map(function(r){
+      return '<div class="prow"><span class="pg"></span><div style="flex:1;min-width:0">'+
+        '<div class="pn"><b>'+r[0]+'</b><i>'+r[1]+'</i></div><div class="pw">'+r[2]+'</div></div></div>';}).join('');
+  }
+  if(c.why!=='none') h+=accordion('Why connect music?',MUSIC_WHY,c.why==='open'&&false);
+  return h+'</div>';
+}
+
+function wearCard(c){
+  var cap = 'Let your body shape the music. Optional, always.' +
+            (c.android==='caption' ? ' Uses Health Connect, on Android.' : '');
+  var h='<div class="pcard"><p class="ct">Wearable &amp; Health</p><p class="cc">'+cap+'</p>';
+  if(c.android==='badge') h+='<span class="badge">'+ANDROID_LINE+'</span>';
+  var why = WEAR_WHY;
+  var style;
+  if(c.wearcta==='quiet') style='border:1.5px solid var(--track);color:var(--ink)';
+  else if(c.accent==='none') style='background:var(--ink);color:var(--onink)';
+  else style='background:var(--glowink);color:var(--onaccent)';
+
+  if(c.wearcta==='row'){
+    h+='<div class="prow"><span class="pg"></span><div style="flex:1;min-width:0">'+
+       '<div class="pn"><b>Wearable</b></div><div class="pw">Read only with your explicit say-so, to shape music to your body.</div></div>'+
+       '<span style="display:flex;align-items:center;min-height:44px;padding:0 15px;border-radius:999px;'+
+       (c.accent==='none'?'border:1.5px solid var(--ink);color:var(--ink)':'border:1.5px solid var(--glow);color:var(--ink)')+
+       ';font:600 12.5px var(--text);flex:none">Connect</span></div>';
+  } else {
+    h+='<div style="border-top:1px solid var(--line);padding-top:12px"></div>'+
+       '<div class="wcta" style="'+style+'">Connect a wearable</div>';
+  }
+  if(c.why!=='none') h+=accordion('Why we ask for health data',why,c.why==='open');
+  return h+'</div>';
+}
+
+function moodBar(c,inline){
+  var ring = c.accent==='none' ? 'var(--track)' : 'var(--glow)';
+  var st = c.accent==='full'
+    ? 'background:var(--glow);color:var(--onaccent);border:1.5px solid var(--glow)'
+    : 'border:1.5px solid '+ring+';color:var(--ink)';
+  var h='<div class="mo" style="'+st+'">Continue with mood only</div>';
+  if(c.moodbar==='note') h+='<p class="monote">You can add a wearable later in Profile.</p>';
+  if(c.header==='compact'&&c.moodbar!=='note') h+='<p class="monote">You can change any of this later.</p>';
+  return inline ? ('<div style="padding:6px 0 4px">'+h+'</div>') : ('<div class="bar">'+h+'</div>');
+}
+
+function frame(theme,c){
+  var h='<div class="ph" data-t="'+theme+'"><div class="spacer"></div>';
+  h+='<div class="hd">';
+  if(c.header==='full') h+='<p class="wm">KOKONADA</p>';
+  h+='<h1 class="h1">Set up your sound.</h1>';
+  if(c.header!=='compact')
+    h+='<p class="subt">Connect what you have &mdash; or start with just your mood. You can change any of this later.</p>';
+  h+='</div>';
+  h+='<div class="body">'+musicCard(c)+wearCard(c)+(c.moodbar==='inline'?moodBar(c,true):'')+'</div>';
+  if(c.moodbar!=='inline') h+=moodBar(c,false);
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 04 — CONNECT — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-');
+    lines.push(row.name.padEnd(30,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

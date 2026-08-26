@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>11 · History — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;--brand:#8B6FE8;--violet:#9B7BF0;
+      --q-calm:#1F6FA6;--q-joyful:#8A5A12;--q-intense:#6E3FC4;--q-reflective:#3A5CCC}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;--brand:#9B7BF0;--violet:#9B7BF0;
+      --q-calm:#7FCDF5;--q-joyful:#FFD37A;--q-intense:#C4A6FF;--q-reflective:#9DB4FF}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .spacer{height:44px;flex:none}
+  .hd{padding:8px 22px 12px;flex:none}
+  .hd h2{margin:0;font:600 28px/1.18 var(--disp);letter-spacing:-.02em;color:var(--ink)}
+  .list{flex:1;min-height:0;padding:0 22px;display:flex;flex-direction:column}
+  .row{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+  .med{width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+       border:1px solid var(--line);background:var(--sunken)}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .rb{flex:1;min-width:0}
+  .rt{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .rt b{font:600 16px/1.3 var(--disp);color:var(--ink)}
+  .rt i{font:500 11px var(--mono);color:var(--ink3);flex:none;font-style:normal}
+  .rm{margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)}
+  .badge{margin-top:4px;font:500 11px var(--mono);letter-spacing:.06em}
+  .strip{margin-top:auto;padding:14px 0 12px;border-top:1px solid var(--line)}
+  .strip .t{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:9px}
+  .weeks{display:flex;gap:4px;align-items:flex-end;height:46px}
+  .weeks span{flex:1;border-radius:3px}
+  .wlab{display:flex;justify-content:space-between;margin-top:6px;font:500 10px var(--mono);color:var(--ink3)}
+  .player{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:8px 20px;
+          border-top:1px solid var(--line);background:var(--raised);flex:none}
+  .player .art{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);flex:none}
+  .player .m{flex:1;min-width:0}
+  .player .m b{display:block;font:500 13px var(--text);color:var(--ink)}
+  .player .m i{display:block;font:400 11.5px var(--text);color:var(--ink2);font-style:normal}
+  .tabs{position:relative;display:flex;justify-content:space-around;align-items:center;height:56px;flex:none;
+        border-top:1px solid var(--line);background:var(--canvas)}
+  .tab{width:8px;height:8px;border-radius:50%;background:var(--ink3);opacity:.45}
+  .tab.on{opacity:1;background:var(--ink)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>11 · History</h1>
+<p class="sub">Three treatments, both themes, seven independent rows, live assembly at the top. Measured against <code>historyFormat.ts</code>, the <code>SessionItem</code> DTO and the shipped <code>HistoryRow</code>.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Your two observations, quantified</div>
+  <p><strong>Five rows, five identical badges — and they are the screen&rsquo;s only colour.</strong> Enumerated: <code>#3A5CCC</code> is painted <strong>nine times</strong>, every instance on &ldquo;SAME STATE, NEW MUSIC&rdquo;. The states themselves — Unwind, Peak Energy, Resting but content — get none. So the screen spends all of its colour on the one string that is identical on every row, and none on the five values that differ. That is a sharper version of what you said, and it is the same <code>#3A5CCC</code> base-scope default you flagged in the colour pass: History has no <code>data-field</code>, so <code>--accent</code> falls through to the reflective ink.</p>
+  <p style="margin-bottom:0"><strong>The dead space is 224px</strong>, not the 184 I estimated. Last row ends at y=501; the mini-player starts at y=725.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">A colour history is viable, and it is blocked on something that does not exist</div>
+  <p>You are right that this is the one screen where colour would carry information. Two things to know before choosing it.</p>
+  <p><strong>Contrast is not the obstacle.</strong> All four quadrant inks clear the 4.5:1 text floor in both faces:</p>
+  <table style="margin:8px 0 12px">
+    <tr><th>Quadrant</th><th>Light</th><th>Dark</th></tr>
+    <tr><td>calm</td><td class="pass">5.20 : 1</td><td class="pass">10.87 : 1</td></tr>
+    <tr><td>joyful</td><td class="pass">5.68 : 1</td><td class="pass">13.50 : 1</td></tr>
+    <tr><td>intense</td><td class="pass">6.36 : 1</td><td class="pass">9.32 : 1</td></tr>
+    <tr><td>reflective</td><td class="pass">5.63 : 1</td><td class="pass">9.46 : 1</td></tr>
+  </table>
+  <p style="margin-bottom:0"><strong>The obstacle is that no mapping exists.</strong> A row&rsquo;s title comes from <code>friendlyTitle</code>, whose vocabulary is six presets — Focus, Energize, Calm, Unwind, Uplift, Intense — plus three bio bands and a generic. <strong>Nothing anywhere in the codebase maps any of those to a quadrant.</strong> I searched for it rather than assuming. So picking colour here is not just a design choice: it commissions a mapping, and that mapping is an interpretive claim about what someone was feeling. I have drawn one below so you can see it, and every row is labelled as <em>proposed</em> — I am not going to quietly invent the semantics of the archive.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Three things I previously told you were wrong here, and are not</div>
+  <table style="margin:6px 0 0">
+    <tr><th>Old claim</th><th>Checked</th></tr>
+    <tr><td>&ldquo;Row not tappable&rdquo;</td><td class="pass"><code>HistoryRow</code> is an <code>AnimatedPressable</code> with <code>accessibilityRole="button"</code>, an <code>onPress</code>, and a press-scale animation. The whole row is one tap.</td></tr>
+    <tr><td>&ldquo;Two competing buttons per row&rdquo;</td><td class="pass">The shipped row has a medallion, a title, a meta line and a time. No buttons at all. The board matches — one chevron, no action pair.</td></tr>
+    <tr><td>&ldquo;Three strings the product cannot produce&rdquo;</td><td class="fail">Half right. <code>metaLine()</code> emits exactly <code>Live · Running</code> / <code>Manual</code>, so no track-count <em>segment</em> exists — but <code>trackCount</code> <strong>is</strong> a field on <code>SessionItem</code>. The data is there; the meta line just does not compose it. That is a design choice available to you, not a fiction.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What else is wrong</div>
+  <p><strong>The board drops the medallion, and with it the one distinction the code already draws.</strong> <code>SourceGlyph</code> tints <code>accent.glow</code> for a live session and <code>content.secondary</code> for a manual one — so live-vs-manual is visible at a glance in the app and invisible on the board.</p>
+  <p style="margin-bottom:0"><strong>The title column mixes two vocabularies.</strong> &ldquo;Unwind&rdquo; and &ldquo;Peak Energy&rdquo; come from <code>friendlyTitle</code>&rsquo;s fixed maps. &ldquo;Resting but content&rdquo; does not — it reads like a state-vector sentence of the kind Now Playing and the Receipt use. A backend-supplied <code>title</code> could legitimately produce it, so I am not calling it fabricated; but one column showing both preset nouns and state prose makes the archive look like two different products.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Measured on the board today</div>
+    <table>
+      <tr><td>rows</td><td>5</td></tr>
+      <tr><td>identical badges</td><td class="fail">5</td></tr>
+      <tr><td>paints of <code>#3A5CCC</code></td><td class="fail">9, all on the badge</td></tr>
+      <tr><td>dead gap</td><td class="fail">224px</td></tr>
+      <tr><td>hues on screen</td><td>3</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">The proposed mapping</div>
+    <table>
+      <tr><th>Title</th><th>Quadrant</th></tr>
+      <tr><td>Calm · Unwind</td><td>calm</td></tr>
+      <tr><td>Uplift · Energize</td><td>joyful</td></tr>
+      <tr><td>Intense · Peak Energy</td><td>intense</td></tr>
+      <tr><td>Focus</td><td>reflective</td></tr>
+    </table>
+    <p style="font-size:12.5px;color:var(--pgink2);margin:10px 0 0">Proposed by me, not present in the code. Choosing colour commissions it.</p>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'badge',name:'The repeated badge',hint:'Identical on all five rows, and consuming every drop of colour on the screen.',opts:[
+   ['none','Remove it','Nothing lost — it says the same thing five times.'],
+   ['earned','Only when it is true','Shown on a row whose state genuinely repeats an earlier one. Then it means something.'],
+   ['tracks','Replace with the track count','trackCount is a real field on SessionItem. Differs per row, and is a fact.']]},
+ {id:'colour',name:'What carries colour',hint:'Contrast is fine in both themes. The blocker is that no title-to-quadrant mapping exists.',opts:[
+   ['quadrant','The state, by quadrant','A colour history. Commissions a mapping that does not exist yet.'],
+   ['source','Live vs manual','What SourceGlyph already tints. Real today, and a smaller claim.'],
+   ['none','Nothing','Achromatic. Honest about what the archive currently knows.']]},
+ {id:'dead',name:'The 224px',hint:'Measured gap between the last row and the mini-player.',opts:[
+   ['strip','A weeks strip','The regulator&rsquo;s logbook — where your states have sat lately. Needs the same mapping.'],
+   ['rows','Show more rows','Straightforward. Five rows is an arbitrary cut on a screen with room for eight.'],
+   ['empty','Leave it','Quiet. Currently reads as unfinished rather than restful.']]},
+ {id:'med',name:'The row medallion',hint:'The shipped row has one; the board dropped it.',opts:[
+   ['source','Source glyph','Live tinted, manual quiet — restores what the code already distinguishes.'],
+   ['state','A state dot','Carries the quadrant colour at dot size. Smallest possible colour history.'],
+   ['none','No medallion','As the board draws it today. Title and meta carry everything.']]},
+ {id:'meta',name:'The meta line',hint:'metaLine() emits source and activity. trackCount exists but is not composed in.',opts:[
+   ['shipped','Source · activity','&ldquo;Live · Running&rdquo;. Exactly what the function returns today.'],
+   ['tracks','Source · activity · tracks','Adds a real field. Changes the function, not the data.'],
+   ['plain','Source only','&ldquo;Live&rdquo;. Shortest, and drops a detail the user chose themselves.']]},
+ {id:'title',name:'Title vocabulary',hint:'The column currently mixes preset nouns with state-vector prose.',opts:[
+   ['preset','Presets only','The nine known titles. Consistent, and what friendlyTitle guarantees.'],
+   ['state','State prose only','&ldquo;Resting but content&rdquo; everywhere. Warmer, and needs every row to have a state.'],
+   ['mixed','Mixed, as today','Whatever the backend sent, unnormalised.']]},
+ {id:'player',name:'The mini-player',hint:'Second of the four screens carrying it.',opts:[
+   ['bar','Full row','As today.'],
+   ['compact','A thin line','Present, not competing with the list.'],
+   ['none','Not on this screen','The archive is about past sets; the tab bar still reaches the current one.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Facts, not decoration',tag:'NO NEW SEMANTICS',
+  desc:'Removes the badge, restores the medallion the code already tints, and spends the 224px on more rows rather than on a chart that needs an invented mapping. Nothing here claims anything the product does not already know.',
+  c:{badge:'tracks',colour:'source',dead:'rows',med:'source',meta:'shipped',title:'preset',player:'bar'}},
+ {key:'B',name:'The colour history',tag:'COMMISSIONS A MAPPING',
+  desc:'What you asked to see: every row tinted by its state, and the dead space spent on a strip showing where those states have sat lately. The strongest argument this screen can make — and it rests entirely on a title-to-quadrant mapping that someone has to author and defend.',
+  c:{badge:'none',colour:'quadrant',dead:'strip',med:'state',meta:'tracks',title:'preset',player:'compact'}},
+ {key:'C',name:'Just the log',tag:'THE QUIET ONE',
+  desc:'No badge, no colour, no chart, no player — a plain reverse-chronological list with room for eight rows. Says the least and can be wrong about the least. Included because the archive may not need to argue anything.',
+  c:{badge:'none',colour:'none',dead:'rows',med:'none',meta:'shipped',title:'preset',player:'none'}}
+];
+
+const ROWS=[
+ {t:'Unwind',       q:'calm',       time:'12m ago',   meta:'Manual · Winding down', tracks:12, live:false, prose:'Settled, winding down'},
+ {t:'Peak Energy',  q:'intense',    time:'Sunday',    meta:'Live · Running',        tracks:18, live:true,  prose:'Charged and going'},
+ {t:'Calm',         q:'calm',       time:'Yesterday', meta:'Manual · Reading',      tracks:9,  live:false, prose:'Resting but content'},
+ {t:'Uplift',       q:'joyful',     time:'Thursday',  meta:'Live · Walking',        tracks:14, live:true,  prose:'Light and lifted'},
+ {t:'Focus',        q:'reflective', time:'Aug 19',    meta:'Manual · Working',      tracks:21, live:false, prose:'Quiet and inward'},
+ {t:'Intense',      q:'intense',    time:'Aug 17',    meta:'Live · Workout',        tracks:16, live:true,  prose:'Charged and strong'},
+ {t:'Energize',     q:'joyful',     time:'Aug 15',    meta:'Manual · Commuting',    tracks:11, live:false, prose:'Bright and moving'},
+ {t:'Calm',         q:'calm',       time:'Aug 14',    meta:'Live · Resting',        tracks:8,  live:false, prose:'Settled, fairly even'}
+];
+
+function qcol(q){return 'var(--q-'+q+')';}
+
+function rowNode(r,i,c){
+  var titleText = c.title==='state' ? r.prose : c.title==='mixed' ? (i===2?r.prose:r.t) : r.t;
+  var meta = c.meta==='plain' ? r.meta.split(' · ')[0]
+           : c.meta==='tracks' ? (r.meta+' · '+r.tracks+' tracks') : r.meta;
+  var h='<div class="row">';
+  if(c.med!=='none'){
+    var inner = c.med==='state'
+      ? '<span class="dot" style="background:'+qcol(r.q)+'"></span>'
+      : '<span class="dot" style="background:'+(r.live?'var(--brand)':'var(--ink3)')+';opacity:'+(r.live?1:.55)+'"></span>';
+    h+='<span class="med">'+inner+'</span>';
+  }
+  var tcol = c.colour==='quadrant' ? qcol(r.q)
+           : c.colour==='source' ? (r.live?'var(--brand)':'var(--ink)') : 'var(--ink)';
+  h+='<span class="rb"><span class="rt"><b style="color:'+tcol+'">'+titleText+'</b><i>'+r.time+'</i></span>'+
+     '<div class="rm">'+meta+'</div>';
+  if(c.badge==='tracks')
+    h+='<div class="badge" style="color:var(--ink3)">'+r.tracks+' TRACKS</div>';
+  else if(c.badge==='earned' && (i===2||i===7))
+    h+='<div class="badge" style="color:'+(c.colour==='none'?'var(--ink3)':qcol(r.q))+'">SAME STATE, NEW MUSIC</div>';
+  h+='</span>';
+  h+='<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"/></svg>';
+  return h+'</div>';
+}
+
+function stripNode(c){
+  if(c.dead!=='strip') return '';
+  var week=['calm','calm','reflective','joyful','intense','calm','joyful'];
+  var hs=[26,34,20,40,46,30,38];
+  var bars=week.map(function(q,i){
+    var col = c.colour==='none' ? 'var(--ink3)' : qcol(q);
+    return '<span style="height:'+hs[i]+'px;background:'+col+';opacity:'+(c.colour==='none'?.4:.85)+'"></span>';}).join('');
+  return '<div class="strip"><div class="t">WHERE YOU HAVE BEEN</div>'+
+    '<div class="weeks">'+bars+'</div>'+
+    '<div class="wlab"><span>7 DAYS AGO</span><span>TODAY</span></div></div>';
+}
+
+function playerNode(c){
+  if(c.player==='none') return '';
+  if(c.player==='compact')
+    return '<div class="player" style="min-height:44px;padding:6px 20px"><span class="m"><b>Holocene &middot; Bon Iver</b></span>'+
+      '<span style="flex:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px">'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg></span></div>';
+  return '<div class="player"><span class="art" style="background:linear-gradient(140deg,'+
+    'color-mix(in srgb,var(--brand) 26%,transparent),color-mix(in srgb,var(--brand) 10%,transparent))"></span>'+
+    '<span class="m"><b>Holocene</b><i>Bon Iver &middot; winding down</i></span>'+
+    '<span style="flex:none;display:flex;align-items:center;gap:12px">'+
+    '<svg width="18" height="18" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg>'+
+    '<svg width="18" height="18" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M15 4h-2.4v12H15zM4 4v12l8-6z"/></svg></span></div>';
+}
+
+function frame(theme,c){
+  var n = c.dead==='rows' ? 8 : 5;
+  var h='<div class="ph" data-t="'+theme+'"><div class="spacer"></div>';
+  h+='<div class="hd"><h2>Archive</h2></div><div class="list">';
+  for(var i=0;i<n;i++) h+=rowNode(ROWS[i],i,c);
+  h+=stripNode(c);
+  h+='</div>'+playerNode(c);
+  h+='<div class="tabs"><span class="tab"></span><span class="tab"></span><span class="tab"></span><span class="tab on"></span><span class="tab"></span></div>';
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="fcap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="fcap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 11 — HISTORY — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-');
+    lines.push(row.name.padEnd(22,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>
