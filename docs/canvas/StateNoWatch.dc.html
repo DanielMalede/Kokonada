@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: #17536F; } a:hover { color: #14163A; }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column">
+
+  <div style="height:44px;flex:none"></div>
+  <div style="position:relative;flex:1;min-height:0;overflow:hidden;padding:8px 24px 0">
+    <h1 style="margin:0 0 6px;font:600 28px/1.18 var(--disp);letter-spacing:-.02em;color:var(--ink)">Nothing is reading your body yet.</h1>
+    <p style="margin:0 0 22px;font:400 13.5px/1.65 var(--text);color:var(--ink2)">Your words still work on their own — this page is where the body shows up when a watch is paired. Nothing is missing, and nothing is broken.</p>
+
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:6px">WHAT WOULD APPEAR HERE</div>
+    <div style="border-top:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)"><span style="font:400 13px var(--text);color:var(--ink)">Heart rate</span><span style="font:400 12.5px var(--text);color:var(--ink2)">Nothing paired</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)"><span style="font:400 13px var(--text);color:var(--ink)">Variability</span><span style="font:400 12.5px var(--text);color:var(--ink2)">Nothing paired</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)"><span style="font:400 13px var(--text);color:var(--ink)">Resting heart rate</span><span style="font:400 12.5px var(--text);color:var(--ink2)">Nothing paired</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:11px 0"><span style="font:400 13px var(--text);color:var(--ink)">Sleep</span><span style="font:400 12.5px var(--text);color:var(--ink2)">Nothing paired</span></div>
+    </div>
+
+    <div style="margin-top:24px;padding:15px;border:1px solid var(--line);border-radius:20px;background:var(--raised)">
+      <div style="font:600 13.5px var(--text);color:var(--ink);margin-bottom:5px">What you get without one</div>
+      <p style="margin:0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Everything, in a wider band. Your placement and your words still choose the set — the body only narrows it. A watch makes the reading sharper; it was never the price of entry.</p>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:center;min-height:48px;margin-top:20px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text)">Pair a watch</div>
+    <div style="display:flex;align-items:center;justify-content:center;min-height:44px;font:500 13px var(--text);color:var(--ink2)">Not now</div>
+  </div>
+  <div style="position:relative;display:flex;justify-content:space-around;align-items:center;height:62px;flex:none;border-top:1px solid var(--line);background:var(--canvas)">
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="GENERATE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><circle cx="10" cy="10" r="9"></circle><path d="M3 10 q2.3 -4 4.6 0 t4.6 0 t4.6 0" fill="none" stroke="var(--canvas)" stroke-width="1.7" stroke-linecap="round"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="NOW PLAYING" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><path d="M4 3v14l12-7z"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PULSE" aria-selected="true">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--accent)" aria-hidden="true"><path d="M1 12 q2 0 3-3 t2 6 t2-6 t2 3 h9 v2 H1z"></path></svg>
+      <span style="font:500 11px var(--mono);letter-spacing:.06em;color:var(--accent);white-space:nowrap">PULSE</span>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="HISTORY" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><rect x="2" y="4" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="9" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="14" width="11" height="2.6" rx="1.3"></rect></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PROFILE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><circle cx="10" cy="6.5" r="3.6"></circle><path d="M2.6 18a7.4 7.4 0 0 1 14.8 0z"></path></svg>
+    </span>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

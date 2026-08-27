@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+@keyframes breathe { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+    @keyframes glowbreath { 0%,100% { opacity:.45; } 50% { opacity:.75; } }
+
+    .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:1; }
+    .fld1, .fld2 { position:absolute; }
+    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; }
+    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath 5670ms ease-in-out infinite 1400ms; }
+    @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+    .qi[data-theme="dark"] .fldwrap { opacity:0.90; }
+    .qi[data-field="off"] .fldwrap { display:none; }
+    .qi[data-field="calm"] .fld1 { height:74%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="calm"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="joyful"] .fld1 { height:86%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="joyful"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="intense"] .fld1 { height:68%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="intense"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="reflective"] .fld1 { height:62%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="reflective"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    @media (prefers-reduced-motion: reduce) {
+      .fld1, .fld2 { animation: none !important; opacity:.6 !important; transform:scale(1.02) !important; }
+      [style*="animation:breathe"], [style*="animation:glowbreath"] { animation: none !important; opacity:.55 !important; }
+    }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" data-field="{{field}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column;align-items:center;justify-content:center">
+
+  <div class="fldwrap">
+    <div class="fld1"></div>
+    <div class="fld2"></div>
+  </div>
+
+  <span style="position:absolute;left:10px;top:44px;display:flex;align-items:center;min-height:44px;padding:0 12px;font:500 13px var(--text);color:var(--ink2)" role="button" aria-label="Back">&larr; Back</span>
+
+  <div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:300px;height:300px">
+    <svg width="300" height="300" viewBox="0 0 322 322" style="animation:breathe 4200ms ease-in-out infinite" role="img" aria-label="Working">
+      <circle cx="161" cy="161" r="126" fill="none" stroke="var(--track)" stroke-opacity=".45"></circle>
+      <circle cx="161.0" cy="279.0" r="3.1" fill="var(--accent)" opacity="0.53"></circle>
+        <circle cx="137.3" cy="274.5" r="3.4" fill="var(--accent)" opacity="0.59"></circle>
+        <circle cx="164.9" cy="270.1" r="2.6" fill="var(--accent)" opacity="0.41"></circle>
+        <circle cx="194.2" cy="265.6" r="3.6" fill="var(--accent)" opacity="0.64"></circle>
+        <circle cx="99.6" cy="261.2" r="3.0" fill="var(--accent)" opacity="0.50"></circle>
+        <circle cx="219.2" cy="256.7" r="2.7" fill="var(--accent)" opacity="0.43"></circle>
+        <circle cx="141.6" cy="252.3" r="4.0" fill="var(--accent)" opacity="0.72"></circle>
+        <circle cx="124.2" cy="247.8" r="2.3" fill="var(--accent)" opacity="0.34"></circle>
+        <circle cx="240.4" cy="243.4" r="3.4" fill="var(--accent)" opacity="0.61"></circle>
+        <circle cx="79.1" cy="238.9" r="3.5" fill="var(--accent)" opacity="0.62"></circle>
+        <circle cx="200.1" cy="234.5" r="2.1" fill="var(--accent)" opacity="0.31"></circle>
+        <circle cx="189.6" cy="230.0" r="4.2" fill="var(--accent)" opacity="0.77"></circle>
+        <circle cx="75.5" cy="225.6" r="2.5" fill="var(--accent)" opacity="0.40"></circle>
+        <circle cx="260.2" cy="221.1" r="2.8" fill="var(--accent)" opacity="0.47"></circle>
+        <circle cx="101.2" cy="216.7" r="4.1" fill="var(--accent)" opacity="0.75"></circle>
+        <circle cx="147.3" cy="212.2" r="1.8" fill="var(--accent)" opacity="0.25"></circle>
+        <circle cx="243.8" cy="207.8" r="3.9" fill="var(--accent)" opacity="0.71"></circle>
+        <circle cx="50.9" cy="203.3" r="3.2" fill="var(--accent)" opacity="0.54"></circle>
+        <circle cx="240.2" cy="198.8" r="2.2" fill="var(--accent)" opacity="0.32"></circle>
+        <circle cx="155.8" cy="194.4" r="4.4" fill="var(--accent)" opacity="0.83"></circle>
+        <circle cx="87.7" cy="189.9" r="2.1" fill="var(--accent)" opacity="0.30"></circle>
+        <circle cx="275.4" cy="185.5" r="3.3" fill="var(--accent)" opacity="0.57"></circle>
+        <circle cx="65.5" cy="181.0" r="3.9" fill="var(--accent)" opacity="0.70"></circle>
+        <circle cx="186.7" cy="176.6" r="1.7" fill="var(--accent)" opacity="0.23"></circle>
+        <circle cx="219.4" cy="172.1" r="4.3" fill="var(--accent)" opacity="0.80"></circle>
+        <circle cx="48.8" cy="167.7" r="2.7" fill="var(--accent)" opacity="0.44"></circle>
+        <circle cx="268.1" cy="163.2" r="2.5" fill="var(--accent)" opacity="0.40"></circle>
+        <circle cx="115.5" cy="158.8" r="4.4" fill="var(--accent)" opacity="0.82"></circle>
+        <circle cx="121.1" cy="154.3" r="1.8" fill="var(--accent)" opacity="0.24"></circle>
+        <circle cx="265.0" cy="149.9" r="3.7" fill="var(--accent)" opacity="0.67"></circle>
+        <circle cx="47.9" cy="145.4" r="3.5" fill="var(--accent)" opacity="0.61"></circle>
+        <circle cx="223.9" cy="141.0" r="1.9" fill="var(--accent)" opacity="0.27"></circle>
+        <circle cx="180.6" cy="136.5" r="4.4" fill="var(--accent)" opacity="0.83"></circle>
+        <circle cx="70.6" cy="132.1" r="2.3" fill="var(--accent)" opacity="0.35"></circle>
+        <circle cx="273.8" cy="127.6" r="3.0" fill="var(--accent)" opacity="0.51"></circle>
+        <circle cx="85.1" cy="123.2" r="4.1" fill="var(--accent)" opacity="0.75"></circle>
+        <circle cx="161.5" cy="118.7" r="1.8" fill="var(--accent)" opacity="0.24"></circle>
+        <circle cx="233.8" cy="114.2" r="4.1" fill="var(--accent)" opacity="0.74"></circle>
+        <circle cx="55.1" cy="109.8" r="3.0" fill="var(--accent)" opacity="0.50"></circle>
+        <circle cx="243.9" cy="105.3" r="2.4" fill="var(--accent)" opacity="0.36"></circle>
+        <circle cx="142.8" cy="100.9" r="4.3" fill="var(--accent)" opacity="0.79"></circle>
+        <circle cx="108.4" cy="96.4" r="2.1" fill="var(--accent)" opacity="0.31"></circle>
+        <circle cx="253.3" cy="92.0" r="3.4" fill="var(--accent)" opacity="0.60"></circle>
+        <circle cx="78.9" cy="87.5" r="3.6" fill="var(--accent)" opacity="0.64"></circle>
+        <circle cx="191.8" cy="83.1" r="2.1" fill="var(--accent)" opacity="0.31"></circle>
+        <circle cx="192.9" cy="78.6" r="4.0" fill="var(--accent)" opacity="0.74"></circle>
+        <circle cx="88.8" cy="74.2" r="2.7" fill="var(--accent)" opacity="0.44"></circle>
+        <circle cx="232.5" cy="69.7" r="2.8" fill="var(--accent)" opacity="0.47"></circle>
+        <circle cx="126.1" cy="65.3" r="3.8" fill="var(--accent)" opacity="0.69"></circle>
+        <circle cx="147.9" cy="60.8" r="2.4" fill="var(--accent)" opacity="0.37"></circle>
+        <circle cx="205.5" cy="56.4" r="3.5" fill="var(--accent)" opacity="0.61"></circle>
+        <circle cx="116.4" cy="51.9" r="3.2" fill="var(--accent)" opacity="0.54"></circle>
+        <circle cx="181.8" cy="47.5" r="2.8" fill="var(--accent)" opacity="0.47"></circle>
+        <circle cx="161.0" cy="43.0" r="3.1" fill="var(--accent)" opacity="0.53"></circle>
+    </svg>
+  </div>
+
+  <div aria-busy="true" aria-live="polite" style="position:absolute;left:0;right:0;bottom:96px;padding:0 34px;text-align:center">
+    <div style="font:600 19px/1.4 var(--disp);color:var(--ink)">{{say}}</div>
+    <sc-if value="{{isSlow}}" hint-placeholder-val="{{ true }}">
+      <div style="margin-top:8px;font:400 13px/1.5 var(--text);color:var(--ink2)">Still going. It can take up to half a minute.</div>
+    </sc-if>
+    <div style="margin-top:12px;display:flex;justify-content:center;gap:6px" aria-hidden="true">
+      <span style="display:block;width:22px;height:8px;border-radius:999px;background:var(--accent)"></span>
+      <span style="display:block;width:22px;height:8px;border-radius:999px;background:{{tick2}}"></span>
+      <span style="display:block;width:22px;height:8px;border-radius:999px;background:{{tick3}};outline:{{tick3outline}}"></span>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["intense","calm","joyful","reflective","off"],"default":"intense"},"state":{"editor":"enum","options":["working","slow","resolved"],"default":"slow"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const state = this.props.state ?? 'slow';
+    // The meter is DECORATIVE rhythm, not a progress claim: generationStatusStore has one
+    // boolean, so there is no step index to announce. aria-hidden on the ticks + aria-busy
+    // on the region keeps the screen reader truthful while the visual stays as drawn.
+    const filled = state === 'resolved' ? 3 : 2;
+    const off = 'var(--bartrack)';
+    return {
+      theme: this.props.theme ?? 'light',
+      field: this.props.field ?? 'intense',
+      isSlow: state === 'slow',
+      say: state === 'resolved' ? "It's ready." : 'Sitting with the shape of it.',
+      tick2: filled >= 2 ? 'var(--accent)' : off,
+      tick3: filled >= 3 ? 'var(--accent)' : off,
+      tick3outline: filled >= 3 ? 'none' : '1px solid var(--track)',
+    };
+  }
+}
+</script>
+</body>
+</html>

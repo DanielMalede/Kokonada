@@ -1,0 +1,163 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+.samp { position:relative; overflow:hidden; border-radius:20px; border:1px solid var(--line); background:var(--canvas); height:300px; }
+    .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:1; }
+    .fld1, .fld2 { position:absolute; }
+    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; }
+    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath 5670ms ease-in-out infinite 1400ms; }
+    @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+    .qi[data-theme="dark"] .fldwrap { opacity:0.90; }
+    [data-field="calm"] .fld1 { height:74%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    [data-field="calm"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    [data-field="joyful"] .fld1 { height:86%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    [data-field="joyful"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    [data-field="intense"] .fld1 { height:68%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    [data-field="intense"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    [data-field="reflective"] .fld1 { height:62%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    [data-field="reflective"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    @media (prefers-reduced-motion: reduce) {
+      .fld1, .fld2 { animation: none !important; opacity:.6 !important; transform:scale(1.02) !important; }
+      [style*="animation:breathe"], [style*="animation:glowbreath"], [style*="animation:fbreathe"] { animation: none !important; opacity:.55 !important; }
+    }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:1180px;min-height:1000px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 48px">
+
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--line2)">
+    <div>
+      <h1 style="margin:0 0 6px;font:600 34px/1.15 var(--disp);letter-spacing:-.02em">The living field</h1>
+      <p style="margin:0;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:720px">One ambient layer behind the app that answers the body. It takes its colour from the state you are in, it breathes on your heart, and it reaches further up the screen the more activated you are. It is the only ambient element — it replaces the tide, and it never becomes four drifting blobs again.</p>
+    </div>
+    <div style="font:500 11px/1.8 var(--mono);letter-spacing:.12em;color:var(--ink3);text-align:right;flex:none">2 LOBES<br>1 PERIOD<br>0 BLUR</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin-top:28px">
+
+    <div>
+      <div class="samp" data-field="calm">
+        <div class="fldwrap"><div class="fld1"></div><div class="fld2"></div></div>
+        <div style="position:relative;padding:18px 20px">
+          <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3)">STATE</div>
+          <div style="margin-top:4px;font:600 19px/1.25 var(--disp);color:var(--ink)">Resting but content</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font:600 13px var(--disp);color:var(--ink)">Calm · teal</div>
+      <div style="margin-top:3px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Low arousal, pleasant. Wide and low, breath at its 4200 ms floor.</div>
+    </div>
+
+    <div>
+      <div class="samp" data-field="joyful">
+        <div class="fldwrap"><div class="fld1"></div><div class="fld2"></div></div>
+        <div style="position:relative;padding:18px 20px">
+          <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3)">STATE</div>
+          <div style="margin-top:4px;font:600 19px/1.25 var(--disp);color:var(--ink)">Bright and eager</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font:600 13px var(--disp);color:var(--ink)">Joyful · amber</div>
+      <div style="margin-top:3px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Bright and resourced — the one state that earns full height, and the only place warm light is correct.</div>
+    </div>
+
+    <div>
+      <div class="samp" data-field="intense">
+        <div class="fldwrap"><div class="fld1"></div><div class="fld2"></div></div>
+        <div style="position:relative;padding:18px 20px">
+          <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3)">STATE</div>
+          <div style="margin-top:4px;font:600 19px/1.25 var(--disp);color:var(--ink)">Wired, running on empty</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font:600 13px var(--disp);color:var(--ink)">Intense · violet</div>
+      <div style="margin-top:3px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">High arousal, but empty. Violet, and deliberately <em>lower</em> than joyful, because the body has nothing to spend. The slowest breath in the set.</div>
+    </div>
+
+    <div>
+      <div class="samp" data-field="reflective">
+        <div class="fldwrap"><div class="fld1"></div><div class="fld2"></div></div>
+        <div style="position:relative;padding:18px 20px">
+          <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3)">STATE</div>
+          <div style="margin-top:4px;font:600 19px/1.25 var(--disp);color:var(--ink)">No energy, wants calm</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font:600 13px var(--disp);color:var(--ink)">Reflective · indigo</div>
+      <div style="margin-top:3px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Depleted reads as a low, close field — present, but asking nothing of you.</div>
+    </div>
+
+  </div>
+
+  <div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px;margin-top:40px">
+
+    <div>
+      <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:14px">WHAT DRIVES IT</div>
+      <div style="display:grid;grid-template-columns:118px 1fr;gap:0">
+
+        <div style="border-top:1px solid var(--line2);padding:12px 0;font:600 13px var(--disp);color:var(--ink)">Hue</div>
+        <div style="border-top:1px solid var(--line2);padding:12px 0 12px 18px;font:400 13px/1.6 var(--text);color:var(--ink2)">The quadrant of the <strong>fused</strong> state on the valence×arousal circumplex — teal, amber, violet, indigo, straight from <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">emotionAccent</span>, as locked on 2026-07-12. Only the fused state is ever painted: the placements re-tint to it rather than holding the hue you placed, so one accent is live at a time. The never-warm constraint binds on high-arousal <em>negative</em> states — distress, not arousal — so amber appears when the read is genuinely bright and resourced, and never when the body contradicts it.</div>
+
+        <div style="border-top:1px solid var(--line);padding:12px 0;font:600 13px var(--disp);color:var(--ink)">Breath</div>
+        <div style="border-top:1px solid var(--line);padding:12px 0 12px 18px;font:400 13px/1.6 var(--text);color:var(--ink2)">A regulation target, not a readout. <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">T = 4200 + 2000 × stress</span> — so a settled body breathes at 4200 ms (<span style="font-family:var(--mono);font-size:12px;color:var(--ink)">motion.duration.breath</span>) and a stressed one stretches to 6200. Heart rate enters only as a bounded pull <em>upward</em> at rest. The period is monotonic in stress: it can lengthen, never shorten. The second lobe runs at a fixed 1.35 × T, which is where the drift comes from.</div>
+
+
+        <div style="border-top:1px solid var(--line);padding:12px 0;font:600 13px var(--disp);color:var(--ink)">Reach</div>
+        <div style="border-top:1px solid var(--line);padding:12px 0 12px 18px;font:400 13px/1.6 var(--text);color:var(--ink2)">Arousal raises it, 62% of the screen to 86% — and depletion pulls it back down again. A wired-but-empty body gets the violet but only 68%, below the 86% of a body that is bright <em>and</em> resourced. That gap is the regulator, drawn.</div>
+
+        <div style="border-top:1px solid var(--line);padding:12px 0;font:600 13px var(--disp);color:var(--ink)">Now Playing</div><div style="border-top:1px solid var(--line);padding:12px 0 12px 18px;font:400 13px/1.6 var(--text);color:var(--ink2)">The one screen where the field is a <em>target</em> rather than a readout. It eases from the state you arrived in toward the state the set is taking you to, over 1200 ms — so the room changes after you have arrived, not during. Everywhere else the field reports the present.</div><div style="border-top:1px solid var(--line);border-bottom:1px solid var(--line2);padding:12px 0;font:600 13px var(--disp);color:var(--ink)">Presence</div>
+        <div style="border-top:1px solid var(--line);border-bottom:1px solid var(--line2);padding:12px 0 12px 18px;font:400 13px/1.6 var(--text);color:var(--ink2)">Confidence, as the field&#39;s opacity. A 0.69 read renders at 78%; a 0.95 read is fully present. The background is as sure as the engine is, and no surer — compare the hero against Genesis on this canvas.</div>
+
+      </div>
+
+      <div style="margin-top:22px;font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:12px">WHERE IT APPEARS</div>
+      <p style="margin:0;font:400 13px/1.65 var(--text);color:var(--ink2)">Place, Genesis, Now Playing and Pulse — the four screens where the body is being read or expressed. Archive, You, Consent, Login and Connect stay on flat paper: an archive should be quiet, and a legal choice is never tinted by how you feel. That restraint is what keeps the field meaning something.</p>
+    </div>
+
+    <div>
+      <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:14px">THE SWITCH — IN YOU</div>
+
+      <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);padding:16px 16px 18px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:14px">
+          <div style="font:600 14.5px var(--disp);color:var(--ink)">Living background</div>
+          <span style="display:flex;align-items:center;width:50px;height:30px;border-radius:15px;background:var(--accent);padding:3px;box-sizing:border-box;flex:none;justify-content:flex-end">
+            <span style="display:block;width:24px;height:24px;border-radius:50%;background:var(--raised)"></span>
+          </span>
+        </div>
+        <p style="margin:8px 0 14px;font:400 12.5px/1.65 var(--text);color:var(--ink2)">The light behind the app follows your body — it breathes on your heart and takes its colour from the state you are in. It never speeds up when you are stressed; it slows down. Turn it off and everything else works exactly the same.</p>
+        <div style="height:44px;border-radius:12px;position:relative;overflow:hidden;border:1px solid var(--line)" data-field="intense">
+          <div class="fldwrap"><div class="fld1"></div><div class="fld2"></div></div>
+        </div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;gap:10px;font:500 11px var(--mono);color:var(--ink3)"><span>NOW · WIRED, RUNNING ON EMPTY</span><span>4200 MS</span></div>
+      </div>
+
+      <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin:26px 0 12px">THE THREE RULES</div>
+      <div style="display:flex;flex-direction:column;gap:11px;font:400 13px/1.6 var(--text);color:var(--ink2)">
+        <div><span style="color:var(--ink)">It never gets faster under stress.</span> The period is monotonic in stress and there is no second layer running at cardiac rate. An earlier draft of this board had one, at <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">60000/bpm</span>; it was a mirror, not a regulator, and it is gone.</div>
+        <div><span style="color:var(--ink)">It never goes red.</span> The four hues are the whole range; distress deepens toward violet and indigo and stops there.</div>
+        <div><span style="color:var(--ink)">It is always switchable, and it degrades before anything else.</span> Reduced motion and low power hold a designed still — same hue, same reach, no movement. Under thermal pressure the second lobe drops first, then the breath, then the field flattens. Layout never changes.</div>
+      </div>
+
+      <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line);font:400 12.5px/1.65 var(--text);color:var(--ink3)">Built on what already ships: <span style="font-family:var(--mono);font-size:12px;color:var(--ink2)">advancePulsePhase</span> is already frame-rate-independent and hard-clamped, and the field reuses it for motion. Hue comes from <span style="font-family:var(--mono);font-size:12px;color:var(--ink2)">emotionAccent</span> instead of the arousal ramp, so the never-red invariant pinned in <span style="font-family:var(--mono);font-size:12px;color:var(--ink2)">tokens.test.ts</span> is untouched.</div>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1180,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

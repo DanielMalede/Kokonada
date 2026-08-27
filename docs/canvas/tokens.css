@@ -1,0 +1,134 @@
+/* ============================================================================
+   THE canvas colour source. All 22 boards read this ONE file.
+   No board declares a colour of its own.
+
+   Layer 1 — SOURCE. The only literal colours that exist anywhere on the canvas.
+   Layer 2 — APPLIED. Everything else is computed from Layer 1.
+
+   Changing the palette is an edit to Layer 1 and nothing else.
+   ============================================================================ */
+
+:root{
+  /* ---- SOURCE · the four Aurora hues (glow / fill form) -------------------- */
+  --hue-calm:        #3FB4F0;
+  --hue-joyful:      #F5B93A;
+  --hue-intense:     #8B6FE8;
+  --hue-reflective:  #4B6FD0;
+  --hue-violet:      #9B7BF0;   /* the brand violet, fill form */
+
+  /* ---- SOURCE * the FIXED brand accent (never the reactive emotion accent).
+     Mirrors accent.glow / accent.glowInk / content.onAccent in tokens.ts.
+     glow is too light to carry text on porcelain, so it rides the ring only. */
+  --brand-l:#8B6FE8;     --brand-d:#9B7BF0;
+  --brandink-l:#6E3FC4;  --brandink-d:#9B7BF0;
+  --onbrand-l:#FFFFFF;   --onbrand-d:#0E1030;
+
+  /* ---- SOURCE · the readable INK of each hue, one per face -----------------
+     A hue and its ink are different values on purpose: the glow form is too
+     light to carry text on porcelain. Mirrors accent.glow / accent.glowInk. */
+  --ink-calm-l:#1F6FA6;  --ink-joyful-l:#8A5A12;  --ink-intense-l:#6E3FC4;  --ink-reflective-l:#3A5CCC;
+  --ink-calm-d:#7FCDF5;  --ink-joyful-d:#FFD37A;  --ink-intense-d:#C4A6FF;  --ink-reflective-d:#9DB4FF;
+
+  /* ---- SOURCE · surfaces and ink, one per face ---------------------------- */
+  --paper-l:#FAFAFF;  --raised-l:#FFFFFF;  --sunken-l:#F1F3FB;  --plate-l:#FFFFFF;
+  --paper-d:#0B0D26;  --raised-d:#15173A;  --sunken-d:#090B1E;  --plate-d:#11132F;
+  --ink-l:#14163A;    --ink-d:#EEF1FC;
+  --ink3-l:#6A6589;   --ink3-d:#A7A6D0;
+  --violet-l:#5B45B8; --violet-d:#C9B6FF;
+  --danger-l:#9E3346; --danger-d:#FF9BA8;        /* ERROR — something went wrong */
+  /* DESTRUCTIVE — a deliberate, final act the user is choosing. Seeded from the
+     same red because it reads correctly today, but declared separately so the two
+     meanings can diverge without one silently dragging the other. Floor: 4.5:1 as
+     text and 3:1 as a boundary, in BOTH faces. Measured 6.96:1 / 8.64:1 on raised. */
+  --destructive-l:#9E3346; --destructive-d:#FF9BA8;
+  /* NOT a mark colour. #191414 is the guidelines' playback-view artwork-fallback
+     background. The official marks carry their own colour and must never be tinted. */
+  --spotify-playback-bg:#191414;
+  --pagebg:#E8E9EF;              /* the page behind the artboards */
+  --swatch-tint:#E0D8F4;         /* the Tokens board's tint sample */              /* the page behind the artboards */
+
+  /* ---- SOURCE · the alpha ladder ------------------------------------------ */
+  --a-ink2-l:74%;  --a-line-l:14%;  --a-line2-l:28%;  --a-fill-l:18%;
+  --a-ink2-d:76%;  --a-line-d:16%;  --a-line2-d:32%;  --a-fill-d:22%;
+  --a-violetfill:16%;
+  --a-bloom-l:5.5%; --a-bloom-d:7%;
+
+  /* ---- SOURCE · type ------------------------------------------------------ */
+  --disp:"General Sans","Manrope",system-ui,sans-serif;
+  --text:"Plus Jakarta Sans",system-ui,sans-serif;
+  --mono:"Space Mono",ui-monospace,monospace;
+}
+
+/* ============================ Layer 2 · APPLIED ============================ */
+
+.qi, .doc{
+  --canvas:var(--paper-l);  --raised:var(--raised-l);  --sunken:var(--sunken-l);  --plate:var(--plate-l);
+  --ink:var(--ink-l);
+  --ink2: color-mix(in srgb, var(--ink) var(--a-ink2-l), transparent);
+  --line: color-mix(in srgb, var(--ink) var(--a-line-l), transparent);
+  --line2:color-mix(in srgb, var(--ink) var(--a-line2-l), transparent);
+  --ink3:var(--ink3-l);  --track:var(--ink3-l);
+
+  /* the default field is `reflective` — this is the value that used to sit as a
+     bare literal in every board and paint five of them before anyone noticed. */
+  --accent:var(--ink-reflective-l);
+  --accent-hue:var(--hue-reflective);
+  --a-fill:var(--a-fill-l);
+  --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-fill), transparent);
+  --bartrack:var(--accentfill);
+
+  --violet:var(--violet-l);
+  --violetfill: color-mix(in srgb, var(--hue-violet) var(--a-violetfill), transparent);
+  --danger:var(--danger-l);
+  --destructive:var(--destructive-l);
+  --onink:var(--paper-l);
+  --inkbtn:var(--ink-l);
+  --artph: color-mix(in srgb, var(--hue-violet) var(--a-violetfill), transparent);
+  --bloom: color-mix(in srgb, var(--ink) var(--a-bloom-l), transparent);
+  --brand:var(--brand-l);  --brandink:var(--brandink-l);  --onbrand:var(--onbrand-l);
+  /* All four quadrant inks at once — for surfaces that show MANY states side by
+     side (the archive), rather than one fused state. Still one source. */
+  --q-calm:var(--ink-calm-l); --q-joyful:var(--ink-joyful-l);
+  --q-intense:var(--ink-intense-l); --q-reflective:var(--ink-reflective-l);
+}
+
+.qi[data-theme="dark"], .doc[data-theme="dark"], .qi[data-theme="dark"] .doc{
+  --canvas:var(--paper-d);  --raised:var(--raised-d);  --sunken:var(--sunken-d);  --plate:var(--plate-d);
+  --ink:var(--ink-d);
+  --ink2: color-mix(in srgb, var(--ink) var(--a-ink2-d), transparent);
+  --line: color-mix(in srgb, var(--ink) var(--a-line-d), transparent);
+  --line2:color-mix(in srgb, var(--ink) var(--a-line2-d), transparent);
+  --ink3:var(--ink3-d);  --track:var(--ink3-d);
+
+  --accent:var(--ink-reflective-d);
+  --a-fill:var(--a-fill-d);
+  --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-fill), transparent);
+  --bartrack:var(--accentfill);
+
+  --violet:var(--violet-d);
+  --danger:var(--danger-d);
+  --destructive:var(--destructive-d);
+  --onink:var(--paper-d);
+  --inkbtn:var(--ink-d);
+  --artph: color-mix(in srgb, var(--hue-violet) 20%, transparent);
+  --bloom: color-mix(in srgb, var(--ink) var(--a-bloom-d), transparent);
+  --brand:var(--brand-d);  --brandink:var(--brandink-d);  --onbrand:var(--onbrand-d);
+  --q-calm:var(--ink-calm-d); --q-joyful:var(--ink-joyful-d);
+  --q-intense:var(--ink-intense-d); --q-reflective:var(--ink-reflective-d);
+}
+
+/* The quadrant fields. Each sets ONE hue and ONE ink; the fill and the bar
+   track derive, so a re-tint can no longer leave the fill on the old colour. */
+.qi[data-field="calm"], .qi [data-field="calm"], .doc[data-field="calm"], .doc [data-field="calm"] { --accent:var(--ink-calm-l); --accent-hue:var(--hue-calm);
+  --accentfill: color-mix(in srgb, var(--hue-calm) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+.qi[data-field="joyful"], .qi [data-field="joyful"], .doc[data-field="joyful"], .doc [data-field="joyful"] { --accent:var(--ink-joyful-l); --accent-hue:var(--hue-joyful);
+  --accentfill: color-mix(in srgb, var(--hue-joyful) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+.qi[data-field="intense"], .qi [data-field="intense"], .doc[data-field="intense"], .doc [data-field="intense"] { --accent:var(--ink-intense-l); --accent-hue:var(--hue-intense);
+  --accentfill: color-mix(in srgb, var(--hue-intense) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+.qi[data-field="reflective"], .qi [data-field="reflective"], .doc[data-field="reflective"], .doc [data-field="reflective"] { --accent:var(--ink-reflective-l); --accent-hue:var(--hue-reflective);
+  --accentfill: color-mix(in srgb, var(--hue-reflective) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+
+.qi[data-theme="dark"][data-field="calm"], .qi[data-theme="dark"] [data-field="calm"], .doc[data-theme="dark"][data-field="calm"], .doc[data-theme="dark"] [data-field="calm"] { --accent:var(--ink-calm-d); }
+.qi[data-theme="dark"][data-field="joyful"], .qi[data-theme="dark"] [data-field="joyful"], .doc[data-theme="dark"][data-field="joyful"], .doc[data-theme="dark"] [data-field="joyful"] { --accent:var(--ink-joyful-d); }
+.qi[data-theme="dark"][data-field="intense"], .qi[data-theme="dark"] [data-field="intense"], .doc[data-theme="dark"][data-field="intense"], .doc[data-theme="dark"] [data-field="intense"] { --accent:var(--ink-intense-d); }
+.qi[data-theme="dark"][data-field="reflective"], .qi[data-theme="dark"] [data-field="reflective"], .doc[data-theme="dark"][data-field="reflective"], .doc[data-theme="dark"] [data-field="reflective"] { --accent:var(--ink-reflective-d); }

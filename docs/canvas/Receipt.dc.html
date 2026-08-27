@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: #17536F; } a:hover { color: #14163A; }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" data-field="{{field}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column">
+
+  <div style="height:44px;flex:none"></div>
+
+  <div style="display:flex;align-items:center;gap:6px;padding:0 12px;flex:none">
+    <span style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--ink2)">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-5 6 5 6"></path></svg>
+    </span>
+    <span style="font:500 11px var(--mono);letter-spacing:.16em;color:var(--ink2)">WHY THIS MUSIC</span>
+  </div>
+
+  <div style="flex:none;padding:4px 22px 13px;border-bottom:1px solid var(--line)">
+    <p style="margin:0 0 6px;font:600 19px/1.3 var(--disp);color:var(--ink)">Wired, but running on empty</p><p style="margin:0 0 9px;font:400 14px/1.55 var(--text);color:var(--ink2)">Your variability was low and you&rsquo;d slept under six hours, so I kept the tempo under 96 and leaned acoustic.</p>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="display:block;width:54px;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;flex:none"><span style="position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px"></span></span>
+      <span style="font:500 11px var(--mono);color:var(--ink2)">FAIRLY SURE · 0.69</span>
+    </div>
+  </div>
+
+  <div style="flex:1;min-height:0;overflow:hidden;padding:16px 22px 0;position:relative">
+
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">WHAT I READ</div>
+    <div style="border-top:1px solid var(--line);margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font:400 13px var(--text);color:var(--ink)"><span>You placed</span><span style="color:var(--ink2)">light, high energy ×3</span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font:400 13px var(--text);color:var(--ink)"><span>Your body said</span><span style="color:var(--ink2)">HRV 29 ms · slept 5 h 40</span></div>
+      <div style="display:flex;justify-content:space-between;gap:10px;padding:10px 0;font:400 13px var(--text);color:var(--ink)"><span>So the state was</span><span style="color:var(--ink2)">wired, running on empty</span></div>
+    </div>
+
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">WHAT THAT SET</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:22px">
+      <div>
+        <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)"><span>Tempo ceiling</span><span style="font:500 11px var(--mono);color:var(--ink)">&le; 96 BPM</span></div>
+        <span style="display:block;height:8px;margin-top:5px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;overflow:hidden"><span style="position:absolute;left:40%;right:0;top:0;bottom:0;background:var(--ink3);opacity:.28"></span><span style="position:absolute;left:40%;top:0;bottom:0;width:1.5px;margin-left:-.75px;background:var(--ink)"></span></span>
+        <span style="display:flex;justify-content:space-between;margin-top:3px;font:500 9.5px var(--mono);color:var(--ink3)"><span>40</span><span>180 BPM</span></span>
+        <span style="display:block;margin-top:4px;font:400 10px/1.4 var(--text);color:var(--ink3)">The shaded part is above the ceiling &mdash; the range the set was not allowed to use.</span>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)"><span>Energy ceiling</span><span style="font:500 11px var(--mono);color:var(--ink)">&le; 0.42</span></div>
+        <span style="display:block;height:8px;margin-top:5px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;overflow:hidden"><span style="position:absolute;left:42%;right:0;top:0;bottom:0;background:var(--ink3);opacity:.28"></span><span style="position:absolute;left:42%;top:0;bottom:0;width:1.5px;margin-left:-.75px;background:var(--ink)"></span></span>
+        <span style="display:flex;justify-content:space-between;margin-top:3px;font:500 9.5px var(--mono);color:var(--ink3)"><span>0</span><span>1.0</span></span>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)"><span>Warmth of mood</span><span style="font:500 11px var(--mono);color:var(--ink)">0.58</span></div>
+        <span style="display:block;height:8px;margin-top:5px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:58%;background:var(--accent);border-radius:999px"></span></span>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)"><span>Acoustic</span><span style="font:500 11px var(--mono);color:var(--ink)">0.71</span></div>
+        <span style="display:block;height:8px;margin-top:5px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:71%;background:var(--accent);border-radius:999px"></span></span>
+      </div>
+    </div>
+
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">WHERE IT GOES</div>
+    <div role="img" aria-label="Trajectory across eight tracks: meets you at your current arousal, brings it down over the next four, then holds." style="margin-bottom:6px"><div style="display:flex;align-items:flex-end;gap:6px;height:60px"><span style="display:block;flex:1;height:58px;background:var(--accent);opacity:0.9;border-radius:3px 3px 0 0"></span><span style="display:block;flex:1;height:50px;background:var(--accent);opacity:0.83;border-radius:3px 3px 0 0"></span><span style="display:block;flex:1;height:42px;background:var(--accent);opacity:0.76;border-radius:3px 3px 0 0"></span><span style="display:block;flex:1;height:34px;background:var(--accent);opacity:0.69;border-radius:3px 3px 0 0"></span><span style="display:block;flex:1;height:26px;background:var(--accent);opacity:0.62;border-radius:3px 3px 0 0"></span><span style="display:block;flex:1;height:20px;background:var(--accent);opacity:0.55;border-radius:3px 3px 0 0"></span><span style="display:block;flex:1;height:16px;background:var(--accent);opacity:0.48;border-radius:3px 3px 0 0"></span><span style="display:block;flex:1;height:14px;background:var(--accent);opacity:0.41;border-radius:3px 3px 0 0"></span></div><div style="display:flex;justify-content:space-between;margin-top:5px;font:500 10px var(--mono);color:var(--ink2)"><span>MEET YOU</span><span>SETTLE</span><span>HOLD</span></div></div>
+    <p style="margin:0 0 20px;font:400 12.5px/1.7 var(--text);color:var(--ink2)">Three tracks to meet you where you are, four to bring the pulse down, then it holds there. If you skip twice in the first stretch I take that as a no and re-read.</p>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px"><span style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3)">UP NEXT</span><span style="display:inline-flex;align-items:center;gap:12px;min-height:44px"><span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;border:1px dashed var(--track);font:600 9.5px var(--mono);letter-spacing:.1em;color:var(--ink3)" role="img" aria-label="Spotify">OFFICIAL SPOTIFY MARK</span><span style="font:500 11px var(--text);color:var(--ink2);text-decoration:underline;text-underline-offset:3px">Listen on Spotify</span></span></div>
+    <div style="border-top:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)"><div style="min-width:0"><div style="font:400 14px var(--text);color:var(--ink)">Teardrop</div><div style="font:400 12px var(--text);color:var(--ink2)">Massive Attack</div></div><span style="font:500 11px var(--mono);color:var(--ink2);flex:none">88 BPM</span></div>
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)"><div style="min-width:0"><div style="font:400 14px var(--text);color:var(--ink)">Re: Stacks</div><div style="font:400 12px var(--text);color:var(--ink2)">Bon Iver</div></div><span style="font:500 11px var(--mono);color:var(--ink2);flex:none">72 BPM</span></div>
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0"><div style="min-width:0"><div style="font:400 14px var(--text);color:var(--ink)">An Ending (Ascent)</div><div style="font:400 12px var(--text);color:var(--ink2)">Brian Eno</div></div><span style="font:500 11px var(--mono);color:var(--ink2);flex:none">60 BPM</span></div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:34px;background:linear-gradient(to top,var(--canvas),transparent);pointer-events:none"></div>
+  </div>
+
+  <div style="flex:none;padding:12px 22px 20px;border-top:1px solid var(--line);background:var(--canvas)">
+    <p style="margin:0;font:400 11.5px/1.6 var(--text);color:var(--ink2)">Your readings are encrypted on the way here and encrypted on our servers. The AI that shapes the music sees a coarse intensity band, your mood and genre tags — never a reading, never your name, and never anything from Spotify. The full list is in the privacy notice.</p>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["intense","calm","joyful","reflective"],"default":"intense"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light', field: this.props.field ?? 'intense' };
+  }
+}
+</script>
+</body>
+</html>
