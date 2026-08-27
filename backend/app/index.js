@@ -203,7 +203,23 @@ async function start() {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-start().catch(err => {
-  console.error('Fatal startup error:', err);
-  process.exit(1);
-});
+// OPS-013 — the app is now EXPORTED and only auto-starts when this file is the entry point.
+//
+// Until this line, `require('./app/index')` connected the DB, connected Redis, opened a
+// socket server and bound a port, so no test could ever assemble the real app. Every route
+// test therefore mounted a router onto its own throwaway express instance — stated outright
+// in tests/discovery.route.test.js. The consequence was not theoretical: real middleware
+// ORDER, route-registration validity and the production boot assertions were covered by
+// nothing, and five `router.post(path, undefined)` handlers could be wired in with the whole
+// suite green, because `router.post()` throws at module load and nothing ever loaded it.
+//
+// `require.main === module` is true for `node app/index.js` (npm start, the Dockerfile) and
+// false when a test requires it, so production behaviour is byte-identical.
+module.exports = { app, start };
+
+if (require.main === module) {
+  start().catch(err => {
+    console.error('Fatal startup error:', err);
+    process.exit(1);
+  });
+}

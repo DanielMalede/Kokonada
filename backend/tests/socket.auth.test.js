@@ -51,10 +51,9 @@ function connect(token, overrides = {}) {
   return socket;
 }
 
-// B2 same-domain auth prep (T4): once the SPA + API share a registrable domain,
-// the browser sends the httpOnly session cookie automatically — no handshake.auth
-// token involved at all. Connects with NO auth.token but WITH a Cookie header,
-// mirroring what a same-domain browser socket connection actually looks like.
+// Connects with NO auth.token but WITH a Cookie header — the shape a browser produces by
+// itself. Retained after BE-008 precisely because that shape must now be REFUSED: the
+// helper's job flipped from demonstrating a supported path to pinning a closed one.
 function connectWithCookie(cookieValue) {
   const socket = Client(`http://127.0.0.1:${port}`, {
     transports: ['websocket'],
@@ -186,14 +185,20 @@ describe('socket handshake auth', () => {
   });
 });
 
-// T4 (B2 same-domain auth prep): the handshake must also accept the httpOnly
-// session cookie as an additional path, alongside — not instead of — the existing
-// bearer/handshake.auth.token used by native/mobile clients.
-describe('socket handshake auth — cookie fallback (B2 same-domain prep)', () => {
-  it('accepts a valid session cookie when no handshake.auth.token is present', async () => {
+// BE-008 — the cookie fallback is GONE. This block used to assert the opposite: that the
+// handshake "must also accept the httpOnly session cookie as an additional path" for a
+// future same-domain SPA (T4/B2). That SPA was never built, the web surface is being
+// deleted, and in the meantime the fallback was a cross-site WebSocket hijacking hole —
+// `SameSite=None` + a WS upgrade being exempt from the same-origin policy + `/socket.io/`
+// never reaching `csrfOriginGuard`. The first case below is INVERTED, deliberately and in
+// the same commit as the fix, so the old behaviour cannot return unnoticed. The other three
+// already expected rejection and are unchanged — they now hold for a simpler reason.
+// Full rationale and the attacker-shaped cases live in tests/socket.crossSite.test.js.
+describe('socket handshake auth — an ambient cookie is NOT a credential (BE-008)', () => {
+  it('REJECTS a valid session cookie when no handshake.auth.token is present', async () => {
     const socket = connectWithCookie(signAccess());
-    await connected(socket);
-    expect(socket.connected).toBe(true);
+    const err = await once(socket, 'connect_error');
+    expect(err.message).toBe('unauthorized');
   });
 
   it('rejects when neither a token nor a cookie is present', async () => {
