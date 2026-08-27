@@ -3,6 +3,12 @@ import * as RN from 'react-native';
 import { Text, View } from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 
+// Cold-require headroom for CI (same rationale as NowPlayingScreen/ConnectServicesScreen): on a
+// cold babel cache the FIRST test in this file spends ~8s compiling the module graph and blows
+// the 5s default. Pre-existing — the pre-change file times out identically. The budget being
+// sized here is COMPILE time, not assertion time.
+jest.setTimeout(20000);
+
 // Only useMotion is stubbed — it is an ASYNC OS probe, and leaving it live makes the entry frame
 // nondeterministic. useTheme stays REAL, so every render walks the same useColorScheme →
 // resolveScheme path the app takes; the face is then FORCED per describe below. Mocking the whole
