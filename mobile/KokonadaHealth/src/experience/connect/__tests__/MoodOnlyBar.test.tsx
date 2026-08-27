@@ -20,6 +20,12 @@ const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top:
 const PRIMARIES = [colors.light.content.primary, colors.dark.content.primary];
 const GLOW_LABELS = [colors.light.accent.glow, colors.dark.accent.glow, colors.light.accent.glowInk, colors.dark.accent.glowInk];
 const ACCENT_GLOWS = [colors.light.accent.glow, colors.dark.accent.glow];
+// The RESOLVED bar's filled "Continue" is a standard primary CTA → the INK fill + its own label
+// ink, never the aurora violet (which now only feeds the Generate hero's gradient).
+const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
+const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
+const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
 
 function flatStyle(node: any): Record<string, any> {
   const s = node?.props?.style;
@@ -52,6 +58,18 @@ describe('MoodOnlyBar — AA label + bottom safe-area (designer REVISE)', () => 
     const label = flatStyle(textNode(tree, 'Continue with mood only'));
     expect(PRIMARIES).toContain(label.color);
     expect(GLOW_LABELS).not.toContain(label.color);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('the resolved "Continue" is the INK fill with its onCtaFill label, never the aurora violet', async () => {
+    const tree = await render(true);
+    const btn = flatStyle(byLabel(tree, 'continue-forward'));
+    expect(CTA_FILLS).toContain(btn.backgroundColor);
+    expect(CTA_FILLS).toContain(btn.borderColor);
+    expect(GLOW_INKS).not.toContain(btn.backgroundColor);
+    const label = flatStyle(textNode(tree, 'Continue'));
+    expect(CTA_LABELS).toContain(label.color);
+    expect(ON_ACCENTS).not.toContain(label.color);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

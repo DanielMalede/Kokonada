@@ -222,9 +222,9 @@ export function ConnectServicesScreen({
             accessibilityRole="button"
             accessibilityLabel="connect-wearable"
             accessibilityState={{ disabled: hcBusy }}
-            style={[styles.wearableCta, { backgroundColor: c.accent.glowInk, opacity: hcBusy ? 0.6 : 1 }]}
+            style={[styles.wearableCta, { backgroundColor: c.accent.ctaFill, opacity: hcBusy ? 0.6 : 1 }]}
           >
-            <Text style={[styles.wearableCtaLabel, { color: c.content.onAccent }]}>Connect a wearable</Text>
+            <Text style={[styles.wearableCtaLabel, { color: c.content.onCtaFill }]}>Connect a wearable</Text>
           </Pressable>
           <WhyAccordion title={WEARABLE_WHY_TITLE} body={WEARABLE_WHY_BODY} />
         </View>

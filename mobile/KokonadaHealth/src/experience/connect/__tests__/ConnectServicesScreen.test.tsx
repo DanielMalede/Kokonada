@@ -3,6 +3,7 @@ import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ConnectServicesScreen } from '../ConnectServicesScreen';
 import { createConnectStore, resolvedKey, moodOnlyKey } from '../connectStore';
+import { colors } from '../../../design/tokens';
 
 // Production wraps the app in a SafeAreaProvider; supply one (zero insets) so the safe-area
 // chrome reads its insets in the headless renderer.
@@ -14,6 +15,20 @@ const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top:
 // driven purely by the injected connect store; the body layout stays stable.
 
 jest.setTimeout(20000);
+
+// The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
+// violet. Theme-agnostic sets: the headless renderer may resolve either face, and the rule holds in
+// both. glowInk/onAccent are still live tokens (they feed the Generate hero's gradient), so their
+// ABSENCE here has to be asserted rather than inferred.
+const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
+const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
+const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+
+function flatStyle(node: any): Record<string, any> {
+  const s = node?.props?.style;
+  return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
+}
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -94,6 +109,17 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     const cta = byLabel(tree, 'connect-wearable');
     expect(cta.length).toBeGreaterThan(0);
     expect(cta[0].props.accessibilityRole).toBe('button');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('the one live wearable CTA is the INK fill with its onCtaFill label, never the aurora violet', async () => {
+    const { tree } = await render();
+    const cta = flatStyle(byLabel(tree, 'connect-wearable')[0]);
+    expect(CTA_FILLS).toContain(cta.backgroundColor);
+    expect(GLOW_INKS).not.toContain(cta.backgroundColor);
+    const label = flatStyle(tree.root.findAll((n) => n.props.children === 'Connect a wearable')[0]);
+    expect(CTA_LABELS).toContain(label.color);
+    expect(ON_ACCENTS).not.toContain(label.color);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

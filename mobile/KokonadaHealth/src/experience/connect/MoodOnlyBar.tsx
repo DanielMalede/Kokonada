@@ -52,9 +52,9 @@ export function MoodOnlyBar({ connect, onMoodOnly, onContinue }: MoodOnlyBarProp
           onPress={onContinue}
           accessibilityRole="button"
           accessibilityLabel="continue-forward"
-          style={[styles.button, { backgroundColor: c.accent.glowInk, borderColor: c.accent.glowInk }]}
+          style={[styles.button, { backgroundColor: c.accent.ctaFill, borderColor: c.accent.ctaFill }]}
         >
-          <Text style={[styles.label, { color: c.content.onAccent }]}>Continue</Text>
+          <Text style={[styles.label, { color: c.content.onCtaFill }]}>Continue</Text>
         </Pressable>
       </View>
     );
