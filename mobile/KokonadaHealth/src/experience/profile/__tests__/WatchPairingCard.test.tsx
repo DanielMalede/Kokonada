@@ -1,8 +1,10 @@
 import React from 'react';
+import * as RN from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { WatchPairingCard } from '../WatchPairingCard';
 import { createWatchPairingFlow, type WatchPairingDeps } from '../watchPairingStore';
-import { haptics, colors } from '../../../design/tokens';
+import { haptics, colors, type ThemeName } from '../../../design/tokens';
+import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
 
 // T2 — the §10 watch pairing CARD. States render from the store; the code is large + selectable
 // with NO Copy button (you can't paste into a watch bezel — you read + type); the a11y label spells
@@ -22,13 +24,24 @@ function makeDeps(over: Partial<WatchPairingDeps> = {}): WatchPairingDeps {
 }
 
 // The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
-// violet. Theme-agnostic sets — the headless renderer may resolve either face and the rule holds in
-// both. glowInk/onAccent stay live tokens (they feed the Generate hero's gradient), so their
-// ABSENCE from a standard CTA has to be asserted, never inferred.
-const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
-const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+// violet. POSITIVE colour claims are pinned per FACE (see the describe.each below); only the
+// NEGATIVE sets stay theme-spanning, because excluding a hue in BOTH faces is strictly stronger
+// than excluding it in one. glowInk/onAccent stay live tokens (they feed the Generate hero's
+// gradient), so their ABSENCE from a standard CTA has to be asserted, never inferred.
 const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
 const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const FACES: ThemeName[] = ['light', 'dark'];
+// Forcing the face, correctly. jest.spyOn CANNOT do it here: @react-native/jest-preset already
+// installs react-native's useColorScheme as a jest.fn(() => 'light'), and jest-mock's spyOn returns
+// an EXISTING mock untouched WITHOUT registering a restore (jest-mock/build/index.js — the whole
+// spy branch is guarded by `if (!this.isMockFunction(original))`). So mockReturnValue mutates the
+// preset's shared mock permanently and jest.restoreAllMocks() is a no-op against it, leaking the
+// last face into every later test in the file. Capture the preset's own implementation and put it
+// back by hand.
+const colorSchemeMock = RN.useColorScheme as unknown as jest.Mock;
+const PRESET_COLOR_SCHEME = colorSchemeMock.getMockImplementation();
+const forceFace = (scheme: ThemeName) => colorSchemeMock.mockImplementation(() => scheme);
+const releaseFace = () => colorSchemeMock.mockImplementation(PRESET_COLOR_SCHEME);
 const flattenStyle = (node: any): Record<string, any> => {
   const s = node?.props?.style;
   return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
@@ -50,11 +63,21 @@ const byLabel = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
 const has = (tree: ReactTestRenderer.ReactTestRenderer, label: string) => byLabel(tree, label).length > 0;
 const flush = async () => { await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); }); };
 
+// Teardown discipline, per FILE rather than per call site. A failed assertion aborts the test body,
+// so a trailing tree.unmount() never runs — and a leaked tree keeps its Animated work running into
+// the NEXT test's window, failing that one too and hiding the real cause behind a cascade. Every
+// render registers here and is swept unconditionally, pass or fail.
+const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
+afterEach(async () => {
+  for (const t of mounted.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
+});
+
 async function renderCard(deps: WatchPairingDeps) {
   const store = createWatchPairingFlow(deps);
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<WatchPairingCard store={store} />); });
   await flush();
+  mounted.push(tree);
   return { tree, store };
 }
 
@@ -63,19 +86,32 @@ describe('WatchPairingCard', () => {
     const { tree } = await renderCard(makeDeps());
     expect(has(tree, 'watch-set-up')).toBe(true);
     expect(allText(tree)).toMatch(/set up watch/i);
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('the "Set up watch" CTA wears the standard ink fill with its onCtaFill label', async () => {
-    const { tree } = await renderCard(makeDeps());
-    const cta = byLabel(tree, 'watch-set-up')[0];
-    const s = flattenStyle(cta);
-    expect(CTA_FILLS).toContain(s.backgroundColor);
-    expect(GLOW_INKS).not.toContain(s.backgroundColor);
-    const label = flattenStyle(firstText(cta));
-    expect(CTA_LABELS).toContain(label.color);
-    expect(ON_ACCENTS).not.toContain(label.color);
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  // ── FACE-FORCED colour pins ──────────────────────────────────────────────────────────────────
+  // @react-native/jest-preset REPLACES react-native's useColorScheme with jest.fn(() => 'light'),
+  // so an unforced render always resolves the LIGHT face — the shipping DARK face was never
+  // rendered here at all. Asserting set-membership across a union of both faces therefore waved a
+  // CROSS-FACE pairing through: hard-coding one face's ctaFill under the other face's label
+  // measures ~1.08:1 (an invisible control) with every assertion still green. Forcing the scheme
+  // runs the REAL useTheme → resolveScheme path in BOTH faces, pins each value EXACTLY, and
+  // measures the rendered pair, so the class dies whichever call site is edited next.
+  describe.each(FACES)('the "Set up watch" CTA, rendered on the %s face', (scheme) => {
+    const C = colors[scheme];
+    beforeEach(() => { forceFace(scheme); });
+    afterEach(() => { releaseFace(); });
+
+    it('wears THIS face’s ink fill under THIS face’s onCtaFill label', async () => {
+      const { tree } = await renderCard(makeDeps());
+      const cta = byLabel(tree, 'watch-set-up')[0];
+      const s = flattenStyle(cta);
+      const label = flattenStyle(firstText(cta));
+      expect(s.backgroundColor).toBe(C.accent.ctaFill);
+      expect(label.color).toBe(C.content.onCtaFill);
+      expect(contrastRatio(label.color, s.backgroundColor)).toBeGreaterThanOrEqual(AA_NORMAL);
+      expect(GLOW_INKS).not.toContain(s.backgroundColor);
+      expect(ON_ACCENTS).not.toContain(label.color);
+    });
   });
 
   // END-TO-END haptic wiring. Nothing is stubbed between this tap and the native module: the
@@ -90,7 +126,6 @@ describe('WatchPairingCard', () => {
     await ReactTestRenderer.act(async () => { byLabel(tree, 'watch-set-up')[0].props.onPress(); });
     await flush();
     expect(nativeTrigger).toHaveBeenCalledWith(haptics.selection);
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('code_shown: renders the code grouped, with an expiry line + Cancel and NO Copy button', async () => {
@@ -103,7 +138,6 @@ describe('WatchPairingCard', () => {
     expect(shown).toMatch(/expires in/i);          // countdown
     expect(has(tree, 'watch-cancel')).toBe(true);
     expect(has(tree, 'watch-copy')).toBe(false); // NO clipboard affordance
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('code_shown: the code a11y label spells the digits and lives in a polite live region', async () => {
@@ -115,7 +149,6 @@ describe('WatchPairingCard', () => {
     expect(codeNode.props.accessibilityLabel).toContain('1 2 3 4 5 6'); // spelled, not "one hundred..."
     const live = tree.root.findAll((n) => n.props.accessibilityLiveRegion === 'polite');
     expect(live.length).toBeGreaterThan(0);
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('Cancel clears the shown code back to not-set-up', async () => {
@@ -126,7 +159,6 @@ describe('WatchPairingCard', () => {
     await flush();
     expect(store.getState().phase).toBe('not_connected');
     expect(has(tree, 'watch-set-up')).toBe(true);
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('connected: shows last-seen + Re-pair + Disconnect (neutral), no code', async () => {
@@ -140,7 +172,6 @@ describe('WatchPairingCard', () => {
     await ReactTestRenderer.act(async () => { await byLabel(tree, 'watch-disconnect')[0].props.onPress(); });
     await flush();
     expect(store.getState().phase).toBe('not_connected');
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('NEVER renders a whr_ token in any state — even if the mint payload leaks one', async () => {
@@ -156,6 +187,5 @@ describe('WatchPairingCard', () => {
     // Scan both rendered text AND every accessibilityLabel for the token prefix.
     const labels = tree.root.findAll((n) => typeof n.props.accessibilityLabel === 'string').map((n) => n.props.accessibilityLabel).join(' ');
     expect(`${allText(tree)} ${labels}`).not.toContain('whr_');
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });

@@ -1,4 +1,5 @@
 import React from 'react';
+import * as RN from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { Animated, AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
 
@@ -33,7 +34,8 @@ import { orchestrator } from '../playbackServices';
 import { nowPlayingStore } from '../nowPlayingStore';
 import { playerStatusStore } from '../../player/playerStatusStore';
 import { PlaybackQueue } from '../playbackQueue';
-import { colors, motion, space, type as typography } from '../../../design/tokens';
+import { colors, motion, space, type as typography, type ThemeName } from '../../../design/tokens';
+import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
 
 const skipPrev = orchestrator.skipPrev as jest.Mock;
 const skipNext = orchestrator.skipNext as jest.Mock;
@@ -42,13 +44,24 @@ const togglePlayPause = orchestrator.togglePlayPause as jest.Mock;
 const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma', receipt: null, recordingKey: null };
 
 // The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
-// violet. Theme-agnostic sets — the headless renderer may resolve either face and the rule holds in
-// both. glowInk/onAccent stay live tokens (they feed the Generate hero's gradient), so their
-// ABSENCE from a standard CTA has to be asserted, never inferred.
-const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
-const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+// violet. POSITIVE colour claims are pinned per FACE (see the describe.each below); only the
+// NEGATIVE sets stay theme-spanning, because excluding a hue in BOTH faces is strictly stronger
+// than excluding it in one. glowInk/onAccent stay live tokens (they feed the Generate hero's
+// gradient), so their ABSENCE from a standard CTA has to be asserted, never inferred.
 const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
 const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const FACES: ThemeName[] = ['light', 'dark'];
+// Forcing the face, correctly. jest.spyOn CANNOT do it here: @react-native/jest-preset already
+// installs react-native's useColorScheme as a jest.fn(() => 'light'), and jest-mock's spyOn returns
+// an EXISTING mock untouched WITHOUT registering a restore (jest-mock/build/index.js — the whole
+// spy branch is guarded by `if (!this.isMockFunction(original))`). So mockReturnValue mutates the
+// preset's shared mock permanently and jest.restoreAllMocks() is a no-op against it, leaking the
+// last face into every later test in the file. Capture the preset's own implementation and put it
+// back by hand.
+const colorSchemeMock = RN.useColorScheme as unknown as jest.Mock;
+const PRESET_COLOR_SCHEME = colorSchemeMock.getMockImplementation();
+const forceFace = (scheme: ThemeName) => colorSchemeMock.mockImplementation(() => scheme);
+const releaseFace = () => colorSchemeMock.mockImplementation(PRESET_COLOR_SCHEME);
 const flattenStyle = (node: any): Record<string, any> => {
   const s = node?.props?.style;
   return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
@@ -65,11 +78,21 @@ function texts(node: any, acc: string[] = []): string[] {
 const byLabel = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
   tree.root.findAll((n) => n.props.accessibilityLabel === label)[0];
 
+// Teardown discipline, per FILE rather than per call site. A failed assertion aborts the test body,
+// so a trailing tree.unmount() never runs — and a leaked tree keeps its Animated work running into
+// the NEXT test's window, failing that one too and hiding the real cause behind a cascade. Every
+// render registers here and is swept unconditionally, pass or fail.
+const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
+afterEach(async () => {
+  for (const t of mounted.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
+});
+
 async function render() {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(<NowPlayingScreen />); });
   // Flush useMotion's async reduce-motion probe + any resulting re-render deterministically.
   await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+  mounted.push(tree);
   return tree;
 }
 
@@ -85,22 +108,33 @@ afterEach(() => {
 });
 
 describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', () => {
-  it('the play/pause transport is the standard CTA ink fill, never the aurora violet', async () => {
-    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
-    const tree = await render();
-    try {
+  // ── FACE-FORCED colour pins ──────────────────────────────────────────────────────────────────
+  // @react-native/jest-preset REPLACES react-native's useColorScheme with jest.fn(() => 'light'),
+  // so an unforced render always resolves the LIGHT face — the shipping DARK face was never
+  // rendered here at all. Asserting set-membership across a union of both faces therefore waved a
+  // CROSS-FACE pairing through: hard-coding one face's ctaFill under the other face's label
+  // measures ~1.08:1 (an invisible control) with every assertion still green. Forcing the scheme
+  // runs the REAL useTheme → resolveScheme path in BOTH faces, pins each value EXACTLY, and
+  // measures the rendered pair, so the class dies whichever call site is edited next.
+  describe.each(FACES)('the play/pause transport, rendered on the %s face', (scheme) => {
+    const C = colors[scheme];
+    beforeEach(() => { forceFace(scheme); });
+    afterEach(() => { releaseFace(); });
+
+    it('is THIS face’s ink fill under THIS face’s glyph ink, never the aurora violet', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      const tree = await render();
       const btn = byLabel(tree, 'Pause');
       const s = flattenStyle(btn);
-      expect(CTA_FILLS).toContain(s.backgroundColor);
-      expect(GLOW_INKS).not.toContain(s.backgroundColor);
       const glyph = flattenStyle(firstText(btn));
-      expect(CTA_LABELS).toContain(glyph.color);
+      expect(s.backgroundColor).toBe(C.accent.ctaFill);
+      expect(glyph.color).toBe(C.content.onCtaFill);
+      expect(contrastRatio(glyph.color, s.backgroundColor)).toBeGreaterThanOrEqual(AA_NORMAL);
+      expect(GLOW_INKS).not.toContain(s.backgroundColor);
       expect(ON_ACCENTS).not.toContain(glyph.color);
-    } finally {
-      // A failed assertion must NOT leak a mounted tree: this screen keeps live Animated loops, and
-      // a leaked one lands inside the next test's Animated.timing spy window and fails it too.
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
-    }
+      // The try/finally this replaced guarded ONE call site; the file-level sweep above guards
+      // every render in the file, which is where the leak actually had to be closed.
+    });
   });
 
   it('renders the current track title + artist when a track is present', async () => {

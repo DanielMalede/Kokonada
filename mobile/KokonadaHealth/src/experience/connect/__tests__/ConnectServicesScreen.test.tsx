@@ -1,9 +1,11 @@
 import React from 'react';
+import * as RN from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ConnectServicesScreen } from '../ConnectServicesScreen';
 import { createConnectStore, resolvedKey, moodOnlyKey } from '../connectStore';
-import { colors } from '../../../design/tokens';
+import { colors, type ThemeName } from '../../../design/tokens';
+import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
 
 // Production wraps the app in a SafeAreaProvider; supply one (zero insets) so the safe-area
 // chrome reads its insets in the headless renderer.
@@ -17,13 +19,24 @@ const METRICS = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top:
 jest.setTimeout(20000);
 
 // The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
-// violet. Theme-agnostic sets: the headless renderer may resolve either face, and the rule holds in
-// both. glowInk/onAccent are still live tokens (they feed the Generate hero's gradient), so their
-// ABSENCE here has to be asserted rather than inferred.
-const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
-const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+// violet. POSITIVE colour claims are pinned per FACE (see the describe.each below); only the
+// NEGATIVE sets stay theme-spanning, because excluding a hue in BOTH faces is strictly stronger
+// than excluding it in one. glowInk/onAccent stay live tokens (they feed the Generate hero's
+// gradient), so their ABSENCE from a standard CTA has to be asserted, never inferred.
 const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
 const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const FACES: ThemeName[] = ['light', 'dark'];
+// Forcing the face, correctly. jest.spyOn CANNOT do it here: @react-native/jest-preset already
+// installs react-native's useColorScheme as a jest.fn(() => 'light'), and jest-mock's spyOn returns
+// an EXISTING mock untouched WITHOUT registering a restore (jest-mock/build/index.js — the whole
+// spy branch is guarded by `if (!this.isMockFunction(original))`). So mockReturnValue mutates the
+// preset's shared mock permanently and jest.restoreAllMocks() is a no-op against it, leaking the
+// last face into every later test in the file. Capture the preset's own implementation and put it
+// back by hand.
+const colorSchemeMock = RN.useColorScheme as unknown as jest.Mock;
+const PRESET_COLOR_SCHEME = colorSchemeMock.getMockImplementation();
+const forceFace = (scheme: ThemeName) => colorSchemeMock.mockImplementation(() => scheme);
+const releaseFace = () => colorSchemeMock.mockImplementation(PRESET_COLOR_SCHEME);
 
 function flatStyle(node: any): Record<string, any> {
   const s = node?.props?.style;
@@ -43,6 +56,15 @@ const byLabel = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
 const byTestId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
   tree.root.findAll((n) => n.props.testID === id);
 
+// Teardown discipline, per FILE rather than per call site. A failed assertion aborts the test body,
+// so a trailing tree.unmount() never runs — and a leaked tree keeps its Animated work running into
+// the NEXT test's window, failing that one too and hiding the real cause behind a cascade. Every
+// render registers here and is swept unconditionally, pass or fail.
+const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
+afterEach(async () => {
+  for (const t of mounted.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
+});
+
 async function render(props: Partial<React.ComponentProps<typeof ConnectServicesScreen>> = {}) {
   const connect = props.connect ?? createConnectStore(undefined, () => 'u1');
   let tree!: ReactTestRenderer.ReactTestRenderer;
@@ -54,6 +76,7 @@ async function render(props: Partial<React.ComponentProps<typeof ConnectServices
     );
   });
   await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+  mounted.push(tree);
   return { tree, connect };
 }
 
@@ -64,7 +87,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(t).toContain('KOKONADA');
     expect(t).toContain('Set up your sound.');
     expect(t).toContain('Connect what you have');
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('the Spotify row is HALTED — "Unavailable" + honest reason, and offers NO connect action', async () => {
@@ -79,7 +101,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     const row = byTestId(tree, 'provider-row-spotify')[0];
     expect(row.props.accessibilityState).toEqual({ disabled: true });
     expect(row.props.accessibilityLabel).toBe("Spotify. Unavailable. Connecting Spotify isn't available in Kokonada right now.");
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('the YouTube Music row is DEFERRED — "Not yet available" + Google-review reason, no connect action', async () => {
@@ -91,7 +112,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(byLabel(tree, 'connect-youtube')).toHaveLength(0);
     const row = byTestId(tree, 'provider-row-youtube')[0];
     expect(row.props.accessibilityState).toEqual({ disabled: true });
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('a pre-existing Spotify connection (from /api/integrations/status) shows "Connected" honestly', async () => {
@@ -100,7 +120,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(row.props.accessibilityLabel).toContain('Connected');
     // Still no NEW connect action offered for a halted provider.
     expect(byLabel(tree, 'connect-spotify')).toHaveLength(0);
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('the Wearable & Health card presents the one live "Connect a wearable" CTA', async () => {
@@ -109,18 +128,31 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     const cta = byLabel(tree, 'connect-wearable');
     expect(cta.length).toBeGreaterThan(0);
     expect(cta[0].props.accessibilityRole).toBe('button');
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('the one live wearable CTA is the INK fill with its onCtaFill label, never the aurora violet', async () => {
-    const { tree } = await render();
-    const cta = flatStyle(byLabel(tree, 'connect-wearable')[0]);
-    expect(CTA_FILLS).toContain(cta.backgroundColor);
-    expect(GLOW_INKS).not.toContain(cta.backgroundColor);
-    const label = flatStyle(tree.root.findAll((n) => n.props.children === 'Connect a wearable')[0]);
-    expect(CTA_LABELS).toContain(label.color);
-    expect(ON_ACCENTS).not.toContain(label.color);
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  // ── FACE-FORCED colour pins ──────────────────────────────────────────────────────────────────
+  // @react-native/jest-preset REPLACES react-native's useColorScheme with jest.fn(() => 'light'),
+  // so an unforced render always resolves the LIGHT face — the shipping DARK face was never
+  // rendered here at all. Asserting set-membership across a union of both faces therefore waved a
+  // CROSS-FACE pairing through: hard-coding one face's ctaFill under the other face's label
+  // measures ~1.08:1 (an invisible control) with every assertion still green. Forcing the scheme
+  // runs the REAL useTheme → resolveScheme path in BOTH faces, pins each value EXACTLY, and
+  // measures the rendered pair, so the class dies whichever call site is edited next.
+  describe.each(FACES)('the one live wearable CTA, rendered on the %s face', (scheme) => {
+    const C = colors[scheme];
+    beforeEach(() => { forceFace(scheme); });
+    afterEach(() => { releaseFace(); });
+
+    it('is THIS face’s ink fill under THIS face’s onCtaFill label, never the aurora violet', async () => {
+      const { tree } = await render();
+      const cta = flatStyle(byLabel(tree, 'connect-wearable')[0]);
+      const label = flatStyle(tree.root.findAll((n) => n.props.children === 'Connect a wearable')[0]);
+      expect(cta.backgroundColor).toBe(C.accent.ctaFill);
+      expect(label.color).toBe(C.content.onCtaFill);
+      expect(contrastRatio(label.color, cta.backgroundColor)).toBeGreaterThanOrEqual(AA_NORMAL);
+      expect(GLOW_INKS).not.toContain(cta.backgroundColor);
+      expect(ON_ACCENTS).not.toContain(label.color);
+    });
   });
 
   it('the mood-only escape is pinned and always present (never a hard gate)', async () => {
@@ -128,7 +160,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     const bar = byLabel(tree, 'continue-mood-only');
     expect(bar.length).toBeGreaterThan(0);
     expect(allText(tree)).toContain('Continue with mood only');
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('screen-level state: a mood-only account sees the mood-only subtitle + a filled "Continue"', async () => {
@@ -139,7 +170,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(t).toContain('mood-only mode');
     expect(t).toContain('Continue');
     expect(t).not.toContain('Continue with mood only'); // no re-nag once chosen
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('screen-level state: a wearable-connected account sees the "all set" subtitle + filled "Continue"', async () => {
@@ -149,7 +179,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     const t = allText(tree);
     expect(t).toContain("Your wearable's connected. You're all set.");
     expect(t).not.toContain('Continue with mood only');
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('each card carries a collapsed "why we ask" disclosure (Privacy-Vault tone, explain before asking)', async () => {
@@ -161,7 +190,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     // Collapsed by default — the reason bodies are not read until asked for.
     expect(musicWhy[0].props.accessibilityState).toEqual({ expanded: false });
     expect(allText(tree)).not.toContain('never post, never your social graph');
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
   it('color is never the sole signal — every provider state carries a status word', async () => {
@@ -169,7 +197,6 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     const t = allText(tree);
     expect(t).toContain('Unavailable'); // halted word
     expect(t).toContain('Not yet available'); // deferred word
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
 
@@ -206,6 +233,5 @@ describe('ConnectServicesScreen — mood-only path (T5)', () => {
     expect(forward.length).toBeGreaterThan(0);
     await ReactTestRenderer.act(async () => { forward[0].props.onPress(); });
     expect(connect.getState().resolved).toBe(true); // idempotent — still resolved, nothing regressed
-    await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 });
