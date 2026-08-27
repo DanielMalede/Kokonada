@@ -41,6 +41,21 @@ async function render(el: React.ReactElement) {
 const byTestId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
   tree.root.findAll((n) => n.props.testID === id && n.parent?.props?.testID !== id);
 
+
+// The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
+// violet. Theme-agnostic sets — the headless renderer may resolve either face and the rule holds in
+// both. glowInk/onAccent stay live tokens (they feed the Generate hero's gradient), so their
+// ABSENCE from a standard CTA has to be asserted, never inferred.
+const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
+const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
+const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const flattenStyle = (node: any): Record<string, any> => {
+  const s = node?.props?.style;
+  return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
+};
+const firstText = (node: any) => node.findAll((n: any) => typeof n.type === 'string' && n.type === 'Text')[0];
+
 const texts = (node: any, acc: string[] = []): string[] => {
   if (node == null) return acc;
   if (typeof node === 'string') { acc.push(node); return acc; }
@@ -181,6 +196,25 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(decline.flex).toBe(agree.flex);
       expect(decline.paddingVertical).toBe(agree.paddingVertical);
       expect(decline.borderRadius).toBe(agree.borderRadius);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    it('Agree wears the FIXED standard CTA ink fill — never the aurora violet, never a re-tint', async () => {
+      const store = build();
+      store.getState().hydrate(status({ granted: false }));
+      const tree = await render(<ConsentSheet store={store} onProceed={jest.fn()} onDecline={jest.fn()} />);
+      const agree = byTestId(tree, 'consent-agree')[0];
+      const s = flattenStyle(agree);
+      expect(CTA_FILLS).toContain(s.backgroundColor);
+      expect(CTA_FILLS).toContain(s.borderColor);
+      expect(GLOW_INKS).not.toContain(s.backgroundColor);
+      const label = flattenStyle(firstText(agree));
+      expect(CTA_LABELS).toContain(label.color);
+      expect(ON_ACCENTS).not.toContain(label.color);
+      // …and it is still NOT the reactive emotion accent — a legal choice is never nudged.
+      const emotionInks = (['calm', 'joyful', 'intense', 'reflective'] as const)
+        .flatMap((q) => [colors.light.emotionAccent[q].ink, colors.dark.emotionAccent[q].ink]);
+      expect(emotionInks).not.toContain(s.backgroundColor);
       await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 

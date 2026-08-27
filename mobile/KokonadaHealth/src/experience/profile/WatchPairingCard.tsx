@@ -131,9 +131,9 @@ export function WatchPairingCard({ store, triggerHaptic = fireHaptic }: WatchPai
             accessibilityRole="button"
             accessibilityLabel="watch-set-up"
             accessibilityState={{ disabled: phase === 'generating' }}
-            style={[styles.cta, { backgroundColor: c.accent.glowInk, opacity: phase === 'generating' ? 0.6 : 1 }]}
+            style={[styles.cta, { backgroundColor: c.accent.ctaFill, opacity: phase === 'generating' ? 0.6 : 1 }]}
           >
-            <Text style={[styles.ctaLabel, { color: c.content.onAccent }]}>{phase === 'generating' ? 'Setting up…' : 'Set up watch'}</Text>
+            <Text style={[styles.ctaLabel, { color: c.content.onCtaFill }]}>{phase === 'generating' ? 'Setting up…' : 'Set up watch'}</Text>
           </Pressable>
         </>
       )}

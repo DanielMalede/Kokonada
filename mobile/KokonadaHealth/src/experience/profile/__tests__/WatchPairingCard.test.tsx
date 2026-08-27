@@ -2,7 +2,7 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { WatchPairingCard } from '../WatchPairingCard';
 import { createWatchPairingFlow, type WatchPairingDeps } from '../watchPairingStore';
-import { haptics } from '../../../design/tokens';
+import { haptics, colors } from '../../../design/tokens';
 
 // T2 — the §10 watch pairing CARD. States render from the store; the code is large + selectable
 // with NO Copy button (you can't paste into a watch bezel — you read + type); the a11y label spells
@@ -20,6 +20,20 @@ function makeDeps(over: Partial<WatchPairingDeps> = {}): WatchPairingDeps {
     ...over,
   };
 }
+
+// The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
+// violet. Theme-agnostic sets — the headless renderer may resolve either face and the rule holds in
+// both. glowInk/onAccent stay live tokens (they feed the Generate hero's gradient), so their
+// ABSENCE from a standard CTA has to be asserted, never inferred.
+const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
+const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
+const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const flattenStyle = (node: any): Record<string, any> => {
+  const s = node?.props?.style;
+  return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
+};
+const firstText = (node: any) => node.findAll((n: any) => typeof n.type === 'string' && n.type === 'Text')[0];
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -49,6 +63,18 @@ describe('WatchPairingCard', () => {
     const { tree } = await renderCard(makeDeps());
     expect(has(tree, 'watch-set-up')).toBe(true);
     expect(allText(tree)).toMatch(/set up watch/i);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('the "Set up watch" CTA wears the standard ink fill with its onCtaFill label', async () => {
+    const { tree } = await renderCard(makeDeps());
+    const cta = byLabel(tree, 'watch-set-up')[0];
+    const s = flattenStyle(cta);
+    expect(CTA_FILLS).toContain(s.backgroundColor);
+    expect(GLOW_INKS).not.toContain(s.backgroundColor);
+    const label = flattenStyle(firstText(cta));
+    expect(CTA_LABELS).toContain(label.color);
+    expect(ON_ACCENTS).not.toContain(label.color);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

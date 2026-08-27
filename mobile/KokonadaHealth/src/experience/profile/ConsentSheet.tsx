@@ -219,8 +219,8 @@ export function ConsentSheet({ store, onProceed, onDecline, triggerHaptic = fire
 
       {/* Persistent, non-scrolling action bar — equal-weight Decline · Agree. Decline is NEVER
           de-emphasised or danger-styled; its border is content.tertiary (a real ≥3:1 boundary,
-          unlike the decorative hairline token). Agree keeps the app's fixed brand CTA fill
-          (accent.glowInk) — it deliberately does NOT re-tint to the emotion accent, because a
+          unlike the decorative hairline token). Agree keeps the app's fixed standard CTA ink fill
+          (accent.ctaFill) — it deliberately does NOT re-tint to the emotion accent, because a
           legal choice must never be emotionally nudged. */}
       <View style={styles.actionBar}>
         <Pressable
@@ -242,9 +242,9 @@ export function ConsentSheet({ store, onProceed, onDecline, triggerHaptic = fire
           accessibilityRole="button"
           accessibilityLabel="Agree and continue to health permissions"
           accessibilityState={{ disabled: submitting }}
-          style={[styles.btn, { backgroundColor: c.accent.glowInk, borderColor: c.accent.glowInk, opacity: submitting ? 0.6 : 1 }]}
+          style={[styles.btn, { backgroundColor: c.accent.ctaFill, borderColor: c.accent.ctaFill, opacity: submitting ? 0.6 : 1 }]}
         >
-          <Text style={[styles.btnText, { color: c.content.onAccent }]}>{primaryLabel}</Text>
+          <Text style={[styles.btnText, { color: c.content.onCtaFill }]}>{primaryLabel}</Text>
         </Pressable>
       </View>
     </>,

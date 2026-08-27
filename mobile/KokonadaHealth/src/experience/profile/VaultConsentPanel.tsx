@@ -11,7 +11,7 @@ import { WhyAccordion } from '../connect/WhyAccordion';
 // exactly (HEALTH_CONNECT_DATA_CATEGORIES), while the FULL legal document (incl. the Garmin-only
 // categories) stays ONLY in the reused-unchanged §11 ConsentSheet — and (3) the consent WITHDRAWAL
 // right, echoing §11's neutral treatment. Withdrawal is a RIGHT, not destruction: NEUTRAL brand
-// (accent.glowInk), never state.danger — that hue is reserved for account deletion.
+// (accent.ctaFill), never state.danger — that hue is reserved for account deletion.
 //
 // STATIC trust surface — FIXED brand accent only, NEVER a reactive emotion re-tint.
 
@@ -66,9 +66,9 @@ export function VaultConsentPanel({ consentGranted, syncing, withdrawing, onSync
         accessibilityRole="button"
         accessibilityLabel="sync-health"
         accessibilityState={{ disabled: syncing }}
-        style={[styles.syncCta, { backgroundColor: c.accent.glowInk, opacity: syncing ? 0.6 : 1 }]}
+        style={[styles.syncCta, { backgroundColor: c.accent.ctaFill, opacity: syncing ? 0.6 : 1 }]}
       >
-        <Text style={[styles.syncLabel, { color: c.content.onAccent }]}>{syncing ? 'Syncing…' : 'Sync now'}</Text>
+        <Text style={[styles.syncLabel, { color: c.content.onCtaFill }]}>{syncing ? 'Syncing…' : 'Sync now'}</Text>
       </Pressable>
 
       {/* Withdrawal — shown only when a grant is on file. Two-step, echoing §11's neutral confirm. */}
@@ -119,9 +119,9 @@ export function VaultConsentPanel({ consentGranted, syncing, withdrawing, onSync
                 accessibilityRole="button"
                 accessibilityLabel="withdraw-confirm"
                 accessibilityState={{ disabled: withdrawing }}
-                style={[styles.barBtn, { backgroundColor: c.accent.glowInk, borderColor: c.accent.glowInk, opacity: withdrawing ? 0.6 : 1 }]}
+                style={[styles.barBtn, { backgroundColor: c.accent.ctaFill, borderColor: c.accent.ctaFill, opacity: withdrawing ? 0.6 : 1 }]}
               >
-                <Text style={[styles.barBtnText, { color: c.content.onAccent }]}>Withdraw</Text>
+                <Text style={[styles.barBtnText, { color: c.content.onCtaFill }]}>Withdraw</Text>
               </Pressable>
             </View>
           </View>
