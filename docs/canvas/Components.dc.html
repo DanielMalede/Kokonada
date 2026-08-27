@@ -33,15 +33,15 @@
   <!-- ================= BUTTON ================= -->
   <div style="margin-top:30px">
     <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px"><span class="nm">Button</span><span class="lab">RADIUS.PILL · MIN-HEIGHT 48 · ACCENT.GLOWINK</span></div>
-    <p class="dsc" style="margin:0 0 18px;max-width:900px">One geometry, four roles. The fill is the shipped <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">accent.glowInk</span> — the canvas had been using an ink value that exists in no token file. Destructive is reserved for account deletion alone; withdrawing consent is a right, and takes the neutral role.</p>
+    <p class="dsc" style="margin:0 0 18px;max-width:900px">One geometry, four roles. The fill is <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">--inkbtn</span> &mdash; ink, fixed, never re-tinting. A legal choice is never emotionally nudged, and making that the rule rather than an exception means no future edit has to remember it. The one carve-out is the Generate hero, documented separately below — the canvas had been using an ink value that exists in no token file. Destructive is reserved for account deletion alone; withdrawing consent is a right, and takes the neutral role.</p>
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:26px">
 
       <div>
         <div class="lab" style="margin-bottom:10px">PRIMARY · one per screen</div>
         <div style="display:flex;flex-direction:column;gap:9px">
-          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text)">Generate</div>
-          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text);filter:brightness(.88)">Generate</div>
-          <div style="display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text);opacity:.75"><span style="display:block;width:44px;height:3px;border-radius:999px;background:var(--onink);opacity:.55"></span>Working</div>
+          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--inkbtn);color:var(--onink);font:600 15px var(--text)">Generate</div>
+          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--inkbtn);color:var(--onink);font:600 15px var(--text);filter:brightness(.88)">Generate</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;border-radius:999px;background:var(--inkbtn);color:var(--onink);font:600 15px var(--text);opacity:.75"><span style="display:block;width:44px;height:3px;border-radius:999px;background:var(--onink);opacity:.55"></span>Working</div>
           <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--track);color:var(--canvas);font:600 15px var(--text);opacity:.5">Place how it feels first</div>
         </div>
         <div class="st">REST · PRESS · BUSY · DISABLED</div>
@@ -83,6 +83,30 @@
   </div>
 
   <!-- ================= BARS ================= -->
+  <div class="sec">
+    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px">
+      <span class="nm">Aurora CTA &mdash; the Generate hero</span>
+      <span class="lab">ONE SCREEN ONLY &middot; NOT A BUTTON VARIANT</span>
+    </div>
+    <p class="dsc" style="margin:0 0 16px;max-width:900px">The one control that is <i>not</i> the ink fill, named here so it is a component rather than a remembered exception. It is a <b>live, morphing gradient</b>: sky &rarr; your current emotion &rarr; gold, rebuilt from the mean of your placements on every render. The middle stop is the only place in the app where a CTA follows the emotion &mdash; that is the point of it.</p>
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:26px;align-items:start">
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:58px;border-radius:999px;background:linear-gradient(90deg,#3FB4F0 0%,var(--accent) 52%,#F5B93A 100%);color:#0B0D26;padding:0 20px">
+          <span style="font:700 19px var(--disp)">Generate</span>
+          <span style="font:500 11px var(--mono);letter-spacing:.09em;opacity:.75">TEMPO &le; 96 &middot; WARM</span>
+        </div>
+        <div class="st">REST &mdash; the middle stop is your emotion, not a fixed hue</div>
+      </div>
+      <div style="font:400 12px/1.6 var(--text);color:var(--ink2)">
+        <div class="lab" style="margin-bottom:7px">RULES THAT TRAVEL WITH IT</div>
+        <p style="margin:0 0 7px">Stops are <span class="mono">auroraCtaStops(x,y)</span> &mdash; <span class="mono">#3FB4F0</span> &rarr; <span class="mono">mix(glow, #6E3FC4, intenseWeight)</span> &rarr; <span class="mono">#F5B93A</span>. Never hand-picked.</p>
+        <p style="margin:0 0 7px">The label ink is <b>computed, not chosen</b> &mdash; <span class="mono">onAuroraInk</span> picks the ink whose <i>worst</i> contrast across the whole gradient is best. A fixed ink fails somewhere along the sweep.</p>
+        <p style="margin:0 0 7px"><b>Legal at AA-large only.</b> The label must stay &ge;18.66px / 700, because a moving gradient cannot hold 4.5:1 at every stop. Porting this to a 15px/600 label silently drops it below its own proof &mdash; which is why it is not a Button variant.</p>
+        <p style="margin:0">Solid fallback is the middle stop; border is <span class="mono">surface.hairlineGold</span>.</p>
+      </div>
+    </div>
+  </div>
+
   <div class="sec">
     <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px"><span class="nm">The four bar grammars</span><span class="lab">HEIGHT 8 · RADIUS.PILL · TRACK AT 3:1</span></div>
     <p class="dsc" style="margin:0 0 20px;max-width:900px">A ceiling is an exclusion. A target is a point. A bias is a signed nudge. A stack is a composition. The canvas was drawing all four as one left-anchored fill, which made "tempo ceiling 96" read as an achievement and put four bars on Pulse where fuller meant better for three of them and worse for the fourth. Every one of these carries its unit and its direction in words.</p>
