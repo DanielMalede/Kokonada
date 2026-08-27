@@ -32,7 +32,8 @@
     [data-open="1"] .sec[data-i="1"] .secbody, [data-open="2"] .sec[data-i="2"] .secbody,
     [data-open="3"] .sec[data-i="3"] .secbody, [data-open="4"] .sec[data-i="4"] .secbody,
     [data-open="5"] .sec[data-i="5"] .secbody, [data-open="6"] .sec[data-i="6"] .secbody,
-    [data-open="7"] .sec[data-i="7"] .secbody, [data-open="8"] .sec[data-i="8"] .secbody { display:block; }
+    [data-open="7"] .sec[data-i="7"] .secbody, [data-open="8"] .sec[data-i="8"] .secbody,
+      [data-open="all"] .secbody { display:block; }
     [data-open="1"] .sec[data-i="1"] .chev, [data-open="2"] .sec[data-i="2"] .chev,
     [data-open="3"] .sec[data-i="3"] .chev, [data-open="4"] .sec[data-i="4"] .chev,
     [data-open="5"] .sec[data-i="5"] .chev, [data-open="6"] .sec[data-i="6"] .chev,
@@ -60,17 +61,14 @@
   </sc-if>
 
   <div class="doc" style="flex:0 1 auto;min-height:0;margin:0 24px;padding:11px 0;border-top:1px solid var(--track);border-bottom:1px solid var(--track);display:grid;grid-template-columns:86px minmax(0,1fr);gap:8px 12px">
+    <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">PURPOSE</div>
+    <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Reading how activated and how settled your body is, and turning that into music. <span style="color:var(--ink2)">That is the only purpose.</span></div>
+
     <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">READ</div>
     <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Heart rate, HRV, sleep, resting heart rate, and up to ~6 months of history.</div>
 
-    <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">ALSO<br>COVERED</div>
-    <div style="font:400 13px/1.45 var(--text);color:var(--ink2)">If you connect a Garmin account: SpO₂, respiration, Body Battery™. <span style="color:var(--ink)">None is read today</span>; we ask again first.</div>
-
-    <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">KEPT</div>
-    <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Readings 90 days. What is learned from them expires after a year unused. <b>All of it goes the moment you withdraw.</b></div>
-
-    <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">NEVER</div>
-    <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Sold, used for advertising, or shared for anyone else&rsquo;s purposes.</div>
+    <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">WHO</div>
+    <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Kokonada is the data controller &mdash; <span style="display:inline-block;padding:0 5px;border-radius:4px;border:1px dashed var(--track);font:600 10px var(--mono);letter-spacing:.07em;color:var(--ink3)">PRIVACY CONTACT</span>. <span style="color:var(--ink2)">Processors outside Europe work under the European Commission&rsquo;s standard contractual clauses.</span></div>
 
     <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">WITHDRAW</div>
     <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Any time, in Profile, keeping your account. It doesn&rsquo;t undo what was lawful before. It also erases what the app has learned about your taste &mdash; <b>that doesn&rsquo;t come back.</b></div>
@@ -78,10 +76,11 @@
 
   <div class="doc" style="flex:1;min-height:0;padding:13px 24px 0;position:relative;overflow:hidden" data-open="{{open}}">
     <p style="margin:0 0 9px;font:400 12.5px/1.55 var(--text);color:var(--ink2)">The facts above are the summary. This is the whole notice — eight sections.</p>
+    <div class="doc" style="display:grid;grid-template-columns:86px minmax(0,1fr);gap:7px 12px;margin:0 0 12px;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">ALSO<br>COVERED</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">If you connect a Garmin account: SpO&#8322;, respiration, Body Battery&trade;. <span style="color:var(--ink)">None is read today</span>; we ask again first.</div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">KEPT</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Readings 90 days. What is learned from them expires after a year unused. <b>All of it goes the moment you withdraw.</b></div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">NEVER</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Sold, used for advertising, or shared for anyone else&rsquo;s purposes.</div></div>
 
     
     <div class="sec" data-i="1"><div class="sechead"><span><span class="secn">1</span>What is being asked</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
-    <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Permission to read a defined set of measurements from Health Connect, and to use them to choose music for you. Nothing else. Consent is separate from your account: you can hold an account, refuse this permanently, and the app still works.</p></div></div>
+    <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Permission to read a defined set of measurements from {{sourceName}}, and to use them to choose music for you. Nothing else. Consent is separate from your account: you can hold an account, refuse this permanently, and the app still works.</p></div></div>
     <div class="sec" data-i="2"><div class="sechead"><span><span class="secn">2</span>Exactly what is read</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
       <div style="font:400 13px/1.55 var(--text);color:var(--ink2)">• Heart rate</div>
@@ -90,7 +89,7 @@
       <div style="font:400 13px/1.55 var(--text);color:var(--ink2)">• Resting heart rate</div>
     </div>
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Those four are the data types. History is a separate permission on top of them: the one we ask for covers your whole stored history, and we choose to read back about six months and no further.</p>
-    <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Agreeing here is not the same as granting the operating system's permission. Straight after this, the Health Connect permission sheet opens and asks separately. You can refuse there, and you can revoke it later in Health Connect without coming back here.</p></div></div>
+    <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Agreeing here is not the same as granting the operating system's permission. Straight after this, {{sheetPhrase}} and asks separately. You can refuse there, and you can revoke it later in {{sourceName}} without coming back here.</p></div></div>
     <div class="sec" data-i="3"><div class="sechead"><span><span class="secn">3</span>What it is used for</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">One purpose: computing how activated and how settled your body is right now, and turning that into musical targets — a tempo range, an energy ceiling, how acoustic the set should be. It also learns your personal baseline, so "normal" means normal for you rather than for a population average. The reading is done by an automated system, not by a person.</p></div></div>
     <div class="sec" data-i="4"><div class="sechead"><span><span class="secn">4</span>Who else processes it</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
@@ -118,13 +117,19 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"state":{"editor":"enum","options":["fresh","stale"],"default":"fresh"},"open":{"editor":"enum","options":["none","1","2","3","4","5","6","7","8"],"default":"none"},"$preview":{"width":390,"height":844}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"state":{"editor":"enum","options":["fresh","stale"],"default":"fresh"},"platform":{"editor":"enum","options":["android","ios"],"default":"android"},"open":{"editor":"enum","options":["none","all","1","2","3","4","5","6","7","8"],"default":"none"},"$preview":{"width":390,"height":844}}'>
 class Component extends DCLogic {
   renderVals() {
     return {
       theme: this.props.theme ?? 'light',
       open: this.props.open ?? 'none',
-      isStale: (this.props.state ?? 'fresh') === 'stale',
+        isStale: (this.props.state ?? 'fresh') === 'stale',
+      // The notice must name the source the user's OS actually uses. Health
+      // Connect is Android-only; iOS reads through Apple Health.
+      sourceName: (this.props.platform ?? 'android') === 'ios' ? 'Apple Health' : 'Health Connect',
+      sheetPhrase: (this.props.platform ?? 'android') === 'ios'
+        ? "the Apple Health permission sheet opens"
+        : "the Health Connect permission sheet opens",
     };
   }
 }
