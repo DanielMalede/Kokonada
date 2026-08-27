@@ -41,6 +41,20 @@ const togglePlayPause = orchestrator.togglePlayPause as jest.Mock;
 
 const TRACK = { id: 't1', uri: 'spotify:track:1', title: 'Deep Current', artist: 'Bioluma', receipt: null, recordingKey: null };
 
+// The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
+// violet. Theme-agnostic sets — the headless renderer may resolve either face and the rule holds in
+// both. glowInk/onAccent stay live tokens (they feed the Generate hero's gradient), so their
+// ABSENCE from a standard CTA has to be asserted, never inferred.
+const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
+const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
+const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const flattenStyle = (node: any): Record<string, any> => {
+  const s = node?.props?.style;
+  return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
+};
+const firstText = (node: any) => node.findAll((n: any) => typeof n.type === 'string' && n.type === 'Text')[0];
+
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
   if (typeof node === 'string') { acc.push(node); return acc; }
@@ -71,6 +85,24 @@ afterEach(() => {
 });
 
 describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', () => {
+  it('the play/pause transport is the standard CTA ink fill, never the aurora violet', async () => {
+    nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+    const tree = await render();
+    try {
+      const btn = byLabel(tree, 'Pause');
+      const s = flattenStyle(btn);
+      expect(CTA_FILLS).toContain(s.backgroundColor);
+      expect(GLOW_INKS).not.toContain(s.backgroundColor);
+      const glyph = flattenStyle(firstText(btn));
+      expect(CTA_LABELS).toContain(glyph.color);
+      expect(ON_ACCENTS).not.toContain(glyph.color);
+    } finally {
+      // A failed assertion must NOT leak a mounted tree: this screen keeps live Animated loops, and
+      // a leaked one lands inside the next test's Animated.timing spy window and fails it too.
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    }
+  });
+
   it('renders the current track title + artist when a track is present', async () => {
     nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
     const tree = await render();

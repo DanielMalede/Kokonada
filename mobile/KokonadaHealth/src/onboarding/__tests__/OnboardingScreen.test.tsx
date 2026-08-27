@@ -28,6 +28,21 @@ function flatStyle(node: any): Record<string, unknown> {
 }
 const byLabel = (tree: ReactTestRenderer.ReactTestRenderer, label: string) =>
   tree.root.findAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === label)[0];
+
+// The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
+// violet. Theme-agnostic sets — the headless renderer may resolve either face and the rule holds in
+// both. glowInk/onAccent stay live tokens (they feed the Generate hero's gradient), so their
+// ABSENCE from a standard CTA has to be asserted, never inferred.
+const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
+const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
+const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const flattenStyle = (node: any): Record<string, any> => {
+  const s = node?.props?.style;
+  return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
+};
+const firstText = (node: any) => node.findAll((n: any) => typeof n.type === 'string' && n.type === 'Text')[0];
+
 const pagerValue = (tree: ReactTestRenderer.ReactTestRenderer) =>
   tree.root.findAll((n) => n.props?.accessibilityValue?.text?.startsWith('Page '))[0]?.props.accessibilityValue.text;
 
@@ -87,6 +102,24 @@ describe('OnboardingScreen — three-panel FTUE', () => {
     expect(pagerValue(tree)).toBe('Page 2 of 3');
     expect(onComplete).not.toHaveBeenCalled();
     expect(triggerHaptic).not.toHaveBeenCalled();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('BOTH FTUE CTAs (Continue and the terminal Begin) wear the standard ink fill', async () => {
+    const tree = await render();
+    const cont = byLabel(tree, 'Continue');
+    expect(CTA_FILLS).toContain(flattenStyle(cont).backgroundColor);
+    expect(GLOW_INKS).not.toContain(flattenStyle(cont).backgroundColor);
+    expect(CTA_LABELS).toContain(flattenStyle(firstText(cont)).color);
+    expect(ON_ACCENTS).not.toContain(flattenStyle(firstText(cont)).color);
+
+    await press(byLabel(tree, 'Continue')); // → page 2
+    await press(byLabel(tree, 'Continue')); // → page 3 (the CTA morphs to Begin)
+    const begin = byLabel(tree, 'Begin');
+    expect(CTA_FILLS).toContain(flattenStyle(begin).backgroundColor);
+    expect(GLOW_INKS).not.toContain(flattenStyle(begin).backgroundColor);
+    expect(CTA_LABELS).toContain(flattenStyle(firstText(begin)).color);
+    expect(ON_ACCENTS).not.toContain(flattenStyle(firstText(begin)).color);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

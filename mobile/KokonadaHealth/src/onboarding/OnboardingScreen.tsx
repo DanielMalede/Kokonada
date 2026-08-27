@@ -164,9 +164,9 @@ export function OnboardingScreen({
             onPress={() => goTo(page + 1)}
             accessibilityRole="button"
             accessibilityLabel="Continue"
-            style={[styles.cta, { backgroundColor: c.accent.glowInk }]}
+            style={[styles.cta, { backgroundColor: c.accent.ctaFill }]}
           >
-            <Text style={[styles.ctaText, { color: c.content.onAccent }]}>Continue</Text>
+            <Text style={[styles.ctaText, { color: c.content.onCtaFill }]}>Continue</Text>
           </Pressable>
         ) : (
           <AnimatedPressable
@@ -176,9 +176,9 @@ export function OnboardingScreen({
             // While it is still fading in (opacity 0), it must not eat touches — an
             // invisible-but-tappable target is a trap. Gate touches on the settle flag.
             pointerEvents={reduced || beginReady ? 'auto' : 'none'}
-            style={[styles.cta, { backgroundColor: c.accent.glowInk, opacity: reduced ? 1 : beginFade }]}
+            style={[styles.cta, { backgroundColor: c.accent.ctaFill, opacity: reduced ? 1 : beginFade }]}
           >
-            <Text style={[styles.ctaText, { color: c.content.onAccent }]}>Begin</Text>
+            <Text style={[styles.ctaText, { color: c.content.onCtaFill }]}>Begin</Text>
           </AnimatedPressable>
         )}
       </View>
