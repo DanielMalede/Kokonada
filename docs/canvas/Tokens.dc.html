@@ -55,7 +55,7 @@
       <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">
         <div><span class="mono">--line</span> at 14% ink composites to <span class="mono">#DADAE3</span> — <span class="bad">1.34 : 1</span>. It was carrying every bar track, so the unfilled remainder was invisible and a 69% fill read as a floating dash of arbitrary length. Now decorative separators only.</div>
         <div><span class="mono">--line2</span> at 28% composites to <span class="mono">#B9BAC8</span> — <span class="bad">1.85 : 1</span>, under the 3:1 floor of SC 1.4.11. It was the border of every chip, every action pill, the pager dots and the brand ring. Replaced by <span class="mono">--track</span> everywhere a boundary matters.</div>
-        <div><span class="mono">--inkbtn</span>, <span class="mono">--glow</span>, <span class="mono">--emo</span> and <span class="mono">--sky</span> are all retired. <span class="mono">--glow</span> resolved to <span class="mono">#6E3FC4</span> — a shipped Aurora value renamed, not replaced — and <span class="mono">--emo</span> was one hardcoded amber that never varied. Both are now <span class="mono">--accent</span>, genuinely derived.</div>
+        <div><span class="mono">--glow</span>, <span class="mono">--emo</span> and <span class="mono">--sky</span> are retired (<span class="mono">--inkbtn</span> is not &mdash; see below). <span class="mono">--glow</span> resolved to <span class="mono">#6E3FC4</span> — a shipped Aurora value renamed, not replaced — and <span class="mono">--emo</span> was one hardcoded amber that never varied. Both are now <span class="mono">--accent</span>, genuinely derived.</div>
       </div>
     </div>
   </div>
@@ -118,7 +118,7 @@
         <span class="mono">slow · 420</span><span>Genesis → Now Playing</span>
         <span class="mono">breath · 4200</span><span>The brand gesture, all four appearances</span>
         <span class="mono">fieldBreath · 5670</span><span>The ambient living field &mdash; Field, Genesis, Main, NowPlaying, Pulse, You</span>
-        <span class="mono">flow · 15000</span><span>Reserved, and genuinely unused. It is <span style="color:var(--ink)">not</span> the field’s token &mdash; that is <span class="mono">fieldBreath</span>.</span>
+        <span class="mono">flow · 15000</span><span><span style="color:var(--ink)">In use</span> &mdash; the shipped ambient aurora drift period (<span class="mono">auroraField.ts</span>), pinned by a seam test. It is not the canvas field’s period; those are different fields.</span>
         <span class="mono">ease/calm</span><span>cubic-bezier(.22, 1, .36, 1) — settles, never snaps</span>
       </div>
       <div class="lab" style="margin:16px 0 8px">HAPTICS — FOUR, NEVER MORE</div>
@@ -152,7 +152,7 @@
         <div style="display:grid;grid-template-columns:56px 44px 1fr;gap:6px 12px;font:400 12px/1.4 var(--text);color:var(--ink2)">
           <span class="mono" style="color:var(--ink3)">MS</span><span class="mono" style="color:var(--ink3)">USES</span><span class="mono" style="color:var(--ink3)">WHAT IT IS</span>
           <span class="mono" style="color:var(--ink)">5670</span><span class="mono">6&times;</span><span>The ambient field &mdash; <span style="color:var(--ink)">now declared as fieldBreath</span>, no longer off-scale</span>
-          <span class="mono" style="color:var(--ink)">1400</span><span class="mono">9&times;</span><span>Skeleton pulse &mdash; backed by <span class="mono">SKELETON_PULSE</span>, but absent from the duration scale</span>
+          <span class="mono" style="color:var(--ink)">1400</span><span class="mono">9&times;</span><span><span style="color:var(--ink)">Two different things.</span> Six are the second field lobe’s phase offset = <span class="mono">breath/3</span>, which is legitimate and shipped as <span class="mono">SPLASH_DWELL_MS</span>. Three are the skeleton pulse, which the app runs at <span class="mono">breath</span> = 4200 &mdash; the canvas drew it 3&times; too fast.</span>
           <span class="mono">2600</span><span class="mono">1&times;</span><span>&mdash;</span>
           <span class="mono">760</span><span class="mono">1&times;</span><span>&mdash;</span>
           <span class="mono">560</span><span class="mono">2&times;</span><span>&mdash;</span>
@@ -180,7 +180,7 @@
         <div style="display:grid;grid-template-columns:130px 1fr;gap:7px 12px;font:400 12px/1.45 var(--text);color:var(--ink2)">
           <span class="mono">duration.settle</span><span><span style="color:var(--ink)">1200</span> &mdash; the placement-to-result settle. <span class="mono">durationReduced.settle</span> must be <span style="color:var(--ink)">0</span> in the same commit.</span>
           <span class="mono">durationLowPower</span><span>Only <span class="mono">duration</span> and <span class="mono">durationReduced</span> ship, so the low-power path in the Definition of Done is unimplementable today.</span>
-          <span class="mono">the CTA fill</span><span>Five different fills serve one role across the canvas &mdash; <span class="mono">--accent</span> (6), <span class="mono">--track</span> (2), <span class="mono">--sunken</span>, <span class="mono">--inkbtn</span>, <span class="mono">--brandink</span>. One must win, on the Components board, once.</span>
+          <span class="mono">the CTA fill</span><span><span style="color:var(--ink)">Four colours under six names, three of them live primaries.</span> <span class="mono">--accent</span> (6) &middot; <span class="mono">--brandink</span> (2) &middot; <span class="mono">--inkbtn</span> and raw <span class="mono">--ink</span> (1 each, and <span class="mono">--inkbtn</span> is a pure alias of <span class="mono">--ink</span>). <span class="mono">--track</span> and <span class="mono">--sunken</span> are the disabled and press <span style="color:var(--ink)">states</span>, not competing fills. One must win, on the Components board, once.</span>
         </div>
       </div>
 

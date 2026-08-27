@@ -83,8 +83,12 @@
   --destructive:var(--destructive-l);
   --onink:var(--paper-l);
   --inkbtn:var(--ink-l);
-  /* the ambient living field's period. Six boards ran this as a bare 5670ms with no
-     name; declared here so the signature gesture has one source like every colour. */
+  /* NOT a constant — a SAMPLE. Field.dc.html states the law: the second lobe runs at
+     a fixed 1.35 x T, where T = 4200 + 2000*stress. 4200 x 1.35 = 5670 is that law
+     evaluated at stress = 0. At full stress the correct value is 8370ms. Six boards
+     read this so the rest value has one source; do NOT promote it to tokens.ts as a
+     duration primitive — that would freeze a variable law and silently stop the field
+     responding to stress, which is the regulator ethic. */
   --d-field:5670ms;
   --artph: color-mix(in srgb, var(--hue-violet) var(--a-violetfill), transparent);
   --bloom: color-mix(in srgb, var(--ink) var(--a-bloom-l), transparent);
