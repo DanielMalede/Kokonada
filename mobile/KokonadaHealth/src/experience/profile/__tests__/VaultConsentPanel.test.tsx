@@ -22,6 +22,17 @@ const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent]
 // painted state.danger fill AND state.danger label and still pass.
 const DANGERS = [colors.light.state.danger, colors.dark.state.danger];
 const FACES: ThemeName[] = ['light', 'dark'];
+// Forcing the face, correctly. jest.spyOn CANNOT do it here: @react-native/jest-preset already
+// installs react-native's useColorScheme as a jest.fn(() => 'light'), and jest-mock's spyOn returns
+// an EXISTING mock untouched WITHOUT registering a restore (jest-mock/build/index.js — the whole
+// spy branch is guarded by `if (!this.isMockFunction(original))`). So mockReturnValue mutates the
+// preset's shared mock permanently and jest.restoreAllMocks() is a no-op against it, leaking the
+// last face into every later test in the file. Capture the preset's own implementation and put it
+// back by hand.
+const colorSchemeMock = RN.useColorScheme as unknown as jest.Mock;
+const PRESET_COLOR_SCHEME = colorSchemeMock.getMockImplementation();
+const forceFace = (scheme: ThemeName) => colorSchemeMock.mockImplementation(() => scheme);
+const releaseFace = () => colorSchemeMock.mockImplementation(PRESET_COLOR_SCHEME);
 
 const flattenStyle = (node: any): Record<string, any> => {
   const s = node?.props?.style;
@@ -48,7 +59,7 @@ const has = (tree: ReactTestRenderer.ReactTestRenderer, label: string) => byLabe
 const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
 afterEach(async () => {
   for (const t of mounted.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
-  jest.restoreAllMocks();
+  releaseFace();
 });
 
 function base(over: Partial<React.ComponentProps<typeof VaultConsentPanel>> = {}) {
@@ -89,7 +100,7 @@ describe('VaultConsentPanel', () => {
   // rendered pair.
   describe.each(FACES)('the vault CTAs, rendered on the %s face', (scheme) => {
     const C = colors[scheme];
-    beforeEach(() => { jest.spyOn(RN, 'useColorScheme').mockReturnValue(scheme); });
+    beforeEach(() => { forceFace(scheme); });
 
     it('Sync wears THIS face’s ink fill AND THIS face’s label, never the aurora violet', async () => {
       const tree = await render(base({ consentGranted: true }));

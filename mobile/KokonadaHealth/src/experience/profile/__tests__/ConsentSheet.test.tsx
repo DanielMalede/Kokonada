@@ -69,6 +69,17 @@ const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent]
 const EMOTION_INKS = (['calm', 'joyful', 'intense', 'reflective'] as const)
   .flatMap((q) => [colors.light.emotionAccent[q].ink, colors.dark.emotionAccent[q].ink]);
 const FACES: ThemeName[] = ['light', 'dark'];
+// Forcing the face, correctly. jest.spyOn CANNOT do it here: @react-native/jest-preset already
+// installs react-native's useColorScheme as a jest.fn(() => 'light'), and jest-mock's spyOn returns
+// an EXISTING mock untouched WITHOUT registering a restore (jest-mock/build/index.js — the whole
+// spy branch is guarded by `if (!this.isMockFunction(original))`). So mockReturnValue mutates the
+// preset's shared mock permanently and jest.restoreAllMocks() is a no-op against it, leaking the
+// last face into every later test in the file. Capture the preset's own implementation and put it
+// back by hand.
+const colorSchemeMock = RN.useColorScheme as unknown as jest.Mock;
+const PRESET_COLOR_SCHEME = colorSchemeMock.getMockImplementation();
+const forceFace = (scheme: ThemeName) => colorSchemeMock.mockImplementation(() => scheme);
+const releaseFace = () => colorSchemeMock.mockImplementation(PRESET_COLOR_SCHEME);
 // WCAG 2.2 SC 1.4.6 (Contrast Enhanced). Not a token-system-wide threshold — it is the bar THIS
 // screen is held to, because it is the Art.9 consent wall.
 const AAA_NORMAL = 7;
@@ -227,8 +238,8 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
     // whichever call site is edited next.
     describe.each(FACES)('the action bar, rendered on the %s face', (scheme) => {
       const C = colors[scheme];
-      beforeEach(() => { jest.spyOn(RN, 'useColorScheme').mockReturnValue(scheme); });
-      afterEach(() => { jest.restoreAllMocks(); });
+      beforeEach(() => { forceFace(scheme); });
+      afterEach(() => { releaseFace(); });
 
       const renderWall = async () => {
         const store = build();

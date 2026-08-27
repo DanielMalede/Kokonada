@@ -16,6 +16,17 @@ import { colors, motion, type as typography, type ThemeName, type EmotionQuadran
 import { contrastRatio, AA_NORMAL } from '../../contrast';
 
 const FACES: ThemeName[] = ['light', 'dark'];
+// Forcing the face, correctly. jest.spyOn CANNOT do it here: @react-native/jest-preset already
+// installs react-native's useColorScheme as a jest.fn(() => 'light'), and jest-mock's spyOn returns
+// an EXISTING mock untouched WITHOUT registering a restore (jest-mock/build/index.js — the whole
+// spy branch is guarded by `if (!this.isMockFunction(original))`). So mockReturnValue mutates the
+// preset's shared mock permanently and jest.restoreAllMocks() is a no-op against it, leaking the
+// last face into every later test in the file. Capture the preset's own implementation and put it
+// back by hand.
+const colorSchemeMock = RN.useColorScheme as unknown as jest.Mock;
+const PRESET_COLOR_SCHEME = colorSchemeMock.getMockImplementation();
+const forceFace = (scheme: ThemeName) => colorSchemeMock.mockImplementation(() => scheme);
+const releaseFace = () => colorSchemeMock.mockImplementation(PRESET_COLOR_SCHEME);
 const QUADRANTS: EmotionQuadrant[] = ['calm', 'joyful', 'intense', 'reflective'];
 
 beforeEach(() => {
@@ -29,7 +40,7 @@ beforeEach(() => {
 const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
 afterEach(async () => {
   for (const t of mounted.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
-  jest.restoreAllMocks();
+  releaseFace();
 });
 
 function flatStyle(node: any): Record<string, unknown> {
@@ -76,7 +87,7 @@ it('exposes EMPTY_GLOW_OPACITY = 0.4 (the receding halo strength)', () => {
 
 describe.each(FACES)('EmptyState — never a dead end (%s face)', (scheme) => {
   const C = colors[scheme];
-  beforeEach(() => { jest.spyOn(RN, 'useColorScheme').mockReturnValue(scheme); });
+  beforeEach(() => { forceFace(scheme); });
 
   it('renders the title as a header, the body, and a required action button (label announced)', async () => {
     const onPress = jest.fn();
