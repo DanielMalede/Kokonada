@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>14 · Flow — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:860px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+  blockquote{margin:10px 0;padding:9px 14px;border-left:3px solid var(--pgline);color:var(--pgink2);font-style:italic}
+
+  /* ---------- board panel (doc board, not a phone) ---------- */
+  .bd{width:560px;border-radius:18px;border:1px solid var(--pgline);padding:20px 22px;flex:none}
+  .bd[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);
+      --q-calm:#1F6FA6;--q-joyful:#8A5A12;--q-intense:#6E3FC4;--hue-calm:#3FB4F0;--hue-joyful:#F5B93A;--hue-intense:#8B6FE8}
+  .bd[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);
+      --q-calm:#7FCDF5;--q-joyful:#FFD37A;--q-intense:#C4A6FF;--hue-calm:#3FB4F0;--hue-joyful:#F5B93A;--hue-intense:#8B6FE8}
+  .bd{background:var(--canvas);color:var(--ink)}
+  .tnum{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3)}
+  .ttl{font:600 20px/1.25 var(--disp);letter-spacing:-.01em;margin:2px 0 4px}
+  .tmeta{font:500 11px var(--mono);letter-spacing:.1em;color:var(--ink3);margin-bottom:10px}
+  .tdsc{font:400 12.5px/1.65 var(--text);color:var(--ink2);margin:0 0 14px}
+  .frames{display:flex;gap:10px;margin-bottom:14px}
+  .fr{flex:1;border:1px solid var(--line);border-radius:14px;background:var(--raised);padding:11px;min-width:0}
+  .fr .st{font:600 12px/1.3 var(--disp);color:var(--ink)}
+  .fr .fac{margin-top:3px;font:400 10px/1.35 var(--text);color:var(--ink2)}
+  .dots{display:flex;gap:5px;margin:9px 0 8px}
+  .dot{width:15px;height:15px;border-radius:50%}
+  .frcap{font:500 9.5px var(--mono);letter-spacing:.08em;color:var(--ink3)}
+  .beh{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin:0 0 8px}
+  .rule{border-top:1px solid var(--line);padding:9px 0;font:400 12px/1.6 var(--text);color:var(--ink2)}
+  .rule b{color:var(--ink);font-weight:600}
+  .rm{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--sunken);font:400 11.5px/1.55 var(--text);color:var(--ink2)}
+  .rm b{color:var(--ink);font-weight:600;display:block;margin-bottom:2px;font-size:10.5px;letter-spacing:.1em;font-family:var(--mono)}
+  .pathrow{display:flex;align-items:center;gap:9px;padding:9px 0;border-top:1px solid var(--line);font:400 12px var(--text);color:var(--ink2)}
+  .pathrow b{color:var(--ink);font-weight:600}
+  .chip{font:600 9.5px var(--mono);letter-spacing:.08em;padding:2px 7px;border-radius:999px;border:1px solid var(--track);color:var(--ink3);flex:none}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .cap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:880px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:260px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>14 · Flow</h1>
+<p class="sub">The first of the four doc boards. A note on format: this is a 1180&times;2321 reference document, not a 390&times;844 screen, so drawing it twice at full size would be 4,600px of duplicated page. Instead the live panel below shows the <em>contested sections</em> at full fidelity in both themes, and the rest of the board is unchanged. Everything else about the method holds &mdash; independent rows, live assembly, both faces, computed numbers.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Two things I owe you as corrections, not findings</div>
+  <p><strong>The re-tint moment is already on this board, and I told you twice that it wasn&rsquo;t.</strong> On screen 06 I said it &ldquo;is not on this screen yet &hellip; it belongs on the Flow board and I will bring it there.&rdquo; It was already there, as <strong>TRANSITION 00 &mdash; The read lands</strong>: 1200ms on ease/calm, 80ms stagger newest-dot-first, waiting ~300ms for the body rather than firing on the tap, with a designed reduced-motion still and an explicit &ldquo;it happens once per read&rdquo; rule. I should have looked before promising to build it.</p>
+  <p style="margin-bottom:0"><strong>The Core Loop annotation is fixed.</strong> Your standing item was that it still described the rejected option &mdash; <em>&ldquo;dots carry the emotion you PLACED (gold)&rdquo;</em> &mdash; while the dots render violet. Searching the board: <code>gold</code> appears <strong>zero times</strong>. That item is closed.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is actually wrong</div>
+
+  <p><strong>Transition 00 describes a direction the system does not have.</strong> The word <em>cool</em> appears four times: the dots &ldquo;cool to the fused state&rdquo;, frame 1 is captioned <code>mid-cool</code>, and &ldquo;Cooling before the answer exists would be theatre.&rdquo; That is the vocabulary of the cooler-on-arousal ramp you struck out &mdash; <em>&ldquo;the regulator trigger is distress, not arousal.&rdquo;</em> The mechanism is not directional: the dots move from the placed hue to the <strong>fused</strong> hue, and that can be warmer as easily as cooler. Place something bleak, have your body report that you are fine, and the dots warm. The board&rsquo;s own example happens to cool, which is exactly how a specific case gets written up as a general rule.</p>
+
+  <p><strong>Transition 02 contradicts Transition 03, on the same board.</strong> T02 says that on arriving at Now Playing the field&rsquo;s &ldquo;hue moves violet &rarr; sky over 1200 ms &hellip; the set beginning to bring the pulse down, made visible.&rdquo; T03 says a field state change <em>&ldquo;is never triggered by a single reading. The state must hold for two consecutive reads before the field moves.&rdquo;</em> Both cannot be true. Either the field re-tints at the cut &mdash; before any second read exists, on the strength of a set that has played for zero seconds &mdash; or it holds until the body actually changes. T02 is also the more troubling of the two: it shows the user their state improving because the music started, not because they did.</p>
+
+  <p style="margin-bottom:0"><strong>Nothing here covers the two pushed screens.</strong> Four transitions cover Generate &rarr; Genesis &rarr; Now Playing and the field. Neither <code>receipt</code> nor <code>vault</code> appears anywhere on the board. Both are now <em>pushed</em> screens with a back affordance and no tab bar &mdash; the Receipt by §7b, the Vault by your screen-13 decision &mdash; and a pushed screen&rsquo;s open-and-dismiss is precisely the kind of thing a flow board exists to specify. Right now two screens can be entered and left with no designed behaviour, which is how three different answers get invented at build time.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is right, and worth not breaking</div>
+  <p>Every duration on this board is a real token except one, and that one is honestly labelled. <code>240</code> is <code>base</code>, <code>420</code> is <code>slow</code>, <code>120</code> is <code>fast</code>, and <code>cubic-bezier(.22, 1, .36, 1)</code> is <code>easing.calm</code> verbatim. <code>1200</code> has no token, and the board says so: <em>&ldquo;Proposed token: motion.duration.settle = 1200.&rdquo;</em> That is the right way to write down a value the system does not have yet.</p>
+  <p style="margin-bottom:0">Every transition carries a designed reduced-motion still, and one of them states the principle better than I would have: <em>&ldquo;the amber frame is never shown, because a still of a transition is a lie about what happened.&rdquo;</em> The degradation ladder ends by keeping Genesis moving longest, &ldquo;because it is the only place motion is carrying meaning rather than atmosphere.&rdquo; None of that should change.</p>
+</div>
+
+<h2>The contested sections</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="cap">Light</div></div>
+  <div><div id="live-dark"></div><div class="cap">Dark</div></div>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:10px">The tokens these numbers resolve to</div>
+  <table>
+    <tr><th>On the board</th><th>Token</th><th>Exists</th></tr>
+    <tr><td>120 ms</td><td><code>motion.duration.fast</code></td><td class="pass">yes</td></tr>
+    <tr><td>240 ms</td><td><code>motion.duration.base</code></td><td class="pass">yes</td></tr>
+    <tr><td>420 ms</td><td><code>motion.duration.slow</code></td><td class="pass">yes</td></tr>
+    <tr><td>cubic-bezier(.22, 1, .36, 1)</td><td><code>motion.easing.calm</code></td><td class="pass">yes</td></tr>
+    <tr><td>4200 ms</td><td><code>motion.duration.breath</code></td><td class="pass">yes</td></tr>
+    <tr><td>1200 ms</td><td><code>motion.duration.settle</code></td><td class="fail">proposed</td></tr>
+    <tr><td>reduced motion</td><td><code>durationReduced</code> — every value 0</td><td class="pass">yes</td></tr>
+  </table>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'retint',name:'How the re-tint is described',hint:'The dots move from the placed hue to the fused hue. That is not a direction.',opts:[
+   ['neutral','&ldquo;Moves to the fused hue&rdquo;','Directionless and always true. Frame 1 becomes mid-transition.'],
+   ['both','Names both directions','&ldquo;Warms or cools, depending on the fusion&rdquo; — explicit, slightly longer.'],
+   ['cool','&ldquo;Cools&rdquo;, as today','Reads the board&rsquo;s one example as the general rule.']]},
+ {id:'t02',name:'The field at the Now Playing cut',hint:'T02 re-tints violet→sky at the cut. T03 says a state change needs two consecutive reads.',opts:[
+   ['hold','Hue holds; reach eases','The field keeps the fused hue until the body actually changes. Removes the contradiction.'],
+   ['reach','Reach only, no hue claim','T02 stops describing hue at all and defers entirely to T03.'],
+   ['drift','Violet → sky, as today','The room improves because the music started, before any second read exists.']]},
+ {id:'pushed',name:'The two pushed screens',hint:'Receipt and Vault can both be entered and left with no designed behaviour.',opts:[
+   ['both','Add both paths','A fifth section covering open-and-dismiss for the Receipt and the Vault.'],
+   ['receipt','Receipt only','The Receipt is opened from a live surface; the Vault is a settings detour.'],
+   ['none','Neither','Leaves two screens whose transitions get invented at build time.']]},
+ {id:'settle',name:'The 1200 ms value',hint:'Used by Transition 00 and Transition 03. No token exists.',opts:[
+   ['token','Adopt motion.duration.settle','One name for the one duration two transitions share.'],
+   ['breath','Tie it to the breath','1200 is not a breath fraction today; tying them makes the field and the re-tint one system.'],
+   ['proposed','Leave it proposed','Honest, and leaves a literal in two places.']]},
+ {id:'ladder',name:'The degradation ladder',hint:'Four rungs, ending with Genesis as the last thing to stop moving.',opts:[
+   ['keep','As written','Genesis last, because motion there carries meaning rather than atmosphere.'],
+   ['trigger','Add what triggers each rung','Names the condition — low power, thermal, reduced motion — that drops each step.'],
+   ['drop','Remove the ladder','Fewer promises. Also fewer answers when the device is under pressure.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Resolve the contradiction',tag:'MINIMUM HONEST',
+  desc:'Fixes only what is provably wrong: the directional language, and the T02/T03 conflict. Adds the two missing pushed-screen paths, because a flow board that omits two screens is not a flow board.',
+  c:{retint:'neutral',t02:'hold',pushed:'both',settle:'token',ladder:'keep'}},
+ {key:'B',name:'Say both directions out loud',tag:'MOST EXPLICIT',
+  desc:'Names warming as well as cooling, and gives the degradation ladder its triggers so a build engineer knows when each rung fires rather than only what it looks like. The most instructive version and the wordiest.',
+  c:{retint:'both',t02:'reach',pushed:'both',settle:'token',ladder:'trigger'}},
+ {key:'C',name:'As it stands',tag:'THE BASELINE',
+  desc:'Unchanged, so you can see the contradiction rather than take my word for it: frame 1 captioned mid-cool, and a field that brightens on arrival before any second read exists.',
+  c:{retint:'cool',t02:'drift',pushed:'none',settle:'proposed',ladder:'keep'}}
+];
+
+function dotsRow(hue){
+  return '<div class="dots">'+[0,1,2].map(function(i){
+    return '<span class="dot" style="background:'+hue+'"></span>';}).join('')+'</div>';
+}
+
+function frame1Caption(c){
+  return c.retint==='cool' ? 'FRAME 1 · 600 MS · MID-COOL'
+       : c.retint==='both' ? 'FRAME 1 · 600 MS · MID-MOVE'
+       : 'FRAME 1 · 600 MS · MID-TRANSITION';
+}
+function retintCopy(c){
+  if(c.retint==='cool')
+    return 'You place how it feels and the dots take the hue of that emotion. Then the body read resolves &mdash; and if the body disagrees, the dots cool to the fused state in front of you.';
+  if(c.retint==='both')
+    return 'You place how it feels and the dots take the hue of that emotion. Then the body read resolves &mdash; and if the body disagrees, the dots move to the fused state in front of you. They warm or cool depending on the fusion; neither direction is the rule.';
+  return 'You place how it feels and the dots take the hue of that emotion. Then the body read resolves &mdash; and if the body disagrees, the dots move to the fused hue in front of you.';
+}
+function theatreLine(c){
+  return c.retint==='cool'
+    ? 'Cooling before the answer exists would be theatre.'
+    : 'Moving before the answer exists would be theatre.';
+}
+
+function t02Meta(c){
+  return c.t02==='drift' ? '420 MS · EASE/CALM · FIELD REACH OVER 1200 MS'
+       : c.t02==='reach' ? '420 MS · EASE/CALM · REACH OVER 1200 MS'
+       : '420 MS · EASE/CALM · REACH OVER 1200 MS';
+}
+function t02Field(c){
+  if(c.t02==='drift')
+    return '<div class="rule"><b>The field settles, slowly.</b> Reach eases 68% &rarr; 74% and hue moves violet &rarr; sky over 1200 ms &mdash; three times the length of the transition itself, so the room changes after you have arrived, not during.</div>';
+  if(c.t02==='reach')
+    return '<div class="rule"><b>Reach eases, hue does not move.</b> 68% &rarr; 74% over 1200 ms. Whether the hue changes at all is Transition 03&rsquo;s question, not this one&rsquo;s.</div>';
+  return '<div class="rule"><b>The field holds its hue.</b> Reach eases 68% &rarr; 74% over 1200 ms, and the hue stays exactly where the read left it. The room does not improve because the music started &mdash; it improves when the body does, which is Transition 03 and needs two consecutive reads.</div>';
+}
+
+function pathsNode(c){
+  if(c.pushed==='none') return '';
+  var rows='<div class="pathrow"><b>Now Playing &rarr; Mix receipt</b><span class="chip">PUSH · 240 MS · BASE</span>'+
+    '<span style="flex:1">The receipt sentence is the shared element: it rises into the verdict head. Back returns it.</span></div>';
+  if(c.pushed==='both')
+    rows+='<div class="pathrow"><b>Profile &rarr; Vault</b><span class="chip">PUSH · 240 MS · BASE</span>'+
+      '<span style="flex:1">No shared element &mdash; a settings detour, not a continuation. Tab bar leaves on the push; back restores it.</span></div>';
+  return '<div style="margin-top:16px"><div class="beh">PUSHED SCREENS &mdash; OPEN AND DISMISS</div>'+rows+
+    '<div class="rm"><b>REDUCED MOTION</b>Both dismiss without translation: a 0 ms cut, with the field unchanged across it. A pushed screen that slides is decoration; a pushed screen that appears is navigation.</div></div>';
+}
+
+function settleLine(c){
+  if(c.settle==='token')
+    return '<div class="rule"><b>1200 ms on ease/calm</b>, the same duration as a field state change, because it is the same event seen from a different element. Token: <code style="font:600 11px var(--mono)">motion.duration.settle = 1200</code>.</div>';
+  if(c.settle==='breath')
+    return '<div class="rule"><b>1200 ms on ease/calm</b> &mdash; two sevenths of <code style="font:600 11px var(--mono)">breath</code> (4200). Tying the two means a change to the breath retimes the re-tint with it.</div>';
+  return '<div class="rule"><b>1200 ms on ease/calm</b>, the same duration as a field state change. <em>Proposed token: motion.duration.settle = 1200.</em> No token exists yet.</div>';
+}
+
+function ladderNode(c){
+  if(c.ladder==='drop') return '';
+  var t = c.ladder==='trigger';
+  var rungs=[
+    ['FIRST','The second field lobe stops. One lobe still breathes; the drift is what goes.','on sustained frame drops'],
+    ['THEN','The breath holds at its rest frame. Hue and reach still respond to state changes.','on low-power mode'],
+    ['THEN','The field flattens to a single static wash at its current hue.','on thermal throttling'],
+    ['LAST','Genesis. The three rings are the last thing to stop moving, because they are the only place motion is carrying meaning rather than atmosphere.','never, except reduced motion']
+  ];
+  return '<div style="margin-top:16px"><div class="beh">THE DEGRADATION LADDER</div>'+
+    rungs.map(function(r){
+      return '<div class="rule"><b>'+r[0]+'</b> '+r[1]+
+        (t?(' <span class="chip" style="margin-left:4px">'+r[2].toUpperCase()+'</span>'):'')+'</div>';}).join('')+
+    '<div class="rule" style="border-bottom:0">Layout never changes at any rung. Every step is a texture change.</div></div>';
+}
+
+function board(theme,c){
+  var placed='var(--q-joyful)', mid='var(--q-intense)', fused='var(--q-intense)';
+  var h='<div class="bd" data-t="'+theme+'">';
+  h+='<div class="tnum">TRANSITION 00</div><div class="ttl">The read lands</div>'+
+     '<div class="tmeta">1200 MS &middot; EASE/CALM &middot; 80 MS STAGGER</div>'+
+     '<p class="tdsc">'+retintCopy(c)+' It is a moment, not a repaint: never instant, never a flicker, and it happens once.</p>';
+  h+='<div class="frames">'+
+    [['FRAME 0 · 0 MS · YOU PLACED IT',placed],[frame1Caption(c),mid],['FRAME 2 · 1500 MS · THE FUSED READ',fused]]
+      .map(function(f,i){
+        return '<div class="fr"><div class="st">Wired, but running on empty</div>'+
+          '<div class="fac">YOU light, high energy &middot; BODY low reserves</div>'+
+          dotsRow(i===1?('color-mix(in srgb,'+placed+' 45%, '+fused+')'):f[1])+
+          '<div class="frcap">'+f[0]+'</div></div>';}).join('')+'</div>';
+  h+='<div class="beh">HOW IT BEHAVES</div>'+
+    '<div class="rule"><b>It waits for the body, not the tap.</b> The dots hold the placed hue until the read resolves &mdash; about 300 ms. '+theatreLine(c)+'</div>'+
+    settleLine(c)+
+    '<div class="rule"><b>80 ms stagger, newest dot first.</b> The three move as a wave rather than a switch, so it reads as something arriving rather than a value being overwritten.</div>'+
+    '<div class="rule" style="border-bottom:0"><b>It happens once per read.</b> A second placement that does not change the fused quadrant does not re-run it.</div>'+
+    '<div class="rm"><b>REDUCED MOTION</b>The dots render at the fused hue from the moment the read resolves. No cross-fade, no stagger &mdash; the intermediate frame is never shown, because a still of a transition is a lie about what happened.</div>';
+  h+='<div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--track)">'+
+     '<div class="tnum">TRANSITION 02</div><div class="ttl">Genesis &rarr; Now Playing</div>'+
+     '<div class="tmeta">'+t02Meta(c)+'</div>'+
+     '<div class="beh">WHAT CARRIES ACROSS THE CUT</div>'+
+     '<div class="rule"><b>The filled inner ring is the album art.</b> One shared element, morphing border-radius 50% &rarr; radius.md while it grows and rises.</div>'+
+     t02Field(c)+
+     '<div class="rule" style="border-bottom:0"><b>Haptic:</b> success fires when audio actually starts &mdash; never when the request is sent.</div></div>';
+  h+=pathsNode(c);
+  h+=ladderNode(c);
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=board('light',state);
+  document.getElementById('live-dark').innerHTML=board('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+board('light',v.c)+'</div><div class="cap">Light</div></div>'+
+      '<div><div>'+board('dark',v.c)+'</div><div class="cap">Dark</div></div>'+
+      '<div style="align-self:flex-start"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 14 — FLOW — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-').replace(/&rarr;/g,'->');
+    lines.push(row.name.padEnd(32,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>
