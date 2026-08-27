@@ -32,7 +32,9 @@
     { "file": "StateNoWatch.dc.html", "page": "states", "x": 0,    "y": 0, "w": 390, "h": 844, "title": "Pulse · nothing paired" },
     { "file": "StateLoading.dc.html", "page": "states", "x": 470,  "y": 0, "w": 390, "h": 844, "title": "Pulse · reading" },
     { "file": "StateOffline.dc.html", "page": "states", "x": 940,  "y": 0, "w": 390, "h": 844, "title": "Generate · offline" },
-    { "file": "StateEmpty.dc.html",   "page": "states", "x": 1410, "y": 0, "w": 390, "h": 844, "title": "History · empty" }
+    { "file": "StateEmpty.dc.html",   "page": "states", "x": 1410, "y": 0, "w": 390, "h": 844, "title": "History · empty" },
+
+    { "file": "States.dc.html", "page": "states", "x": 0, "y": 1000, "w": 1400, "h": 1492, "title": "The state system — all six, defined once" }
   ],
   "annotations": [
     { "id": "row-first-run", "page": "screens", "x": 0, "y": 1630, "w": 620, "text": "FIRST RUN — Connect draws what providers.ts actually offers: Spotify halted, YouTube deferred, neither with a live Connect. The mood-only path is the forward action, not a grey skip." },

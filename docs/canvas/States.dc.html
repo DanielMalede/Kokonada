@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    .lab { font:500 11px var(--mono); letter-spacing:.14em; color:var(--ink3); }
+    .nm { font:600 16px var(--disp); color:var(--ink); }
+    .dsc { font:400 12.5px/1.6 var(--text); color:var(--ink2); }
+    .st { font:500 11px var(--mono); color:var(--ink3); margin-top:7px; }
+    .sec { padding-top:26px; margin-top:26px; border-top:1px solid var(--line); }
+    .card { border:1px solid var(--line); border-radius:14px; background:var(--raised); padding:16px 17px; }
+    .rule { font:400 12.5px/1.6 var(--text); color:var(--ink2); margin:6px 0 0; }
+    .tok { font:500 10.5px/1.5 var(--mono); color:var(--ink3); margin-top:10px; display:block; }
+    .skelbar { height:9px; border-radius:999px; background:var(--bartrack); display:block; }
+    @keyframes sk { 0%,100%{opacity:.6} 50%{opacity:1} }
+    .pulse { animation:sk 1400ms ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .pulse { animation:none; opacity:1; } }
+    .btn { display:inline-flex; align-items:center; justify-content:center; min-height:38px; padding:0 17px;
+           border-radius:999px; background:var(--brandink); color:var(--onbrand); font:600 13px var(--text); }
+    .btn.out { background:transparent; color:var(--ink); border:1.5px solid var(--ink); }
+    table.mx { width:100%; border-collapse:collapse; font:400 12.5px var(--text); }
+    table.mx th { font:500 10px var(--mono); letter-spacing:.11em; color:var(--ink3); text-transform:uppercase;
+                  text-align:center; padding:9px 6px; border-bottom:1px solid var(--line); }
+    table.mx th:first-child { text-align:left; }
+    table.mx td { padding:9px 6px; border-bottom:1px solid var(--line); text-align:center; color:var(--ink2); }
+    table.mx td:first-child { text-align:left; color:var(--ink); font-weight:500; }
+    table.mx tr:last-child td { border-bottom:0; }
+    .none { color:var(--ink3); }
+    .yes { color:var(--accent); font-weight:600; }
+  </style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:1400px;min-height:1492px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
+
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--track)">
+    <div>
+      <div class="lab">SYSTEM</div>
+      <h1 style="margin:6px 0 4px;font:600 30px/1.15 var(--disp);letter-spacing:-.02em;color:var(--ink)">States</h1>
+      <p class="dsc" style="margin:0;max-width:74ch">Every non-happy state, defined once. A screen that invents its own has a bug, not a variant. The four state artboards on this page are <em>situated</em> examples; this is the system behind them.</p>
+    </div>
+    <div style="text-align:right;flex:none">
+      <div class="lab">THE RULE THAT ORDERS ALL SIX</div>
+      <p class="dsc" style="margin:6px 0 0;max-width:34ch">A state the user cannot finish reading should not have been shown.</p>
+    </div>
+  </div>
+
+  <!-- ── the six states ─────────────────────────────────────────────────── -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:26px">
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span class="nm">Skeleton</span></div>
+      <p class="rule">We are fetching and we know the shape of what is coming. Never a spinner — a spinner says &ldquo;wait&rdquo;, a skeleton says &ldquo;here is what arrives&rdquo;.</p>
+      <div style="margin:14px 0 0">
+        <span class="skelbar pulse" style="width:70%"></span>
+        <span class="skelbar pulse" style="width:92%;margin-top:7px"></span>
+        <span class="skelbar pulse" style="width:48%;margin-top:7px"></span>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)">
+        <span class="lab" style="font-size:10px">REDUCED MOTION</span>
+        <span class="skelbar" style="width:70%;margin-top:7px;opacity:1"></span>
+        <span class="skelbar" style="width:92%;margin-top:7px;opacity:1"></span>
+        <p class="rule" style="font-size:11.5px">Full opacity, not frozen mid-pulse — <span style="color:var(--ink)">still: 1.0</span>, not 0.6.</p>
+      </div>
+      <span class="tok">SKELETON_PULSE {rest .6, peak 1, still 1} &middot; 1400ms<br>line | title | card | row &middot; base | raised</span>
+      <span class="tok" style="color:var(--ink2)">User can: nothing. It resolves itself.</span>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span class="nm">Empty</span></div>
+      <p class="rule">The container works, you have not filled it yet. Always carries exactly one action.</p>
+      <div style="margin:16px 0 4px;text-align:center">
+        <div style="width:44px;height:44px;border-radius:999px;background:var(--accentfill);margin:0 auto 12px"></div>
+        <div style="font:600 14px var(--text);color:var(--ink)">Nothing here yet.</div>
+        <p class="rule" style="margin:5px 0 12px">Sets you make land here quietly, newest first.</p>
+        <span class="btn">Make the first one</span>
+      </div>
+      <span class="tok">EmptyState &middot; action REQUIRED at the type level<br>EMPTY_GLOW_OPACITY 0.4</span>
+      <span class="tok" style="color:var(--ink2)">User can: one thing, and it is the obvious thing.</span>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span class="nm">Honest-empty</span></div>
+      <p class="rule">Your device does not report this. Not an error, not a gap, and never an advert for a watch. No retry, because no retry can cross a source boundary.</p>
+      <div style="margin:16px 0 0;display:flex;flex-direction:column;gap:11px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font:400 13px var(--text);color:var(--ink)">Body Battery&trade;</span><span style="font:400 12.5px var(--text);color:var(--ink2);text-align:right">Garmin-only &middot; not shared by Health Connect</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span style="font:400 13px var(--text);color:var(--ink)">Variability</span><span style="font:400 12.5px var(--text);color:var(--ink2);text-align:right">Still learning your normal</span></div>
+      </div>
+      <span class="tok">defined on the Components board<br>never an EmptyState &mdash; it must have NO action</span>
+      <span class="tok" style="color:var(--ink2)">User can: nothing &mdash; and that is the point.</span>
+    </div>
+
+    <div class="card" style="border-color:var(--danger)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span class="nm">Error</span><span class="lab" style="color:var(--danger);font-size:10px">GAP</span></div>
+      <p class="rule">We broke. Name what failed in one sentence and offer the retry.</p>
+      <div style="margin:16px 0 4px;border:1px dashed var(--danger);border-radius:11px;padding:16px;text-align:center">
+        <div style="font:600 13.5px var(--text);color:var(--danger)">No component exists</div>
+        <p class="rule" style="margin-top:5px;font-size:11.5px">design/system/ holds Skeleton, EmptyState and OfflineBanner &mdash; and no third.</p>
+      </div>
+      <span class="tok">NO SHIPPED COMPONENT<br>playbackErrorStore.ts is playback-only</span>
+      <span class="tok" style="color:var(--ink2)">User can: retry. Always.</span>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span class="nm">First run</span></div>
+      <p class="rule">Nothing is set up yet. Must read as an invitation, never as breakage &mdash; the app works without the setup.</p>
+      <div style="margin:16px 0 4px">
+        <div style="font:600 14px var(--text);color:var(--ink)">Nothing is reading your body yet.</div>
+        <p class="rule" style="margin:5px 0 12px">Your words still work on their own. Nothing is missing, and nothing is broken.</p>
+        <span class="btn out">Pair a watch</span>
+      </div>
+      <span class="tok">StateNoWatch is the archetype</span>
+      <span class="tok" style="color:var(--ink2)">User can: set it up, or carry on without it.</span>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><span class="nm">Offline</span></div>
+      <p class="rule">The network went. The last good data stays on screen; the banner pushes content down rather than covering it.</p>
+      <div style="margin:16px 0 0">
+        <div style="display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:11px;padding:10px 12px">
+          <span style="width:9px;height:9px;border-radius:999px;background:var(--danger);flex:none"></span>
+          <span style="font:400 12.5px var(--text);color:var(--ink)">Offline. Your last set is still here.</span>
+        </div>
+        <p class="rule" style="font-size:11.5px">&darr; content pushes down, never covered &mdash; so every screen has two correct vertical rhythms.</p>
+      </div>
+      <span class="tok">OFFLINE_GRACE_MS 1400 &middot; BACK_ONLINE_HOLD_MS 1600<br>disconnected | connecting | connected</span>
+      <span class="tok" style="color:var(--ink2)">User can: wait. It self-heals.</span>
+    </div>
+
+  </div>
+
+  <!-- ── telling the five apart ─────────────────────────────────────────── -->
+  <div class="sec">
+    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px">
+      <span class="nm">Telling the five apart</span>
+      <span class="lab">THEY ALL RENDER AS &ldquo;NOT MUCH HERE&rdquo;</span>
+    </div>
+    <p class="dsc" style="margin:0 0 16px;max-width:96ch">Empty, honest-empty, error, first run and offline look alike and mean entirely different things. Getting one wrong is not a cosmetic slip: a dash where the watch simply reports nothing tells the user their device is broken.</p>
+    <div class="card" style="padding:6px 17px">
+      <table class="mx">
+        <tr><th>State</th><th>Whose fault</th><th>What the user can do</th><th>Self-heals</th><th>The tell</th></tr>
+        <tr><td>Empty</td><td>Nobody&rsquo;s</td><td>Exactly one action</td><td class="none">No</td><td>The container works and is waiting for you</td></tr>
+        <tr><td>Honest-empty</td><td>Nobody&rsquo;s</td><td class="none">Nothing &mdash; and no retry</td><td class="none">No</td><td>A source boundary no retry can cross</td></tr>
+        <tr><td>Error</td><td>Ours</td><td>Retry</td><td class="none">No</td><td>Something failed that was supposed to work</td></tr>
+        <tr><td>First run</td><td>Nobody&rsquo;s</td><td>Set up, or carry on without</td><td class="none">No</td><td>Never yet configured &mdash; and optional</td></tr>
+        <tr><td>Offline</td><td>The network</td><td class="none">Nothing &mdash; just wait</td><td class="yes">Yes</td><td>Last good data still on screen</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── the gap ────────────────────────────────────────────────────────── -->
+  <div class="sec">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+      <div class="card" style="border-color:var(--danger)">
+        <span class="lab" style="color:var(--danger)">UNFILLED &mdash; DELIBERATELY</span>
+        <p class="rule" style="margin-top:8px">There is no error component. This board records the hole rather than inventing a spec for it: <span style="color:var(--ink)">an honest gap gets chased, an invented one gets built.</span> Until it exists, every screen&rsquo;s error path is whatever that screen improvised.</p>
+        <p class="rule">When it is specified it should mirror <span style="color:var(--ink)">EmptyState</span> exactly &mdash; title, a one-sentence body naming what failed, and a <span style="color:var(--ink)">required</span> retry action, so a dead-end error is unrepresentable too. Tone <span style="color:var(--ink)">danger</span>, never the emotion accent: a fault is not a mood.</p>
+      </div>
+      <div class="card">
+        <span class="lab">COVERAGE TODAY</span>
+        <p class="rule" style="margin-top:8px"><span style="color:var(--ink)">Error is owed on eleven screens and drawn on none</span> &mdash; the same finding as the missing component, reached from the other end. Skeleton is drawn on three of the four screens that actually wait on a request.</p>
+        <p class="rule">This paragraph is a snapshot and will rot. When it disagrees with the screens, the screens are right and this line is stale &mdash; fix it here rather than trusting it.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":1492}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>
