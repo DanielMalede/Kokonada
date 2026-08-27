@@ -85,13 +85,26 @@ describe('EmptyState — never a dead end', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('brand tone (default): filled accent.glowInk CTA with content.onAccent label', async () => {
+  it('brand tone (default): filled accent.ctaFill CTA with content.onCtaFill label', async () => {
     const tree = await render(<EmptyState title="t" action={ACTION} />);
     const cta = flatStyle(button(tree));
-    expect(cta.backgroundColor).toBe(DARK.accent.glowInk);
-    expect(cta.borderColor).toBe(DARK.accent.glowInk);
+    expect(cta.backgroundColor).toBe(DARK.accent.ctaFill);
+    expect(cta.borderColor).toBe(DARK.accent.ctaFill);
     const label = tree.root.findAll((n) => isHost(n, 'Text') && textOf(n).join('') === ACTION.label)[0];
-    expect(flatStyle(label).color).toBe(DARK.content.onAccent);
+    expect(flatStyle(label).color).toBe(DARK.content.onCtaFill);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // The INVERTED pin: the standard CTA used to wear the aurora violet (accent.glowInk / onAccent).
+  // glowInk is still a live token — it feeds the Generate hero's gradient — so "gone" has to be
+  // asserted, not inferred from its absence.
+  it('the standard CTA no longer wears the aurora violet (glowInk/onAccent are gone from it)', async () => {
+    const tree = await render(<EmptyState title="t" action={ACTION} />);
+    const cta = flatStyle(button(tree));
+    expect(cta.backgroundColor).not.toBe(DARK.accent.glowInk);
+    expect(cta.borderColor).not.toBe(DARK.accent.glowInk);
+    const label = tree.root.findAll((n) => isHost(n, 'Text') && textOf(n).join('') === ACTION.label)[0];
+    expect(flatStyle(label).color).not.toBe(DARK.content.onAccent);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
@@ -99,7 +112,7 @@ describe('EmptyState — never a dead end', () => {
     const tree = await render(<EmptyState title="t" action={ACTION} tone="quiet" accentQuadrant="intense" />);
     const cta = flatStyle(button(tree));
     expect(cta.borderColor).toBe(DARK.content.tertiary);
-    expect(cta.backgroundColor).toBeUndefined(); // never a fill (protects the onAccent AA guarantee)
+    expect(cta.backgroundColor).toBeUndefined(); // never a fill (protects the onCtaFill AA guarantee)
     const label = tree.root.findAll((n) => isHost(n, 'Text') && textOf(n).join('') === ACTION.label)[0];
     expect(flatStyle(label).color).toBe(DARK.emotionAccent.intense.ink); // violet, never red
     await ReactTestRenderer.act(async () => { tree.unmount(); });
@@ -148,9 +161,9 @@ describe('EmptyState — never a dead end', () => {
 });
 
 describe('EmptyState — proven contrast contract (both themes)', () => {
-  it('brand CTA: content.onAccent on accent.glowInk passes AA-normal', () => {
+  it('brand CTA: content.onCtaFill on accent.ctaFill passes AA-normal', () => {
     for (const t of [colors.dark, colors.light]) {
-      expect(contrastRatio(t.content.onAccent, t.accent.glowInk)).toBeGreaterThanOrEqual(AA_NORMAL);
+      expect(contrastRatio(t.content.onCtaFill, t.accent.ctaFill)).toBeGreaterThanOrEqual(AA_NORMAL);
     }
   });
   it('quiet CTA: every emotionAccent ink passes AA-normal on the base surface it renders over', () => {
