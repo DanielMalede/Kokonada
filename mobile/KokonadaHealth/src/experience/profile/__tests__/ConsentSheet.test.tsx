@@ -1,14 +1,21 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
+import * as RN from 'react-native';
 import { AccessibilityInfo } from 'react-native';
+
+// Cold-require headroom for CI (same rationale as NowPlayingScreen/ConnectServicesScreen): on a
+// cold babel cache the FIRST test in this file spends ~8s compiling the ConsentSheet module
+// graph and blows the 5s default, and jest's abort then cascades into a later test. The
+// budget is compile time, not assertion time.
+jest.setTimeout(20000);
 
 jest.mock('../../../design/haptics', () => ({ fireHaptic: jest.fn() }));
 
 import { ConsentSheet } from '../ConsentSheet';
 import { createConsentFlow, type ConsentFlowStore } from '../../../health/consentStore';
 import { CONSENT_DATA_CATEGORIES, type ConsentStatus } from '../../../health/consentApi';
-import { colors } from '../../../design/tokens';
-import { contrastRatio, AA_LARGE } from '../../../design/contrast';
+import { colors, type ThemeName } from '../../../design/tokens';
+import { contrastRatio, AA_NORMAL, AA_LARGE } from '../../../design/contrast';
 
 const status = (over: Partial<ConsentStatus> = {}): ConsentStatus => ({
   granted: false,
@@ -27,10 +34,20 @@ async function flush() {
   await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
 }
 
+// Teardown discipline, per FILE rather than per call site. A failed assertion aborts the test body,
+// so a trailing tree.unmount() never runs — and a leaked tree keeps its Animated entry running into
+// the NEXT test's window, failing that one too and hiding the real cause behind a cascade. Every
+// render registers here and is swept unconditionally, pass or fail.
+const mounted: ReactTestRenderer.ReactTestRenderer[] = [];
+afterEach(async () => {
+  for (const t of mounted.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
+});
+
 async function render(el: React.ReactElement) {
   let tree!: ReactTestRenderer.ReactTestRenderer;
   await ReactTestRenderer.act(async () => { tree = ReactTestRenderer.create(el); });
   await flush();
+  mounted.push(tree);
   return tree;
 }
 
@@ -43,13 +60,23 @@ const byTestId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
 
 
 // The standard primary CTA wears the INK fill (accent.ctaFill + content.onCtaFill), NOT the aurora
-// violet. Theme-agnostic sets — the headless renderer may resolve either face and the rule holds in
-// both. glowInk/onAccent stay live tokens (they feed the Generate hero's gradient), so their
-// ABSENCE from a standard CTA has to be asserted, never inferred.
-const CTA_FILLS = [colors.light.accent.ctaFill, colors.dark.accent.ctaFill];
-const CTA_LABELS = [colors.light.content.onCtaFill, colors.dark.content.onCtaFill];
+// violet. POSITIVE colour claims are pinned per FACE (see the describe.each below); only the
+// NEGATIVE sets stay theme-spanning, because excluding a hue in BOTH faces is strictly stronger
+// than excluding it in one. glowInk/onAccent stay live tokens (they feed the Generate hero's
+// gradient), so their ABSENCE from a standard CTA has to be asserted, never inferred.
 const GLOW_INKS = [colors.light.accent.glowInk, colors.dark.accent.glowInk];
 const ON_ACCENTS = [colors.light.content.onAccent, colors.dark.content.onAccent];
+const EMOTION_INKS = (['calm', 'joyful', 'intense', 'reflective'] as const)
+  .flatMap((q) => [colors.light.emotionAccent[q].ink, colors.dark.emotionAccent[q].ink]);
+const FACES: ThemeName[] = ['light', 'dark'];
+// WCAG 2.2 SC 1.4.6 (Contrast Enhanced). Not a token-system-wide threshold — it is the bar THIS
+// screen is held to, because it is the Art.9 consent wall.
+const AAA_NORMAL = 7;
+// Agree may lead Decline in measured contrast (a reversed label on an extreme ink fill necessarily
+// beats ink-on-paper), but never by a margin that could read as disadvantaging the refusal. Today:
+// 1.037 dark, 1.093 light. 1.15 keeps headroom over the worst face and still fires long before
+// Decline could approach the EDPB's "unreadable to virtually any user" band.
+const AGREE_LEAD_MAX = 1.15;
 const flattenStyle = (node: any): Record<string, any> => {
   const s = node?.props?.style;
   return Array.isArray(s) ? Object.assign({}, ...s.flat(Infinity).filter(Boolean)) : (s ?? {});
@@ -84,7 +111,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(byTestId(tree, 'consent-agree').length).toBe(0);
       // NOT a spinner: no ActivityIndicator anywhere.
       expect(tree.root.findAll((n) => n.type === 'ActivityIndicator').length).toBe(0);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('consent_required → first-time presentation with the full document and both actions', async () => {
@@ -94,7 +120,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(byTestId(tree, 'consent-document').length).toBe(1);
       expect(byTestId(tree, 'consent-agree').length).toBe(1);
       expect(byTestId(tree, 'consent-decline').length).toBe(1);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('consent_stale → re-confirm framing ("updated") but still requires a fresh Agree', async () => {
@@ -103,7 +128,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       const tree = await render(<ConsentSheet store={store} onProceed={jest.fn()} onDecline={jest.fn()} />);
       expect(texts(tree.toJSON()).join(' ').toLowerCase()).toContain('updated');
       expect(byTestId(tree, 'consent-agree').length).toBe(1);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('submitting_grant → both buttons locked while the POST is in flight', async () => {
@@ -116,7 +140,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(byTestId(tree, 'consent-decline')[0].props.accessibilityState?.disabled).toBe(true);
       grant.resolve({ ok: true, data: status({ granted: true }) });
       await flush();
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('submit_error → soft inline error + Retry, and Decline STILL works', async () => {
@@ -127,7 +150,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       await flush();
       expect(byTestId(tree, 'consent-error').length).toBe(1);
       expect(byTestId(tree, 'consent-decline')[0].props.accessibilityState?.disabled).toBeFalsy();
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
   });
 
@@ -139,7 +161,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       const tree = await render(<ConsentSheet store={store} onProceed={onProceed} onDecline={jest.fn()} />);
       expect(onProceed).toHaveBeenCalledTimes(1);
       expect(byTestId(tree, 'consent-document').length).toBe(0); // the wall is never shown
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('NEVER calls onProceed on a failed grant (OS sheet stays shut in the error path)', async () => {
@@ -150,7 +171,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       await ReactTestRenderer.act(async () => { await byTestId(tree, 'consent-agree')[0].props.onPress(); });
       await flush();
       expect(onProceed).not.toHaveBeenCalled();
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('calls onProceed ONLY after the 201 echo (granted_ack) — not while the grant is still submitting', async () => {
@@ -165,7 +185,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       await ReactTestRenderer.act(async () => { grant.resolve({ ok: true, data: status({ granted: true }) }); });
       await flush();
       expect(onProceed).toHaveBeenCalledTimes(1);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('Decline moves to onDecline without any grant POST (mood-only path stays intact)', async () => {
@@ -178,7 +197,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       await flush();
       expect(onDecline).toHaveBeenCalledTimes(1);
       expect(grant).not.toHaveBeenCalled();
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
   });
 
@@ -196,26 +214,67 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(decline.flex).toBe(agree.flex);
       expect(decline.paddingVertical).toBe(agree.paddingVertical);
       expect(decline.borderRadius).toBe(agree.borderRadius);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
-    it('Agree wears the FIXED standard CTA ink fill — never the aurora violet, never a re-tint', async () => {
-      const store = build();
-      store.getState().hydrate(status({ granted: false }));
-      const tree = await render(<ConsentSheet store={store} onProceed={jest.fn()} onDecline={jest.fn()} />);
-      const agree = byTestId(tree, 'consent-agree')[0];
-      const s = flattenStyle(agree);
-      expect(CTA_FILLS).toContain(s.backgroundColor);
-      expect(CTA_FILLS).toContain(s.borderColor);
-      expect(GLOW_INKS).not.toContain(s.backgroundColor);
-      const label = flattenStyle(firstText(agree));
-      expect(CTA_LABELS).toContain(label.color);
-      expect(ON_ACCENTS).not.toContain(label.color);
-      // …and it is still NOT the reactive emotion accent — a legal choice is never nudged.
-      const emotionInks = (['calm', 'joyful', 'intense', 'reflective'] as const)
-        .flatMap((q) => [colors.light.emotionAccent[q].ink, colors.dark.emotionAccent[q].ink]);
-      expect(emotionInks).not.toContain(s.backgroundColor);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    // ── FACE-FORCED action-bar pins ─────────────────────────────────────────────────────
+    // @react-native/jest-preset REPLACES react-native's useColorScheme with jest.fn(() => 'light'),
+    // so an unforced render always resolves the LIGHT face — the shipping DARK face was never
+    // rendered here at all. Asserting set-membership across a union of both faces therefore waved
+    // a CROSS-FACE pairing through: hard-coding colors.dark.accent.ctaFill under a light-face
+    // label renders #FAFAFF on #EEF1FC — 1.08:1, an invisible button on the Art.9 wall — with
+    // every assertion still green. Forcing the scheme runs the REAL useTheme → resolveScheme path
+    // in BOTH faces, pins each value EXACTLY, and measures the rendered pair, so the class dies
+    // whichever call site is edited next.
+    describe.each(FACES)('the action bar, rendered on the %s face', (scheme) => {
+      const C = colors[scheme];
+      beforeEach(() => { jest.spyOn(RN, 'useColorScheme').mockReturnValue(scheme); });
+      afterEach(() => { jest.restoreAllMocks(); });
+
+      const renderWall = async () => {
+        const store = build();
+        store.getState().hydrate(status({ granted: false }));
+        return render(<ConsentSheet store={store} onProceed={jest.fn()} onDecline={jest.fn()} />);
+      };
+
+      it('Agree wears THIS face\u2019s ink fill AND THIS face\u2019s label — never the aurora violet, never a re-tint', async () => {
+        const tree = await renderWall();
+        const agree = byTestId(tree, 'consent-agree')[0];
+        const s = flattenStyle(agree);
+        const label = flattenStyle(firstText(agree));
+        expect(s.backgroundColor).toBe(C.accent.ctaFill);
+        expect(s.borderColor).toBe(C.accent.ctaFill);
+        expect(label.color).toBe(C.content.onCtaFill);
+        // The assertion that kills the cross-face class outright, independently of the exact
+        // values: whatever the two colours are, the label must be readable ON the fill it is
+        // actually painted over.
+        expect(contrastRatio(label.color, s.backgroundColor)).toBeGreaterThanOrEqual(AA_NORMAL);
+        expect(GLOW_INKS).not.toContain(s.backgroundColor);
+        expect(ON_ACCENTS).not.toContain(label.color);
+        // …and it is still NOT the reactive emotion accent — a legal choice is never nudged.
+        expect(EMOTION_INKS).not.toContain(s.backgroundColor);
+      });
+
+      // The LEGAL property (SCREENS §11). NOT "Decline carries the highest contrast on the
+      // screen" — that claim inverted silently the moment the CTA took the ink fill, because a
+      // reversed label on an extreme fill necessarily beats ink-on-paper. What the EDPB Cookie
+      // Banner Taskforce Report (17 Jan 2023, paras 17-18) actually names as the breach is a
+      // Decline the user cannot read. So what is pinned is: both labels clear AAA, and Agree
+      // never materially leads Decline.
+      it('Decline is never disadvantaged relative to Agree — both clear AAA, Agree leads by at most 15%', async () => {
+        const tree = await renderWall();
+        const decline = byTestId(tree, 'consent-decline')[0];
+        const agree = byTestId(tree, 'consent-agree')[0];
+        const sheetBg = flattenStyle(byTestId(tree, 'consent-sheet')[0]).backgroundColor;
+        // Decline is an OUTLINE control, so its label is read against the sheet's own surface.
+        expect(flattenStyle(decline).backgroundColor).toBeUndefined();
+        expect(sheetBg).toBe(C.surface.base);
+
+        const declineRatio = contrastRatio(flattenStyle(firstText(decline)).color, sheetBg);
+        const agreeRatio = contrastRatio(flattenStyle(firstText(agree)).color, flattenStyle(agree).backgroundColor);
+        expect(declineRatio).toBeGreaterThanOrEqual(AAA_NORMAL);
+        expect(agreeRatio).toBeGreaterThanOrEqual(AAA_NORMAL);
+        expect(agreeRatio / declineRatio).toBeLessThanOrEqual(AGREE_LEAD_MAX);
+      });
     });
 
     it('both actions announce their role AND consequence (never bare OK/Cancel)', async () => {
@@ -228,7 +287,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(decline.props.accessibilityRole).toBe('button');
       expect(agree.props.accessibilityLabel).toMatch(/health permission/i);
       expect(decline.props.accessibilityLabel).toMatch(/decline/i);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('each content section is a header landmark and the title is the first header (SR focus order)', async () => {
@@ -238,7 +296,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       const headers = tree.root.findAll((n) => n.props.accessibilityRole === 'header');
       expect(headers.length).toBeGreaterThanOrEqual(6); // title + the 6 document sections
       expect(byTestId(tree, 'consent-title')[0].props.accessibilityRole).toBe('header');
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('renders the consent document as REAL selectable text (never an image)', async () => {
@@ -248,7 +305,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       const selectable = tree.root.findAll((n) => n.props.selectable === true);
       expect(selectable.length).toBeGreaterThan(0);
       expect(tree.root.findAll((n) => n.type === 'Image').length).toBe(0);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('lists every locked data category across wearable lanes (HC scope-min + Garmin-sourced shape)', async () => {
@@ -274,7 +330,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(all).toContain('garmin'); // each Garmin-only category names its source — never over-claiming for a Health-Connect-only user
       // background_access is still NOT disclosed — no lane reads it.
       expect(all).not.toContain('background');
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
 
     it('names the sub-processors generically (Groq + the wearable/health provider)', async () => {
@@ -284,7 +339,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       const all = texts(tree.toJSON()).join(' ');
       expect(all).toContain('Groq');
       expect(all.toLowerCase()).toMatch(/wearable|health provider/);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
   });
 
@@ -311,7 +365,6 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(byTestId(tree, 'consent-document').length).toBe(1);
       expect(byTestId(tree, 'consent-agree').length).toBe(1);
       expect(byTestId(tree, 'consent-decline').length).toBe(1);
-      await ReactTestRenderer.act(async () => { tree.unmount(); });
     });
   });
 });
