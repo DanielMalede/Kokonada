@@ -43,3 +43,7 @@ backend/wave1_seed_dump.ndjson
 
 # Headless-Chrome probe output from scripts/design/ — disposable, regenerated on every run
 /.design-probe/
+
+# Python bytecode
+__pycache__/
+*.pyc
