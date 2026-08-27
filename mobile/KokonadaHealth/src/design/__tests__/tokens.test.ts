@@ -48,6 +48,21 @@ describe.each(themes)('theme "%s" — content passes AA on every surface', (name
     expect(contrastRatio(c.content.onAccent, c.accent.glowInk)).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 
+  // The STANDARD primary CTA is an INK fill — near-black indigo in Day, near-white in Nocturne —
+  // and carries its OWN label token, so the pairing can never be split from the surface it rides
+  // on. Deliberately NOT the aurora glowInk: the Generate hero keeps the morphing aurora gradient
+  // (auroraSurfaces.ts), and glowInk stays alive to feed it, which is why both proofs live here.
+  it('onCtaFill text passes AA on the primary-CTA INK fill (standard button surfaces)', () => {
+    expect(contrastRatio(c.content.onCtaFill, c.accent.ctaFill)).toBeGreaterThanOrEqual(AA_NORMAL);
+  });
+  it.each(surfaces)('the CTA ink fill is a visible control boundary on %s (1.4.11, ≥3:1)', (_label, surf) => {
+    expect(contrastRatio(c.accent.ctaFill, surf)).toBeGreaterThanOrEqual(AA_LARGE);
+  });
+  it('the CTA ink fill is NOT accent.glowInk — the standard CTA no longer wears the aurora violet', () => {
+    expect(c.accent.ctaFill).not.toBe(c.accent.glowInk);
+    expect(c.content.onCtaFill).not.toBe(c.accent.glowInk);
+  });
+
   // Accents & state colors are used as icons/graphics/large labels → AA-large (3.0) on base.
   it('glow accent ≥ AA-large on base', () => {
     expect(contrastRatio(c.accent.glow, c.surface.base)).toBeGreaterThanOrEqual(AA_LARGE);
@@ -102,6 +117,16 @@ describe('Aurora foundation tokens (the LOCKED direction — exact pins so the p
   it('accent.goldInk (the gold-signature text ink) — exact, both themes', () => {
     expect(colors.dark.accent.goldInk).toBe('#FFD37A');
     expect(colors.light.accent.goldInk).toBe('#8A5A12');
+  });
+  it('accent.ctaFill + content.onCtaFill (the primary-CTA ink pair) — exact hexes AND measured ratios', () => {
+    expect(colors.light.accent.ctaFill).toBe('#14163A');
+    expect(colors.light.content.onCtaFill).toBe('#FAFAFF');
+    expect(colors.dark.accent.ctaFill).toBe('#EEF1FC');
+    expect(colors.dark.content.onCtaFill).toBe('#0B0D26');
+    // The measured ratios the pair was chosen for — pinned so a "harmless" nudge to either hex
+    // is a failing test, not a quiet slide toward the 4.5 floor.
+    expect(contrastRatio(colors.light.content.onCtaFill, colors.light.accent.ctaFill)).toBeCloseTo(16.74, 2);
+    expect(contrastRatio(colors.dark.content.onCtaFill, colors.dark.accent.ctaFill)).toBeCloseTo(16.93, 2);
   });
   it('surface.textScrim base + alpha ramp (aura-over-text legibility veil) — exact, both themes', () => {
     expect(colors.dark.surface.textScrim).toEqual({ base: '#0A0C28', from: 0, to: 0.55 });
