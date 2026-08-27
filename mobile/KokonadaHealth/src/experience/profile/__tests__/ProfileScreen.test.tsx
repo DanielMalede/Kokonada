@@ -81,11 +81,18 @@ import { warmStore } from '../../../state/store';
 import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../../health/consentApi';
 import { requestHealthPermissions, checkAvailability } from '../../../health/healthConnect';
 import { syncMedicalProfile } from '../../../health/healthSync';
+import { colors } from '../../../design/tokens';
 
 const loadProfile = profileController.loadProfile as jest.Mock;
 const logout = profileController.logout as jest.Mock;
 const deleteAccount = profileController.deleteAccount as jest.Mock;
 const disconnectYouTube = profileController.disconnectYouTube as jest.Mock;
+
+const flattenStyle = (node: any): Record<string, any> => {
+  const st = node?.props?.style;
+  return Array.isArray(st) ? Object.assign({}, ...st.flat(Infinity).filter(Boolean)) : (st ?? {});
+};
+const firstText = (node: any) => node.findAll((n: any) => typeof n.type === 'string' && n.type === 'Text')[0];
 
 function texts(node: any, acc: string[] = []): string[] {
   if (node == null) return acc;
@@ -385,7 +392,13 @@ describe('ProfileScreen', () => {
     await ReactTestRenderer.act(async () => { byLabel(tree, 'withdraw-consent').props.onPress(); });
     const confirm = byLabel(tree, 'withdraw-confirm');
     const s = Array.isArray(confirm.props.style) ? Object.assign({}, ...confirm.props.style.filter(Boolean)) : confirm.props.style;
-    expect(s.backgroundColor).not.toBe('#ff5a5a');
+    // The account-deletion red as the palette ACTUALLY defines it. The '#ff5a5a' literal this
+    // asserted against is in neither face, so the guard could never fail — the confirm could be
+    // painted state.danger in fill, border and label and this test still passed.
+    const DANGERS = [colors.light.state.danger, colors.dark.state.danger];
+    expect(DANGERS).not.toContain(s.backgroundColor);
+    expect(DANGERS).not.toContain(s.borderColor);
+    expect(DANGERS).not.toContain(flattenStyle(firstText(confirm)).color);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
