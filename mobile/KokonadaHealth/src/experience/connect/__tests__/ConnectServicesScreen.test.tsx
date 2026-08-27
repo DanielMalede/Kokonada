@@ -216,6 +216,10 @@ describe('ConnectServicesScreen — mood-only path (T5)', () => {
         </SafeAreaProvider>,
       );
     });
+    // This test mounts its OWN tree (it needs a per-test KV + haptic spy), so it must register with
+    // the file sweep by hand — an unregistered tree is never unmounted at all, and jest then cannot
+    // exit: --detectOpenHandles hangs on the live SafeAreaProvider/screen timers it left behind.
+    mounted.push(tree);
     await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
 
     await ReactTestRenderer.act(async () => { byLabel(tree, 'continue-mood-only')[0].props.onPress(); });
