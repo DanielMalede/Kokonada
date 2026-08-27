@@ -27,7 +27,7 @@
     { "file": "Field.dc.html",      "page": "system", "x": 0,    "y": 0,    "w": 1180, "h": 1000, "title": "The living field" },
     { "file": "Flow.dc.html",       "page": "system", "x": 1280, "y": 0,    "w": 1400, "h": 1180, "title": "How the magic moment moves" },
     { "file": "Components.dc.html", "page": "system", "x": 0,    "y": 1320, "w": 1400, "h": 1720, "title": "The parts" },
-    { "file": "Tokens.dc.html",     "page": "system", "x": 1500, "y": 1320, "w": 1400, "h": 1360, "title": "The system" },
+    { "file": "Tokens.dc.html",     "page": "system", "x": 1500, "y": 1320, "w": 1400, "h": 2370, "title": "The system" },
 
     { "file": "StateNoWatch.dc.html", "page": "states", "x": 0,    "y": 0, "w": 390, "h": 844, "title": "Pulse · nothing paired" },
     { "file": "StateLoading.dc.html", "page": "states", "x": 470,  "y": 0, "w": 390, "h": 844, "title": "Pulse · reading" },

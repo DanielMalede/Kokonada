@@ -15,7 +15,7 @@
 .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.82; }
     .fld1, .fld2 { position:absolute; }
     .fld1 { left:-20%; right:-20%; bottom:-40%; height:150%; animation:fieldbreath 4200ms ease-in-out infinite; }
-    .fld2 { left:-32%; right:4%; bottom:-20%; height:110%; animation:fieldbreath 5670ms ease-in-out infinite 1400ms; }
+    .fld2 { left:-32%; right:4%; bottom:-20%; height:110%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; }
     @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
     [data-field="reflective"] .fld1 { background:radial-gradient(ellipse 62% 100% at 50% 100%,color-mix(in srgb, var(--hue-reflective) 34%, transparent),color-mix(in srgb, var(--hue-reflective) 12%, transparent) 46%,transparent 74%); }
     [data-field="reflective"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }

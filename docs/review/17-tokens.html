@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SCREEN 17 — Tokens</title>
+<style>
+/* Self-contained. No CDN, no external stylesheet, no network.
+   Token values inlined from docs/canvas/tokens.css SOURCE layer. */
+*{box-sizing:border-box}
+body{margin:0;background:#E8E9EF;color:#14163A;
+  font:400 15px/1.65 "Plus Jakarta Sans",system-ui,sans-serif;padding:36px 28px 92px}
+h1{font:600 27px/1.2 "General Sans","Manrope",system-ui,sans-serif;letter-spacing:-.02em;margin:0 0 6px}
+h2{font:600 17px/1.3 "General Sans","Manrope",system-ui,sans-serif;margin:44px 0 4px}
+.sub{color:#4A4A68;margin:0 0 24px;max-width:82ch}
+.wrap{max-width:1320px;margin:0 auto}
+.note{background:#fff;border:1px solid rgba(20,22,58,.12);border-radius:14px;padding:18px 20px;margin:0 0 16px}
+.note h3{margin:0 0 8px;font:600 12px ui-monospace,monospace;letter-spacing:.12em;color:#6A6589;text-transform:uppercase}
+.note ul{margin:0;padding-left:19px}.note li{margin:5px 0}
+.pair{display:flex;gap:20px;flex-wrap:wrap;margin-top:14px}
+figure{margin:0}
+figcaption{font:600 10px ui-monospace,monospace;letter-spacing:.11em;color:#6A6589;text-transform:uppercase;margin-bottom:7px}
+
+/* ── the board ───────────────────────────────────────────────────────────── */
+.bd{width:600px;border-radius:18px;border:1px solid rgba(20,22,58,.16);padding:22px 24px;flex:none;
+  font-family:"Plus Jakarta Sans",system-ui,sans-serif;background:var(--canvas);color:var(--ink)}
+.bd[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+  --ink3:#6A6589;--line:rgba(20,22,58,.14);--track:rgba(20,22,58,.28);--bartrack:rgba(20,22,58,.10);
+  --accent:#6E3FC4;--accentfill:rgba(139,111,232,.18);--danger:#9E3346;
+  --brand:#8B6FE8;--brandink:#6E3FC4;--onbrand:#FFFFFF;
+  --q-calm:#1F6FA6;--q-joyful:#8A5A12;--q-intense:#6E3FC4;--q-reflective:#3A5CCC}
+.bd[data-t="dark"]{--canvas:#0B0D26;--raised:#15173A;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+  --ink3:#A7A6D0;--line:rgba(238,241,252,.16);--track:rgba(238,241,252,.32);--bartrack:rgba(238,241,252,.12);
+  --accent:#C4A6FF;--accentfill:rgba(155,123,240,.22);--danger:#FF9BA8;
+  --brand:#9B7BF0;--brandink:#9B7BF0;--onbrand:#0E1030;
+  --q-calm:#7FCDF5;--q-joyful:#FFD37A;--q-intense:#C4A6FF;--q-reflective:#9DB4FF}
+.bd .dh{font:600 19px/1.25 "General Sans","Manrope",system-ui;letter-spacing:-.01em;margin:0 0 3px;color:var(--ink)}
+.bd .dsub{font:400 12px/1.5 inherit;color:var(--ink2);margin:0 0 16px}
+.lab{font:600 9px ui-monospace,monospace;letter-spacing:.13em;color:var(--ink3);text-transform:uppercase}
+.card{border:1px solid var(--line);border-radius:12px;background:var(--raised);padding:11px 12px;margin-top:10px}
+.card:first-child{margin-top:0}
+.nm{font:600 12.5px "General Sans","Manrope",system-ui;color:var(--ink)}
+.rule{font:400 11px/1.45 inherit;color:var(--ink2);margin:4px 0 0}
+.tok{font:500 9px ui-monospace,monospace;color:var(--ink3);margin-top:6px;display:block;line-height:1.4}
+table.mx{width:100%;border-collapse:collapse;font:400 10.5px inherit}
+table.mx th{font:600 8.5px ui-monospace,monospace;letter-spacing:.09em;color:var(--ink3);text-transform:uppercase;
+  text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+table.mx td{padding:5px 4px;border-bottom:1px solid var(--line);color:var(--ink2)}
+table.mx td:first-child{color:var(--ink);font-weight:500;font-family:ui-monospace,monospace;font-size:9.5px}
+table.mx tr:last-child td{border-bottom:0}
+.ok{color:var(--accent);font-weight:700}.bad{color:var(--danger);font-weight:700}
+.sw{display:inline-block;width:15px;height:15px;border-radius:5px;vertical-align:-3px;margin-right:7px;
+  outline:1px solid var(--track)}
+.ramp{display:flex;align-items:flex-end;gap:5px;margin-top:7px}
+.ramp i{display:block;background:var(--accentfill);border-radius:3px 3px 0 0;flex:1}
+.bd code{font:500 9.5px ui-monospace,monospace;background:var(--bartrack);padding:1px 4px;border-radius:3px}
+
+/* ── decisions ───────────────────────────────────────────────────────────── */
+.dec{background:#fff;border:1px solid rgba(20,22,58,.12);border-radius:14px;padding:6px 20px 16px;margin-top:14px}
+.drow{padding:15px 0;border-bottom:1px solid rgba(20,22,58,.09)}
+.drow:last-child{border-bottom:0}
+.dk{font:600 11px ui-monospace,monospace;letter-spacing:.1em;color:#6A6589;text-transform:uppercase}
+.dq{margin:3px 0 9px;color:#3A3A56;max-width:94ch}
+.opts{display:flex;flex-wrap:wrap;gap:9px}
+.opt{border:1px solid rgba(20,22,58,.2);border-radius:11px;padding:9px 13px;cursor:pointer;background:#fff;
+  min-width:200px;flex:1 1 200px}
+.opt input{margin-right:8px}
+.opt b{font:600 13px inherit}
+.opt span{display:block;color:#5A5A78;font-size:12px;margin-top:3px;line-height:1.45}
+.opt.sel{border-color:#6E3FC4;background:#F7F4FE;box-shadow:inset 0 0 0 1px #6E3FC4}
+.bar{position:sticky;bottom:0;background:rgba(232,233,239,.95);border-top:1px solid rgba(20,22,58,.16);
+  margin:36px -28px -92px;padding:14px 28px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.bar button{font:600 13px inherit;padding:10px 17px;border-radius:999px;border:0;background:#14163A;color:#fff;cursor:pointer}
+.bar button.ghost{background:transparent;color:#14163A;border:1.5px solid #14163A}
+#out{font:500 12px ui-monospace,monospace;color:#3A3A56;flex:1;min-width:250px;word-break:break-all}
+.ctab{width:100%;border-collapse:collapse;font:400 12px inherit;margin-top:10px;background:#fff}
+.ctab th,.ctab td{padding:6px 9px;border-bottom:1px solid rgba(20,22,58,.1);text-align:left}
+.ctab th{font:600 10px ui-monospace,monospace;letter-spacing:.1em;color:#6A6589;text-transform:uppercase}
+.pass{color:#1B6E3C;font-weight:600}.fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Screen 17 — Tokens</h1>
+<p class="sub">The last board. A token sheet's only job is to be <em>true</em> — a scale nothing obeys is decoration. So the three treatments differ in how much truth-checking the board does about itself.</p>
+
+<div class="note">
+  <h3>What changed since you last saw this material</h3>
+  <ul>
+    <li>Most of the old token conflicts are <b>already resolved</b> on the existing board. <code>--inkbtn</code>, <code>--glow</code>, <code>--emo</code> and <code>--sky</code> are declared retired; <code>--line</code> (1.34:1) and <code>--line2</code> (1.85:1) were measured, found under the 3:1 floor, and demoted to decorative separators with <code>--track</code> taking every boundary that matters.</li>
+    <li>The <b>breath conflict is gone.</b> The canvas now paints <code>4200ms</code> in fourteen places, matching shipped <code>motion.duration.breath = 4200</code>. The old 4600 (which is <code>focalGlow</code>, a different role) is no longer used as a breath anywhere.</li>
+    <li><b>The board declares <code>flow · 15000</code> as "Reserved — unused in this direction".</b> That is true: nothing on the canvas runs 15000ms. But the thing <code>flow</code> exists for — the ambient living field — <em>is</em> running, on six boards, at an undeclared <code>5670ms</code>. See below; this is the finding I care most about.</li>
+    <li>I counted every duration the canvas paints against the shipped five-value scale. <b>Ten values are off-scale</b> — 80, 160, 320, 380, 400, 480, 560, 760, 2600 and 5670. The scale is currently aspirational rather than descriptive.</li>
+    <li><code>--inkbtn</code> is declared retired on the board and <b>is still painted by <code>Onboarding.dc.html</code></b>. One live counter-example to the board's own claim.</li>
+  </ul>
+</div>
+
+<div class="note">
+  <h3>What I'm unsure about</h3>
+  <ul>
+    <li><b>Whether the ambient field should take <code>flow</code> or get its own token.</b> <code>flow: 15000</code> is shipped and unused; <code>5670ms</code> is used six times and undeclared. Retuning <code>flow</code> to 5670 makes one token real — but 15000 may be shipped for a drift the canvas has not drawn yet, and I could not establish which. Decision <code>field</code>.</li>
+    <li><b>Whether a token board should show what it does not yet have.</b> <code>settle: 1200</code> and a low-power duration are both owed (they have dev items) and neither exists in <code>tokens.ts</code>. Showing them makes the board a plan; hiding them makes it a mirror. I lean toward showing, clearly marked — same argument as the error gap on States.</li>
+    <li><b>The ten off-scale durations may not all be defects.</b> <code>1400ms</code> is nine of them and it is genuinely backed — it is <code>SKELETON_PULSE</code>'s period, just not in the <em>duration</em> scale. The other nine I cannot defend, but I have not traced each to its origin, so I have listed rather than condemned them.</li>
+    <li>Colour is the one category I did <b>not</b> re-audit here. It was proved centralised by mutation earlier in this pass — one source hue changed, 370 paints moved, nothing left behind — and I have not re-run that since. It is a claim resting on an earlier measurement, not a fresh one.</li>
+  </ul>
+</div>
+
+<h2>Treatment A — by category</h2>
+<p class="sub">The catalogue the board is today: colour, type, space, radius, motion, haptics. Complete, well-organised, and it does not check itself.</p>
+<div class="pair" id="tA"></div>
+
+<h2>Treatment B — declared vs painted</h2>
+<p class="sub">Every token beside what the canvas actually paints, and a verdict. Argues that a token sheet which cannot be checked is not a contract.</p>
+<div class="pair" id="tB"></div>
+
+<h2>Treatment C — by decision</h2>
+<p class="sub">Only the tokens where a choice was made, reversed, or is still owed — each with its reason. A ledger, not a catalogue. Small on purpose.</p>
+<div class="pair" id="tC"></div>
+
+<h2>Decisions</h2>
+<p class="sub">Independent rows — any combination assembles. The frame below rebuilds live from whatever is selected.</p>
+<div class="dec" id="dec"></div>
+
+<h2>Assembled</h2>
+<p class="sub">Your current selections, both themes.</p>
+<div class="pair" id="asm">
+  <figure><figcaption>light</figcaption><div class="bd" data-t="light" id="live-light"></div></figure>
+  <figure><figcaption>dark</figcaption><div class="bd" data-t="dark" id="live-dark"></div></figure>
+</div>
+
+<h2>Contrast — computed, both themes</h2>
+<p class="sub">The four quadrant accents and the neutrals, measured against the surface they sit on. These are the values the board itself prints, so they must be right here before they are right there.</p>
+<table class="ctab" id="ctab"></table>
+
+</div>
+
+<div class="bar">
+  <button onclick="exportChoices()">Copy my choices</button>
+  <button class="ghost" onclick="reset()">Reset</button>
+  <span id="out">—</span>
+</div>
+
+<script>
+var DUR=[['instant',0,0,'ok'],['fast',120,0,'unused'],['base',240,1,'ok'],['slow',420,0,'unused'],
+ ['breath',4200,14,'ok'],['flow',15000,0,'reserved'],['focalGlow',4600,0,'unused']];
+var OFF=[[5670,6,'the ambient living field — Field, Genesis, Main, NowPlaying, Pulse, You'],
+ [1400,9,'skeleton pulse — backed by SKELETON_PULSE, but absent from the duration scale'],
+ [2600,1,'—'],[760,1,'—'],[560,2,'—'],[480,2,'—'],[400,2,'—'],[380,1,'—'],[320,1,'—'],[160,1,'—'],[80,1,'—']];
+var RETIRED=[['--inkbtn','#14163A','still painted by Onboarding.dc.html','bad'],
+ ['--glow','#6E3FC4','a shipped Aurora value renamed, not replaced → --accent','ok'],
+ ['--emo','one hardcoded amber','never varied → --accent, genuinely derived','ok'],
+ ['--sky','—','folded into the quadrant hues','ok']];
+var ADDED=[['--track','#6A6589 / #A7A6D0','Control borders and every bar outline. The 14% and 28% hairlines measure 1.34:1 and 1.85:1 and cannot carry a boundary.'],
+ ['--accent','emotionAccent.ink','One live accent per screen, from the fused state\'s quadrant.'],
+ ['--accentfill','accent @ 18/22%','The decorative form — field lobes, placement halos, target bands.'],
+ ['type.size.data','36','One step above display, for the single number a screen exists to show. Without it the ramp has no top.']];
+var OWED=[['motion.duration.settle','1200','The placement-to-result settle. Has a dev item; not in tokens.ts. durationReduced must get settle: 0 in the same commit.'],
+ ['motion.durationLowPower','—','Only duration and durationReduced ship, so the DoD\'s low-power path is currently unimplementable.'],
+ ['the ambient field period','5670?','Six boards run it. It has no name.']];
+var QUAD=[['calm','--q-calm','#1F6FA6','#7FCDF5'],['joyful','--q-joyful','#8A5A12','#FFD37A'],
+ ['intense','--q-intense','#6E3FC4','#C4A6FF'],['reflective','--q-reflective','#3A5CCC','#9DB4FF']];
+
+function swatches(opt){
+  var h='<div class="card"><span class="lab">THE ACCENT — FOUR QUADRANTS, LOCKED</span>'
+   +'<p class="rule">Only the fused state\'s quadrant is live on a screen. Never an alarming red — distress cools and slows the light, it does not alarm it.</p>'
+   +'<table class="mx" style="margin-top:8px">';
+  for(var i=0;i<QUAD.length;i++){var q=QUAD[i];
+    h+='<tr><td><span class="sw" style="background:var('+q[1]+')"></span>'+q[0]+'</td>'
+     +'<td>'+q[1]+'</td>'+(opt.swatch==='ratio'?'<td class="ok" id="r-'+q[0]+'">—</td>':'')+'</tr>';}
+  return h+'</table></div>';
+}
+function typeramp(){
+  var steps=[11,12,13,15,17,21,28,36],h='<div class="card"><span class="lab">TYPE — EIGHT STEPS, NOTHING BELOW 11</span><div class="ramp">';
+  for(var i=0;i<steps.length;i++)h+='<i style="height:'+(steps[i]*1.5)+'px" title="'+steps[i]+'"></i>';
+  h+='</div><div class="tok">'+steps.join(' · ')+' — no half-pixels</div></div>';
+  return h;
+}
+function scaleCard(){
+  return '<div class="card"><span class="lab">SPACE · RADIUS</span>'
+   +'<div class="tok" style="color:var(--ink2)">space — 4pt base: 4 · 8 · 12 · 16 · 24 · 32 · 48</div>'
+   +'<div class="tok" style="color:var(--ink2)">radius — six, and only six: 6 · 10 · 14 · 20 · 28 · 999</div></div>';
+}
+function motionCard(opt){
+  var h='<div class="card"><span class="lab">MOTION</span><table class="mx" style="margin-top:7px">'
+   +'<tr><th>Token</th><th>ms</th><th>Painted</th></tr>';
+  for(var i=0;i<DUR.length;i++){var d=DUR[i];
+    /* A zero-duration token painting zero times is correct, not broken. Only the
+       token whose ROLE is being served by an undeclared value is a defect. */
+    var v;
+    if(d[3]==='ok') v='<span class="ok">'+d[2]+'&times;</span>';
+    else if(d[0]==='instant') v='<span style="color:var(--ink3)">n/a</span>';
+    else if(d[3]==='reserved') v='<span class="bad">0 &mdash; but its role is running at 5670</span>';
+    else v='<span style="color:var(--ink3)">unused</span>';
+    h+='<tr><td>'+d[0]+'</td><td>'+d[1]+'</td><td>'+v+'</td></tr>';}
+  h+='</table><div class="tok">calm cubic-bezier(.22, 1, .36, 1) — settles, never snaps</div></div>';
+  return h;
+}
+function driftCard(opt){
+  if(opt.drift==='omit')return '';
+  if(opt.drift==='count')return '<div class="card"><span class="lab">DRIFT</span>'
+   +'<p class="rule"><b>Ten durations the canvas paints are not in the scale.</b> The largest is the ambient field, running on six boards.</p></div>';
+  var h='<div class="card"><span class="lab">OFF-SCALE — WHAT THE CANVAS ACTUALLY PAINTS</span>'
+   +'<p class="rule">Ten values outside the declared scale. A scale nothing obeys is decoration.</p>'
+   +'<table class="mx" style="margin-top:7px"><tr><th>ms</th><th>Uses</th><th>What it is</th></tr>';
+  for(var i=0;i<OFF.length;i++)h+='<tr><td>'+OFF[i][0]+'</td><td>'+OFF[i][1]+'&times;</td><td>'+OFF[i][2]+'</td></tr>';
+  return h+'</table></div>';
+}
+function fieldCard(opt){
+  if(opt.field==='note')return '<div class="card" style="border-color:var(--danger)"><span class="lab" style="color:var(--danger)">UNRESOLVED</span>'
+   +'<p class="rule"><code>flow: 15000</code> is declared and unused. The ambient field runs <code>5670ms</code> on six boards and has no token. One of these is wrong; this board does not decide which.</p></div>';
+  if(opt.field==='flow')return '<div class="card"><span class="lab">FLOW, RETUNED</span>'
+   +'<p class="rule"><code>flow</code> is retuned from 15000 to <b>5670</b> and becomes the ambient field\'s token. One token made real, none added. Risk: if 15000 was shipped for a slower drift the canvas has not drawn, this overwrites it.</p></div>';
+  return '<div class="card"><span class="lab">A TOKEN OF ITS OWN</span>'
+   +'<p class="rule"><code>motion.duration.fieldBreath = 5670</code>. The ambient field is the signature gesture and the most-painted undeclared value on the canvas; it earns a name. <code>flow: 15000</code> stays reserved and stays honest about being unused.</p></div>';
+}
+function owedCard(opt){
+  if(opt.owed==='omit')return '';
+  var h='<div class="card"><span class="lab">OWED — DOES NOT EXIST YET</span>'
+   +'<p class="rule">Marked so the board is a plan where it is not yet a mirror.</p>'
+   +'<table class="mx" style="margin-top:7px"><tr><th>Token</th><th>Value</th><th>Why</th></tr>';
+  for(var i=0;i<OWED.length;i++)h+='<tr><td>'+OWED[i][0]+'</td><td>'+OWED[i][1]+'</td><td>'+OWED[i][2]+'</td></tr>';
+  return h+'</table></div>';
+}
+function retiredCard(opt){
+  if(opt.retired==='omit')return '';
+  var h='<div class="card"><span class="lab">RETIRED — AND WHETHER IT STUCK</span><table class="mx" style="margin-top:7px">'
+   +'<tr><th>Token</th><th>Was</th><th>Status</th></tr>';
+  for(var i=0;i<RETIRED.length;i++){var r=RETIRED[i];
+    h+='<tr><td>'+r[0]+'</td><td>'+r[1]+'</td><td class="'+(r[3]==='bad'?'bad':'ok')+'">'+r[2]+'</td></tr>';}
+  return h+'</table></div>';
+}
+function addedCard(){
+  var h='<div class="card"><span class="lab">ADDED BY THIS DIRECTION</span><table class="mx" style="margin-top:7px">'
+   +'<tr><th>Token</th><th>Value</th><th>Why</th></tr>';
+  for(var i=0;i<ADDED.length;i++)h+='<tr><td>'+ADDED[i][0]+'</td><td>'+ADDED[i][1]+'</td><td>'+ADDED[i][2]+'</td></tr>';
+  return h+'</table></div>';
+}
+function changedCard(){
+  return '<div class="card"><span class="lab">THE THREE THAT HAD TO CHANGE</span>'
+   +'<p class="rule"><code>--line</code> at 14% composites to #DADAE3 — <b>1.34:1</b>. It carried every bar track, so a 69% fill read as a floating dash. Now decorative separators only.</p>'
+   +'<p class="rule"><code>--line2</code> at 28% composites to #B9BAC8 — <b>1.85:1</b>, under the 3:1 floor of SC 1.4.11. It bordered every chip, pill, pager dot and the brand ring. Replaced by <code>--track</code> wherever a boundary matters.</p>'
+   +'<p class="rule"><code>--inkbtn</code>, <code>--glow</code>, <code>--emo</code>, <code>--sky</code> retired into <code>--accent</code>, genuinely derived rather than hardcoded.</p></div>';
+}
+
+function board(t,opt){
+  var head='<h3 class="dh">Tokens</h3><p class="dsub">One source, one edit. A scale nothing obeys is decoration, so every number here is checked against what the canvas actually paints.</p>';
+  if(t==='A')return head+swatches(opt)+typeramp()+scaleCard()+motionCard(opt)+driftCard(opt)+fieldCard(opt)+owedCard(opt)+retiredCard(opt);
+  if(t==='B')return head+motionCard(opt)+driftCard(opt)+retiredCard(opt)+fieldCard(opt)+owedCard(opt)+swatches(opt);
+  return head+changedCard()+addedCard()+fieldCard(opt)+owedCard(opt)+retiredCard(opt)+driftCard(opt);
+}
+
+var DEC=[
+ {k:'organise',q:'What is the board organised around? The one row that changes what it argues.',
+  o:[['category','By category','Colour, type, space, radius, motion. A catalogue.'],['truth','Declared vs painted','Every token beside reality. An audit.'],['decision','By decision','Only what changed or is owed. A ledger.']]},
+ {k:'field',q:'The ambient field runs 5670ms on six boards and has no token, while flow:15000 is declared and unused. Which is wrong?',
+  o:[['declare','Give it its own token','fieldBreath = 5670. flow stays reserved and honest.'],['flow','Retune flow to 5670','One token made real, none added.'],['note','Flag it, do not decide','Record the contradiction, leave the call.']]},
+ {k:'drift',q:'Ten durations are painted outside the scale. How much does the board say about them?',
+  o:[['list','List all ten','With use counts and what each one is.'],['count','Just the count','One sentence; keep the board short.'],['omit','Say nothing','Treat the scale as the spec regardless.']]},
+ {k:'owed',q:'Should the board show tokens that do not exist yet — settle, low-power?',
+  o:[['show','Show them, marked owed','Makes the board a plan where it is not a mirror.'],['omit','Only what exists','A token sheet reflects, it does not promise.']]},
+ {k:'retired',q:'Show retired tokens and whether the retirement actually stuck?',
+  o:[['show','Show them','Includes --inkbtn still painted by Onboarding.'],['omit','Leave them out','Retired is retired; do not carry ghosts.']]},
+ {k:'swatch',q:'How is a colour shown?',
+  o:[['ratio','Chip, token, measured ratio','The number is the point.'],['chip','Chip and token','Cleaner; ratios live on the contrast board.']]}
+];
+var DEF={organise:'category',field:'declare',drift:'list',owed:'show',retired:'show',swatch:'ratio'};
+var S={};for(var d0 in DEF)S[d0]=DEF[d0];
+
+function frame(t,theme){return '<figure><figcaption>'+theme+'</figcaption><div class="bd" data-t="'+theme+'">'+board(t,S)+'</div></figure>';}
+function paint(){
+  document.getElementById('tA').innerHTML=frame('A','light')+frame('A','dark');
+  document.getElementById('tB').innerHTML=frame('B','light')+frame('B','dark');
+  document.getElementById('tC').innerHTML=frame('C','light')+frame('C','dark');
+  var at={category:'A',truth:'B',decision:'C'}[S.organise];
+  document.getElementById('live-light').innerHTML=board(at,S);
+  document.getElementById('live-dark').innerHTML=board(at,S);
+  var o=[];for(var i=0;i<DEC.length;i++)o.push(DEC[i].k+'='+S[DEC[i].k]);
+  document.getElementById('out').textContent=o.join(' · ');
+  fillRatios();
+}
+function decs(){
+  var h='';
+  for(var i=0;i<DEC.length;i++){var d=DEC[i];
+    h+='<div class="drow"><div class="dk">'+d.k+'</div><div class="dq">'+d.q+'</div><div class="opts">';
+    for(var j=0;j<d.o.length;j++){var v=d.o[j];
+      h+='<label class="opt'+(S[d.k]===v[0]?' sel':'')+'"><input type="radio" name="'+d.k+'" value="'+v[0]+'"'
+       +(S[d.k]===v[0]?' checked':'')+'><b>'+v[1]+'</b><span>'+v[2]+'</span></label>';}
+    h+='</div></div>';}
+  document.getElementById('dec').innerHTML=h;
+}
+function marks(){var ls=document.querySelectorAll('#dec .opt');
+  for(var i=0;i<ls.length;i++)ls[i].className=ls[i].querySelector('input').checked?'opt sel':'opt';}
+document.addEventListener('change',function(e){
+  if(!e.target.name||!(e.target.name in S))return;
+  S[e.target.name]=e.target.value;marks();paint();});
+function reset(){for(var k in DEF){S[k]=DEF[k];
+  var r=document.querySelector('#dec input[name="'+k+'"][value="'+DEF[k]+'"]');if(r)r.checked=true;}
+  marks();paint();}
+function exportChoices(){
+  var o=[];for(var i=0;i<DEC.length;i++)o.push(DEC[i].k+'='+S[DEC[i].k]);
+  var s='SCREEN 17 — TOKENS — my choices: '+o.join(', ');
+  if(navigator.clipboard)navigator.clipboard.writeText(s);
+  document.getElementById('out').textContent='Copied → '+s;
+}
+
+function hx(h){h=h.replace('#','');return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];}
+function lum(r){var s=[];for(var i=0;i<3;i++){var v=r[i]/255;s.push(v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4));}
+  return 0.2126*s[0]+0.7152*s[1]+0.0722*s[2];}
+function ratio(a,b){var L=lum(a),M=lum(b);return (Math.max(L,M)+0.05)/(Math.min(L,M)+0.05);}
+var LC=hx('#FAFAFF'),DC=hx('#0B0D26'),LR=hx('#FFFFFF'),DR=hx('#15173A');
+function fillRatios(){
+  if(S.swatch!=='ratio')return;
+  for(var i=0;i<QUAD.length;i++){var q=QUAD[i];
+    var els=document.querySelectorAll('#r-'+q[0]);
+    for(var j=0;j<els.length;j++){
+      var dark=els[j].closest('.bd').getAttribute('data-t')==='dark';
+      var v=ratio(hx(dark?q[3]:q[2]),dark?DR:LR);
+      els[j].textContent=v.toFixed(2);
+      els[j].className=v>=4.5?'ok':'bad';
+    }
+  }
+}
+var PAIRS=[
+ ['calm accent on raised','--q-calm',4.5,hx('#1F6FA6'),hx('#7FCDF5')],
+ ['joyful accent on raised','--q-joyful',4.5,hx('#8A5A12'),hx('#FFD37A')],
+ ['intense accent on raised','--q-intense',4.5,hx('#6E3FC4'),hx('#C4A6FF')],
+ ['reflective accent on raised','--q-reflective',4.5,hx('#3A5CCC'),hx('#9DB4FF')],
+ ['body text on canvas','--ink2',4.5,null,null],
+ ['label on raised','--ink3',4.5,hx('#6A6589'),hx('#A7A6D0')]
+];
+function ctab(){
+  var h='<tr><th>Pair</th><th>Token</th><th>Floor</th><th>Light</th><th>Dark</th></tr>';
+  for(var i=0;i<PAIRS.length;i++){var p=PAIRS[i];var L,D;
+    if(p[3]===null){
+      L=ratio([Math.round(20*0.74+250*0.26),Math.round(22*0.74+250*0.26),Math.round(58*0.74+255*0.26)],LC);
+      D=ratio([Math.round(238*0.76+11*0.24),Math.round(241*0.76+13*0.24),Math.round(252*0.76+38*0.24)],DC);
+    } else {L=ratio(p[3],LR);D=ratio(p[4],DR);}
+    var cl=function(x){return '<span class="'+(x>=p[2]?'pass':'fail')+'">'+x.toFixed(2)+'</span>';};
+    h+='<tr><td>'+p[0]+'</td><td>'+p[1]+'</td><td>'+p[2]+':1</td><td>'+cl(L)+'</td><td>'+cl(D)+'</td></tr>';}
+  document.getElementById('ctab').innerHTML=h;
+}
+decs();paint();ctab();
+</script>
+</body>
+</html>

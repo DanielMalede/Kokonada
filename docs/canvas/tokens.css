@@ -83,6 +83,9 @@
   --destructive:var(--destructive-l);
   --onink:var(--paper-l);
   --inkbtn:var(--ink-l);
+  /* the ambient living field's period. Six boards ran this as a bare 5670ms with no
+     name; declared here so the signature gesture has one source like every colour. */
+  --d-field:5670ms;
   --artph: color-mix(in srgb, var(--hue-violet) var(--a-violetfill), transparent);
   --bloom: color-mix(in srgb, var(--ink) var(--a-bloom-l), transparent);
   --brand:var(--brand-l);  --brandink:var(--brandink-l);  --onbrand:var(--onbrand-l);
