@@ -19,11 +19,30 @@ and tab bar vanished, and the height still reported a clean 844. Measurements al
 that, because a broken tree still reports a plausible height. `board.py` runs the structural checks
 **and writes a screenshot**, because the screenshot is what actually caught it.
 
+**And run `board.py <Board> --sweep` before calling a screen done.** The boards declare their states
+in `data-props` — Consent alone carries `state` x `platform` x `open`. For a long time the probe
+rendered `theme x 2` and nothing else, so those states had never once been looked at; a review found
+three defects that existed only for that reason. The sweep walks one axis at a time (baseline, then
+each non-default option of each prop with every other prop left at its default, crossed with both
+themes) — 24 frames for Consent rather than the 80 a full product would cost.
+
+Two things the sweep reports that the baseline check cannot:
+
+- **Unsupplied holes.** `support.js` substitutes an *empty string* for a `{{hole}}` that
+  `renderVals()` never supplies, so a missing value ships as a blank row and never appears in the
+  DOM as `{{...}}`. The probe reads the key set off the board's own `renderVals()` and diffs it
+  against the holes in the source, which is the only way to see that class.
+- **Dead axes.** A prop whose every option renders identically — same geometry, same paint, same
+  visible text — is either unwired or occluded. Suspects get a bounded second pass that pairs them
+  with the most revealing option of each other axis before any verdict is printed, because Consent's
+  `platform` only rewrites copy inside a section that is `display:none` until `open` is set.
+
 ## The tools
 
 | | |
 |---|---|
-| `board.py <Board> [field]` | **The standing check.** Tag balance, CSS brace balance, a render probe (top-level count, overflow ignoring scroll containers, sub-44px targets), and a screenshot in both themes. `Board` is the bare name — `board.py Consent`. |
+| `board.py <Board> [field]` | **The standing check.** Tag balance, CSS brace balance, a render probe (top-level count, overflow ignoring scroll containers, sub-44px targets, unresolved template holes), and a screenshot in both themes. `Board` is the bare name — `board.py Consent`. |
+| `board.py <Board> --sweep` | The same checks over **every declared enum prop variant**, not just the two themes. Add `--all` for the whole canvas, `--strict` for a non-zero exit on failure. |
 | `reviewcheck.py <file> [--bases a,b]` | Verifies a `docs/review/NN-*.html` against the method: frame count and size, light/dark split, overflow, **dead options** (drives every radio and proves the assembled frame actually changes), and network references. `--bases` sets which rows to take the cartesian product over. |
 | `paint.py <Board> [field] [theme]` | Enumerates what a board *actually* paints, from computed styles. The engine the others import. |
 | `palette.py snap\|diff` | Snapshot every colour every board paints. Used to **prove** colour centralisation: snapshot → change one source hue → snapshot → diff. If anything did not move, that is the list of things bypassing `tokens.css`. |

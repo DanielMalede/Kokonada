@@ -8,6 +8,26 @@
    Changing the palette is an edit to Layer 1 and nothing else.
    ============================================================================ */
 
+/* ---------------------------------------------------------------------------
+   The app's real display face. tokens.ts ships `display: 'GeneralSans-Semibold'`
+   and the app bundles this exact .otf, so the canvas must load the same bytes or
+   every type judgement made here is measured on a substitute.
+
+   General Sans is a Fontshare face — it is NOT on Google Fonts, so the boards'
+   <helmet> link can never supply it. The file sits beside this sheet (copied from
+   mobile/KokonadaHealth/assets/fonts/) so a board opens correctly by double-click.
+
+   ONE cut exists: Semibold. There is no 400 and no 700 General Sans. Anything
+   asking --disp at another weight gets a synthesised face, not a designed one.
+   --------------------------------------------------------------------------- */
+@font-face{
+  font-family:"General Sans";
+  font-weight:600;
+  font-style:normal;
+  font-display:swap;
+  src:url('./GeneralSans-Semibold.otf') format('opentype');
+}
+
 :root{
   /* ---- SOURCE · the four Aurora hues (glow / fill form) -------------------- */
   --hue-calm:        #3FB4F0;
