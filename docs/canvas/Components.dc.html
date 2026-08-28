@@ -373,7 +373,7 @@
 <script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["calm","joyful","intense","reflective"],"default":"calm"},"$preview":{"width":1400,"height":3028}}'>
 class Component extends DCLogic {
   renderVals() {
-    return { theme: this.props.theme ?? 'light' field: this.props.field ?? 'calm' };
+    return { theme: this.props.theme ?? 'light', field: this.props.field ?? 'calm' };
   }
 }
 </script>
