@@ -145,6 +145,27 @@ sig.push(vis);
 var s=sig.join(';'),hsh=0;
 for(var i=0;i<s.length;i++){hsh=((hsh<<5)-hsh+s.charCodeAt(i))|0;}
 out.txt=vis.length;out.sig=(hsh>>>0).toString(16);
+out.sigs=[];
+[0,2100].forEach(function(T){
+ // CSS cannot re-seek a RUNNING animation: animation-delay only applies at start,
+ // and animation-play-state:paused stops it wherever it already is. Both leave the
+ // phase dependent on capture timing, which is the non-determinism being fixed.
+ // The Web Animations API can seek: pause every animation and set currentTime.
+ document.getAnimations().forEach(function(an){try{an.pause();an.currentTime=T;}catch(e){}});
+ document.body.getBoundingClientRect();
+ var g=[];
+ q.querySelectorAll('*').forEach(function(el){
+  var cs=getComputedStyle(el);
+  if(cs.display==='none'||cs.visibility==='hidden'){g.push('-');return;}
+  var r=el.getBoundingClientRect();
+  g.push(el.tagName+Math.round(r.x)+','+Math.round(r.y)+','+Math.round(r.width)+','+
+   Math.round(r.height)+'|'+cs.backgroundColor+'|'+cs.color+'|'+cs.fill+'|'+cs.transform+'|'+
+   cs.backgroundImage.slice(0,80)+'|'+cs.opacity);});
+ g.push(vis);
+ var gs=g.join(';'),gh=0;
+ for(var k=0;k<gs.length;k++){gh=((gh<<5)-gh+gs.charCodeAt(k))|0;}
+ out.sigs.push((gh>>>0).toString(16));});
+out.sig=out.sigs.join('/');
 document.title='B'+JSON.stringify(out);},800)});</script>"""
 
 
@@ -184,6 +205,28 @@ def source_holes(src):
     body = re.sub(r'\shint-[a-z-]+="[^"]*"', '', body)
     return {h for h in set(re.findall(r'\{\{\s*([A-Za-z0-9_.]+)\s*\}\}', body))
             if not any(h.startswith(a + '.') for a in aliases)}
+
+
+def row_holes(src):
+    """The {{alias.key}} holes an <sc-for> asks of every row, keyed by list name.
+
+    These were exempt from the hole check. Connect is the only <sc-for> board and the
+    one where blank provider rows shipped: rename a key on the row objects and every
+    row renders empty, no {{...}} reaches the DOM, both variants still differ from each
+    other so no dead axis fires, and the sweep reports clean. This is the missing half.
+    """
+    m = re.search(r'</helmet>(.*?)</x-dc>', src, re.S)
+    body = m.group(1) if m else src
+    out = {}
+    for lst, alias, inner in re.findall(
+            r'<sc-for[^>]*\blist="\{\{\s*([A-Za-z0-9_.]+)\s*\}\}"[^>]*\bas="([A-Za-z0-9_]+)"[^>]*>(.*?)</sc-for>',
+            body, re.S):
+        keys = {h.split('.', 1)[1] for h in
+                re.findall(r'\{\{\s*([A-Za-z0-9_.]+)\s*\}\}', inner)
+                if h.startswith(alias + '.')}
+        if keys:
+            out.setdefault(lst, set()).update(keys)
+    return out
 
 
 def sweep_axes(decl, themes=('light', 'dark'), overrides=None):
@@ -296,7 +339,9 @@ def _report_frame(th, label, d, shot_ok, holes=frozenset()):
           f"{d.get('txt', 0)}ch/{d.get('sig', '-')}" +
           (('  ⚠ ' + '; '.join(flags)) if flags else '  clean') +
           ('' if shot_ok else '   [SHOT FAILED]'))
-    return not flags
+    # A screenshot that never wrote must not report PASS: the README's whole
+    # thesis is that the screenshot is what catches a silent restructure.
+    return not flags and shot_ok
 
 
 def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark')):
@@ -354,6 +399,9 @@ def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark'))
         return d
 
     results = [(th, label, props, render(th, label, props)) for th, label, props in frames]
+    # Axes the escalation proves are wired despite colliding with the baseline at the
+    # other props' defaults. Their collision is expected and must not read as a defect.
+    proven_wired = set()
     n = len(results)
 
     if sweep and decl:
@@ -398,6 +446,10 @@ def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark'))
                     if d and ref and d.get('sig') != ref.get('sig'):
                         woke.append(lab)
             if woke:
+                # Only NOW is the axis proven wired. Its collision with the baseline at the
+                # other props' defaults is therefore expected, and must not also be
+                # reported as a duplicate — the tool would contradict its own output.
+                proven_wired.add(ax)
                 print(f'  ==> {ax} is wired; it differentiates under ' +
                       ', '.join(sorted({w.split("+", 1)[1] for w in woke})))
             else:
@@ -405,6 +457,42 @@ def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark'))
                 ok = False
 
     if sweep:
+        # THE ASSERTION THE TOOL WAS MISSING. It computed a sig per frame, printed it,
+        # and never compared two. An option rendering identically to another -- or to
+        # the baseline -- passed clean, which is worse than no sweep: it manufactures
+        # coverage and everyone stops looking.
+        #
+        # Escalation frames (label contains '+') are excluded: they are deliberate
+        # negative controls and are EXPECTED to collide with the axis frame they probe.
+        for th in themes:
+            seen = {}
+            for (t2, lbl2, _pr, d2) in results:
+                if t2 != th or not d2 or '+' in lbl2:
+                    continue
+                if lbl2.split('=', 1)[0] in proven_wired:
+                    continue
+                sig = d2.get('sig')
+                if sig is None:
+                    continue
+                if sig in seen:
+                    a2 = seen[sig] or '(baseline)'
+                    b2 = lbl2 or '(baseline)'
+                    print(f'  \u26a0 DUPLICATE   : {th} {a2} == {b2} '
+                          f'\u2014 same render under two names')
+                    ok = False
+                else:
+                    seen[sig] = lbl2
+        # A label identical across light and dark means the theme collapsed for that
+        # state. `theme` is never swept as an axis, so nothing else can see this.
+        by_lbl = {}
+        for (t2, lbl2, _pr, d2) in results:
+            if d2 and d2.get('sig') is not None:
+                by_lbl.setdefault(lbl2, {})[t2] = d2['sig']
+        for lbl2, m2 in by_lbl.items():
+            if len(m2) > 1 and len(set(m2.values())) == 1:
+                print(f'  \u26a0 THEME DEAD  : {lbl2 or "(baseline)"} '
+                      f'renders identically in light and dark')
+                ok = False
         print(f'  frames        : {n}')
     print('  ==>', 'PASS' if ok else 'NEEDS ATTENTION')
     return ok
