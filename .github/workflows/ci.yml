@@ -166,29 +166,27 @@ jobs:
         run: chmod +x gradlew && ./gradlew :app:processDebugResources :app:compileDebugKotlin :app:compileDebugJavaWithJavac --console=plain
         working-directory: mobile/KokonadaHealth/android
 
-  mobile-ios-build:
-    name: Mobile — iOS build
-    runs-on: macos-latest
-    # jest and the Android compile job cannot see the iOS native surface at all, and neither can
-    # a Metro bundle check — a JS bundle builds fine with a native module half-removed. This job
-    # is the only thing in CI that actually compiles the iOS app, so it is what closes an
-    # autolinked-native-module change (react-native-vector-icons and lottie-react-native were
-    # both autolinked with codegen before they were dropped).
-    # Simulator SDK + CODE_SIGNING_ALLOWED=NO: no certificates or provisioning profiles needed,
-    # while still compiling every pod and every native module for real.
-    # macOS runners bill at 10x, so the costly steps are gated on the iOS surface actually
-    # changing — same shape as mobile-android-compile. The job always starts so it can be a
-    # required check.
+  # Cheap Ubuntu job whose only purpose is to decide whether the 10x macOS runner is worth
+  # allocating. It exists because gating the STEPS was not enough — see mobile-ios-build.
+  ios-changes:
+    name: Detect iOS-affecting changes
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       # dorny/paths-filter resolves the changed-file set through listFiles(pull_number).
       pull-requests: read
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
     steps:
       - uses: actions/checkout@v4
-      - name: Detect iOS-affecting changes
-        id: changes
+      - id: filter
         uses: dorny/paths-filter@v3
         with:
+          # Breadth is deliberate and stays. package.json / package-lock.json are in the list
+          # because an autolinked native module is exactly what this job exists to catch, and a
+          # dependency change is how one arrives — react-native-vector-icons and
+          # lottie-react-native were both autolinked with codegen before they were dropped.
+          # Narrowing this to ios/** would trade the job's whole purpose for a few cents.
           filters: |
             ios:
               - 'mobile/KokonadaHealth/ios/**'
@@ -197,19 +195,46 @@ jobs:
               - 'mobile/KokonadaHealth/Gemfile'
               - 'mobile/KokonadaHealth/react-native.config.js'
               - '.github/workflows/ci.yml'
+
+  mobile-ios-build:
+    name: Mobile — iOS build
+    runs-on: macos-latest
+    # jest and the Android compile job cannot see the iOS native surface at all, and neither can
+    # a Metro bundle check — a JS bundle builds fine with a native module half-removed. This job
+    # is the only thing in CI that actually compiles the iOS app, so it is what closes an
+    # autolinked-native-module change.
+    # Simulator SDK + CODE_SIGNING_ALLOWED=NO: no certificates or provisioning profiles needed,
+    # while still compiling every pod and every native module for real.
+    #
+    # THE JOB IS GATED, NOT ITS STEPS — and that distinction is the whole point.
+    # This job used to start unconditionally and skip its steps via an in-job paths-filter, with
+    # the comment "the job always starts so it can be a required check". That was wrong twice:
+    #   · COST — a job that starts ALLOCATES A macOS RUNNER AND IS BILLED FOR IT at 10x, even
+    #     when every step skips. The repo therefore paid 10x on essentially every PR to run
+    #     nothing, which is what exhausted the Actions allowance (usage climbed from zero on
+    #     2026-08-17 to ~$14.20 by 2026-08-27 against a $0 budget with stop-usage at 100%,
+    #     after which every run was refused at dispatch with steps=0).
+    #   · HONESTY (OPS-010) — a job whose steps all skip still reports SUCCESS. A green check
+    #     that compiled nothing is indistinguishable in the UI from one that compiled everything,
+    #     which is one of the ways a green check in this repo has meant nothing.
+    # `needs` + `if` fixes both at once: a job skipped by `if:` is never allocated a runner (zero
+    # macOS cost) and reports **skipped**, not success — visibly absent instead of silently green.
+    needs: ios-changes
+    if: needs.ios-changes.outputs.ios == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        if: steps.changes.outputs.ios == 'true'
         with:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: mobile/KokonadaHealth/package-lock.json
       # `pod install` reads react_native_pods.rb out of node_modules, so JS deps come first.
       - name: Install JS dependencies
-        if: steps.changes.outputs.ios == 'true'
         run: npm ci
         working-directory: mobile/KokonadaHealth
       - uses: ruby/setup-ruby@v1
-        if: steps.changes.outputs.ios == 'true'
         with:
           # An explicit version is REQUIRED: the action reads `.ruby-version` or `.tool-versions`,
           # neither of which this repo has, and the Gemfile's `ruby ">= 2.6.10"` is a range rather
@@ -222,11 +247,9 @@ jobs:
           bundler-cache: true
           working-directory: mobile/KokonadaHealth
       - name: CocoaPods install
-        if: steps.changes.outputs.ios == 'true'
         run: bundle exec pod install
         working-directory: mobile/KokonadaHealth/ios
       - name: Xcode build (simulator, unsigned)
-        if: steps.changes.outputs.ios == 'true'
         run: |
           xcodebuild \
             -workspace KokonadaHealth.xcworkspace \
