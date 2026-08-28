@@ -5,6 +5,12 @@ import { VaultConsentPanel } from '../VaultConsentPanel';
 import { colors, type ThemeName } from '../../../design/tokens';
 import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
 
+// Cold-require headroom for CI (same rationale as NowPlayingScreen/ConnectServicesScreen): on a
+// cold babel cache the FIRST test in this file spends seconds compiling the module graph and
+// blows the 5s default, and jest's abort then cascades into later tests in the file. The budget
+// being sized here is COMPILE time, not assertion time.
+jest.setTimeout(20000);
+
 // T4 — the §10 Health-data Vault panel. It is the trust summary + "what we read" disclosure + the
 // consent WITHDRAWAL right (echoing §11, NOT delete-danger). The full legal document stays ONLY in
 // the reused-unchanged ConsentSheet; this panel mirrors the on-device read set and never
