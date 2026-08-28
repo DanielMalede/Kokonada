@@ -138,23 +138,26 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     const ci = WORKFLOWS.find((w) => w.file === 'ci.yml');
     expect(ci.triggers.sort()).toEqual(['pull_request', 'push']);
     expect(ci.jobs.map((j) => j.id).sort()).toEqual([
-      'backend', 'deploy-frontend', 'frontend', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'backend', 'deploy-frontend', 'frontend', 'ios-changes', 'mobile',
+      'mobile-android-compile', 'mobile-ios-build', 'secret-scan',
     ]);
     // Every job checks out, so every job needs `contents` named in any override it declares.
     expect(ci.jobs.filter((j) => j.checksOut).map((j) => j.id).sort()).toEqual([
-      'backend', 'deploy-frontend', 'frontend', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'backend', 'deploy-frontend', 'frontend', 'ios-changes', 'mobile',
+      'mobile-android-compile', 'mobile-ios-build', 'secret-scan',
     ]);
 
     // Every job that touches the PR API is caught by the PR-API rule. secret-scan and
-    // mobile-android-compile are the two that went red in the 403 incident; mobile-ios-build
-    // joined them when it took the same dorny/paths-filter gating, and needs the same scope.
+    // mobile-android-compile are the two that went red in the 403 incident.
+    // `mobile-ios-build` USED to be in this list, when it ran dorny/paths-filter itself. That
+    // filter now lives in the cheap `ios-changes` job so the 10x macOS runner is gated by
+    // `needs`+`if` and never allocated on a non-iOS PR — so the PR-API scope moved with it.
+    // The macOS job no longer touches the PR API at all, which is why it drops out here.
     const prApiJobs = ci.jobs
       .filter((j) => j.uses.some((u) => PR_API_ACTIONS.some((a) => a.match.test(u))))
       .map((j) => j.id)
       .sort();
-    expect(prApiJobs).toEqual(['mobile-android-compile', 'mobile-ios-build', 'secret-scan']);
+    expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile', 'secret-scan']);
   });
 
   it.each(WORKFLOWS.map((w) => [w.file]))(
