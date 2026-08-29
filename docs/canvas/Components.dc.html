@@ -93,17 +93,17 @@
     <p class="dsc" style="margin:0 0 16px;max-width:900px">The one control that is <i>not</i> the ink fill, named here so it is a component rather than a remembered exception. It is a <b>live, morphing gradient</b>: sky &rarr; your current emotion &rarr; gold, rebuilt from the mean of your placements on every render. The middle stop is the only place in the app where a CTA follows the emotion &mdash; that is the point of it.</p>
     <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:26px;align-items:start">
       <div>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:58px;border-radius:999px;background:linear-gradient(90deg,var(--hue-calm) 0%,var(--accent-hue) 52%,var(--hue-joyful) 100%);color:var(--onaurora);padding:0 20px">
+        <div style="display:flex;align-items:center;justify-content:center;min-height:58px;border-radius:999px;background:linear-gradient(90deg,var(--hue-calm) 0%,var(--accent-hue) 55%,var(--hue-joyful) 100%);color:var(--onaurora);padding:0 20px">
           <span style="font:600 24px var(--disp)">Generate</span>
-          <span style="font:500 11px var(--mono);letter-spacing:.09em;opacity:.75">TEMPO &le; 96 &middot; WARM</span>
         </div>
+        <div style="margin-top:9px;text-align:center;font:500 11px var(--mono);letter-spacing:.09em;color:var(--ink3)">TEMPO &le; 96 &middot; WARM</div>
         <div class="st">REST &mdash; the middle stop is your emotion, not a fixed hue</div>
       </div>
       <div style="font:400 12px/1.6 var(--text);color:var(--ink2)">
         <div class="lab" style="margin-bottom:7px">RULES THAT TRAVEL WITH IT</div>
         <p style="margin:0 0 7px">Stops are <span class="mono">auroraCtaStops(x,y)</span> &mdash; <span class="mono">#3FB4F0</span> &rarr; <span class="mono">mix(glow, #6E3FC4, intenseWeight)</span> &rarr; <span class="mono">#F5B93A</span>. Never hand-picked.</p>
-        <p style="margin:0 0 7px">The label ink is <b>computed, not chosen</b> &mdash; <span class="mono">onAuroraInk</span> picks the ink whose <i>worst</i> contrast across the whole gradient is best. A fixed ink fails somewhere along the sweep.</p>
-        <p style="margin:0 0 7px"><b>Legal at AA-large only.</b> The label must stay &ge;18.66px / 700, because a moving gradient cannot hold 4.5:1 at every stop. Porting this to a 15px/600 label silently drops it below its own proof &mdash; which is why it is not a Button variant.</p>
+        <p style="margin:0 0 7px">The label ink is <b>computed, not chosen</b> &mdash; <span class="mono">onAuroraInk</span> picks the ink whose <i>worst</i> contrast across the whole gradient is best. A fixed ink fails somewhere along the sweep &mdash; <i>unless</i> the run says otherwise. Here it does: across the band <span class="mono">#241B45</span> wins every quadrant (worst 3.40 on reflective) because the sweep reaches the gold end, where <span class="mono">#FFFFFF</span> falls to 1.77. One value, because it was computed &mdash; not because one was assumed.</p>
+        <p style="margin:0 0 7px"><b>Legal at AA-large, on SIZE alone.</b> The label must stay <b>&ge;24px</b> &mdash; WCAG 1.4.3 counts 24px as large text at <i>any</i> weight, and a moving gradient cannot hold 4.5:1 at every stop. <b>No proof here may rest on weight:</b> the display face is a single Semibold cut, so a &ldquo;700&rdquo; rule is unsatisfiable and any exemption claimed on it is void. Porting this to a smaller label silently drops it below its own proof &mdash; which is why it is not a Button variant.</p>
         <p style="margin:0">Solid fallback is the middle stop; border is <span class="mono">surface.hairlineGold</span>.</p>
       </div>
     </div>

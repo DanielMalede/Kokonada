@@ -117,10 +117,13 @@
       <span style="font:500 11px var(--mono);color:var(--ink3);flex:none">0 / 500</span>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:58px;border-radius:999px;background:linear-gradient(90deg,var(--hue-calm) 0%,var(--accent-hue) 52%,var(--hue-joyful) 100%);color:var(--onaurora);padding:0 20px;box-sizing:border-box">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:58px;border-radius:999px;background:linear-gradient(90deg,var(--hue-calm) 0%,var(--accent-hue) 55%,var(--hue-joyful) 100%);color:var(--onaurora);padding:0 20px;box-sizing:border-box">
       <span style="font:600 24px var(--disp)">Generate</span>
-      <span style="font:500 11px var(--mono);letter-spacing:.09em;opacity:.72">TEMPO ≤ 96 · WARM</span>
     </div>
+    <!-- The constraint is metadata ABOUT the generation, not part of the action. It rode
+         the gradient at 11px and measured ~3.2:1 there, where no size exemption exists.
+         Off the band it sits on the canvas at --ink3 and is plainly legible. -->
+    <div style="margin-top:9px;text-align:center;font:500 11px var(--mono);letter-spacing:.09em;color:var(--ink3)">TEMPO ≤ 96 · WARM</div>
 
     <div style="display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;font:600 13px var(--text);color:var(--accent);text-decoration:underline;text-underline-offset:4px">Or let my heart lead — live</div>
   </div>

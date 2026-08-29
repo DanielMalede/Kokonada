@@ -40,12 +40,26 @@
      The CTA gradient is the same light band on BOTH faces, so its label ink is
      one value, not a pair. It was three hardcoded literals before; the middle
      stop took --accent (the readable INK form) and rendered 2.88:1 on intense,
-     under even the 3:1 non-text floor. The band now takes the GLOW form via
-     --accent-hue, whose worst quadrant (reflective #4B6FD0) is 4.08:1. That
-     clears WCAG 1.4.3 as large text on SIZE ALONE at 24px -- deliberately not
-     on weight, because the display face is a Semibold-only cut and any proof
-     resting on 700 is void. */
-  --onaurora:#0B0D26;
+     under even the 3:1 non-text floor. The band takes the GLOW form via --accent-hue.
+
+     The VALUE is not chosen, it is the result of running the shipped rule.
+     `auroraSurfaces.ts:61` picks between exactly two candidates -- #241B45
+     (content.primary) and #FFFFFF (content.onAccent) -- by whichever holds the
+     best WORST-case contrast across CTA_LABEL_BAND [0.34, 0.76]. Run against
+     this gradient at CTA_MID_STOP 0.55, #241B45 wins in every quadrant:
+
+         calm 6.81  joyful 7.53  intense 4.20  reflective 3.40   (#241B45)
+         calm 2.22  joyful 1.77  intense 2.73  reflective 3.07   (#FFFFFF)
+
+     White loses everywhere because the band reaches into the gold end. So one
+     value is correct here -- but only because the computation says so, not
+     because a fixed ink is safe in general. Re-run it if either end stop moves.
+
+     The floor is 3:1: 24px is WCAG 1.4.3 large text on SIZE ALONE. Deliberately
+     not on weight -- the display face is a Semibold-only cut, so any proof
+     resting on 700 is void, which is the defect this whole change exists to
+     correct. */
+  --onaurora:#241B45;
 
   /* ---- SOURCE * the FIXED brand accent (never the reactive emotion accent).
      Mirrors accent.glow / accent.glowInk / content.onAccent in tokens.ts.
