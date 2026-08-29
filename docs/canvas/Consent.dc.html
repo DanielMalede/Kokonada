@@ -11,10 +11,17 @@
   <link rel="stylesheet" href="./tokens.css">
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
-.qi .doc { overflow-y: auto; scrollbar-width: thin; }
-    .qi .doc::-webkit-scrollbar { width: 4px; }
-    .qi .doc::-webkit-scrollbar-thumb { background: var(--track); border-radius: 999px; }
-    .qi .doc::-webkit-scrollbar-track { background: var(--line); border-radius: 999px; }
+/* The notice is the ONLY scroller on this board, and it declares its own overflow.
+       A class-wide `.qi .doc{overflow-y:auto}` used to sit here, which made every .doc
+       a scroller by accident — .doc is also tokens.css's token-scope class, so the two
+       roles had been welded together. The token scope comes from .qi anyway.
+       `scrollbar-width:thin` RESERVED 10px of width in one declared state and not the
+       others, so the browser bar was painted inside a design board AND made the `open`
+       axis frames mutually incomparable. Suppressed: the frame now shows only the
+       affordance the product will ship, which on device is .noticetrack, not a
+       persistent OS scrollbar. */
+    .qi .scroller { overflow-y: auto; scrollbar-width: none; }
+    .qi .scroller::-webkit-scrollbar { display: none; }
 
     .noticefade { position:absolute; left:0; right:0; bottom:0; height:40px; pointer-events:none;
                   background:linear-gradient(transparent,var(--canvas)); }
@@ -51,15 +58,27 @@
     </svg>
     <div style="min-width:0">
       <h1 style="margin:0 0 4px;font:600 22px/1.28 var(--disp);color:var(--ink)">Consent to read your health data</h1>
-      <div style="font:500 11px var(--mono);color:var(--ink3)">VERSION 1 · GDPR ART. 9</div>
+      <!-- P1. The stale state used to add a bordered banner BELOW the header, which cost
+           ~88px and collapsed the notice port to ~148px — the entire stale-frame defect.
+           Folded in: the version line carries what changed, and one subtitle line says
+           what it means. Same information, no new block, and the notice keeps its height. -->
+      <div style="font:500 11px var(--mono);color:var(--ink3)">{{versionLine}}</div>
+      <sc-if value="{{isStale}}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top:4px;font:400 13px/1.45 var(--text);color:var(--ink2)">What we read has changed, so this asks again. Health reading is paused until you decide &mdash; mood-only keeps working.</div>
+      </sc-if>
     </div>
   </div>
 
-  <sc-if value="{{isStale}}" hint-placeholder-val="{{ false }}">
-    <div style="flex:none;margin:0 24px 10px;padding:10px 12px;border:1px solid var(--track);border-radius:12px;font:400 13px/1.5 var(--text);color:var(--ink2)">You agreed to an earlier version. What we read has changed, so this asks again. Until you decide, health reading is paused and mood-only keeps working.</div>
-  </sc-if>
 
-  <div class="doc" style="flex:0 1 auto;min-height:0;margin:0 24px;padding:11px 0;border-top:1px solid var(--track);border-bottom:1px solid var(--track);display:grid;grid-template-columns:86px minmax(0,1fr);gap:8px 12px">
+  <!-- PINNED, and now actually pinned. This was `flex:0 1 auto` — shrink factor 1 —
+       while inheriting overflow-y:auto from the class-wide rule, so under any content
+       growth (longer WHO copy, a larger OS font) the four facts would start scrolling
+       inside their own box and WITHDRAW would silently leave the frame. canvas.json
+       promises "four facts pinned above a notice that genuinely scrolls"; flex:none is
+       what makes that sentence true. The notice takes all the give.
+       Label column 86 -> 72: "WITHDRAW" at 11px mono + .1em measures ~66px, so 72 fits
+       and the value column gains 14px of measure. -->
+  <div style="flex:none;margin:0 24px;padding:11px 0;border-top:1px solid var(--track);border-bottom:1px solid var(--track);display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px 12px">
     <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">PURPOSE</div>
     <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Reading how activated and how settled your body is, and turning that into music. <span style="color:var(--ink2)">That is the only purpose.</span></div>
 
@@ -73,9 +92,8 @@
     <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Any time, in Profile, keeping your account. It doesn&rsquo;t undo what was lawful before. It also erases what the app has learned about your taste &mdash; <b>that doesn&rsquo;t come back.</b></div>
   </div>
 
-  <div class="doc" style="flex:1;min-height:0;padding:13px 24px 0;position:relative;overflow-y:auto" data-open="{{open}}">
-    <p style="margin:0 0 9px;font:400 12.5px/1.55 var(--text);color:var(--ink2)">The facts above are the summary. This is the whole notice — eight sections.</p>
-    <div class="doc" style="display:grid;grid-template-columns:86px minmax(0,1fr);gap:7px 12px;margin:0 0 12px;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">ALSO<br>COVERED</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">If you connect a Garmin account: SpO&#8322;, respiration, Body Battery&trade;. <span style="color:var(--ink)">None is read today</span>; we ask again first.</div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">KEPT</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Readings 90 days. The body profile has no fixed expiry; what the app learns about your <i>music</i> expires after a year unused. <b>All three go the moment you withdraw.</b></div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">NEVER</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Sold, used for advertising, or shared for anyone else&rsquo;s purposes.</div></div>
+  <div class="scroller" style="flex:1;min-height:0;padding:13px 24px 0;position:relative" data-open="{{open}}">
+    <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:7px 12px;margin:0 0 12px;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">ALSO<br>COVERED</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">If you connect a Garmin account: SpO&#8322;, respiration, Body Battery&trade;. <span style="color:var(--ink)">None is read today</span>; we ask again first.</div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">KEPT</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Readings 90 days. The body profile has no fixed expiry; what the app learns about your <i>music</i> expires after a year unused. <b>All three go the moment you withdraw.</b></div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">NEVER</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Sold, used for advertising, or shared for anyone else&rsquo;s purposes.</div></div>
 
     
     <div class="sec" data-i="1"><div class="sechead"><span><span class="secn">1</span>What is being asked</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
@@ -119,10 +137,21 @@
 <script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"state":{"editor":"enum","options":["fresh","stale"],"default":"fresh"},"platform":{"editor":"enum","options":["android","ios"],"default":"android"},"open":{"editor":"enum","options":["none","all","1","2","3","4","5","6","7","8"],"default":"none"},"$preview":{"width":390,"height":844}}'>
 class Component extends DCLogic {
   renderVals() {
+    const isStale = (this.props.state ?? 'fresh') === 'stale';
     return {
       theme: this.props.theme ?? 'light',
       open: this.props.open ?? 'none',
-        isStale: (this.props.state ?? 'fresh') === 'stale',
+      isStale,
+      // The version literal stays 1 until the bump lands. That bump is NOT a counter
+      // increment: GARMIN_CONSENT_MIN_VERSION is 2, so setting CURRENT to 2 would flip
+      // garminSpecialCategoryAllowed() true and start persisting SpO2, respiratory rate
+      // and Body Battery -- contradicting this board's own ALSO COVERED row. The agreed
+      // target is CURRENT=3 with GARMIN_CONSENT_MIN_VERSION raised to 4 in the SAME
+      // commit, so `min > current` survives and garminConsentVersionGate.test.js:58
+      // keeps passing. Owner + counsel, not this board.
+      versionLine: isStale
+        ? 'VERSION 1 · YOU AGREED TO AN EARLIER VERSION'
+        : 'VERSION 1 · GDPR ART. 9',
       // The notice must name the source the user's OS actually uses. Health
       // Connect is Android-only; iOS reads through Apple Health.
       sourceName: (this.props.platform ?? 'android') === 'ios' ? 'Apple Health' : 'Health Connect',
