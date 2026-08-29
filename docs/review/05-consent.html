@@ -173,8 +173,8 @@ const CHOICES=[
    ['grid','Five rows','Read / also covered / kept / never / withdraw. What the board does.'],
    ['compact','Three rows','Read / kept / withdraw. Buys the notice ~90px.'],
    ['none','No summary','Everything lives in the notice. Buys the most room, presents the least.']]},
- {id:'retention',name:'How retention reads',hint:'The code: readings 90 days, MorningState 90 days, PersonalWeights 365 days keyed to updatedAt.',opts:[
-   ['precise','Both periods, stated','&ldquo;Readings 90 days. The baseline goes after a year without you.&rdquo;'],
+ {id:'retention',name:'How retention reads',hint:'THE CODE, precisely — and note the naming collision that made every option here false: '+'readings 90d (BiometricLog, VitalSample), MorningState 90d, and 365d-on-updatedAt belongs to '+'PersonalWeights/RewardEvent — the MUSIC-RANKING overlay, NOT the body baseline. MedicalProfile '+'(the body baseline) has NO index() call at all, so no fixed expiry. Two different things were both '+'called "the baseline".',opts:[
+   ['precise','Both periods, stated','&ldquo;Readings 90 days. The body baseline has no fixed expiry &mdash; it goes when you withdraw or delete your account.&rdquo; (The year-without-you period belongs to the music learning, not the body baseline.)'],
    ['simple','90 days, baseline while you listen','Shorter, accurate about readings, vaguer about the baseline.'],
    ['today','As drawn today','&ldquo;As long as your account exists&rdquo; — which is not what the code does.']]},
  {id:'readiness',name:'Daily readiness',hint:'Named on the board; absent from GARMIN_ONLY_DATA_CATEGORIES in shipped code.',opts:[
@@ -210,7 +210,11 @@ const NOTICE=[
 function retentionLine(c){
   if(c.retention==='today') return 'Your readings: 90 days, then automatically deleted. The baseline is kept as long as your account exists.';
   if(c.retention==='simple') return 'Your readings: 90 days, then automatically deleted. The baseline lasts while you keep listening.';
-  return 'Readings: 90 days, then deleted. The baseline learned from them goes after a year with no activity. Both go the moment you withdraw.';
+  // CORRECTED. The old string mis-attributed PersonalWeights' 365-day inactivity TTL to the body
+  // baseline, which has no TTL, and every one of the three variants selected it — so this board
+  // could only produce a false sentence. Withdrawal erasure of the music learning is a CODE CHANGE
+  // the owner has approved (2026-08-29); until it lands, withdrawal does not delete it.
+  return 'Readings: 90 days, then deleted. The body baseline has no fixed expiry — it goes when you withdraw. The music learning goes after a year unused, and on account deletion.';
 }
 function coveredLine(c){
   if(c.readiness==='omit') return 'If you ever connect a Garmin account: SpO₂, respiration and Body Battery. None is read today, and we ask again before any of it starts.';
