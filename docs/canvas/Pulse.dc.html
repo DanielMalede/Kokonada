@@ -49,25 +49,50 @@
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
       <span style="display:block;width:58px;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px"></span></span>
       <span style="font:500 11px var(--mono);color:var(--ink2)">FAIRLY SURE · 0.69</span>
+      <!-- The headline is the strongest claim on the screen, so it is the thing that
+           must carry the time. Freshness used to sit in the SOURCE tile, where it read
+           as a property of the transport rather than of the reading — the conflation
+           that let the board state live vitals for a body it had not read. -->
+      <span style="font:500 11px var(--mono);color:var(--ink3)">{{stamp}}</span>
     </div>
 
     <div style="display:flex;gap:8px;margin-bottom:16px">
-      <div style="flex:1;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+      <!-- min-height pins the row so it cannot reflow between frames: "Heart-rate sensor"
+           at 600 15px is the longest string here and would otherwise wrap in one frame and
+           not another, moving everything below it. Mirrors GAUGE_TILE_MIN_H in
+           pulsePresentation.ts:58, which exists for the same reason. -->
+      <div style="flex:1;min-height:98px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">HEART</div>
+        <sc-if value="{{live}}">
         <div style="margin-top:1px;display:flex;align-items:baseline;gap:5px"><span style="font:600 36px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></div>
         <div style="margin-top:2px;font:400 11.5px var(--text);color:var(--ink2)">live</div>
+        </sc-if>
+        <!-- With nothing streaming, HEART takes the SOURCE tile's own type at --ink2 and
+             drops its third line. The two tiles becoming structurally identical IS the
+             signal that nothing is live — no numeral, so no present-tense claim. The
+             string is verbatim from PulseScreen.tsx:309. -->
+        <sc-if value="{{noLive}}">
+        <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink2)">No live reading</div>
+        </sc-if>
       </div>
-      <div style="flex:1;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+      <div style="flex:1;min-height:98px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">SOURCE</div>
         <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink)">{{sourceLabel}}</div>
-        <div style="font:400 11.5px var(--text);color:var(--ink2)">{{sourceFresh}}</div>
+        <div style="font:400 11.5px var(--text);color:var(--ink2)">{{sourceSub}}</div>
       </div>
     </div>
 
+    <!-- The sparkline is the live HR trace. With no live source it is removed rather than
+         emptied: an empty chart frame is decoration pretending to be data. No placeholder,
+         and no "start a session" CTA either — no such affordance exists (PulseScreen.tsx:209,
+         :366 offer only "Connect a device"), and inventing one makes the board specify a
+         product that does not exist. -->
+    <sc-if value="{{live}}">
     <svg width="326" height="52" viewBox="0 0 326 52" style="display:block;margin-bottom:18px">
       <polyline points="0,30 26,31 52,29 78,33 104,32 130,35 156,34 182,37 208,36 234,38 260,37 286,39 312,38 320,38" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"></polyline>
       <circle cx="320" cy="38" r="3.4" fill="var(--accent)" style="animation:breathe 4200ms ease-in-out infinite;transform-origin:320px 38px"></circle>
     </svg>
+    </sc-if>
 
     <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">THE WHOLE PICTURE</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px">
@@ -138,17 +163,26 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["reflective","calm","joyful","intense","off"],"default":"intense"},"source":{"editor":"enum","options":["health-connect","garmin","none"],"default":"health-connect"},"$preview":{"width":390,"height":844}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["reflective","calm","joyful","intense","off"],"default":"intense"},"source":{"editor":"enum","options":["health-connect","ble","none"],"default":"health-connect"},"$preview":{"width":390,"height":844}}'>
 class Component extends DCLogic {
   renderVals() {
     const src = this.props.source ?? 'health-connect';
-    // PulseState carries no device model. It does carry lastAnalyzed, so the second
-    // line is freshness — a real field — rather than an unbacked device name.
+    // `source` now equals BiometricSource exactly (warmStore.ts:7): ble | health-connect
+    // | none. It names the live TRANSPORT, not the data's provenance — PulseScreen.tsx:288.
+    // Every label below is verbatim from that switch or from :309; do not invent variants.
+    const live = src !== 'none';
     return {
       theme: this.props.theme ?? 'light',
       field: this.props.field ?? 'intense',
-      sourceLabel: src === 'garmin' ? 'Garmin' : src === 'none' ? 'No source' : 'Health Connect',
-      sourceFresh: src === 'none' ? 'connect a wearable' : 'synced 4 min ago',
+      live,
+      noLive: !live,
+      sourceLabel: src === 'ble' ? 'Heart-rate sensor'
+        : src === 'none' ? 'No live source' : 'Health Connect',
+      sourceSub: src === 'ble' ? 'streaming'
+        : src === 'none' ? 'nothing streaming' : 'every 3 min',
+      // Provenance, not freshness-of-transport. LIVE while something is feeding the
+      // reading; otherwise the wall-clock the reading was taken at.
+      stamp: live ? 'LIVE' : 'AS OF 21:18',
     };
   }
 }
