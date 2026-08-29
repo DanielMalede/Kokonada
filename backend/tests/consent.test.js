@@ -16,16 +16,35 @@ jest.mock('../app/services/privacy/wearableErasure', () => ({
   WEARABLE_PROVIDERS: ['garmin', 'apple_health', 'health_connect', 'suunto'],
   eraseWearableProvider: jest.fn().mockResolvedValue({ biometricLogs: 0, medicalProfiles: 0 }),
 }));
+// BE-015 / ADR-0015: withdrawal ALSO erases the learned personalization. Mocked on the same
+// footing as the wearable primitive above, and the mock is MANDATORY rather than tidy — this is
+// a pure unit suite with no Mongo, so the real module would hand the withdrawal path two
+// unconnected Mongoose models and every withdrawal test would die on the 10s buffer timeout.
+// What it CANNOT do is prove a row was deleted; it only proves the call was made with the right
+// argument, under the right condition. The rows are proven actually gone against real query
+// semantics in tests/consentWithdrawalErasure.integration.test.js — read the two together.
+jest.mock('../app/services/privacy/learningErasure', () => ({
+  purgeLearnedPersonalization: jest.fn().mockResolvedValue({ rewardEvents: 0, personalWeights: 0 }),
+}));
 
 const ConsentRecord = require('../app/models/ConsentRecord');
 const User = require('../app/models/User');
 const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('../app/services/privacy/wearableErasure');
+const { purgeLearnedPersonalization } = require('../app/services/privacy/learningErasure');
 const consent = require('../app/services/privacy/consent');
 
 const PURPOSE = 'health_biometric_processing';
 const USER = '507f1f77bcf86cd799439011';
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  // clearAllMocks clears CALL DATA but NOT implementations, so a `mockResolvedValue` set in one
+  // describe leaks into every describe after it. That is not hypothetical here: the withdrawal
+  // block below inherited getConsentStatus's last "granted" row and silently changed which
+  // branch it was testing. Reset to the honest default — no record on file — and let each test
+  // state the consent history it actually means to exercise.
+  ConsentRecord.latestFor.mockReset();
+});
 
 describe('CURRENT_CONSENT_VERSION', () => {
   it('is an exported integer (the cross-package contract the mobile team reads)', () => {
@@ -161,5 +180,77 @@ describe('withdrawConsent', () => {
     // The failure is surfaced (not silently swallowed) so an operator can see incomplete erasure,
     // but withdrawConsent itself does not throw — the consent withdrawal already succeeded.
     expect(result.erasureFailures).toEqual([WEARABLE_PROVIDERS[1]]);
+  });
+});
+
+// BE-015 / ADR-0015. The Art.9 notice promises on its pinned first layer that withdrawal "also
+// erases what the app has learned about your taste". These pin the WIRING of that promise; the
+// integration suite pins that the rows are really gone.
+describe('withdrawConsent — learned personalization (ADR-0015)', () => {
+  const grantOnFile = () =>
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: consent.CURRENT_CONSENT_VERSION });
+
+  it('purges the learned personalization ONCE — outside the per-provider loop', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    // Once for the USER, not once per provider: a taste profile has no provider in it, so four
+    // calls would be the same whole-user delete repeated — and would read as if the purge
+    // belonged inside the loop, which is exactly the placement ADR-0015 rules out.
+    expect(purgeLearnedPersonalization).toHaveBeenCalledTimes(1);
+    expect(purgeLearnedPersonalization).toHaveBeenCalledWith(USER);
+  });
+
+  it('purges even when there is no User doc — these rows are keyed by userId, not by a credential', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue(null); // provider loop is a no-op...
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(eraseWearableProvider).not.toHaveBeenCalled();
+    expect(purgeLearnedPersonalization).toHaveBeenCalledTimes(1); // ...the promise is kept anyway
+  });
+
+  // THE GUARD. POST /api/consent/withdraw is directly callable and the UI only HIDES the button,
+  // so a mood-only listener who never granted health consent reaches this path. Erasing their
+  // taste model would destroy data no consent ever covered — the over-erasure wearableErasure.js
+  // rightly argues against.
+  it('does NOT purge when there is no grant on file', async () => {
+    ConsentRecord.latestFor.mockResolvedValue(null);
+    User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(purgeLearnedPersonalization).not.toHaveBeenCalled();
+    expect(eraseWearableProvider).toHaveBeenCalledTimes(WEARABLE_PROVIDERS.length); // still erased
+  });
+
+  it('does NOT purge when the latest row is ALREADY a withdrawal (a repeat call re-erases nothing)', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'withdrawn', consentVersion: consent.CURRENT_CONSENT_VERSION });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(purgeLearnedPersonalization).not.toHaveBeenCalled();
+  });
+
+  it('a learning-erasure failure is attributed to LEARNING, never misreported as a provider', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
+    purgeLearnedPersonalization.mockRejectedValueOnce(new Error('mongo timeout'));
+    const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    const result = await consent.withdrawConsent(USER, PURPOSE);
+
+    // 'learning' is deliberately NOT a provider name: an operator who read this as a provider
+    // failure would retry the wrong erasure and never learn the taste profile is still there.
+    expect(result.erasureFailures).toEqual(['learning']);
+    expect(eraseWearableProvider).toHaveBeenCalledTimes(WEARABLE_PROVIDERS.length); // not aborted
+    // Art.5(2): the FAILURE path is the one that most needs a demonstrable record.
+    const line = info.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[consent-withdrawal]'));
+    expect(line).toContain('learning=failed');
+    expect(line).toContain('providerErasureFailures=0'); // the count excludes the learning entry
+    info.mockRestore();
   });
 });
