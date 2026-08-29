@@ -150,7 +150,7 @@
   --inkbtn:var(--ink-l);
   /* NOT a constant — a SAMPLE. Field.dc.html states the law: the second lobe runs at
      a fixed 1.35 x T, where T = 4200 + 2000*stress. 4200 x 1.35 = 5670 is that law
-     evaluated at stress = 0. At full stress the correct value is 8370ms. Six boards
+     evaluated at stress = 0. At full stress the correct value is 8370ms. Five boards
      read this so the rest value has one source; do NOT promote it to tokens.ts as a
      duration primitive — that would freeze a variable law and silently stop the field
      responding to stress, which is the regulator ethic. */

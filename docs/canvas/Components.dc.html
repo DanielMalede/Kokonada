@@ -20,7 +20,7 @@
   </style>
 </helmet>
 
-<div class="qi" data-theme="{{theme}}" data-field="{{field}}" style="width:1400px;min-height:3028px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
+<div class="qi" data-theme="{{theme}}" data-field="{{field}}" style="width:1400px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
 
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--track)">
     <div>
@@ -148,6 +148,7 @@
         </svg>
         <div style="display:flex;justify-content:space-between;font:500 11px var(--mono);color:var(--ink3);margin-top:5px"><span>PRODUCED</span><span>ACOUSTIC</span></div>
         <p class="dsc" style="margin:9px 0 0">Anchored at zero in the centre, reading left or right. A signed nudge is never drawn from the left edge.</p>
+        <p class="dsc" style="margin:7px 0 0"><b>The marker must overhang the band, top and bottom.</b> Its contrast <i>against the band</i> is 1.25:1 to 3.22:1 across the eight face &times; quadrant combinations &mdash; never the proof. The proof is the 5px of overhang onto the surface behind, where <span class="mono">--ink</span> reads 16.7:1 light and 16.2:1 dark. A marker clipped to the band height is not this component: put it inside a rounded track, or on <span class="mono">--raised</span>, or under the field wash, and it drops to 1.25:1 with no warning.</p>
       </div>
 
       <div>
@@ -369,7 +370,7 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["calm","joyful","intense","reflective"],"default":"calm"},"$preview":{"width":1400,"height":3143}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["calm","joyful","intense","reflective"],"default":"calm"},"$preview":{"width":1400,"height":3330}}'>
 class Component extends DCLogic {
   renderVals() {
     return { theme: this.props.theme ?? 'light', field: this.props.field ?? 'calm' };

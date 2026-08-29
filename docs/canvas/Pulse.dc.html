@@ -56,18 +56,22 @@
     </div>
 
     <div style="display:flex;gap:8px;margin-bottom:16px">
-      <!-- min-height pins the row so it cannot reflow between frames: "Heart-rate sensor"
-           at 600 15px is the longest string here and would otherwise wrap in one frame and
-           not another, moving everything below it. 96 is NOT the tallest content -- it is the
-           pinned pair height (4 x 24, on the space scale) plus headroom for that wrap.
-           The app pins the same way for the same reason -- GAUGE_TILE_MIN_H
-           (pulsePresentation.ts:58) = space['4xl'] * 2 = 128 -- but that governs the six gauge
-           tiles -- which are ALSO two-up, at 48% basis (PulseScreen.tsx:278), so the difference
-           is not geometry. They hold a value, an honest sentence or a skeleton in one silhouette;
-           this is a different component pinned for a different reason. And the shipped screen has
-           no HEART/SOURCE pair at all -- HR floats card-less, SOURCE is a MetaChip.
-           Same rule, different component, different value. -->
-      <div style="flex:1;min-height:96px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+      <!-- NO min-height, and that is the measured answer rather than the assumed one.
+           A pin was here to stop the row reflowing between frames. Measured: the row is
+           81.5px in ALL THREE source values, and "Heart-rate sensor" renders on one 19.5px
+           line -- it does not wrap at 139px of content width. The tiles are flex:1 siblings
+           under align-items:stretch, so they are always equal and the row is always
+           max(HEART, SOURCE); SOURCE carries three rows in every frame and is always the
+           taller. The reflow the pin guarded against is structurally impossible, so the pin
+           was 14.5px of dead space in every frame, justified by a failure that cannot occur.
+           The app DOES pin -- GAUGE_TILE_MIN_H (pulsePresentation.ts:58) = space['4xl'] * 2
+           = 128 -- for its six gauge tiles, which are two-up at 48% basis only while the OS
+           font scale is at or below ACCESSIBILITY_FONT_SCALE; above it they collapse to one
+           column at 100% (PulseScreen.tsx:277-278). Those tiles hold a value, an honest
+           sentence or a skeleton in one silhouette, so they need a floor. This pair does not.
+           NOTE, and it is a real spec gap: this board declares no large-font-scale behaviour
+           for the pair at all, while the component it is compared to has exactly that. -->
+      <div style="flex:1;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">HEART</div>
         <sc-if value="{{live}}">
         <div style="margin-top:1px;display:flex;align-items:baseline;gap:5px"><span style="font:600 36px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></div>
@@ -81,7 +85,7 @@
         <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink2)">No live reading</div>
         </sc-if>
       </div>
-      <div style="flex:1;min-height:96px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+      <div style="flex:1;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">SOURCE</div>
         <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink)">{{sourceLabel}}</div>
         <div style="font:400 11.5px var(--text);color:var(--ink2)">{{sourceSub}}</div>

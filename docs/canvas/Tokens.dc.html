@@ -20,7 +20,7 @@
   </style>
 </helmet>
 
-<div class="qi" data-theme="{{theme}}" style="width:1400px;min-height:2370px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
+<div class="qi" data-theme="{{theme}}" style="width:1400px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
 
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--track)">
     <div>
@@ -136,7 +136,7 @@
     <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">
       <div><span class="mono">--track</span> <span style="color:var(--ink)">#6A6589 / #A7A6D0</span><br>Control borders and the outline around every bar. The 14%/28% hairlines measure 1.34:1 and 1.85:1 and cannot carry a boundary.</div>
       <div><span class="mono">--accent</span> <span style="color:var(--ink)">emotionAccent[fused].ink</span><br>One live accent per screen, taken from the fused state's quadrant. The placements re-tint to it rather than holding what you placed.</div><div><span class="mono">--accentfill</span> <span style="color:var(--ink)">accent @ 18% / 22%</span><br>The decorative form — field lobes, placement halos, target bands, the album-art placeholder's first stop.</div>
-      <div><span class="mono">motion.duration.fieldBreath</span> <span style="color:var(--ink)">5670</span><br>The ambient field runs on six boards and had no name. It is the signature gesture of the direction and the most-painted undeclared value on the canvas.</div>
+      <div><span class="mono">motion.duration.fieldBreath</span> <span style="color:var(--ink)">5670</span><br>The ambient field runs on five boards and had no name. It is the signature gesture of the direction and the most-painted undeclared value on the canvas.</div>
       <div><span class="mono">type.size.data</span> <span style="color:var(--ink)">36</span><br>One step above display, for the single number a screen exists to show. Without it the type ramp has no top.</div>
       <div><span class="mono">--onaurora</span> <span style="color:var(--ink)">#241B45</span><br>The label ink that rides ON the aurora CTA band. Not chosen &mdash; it is the winner of the shipped max-min rule (<span class="mono">auroraSurfaces.ts:61</span>) run across <span class="mono">[0.34, 0.76]</span>: worst 6.81 / 7.53 / 4.20 / 3.40 by quadrant, against 2.22 / 1.77 / 2.73 / 3.07 for white. The trigger for a re-run is the <b>mid</b> stop, not the ends &mdash; those are constants. At the full intense corner the mid becomes <span class="mono">#6E3FC4</span>, where <span class="mono">#241B45</span> falls to 2.41 and white takes over at 3.62. Shown here at the <b>reflective</b> field &mdash; the worst of the four.</div>
     </div>

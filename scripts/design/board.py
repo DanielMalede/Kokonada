@@ -178,11 +178,22 @@ def preview_size(src, board=None):
     This is the height wired to the camera, so it is recorded for the frame guard:
     it must agree with both the rendered height and the canvas.json record.
     """
-    m = re.search(r'"[$]preview":\{"width":(\d+),"height":(\d+)\}', src)
-    size = (int(m.group(1)), int(m.group(2))) if m else (390, 844)
-    if board and m:
-        _PREVIEW_H[board] = size[1]
-    return size
+    blk = re.search(r'"[$]preview"\s*:\s*\{([^}]*)\}', src)
+    w = h = None
+    if blk:
+        mw = re.search(r'"width"\s*:\s*(\d+)', blk.group(1))
+        mh = re.search(r'"height"\s*:\s*(\d+)', blk.group(1))
+        if mw and mh:
+            w, h = int(mw.group(1)), int(mh.group(1))
+    if w is None:
+        # Key order and whitespace must not silently disable the camera guard: falling
+        # back to (390,844) on a doc board would shoot it at phone size and report clean.
+        if blk:
+            print('  ⚠ $preview present but unparsed — camera falls back to 390x844')
+        return (390, 844)
+    if board:
+        _PREVIEW_H[board] = h
+    return (w, h)
 
 
 def declared_props(src):
@@ -389,8 +400,11 @@ def _record_h(board):
             with io.open(os.path.join(CANVAS, 'canvas.json'), encoding='utf-8') as fh:
                 for a in json.load(fh).get('artboards', []):
                     _REC_H[a.get('file', '')] = a.get('h')
-        except Exception:
-            pass
+        except Exception as e:
+            # A guard that disables itself in silence is the defect it exists to catch.
+            # canvas.json WAS unparseable at HEAD, which is why nothing had ever compared
+            # these numbers -- so this path is not hypothetical.
+            print('  ⚠ manifest unreadable (%s) — ARTBOARD RECORD arm disabled' % e)
     nm = board if board.endswith('.dc.html') else board + '.dc.html'
     return _REC_H.get(nm)
 
