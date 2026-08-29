@@ -11,7 +11,6 @@
   <link rel="stylesheet" href="./tokens.css">
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
-    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
 @keyframes breathe { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
     .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.82; }
     .fld1, .fld2 { position:absolute; }
@@ -53,24 +52,25 @@
            must carry the time. Freshness used to sit in the SOURCE tile, where it read
            as a property of the transport rather than of the reading — the conflation
            that let the board state live vitals for a body it had not read. -->
-      <span style="font:500 11px var(--mono);color:var(--ink3)">{{stamp}}</span>
+      <span style="margin-left:auto;font:500 11px var(--mono);color:var(--ink3)">{{stamp}}</span>
     </div>
 
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <!-- min-height pins the row so it cannot reflow between frames: "Heart-rate sensor"
            at 600 15px is the longest string here and would otherwise wrap in one frame and
-           not another, moving everything below it. Mirrors GAUGE_TILE_MIN_H in
+           not another, moving everything below it. 98 is NOT the tallest content -- it is
+           the pinned pair height plus headroom for that wrap. Mirrors GAUGE_TILE_MIN_H in
            pulsePresentation.ts:58, which exists for the same reason. -->
       <div style="flex:1;min-height:98px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">HEART</div>
         <sc-if value="{{live}}">
         <div style="margin-top:1px;display:flex;align-items:baseline;gap:5px"><span style="font:600 36px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></div>
-        <div style="margin-top:2px;font:400 11.5px var(--text);color:var(--ink2)">live</div>
         </sc-if>
-        <!-- With nothing streaming, HEART takes the SOURCE tile's own type at --ink2 and
-             drops its third line. The two tiles becoming structurally identical IS the
-             signal that nothing is live — no numeral, so no present-tense claim. The
-             string is verbatim from PulseScreen.tsx:309. -->
+        <!-- With nothing streaming, HEART takes the SOURCE tile's own type but at --ink2,
+             where SOURCE's sits at --ink. THAT is the signal, not structural identity:
+             the tiles are a matched PAIR, not identical -- SOURCE keeps its sub-line. The
+             missing numeral removes the present-tense claim; the hushed ink says the
+             reading is still true but no longer being taken. Verbatim PulseScreen.tsx:309. -->
         <sc-if value="{{noLive}}">
         <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink2)">No live reading</div>
         </sc-if>
@@ -170,6 +170,9 @@ class Component extends DCLogic {
     // `source` now equals BiometricSource exactly (warmStore.ts:7): ble | health-connect
     // | none. It names the live TRANSPORT, not the data's provenance — PulseScreen.tsx:288.
     // Every label below is verbatim from that switch or from :309; do not invent variants.
+    // `none` here is LIVE TRANSPORT DROPPED, not cold start. History still stands, so the
+    // gauges below are real readings — just not present-tense ones. The cold start (nothing
+    // paired, no history, PulseScreen.tsx:275 isEmpty) is a different screen: StateNoWatch.
     const live = src !== 'none';
     return {
       theme: this.props.theme ?? 'light',

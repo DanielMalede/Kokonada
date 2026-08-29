@@ -53,13 +53,29 @@
 
      White loses everywhere because the band reaches into the gold end. So one
      value is correct here -- but only because the computation says so, not
-     because a fixed ink is safe in general. Re-run it if either end stop moves.
+     because a fixed ink is safe in general.
+
+     THE RE-RUN TRIGGER IS THE MID STOP, NOT THE ENDS. CTA_SKY and CTA_GOLD are
+     constants (auroraSurfaces.ts:51-52) -- naming them as the trigger names two
+     things that can never change. The mid is the LIVE glow, deepened toward
+     #6E3FC4. At the full intense corner the mid IS #6E3FC4, and the answer
+     flips: #241B45 falls to 2.41 -- under the 3:1 floor -- while #FFFFFF holds
+     3.62. The canvas samples only the four pure quadrant hues, so one value is
+     right HERE. The product must keep calling onAuroraInk; CTA_INK.light is a
+     live branch, not dead code.
 
      The floor is 3:1: 24px is WCAG 1.4.3 large text on SIZE ALONE. Deliberately
      not on weight -- the display face is a Semibold-only cut, so any proof
      resting on 700 is void, which is the defect this whole change exists to
      correct. */
   --onaurora:#241B45;
+
+  /* ---- SOURCE * the affirmative state colour ------------------------------
+     The Tokens board declared .ok{color:#1E7A52} and its dark twin inline --
+     two live paints breaking this file's own first rule on the board that
+     publishes that rule. It was a genuine token gap, not carelessness: there
+     was nowhere for an affirmative state to live. */
+  --ok-l:#1E7A52;  --ok-d:#4FD69C;
 
   /* ---- SOURCE * the FIXED brand accent (never the reactive emotion accent).
      Mirrors accent.glow / accent.glowInk / content.onAccent in tokens.ts.
@@ -117,6 +133,7 @@
   /* the default field is `reflective` — this is the value that used to sit as a
      bare literal in every board and paint five of them before anyone noticed. */
   --accent:var(--ink-reflective-l);
+  --ok:var(--ok-l);
   --accent-hue:var(--hue-reflective);
   --a-fill:var(--a-fill-l);
   --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-fill), transparent);
@@ -153,6 +170,7 @@
   --ink3:var(--ink3-d);  --track:var(--ink3-d);
 
   --accent:var(--ink-reflective-d);
+  --ok:var(--ok-d);
   --a-fill:var(--a-fill-d);
   --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-fill), transparent);
   --bartrack:var(--accentfill);
