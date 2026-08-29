@@ -94,6 +94,21 @@
   --paper-l:#FAFAFF;  --raised-l:#FFFFFF;  --sunken-l:#F1F3FB;  --plate-l:#FFFFFF;
   --paper-d:#0B0D26;  --raised-d:#15173A;  --sunken-d:#090B1E;  --plate-d:#11132F;
   --ink-l:#14163A;    --ink-d:#EEF1FC;
+
+  /* ---- SOURCE * the CTA ink fill and the ink that rides on it ---------------
+     These were ALIASES -- `--inkbtn:var(--ink-l)` and `--onink:var(--paper-l)` --
+     and they were accidentally correct: #14163A/#EEF1FC happens to be the shipped
+     accent.ctaFill pair, and #FAFAFF/#0B0D26 happens to be content.onCtaFill.
+     Both coincidences are about to break. `--ink-l` is due to move to #241B45
+     (tokens.ts content.light.primary), which would silently repaint SEVEN boards'
+     primary CTAs to a colour tokens.test.ts:122 forbids -- and it would pass every
+     gate, because #241B45 on --onink still clears AA at 15.32:1. `--paper-d` is due
+     to move to #0E1030, which would swap the dark CTA label from onCtaFill to
+     onAccent: 16.93 -> 16.33, passing, invisible, and un-pinning the pair the app
+     proved. Declaring them as their own SOURCE is what makes those two moves safe.
+     Mirrors accent.ctaFill / content.onCtaFill in tokens.ts:151,194 and :145,188. */
+  --inkbtn-l:#14163A;  --inkbtn-d:#EEF1FC;
+  --onink-l:#FAFAFF;   --onink-d:#0B0D26;
   --ink3-l:#6A6589;   --ink3-d:#A7A6D0;
   --violet-l:#5B45B8; --violet-d:#C9B6FF;
   --danger-l:#9E3346; --danger-d:#FF9BA8;        /* ERROR — something went wrong */
@@ -146,8 +161,8 @@
   --violetfill: color-mix(in srgb, var(--hue-violet) var(--a-violetfill), transparent);
   --danger:var(--danger-l);
   --destructive:var(--destructive-l);
-  --onink:var(--paper-l);
-  --inkbtn:var(--ink-l);
+  --onink:var(--onink-l);
+  --inkbtn:var(--inkbtn-l);
   /* NOT a constant — a SAMPLE. Field.dc.html states the law: the second lobe runs at
      a fixed 1.35 x T, where T = 4200 + 2000*stress. 4200 x 1.35 = 5670 is that law
      evaluated at stress = 0. At full stress the correct value is 8370ms. Five boards
@@ -181,8 +196,8 @@
   --violet:var(--violet-d);
   --danger:var(--danger-d);
   --destructive:var(--destructive-d);
-  --onink:var(--paper-d);
-  --inkbtn:var(--ink-d);
+  --onink:var(--onink-d);
+  --inkbtn:var(--inkbtn-d);
   --artph: color-mix(in srgb, var(--hue-violet) 20%, transparent);
   --bloom: color-mix(in srgb, var(--ink) var(--a-bloom-d), transparent);
   --brand:var(--brand-d);  --brandink:var(--brandink-d);  --onbrand:var(--onbrand-d);
