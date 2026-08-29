@@ -27,3 +27,4 @@ consequences** — so the locked decisions and future ones are traceable and
 | [0012](0012-learning-compliance.md) | Learning compliance: state-space buckets for all, `mbid:`-only track posteriors | Accepted |
 | [0013](0013-state-model.md) | Affect state model: four layers, taxonomy as an injected port, physiology never writes valence | Accepted |
 | [0014](0014-embedding-v2.md) | Embedding v2: separately-normalised audio/genre blocks, IDF genre bag over the `mbid:` slice, tempo on a circle | Accepted |
+| [0015](0015-withdrawal-erases-learned-personalization.md) | Withdrawing Art. 9 consent erases RewardEvent and PersonalWeights; the per-provider-disconnect exclusion stands unchanged | Accepted |
