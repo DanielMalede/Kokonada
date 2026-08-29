@@ -36,6 +36,17 @@
   --hue-reflective:  #4B6FD0;
   --hue-violet:      #9B7BF0;   /* the brand violet, fill form */
 
+  /* ---- SOURCE * the ink that rides ON the aurora band ----------------------
+     The CTA gradient is the same light band on BOTH faces, so its label ink is
+     one value, not a pair. It was three hardcoded literals before; the middle
+     stop took --accent (the readable INK form) and rendered 2.88:1 on intense,
+     under even the 3:1 non-text floor. The band now takes the GLOW form via
+     --accent-hue, whose worst quadrant (reflective #4B6FD0) is 4.08:1. That
+     clears WCAG 1.4.3 as large text on SIZE ALONE at 24px -- deliberately not
+     on weight, because the display face is a Semibold-only cut and any proof
+     resting on 700 is void. */
+  --onaurora:#0B0D26;
+
   /* ---- SOURCE * the FIXED brand accent (never the reactive emotion accent).
      Mirrors accent.glow / accent.glowInk / content.onAccent in tokens.ts.
      glow is too light to carry text on porcelain, so it rides the ring only. */
