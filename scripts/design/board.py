@@ -423,6 +423,14 @@ def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark'))
     print('  tag balance   :', 'BALANCED' if not bal else f'IMBALANCED {bal}')
     cb = css_balance(src)
     print('  css braces    :', 'BALANCED' if cb == 0 else f'IMBALANCED (delta {cb})')
+    # An UNCLOSED css comment silently disables every rule after it, and the brace check
+    # CANNOT see it -- braces inside a comment still pair up, so it reports BALANCED.
+    # Found live: a comment opened to retire .noticefade swallowed .noticetrack, .sec and
+    # .sechead on the consent board. Eight interactive rows rendered with no styles, every
+    # collapsed section body rendered open, and the tool called it BALANCED and clean.
+    co, cc = src.count('/*'), src.count('*/')
+    print('  css comments  :', 'BALANCED' if co == cc else
+          f'IMBALANCED — {co} open / {cc} close; every rule after the unclosed one is dead')
     ok = not bal and cb == 0
 
     if engine == 'paint':

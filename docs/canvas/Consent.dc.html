@@ -23,8 +23,10 @@
     .qi .scroller { overflow-y: auto; scrollbar-width: none; }
     .qi .scroller::-webkit-scrollbar { display: none; }
 
-    .noticefade { position:absolute; left:0; right:0; bottom:0; height:40px; pointer-events:none;
-                  background:linear-gradient(transparent,var(--canvas)); }
+    /* NO .noticefade on this screen. A 40px scrim ramping --ink2 (7.37:1) continuously
+       to 1:1 over the last ~1.5 lines is taste on a general list and an SC 1.4.3 failure
+       on an Article 9 notice -- it veils disclosure text. Continuation is carried by the
+       proportional track instead, which is what the product ships anyway. */
     .noticetrack { position:absolute; right:7px; top:12px; bottom:12px; width:3px; border-radius:2px;
                    background:var(--line); }
     .noticetrack i { display:block; width:3px; border-radius:2px; background:var(--track); height:37%; }
@@ -34,7 +36,12 @@
                min-height:44px; font:500 13px var(--text); color:var(--ink); }
     .secn { display:inline-block; width:18px; font:500 11px var(--mono); color:var(--ink3); }
     .secbody { display:none; padding:0 0 10px 18px; }
-    .secbody h2 { display:none; }
+    /* The heads ARE the landmarks SCREENS.md section 11 promises. They were plain divs
+       with a dead `.secbody h2{display:none}` rule and no h2 anywhere, so a screen reader
+       received one h1 and eight unlabelled containers -- at open=none, eight collapsed
+       unannounced boxes and no disclosure text at all. That is a materially different
+       notice than a sighted reader gets, on an Article 9 surface. */
+    .sechead { cursor:pointer; }
     [data-open="1"] .sec[data-i="1"] .secbody, [data-open="2"] .sec[data-i="2"] .secbody,
     [data-open="3"] .sec[data-i="3"] .secbody, [data-open="4"] .sec[data-i="4"] .secbody,
     [data-open="5"] .sec[data-i="5"] .secbody, [data-open="6"] .sec[data-i="6"] .secbody,
@@ -64,7 +71,7 @@
            what it means. Same information, no new block, and the notice keeps its height. -->
       <div style="font:500 11px var(--mono);color:var(--ink3)">{{versionLine}}</div>
       <sc-if value="{{isStale}}" hint-placeholder-val="{{ false }}">
-      <div style="margin-top:4px;font:400 13px/1.45 var(--text);color:var(--ink2)">What we read has changed, so this asks again. Health reading is paused until you decide &mdash; mood-only keeps working.</div>
+      <div style="margin-top:4px;font:400 13px/1.45 var(--text);color:var(--ink2)">What we read has changed, so this asks again.</div>
       </sc-if>
     </div>
   </div>
@@ -78,7 +85,11 @@
        what makes that sentence true. The notice takes all the give.
        Label column 86 -> 72: "WITHDRAW" at 11px mono + .1em measures ~66px, so 72 fits
        and the value column gains 14px of measure. -->
-  <div style="flex:none;margin:0 24px;padding:11px 0;border-top:1px solid var(--track);border-bottom:1px solid var(--track);display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px 12px">
+  <!-- Borders are --line2 (28% ink), not --track. --track aliases --ink3 and its role is
+       the scroll rail; at full #6A6589 these were the heaviest strokes on the screen, which
+       made the summary read as the object and the notice as a footnote -- the visual half of
+       the same failure the head-count invariant measures. -->
+  <div style="flex:none;margin:0 24px;padding:11px 0;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px 12px">
     <div style="font:500 11px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">PURPOSE</div>
     <div style="font:400 13px/1.45 var(--text);color:var(--ink)">Reading how activated and how settled your body is, and turning that into music. <span style="color:var(--ink2)">That is the only purpose.</span></div>
 
@@ -96,9 +107,9 @@
     <div style="display:grid;grid-template-columns:72px minmax(0,1fr);gap:7px 12px;margin:0 0 12px;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">ALSO<br>COVERED</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">If you connect a Garmin account: SpO&#8322;, respiration, Body Battery&trade;. <span style="color:var(--ink)">None is read today</span>; we ask again first.</div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">KEPT</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Readings 90 days. The body profile has no fixed expiry; what the app learns about your <i>music</i> expires after a year unused. <b>All three go the moment you withdraw.</b></div><div style="font:500 10.5px/1.45 var(--mono);letter-spacing:.1em;color:var(--ink3)">NEVER</div><div style="font:400 12.5px/1.45 var(--text);color:var(--ink2)">Sold, used for advertising, or shared for anyone else&rsquo;s purposes.</div></div>
 
     
-    <div class="sec" data-i="1"><div class="sechead"><span><span class="secn">1</span>What is being asked</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="1"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-1" aria-label="Section 1, What is being asked"><span><span class="secn">1</span>What is being asked</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Permission to read a defined set of measurements from {{sourceName}}, and to use them to choose music for you. Nothing else. Consent is separate from your account: you can hold an account, refuse this permanently, and the app still works.</p></div></div>
-    <div class="sec" data-i="2"><div class="sechead"><span><span class="secn">2</span>Exactly what is read</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="2"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-2" aria-label="Section 2, Exactly what is read"><span><span class="secn">2</span>Exactly what is read</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
       <div style="font:400 13px/1.55 var(--text);color:var(--ink2)">• Heart rate</div>
       <div style="font:400 13px/1.55 var(--text);color:var(--ink2)">• Heart-rate variability (HRV)</div>
@@ -107,29 +118,28 @@
     </div>
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Those four are the data types. History is a separate permission on top of them: the one we ask for covers your whole stored history, and we choose to read back about six months and no further.</p>
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Agreeing here is not the same as granting the operating system's permission. Straight after this, {{sheetPhrase}} and asks separately. You can refuse there, and you can revoke it later in {{sourceName}} without coming back here.</p></div></div>
-    <div class="sec" data-i="3"><div class="sechead"><span><span class="secn">3</span>What it is used for</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="3"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-3" aria-label="Section 3, What it is used for"><span><span class="secn">3</span>What it is used for</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">One purpose: computing how activated and how settled your body is right now, and turning that into musical targets — a tempo range, an energy ceiling, how acoustic the set should be. It also learns your personal baseline, so "normal" means normal for you rather than for a population average. The reading is done by an automated system, not by a person.</p></div></div>
-    <div class="sec" data-i="4"><div class="sechead"><span><span class="secn">4</span>Who else processes it</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="4"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-4" aria-label="Section 4, Who else processes it"><span><span class="secn">4</span>Who else processes it</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Companies that process data on our behalf: Groq (United States) generates the music intelligence; Railway (United States) hosts the service; MongoDB Atlas (<span style="display:inline-block;padding:0 5px;border-radius:4px;border:1px dashed var(--track);font:600 10px var(--mono);letter-spacing:.07em;color:var(--ink3)">REGION</span>) stores the database; Sentry (<span style="display:inline-block;padding:0 5px;border-radius:4px;border:1px dashed var(--track);font:600 10px var(--mono);letter-spacing:.07em;color:var(--ink3)">REGION</span>) receives error reports, which can include your account ID. The current, complete list is always in the privacy notice. Where a processor sits outside Europe, the transfer runs on the European Commission's standard contractual clauses; ask and we will send you a copy. Groq receives derived, non-identifying signals — an abstract mood coordinate, a coarse intensity band, closed-vocabulary intent tags, and mood-descriptor genre tags — used both to choose tracks and to estimate how a track feels. Once, when you first connect YouTube, it also receives the artist names in your library, to build your music profile. It never receives a heart rate, a sleep record, your name, your email, or anything from Spotify. Groq returns the musical targets; we apply them here. Music playback runs through the provider you connect, which sees what it plays, not why.</p></div></div>
-    <div class="sec" data-i="5"><div class="sechead"><span><span class="secn">5</span>Storage and encryption</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="5"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-5" aria-label="Section 5, Storage and encryption"><span><span class="secn">5</span>Storage and encryption</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Readings are encrypted in transit, and encrypted at rest with AES-256-GCM on our servers. They are never written to application logs. Your raw readings — the actual heart rate, the actual sleep record — are never sent to an AI provider; what is sent is the coarse band described in section 4.</p></div></div>
-    <div class="sec" data-i="6"><div class="sechead"><span><span class="secn">6</span>How long it is kept</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="6"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-6" aria-label="Section 6, How long it is kept"><span><span class="secn">6</span>How long it is kept</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">Readings are kept for 90 days and then deleted automatically — including one live reading a minute while a session is open, which is saved so your baseline stays accurate. The body profile learned from them — your resting heart rate, HRV and sleep baselines — has no fixed expiry: it is kept while this consent is on. What the app learned about your <i>music</i> expires after a year with no listening. <b>Withdrawing deletes both</b>, and deleting your account deletes everything. Derived states and the sets they produced stay with your history until you delete them. The record of this consent is kept until you delete your account, because it is the proof you were asked.</p></div></div>
-    <div class="sec" data-i="7"><div class="sechead"><span><span class="secn">7</span>Your rights</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="7"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-7" aria-label="Section 7, Your rights"><span><span class="secn">7</span>Your rights</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 10px;font:400 13px/1.7 var(--text);color:var(--ink2)">You may withdraw this consent at any time in Profile, without giving a reason and without losing your account. Withdrawal stops all reading immediately and deletes the readings already held, including the physiological baseline learned from them <b>and the taste profile the app built while it was on</b> — that is not recoverable, and rebuilding it means starting from scratch. It does not affect the lawfulness of what was processed before. You may also ask for a copy of everything held about you, receive it in a portable machine-readable file, ask for it to be corrected or erased, ask us to restrict how we use it, and lodge a complaint with your national supervisory authority.</p></div></div>
-    <div class="sec" data-i="8"><div class="sechead"><span><span class="secn">8</span>Who is responsible</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
+    <div class="sec" data-i="8"><div class="sechead" role="button" tabindex="0" aria-expanded="false" aria-controls="secbody-8" aria-label="Section 8, Who is responsible"><span><span class="secn">8</span>Who is responsible</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="chev"><path d="M6 8l4 4 4-4"></path></svg></div><div class="secbody">
     <p style="margin:0 0 20px;font:400 13px/1.7 var(--text);color:var(--ink2)">Kokonada is the data controller. Written requests reach a person, not a form: <span style="display:inline-block;padding:0 5px;border-radius:4px;border:1px dashed var(--track);font:600 10px var(--mono);letter-spacing:.07em;color:var(--ink3)">PRIVACY CONTACT</span>. A response is due within one month and is usually much faster.</p></div></div>
     <div class="noticetrack"><i></i></div>
-    <div class="noticefade"></div>
   </div>
 
   <div style="flex:none;padding:9px 24px 0;border-top:1px solid var(--line)">
-    <p style="margin:0;font:400 12px/1.55 var(--text);color:var(--ink2)">Declining is a complete answer, and mood-only is identical in every other way. <span style="color:var(--accent);text-decoration:underline;text-underline-offset:3px">Read the full privacy notice</span></p>
+    <p style="margin:0;font:400 12px/1.55 var(--text);color:var(--ink2)">Declining is a complete answer, and mood-only is identical in every other way. <span style="color:var(--ink);text-decoration:underline;text-underline-offset:3px">Read the full privacy notice</span></p>
   </div>
 
   <div style="flex:none;display:flex;gap:10px;padding:11px 24px 20px">
-    <span style="flex:1;display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:999px;border:1.5px solid var(--ink);color:var(--ink);font:600 16px var(--text)">Decline</span>
-    <span style="flex:1;display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:999px;border:1.5px solid var(--ink);background:var(--inkbtn);color:var(--onink);font:600 16px var(--text)">Agree</span>
+    <span style="flex:1;display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;border:1.5px solid var(--ink);color:var(--ink);font:600 15px var(--text)">Decline</span>
+    <span style="flex:1;display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;border:1.5px solid var(--ink);background:var(--inkbtn);color:var(--onink);font:600 15px var(--text)">Agree</span>
   </div>
 
 </div>
