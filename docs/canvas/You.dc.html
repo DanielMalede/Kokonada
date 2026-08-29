@@ -12,6 +12,25 @@
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
 .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.82; }
+.qi .port { position:relative; flex:1; min-height:0; overflow:hidden; }
+.qi .col  { padding:8px 22px 22px; }
+/* THE SCROLLPORT PATTERN. A board is a static 390x844 capture, so a screen that
+   scrolls has to SHOW that it does. The port clips; the column carries the gutters;
+   `data-at` picks which end of the scroll this frame stands at. At `end` the column
+   is bottom-pinned, which IS the terminal scroll position -- computed by layout, so
+   it stays correct when the content length changes. No measured offset.
+   Deliberately NOT overflow-y:auto: a real scrollbar eats content width in headless
+   Chrome, and board.py's overflow probe skips anything inside a non-visible
+   scrollport, so clipping in one can never be reported. */
+.qi [data-at="end"] .col, .qi.port[data-at="end"] .col { position:absolute; left:0; right:0; bottom:0; }
+/* A fade means "there is more THIS way". At the top only the bottom one is true; at
+   the end only the top one is. Drawing both in both frames states a falsehood. */
+.qi .fadetop, .qi .fadebot { position:absolute; left:0; right:0; height:30px; pointer-events:none; display:none; }
+.qi .fadetop { top:0; background:linear-gradient(to bottom,var(--canvas),transparent); }
+.qi .fadebot { bottom:0; background:linear-gradient(to top,var(--canvas),transparent); }
+.qi .port[data-at="top"] .fadebot { display:block; }
+.qi .port[data-at="end"] .fadetop { display:block; }
+
     .fld1, .fld2 { position:absolute; }
     .fld1 { left:-20%; right:-20%; bottom:-40%; height:150%; animation:fieldbreath 4200ms ease-in-out infinite; }
     .fld2 { left:-32%; right:4%; bottom:-20%; height:110%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; }
@@ -29,7 +48,8 @@
 
   <div style="height:44px;flex:none"></div>
 
-  <div style="position:relative;flex:1;min-height:0;overflow:hidden;padding:8px 22px 0">
+  <div class="port" data-at="{{at}}">
+    <div class="col">
     <h1 style="margin:0 0 2px;font:600 28px/1.18 var(--disp);letter-spacing:-.02em;color:var(--ink)">Daniel</h1>
     <div style="font:400 13px var(--text);color:var(--ink2);margin-bottom:20px">daniel@kokonada.app · free, always</div>
 
@@ -37,15 +57,34 @@
     <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);overflow:hidden;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--line)">
         <div style="min-width:0"><div style="font:500 13.5px var(--text);color:var(--ink)">Spotify</div><div style="font:400 12px var(--text);color:var(--ink2)">{{spotifyStatus}}</div></div>
-        <sc-if value="{{isIntended}}"><span style="display:flex;align-items:center;min-height:44px;padding:0 13px;border-radius:999px;border:1px solid var(--track);font:500 12px var(--text);color:var(--ink);flex:none">Disconnect</span></sc-if>
+        <sc-if value="{{isIntended}}"><span role="button" style="display:flex;align-items:center;min-height:44px;padding:0 13px;border-radius:999px;border:1px solid var(--track);font:500 12px var(--text);color:var(--ink);flex:none">Disconnect</span></sc-if>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--line)">
         <div style="min-width:0"><div style="font:500 13.5px var(--text);color:var(--ink)">YouTube</div><div style="font:400 12px var(--text);color:var(--ink2)">{{youtubeStatus}}</div></div>
-        <sc-if value="{{isIntended}}"><span style="display:flex;align-items:center;min-height:44px;padding:0 13px;border-radius:999px;border:1px solid var(--track);font:500 12px var(--text);color:var(--ink);flex:none">Connect</span></sc-if>
+        <sc-if value="{{isIntended}}"><span role="button" style="display:flex;align-items:center;min-height:44px;padding:0 13px;border-radius:999px;border:1px solid var(--track);font:500 12px var(--text);color:var(--ink);flex:none">Connect</span></sc-if>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 15px">
         <div style="min-width:0"><div style="font:500 13.5px var(--text);color:var(--ink)">Wearable &amp; Health</div><div style="font:400 12px var(--text);color:var(--ink2)">Paired</div></div>
-        <span style="display:flex;align-items:center;min-height:44px;padding:0 13px;border-radius:999px;border:1px solid var(--track);font:500 12px var(--text);color:var(--ink);flex:none">Manage</span>
+        <span role="button" style="display:flex;align-items:center;min-height:44px;padding:0 13px;border-radius:999px;border:1px solid var(--track);font:500 12px var(--text);color:var(--ink);flex:none">Manage</span>
+      </div>
+    </div>
+
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">YOUR DATA</div>
+    <!-- Same raised card CONNECTIONS gets. These are the Art. 15/17/20 controls; giving
+         them a weaker container than the OAuth list inverts the trust-first hierarchy
+         SCREENS.md section 10 asks for, at no height cost. -->
+    <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);overflow:hidden;margin-bottom:20px">
+      <div role="button" aria-label="Export everything — download all of your data" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 15px;min-height:48px;border-bottom:1px solid var(--line);">
+        <span style="font:400 13.5px var(--text);color:var(--ink)">Export everything</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+      </div>
+      <div role="button" aria-label="Health data and account — manage or delete" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 15px;min-height:48px;border-bottom:1px solid var(--line);">
+        <span style="font:400 13.5px var(--text);color:var(--ink)">Health data &amp; account</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+      </div>
+      <div role="button" aria-label="Log out of this device" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 15px;min-height:48px;">
+        <span style="font:400 13.5px var(--text);color:var(--ink)">Log out</span>
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
       </div>
     </div>
 
@@ -72,7 +111,7 @@
     <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">HOW ADVENTUROUS</div>
     <div style="border-top:1px solid var(--line);padding-top:10px;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)"><span>Familiar</span><span>New</span></div>
-      <div style="position:relative;height:44px;display:flex;align-items:center">
+      <div role="slider" aria-label="How adventurous" aria-valuemin="0" aria-valuemax="100" aria-valuenow="35" style="position:relative;height:44px;display:flex;align-items:center">
         <span style="display:block;width:100%;height:8px;border-radius:999px;background:color-mix(in srgb, var(--brand) 18%, transparent);outline:1px solid var(--track)"></span>
         <span style="position:absolute;left:0;top:50%;transform:translateY(-50%);width:35%;height:8px;border-radius:999px;background:var(--brand)"></span>
         <span style="position:absolute;left:35%;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;background:var(--canvas);border:1.5px solid var(--brand)"></span>
@@ -80,24 +119,10 @@
       <div style="font:400 12.5px/1.6 var(--text);color:var(--ink2)">A steady mix — about a third of each set will be new to you.</div>
     </div>
 
-    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:4px">YOUR DATA</div>
-    <div style="margin-bottom:22px">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;border-top:1px solid var(--line)">
-        <span style="font:400 13.5px var(--text);color:var(--ink)">Export everything</span>
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4l5 6-5 6"></path></svg>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;border-top:1px solid var(--line)">
-        <span style="font:400 13.5px var(--text);color:var(--ink)">Health data &amp; account</span>
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4l5 6-5 6"></path></svg>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;border-top:1px solid var(--line)">
-        <span style="font:400 13.5px var(--text);color:var(--ink)">Log out</span>
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4l5 6-5 6"></path></svg>
-      </div>
     </div>
-
-        <div style="position:absolute;left:0;right:0;bottom:0;height:30px;background:linear-gradient(to top,var(--canvas),transparent);pointer-events:none"></div>
-</div>
+    <div class="fadetop"></div>
+    <div class="fadebot"></div>
+  </div>
 
     <div style="position:relative;display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:8px 20px;border-top:1px solid var(--line);background:var(--raised);flex:none;box-sizing:border-box">
     <span role="img" aria-label="Cover art — official artwork from the provider" style="width:34px;height:34px;border-radius:4px;border:1px dashed var(--track);background:transparent;display:flex;align-items:center;justify-content:center;flex:none"><span style="font:600 6.5px var(--mono);letter-spacing:.06em;color:var(--ink3);text-align:center;line-height:1.1">COVER<br>ART</span></span>
@@ -132,7 +157,7 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"variant":{"editor":"enum","options":["truth","intended"],"default":"truth"},"$preview":{"width":390,"height":844}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"variant":{"editor":"enum","options":["truth","intended"],"default":"truth"},"at":{"editor":"enum","options":["top","end"],"default":"top"},"$preview":{"width":390,"height":844}}'>
 class Component extends DCLogic {
   renderVals() {
     // providers.ts is the source of truth: a halted/deferred provider offers NO
@@ -140,6 +165,7 @@ class Component extends DCLogic {
     const intended = (this.props.variant ?? 'truth') === 'intended';
     return {
       theme: this.props.theme ?? 'light',
+      at: this.props.at ?? 'top',
       isIntended: intended,
       variantTag: intended ? 'INTENDED END-STATE' : 'TRUTH — MIRRORS providers.ts',
       spotifyStatus: intended ? 'Connected' : 'Unavailable',
