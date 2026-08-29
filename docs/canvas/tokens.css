@@ -91,9 +91,9 @@
   --ink-calm-d:#7FCDF5;  --ink-joyful-d:#FFD37A;  --ink-intense-d:#C4A6FF;  --ink-reflective-d:#9DB4FF;
 
   /* ---- SOURCE · surfaces and ink, one per face ---------------------------- */
-  --paper-l:#FAFAFF;  --raised-l:#FFFFFF;  --sunken-l:#F1F3FB;  --plate-l:#FFFFFF;
+  --paper-l:#FAFAFF;  --raised-l:#FFFFFF;  --sunken-l:#EEF1FC;  --plate-l:#FFFFFF;
   --paper-d:#0E1030;  --raised-d:#161A3C;  --sunken-d:#080A20;  --plate-d:#11132F;
-  --ink-l:#14163A;    --ink-d:#EEF1FC;
+  --ink-l:#14163A;    --ink-d:#EEF0FF;
 
   /* ---- SOURCE * the CTA ink fill and the ink that rides on it ---------------
      These were ALIASES -- `--inkbtn:var(--ink-l)` and `--onink:var(--paper-l)` --
