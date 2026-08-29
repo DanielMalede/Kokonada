@@ -1,5 +1,5 @@
 /* ============================================================================
-   THE canvas colour source. All 22 boards read this ONE file.
+   THE canvas colour source. All 23 boards read this ONE file.
    No board declares a colour of its own.
 
    Layer 1 — SOURCE. The only literal colours that exist anywhere on the canvas.
@@ -106,7 +106,6 @@
      background. The official marks carry their own colour and must never be tinted. */
   --spotify-playback-bg:#191414;
   --pagebg:#E8E9EF;              /* the page behind the artboards */
-  --swatch-tint:#E0D8F4;         /* the Tokens board's tint sample */              /* the page behind the artboards */
 
   /* ---- SOURCE · the alpha ladder ------------------------------------------ */
   --a-ink2-l:74%;  --a-line-l:14%;  --a-line2-l:28%;  --a-fill-l:18%;

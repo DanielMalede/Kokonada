@@ -14,6 +14,10 @@
 .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.82; }
 .qi .port { position:relative; flex:1; min-height:0; overflow:hidden; }
 .qi .col  { padding:8px 22px 22px; }
+/* A between-sections margin must not fire on the last child: it stacked with the
+   column's own 22px inset and left 42px of void above the mini-player in the
+   terminal frame. Expressed as a rule so it survives the next reorder. */
+.qi .col > *:last-child { margin-bottom:0; }
 /* THE SCROLLPORT PATTERN. A board is a static 390x844 capture, so a screen that
    scrolls has to SHOW that it does. The port clips; the column carries the gutters;
    `data-at` picks which end of the scroll this frame stands at. At `end` the column
@@ -22,7 +26,7 @@
    Deliberately NOT overflow-y:auto: a real scrollbar eats content width in headless
    Chrome, and board.py's overflow probe skips anything inside a non-visible
    scrollport, so clipping in one can never be reported. */
-.qi [data-at="end"] .col, .qi.port[data-at="end"] .col { position:absolute; left:0; right:0; bottom:0; }
+.qi [data-at="end"] .col { position:absolute; left:0; right:0; bottom:0; }
 /* A fade means "there is more THIS way". At the top only the bottom one is true; at
    the end only the top one is. Drawing both in both frames states a falsehood. */
 .qi .fadetop, .qi .fadebot { position:absolute; left:0; right:0; height:30px; pointer-events:none; display:none; }
@@ -75,15 +79,15 @@
          SCREENS.md section 10 asks for, at no height cost. -->
     <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);overflow:hidden;margin-bottom:20px">
       <div role="button" aria-label="Export everything — download all of your data" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 15px;min-height:48px;border-bottom:1px solid var(--line);">
-        <span style="font:400 13.5px var(--text);color:var(--ink)">Export everything</span>
+        <span style="font:500 13.5px var(--text);color:var(--ink)">Export everything</span>
         <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
       </div>
-      <div role="button" aria-label="Health data and account — manage or delete" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 15px;min-height:48px;border-bottom:1px solid var(--line);">
-        <span style="font:400 13.5px var(--text);color:var(--ink)">Health data &amp; account</span>
+      <div role="button" aria-label="Health data &amp; account — open the health data vault" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 15px;min-height:48px;border-bottom:1px solid var(--line);">
+        <span style="font:500 13.5px var(--text);color:var(--ink)">Health data &amp; account</span>
         <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
       </div>
       <div role="button" aria-label="Log out of this device" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 15px;min-height:48px;">
-        <span style="font:400 13.5px var(--text);color:var(--ink)">Log out</span>
+        <span style="font:500 13.5px var(--text);color:var(--ink)">Log out</span>
         <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
       </div>
     </div>
@@ -91,7 +95,7 @@
     <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">THE FIELD</div>
     <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);padding:15px;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;min-height:44px">
-        <div style="font:500 14px var(--text);color:var(--ink)">Living background</div>
+        <div style="font:500 13.5px var(--text);color:var(--ink)">Living background</div>
         <span style="display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;flex:none" role="switch" aria-checked="true" aria-label="Living background">
           <span style="display:flex;align-items:center;justify-content:flex-end;width:52px;height:32px;border-radius:999px;background:var(--brand);padding:3px;box-sizing:border-box">
             <span style="display:block;width:26px;height:26px;border-radius:50%;background:var(--onbrand)"></span>

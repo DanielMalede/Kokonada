@@ -58,10 +58,14 @@
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <!-- min-height pins the row so it cannot reflow between frames: "Heart-rate sensor"
            at 600 15px is the longest string here and would otherwise wrap in one frame and
-           not another, moving everything below it. 98 is NOT the tallest content -- it is
-           the pinned pair height plus headroom for that wrap. Mirrors GAUGE_TILE_MIN_H in
-           pulsePresentation.ts:58, which exists for the same reason. -->
-      <div style="flex:1;min-height:98px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+           not another, moving everything below it. 96 is NOT the tallest content -- it is the
+           pinned pair height (4 x 24, on the space scale) plus headroom for that wrap.
+           The app pins the same way for the same reason -- GAUGE_TILE_MIN_H
+           (pulsePresentation.ts:58) = space['4xl'] * 2 = 128 -- but that governs the six
+           full-width GAUGE tiles, not this two-up pair, and in the shipped screen there is no
+           such pair at all (HR floats card-less, SOURCE is a MetaChip). Same rule, different
+           component, different value. -->
+      <div style="flex:1;min-height:96px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">HEART</div>
         <sc-if value="{{live}}">
         <div style="margin-top:1px;display:flex;align-items:baseline;gap:5px"><span style="font:600 36px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></div>
@@ -75,7 +79,7 @@
         <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink2)">No live reading</div>
         </sc-if>
       </div>
-      <div style="flex:1;min-height:98px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+      <div style="flex:1;min-height:96px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">SOURCE</div>
         <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink)">{{sourceLabel}}</div>
         <div style="font:400 11.5px var(--text);color:var(--ink2)">{{sourceSub}}</div>
@@ -169,7 +173,9 @@ class Component extends DCLogic {
     const src = this.props.source ?? 'health-connect';
     // `source` now equals BiometricSource exactly (warmStore.ts:7): ble | health-connect
     // | none. It names the live TRANSPORT, not the data's provenance — PulseScreen.tsx:288.
-    // Every label below is verbatim from that switch or from :309; do not invent variants.
+    // Every sourceLabel below is verbatim from that switch, and 'No live reading' from :309.
+    // The sub-lines are NOT verbatim -- the app's MetaChip renders none. They are cadence,
+    // grounded: 'every 3 min' in restFallback.ts:6, 'streaming' in liveHr.ts:14.
     // `none` here is LIVE TRANSPORT DROPPED, not cold start. History still stands, so the
     // gauges below are real readings — just not present-tense ones. The cold start (nothing
     // paired, no history, PulseScreen.tsx:275 isEmpty) is a different screen: StateNoWatch.

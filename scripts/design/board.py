@@ -335,6 +335,16 @@ def _report_frame(th, label, d, shot_ok, holes=frozenset()):
         flags.append(f"overflow {d['over'][:2]}")
     if d['small']:
         flags.append(f"small targets {d['small']}")
+    # A board that outgrows its canvas.json record is a board the host may CLIP.
+    # Found live: Flow rendered 3644 against a declared 1180, so three of the five
+    # transitions it exists to specify sat below the cut — and ALL SIX multi-height
+    # boards understated themselves, because nothing ever compared the two numbers.
+    # The sweep asserted every screen frame was h=844 and never once checked a
+    # board's declared frame against its own content.
+    rec = _record_h(_CUR_BOARD)
+    if rec is not None and abs(rec - d['h']) > 1:
+        flags.append(f"ARTBOARD RECORD {rec} != rendered {d['h']} "
+                     f"— canvas.json may clip this board")
     print(f"  {tag:26s} : {d['topLevel']} top-level, h={d['h']}, "
           f"{d.get('txt', 0)}ch/{d.get('sig', '-')}" +
           (('  ⚠ ' + '; '.join(flags)) if flags else '  clean') +
@@ -344,8 +354,34 @@ def _report_frame(th, label, d, shot_ok, holes=frozenset()):
     return not flags and shot_ok
 
 
+_REC_H = None
+_CUR_BOARD = ''
+
+
+def _record_h(board):
+    """The height canvas.json declares for this board, or None if unrecorded.
+
+    Read once and cached. A missing or unparseable manifest must NOT fail a render:
+    canvas.json was in fact unparseable at HEAD (unescaped quotes inside a string
+    value), which is precisely why nothing had ever compared these two numbers.
+    """
+    global _REC_H
+    if _REC_H is None:
+        _REC_H = {}
+        try:
+            with io.open(os.path.join(CANVAS, 'canvas.json'), encoding='utf-8') as fh:
+                for a in json.load(fh).get('artboards', []):
+                    _REC_H[a.get('file', '')] = a.get('h')
+        except Exception:
+            pass
+    nm = board if board.endswith('.dc.html') else board + '.dc.html'
+    return _REC_H.get(nm)
+
+
 def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark')):
     name = board.replace('.dc.html', '')
+    global _CUR_BOARD
+    _CUR_BOARD = board
     src = io.open(os.path.join(CANVAS, board), encoding='utf-8').read()
     PW, PH = preview_size(src)
     body = src[src.index('<div class="qi"') if '<div class="qi"' in src
