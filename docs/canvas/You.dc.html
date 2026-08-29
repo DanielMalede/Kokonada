@@ -102,21 +102,20 @@
           </span>
         </span>
       </div>
-      <p style="margin:2px 0 12px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The light behind the app follows your body. It never speeds up when you are stressed — it slows down.</p>
-      <div style="height:44px;border-radius:12px;overflow:hidden;border:1px solid var(--line);display:flex" role="img" aria-label="The field in each of the four states">
-        <span style="flex:1;background:color-mix(in srgb, var(--q-calm) 38%, transparent)"></span>
-        <span style="flex:1;background:color-mix(in srgb, var(--q-joyful) 38%, transparent)"></span>
-        <span style="flex:1;background:color-mix(in srgb, var(--q-intense) 38%, transparent)"></span>
-        <span style="flex:1;background:color-mix(in srgb, var(--q-reflective) 38%, transparent)"></span>
-      </div>
-      <div style="margin-top:8px;display:flex;justify-content:space-between;gap:10px;font:500 11px var(--mono);color:var(--ink3)"><span>CALM · JOYFUL · INTENSE · REFLECTIVE</span><span>4200 MS</span></div>
+      <!-- ONE band, not four tiles. The field is a single surface that MOVES between
+           states; hard vertical seams read as a colour-picker chip row and say the
+           opposite. At 28px it reads as a band of light rather than a swatch set --
+           and 28 also stops it borrowing the 44px touch-target number, which a
+           role="img" has no claim on. -->
+      <div style="height:28px;border-radius:10px;border:1px solid var(--line);background:linear-gradient(90deg,color-mix(in srgb, var(--q-calm) var(--a-band), transparent),color-mix(in srgb, var(--q-joyful) var(--a-band), transparent),color-mix(in srgb, var(--q-intense) var(--a-band), transparent),color-mix(in srgb, var(--q-reflective) var(--a-band), transparent))" role="img" aria-label="The field moving through calm, joyful, intense and reflective"></div>
+      <div style="margin-top:8px;display:flex;justify-content:space-between;gap:10px;font:500 11px var(--mono);color:var(--ink3)"><span>CALM · JOYFUL · INTENSE · REFLECTIVE</span></div>
     </div>
 
     <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">HOW ADVENTUROUS</div>
     <div style="border-top:1px solid var(--line);padding-top:10px;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)"><span>Familiar</span><span>New</span></div>
       <div role="slider" aria-label="How adventurous" aria-valuemin="0" aria-valuemax="100" aria-valuenow="35" style="position:relative;height:44px;display:flex;align-items:center">
-        <span style="display:block;width:100%;height:8px;border-radius:999px;background:color-mix(in srgb, var(--brand) 18%, transparent);outline:1px solid var(--track)"></span>
+        <span style="display:block;width:100%;height:8px;border-radius:999px;background:color-mix(in srgb, var(--brand) var(--a-fill), transparent);outline:1px solid var(--track)"></span>
         <span style="position:absolute;left:0;top:50%;transform:translateY(-50%);width:35%;height:8px;border-radius:999px;background:var(--brand)"></span>
         <span style="position:absolute;left:35%;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;background:var(--canvas);border:1.5px solid var(--brand)"></span>
       </div>

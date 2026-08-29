@@ -111,6 +111,10 @@
   --a-ink2-l:74%;  --a-line-l:14%;  --a-line2-l:28%;  --a-fill-l:18%;
   --a-ink2-d:76%;  --a-line-d:16%;  --a-line2-d:32%;  --a-fill-d:22%;
   --a-violetfill:16%;
+  /* The four-state field specimen. Denser than --a-fill because it is a legend read
+     at a glance, not a wash behind content. Declared rather than inlined so a palette
+     alpha edit reaches it -- it was four inline literals that no such edit could move. */
+  --a-band:38%;
   --a-bloom-l:5.5%; --a-bloom-d:7%;
 
   /* ---- SOURCE · type ------------------------------------------------------ */
