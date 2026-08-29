@@ -169,10 +169,20 @@ out.sig=out.sigs.join('/');
 document.title='B'+JSON.stringify(out);},800)});</script>"""
 
 
-def preview_size(src):
-    """A doc board is 1400 wide; screenshotting it at 390 clips most of it away."""
+_PREVIEW_H = {}
+
+
+def preview_size(src, board=None):
+    """A doc board is 1400 wide; screenshotting it at 390 clips most of it away.
+
+    This is the height wired to the camera, so it is recorded for the frame guard:
+    it must agree with both the rendered height and the canvas.json record.
+    """
     m = re.search(r'"[$]preview":\{"width":(\d+),"height":(\d+)\}', src)
-    return (int(m.group(1)), int(m.group(2))) if m else (390, 844)
+    size = (int(m.group(1)), int(m.group(2))) if m else (390, 844)
+    if board and m:
+        _PREVIEW_H[board] = size[1]
+    return size
 
 
 def declared_props(src):
@@ -341,10 +351,17 @@ def _report_frame(th, label, d, shot_ok, holes=frozenset()):
     # boards understated themselves, because nothing ever compared the two numbers.
     # The sweep asserted every screen frame was h=844 and never once checked a
     # board's declared frame against its own content.
+    # THREE numbers must agree, not two. `$preview` is the one wired to the CAMERA
+    # (preview_size() sets the Chrome window from it), and five of the six stale
+    # canvas.json records were exact mirrors of it — so an earlier pass corrected the
+    # mirror, left the original, and every screenshot of those boards stayed 2-37%
+    # short. Field's bottom 585px had never been inside a capture.
     rec = _record_h(_CUR_BOARD)
-    if rec is not None and abs(rec - d['h']) > 1:
-        flags.append(f"ARTBOARD RECORD {rec} != rendered {d['h']} "
-                     f"— canvas.json may clip this board")
+    prev = _PREVIEW_H.get(_CUR_BOARD)
+    for label, val in (('ARTBOARD RECORD', rec), ('$preview', prev)):
+        if val is not None and abs(val - d['h']) > 1:
+            flags.append(f"{label} {val} != rendered {d['h']} — "
+                         f"{'canvas.json may clip this board' if label.startswith('ARTBOARD') else 'the screenshot is cut short'}")
     print(f"  {tag:26s} : {d['topLevel']} top-level, h={d['h']}, "
           f"{d.get('txt', 0)}ch/{d.get('sig', '-')}" +
           (('  ⚠ ' + '; '.join(flags)) if flags else '  clean') +
@@ -383,7 +400,7 @@ def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark'))
     global _CUR_BOARD
     _CUR_BOARD = board
     src = io.open(os.path.join(CANVAS, board), encoding='utf-8').read()
-    PW, PH = preview_size(src)
+    PW, PH = preview_size(src, board)
     body = src[src.index('<div class="qi"') if '<div class="qi"' in src
                else src.index('<div class="doc"'):src.index('</x-dc>')]
 

@@ -227,7 +227,7 @@
       "id": "row-first-run",
       "page": "screens",
       "x": 0,
-      "y": 1630,
+      "y": 2168,
       "w": 620,
       "text": "FIRST RUN — Connect draws what providers.ts actually offers: Spotify halted, YouTube deferred, neither with a live Connect. The mood-only path is the forward action, not a grey skip."
     },
@@ -235,7 +235,7 @@
       "id": "row-core-loop",
       "page": "screens",
       "x": 0,
-      "y": 2594,
+      "y": 3132,
       "w": 660,
       "text": "THE CORE LOOP — the dots carry the emotion you PLACED (gold), the field and CTA carry the FUSED state (violet). Where they disagree, the read card names both voices instead of overriding you. Generate drops the player sheet for a 3px playing hairline so the plate can hold the screen."
     },
@@ -243,7 +243,7 @@
       "id": "row-trust",
       "page": "screens",
       "x": 0,
-      "y": 3558,
+      "y": 4096,
       "w": 660,
       "text": "BODY, ARCHIVE, TRUST — Body Battery™ is drawn honest-empty and is genuinely Garmin-only. Daily readiness is NOT — Garmin's Health API supplies no readiness metric, so it reads Not available / No connected source supplies it. Withdraw consent is a RIGHT and takes the neutral border; only account deletion is destructive."
     },
@@ -251,7 +251,7 @@
       "id": "row-consent",
       "page": "screens",
       "x": 0,
-      "y": 4522,
+      "y": 5060,
       "w": 660,
       "text": "CONSENT — four facts pinned above a notice that genuinely scrolls. READ lists only the five categories Health Connect actually requests; the three Garmin-only ones are disclosed separately as covered-but-not-read. Retention is 90 days, per the TTL indexes."
     },

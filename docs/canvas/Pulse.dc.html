@@ -61,10 +61,12 @@
            not another, moving everything below it. 96 is NOT the tallest content -- it is the
            pinned pair height (4 x 24, on the space scale) plus headroom for that wrap.
            The app pins the same way for the same reason -- GAUGE_TILE_MIN_H
-           (pulsePresentation.ts:58) = space['4xl'] * 2 = 128 -- but that governs the six
-           full-width GAUGE tiles, not this two-up pair, and in the shipped screen there is no
-           such pair at all (HR floats card-less, SOURCE is a MetaChip). Same rule, different
-           component, different value. -->
+           (pulsePresentation.ts:58) = space['4xl'] * 2 = 128 -- but that governs the six gauge
+           tiles -- which are ALSO two-up, at 48% basis (PulseScreen.tsx:278), so the difference
+           is not geometry. They hold a value, an honest sentence or a skeleton in one silhouette;
+           this is a different component pinned for a different reason. And the shipped screen has
+           no HEART/SOURCE pair at all -- HR floats card-less, SOURCE is a MetaChip.
+           Same rule, different component, different value. -->
       <div style="flex:1;min-height:96px;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">HEART</div>
         <sc-if value="{{live}}">
