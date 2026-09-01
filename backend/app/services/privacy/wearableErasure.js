@@ -68,8 +68,16 @@ async function purgeWearableData(userId, provider) {
   //     own `degraded` flag is exactly that guarantee. Half of each bucket's evidence is
   //     behavioural (skip / complete / save), which no wearable ever touched. So dropping a
   //     user's whole learned personalization because they unpaired one watch would erase data
-  //     that is not wearable-derived, which is over-erasure, not caution. It stays; account
+  //     that is not wearable-derived, which is over-erasure, not caution. It stays HERE; account
   //     deletion still removes it in full (`erasure.js`).
+  //
+  //     NARROWED, NOT REVERSED (BE-015 / ADR-0015). The paragraph above is still the ruling at
+  //     THIS scope — a disconnect — and it now guards two live buttons rather than an argument.
+  //     But WITHDRAWING Art.9 consent does erase it, because the consent notice promises exactly
+  //     that on the layer a reader cannot avoid; that erasure lives in `learningErasure.js` and
+  //     is called from `consent.withdrawConsent` ONLY. Do not "tidy" it into this function: it
+  //     has three callers and two of them are disconnects, so the tidy-up would make unpairing a
+  //     watch destroy a taste profile. Guarded in wearableErasure(.integration).test.js.
   //
   // 2c. PersonalWeights (W4-013 B7, S5) is registered here as a DELIBERATE EXCLUSION for the
   //     SAME reason as RewardEvent above, and it is worth stating rather than inheriting. The
@@ -78,8 +86,17 @@ async function purgeWearableData(userId, provider) {
   //     touched, and whose biometric half is only ever one of two contributions. It also has no
   //     `source` field to scope a delete by, because a scoring weight has no provider. Dropping a
   //     listener's whole learned ranking because they unpaired one watch would be over-erasure of
-  //     data that is not wearable-derived. It stays; account deletion still removes it in full
-  //     (`erasure.js`), and §M.15's shrink-to-global takes it back to the default on its own.
+  //     data that is not wearable-derived. It stays HERE; account deletion still removes it in
+  //     full (`erasure.js`), and absence is a first-class state at the reader, NOT
+  //     an effect of shrink-to-global. That distinction matters because the old wording named
+  //     the wrong mechanism: shrink-to-global is asymptotic decay (0.98^(elapsed/week)) and
+  //     never reaches zero, so it cannot cover a hard absence. A DELETED row is covered by a
+  //     different path — personalWeightsRepo.readWeights returns null, _resolveOverlay reports
+  //     cold-start, and personalization.overlay(table, null) returns the caller's own table by
+  //     identity. The two converge only because _negligible collapses "decayed below 1e-6" and
+  //     "never existed" into the same null.
+  //     It is NARROWED by ADR-0015 on the same terms as 2b: withdrawal erases it, a disconnect
+  //     does not.
   //
   // 3. Invalidate the derived Redis baseline blob so the next generation recomputes from
   //    whatever remains (best-effort — a Redis outage must not fail the erasure; TTL cleans up).
