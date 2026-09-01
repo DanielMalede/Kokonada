@@ -92,7 +92,20 @@ async function withdrawConsent(userId, purpose) {
   // after the one that threw). Failures are collected, not swallowed, so an operator can see
   // an incomplete erasure and retry — they do not fail withdrawConsent itself.
   const erasureFailures = [];
-  const user = await User.findById(userId);
+  // GUARDED. This lookup was the one unguarded await in the erasure block, and it failed in the
+  // UNSAFE direction: the per-provider loop below is carefully isolated, but a transient Mongo
+  // error here (a replica-set step-down, a redeploy mid-request) rejected withdrawConsent AFTER
+  // the withdrawal row was committed and BEFORE the learning purge — so consent was revoked, the
+  // learned personalization survived, and the Art.5(2) accountability line never emitted, leaving
+  // no record anywhere that the promised erasure had not happened. The comment above says the
+  // withdrawal row "stands regardless of what follows"; that was true of the row and false of the
+  // erasure. Now the purge and the log still run, and the operator sees WHICH step failed.
+  let user = null;
+  try {
+    user = await User.findById(userId);
+  } catch {
+    erasureFailures.push('user-lookup');
+  }
   if (user) {
     for (const provider of WEARABLE_PROVIDERS) {
       try {

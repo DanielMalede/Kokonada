@@ -24,6 +24,7 @@ const User = require('../app/models/User');
 const BiometricLog = require('../app/models/BiometricLog');
 const ConsentRecord = require('../app/models/ConsentRecord');
 const { RewardEvent } = require('../app/models/RewardEvent');
+const { purgeLearnedPersonalization } = require('../app/services/privacy/learningErasure');
 const { PersonalWeights } = require('../app/models/PersonalWeights');
 const {
   withdrawConsent, recordConsent, HEALTH_CONSENT_PURPOSE, CURRENT_CONSENT_VERSION,
@@ -126,6 +127,26 @@ describe('withdrawConsent — erases the learned personalization (real Mongo)', 
   // the UI only HIDES the button — so a mood-only listener who never granted health consent can
   // reach this path. Destroying their taste model would be an erasure they never asked for, of
   // data no consent ever covered. No grant on file → the purge does not run.
+  // A FALSY userId must delete NOTHING. Mongoose strips `undefined` from a query filter, so
+  // `deleteMany({ userId: undefined })` degrades to `deleteMany({})` -- every user's learned
+  // personalization, in one call, from a GDPR endpoint. Unreachable today (req.user._id is
+  // always present behind auth), and one refactor away: an admin caller, a job payload, a
+  // userId read from a request body. Every other repository in this codebase validates before
+  // the round trip (rewardRepo:54, personalWeightsRepo:93); this primitive is the one whose
+  // failure mode is a mass delete, so it validates too. Asserted against REAL Mongo because
+  // the whole point is Mongoose's filter-stripping behaviour, which a mock cannot reproduce.
+  it.each([undefined, null, ''])('purges NOTHING for a falsy userId (%p)', async (bad) => {
+    const userA = await seedLearner('a@x.c', { hourBin: 1 });
+    const userB = await seedLearner('b@x.c', { hourBin: 2 });
+
+    await expect(purgeLearnedPersonalization(bad)).resolves.toEqual({
+      rewardEvents: 0, personalWeights: 0,
+    });
+
+    expect(await learnedCounts(userA._id)).toEqual({ rewardEvents: 1, personalWeights: 1 });
+    expect(await learnedCounts(userB._id)).toEqual({ rewardEvents: 1, personalWeights: 1 });
+  });
+
   it('does NOT touch the learned rows when there is no grant on file (mood-only listener)', async () => {
     const user = await seedLearner('d@x.c');
     expect(await ConsentRecord.countDocuments({ userId: user._id })).toBe(0);

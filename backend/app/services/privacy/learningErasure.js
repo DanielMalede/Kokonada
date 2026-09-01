@@ -47,6 +47,14 @@ const { PersonalWeights } = require('../../models/PersonalWeights');
 // Concurrent because they are independent collections with no ordering between them.
 // Returns the per-collection counts so the caller can DEMONSTRATE the erasure ran (Art.5(2)).
 async function purgeLearnedPersonalization(userId) {
+  // VALIDATE BEFORE THE ROUND TRIP, on the house pattern (rewardRepo:54, personalWeightsRepo:93).
+  // This primitive is the one in the set whose failure mode is a MASS DELETE: Mongoose strips
+  // `undefined` from a query filter, so `deleteMany({ userId: undefined })` degrades to
+  // `deleteMany({})` -- every user's learned personalization, in one call, from a GDPR endpoint.
+  // Proven against real Mongo: of undefined / null / '' only `undefined` deletes everything,
+  // because the other two survive as literal non-matching values. Unreachable today behind auth;
+  // one refactor away from an admin caller or a job payload.
+  if (!userId) return { personalWeights: 0, rewardEvents: 0 };
   const [weights, rewards] = await Promise.all([
     PersonalWeights.deleteMany({ userId }),
     RewardEvent.deleteMany({ userId }),
