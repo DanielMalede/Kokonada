@@ -1,6 +1,6 @@
 # ADR-0016 — Launch platform: Android-first or dual
 
-**Status:** PROPOSED — awaiting Daniel's ruling. **The decision line at the bottom is deliberately blank.**
+**Status:** ACCEPTED — **Option A, Android-first.** Ruled by Daniel 2026-09-02.
 **Asked by:** `MASTER_BLUEPRINT_2026-07-07.md` § "OPEN DECISION — Launch platform", which says
 *"Both options are presented for Daniel; do not decide by default … Once ruled, record the decision
 as a new ADR."* It was never recorded. This is that ADR, re-costed against today's evidence rather
@@ -88,10 +88,48 @@ rather than engineering.
 
 ## Decision
 
-> **_Awaiting Daniel._** Fill in the chosen option and the date, and change Status to Accepted.
+**Chosen option: A — Android-first launch.** Ruled by Daniel, **2026-09-02**.
 
-**Chosen option:**
+**Reason, in his terms:** *no Apple enrolment exists and none has been started.* The blocker was
+never the build — CI proves that green. It is **sign + submit + verify**, and every one of those
+three sits behind a Developer Program enrolment, a signing chain and a physical device that do not
+exist yet. A launch date should not be set by a queue you have not joined.
 
-**Date:**
+**iOS is a future thing, not a launch-blocking thing.** Nothing in the plan is to be shaped around
+it. Concretely, from here:
 
-**Reason:**
+- Wave 3.1 targets **Google Play only**. The iOS submission and on-device iOS verification move to a
+  post-launch **"iOS Parity"** wave with no date attached.
+- The macOS CI job stays, stays gated (#185), and stays skipped. Keep it building so it does not rot,
+  but nothing waits on it.
+- PR **#183** (Apple sign-in hardening) may merge and sit unused. It is not on any critical path.
+- **PREREQ-iOS as written in `MASTER_BLUEPRINT_2026-07-07.md` is now factually wrong** and should be
+  struck. Its build clause — *"iOS is not buildable today"* — is false (`OPS-008`, run
+  `32992549921`). Replace it with the narrow, true statement: **signing, submission and on-device
+  iOS verification require an Apple enrolment and hardware that do not exist.**
+
+---
+
+## THE SCHEDULE, RECORDED HONESTLY
+
+**Launch is around 2027. It is not near-term, and there is no deadline.**
+
+This is written into the ADR because the opposite belief is load-bearing elsewhere and wrong.
+`MASTER_BLUEPRINT_2026-07-07.md` reads as though store submission (Wave 3) is the next thing after
+the current wave. It is not. Daniel's own assessment, 2026-09-02: **the app is not stable and there
+is a lot still to improve.**
+
+**What follows from that, and it is the operative part:**
+
+- **Nothing may be rushed on the grounds of a deadline, because there is no deadline.** Any argument
+  of the form "we need to ship, so accept this" is invalid here by construction. If a thing is not
+  right, it does not go in — there is no calendar cost to fixing it properly.
+- A REVISE verdict, a HALT, or a defect found late is **not** schedule pressure. It is the process
+  working, and the schedule can absorb it.
+- Estimates in older docs that imply an imminent submission are **stale, not targets**. Where one is
+  found, correct it rather than working toward it.
+- This also removes the usual reason to take shortcuts on evidence. On-device capture, mutation
+  proofs and re-audits cost time the project has.
+
+**Read any date in an older planning document as descriptive of when it was written, never as a
+commitment.**
