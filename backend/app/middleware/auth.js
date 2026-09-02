@@ -1,10 +1,13 @@
-const { verifyToken, COOKIE_NAME } = require('../utils/jwt');
+const { verifyToken } = require('../utils/jwt');
 const { isRevoked, revoke } = require('../utils/tokenDenylist');
 const User = require('../models/User');
 
-// Supports HTTP-only cookie (web/PWA) AND Authorization: Bearer header (native mobile).
-// Top-level OAuth "connect" navigations, which can send neither, authenticate with a
-// short-lived single-use ?ct= connect token instead of the long-lived session JWT. (audit F1)
+// Accepts `Authorization: Bearer` ONLY (BE-009). The HTTP-only session cookie used to be
+// read here first, and outranked the header when both were present — which meant an ambient
+// credential a browser attaches by itself beat the one a client deliberately sent. Nothing
+// issues that cookie any more and nothing reads it.
+// Top-level OAuth "connect" navigations, which can send neither a header nor a body,
+// authenticate with a short-lived single-use ?ct= connect token instead. (audit F1)
 module.exports = async function authMiddleware(req, res, next) {
   try {
     let payload;
@@ -33,11 +36,15 @@ module.exports = async function authMiddleware(req, res, next) {
       }
       singleUse = true;
     } else {
-      let token = req.cookies[COOKIE_NAME];
-      if (!token) {
-        const header = req.headers.authorization;
-        if (header?.startsWith('Bearer ')) token = header.slice(7);
-      }
+      // BE-009 — BEARER ONLY. This used to read `req.cookies[COOKIE_NAME]` FIRST and fall
+      // back to the header, so an ambient cookie the browser attaches by itself outranked
+      // the credential the client deliberately sent. That made every state-changing route
+      // reachable with nothing but a cookie, which is what a cross-site simple-request
+      // write exploits. An explicit header is an act by a real client; a cookie is not.
+      // The `?ct=` connect-token path above is untouched — a top-level OAuth navigation
+      // can send neither header nor body and genuinely needs it.
+      const header = req.headers.authorization;
+      const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
       if (token) payload = verifyToken(token);
     }
 
