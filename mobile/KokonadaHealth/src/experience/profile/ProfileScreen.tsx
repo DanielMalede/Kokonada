@@ -16,13 +16,11 @@ import { syncMedicalProfile, type SyncCounts } from '../../health/healthSync';
 import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../health/consentApi';
 import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
 import { createConnectController, type WearableOutcome } from '../connect/connectController';
-import { requestWatchPairing, fetchWatchStatus, revokeWatchPairing } from '../../health/watchPairingClient';
-import { clearWatchToken } from '../../health/liveHrClient';
-import { createWatchPairingFlow, type WatchPairingStore } from './watchPairingStore';
+import { fetchWatchStatus, revokeWatchPairing } from '../../health/watchPairingClient';
 import { PROVIDERS } from '../connect/providers';
 import { SPOTIFY_BETA_CONNECT } from '../connect/betaFlags';
 import { ProfileIntegrationRow } from './ProfileIntegrationRow';
-import { WatchPairingCard } from './WatchPairingCard';
+import { LiveHeartRateCard } from './LiveHeartRateCard';
 import { VaultConsentPanel } from './VaultConsentPanel';
 import { ConsentSheet } from './ConsentSheet';
 import type { ProfileSnapshot } from './profileController';
@@ -61,15 +59,6 @@ export function ProfileScreen() {
 
   const mountedRef = useRef(true);
 
-  // The watch pairing flow, bound once to the real client + Keychain seams. The card drives it.
-  const watchStore = useMemo<WatchPairingStore>(() => createWatchPairingFlow({
-    requestPairing: requestWatchPairing,
-    fetchStatus: fetchWatchStatus,
-    revoke: revokeWatchPairing,
-    clearToken: clearWatchToken,
-    now: () => Date.now(),
-  }), []);
-
   // T5 — Profile Sync rebuilt on the SAME §4 controller as ConnectServices (dedup), so the ONE
   // compliance invariant (OS health sheet only after a server-acked grant) lives in one place. A
   // Profile-specific markResolved flips consentGranted (which reveals Withdraw). The real
@@ -87,8 +76,8 @@ export function ProfileScreen() {
   const reload = useCallback(() => {
     void profileController.loadProfile().then((s) => { if (mountedRef.current) { setSnap(s); setLoaded(true); } });
     void fetchConsentStatus().then((res) => { if (mountedRef.current && res.ok) setConsentGranted(res.data.granted); });
-    void watchStore.getState().hydrate();
-  }, [watchStore]);
+    // Live-HR status is hydrated by LiveHeartRateCard itself on mount — no screen-level fetch.
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -307,7 +296,7 @@ export function ProfileScreen() {
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow
             label="Wearable"
-            reason={wearableConnected ? 'Shaping music to your body.' : 'Pair your watch below to stream live heart rate.'}
+            reason={wearableConnected ? 'Shaping music to your body.' : 'Connect a heart-rate source to stream live heart rate.'}
             statusWord={wearableConnected ? 'Connected' : 'Not connected'}
             connected={wearableConnected}
           />
@@ -320,8 +309,9 @@ export function ProfileScreen() {
           />
         </View>
 
-        {/* Watch pairing — the ephemeral 6-digit code flow (never the whr_ device token). */}
-        <WatchPairingCard store={watchStore} />
+        {/* Live heart rate — status of the phone-held whr_ device credential, and the only place
+            it can be revoked. Replaced the retired Connect IQ pairing-code card. */}
+        <LiveHeartRateCard fetchStatus={fetchWatchStatus} revoke={revokeWatchPairing} />
 
         {/* Health-data Vault — consent summary, "what we read", Sync, and the neutral withdrawal. */}
         <VaultConsentPanel

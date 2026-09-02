@@ -1,28 +1,25 @@
-import { apiGet, apiPost, apiDelete, type ApiResult } from '../net/apiClient';
+import { apiGet, apiDelete, type ApiResult } from '../net/apiClient';
 import { clearWatchToken } from './liveHrClient';
 
-// §10 Profile — the Garmin watch PAIRING-CODE seam (audit L-15). The user reads a short-lived,
-// single-use 6-digit code off the phone and types it on the watch; the watch exchanges it
-// server-side for its own long-lived whr_ device token. That whr_ is NEVER fetched, stored, or
-// rendered on this client — only the ephemeral pairing code is. All three calls ride the shared
-// apiClient (session-JWT + single-flight 401-refresh), never raw fetch, so this inherits auth.
-
-export interface WatchPairing {
-  code: string;      // the ephemeral 6-digit pairing code — never a whr_ token
-  expiresAt: string; // ISO — ~5 min TTL, single-use
-}
+// §10 Profile — the live-HR DEVICE-CREDENTIAL seam. The Garmin Connect IQ watch app that this
+// file was written for is retired, and with it the PAIRING-CODE flow (audit L-15): the watch was
+// the only party that could ever redeem a code, and it never even had a field to type one into.
+// What survives is the credential itself — the PHONE mints a whr_ device token via
+// liveHrClient.getWatchToken (POST /watch/token) for both live-HR tiers, BLE and the 3-minute
+// Health Connect fallback, and every reading rides it to POST /watch/hr.
+//
+// So the two calls below are status and REVOKE for that phone-held credential. The `/watch/*` route
+// names are now a misnomer for a surface that no longer exists; they are deliberately NOT renamed
+// here, because a deployed mobile binary pins those URLs and cannot be revved in lockstep with a
+// backend deploy. Both calls ride the shared apiClient (session-JWT + single-flight 401-refresh),
+// never raw fetch, so this inherits auth.
 
 export interface WatchStatus {
   connected: boolean;
   lastSeenAt: string | null; // updated on each HR ingest; null until the first ping
 }
 
-// POST /api/integrations/watch/pair — mints a fresh pairing code (createWatchPairing).
-export function requestWatchPairing(): Promise<ApiResult<WatchPairing>> {
-  return apiPost<WatchPairing>('/api/integrations/watch/pair');
-}
-
-// GET /api/integrations/watch/status — powers the connection badge + pairing poll.
+// GET /api/integrations/watch/status — powers the live-HR connection badge.
 export function fetchWatchStatus(): Promise<ApiResult<WatchStatus>> {
   return apiGet<WatchStatus>('/api/integrations/watch/status');
 }
