@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>15 · Components — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:860px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- board panel ---------- */
+  .bd{width:560px;border-radius:18px;border:1px solid var(--pgline);padding:20px 22px;flex:none}
+  .bd[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;
+      --brand:#8B6FE8;--brandink:#6E3FC4;--onbrand:#FFFFFF;--danger:#9E3346;--destructive:#9E3346;--accent:#3A5CCC;
+      --q-calm:#1F6FA6;--q-intense:#6E3FC4}
+  .bd[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;
+      --brand:#9B7BF0;--brandink:#9B7BF0;--onbrand:#0E1030;--danger:#FF9BA8;--destructive:#FF9BA8;--accent:#9DB4FF;
+      --q-calm:#7FCDF5;--q-intense:#C4A6FF}
+  .bd{background:var(--canvas);color:var(--ink)}
+  .nm{font:600 15px var(--disp);color:var(--ink)}
+  .tag{font:500 10.5px var(--mono);letter-spacing:.1em;color:var(--ink3)}
+  .dsc{font:400 12px/1.6 var(--text);color:var(--ink2);margin:2px 0 12px}
+  .grp{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  .btn{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:999px;
+       font:600 14px var(--text)}
+  .st{font:500 10px var(--mono);letter-spacing:.08em;color:var(--ink3);margin-top:6px}
+  .sw{display:flex;align-items:center;border-radius:999px;padding:3px;box-sizing:border-box;flex:none}
+  .sw i{display:block;border-radius:50%;background:var(--onbrand)}
+  .slid{position:relative;width:150px;height:44px;display:flex;align-items:center}
+  .slid .bg{display:block;width:100%;height:8px;border-radius:999px;outline:1px solid var(--track)}
+  .slid .fl{position:absolute;left:0;top:50%;transform:translateY(-50%);height:8px;border-radius:999px}
+  .slid .kn{position:absolute;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;background:var(--canvas)}
+  .acc{border-top:1px solid var(--line);padding:11px 0;display:flex;justify-content:space-between;align-items:center;
+       font:500 13px var(--text);color:var(--ink)}
+  .accb{font:400 12px/1.6 var(--text);color:var(--ink2);padding:0 0 11px}
+  .slot{display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;border:1px dashed var(--track);
+        font:600 9.5px var(--mono);letter-spacing:.1em;color:var(--ink3)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .cap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:880px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:262px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>15 · Components</h1>
+<p class="sub">The sheet every screen copies from. Same format note as Flow: this is a 1400&times;2000 reference document, so the live panel shows the contested components at full fidelity in both themes rather than duplicating the whole board twice.</p>
+
+<div class="card" style="border-color:#9E3346">
+  <div class="lab" style="margin-bottom:9px;color:#9E3346">The board that defines the system is the biggest remaining leak</div>
+  <p><strong>Components paints <code>#3A5CCC</code> thirty-one times.</strong> It carries 34 references to <code>--accent</code> / <code>--accentfill</code> / <code>--bartrack</code> and <strong>no <code>data-field</code> at all</strong>, so every one of them falls through to the base default &mdash; the reflective ink. That is the undeclared blue you first spotted on Onboarding, and it is now most concentrated on the sheet whose entire job is to be the reference.</p>
+  <p style="margin-bottom:0">To be precise about which uses are wrong, because most are not: I swept all 22 boards. On <strong>Field, Flow, Genesis, Main, NowPlaying, Pulse, Receipt and You</strong>, <code>--accent</code> resolves to the fused quadrant &mdash; that is the quadrant system working exactly as designed. The leak is only on boards with no field, and there are seven: <strong>Components (34), Tokens (10), the four State boards (10 between them), Plan (3), and Consent (1, which you deliberately kept)</strong>. Components and Tokens are two thirds of it.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Four things the sheet is missing or out of step on</div>
+
+  <p><strong>It still hand-draws the Spotify mark.</strong> One <code>fill="var(--spotify)"</code> path, and zero occurrences of the official-asset slot. Across Sign in, Now Playing and the Mix receipt the convention is now <em>represented, not reproduced</em> &mdash; a dashed slot standing for the official PNG, because redrawing the mark is not permitted and <code>SpotifyAttribution.tsx</code> already ships the correct asset. The sheet that defines the convention does not follow it.</p>
+
+  <p><strong>There is no Switch and no Slider.</strong> Both exist on Profile now &mdash; a 52&times;44 brand switch and a brand slider with its track. They appear on this board only as illustrations inside the two system rules, which is the wrong place: a rule shows <em>why</em>, a component entry shows the states. Neither has a documented rest / pressed / disabled matrix, and the switch has no OFF state drawn anywhere.</p>
+
+  <p><strong>There is no accordion.</strong> Connect uses two (&ldquo;Why connect music?&rdquo;, &ldquo;Why we ask for health data&rdquo;) and Consent uses eight collapsible sections. That is ten instances of one pattern across two screens, with no entry on the sheet, so its open state, its chevron rotation and its body treatment are defined nowhere.</p>
+
+  <p style="margin-bottom:0"><strong>The destructive example predates the token.</strong> The board draws &ldquo;Delete my account&rdquo; with <code>var(--danger)</code> &times;4. Since screen 13 there is a declared <code>--destructive</code>, seeded from the same red but named separately so error and destruction can diverge. The board and the source now disagree &mdash; and this is the one sheet where showing <em>both</em> side by side would make the distinction legible instead of leaving it as a comment in <code>VaultConsentPanel.tsx</code>.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What is right</div>
+  <p style="margin-bottom:0">Nine component entries, each with a state row and a rule line: Button, the four bar grammars, Row, Chip, Placement, Honest empty, State read, Mini player, Tab item. The bar-grammar entry is the strongest thing on the board &mdash; it names four meanings (a ceiling is an exclusion, a target is a point, a bias is a signed nudge, a stack is a composition) that the canvas had been drawing as one left-anchored fill. The two system rules you ratified last turn are in place and marked revisitable.</p>
+</div>
+
+<h2>The contested components</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="cap">Light</div></div>
+  <div><div id="live-dark"></div><div class="cap">Dark</div></div>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:10px">Where <code>--accent</code> resolves, per board</div>
+  <table>
+    <tr><th>Boards</th><th><code>--accent</code> uses</th><th>Resolves to</th></tr>
+    <tr><td>Field, Flow, Genesis, Main, NowPlaying, Pulse, Receipt, You</td><td>195</td><td class="pass">the fused quadrant — correct</td></tr>
+    <tr><td><strong>Components</strong></td><td><strong>34</strong></td><td class="fail">base default — <code>#3A5CCC</code></td></tr>
+    <tr><td><strong>Tokens</strong></td><td>10</td><td class="fail">base default</td></tr>
+    <tr><td>StateEmpty, StateLoading, StateNoWatch, StateOffline</td><td>10</td><td class="fail">base default</td></tr>
+    <tr><td>Plan</td><td>3</td><td class="fail">base default</td></tr>
+    <tr><td>Consent</td><td>1</td><td>base default — kept deliberately</td></tr>
+  </table>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'accent',name:'What the examples paint',hint:'34 uses on a board with no field, all landing on the reflective default.',opts:[
+   ['brand','The fixed brand accent','A component sheet has no fused state, so it should show the accent that does not vary.'],
+   ['fielded','Give the board a field','Examples show a real quadrant. Truthful, but implies these components are emotion-tinted.'],
+   ['today','Base default, as today','31 paints of the undeclared blue on the reference sheet.']]},
+ {id:'mark',name:'The Spotify mark',hint:'The sheet hand-draws it; every screen now uses an official-asset slot.',opts:[
+   ['slot','Official-asset slot','Matches Sign in, Now Playing and the Receipt. Defines the convention it belongs to.'],
+   ['both','Slot, with the rule beside it','Shows the slot and states why the mark is never redrawn.'],
+   ['drawn','Hand-drawn, as today','The sheet contradicts the convention the screens follow.']]},
+ {id:'add',name:'Components to add',hint:'Switch and Slider exist on Profile; the accordion is used ten times across Connect and Consent.',opts:[
+   ['all','Switch, Slider and Accordion','Everything the screens use has an entry with states.'],
+   ['controls','Switch and Slider only','The two with a 44px-target rule to enforce. Accordion waits.'],
+   ['none','Add nothing','Three patterns stay defined only by whichever screen drew them first.']]},
+ {id:'destructive',name:'Destructive vs error',hint:'--destructive is declared now; the sheet still shows only --danger.',opts:[
+   ['both','Show both, side by side','The distinction becomes legible instead of living in a code comment.'],
+   ['destructive','Use --destructive only','Correct, and leaves the error case undocumented here.'],
+   ['danger','Keep --danger, as today','Board and source disagree.']]},
+ {id:'states',name:'How many states per entry',hint:'Today most entries show rest / press / one more.',opts:[
+   ['key','Rest, press, disabled','Enough to build from without a wall of chips.'],
+   ['full','Every state the DoD names','rest / press / focus / disabled / loading / empty / error. Complete and long.'],
+   ['today','As today','Varies per entry; the switch has no OFF state anywhere.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'The sheet follows its own rules',tag:'MY RECOMMENDATION',
+  desc:'Fixes the leak by painting the fixed brand accent — a component sheet has no fused state to show — adopts the official-asset slot it defines, adds the three missing patterns, and puts error and destructive next to each other so the distinction is visible rather than commented.',
+  c:{accent:'brand',mark:'both',add:'all',destructive:'both',states:'key'}},
+ {key:'B',name:'Controls first',tag:'SMALLEST USEFUL',
+  desc:'Adds only the two components with a hard rule attached — the 44px target on the switch and slider — and leaves the accordion to whichever screen review reaches it. Least new surface, and it still closes the colour leak.',
+  c:{accent:'brand',mark:'slot',add:'controls',destructive:'destructive',states:'key'}},
+ {key:'C',name:'As it stands',tag:'THE BASELINE',
+  desc:'Unchanged, so the 31 paints of the undeclared blue and the hand-drawn mark are visible side by side with the alternatives rather than described.',
+  c:{accent:'today',mark:'drawn',add:'none',destructive:'danger',states:'today'}}
+];
+
+function ac(c){ return c.accent==='brand' ? 'var(--brand)' : c.accent==='fielded' ? 'var(--q-intense)' : 'var(--accent)'; }
+function acInk(c){ return c.accent==='brand' ? 'var(--brandink)' : c.accent==='fielded' ? 'var(--q-intense)' : 'var(--accent)'; }
+
+function entry(name,tag,dsc,inner){
+  return '<div class="grp"><div style="display:flex;align-items:baseline;gap:10px"><span class="nm">'+name+'</span>'+
+    '<span class="tag">'+tag+'</span></div><p class="dsc">'+dsc+'</p>'+inner+'</div>';
+}
+
+function statesFor(c,list){
+  if(c.states==='today') return list.slice(0,2);
+  if(c.states==='key') return list.slice(0,3);
+  return list;
+}
+
+function buttonNode(c){
+  var st=statesFor(c,['REST','PRESS','DISABLED','FOCUS','LOADING']);
+  return entry('Button','RADIUS.PILL &middot; MIN-HEIGHT 44','One shape, two variants. The fill carries the accent; the label never does.',
+    '<div class="row">'+st.map(function(s){
+      var dim = s==='DISABLED' ? ';opacity:.4' : '';
+      return '<span><span class="btn" style="background:'+acInk(c)+';color:var(--onbrand)'+dim+'">Generate</span>'+
+        '<div class="st">'+s+'</div></span>';}).join('')+'</div>');
+}
+
+function markNode(c){
+  if(c.mark==='drawn')
+    return entry('Brand mark','THIRD PARTY','Links back to the track on Spotify.',
+      '<div class="row"><svg width="26" height="26" viewBox="0 0 24 24" fill="var(--ink)"><circle cx="12" cy="12" r="10"/></svg>'+
+      '<span style="font:500 12px var(--text);color:var(--ink2)">hand-drawn path</span></div>');
+  var rule = c.mark==='both'
+    ? '<p class="dsc" style="margin-top:8px">Never redrawn. <span style="color:var(--ink)">SpotifyAttribution.tsx</span> ships the official PNGs at their intrinsic 3432:940 ratio; the canvas represents the slot and the compliance gate fills it.</p>' : '';
+  return entry('Brand mark','OFFICIAL ASSET ONLY','Represented on the canvas, never reproduced.',
+    '<div class="row"><span class="slot">OFFICIAL SPOTIFY MARK</span><span class="slot">OFFICIAL APPLE BUTTON</span></div>'+rule);
+}
+
+function controlsNode(c){
+  if(c.add==='none') return '';
+  var st=statesFor(c,['ON','OFF','DISABLED','FOCUS','LOADING']);
+  var sw='<div class="row">'+st.slice(0,3).map(function(s){
+      var on = s==='ON';
+      var dim = s==='DISABLED' ? ';opacity:.4' : '';
+      return '<span><span style="display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px">'+
+        '<span class="sw" style="width:52px;height:32px;justify-content:'+(on?'flex-end':'flex-start')+
+        ';background:'+(on?ac(c):'var(--track)')+dim+'"><i style="width:26px;height:26px"></i></span></span>'+
+        '<div class="st">'+s+'</div></span>';}).join('')+'</div>';
+  var sl='<div class="row"><span class="slid"><span class="bg" style="background:color-mix(in srgb,'+ac(c)+' 18%,transparent)"></span>'+
+    '<span class="fl" style="width:35%;background:'+ac(c)+'"></span>'+
+    '<span class="kn" style="left:35%;border:1.5px solid '+ac(c)+'"></span></span>'+
+    '<span style="font:500 10px var(--mono);color:var(--ink3)">TRACK DERIVES FROM THE FILL HUE &middot; TARGET 44</span></div>';
+  var out = entry('Switch','MIN-TARGET 44 &middot; PILL 52&times;32','The drawn pill is 52&times;32; the target around it is never under 44.',sw)
+          + entry('Slider','MIN-TARGET 44','A value in a range. The knob sits on the fill, and the track takes the same hue.',sl);
+  if(c.add==='all')
+    out += entry('Accordion','TEN INSTANCES &middot; CONNECT + CONSENT','Title always visible; body only when open. The chevron rotates 180&deg;, it does not swap glyph.',
+      '<div><div class="acc"><span>Why we ask for health data</span>'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" style="transform:rotate(180deg)"><path d="M6 8l4 4 4-4"/></svg></div>'+
+      '<div class="accb">Kokonada turns how your body is doing into music tuned to you. Read only with your explicit say-so.</div>'+
+      '<div class="acc"><span>Why connect music?</span>'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 8l4 4 4-4"/></svg></div>'+
+      '<div class="st">OPEN &middot; CLOSED</div></div>');
+  return out;
+}
+
+function destructiveNode(c){
+  if(c.destructive==='danger')
+    return entry('Destructive action','STATE.DANGER','The only red on the canvas.',
+      '<div class="row"><span class="btn" style="border:1.5px solid var(--danger);color:var(--danger)">Delete my account</span></div>');
+  if(c.destructive==='destructive')
+    return entry('Destructive action','--DESTRUCTIVE','A deliberate, final act the user is choosing.',
+      '<div class="row"><span class="btn" style="border:1.5px solid var(--destructive);color:var(--destructive)">Delete my account</span></div>');
+  return entry('Error and destructive','TWO MEANINGS, TWO TOKENS','Seeded from the same red today, declared separately so they can diverge.',
+    '<div class="row">'+
+    '<span><span class="btn" style="border:1.5px solid var(--danger);color:var(--danger)">Sign-in didn&rsquo;t complete</span>'+
+    '<div class="st">--DANGER &middot; SOMETHING WENT WRONG</div></span>'+
+    '<span><span class="btn" style="border:1.5px solid var(--destructive);color:var(--destructive)">Delete my account</span>'+
+    '<div class="st">--DESTRUCTIVE &middot; A FINAL ACT YOU CHOSE</div></span></div>');
+}
+
+function board(theme,c){
+  return '<div class="bd" data-t="'+theme+'">'+
+    '<div style="font:600 20px/1.25 var(--disp);letter-spacing:-.01em;margin-bottom:2px">The contested entries</div>'+
+    '<p class="dsc">Everything else on the sheet is unchanged.</p>'+
+    buttonNode(c)+markNode(c)+controlsNode(c)+destructiveNode(c)+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=board('light',state);
+  document.getElementById('live-dark').innerHTML=board('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+board('light',v.c)+'</div><div class="cap">Light</div></div>'+
+      '<div><div>'+board('dark',v.c)+'</div><div class="cap">Dark</div></div>'+
+      '<div style="align-self:flex-start"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 15 — COMPONENTS — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-');
+    lines.push(row.name.padEnd(26,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

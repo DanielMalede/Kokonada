@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+@keyframes glowbreath { 0%,100% { opacity:.45; } 50% { opacity:.75; } }
+    @media (prefers-reduced-motion: reduce) {
+      [style*="animation:breathe"], [style*="animation:glowbreath"] { animation: none !important; opacity:.55 !important; }
+    }
+  </style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column">
+
+  <div style="position:absolute;left:0;right:0;top:0;height:420px;background:radial-gradient(ellipse 92% 100% at 50% 0%,var(--bloom),transparent 72%)"></div>
+
+  <div style="height:44px;flex:none"></div>
+
+  <div style="position:relative;display:flex;justify-content:flex-end;padding:0 18px;flex:none">
+    <span style="display:flex;align-items:center;min-height:44px;padding:0 12px;font:500 13px var(--text);color:var(--ink3)">Skip</span>
+  </div>
+
+  <div style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;min-height:0">
+    <svg width="330" height="330" viewBox="0 0 330 330" role="img" aria-label="A disc. Left to right is unpleasant to pleasant, bottom to top is low to high energy. One practice placement sits lower right: pleasant, low energy.">
+      <defs>
+        <radialGradient id="obPlate" cx="42%" cy="34%" r="78%">
+          <stop offset="0%" stop-color="var(--plate)"></stop>
+          <stop offset="100%" stop-color="var(--sunken)"></stop>
+        </radialGradient>
+        <radialGradient id="obHalo" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="var(--ink)" stop-opacity=".16"></stop>
+          <stop offset="100%" stop-color="var(--ink)" stop-opacity="0"></stop>
+        </radialGradient>
+      </defs>
+
+      <circle cx="165" cy="165" r="150" fill="url(#obPlate)" stroke="var(--line)" stroke-opacity=".6"></circle>
+      <line x1="165" y1="118" x2="165" y2="212" stroke="var(--line)" stroke-dasharray="1 9" opacity=".5"></line>
+      <line x1="118" y1="165" x2="212" y2="165" stroke="var(--line)" stroke-dasharray="1 9" opacity=".5"></line>
+
+      <g opacity=".65" style="fill:var(--ink);font:700 9.5px var(--mono);letter-spacing:1.3px">
+        <text x="165" y="45"  text-anchor="middle">HIGH ENERGY</text>
+        <text x="165" y="294" text-anchor="middle">LOW ENERGY</text>
+        <text x="29"  y="169" text-anchor="start">UNPLEASANT</text>
+        <text x="301" y="169" text-anchor="end">PLEASANT</text>
+      </g>
+
+      <circle cx="225" cy="215" r="46" fill="url(#obHalo)" style="animation:glowbreath 4200ms ease-in-out infinite;transform-origin:225px 215px"></circle>
+      <circle cx="225" cy="215" r="15" fill="none" stroke="var(--track)" stroke-width="1"></circle>
+      <circle cx="225" cy="215" r="7" fill="var(--ink)"></circle>
+    </svg>
+  </div>
+
+  <div style="position:relative;padding:0 26px 26px;flex:none">
+    <h1 style="margin:0 0 10px;font:600 28px/1.18 var(--disp);letter-spacing:-.02em;color:var(--ink)">Place how it feels.</h1>
+    <p style="margin:0 0 18px;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:300px">Up to three places, or say it in words.</p>
+
+    <div style="display:flex;flex-direction:column;gap:3px;padding:13px 16px;margin:0 0 20px;border-radius:14px;background:var(--sunken);border:1px solid var(--line)">
+      <div style="font:600 15px var(--disp);color:var(--ink)">Settled, fairly even</div>
+      <div style="font:700 10px var(--mono);letter-spacing:.14em;color:var(--track)">PRACTICE READ &middot; NOT SAVED</div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border-radius:999px;background:var(--inkbtn);color:var(--onink);font:600 16.5px var(--disp)">Continue</div>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

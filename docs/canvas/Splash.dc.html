@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+@keyframes breathe { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+    @keyframes glowbreath { 0%,100% { opacity:.45; } 50% { opacity:.75; } }
+    @keyframes waitdot { 0%,100% { opacity:.35; } 50% { opacity:.9; } }
+    @media (prefers-reduced-motion: reduce) {
+      [style*="animation:breathe"], [style*="animation:glowbreath"], [style*="animation:waitdot"] { animation: none !important; opacity:.55 !important; }
+    }
+  </style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px">
+
+  <div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:340px;height:340px;border-radius:50%;background:radial-gradient(circle,var(--bloom),transparent 66%)"></div>
+
+  <svg width="150" height="46" viewBox="0 0 150 40" style="position:relative;display:block;animation:breathe 4200ms ease-in-out infinite" role="img" aria-label="Kokonada">
+    <path d="M8 20 q14 -16 28 0 t28 0 t28 0 t28 0" fill="none" stroke="var(--ink)" stroke-width="2.2" stroke-linecap="round"></path>
+  </svg>
+
+  <div style="position:relative;text-align:center">
+    <div style="font:600 27px/1 var(--disp);letter-spacing:-.01em;color:var(--ink)">kokonada</div>
+    <svg width="150" height="10" viewBox="0 0 150 10" style="display:block;margin:7px auto 0">
+      <line x1="0" y1="5" x2="150" y2="5" stroke="var(--track)" stroke-width="1"></line>
+    </svg>
+  </div>
+
+  <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:130px;width:7px;height:7px;border-radius:50%;background:var(--track);animation:waitdot 2600ms ease-in-out infinite" role="status" aria-label="Restoring your session"></div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>
