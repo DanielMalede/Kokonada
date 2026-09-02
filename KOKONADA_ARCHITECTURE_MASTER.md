@@ -3,13 +3,64 @@
 > **Purpose:** A new AI session reads this file and instantly resumes the exact persona,
 > context, protocols, and architectural state of the Kokonada "Monster Machine" build.
 > Written 2026-07-03 at the completion of the backend (Phases 0–7).
-> **Last updated 2026-07-04** — Sprint A11 shipped; now in the Road-to-Launch squads.
+> **Last updated 2026-09-02** — Wave 4 (Runtime Intelligence) complete and merged; see the WAVE 4 UPDATE block at the top of Section 0.
 > **START WITH SECTION 0 below** — it is the authoritative current state and supersedes
 > the older "Current State & Next Step" blocks in Sections 4 and D.
 
 ---
 
-## 0. CURRENT STATE — ROAD TO LAUNCH (updated 2026-07-07, READ THIS FIRST)
+## 0. CURRENT STATE (READ THIS FIRST)
+
+### WAVE 4 UPDATE — RUNTIME INTELLIGENCE (2026-09-02, READ THIS BEFORE THE 2026-07-07 BLOCK BELOW)
+
+> Supersedes the 2026-07-07 state below for everything backend/intelligence. That block is **kept as
+> history** and is still correct about what shipped through PR #78 — it is simply ~340 commits stale.
+> Authoritative measured facts: `docs/GROUND_TRUTH_2026-09-02.md`. Closeout package:
+> `docs/plans/WAVE4_REPORT.md`. Live run state: `docs/plans/WAVE4_STATE.md`.
+
+**Wave 4 (Runtime Intelligence) is complete and merged.** PRs #179 (`44fd951`) and #180 (`0e19ad8`) are
+in `main`. It rebuilt both intelligence engines against twenty confirmed ground-truth defects (D1–D20),
+all of which are addressed; one (D19, embedding v2) ships dark behind flags awaiting an Atlas index.
+
+**Test baselines:** backend **232 suites / 3866 tests** green (`cd backend && npm test`, exit 0,
+475 s, `--runInBand`), up from 91/1126; lint **0 errors / 22 warnings**. Mobile **48 suites / 416 tests**,
+untouched this wave (backend-only) — `./node_modules/.bin/jest` from `mobile/KokonadaHealth`.
+
+**What is new, structurally:**
+- **`backend/app/agents/runtime/`** — 16 modules implementing `docs/RUNTIME_AGENT_ARCHITECTURE.md`.
+  These are backend services, **not** Claude Code sub-agents. Ingestion (Hampel + slew + Kalman anomaly
+  filter), physiology (personal baselines, cosinor chronobiology, the affect engine, nightly analysis,
+  the live state adapter), knowledge (a **34-state / 6-domain** taxonomy, novelty bandit, explain
+  templates), translation (the wellbeing regulator), delivery (the trajectory planner), learning (the
+  ADR-0012 two-track feedback loop).
+- **`backend/sim/`** — a seeded synthetic-human simulator and replay harness (personas, generator,
+  replay, soak, state scripts, coverage measurement) that drives the real ingest stack against
+  `mongodb-memory-server`. Soak lanes are gated by `RUN_SOAK=1` and stay out of the default CI budget.
+- **Four new collections** — `VitalSample`, `RewardEvent`, `MorningState`, `PersonalWeights` — each
+  registered in the erasure cascade, Redis purge, wearable-scoped erasure and the Art. 15 export in the
+  same PR that introduced it.
+- **Three new ADRs** — `0012-learning-compliance`, `0013-state-model`, `0014-embedding-v2`.
+
+**What changed in behaviour that a listener can notice:** stress no longer forces cheerful music
+(the old `max(moodValence, 0.6)` floor is gone — regulation is done by trajectory, per VISION §6);
+a workout no longer reads as maximal stress; scoring totals are normalised and band width finally
+affects fit; one measured dimension can no longer fake a perfect score; playlists are ordered along an
+arc instead of by score; taste decays with a ~90-day time constant; recalibration triggers on taxonomy
+state rather than bpm deltas; live readings are filtered and persisted. Full before/after list with
+evidence: `WAVE4_REPORT.md` §4.
+
+**Every serving-path change has an env kill-switch** that restores the prior behaviour with no revert and
+no deploy (`WAVE4_*_DISABLED`, parsed by `backend/app/utils/envFlag.js`, pinned by
+`tests/wave4.killSwitchSpelling.test.js`). None are set in production.
+
+**What is still open:** the embedding-v2 read cutover (needs an Atlas index + a `DISCOVERY_MIN_COSINE`
+retune), the user-facing taxonomy vocabulary (compliance review), consent v2 metrics (built and dormant),
+and every mobile-side follow-up — `tzOffsetMinutes` emission, `playback_event` emission, and rendering
+the Pulse/MorningState superset. See `WAVE4_REPORT.md` §8 and §10.
+
+---
+
+### 2026-07-07 STATE — ROAD TO LAUNCH (history; superseded above for anything backend/intelligence)
 
 > Supersedes the "Current State & Next Step" blocks in Section 4 and Section D below
 > (both predate Sprint A11 and the Road-to-Launch squads). Everything through **Sprint
