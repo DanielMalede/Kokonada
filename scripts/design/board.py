@@ -146,7 +146,24 @@ var s=sig.join(';'),hsh=0;
 for(var i=0;i<s.length;i++){hsh=((hsh<<5)-hsh+s.charCodeAt(i))|0;}
 out.txt=vis.length;out.sig=(hsh>>>0).toString(16);
 out.sigs=[];
-[0,2100].forEach(function(T){
+// THE SEEK PHASES, chosen rather than arbitrary. They were [0, 2100] -- two bare literals with
+// no stated reason, i.e. a magic number inside the instrument that produces every piece of
+// visual evidence on this project.
+//
+// 3000ms is the FIELD phase. The two lobes run at different periods with an offset: .fld1 is
+// 4200ms undelayed, .fld2 is --d-field (5670ms) delayed 1400ms, and that offset IS the gesture
+// (20:27 gives ~113s before the field visibly repeats). At 2100 the capture put .fld1 at its .75
+// ceiling and .fld2 at ~.488 -- a hair above its .45 floor. One lobe lit, one effectively off:
+// every field judgement ever made was made on a frame depicting exactly the "partial port that
+// loses the entire gesture" that DECISION_TWO_LOBE_FIELD.md warns against. At 3000 both land at
+// ~.636 / ~.633 -- both plainly lit, told apart by position and size, not by one being off.
+//
+// NOT a common phase, deliberately: 4200m - 5670n = 2135 has no solution (gcd 210), so the lobes
+// NEVER reach their 50% keyframes together. A both-at-peak capture would depict a frame the
+// product cannot render.
+//
+// 0 stays as the second sample so a motion change that alters the shape still moves a hash.
+[0,3000].forEach(function(T){
  // CSS cannot re-seek a RUNNING animation: animation-delay only applies at start,
  // and animation-play-state:paused stops it wherever it already is. Both leave the
  // phase dependent on capture timing, which is the non-determinism being fixed.
@@ -316,6 +333,11 @@ def _dump(url, PW, PH):
 
 
 def _shot(url, PW, PH, path):
+    # COUPLING, undeclared until now: the seek reaches this screenshot only because PROBE's 800ms
+    # timer fires well inside the 2800ms budget below. Two constants, two functions, neither
+    # referencing the other. Lose that headroom and the capture silently goes unpinned with nothing
+    # to report it. Proven pinned by a 2x2 control: the staged file is PIXEL-IDENTICAL at 2800 and
+    # 4000 (0 of 329160 px), while the raw board differs by 5.15%.
     if os.path.exists(path):
         os.remove(path)
     subprocess.run([CHROME, '--headless', '--disable-gpu', f'--window-size={PW},{PH}',
