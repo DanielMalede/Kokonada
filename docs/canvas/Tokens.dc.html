@@ -42,8 +42,8 @@
     <p style="margin:0 0 24px;font:400 12.5px/1.65 var(--text);color:var(--ink2);max-width:1000px">All four are the shipped <span class="mono">emotionAccent</span> inks, unchanged. Amber is reachable only when the <em>fused</em> read is genuinely bright and resourced — the never-warm constraint binds on high-arousal <strong>negative</strong> states, which is distress, not arousal. A depleted body reading high arousal resolves to intense, so the warm pole never appears on a screen that has just told you you are running on empty.</p>
     <div class="lab" style="margin-bottom:14px">NEUTRALS AND STATE — LIGHT / DARK, MEASURED ON THE CANVAS</div>
     <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:20px">
-      <div><div class="sw" style="background:var(--paper-l)"></div><div style="margin-top:7px;font:600 12.5px var(--text);color:var(--ink)">canvas</div><div class="mono">#FAFAFF · #0B0D26</div></div>
-      <div><div class="sw" style="background:var(--ink-l)"></div><div style="margin-top:7px;font:600 12.5px var(--text);color:var(--ink)">ink</div><div class="mono">#14163A · #EEF1FC</div><div style="margin-top:3px"><span class="ok">16.74 : 1</span></div></div>
+      <div><div class="sw" style="background:var(--paper-l)"></div><div style="margin-top:7px;font:600 12.5px var(--text);color:var(--ink)">canvas</div><div class="mono">#FAFAFF · #0E1030</div></div>
+      <div><div class="sw" style="background:var(--ink-l)"></div><div style="margin-top:7px;font:600 12.5px var(--text);color:var(--ink)">ink</div><div class="mono">#14163A · #EEF0FF</div><div style="margin-top:3px"><span class="ok">16.74 : 1</span></div></div>
       <div><div class="sw" style="background:var(--ink3-l)"></div><div style="margin-top:7px;font:600 12.5px var(--text);color:var(--ink)">ink3 · track</div><div class="mono">#6A6589 · #A7A6D0</div><div style="margin-top:3px"><span class="ok">5.26 : 1</span></div></div>
       <div><div class="sw" style="background:var(--bartrack)"></div><div style="margin-top:7px;font:600 12.5px var(--text);color:var(--ink)">bartrack</div><div class="mono">accent @ 18% / 22%</div><div style="margin-top:3px"><span class="ok">4.50 : 1</span> <span style="font:400 11.5px var(--text);color:var(--ink2)">vs its fill</span></div></div>
       <div><div class="sw" style="background:var(--danger-l)"></div><div style="margin-top:7px;font:600 12.5px var(--text);color:var(--ink)">danger</div><div class="mono">#9E3346 · #FF9BA8</div><div style="margin-top:3px"><span class="ok">6.69 : 1</span> <span style="font:400 11.5px var(--text);color:var(--ink2)">deletion only</span></div></div>
@@ -116,7 +116,7 @@
         <span class="mono">base · 240</span><span>Commit → Genesis</span>
         <span class="mono">slow · 420</span><span>Genesis → Now Playing</span>
         <span class="mono">breath · 4200</span><span>The brand gesture, all four appearances</span>
-        <span class="mono">fieldBreath · 5670</span><span>The ambient living field &mdash; Field, Genesis, Main, NowPlaying, Pulse, You</span>
+        <span class="mono">fieldBreath · 5670</span><span>The ambient living field &mdash; Field, Genesis, Main, NowPlaying, Pulse</span>
         <span class="mono">flow · 15000</span><span><span style="color:var(--ink)">In use</span> &mdash; the shipped ambient aurora drift period (<span class="mono">auroraField.ts</span>), pinned by a seam test. It is not the canvas field’s period; those are different fields.</span>
         <span class="mono">ease/calm</span><span>cubic-bezier(.22, 1, .36, 1) — settles, never snaps</span>
       </div>
@@ -151,8 +151,8 @@
         <p style="margin:0 0 10px;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Ten durations sit outside the declared scale. <span style="color:var(--ink)">A scale nothing obeys is decoration</span>, so they are counted here rather than assumed away.</p>
         <div style="display:grid;grid-template-columns:56px 44px 1fr;gap:6px 12px;font:400 12px/1.4 var(--text);color:var(--ink2)">
           <span class="mono" style="color:var(--ink3)">MS</span><span class="mono" style="color:var(--ink3)">USES</span><span class="mono" style="color:var(--ink3)">WHAT IT IS</span>
-          <span class="mono" style="color:var(--ink)">5670</span><span class="mono">6&times;</span><span>The ambient field &mdash; <span style="color:var(--ink)">now declared as fieldBreath</span>, no longer off-scale</span>
-          <span class="mono" style="color:var(--ink)">1400</span><span class="mono">9&times;</span><span><span style="color:var(--ink)">Two different things.</span> Six are the second field lobe’s phase offset = <span class="mono">breath/3</span>, which is legitimate and shipped as <span class="mono">SPLASH_DWELL_MS</span>. Three are the skeleton pulse, which the app runs at <span class="mono">breath</span> = 4200 &mdash; the canvas drew it 3&times; too fast.</span>
+          <span class="mono" style="color:var(--ink)">5670</span><span class="mono">5&times;</span><span>The ambient field &mdash; <span style="color:var(--ink)">now declared as fieldBreath</span>, no longer off-scale</span>
+          <span class="mono" style="color:var(--ink)">1400</span><span class="mono">5&times;</span><span>All five are the second field lobe’s phase offset = <span class="mono">breath/3</span>, which is legitimate and shipped as <span class="mono">SPLASH_DWELL_MS</span>. <span style="color:var(--ink)">This row used to say 9&times; and “Three are the skeleton pulse, drawn 3&times; too fast”</span> &mdash; both halves are now stale: the skeleton was corrected, and the sixth lobe offset went with You’s dead field block. Counted fresh 2026-09-02.</span>
           <span class="mono">2600</span><span class="mono">1&times;</span><span>&mdash;</span>
           <span class="mono">760</span><span class="mono">1&times;</span><span>&mdash;</span>
           <span class="mono">560</span><span class="mono">2&times;</span><span>&mdash;</span>
@@ -189,7 +189,7 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":2641}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":2647}}'>
 class Component extends DCLogic {
   renderVals() {
     return { theme: this.props.theme ?? 'light' };

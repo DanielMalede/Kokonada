@@ -15,7 +15,14 @@ four blobs (`sky` / `violet` / `gold` / `pink`) at fixed fractional positions, d
 `motion.duration.flow` = 15000ms, pinned by `auroraField.test.ts:48` — *"is exactly PERIODIC over
 motion.duration.flow (the loop never seams)."*
 
-**What six canvas boards draw** — `Field`, `Genesis`, `Main`, `NowPlaying`, `Pulse`, `You`: two lobes,
+> **Count corrected 2026-09-02: six → five.** `You` was removed from this list because its
+> field block **painted nothing** — no `.fldwrap` element existed in the body and the root
+> carried no `data-field`, so its selectors could never match. `Field.dc.html:121` says You is
+> *meant* to be flat paper ("a legal choice is never tinted by how you feel"). The dead block
+> was deleted rather than tokenised. This matters here because this file gates whether the
+> field is ever built, and it was naming a board that provably has no field.
+
+**What five canvas boards draw** — `Field`, `Genesis`, `Main`, `NowPlaying`, `Pulse`: two lobes,
 periods 4200ms and 5670ms, under the law stated at `Field.dc.html`: `T = 4200 + 2000 × stress`, with
 the second lobe at a fixed `1.35 × T`.
 
@@ -24,7 +31,7 @@ it never becomes four drifting blobs again."* That is a repudiation of the shipp
 
 **No ADR, spec section or task authorises it.** `docs/UI_UX_OVERHAUL_SPEC.md:15` requires only "a big,
 soft, breathing field" — it ratifies neither implementation. Daniel has no record of approving it.
-**Being drawn on six boards is not authorisation**, which is precisely why this file exists.
+**Being drawn on five boards is not authorisation**, which is precisely why this file exists.
 
 ## The blocker — ratification is not currently possible
 
@@ -57,7 +64,7 @@ the regulator ethic would be silently dead. No structural check can catch that; 
 | **Precondition** | **Reconcile 6200 vs 6300 first.** Blocking. | none |
 | **App change** | Replace the geometry in `auroraField.ts` and the renderer in `LivingAurora.tsx`; implement `T = 4200 + 2000×stress` and the `1.35` second lobe | **none** |
 | **Test change** | Rewrites `auroraField.test.ts` — and the **seam test's premise dies**: at a 20:27 ratio the two lobes realign only every **113.4 seconds**, so *"exactly periodic over `flow`"* is no longer the contract. A replacement invariant has to be designed, not just renamed | none |
-| **Canvas change** | none — six boards already draw it | Six boards' field CSS back to four radial blobs at the shipped fractional positions; delete `--d-field`; **rewrite `Field.dc.html` entirely**, since the two-lobe field is its whole thesis |
+| **Canvas change** | none — five boards already draw it | Five boards' field CSS back to four radial blobs at the shipped fractional positions; delete `--d-field`; **rewrite `Field.dc.html` entirely**, since the two-lobe field is its whole thesis |
 | **Also needs** | Re-verify contrast over a changed field; a `designer` pass, because this is the app's signature gesture | A fresh review of the Field board |
 | **Reversibility** | **Low.** Once the four-blob geometry is replaced it is gone | **High** |
 
@@ -78,7 +85,7 @@ convention `Connect.dc.html` already uses, plus a note naming the shipped render
 
 The recurring defect in this project is *a board promising what the app cannot produce **without
 saying so***. A board that says so is the honest version of the same drawing. It is not a resolution
-and must not be mistaken for one — six boards still depict a renderer that does not exist.
+and must not be mistaken for one — five boards still depict a renderer that does not exist.
 
 ## Related
 
