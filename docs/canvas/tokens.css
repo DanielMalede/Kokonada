@@ -182,7 +182,17 @@
   --a-wash:var(--a-wash-l);
   --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-field), transparent);
   --accentwash: color-mix(in srgb, var(--accent-hue) var(--a-wash), transparent);
-  --bartrack:var(--accentfill);
+  /* --bartrack is a NEUTRAL SURFACE, not the emotion (S2-2). It used to be a pure alias
+     of --accentfill, so every bar track, switch-OFF state, skeleton and unlit tick was
+     tinted by the user's mood. None of those is a surface the emotion should colour --
+     they are the REMAINDER, the part not yet filled. The app agrees and always has:
+     PulseScreen.tsx:160 passes trackColor={c.surface.overlay} and :168 passes
+     {c.surface.hairline}. It has never tinted a track.
+     This also stops the emotion being painted TWICE on one object -- track and fill --
+     which is what diluted it, and it fixes Genesis's unlit tick being a faint version of
+     the lit one in the same hue. The 3:1 boundary is unaffected: every one of these
+     already carries outline:1px solid var(--track) (--ink3, 5.26:1). */
+  --bartrack:var(--sunken);
 
   --violet:var(--violet-l);
   --violetfill: color-mix(in srgb, var(--hue-violet) var(--a-violetfill), transparent);
@@ -220,7 +230,7 @@
   --a-wash:var(--a-wash-d);
   --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-field), transparent);
   --accentwash: color-mix(in srgb, var(--accent-hue) var(--a-wash), transparent);
-  --bartrack:var(--accentfill);
+  --bartrack:var(--sunken);
 
   --violet:var(--violet-d);
   --danger:var(--danger-d);
@@ -237,13 +247,13 @@
 /* The quadrant fields. Each sets ONE hue and ONE ink; the fill and the bar
    track derive, so a re-tint can no longer leave the fill on the old colour. */
 .qi[data-field="calm"], .qi [data-field="calm"], .doc[data-field="calm"], .doc [data-field="calm"] { --accent:var(--ink-calm-l); --accent-hue:var(--hue-calm);
-  --accentfill: color-mix(in srgb, var(--hue-calm) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-calm) var(--a-wash), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-calm) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-calm) var(--a-wash), transparent); }
 .qi[data-field="joyful"], .qi [data-field="joyful"], .doc[data-field="joyful"], .doc [data-field="joyful"] { --accent:var(--ink-joyful-l); --accent-hue:var(--hue-joyful);
-  --accentfill: color-mix(in srgb, var(--hue-joyful) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-joyful) var(--a-wash), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-joyful) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-joyful) var(--a-wash), transparent); }
 .qi[data-field="intense"], .qi [data-field="intense"], .doc[data-field="intense"], .doc [data-field="intense"] { --accent:var(--ink-intense-l); --accent-hue:var(--hue-intense);
-  --accentfill: color-mix(in srgb, var(--hue-intense) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-intense) var(--a-wash), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-intense) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-intense) var(--a-wash), transparent); }
 .qi[data-field="reflective"], .qi [data-field="reflective"], .doc[data-field="reflective"], .doc [data-field="reflective"] { --accent:var(--ink-reflective-l); --accent-hue:var(--hue-reflective);
-  --accentfill: color-mix(in srgb, var(--hue-reflective) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-reflective) var(--a-wash), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-reflective) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-reflective) var(--a-wash), transparent); }
 
 .qi[data-theme="dark"][data-field="calm"], .qi[data-theme="dark"] [data-field="calm"], .doc[data-theme="dark"][data-field="calm"], .doc[data-theme="dark"] [data-field="calm"] { --accent:var(--ink-calm-d); }
 .qi[data-theme="dark"][data-field="joyful"], .qi[data-theme="dark"] [data-field="joyful"], .doc[data-theme="dark"][data-field="joyful"], .doc[data-theme="dark"] [data-field="joyful"] { --accent:var(--ink-joyful-d); }
