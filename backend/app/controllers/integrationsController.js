@@ -372,69 +372,6 @@ exports.youtubeCallback = async (req, res) => {
   }
 };
 
-// POST /api/integrations/youtube/connect-gis  (auth required)
-// Receives the authorization code from the GIS popup flow (client-side initCodeClient).
-// Identity comes from the auth middleware (Bearer token), not from a state JWT.
-exports.youtubeConnectGIS = async (req, res, next) => {
-  try {
-    const { code } = req.body ?? {};
-    if (!code) return res.status(400).json({ error: 'youtube_missing_code' });
-
-    const tokens = await youtube.exchangeCodeFromGIS(code);
-    await youtube.getChannel(tokens.accessToken);
-
-    req.user.musicProvider = 'youtube';
-    req.user.setToken('youtubeMusicToken', tokens);
-    await req.user.save();
-
-    setImmediate(async () => {
-      try { await buildProfile(req.user._id.toString(), req.user); }
-      catch (e) { console.error('[musicProfile] YouTube build failed:', e.message); }
-    });
-
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// POST /api/integrations/youtube/exchange  (PUBLIC — called by the Vercel frontend callback page)
-// The frontend receives the OAuth code from Google and posts it here for server-side exchange.
-// Identity is recovered from the signed state (same as the GET callback).
-exports.youtubeExchange = async (req, res) => {
-  try {
-    const { code, state } = req.body ?? {};
-    if (!code || !state) return res.status(400).json({ error: 'youtube_missing_params' });
-
-    const recovered = await userFromOauthState(state, 'youtube');
-    if (!recovered) return res.status(400).json({ error: 'youtube_state' });
-    const { user, payload } = recovered;
-
-    const tokens = await youtube.exchangeCode(code, payload.cv);
-    await youtube.getChannel(tokens.accessToken);
-
-    user.musicProvider = 'youtube';
-    user.setToken('youtubeMusicToken', tokens);
-    await user.save();
-    await burnState(payload);
-
-    setImmediate(async () => {
-      try { await buildProfile(user._id.toString(), user); }
-      catch (e) { console.error('[musicProfile] YouTube build failed:', e.message); }
-    });
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[YouTube Exchange Catch]', {
-      status:  err?.response?.status,
-      data:    err?.response?.data,
-      message: err?.message,
-      stack:   err?.stack,
-    });
-    res.status(500).json({ error: 'youtube_failed' });
-  }
-};
-
 // DELETE /api/integrations/youtube/disconnect
 // Cleanly removes YouTube as a data source and leaves the user with a provider-consistent
 // profile: (1) clear the YT token, (2) purge the YouTube-tainted candidate-pool cache,
@@ -745,70 +682,9 @@ exports.issueWatchToken = async (req, res, next) => {
 exports.revokeWatchToken = async (req, res, next) => {
   try {
     req.user.watchToken = null;
-    req.user.watchPairing = null; // a stale in-flight pairing must not outlive a disconnect
     req.user.wearableProvider = null;
     await req.user.save();
     res.json({ message: 'Watch disconnected' });
-  } catch (err) { next(err); }
-};
-
-const WATCH_PAIRING_TTL_MS = 5 * 60 * 1000; // 5 minutes — short-lived, single-use
-const WATCH_PAIRING_CODE_LEN = 6; // digits — fast to key in on a watch bezel/buttons
-const WATCH_PAIRING_MAX_ATTEMPTS = 5; // collision-avoidance retries at mint time
-
-function randomPairingCode() {
-  return crypto.randomInt(0, 10 ** WATCH_PAIRING_CODE_LEN).toString().padStart(WATCH_PAIRING_CODE_LEN, '0');
-}
-
-// POST /api/integrations/watch/pair  (auth required)
-// Mints a short-lived, single-use pairing code shown in the browser INSTEAD of
-// the long-lived device token (audit L-15). The watch exchanges this code,
-// server-side, for its own whr_ token via exchangeWatchPairing below.
-exports.createWatchPairing = async (req, res, next) => {
-  try {
-    let code = null;
-    let hash = null;
-    for (let attempt = 0; attempt < WATCH_PAIRING_MAX_ATTEMPTS && !code; attempt += 1) {
-      const candidate = randomPairingCode();
-      const candidateHash = sha256Hex(candidate);
-      // eslint-disable-next-line no-await-in-loop -- bounded (<=5), correctness over throughput
-      const collision = await User.exists({
-        'watchPairing.hash': candidateHash,
-        'watchPairing.expiresAt': { $gt: new Date() },
-      });
-      if (!collision) { code = candidate; hash = candidateHash; }
-    }
-    if (!code) return res.status(503).json({ error: 'Could not allocate a pairing code — try again' });
-
-    const expiresAt = new Date(Date.now() + WATCH_PAIRING_TTL_MS);
-    req.user.watchPairing = { hash, expiresAt };
-    await req.user.save();
-    res.status(201).json({ code, expiresAt: expiresAt.toISOString() });
-  } catch (err) { next(err); }
-};
-
-// POST /api/integrations/watch/pair/exchange  (PUBLIC — the watch has no session;
-// it authenticates with the freshly-typed one-time code instead)
-// Single-use: the atomic findOneAndUpdate both matches AND clears watchPairing in
-// one round-trip (`{ new: true }` returns the POST-update doc), so two concurrent
-// exchange attempts for the same code can't both succeed.
-exports.exchangeWatchPairing = async (req, res, next) => {
-  try {
-    const { code } = req.body || {};
-    if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
-      return res.status(400).json({ error: 'code must be a 6-digit string' });
-    }
-    const hash = sha256Hex(code);
-    const user = await User.findOneAndUpdate(
-      { 'watchPairing.hash': hash, 'watchPairing.expiresAt': { $gt: new Date() }, deletedAt: null },
-      { $set: { watchPairing: null } },
-      { new: true },
-    );
-    if (!user) return res.status(401).json({ error: 'Invalid or expired pairing code' });
-
-    const token = mintWatchToken(user);
-    await user.save();
-    res.status(201).json({ token });
   } catch (err) { next(err); }
 };
 

@@ -56,29 +56,6 @@ jobs:
         run: npm test
         working-directory: backend
 
-  frontend:
-    name: Frontend — typecheck & build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-        working-directory: frontend
-      - name: TypeScript check
-        run: npx tsc --noEmit
-        working-directory: frontend
-      - name: Lint
-        run: npm run lint
-        working-directory: frontend
-      - name: Build
-        run: npm run build
-        working-directory: frontend
-
   mobile:
     name: Mobile — jest
     runs-on: ubuntu-latest
@@ -269,17 +246,3 @@ jobs:
   # the build in ~2s; worse, that failed check made "wait for CI" block the native
   # deploy. Keep backend deploys native; CI only needs to go green.
 
-  deploy-frontend:
-    name: Deploy Frontend → Vercel
-    needs: frontend
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Vercel CLI
-        run: npm install -g vercel@latest
-      - name: Deploy to Vercel
-        run: vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

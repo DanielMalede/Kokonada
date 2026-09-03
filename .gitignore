@@ -7,9 +7,6 @@
 node_modules/
 backend/venv/
 
-# Build output
-frontend/dist/
-frontend/build/
 
 # Logs
 *.log
