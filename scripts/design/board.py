@@ -431,6 +431,36 @@ def _record_h(board):
     return _REC_H.get(nm)
 
 
+def undefined_vars(src):
+    """Every var(--x) in this board with no --x declaration anywhere it can see.
+
+    An unresolvable var() does not error. It makes the whole declaration invalid at
+    computed-value time, so the element falls back to its inherited or initial value and
+    renders WRONG rather than broken. A deleted or renamed token therefore breaks its
+    consumers with every other gate still green.
+
+    Found the hard way: S2-1 split --a-fill into --a-field / --a-wash and deleted --a-fill.
+    You.dc.html:120 still asked for var(--a-fill) in a color-mix() for its slider track, so
+    the track painted nothing. Tag balance, css braces, css comments, the hole check, the
+    sweep, the 44px check and both height guards were all green.
+
+    Scope is tokens.css plus the board's own <style> -- everything a board can see.
+    Declarations inside @media/@supports still count: the question is "declared at all",
+    not "declared in every branch". A var() carrying a fallback is skipped, because
+    var(--x, #fff) degrades by design.
+    """
+    declared = set(re.findall(r'(--[A-Za-z0-9_-]+)\s*:', src))
+    try:
+        with io.open(os.path.join(CANVAS, 'tokens.css'), encoding='utf-8') as fh:
+            declared |= set(re.findall(r'(--[A-Za-z0-9_-]+)\s*:', fh.read()))
+    except Exception as e:
+        print('  \u26a0 tokens.css unreadable (%s) \u2014 undefined-var arm disabled' % e)
+        return []
+    used = set(re.findall(r'var\(\s*(--[A-Za-z0-9_-]+)', src))
+    with_fallback = set(re.findall(r'var\(\s*(--[A-Za-z0-9_-]+)\s*,', src))
+    return sorted(used - declared - with_fallback)
+
+
 def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark')):
     name = board.replace('.dc.html', '')
     global _CUR_BOARD
@@ -453,7 +483,12 @@ def check(board, field=None, sweep=False, engine='dc', themes=('light', 'dark'))
     co, cc = src.count('/*'), src.count('*/')
     print('  css comments  :', 'BALANCED' if co == cc else
           f'IMBALANCED — {co} open / {cc} close; every rule after the unclosed one is dead')
-    ok = not bal and cb == 0
+    # A var() whose token no longer exists renders WRONG, not broken. See undefined_vars.
+    uv = undefined_vars(src)
+    print('  custom props  :', 'all resolve' if not uv else
+          'UNDEFINED ' + ' '.join(uv) + ' — every declaration using one is invalid, so the'
+          ' element renders its inherited or initial value instead')
+    ok = not bal and cb == 0 and co == cc and not uv
 
     if engine == 'paint':
         # Legacy path. It cannot render a variant — paint.build() ignores every prop but
