@@ -123,10 +123,35 @@
   --pagebg:#E8E9EF;              /* the page behind the artboards */
 
   /* ---- SOURCE · the alpha ladder ------------------------------------------ */
-  --a-ink2-l:74%;  --a-line-l:14%;  --a-line2-l:28%;  --a-fill-l:18%;
-  --a-ink2-d:76%;  --a-line-d:16%;  --a-line2-d:32%;  --a-fill-d:22%;
+  --a-ink2-l:74%;  --a-line-l:14%;  --a-line2-l:28%;
+  --a-ink2-d:76%;  --a-line-d:16%;  --a-line2-d:32%;
+
+  /* ---- SOURCE * the emotion fill alpha, SPLIT BY ROLE (S2-1) ---------------
+     One alpha used to serve both of these and they are not the same job.
+
+     --a-field is a GRADIENT INPUT. It is multiplied twice before it reaches a
+     pixel -- by the .fldwrap presence (0.70-1.00) and by the breath (.45-.75) --
+     so its realised peak is 0.18 x 0.82 x 0.75 = 11.07% light, 0.22 x 0.74 x 0.75
+     = 12.21% dark. Against the shipped wash that is 1.41x light and 0.86x dark:
+     in DARK the canvas field is already weaker than the app. Unchanged here.
+
+     --a-wash is a FLAT surface that composites exactly ONCE -- no wrapper, no
+     animation -- which is precisely what the shipped `wash` is. There the canvas
+     had diverged 2.30x light / 1.56x dark, silently asserting a token change it
+     never declared. It adopts the shipped values verbatim: tokens.ts bakes the
+     alpha into the hex, #3FB4F014 = 0x14 = 20/255 = 7.84%, #3FB4F024 = 0x24 =
+     36/255 = 14.12%. Those are exact-value pinned by emotionAccent.contrast.test.ts
+     and contrast-pinned by EmotionTabBar.test.tsx. The canvas is the authority for
+     COMPOSITION; it is not the authority for a value the product has proven.
+
+     Accept the consequence honestly: at 7.84% over #FFFFFF a placement halo is
+     ~1.10:1 -- a soft bloom on a calibrated panel, near-nothing in a screenshot.
+     That is correct for this direction. The halo makes the dot feel like light;
+     the DOT carries the meaning. Do not re-raise it as a defect. */
+  --a-field-l:18%;   --a-field-d:22%;
+  --a-wash-l:7.84%;  --a-wash-d:14.12%;
   --a-violetfill:16%;
-  /* The four-state field specimen. Denser than --a-fill because it is a legend read
+  /* The four-state field specimen. Denser than --a-wash because it is a legend read
      at a glance, not a wash behind content. Declared rather than inlined so a palette
      alpha edit reaches it -- it was four inline literals that no such edit could move. */
   --a-band:38%;
@@ -153,8 +178,10 @@
   --accent:var(--ink-reflective-l);
   --ok:var(--ok-l);
   --accent-hue:var(--hue-reflective);
-  --a-fill:var(--a-fill-l);
-  --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-fill), transparent);
+  --a-field:var(--a-field-l);
+  --a-wash:var(--a-wash-l);
+  --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-field), transparent);
+  --accentwash: color-mix(in srgb, var(--accent-hue) var(--a-wash), transparent);
   --bartrack:var(--accentfill);
 
   --violet:var(--violet-l);
@@ -189,8 +216,10 @@
 
   --accent:var(--ink-reflective-d);
   --ok:var(--ok-d);
-  --a-fill:var(--a-fill-d);
-  --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-fill), transparent);
+  --a-field:var(--a-field-d);
+  --a-wash:var(--a-wash-d);
+  --accentfill: color-mix(in srgb, var(--accent-hue) var(--a-field), transparent);
+  --accentwash: color-mix(in srgb, var(--accent-hue) var(--a-wash), transparent);
   --bartrack:var(--accentfill);
 
   --violet:var(--violet-d);
@@ -208,13 +237,13 @@
 /* The quadrant fields. Each sets ONE hue and ONE ink; the fill and the bar
    track derive, so a re-tint can no longer leave the fill on the old colour. */
 .qi[data-field="calm"], .qi [data-field="calm"], .doc[data-field="calm"], .doc [data-field="calm"] { --accent:var(--ink-calm-l); --accent-hue:var(--hue-calm);
-  --accentfill: color-mix(in srgb, var(--hue-calm) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-calm) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-calm) var(--a-wash), transparent); --bartrack:var(--accentfill); }
 .qi[data-field="joyful"], .qi [data-field="joyful"], .doc[data-field="joyful"], .doc [data-field="joyful"] { --accent:var(--ink-joyful-l); --accent-hue:var(--hue-joyful);
-  --accentfill: color-mix(in srgb, var(--hue-joyful) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-joyful) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-joyful) var(--a-wash), transparent); --bartrack:var(--accentfill); }
 .qi[data-field="intense"], .qi [data-field="intense"], .doc[data-field="intense"], .doc [data-field="intense"] { --accent:var(--ink-intense-l); --accent-hue:var(--hue-intense);
-  --accentfill: color-mix(in srgb, var(--hue-intense) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-intense) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-intense) var(--a-wash), transparent); --bartrack:var(--accentfill); }
 .qi[data-field="reflective"], .qi [data-field="reflective"], .doc[data-field="reflective"], .doc [data-field="reflective"] { --accent:var(--ink-reflective-l); --accent-hue:var(--hue-reflective);
-  --accentfill: color-mix(in srgb, var(--hue-reflective) var(--a-fill), transparent); --bartrack:var(--accentfill); }
+  --accentfill: color-mix(in srgb, var(--hue-reflective) var(--a-field), transparent); --accentwash: color-mix(in srgb, var(--hue-reflective) var(--a-wash), transparent); --bartrack:var(--accentfill); }
 
 .qi[data-theme="dark"][data-field="calm"], .qi[data-theme="dark"] [data-field="calm"], .doc[data-theme="dark"][data-field="calm"], .doc[data-theme="dark"] [data-field="calm"] { --accent:var(--ink-calm-d); }
 .qi[data-theme="dark"][data-field="joyful"], .qi[data-theme="dark"] [data-field="joyful"], .doc[data-theme="dark"][data-field="joyful"], .doc[data-theme="dark"] [data-field="joyful"] { --accent:var(--ink-joyful-d); }
