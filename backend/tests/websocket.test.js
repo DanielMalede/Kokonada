@@ -4,7 +4,6 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET      = 'test-jwt-secret-for-tests-only';
 process.env.JWT_EXPIRES_IN  = '1h';
 process.env.NODE_ENV        = 'test';
-process.env.FRONTEND_URL    = 'http://localhost:3000';
 
 const http = require('http');
 const { io: Client } = require('socket.io-client');

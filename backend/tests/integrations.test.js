@@ -512,15 +512,21 @@ describe('Garmin OAuth 2.0 + PKCE flow', () => {
     ctrl.garminConnect({ user: buildUser() }, res);
 
     expect(garmin.getAuthUrl).not.toHaveBeenCalled();
-    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_unconfigured'));
+    expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=garmin_unconfigured');
   });
 
-  it('garminCallback redirects with error=garmin_state on a tampered state', async () => {
+  // BE-003 — Garmin now routes through the same helpers as Spotify and YouTube, so an
+  // unreadable state gets the logged 400 rather than a redirect. Before this it was the ONLY
+  // provider whose every outcome went to the web, including this one.
+  it('garminCallback 400s on a tampered state and never exchanges the code', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const res = buildRes();
     await ctrl.garminCallback({ query: { code: 'c', state: 'bad' }, cookies: {} }, res);
 
     expect(garmin.exchangeCode).not.toHaveBeenCalled();
-    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_state'));
+    expect(res.redirect).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    warn.mockRestore();
   });
 
   it('garminCallback exchanges the code, stores OAuth2 tokens + garminUserId, and redirects', async () => {
@@ -548,7 +554,7 @@ describe('Garmin OAuth 2.0 + PKCE flow', () => {
     const res = buildRes();
     await ctrl.garminCallback({ query: { code: 'c', state: signOauthState('user-123', 'garmin', { cv: 'v' }) }, cookies: {} }, res);
 
-    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_failed'));
+    expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=garmin_failed');
   });
 
   describe('garminDisconnect', () => {

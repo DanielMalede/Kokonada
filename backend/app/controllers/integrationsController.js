@@ -47,18 +47,10 @@ const { getRedis } = require('../config/redis');
 // request-derived redirect target is how open redirects are born, and the tampered-state path is
 // exactly where an attacker would reach for one. The scheme is validated against a bare
 // RFC-3986 grammar below, so a misconfigured APP_DEEPLINK_SCHEME cannot smuggle a host in.
-
-// ── TEMPORARY, ONE COMMIT ONLY ───────────────────────────────────────────────────────────────
-// Garmin's five call sites are the last users of the web redirect and they move to the deep link
-// in the very next commit (BE-003). They survive here solely so THIS commit is independently
-// green and bisectable — deleting them now would leave `fail is not defined` in five places.
-// When BE-003 lands both of these go, and `FRONTEND_URL` has zero readers.
-// IF YOU ARE READING THIS ON `main`, THE THIRD COMMIT DID NOT LAND. Say so.
-const frontendRedirect = (res, query) =>
-  res.redirect(`${process.env.FRONTEND_URL}/integrations?${query}`);
-const fail = (res, code) => frontendRedirect(res, `error=${encodeURIComponent(code)}`);
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-
+//
+// `FRONTEND_URL` NOW HAS ZERO READERS ANYWHERE IN THE BACKEND (BE-003 moved the last five, which
+// were Garmin's). Nothing reads it, nothing requires it, and it is gone from .env.example. If a
+// future change reaches for a web redirect again, it is adding a surface back — not restoring one.
 const DEEP_LINK_SCHEME_RE = /^[a-z][a-z0-9+.-]*$/i;
 const APP_SCHEME = () => {
   const raw = process.env.APP_DEEPLINK_SCHEME || 'kokonada';
@@ -463,7 +455,9 @@ exports.youtubeStatus = (req, res) => {
 exports.garminConnect = (req, res) => {
   if (!garmin.isConfigured()) {
     console.error('[garmin] connect blocked: set GARMIN_CONSUMER_KEY/SECRET and GARMIN_REDIRECT_URI');
-    return fail(res, 'garmin_unconfigured');
+    // No OAuth state exists yet at connect time, so there is nothing to read — the destination
+    // is the constant deep link, which is where the app that started this navigation is waiting.
+    return res.redirect(appDeepLink('error=garmin_unconfigured'));
   }
   const { codeVerifier, codeChallenge } = garmin.generatePKCE();
   const state = signOauthState(req.user._id.toString(), 'garmin', { cv: codeVerifier });
@@ -474,12 +468,26 @@ exports.garminConnect = (req, res) => {
 // Garmin redirects here with ?code&state. Recover the user + PKCE verifier from the
 // signed state, exchange the code for tokens, verify, store, then kick off backfill.
 exports.garminCallback = async (req, res) => {
+  const { code, state, error } = req.query;
+  // BE-003 — Garmin was the ONLY provider whose callback had no app branch on any path: every
+  // outcome, success and failure alike, went to the web. It now routes through the same helpers
+  // as Spotify and YouTube, so a readable state deep-links and an unreadable one gets the logged
+  // 400 rather than a redirect nobody can vouch for.
+  //
+  // `target` is resolved BEFORE the try, matching spotifyCallback and youtubeCallback, because
+  // the catch block below also needs it — declaring it inside the try would leave the error path
+  // unable to see it, which is the one path most likely to be exercised in anger.
+  //
+  // Deliberately NOT threading `returnTo` through garminConnect the way Spotify does: since
+  // BE-001 every readable state resolves to the same constant deep link, so a returnTo flag
+  // would be a parameter that provably changes nothing — plumbing nothing sets, which this repo
+  // has rejected before (H10). `target` here means readable-vs-unreadable, nothing more.
+  const target = _returnTarget(state);
   try {
-    const { code, state, error } = req.query;
-    if (error) return fail(res, `garmin_${error}`);
+    if (error) return failTo(res, target, `garmin_${error}`);
 
     const recovered = await userFromOauthState(state, 'garmin');
-    if (!recovered) return fail(res, 'garmin_state');
+    if (!recovered) return failTo(res, target, 'garmin_state');
     const { user, payload } = recovered;
 
     const tokens = await garmin.exchangeCode(code, payload.cv);
@@ -509,7 +517,7 @@ exports.garminCallback = async (req, res) => {
       console.info(`[garmin] backfill skipped — no current Art.9 consent for user ${user._id}`);
     }
 
-    frontendRedirect(res, 'biometric=garmin');
+    oauthRedirect(res, target, 'biometric=garmin');
   } catch (err) {
     console.error('[Garmin Callback Catch]', {
       status:  err?.response?.status,
@@ -517,7 +525,7 @@ exports.garminCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'garmin_failed');
+    return failTo(res, target, 'garmin_failed');
   }
 };
 

@@ -76,17 +76,36 @@ describe('OPS-013 — the real app assembles', () => {
     expect(flat).toMatch(/DELETE .*\/account/);
   });
 
-  // The middleware ORDER the suite could never see. csrfOriginGuard must sit AHEAD of the
-  // routers, or it guards nothing — and cookieParser must precede it or `req.cookies` is
-  // undefined inside it.
-  it('csrfOriginGuard is mounted ahead of the API routers', () => {
+  // The middleware ORDER the suite could never see. This used to assert `csrfOriginGuard` sat
+  // ahead of the routers; that guard was deleted with the web surface (CSRF needs an ambient
+  // credential, and BE-009 removed the cookie plane). The ORDER question did not go away, so
+  // the assertion moves to what can still be named.
+  //
+  // NOTE ON WHAT THIS CANNOT ASSERT: `apiLimiter` is an anonymous function in the stack —
+  // measured, the layer names are ["helmetMiddleware","cookieParser","<anonymous>","jsonParser",
+  // "jsonParser","jsonParser","<anonymous>","router",…] — so there is no name to match and a
+  // positional guess would pin the Suunto raw-body reader just as happily. Matching `/limit/i`
+  // silently found NOTHING and the test only failed because it also asserted "> -1"; without
+  // that it would have passed vacuously. Left as named-middleware ordering rather than a
+  // positional fiction.
+  it('helmet and cookieParser are mounted ahead of every router', () => {
     const { app } = require('../app/index');
     const stack = app._router?.stack ?? app.router?.stack ?? [];
     const names = stack.map((l) => l.name);
-    const guardIdx  = names.indexOf('csrfOriginGuard');
-    const routerIdx = names.indexOf('router');
-    expect(guardIdx).toBeGreaterThan(-1);
-    expect(routerIdx).toBeGreaterThan(-1);
-    expect(guardIdx).toBeLessThan(routerIdx);
+    const firstRouter = names.indexOf('router');
+    expect(firstRouter).toBeGreaterThan(-1);
+    expect(names.indexOf('helmetMiddleware')).toBeGreaterThan(-1);
+    expect(names.indexOf('helmetMiddleware')).toBeLessThan(firstRouter);
+    expect(names.indexOf('cookieParser')).toBeGreaterThan(-1);
+    expect(names.indexOf('cookieParser')).toBeLessThan(firstRouter);
+  });
+
+  // And the guard really is gone — not merely unmounted somewhere this test cannot see.
+  it('no CSRF Origin guard and no CORS middleware are mounted', () => {
+    const { app } = require('../app/index');
+    const stack = app._router?.stack ?? app.router?.stack ?? [];
+    const names = stack.map((l) => l.name);
+    expect(names).not.toContain('csrfOriginGuard');
+    expect(names).not.toContain('corsMiddleware');
   });
 });

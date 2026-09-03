@@ -365,7 +365,7 @@ describe('integrationsController — buildProfile wiring', () => {
       expect(garmin.getUserId).toHaveBeenCalledWith('gat');
       expect(user.garminUserId).toBe('garmin-99');
       expect(user.setToken).toHaveBeenCalledWith('wearableToken', expect.objectContaining({ accessToken: 'gat', garminUserId: 'garmin-99' }));
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('biometric=garmin'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?biometric=garmin');
     });
 
     it('skips the 6-month backfill when the user has no current Art.9 consent (still connects)', async () => {
@@ -379,15 +379,20 @@ describe('integrationsController — buildProfile wiring', () => {
       await nextTick(); // let any (wrongly) scheduled setImmediate backfill run
 
       expect(garmin.requestSixMonthBackfill).not.toHaveBeenCalled(); // never asks Garmin to push history
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('biometric=garmin')); // connection still succeeds
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?biometric=garmin'); // connection still succeeds
     });
 
-    it('redirects with error=garmin_state on a tampered/missing state', async () => {
+    // BE-003 — an unreadable state now gets a logged 400, not a redirect. Same treatment the
+    // other two providers already had; Garmin was the outlier.
+    it('400s on a tampered/missing state and never exchanges the code', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const res = buildRes();
       await ctrl.garminCallback({ query: { code: 'c', state: 'bad' }, cookies: {} }, res);
 
       expect(garmin.exchangeCode).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_state'));
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      warn.mockRestore();
     });
 
     it('redirects with error=garmin_failed on token-exchange failure', async () => {
@@ -396,7 +401,7 @@ describe('integrationsController — buildProfile wiring', () => {
       const res = buildRes();
       await ctrl.garminCallback({ query: { code: 'c', state: validState() }, cookies: {} }, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=garmin_failed'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=garmin_failed');
     });
   });
 });

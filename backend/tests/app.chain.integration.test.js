@@ -83,32 +83,57 @@ describe('BE-009 — the cookie is not a credential, proven through the real cha
   });
 });
 
-describe('the CSRF Origin guard is actually MOUNTED, not merely correct in isolation', () => {
-  it('blocks a state-changing request from a foreign browser Origin', async () => {
-    const res = await request(app)
+// The CSRF Origin guard was DELETED with the web surface, so "is it mounted" is no longer a
+// question worth asking. What replaced it as the thing to pin is stronger and simpler: an
+// `Origin` header now has NO effect on anything, because there is no ambient credential for a
+// cross-site page to ride and no CORS middleware to negotiate with. These cases are kept — with
+// their expectations changed from 403 to "the Origin is irrelevant" — because deleting them
+// outright would leave nothing asserting that a foreign origin cannot influence this API.
+describe('a browser Origin has no effect on this API — there is nothing for it to exploit', () => {
+  // Asserts the INVARIANT (Origin changes nothing) rather than a specific status: this route's
+  // handler calls `user.save()`, which the lightweight User mock here does not provide, so it
+  // 500s in this harness. Pinning 200 would have been pinning the mock, not the behaviour —
+  // and a status that is identical with and without the header is the actual claim.
+  it('a state-changing request behaves IDENTICALLY with and without a foreign Origin', async () => {
+    const withOrigin = await request(app)
       .delete('/api/integrations/watch/token')
       .set('Authorization', `Bearer ${sign()}`)
       .set('Origin', 'https://evil.example');
-    expect(res.status).toBe(403);
-    expect(res.body).toEqual({ error: 'Cross-site request blocked' });
+    const without = await request(app)
+      .delete('/api/integrations/watch/token')
+      .set('Authorization', `Bearer ${sign()}`);
+    expect(withOrigin.status).toBe(without.status);
+    // and it is NOT the old 403-because-Origin
+    expect(withOrigin.status).not.toBe(403);
   });
 
-  // csrf.js:24 fails OPEN when there is no Origin — deliberately, because that is every
-  // non-browser client including React Native. Pinned so the fail-open is a decision on the
-  // record rather than an accident someone "fixes" into a 403 for the whole mobile app.
-  it('allows a state-changing request with NO Origin header — the RN client shape', async () => {
+  it('the same route with NO credential is refused, Origin present or not', async () => {
     const res = await request(app)
+      .delete('/api/integrations/watch/token')
+      .set('Origin', 'https://evil.example');
+    expect(res.status).toBe(401);
+  });
+
+  it('a SAFE method from a foreign Origin behaves identically to one without', async () => {
+    const withOrigin = await request(app)
+      .get('/api/integrations/watch/status')
+      .set('Authorization', `Bearer ${sign()}`)
+      .set('Origin', 'https://evil.example');
+    const without = await request(app)
       .get('/api/integrations/watch/status')
       .set('Authorization', `Bearer ${sign()}`);
-    expect(res.status).toBe(200);
+    expect(withOrigin.status).toBe(without.status);
+    expect(withOrigin.status).toBe(200);
   });
 
-  it('does not block a SAFE method from a foreign Origin', async () => {
+  // No CORS middleware is mounted, so no Access-Control-Allow-Origin is ever emitted. That is
+  // the posture `origin: false` would give, reached by having no middleware at all.
+  it('emits NO Access-Control-Allow-Origin to anyone', async () => {
     const res = await request(app)
       .get('/api/integrations/watch/status')
       .set('Authorization', `Bearer ${sign()}`)
       .set('Origin', 'https://evil.example');
-    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 });
 
