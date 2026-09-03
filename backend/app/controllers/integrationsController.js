@@ -34,26 +34,51 @@ const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privac
 const { eraseWearableProvider } = require('../services/privacy/wearableErasure');
 const { getRedis } = require('../config/redis');
 
-// All callbacks land the user back in the app. On failure we redirect with a
-// machine-readable ?error= code (the frontend toasts it) instead of dumping raw
-// JSON on the backend domain. (Provider-redirect UX)
-const frontendRedirect = (res, query) =>
-  res.redirect(`${process.env.FRONTEND_URL}/integrations?${query}`);
-const fail = (res, code) => frontendRedirect(res, `error=${encodeURIComponent(code)}`);
+// BE-001 — THERE IS NO WEB DESTINATION ANY MORE. Every OAuth callback lands in the app.
+//
+// This used to carry a `frontendRedirect` to `${FRONTEND_URL}/integrations?…` and default to it
+// whenever a signed state was unreadable or tampered. With the web surface deleted that default
+// was a live P0, and its failure mode was the dangerous kind: with FRONTEND_URL unset, Express
+// received the literal string `undefined/integrations?…` and sent it as a RELATIVE Location,
+// resolved against the Railway origin — a 404 with no exception, no log line and nothing red.
+// The defect was never where it pointed. It was that the failure was SILENT.
+//
+// The replacement is a CONSTANT deep link. It is never derived from the request: a
+// request-derived redirect target is how open redirects are born, and the tampered-state path is
+// exactly where an attacker would reach for one. The scheme is validated against a bare
+// RFC-3986 grammar below, so a misconfigured APP_DEEPLINK_SCHEME cannot smuggle a host in.
+//
+// `FRONTEND_URL` NOW HAS ZERO READERS ANYWHERE IN THE BACKEND (BE-003 moved the last five, which
+// were Garmin's). Nothing reads it, nothing requires it, and it is gone from .env.example. If a
+// future change reaches for a web redirect again, it is adding a surface back — not restoring one.
+const DEEP_LINK_SCHEME_RE = /^[a-z][a-z0-9+.-]*$/i;
+const APP_SCHEME = () => {
+  const raw = process.env.APP_DEEPLINK_SCHEME || 'kokonada';
+  if (!DEEP_LINK_SCHEME_RE.test(raw)) {
+    // Refuse rather than emit a redirect we cannot vouch for. Observable by construction.
+    throw new Error(`APP_DEEPLINK_SCHEME is not a bare URI scheme: ${JSON.stringify(raw)}`);
+  }
+  return raw;
+};
+const appDeepLink = (query) => `${APP_SCHEME()}://integrations?${query}`;
 
-// Mobile clients open the OAuth connect in the SYSTEM browser and can't be returned to via a
-// web URL — the grant would strand the user on the website. When the connect carried
-// returnTo=app, the signed state remembers it and the callback deep-links back into the native
-// app (kokonada://…) so the OS foregrounds it. Web connects are unaffected (default → website).
-const APP_SCHEME = () => process.env.APP_DEEPLINK_SCHEME || 'kokonada';
+// An unreadable or tampered state has no trustworthy destination, so it gets none: 400 with a
+// plain body AND A LOGGED LINE. The whole point of BE-001 is that this stops being silent.
+const failUnreadableState = (res, reason) => {
+  console.warn(`[oauth] unroutable callback — ${reason}; refusing to redirect`);
+  return res.status(400).json({ error: 'oauth_state_unreadable' });
+};
+
 const _returnTarget = (state) => {
   try { return verifyOauthState(state)?.returnTo === 'app' ? 'app' : 'web'; }
-  catch { return 'web'; } // unreadable/tampered state → default to the website
+  catch { return null; } // unreadable/tampered — NOT a destination, see failUnreadableState
 };
+// `target` is retained in the signature because callers still distinguish a readable state from
+// an unreadable one; both readable outcomes now go to the same constant deep link.
 const oauthRedirect = (res, target, query) =>
-  target === 'app'
-    ? res.redirect(`${APP_SCHEME()}://integrations?${query}`)
-    : frontendRedirect(res, query);
+  target === null
+    ? failUnreadableState(res, 'signed state did not verify')
+    : res.redirect(appDeepLink(query));
 const failTo = (res, target, code) => oauthRedirect(res, target, `error=${encodeURIComponent(code)}`);
 
 // Recover the authenticated user that a public OAuth callback belongs to, from
@@ -107,7 +132,7 @@ exports.spotifyConnect = (req, res) => {
 exports.spotifyCallback = async (req, res) => {
   const { code, state, error } = req.query;
   // Learn the return target (native app vs website) from the signed state so BOTH success and
-  // every failure land back where the user started. Best-effort — falls back to the website.
+  // every failure land back where the user started. An unreadable state has no destination (BE-001).
   const target = _returnTarget(state);
   try {
     if (error) return failTo(res, target, `spotify_${error}`);
@@ -333,7 +358,7 @@ exports.youtubeConnect = (req, res) => {
 exports.youtubeCallback = async (req, res) => {
   const { code, state, error } = req.query;
   // Learn the return target (native app vs website) from the signed state so BOTH success and
-  // every failure land back where the user started. Best-effort — falls back to the website.
+  // every failure land back where the user started. An unreadable state has no destination (BE-001).
   const target = _returnTarget(state);
   try {
     if (error) return failTo(res, target, `youtube_${error}`);
@@ -369,69 +394,6 @@ exports.youtubeCallback = async (req, res) => {
       stack:   err?.stack,
     });
     return failTo(res, target, 'youtube_failed');
-  }
-};
-
-// POST /api/integrations/youtube/connect-gis  (auth required)
-// Receives the authorization code from the GIS popup flow (client-side initCodeClient).
-// Identity comes from the auth middleware (Bearer token), not from a state JWT.
-exports.youtubeConnectGIS = async (req, res, next) => {
-  try {
-    const { code } = req.body ?? {};
-    if (!code) return res.status(400).json({ error: 'youtube_missing_code' });
-
-    const tokens = await youtube.exchangeCodeFromGIS(code);
-    await youtube.getChannel(tokens.accessToken);
-
-    req.user.musicProvider = 'youtube';
-    req.user.setToken('youtubeMusicToken', tokens);
-    await req.user.save();
-
-    setImmediate(async () => {
-      try { await buildProfile(req.user._id.toString(), req.user); }
-      catch (e) { console.error('[musicProfile] YouTube build failed:', e.message); }
-    });
-
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// POST /api/integrations/youtube/exchange  (PUBLIC — called by the Vercel frontend callback page)
-// The frontend receives the OAuth code from Google and posts it here for server-side exchange.
-// Identity is recovered from the signed state (same as the GET callback).
-exports.youtubeExchange = async (req, res) => {
-  try {
-    const { code, state } = req.body ?? {};
-    if (!code || !state) return res.status(400).json({ error: 'youtube_missing_params' });
-
-    const recovered = await userFromOauthState(state, 'youtube');
-    if (!recovered) return res.status(400).json({ error: 'youtube_state' });
-    const { user, payload } = recovered;
-
-    const tokens = await youtube.exchangeCode(code, payload.cv);
-    await youtube.getChannel(tokens.accessToken);
-
-    user.musicProvider = 'youtube';
-    user.setToken('youtubeMusicToken', tokens);
-    await user.save();
-    await burnState(payload);
-
-    setImmediate(async () => {
-      try { await buildProfile(user._id.toString(), user); }
-      catch (e) { console.error('[musicProfile] YouTube build failed:', e.message); }
-    });
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[YouTube Exchange Catch]', {
-      status:  err?.response?.status,
-      data:    err?.response?.data,
-      message: err?.message,
-      stack:   err?.stack,
-    });
-    res.status(500).json({ error: 'youtube_failed' });
   }
 };
 
@@ -493,7 +455,9 @@ exports.youtubeStatus = (req, res) => {
 exports.garminConnect = (req, res) => {
   if (!garmin.isConfigured()) {
     console.error('[garmin] connect blocked: set GARMIN_CONSUMER_KEY/SECRET and GARMIN_REDIRECT_URI');
-    return fail(res, 'garmin_unconfigured');
+    // No OAuth state exists yet at connect time, so there is nothing to read — the destination
+    // is the constant deep link, which is where the app that started this navigation is waiting.
+    return res.redirect(appDeepLink('error=garmin_unconfigured'));
   }
   const { codeVerifier, codeChallenge } = garmin.generatePKCE();
   const state = signOauthState(req.user._id.toString(), 'garmin', { cv: codeVerifier });
@@ -504,12 +468,26 @@ exports.garminConnect = (req, res) => {
 // Garmin redirects here with ?code&state. Recover the user + PKCE verifier from the
 // signed state, exchange the code for tokens, verify, store, then kick off backfill.
 exports.garminCallback = async (req, res) => {
+  const { code, state, error } = req.query;
+  // BE-003 — Garmin was the ONLY provider whose callback had no app branch on any path: every
+  // outcome, success and failure alike, went to the web. It now routes through the same helpers
+  // as Spotify and YouTube, so a readable state deep-links and an unreadable one gets the logged
+  // 400 rather than a redirect nobody can vouch for.
+  //
+  // `target` is resolved BEFORE the try, matching spotifyCallback and youtubeCallback, because
+  // the catch block below also needs it — declaring it inside the try would leave the error path
+  // unable to see it, which is the one path most likely to be exercised in anger.
+  //
+  // Deliberately NOT threading `returnTo` through garminConnect the way Spotify does: since
+  // BE-001 every readable state resolves to the same constant deep link, so a returnTo flag
+  // would be a parameter that provably changes nothing — plumbing nothing sets, which this repo
+  // has rejected before (H10). `target` here means readable-vs-unreadable, nothing more.
+  const target = _returnTarget(state);
   try {
-    const { code, state, error } = req.query;
-    if (error) return fail(res, `garmin_${error}`);
+    if (error) return failTo(res, target, `garmin_${error}`);
 
     const recovered = await userFromOauthState(state, 'garmin');
-    if (!recovered) return fail(res, 'garmin_state');
+    if (!recovered) return failTo(res, target, 'garmin_state');
     const { user, payload } = recovered;
 
     const tokens = await garmin.exchangeCode(code, payload.cv);
@@ -539,7 +517,7 @@ exports.garminCallback = async (req, res) => {
       console.info(`[garmin] backfill skipped — no current Art.9 consent for user ${user._id}`);
     }
 
-    frontendRedirect(res, 'biometric=garmin');
+    oauthRedirect(res, target, 'biometric=garmin');
   } catch (err) {
     console.error('[Garmin Callback Catch]', {
       status:  err?.response?.status,
@@ -547,7 +525,7 @@ exports.garminCallback = async (req, res) => {
       message: err?.message,
       stack:   err?.stack,
     });
-    return fail(res, 'garmin_failed');
+    return failTo(res, target, 'garmin_failed');
   }
 };
 
@@ -745,70 +723,9 @@ exports.issueWatchToken = async (req, res, next) => {
 exports.revokeWatchToken = async (req, res, next) => {
   try {
     req.user.watchToken = null;
-    req.user.watchPairing = null; // a stale in-flight pairing must not outlive a disconnect
     req.user.wearableProvider = null;
     await req.user.save();
     res.json({ message: 'Watch disconnected' });
-  } catch (err) { next(err); }
-};
-
-const WATCH_PAIRING_TTL_MS = 5 * 60 * 1000; // 5 minutes — short-lived, single-use
-const WATCH_PAIRING_CODE_LEN = 6; // digits — fast to key in on a watch bezel/buttons
-const WATCH_PAIRING_MAX_ATTEMPTS = 5; // collision-avoidance retries at mint time
-
-function randomPairingCode() {
-  return crypto.randomInt(0, 10 ** WATCH_PAIRING_CODE_LEN).toString().padStart(WATCH_PAIRING_CODE_LEN, '0');
-}
-
-// POST /api/integrations/watch/pair  (auth required)
-// Mints a short-lived, single-use pairing code shown in the browser INSTEAD of
-// the long-lived device token (audit L-15). The watch exchanges this code,
-// server-side, for its own whr_ token via exchangeWatchPairing below.
-exports.createWatchPairing = async (req, res, next) => {
-  try {
-    let code = null;
-    let hash = null;
-    for (let attempt = 0; attempt < WATCH_PAIRING_MAX_ATTEMPTS && !code; attempt += 1) {
-      const candidate = randomPairingCode();
-      const candidateHash = sha256Hex(candidate);
-      // eslint-disable-next-line no-await-in-loop -- bounded (<=5), correctness over throughput
-      const collision = await User.exists({
-        'watchPairing.hash': candidateHash,
-        'watchPairing.expiresAt': { $gt: new Date() },
-      });
-      if (!collision) { code = candidate; hash = candidateHash; }
-    }
-    if (!code) return res.status(503).json({ error: 'Could not allocate a pairing code — try again' });
-
-    const expiresAt = new Date(Date.now() + WATCH_PAIRING_TTL_MS);
-    req.user.watchPairing = { hash, expiresAt };
-    await req.user.save();
-    res.status(201).json({ code, expiresAt: expiresAt.toISOString() });
-  } catch (err) { next(err); }
-};
-
-// POST /api/integrations/watch/pair/exchange  (PUBLIC — the watch has no session;
-// it authenticates with the freshly-typed one-time code instead)
-// Single-use: the atomic findOneAndUpdate both matches AND clears watchPairing in
-// one round-trip (`{ new: true }` returns the POST-update doc), so two concurrent
-// exchange attempts for the same code can't both succeed.
-exports.exchangeWatchPairing = async (req, res, next) => {
-  try {
-    const { code } = req.body || {};
-    if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
-      return res.status(400).json({ error: 'code must be a 6-digit string' });
-    }
-    const hash = sha256Hex(code);
-    const user = await User.findOneAndUpdate(
-      { 'watchPairing.hash': hash, 'watchPairing.expiresAt': { $gt: new Date() }, deletedAt: null },
-      { $set: { watchPairing: null } },
-      { new: true },
-    );
-    if (!user) return res.status(401).json({ error: 'Invalid or expired pairing code' });
-
-    const token = mintWatchToken(user);
-    await user.save();
-    res.status(201).json({ token });
   } catch (err) { next(err); }
 };
 

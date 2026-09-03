@@ -56,29 +56,6 @@ jobs:
         run: npm test
         working-directory: backend
 
-  frontend:
-    name: Frontend — typecheck & build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-        working-directory: frontend
-      - name: TypeScript check
-        run: npx tsc --noEmit
-        working-directory: frontend
-      - name: Lint
-        run: npm run lint
-        working-directory: frontend
-      - name: Build
-        run: npm run build
-        working-directory: frontend
-
   mobile:
     name: Mobile — jest
     runs-on: ubuntu-latest
@@ -182,8 +159,29 @@ jobs:
       - id: filter
         uses: dorny/paths-filter@v3
         with:
-          # Breadth is deliberate and stays. package.json / package-lock.json are in the list
-          # because an autolinked native module is exactly what this job exists to catch, and a
+          # `.github/workflows/ci.yml` IS DELIBERATELY *NOT* IN THIS LIST — and the reason is a
+          # measured cost, not a preference.
+          #
+          # It used to be, which made EVERY edit to this file an "iOS-affecting change". PR #187
+          # deleted the web frontend: 180 files, 273 insertions, 27,871 deletions, ZERO files under
+          # mobile/ — and it still bought a full `pod install` + `xcodebuild`, 18m18s on a macOS
+          # runner billed at 10x, i.e. ~183 quota-minutes. The merge commit changes this file too,
+          # so it would have been charged a SECOND time on the push to main.
+          #
+          # That is not a rounding error. When this allowance ran out on 2026-08-27 the effect was
+          # not a slower pipeline: every run was refused at dispatch with steps=0 for five days,
+          # and because the backend deploys through Railway's "wait for CI" gate, a security fix
+          # that was already merged could not reach production. A quota lockout blocks deploys, not
+          # just checks. The Actions budget is a P0 resource.
+          #
+          # ACCEPTED TRADE-OFF, stated so nobody "fixes" it back: a change to THIS file that breaks
+          # the iOS job will not be caught until a real iOS-surface change arrives. An earlier
+          # version of this comment called narrowing the filter a trade of the job's purpose "for a
+          # few cents". The actual price turned out to be days of blocked work, so the trade goes
+          # the other way.
+          #
+          # Everything below stays. package.json / package-lock.json are in the list because an
+          # autolinked native module is exactly what this job exists to catch, and a
           # dependency change is how one arrives — react-native-vector-icons and
           # lottie-react-native were both autolinked with codegen before they were dropped.
           # Narrowing this to ios/** would trade the job's whole purpose for a few cents.
@@ -194,7 +192,6 @@ jobs:
               - 'mobile/KokonadaHealth/package-lock.json'
               - 'mobile/KokonadaHealth/Gemfile'
               - 'mobile/KokonadaHealth/react-native.config.js'
-              - '.github/workflows/ci.yml'
 
   mobile-ios-build:
     name: Mobile — iOS build
@@ -269,17 +266,3 @@ jobs:
   # the build in ~2s; worse, that failed check made "wait for CI" block the native
   # deploy. Keep backend deploys native; CI only needs to go green.
 
-  deploy-frontend:
-    name: Deploy Frontend → Vercel
-    needs: frontend
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Vercel CLI
-        run: npm install -g vercel@latest
-      - name: Deploy to Vercel
-        run: vercel deploy --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

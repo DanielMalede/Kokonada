@@ -12,12 +12,13 @@ const { captureException } = require('../config/sentry');
 let _io = null;
 
 function createSocketServer(httpServer) {
-  const io = new Server(httpServer, {
-    cors: {
-      origin: process.env.FRONTEND_URL,
-      credentials: true,
-    },
-  });
+  // No `cors` option at all. Engine.IO only builds a CORS middleware when `opts.cors` is truthy,
+  // so omitting it emits no Access-Control-Allow-Origin and no browser page can open this socket.
+  // It was never a real gate anyway — Engine.IO wires the same `cors` npm middleware, which sets
+  // headers and calls next(); it does NOT reject an upgrade (that was half of BE-008). The only
+  // client is the React Native app, which is not a browser and is authenticated by an explicit
+  // `handshake.auth.token`. `FRONTEND_URL` was its last reader in this file.
+  const io = new Server(httpServer);
 
   io.use(async (socket, next) => {
     try {

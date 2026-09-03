@@ -6,13 +6,11 @@ require('dotenv').config({ override: true });
 const http = require('http');
 const express = require('express');
 const helmet = require('helmet');
-const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const { initSentry } = require('./config/sentry');
 const connectDB = require('./config/db');
 const { connectRedis } = require('./config/redis');
 const { apiLimiter } = require('./middleware/rateLimiter');
-const csrfOriginGuard = require('./middleware/csrf');
 const errorHandler = require('./middleware/errorHandler');
 const authRouter         = require('./routes/auth');
 const integrationsRouter = require('./routes/integrations');
@@ -35,26 +33,30 @@ app.set('trust proxy', 1);
 initSentry(app);
 
 // helmet() defaults already set HSTS, a restrictive CSP, X-Frame-Options: DENY,
-// and CORP — appropriate for this JSON-only API. The browser-facing CSP that
-// matters for XSS is set on the frontend (frontend/vercel.json — audit F4).
+// and CORP — appropriate for this JSON-only API. (The browser-facing CSP that used to
+// matter for XSS was set on the deleted web frontend; there is no browser surface now.)
 app.use(helmet());
 
-// CORS: fail closed. Single trusted origin, credentials on. In production an
-// unset FRONTEND_URL is a misconfiguration we refuse to start with, rather than
-// degrade to a permissive/credentialed policy. (audit F9)
-const FRONTEND_URL = process.env.FRONTEND_URL;
-if (!FRONTEND_URL && process.env.NODE_ENV === 'production') {
-  throw new Error('FRONTEND_URL must be set in production — refusing to start with unsafe CORS');
-}
+// NO CORS MIDDLEWARE, DELIBERATELY — and removing it made this API stricter, not looser.
+//
+// `cors()` is not a request filter. For any non-OPTIONS request it sets response headers and
+// calls next() (cors/lib/index.js) — it never rejects. With a fixed origin it emits
+// Access-Control-Allow-Origin unconditionally, even to an attacker's page; the BROWSER does the
+// comparing. So what it bought was: a mismatching ACAO that makes a browser abort a preflighted
+// cross-site write, and withheld ACAO on cross-origin reads. Removing it emits NO ACAO at all,
+// which is the same posture as `origin: false` — both protections survive, now delivered by the
+// plain same-origin policy. There is no configuration of this package that is safer than absent,
+// short of `origin:'*'`, which nobody wants.
+//
+// The web surface it served is deleted; the only client is the React Native app, which is not a
+// browser and has no origin to send. The `FRONTEND_URL` boot assertion went with it — an
+// assertion guarding a middleware that no longer exists is a boot failure waiting for whoever
+// next deploys without the variable.
 
 // A vetted LLM provider (Groq LLM_API_KEY) is mandatory in production — we refuse to
 // start rather than silently degrade to an unvetted, training-eligible endpoint with
 // special-category signals. (Wave-0 egress containment)
 require('./config/llmProvider').assertVettedLlmProvider();
-app.use(cors({
-  origin: FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-}));
 
 app.use(cookieParser());
 
@@ -92,7 +94,20 @@ app.use('/api/integrations/garmin/webhook', express.json({ limit: '5mb' }));
 app.use(express.json({ limit: '10kb' }));
 
 app.use('/api/', apiLimiter);
-app.use('/api/', csrfOriginGuard); // Origin-based CSRF defense (audit F6)
+// The Origin-based CSRF guard (audit F6) is GONE, and deleted rather than inverted to deny-all.
+//
+// CSRF requires an AMBIENT credential — one a browser attaches by itself. BE-009 retired the
+// cookie plane, so there is none: `middleware/auth.js` reads `Authorization: Bearer` only, which
+// no cross-site page can cause a victim's browser to send. A guard against forged requests that
+// cannot carry a credential defends nothing.
+//
+// Inverting it to deny-all-origins was the alternative and was rejected on evidence: React Native
+// sends no `Origin` header (verified across the pinned RN 0.86.0 source — whatwg-fetch,
+// Libraries/Network, the Android networking module, iOS RCTHTTPRequestHandler: zero occurrences),
+// so the guard's fail-open at `if (!origin) return next()` is the ONLY reason the mobile app gets
+// through today. A deny-all inversion would therefore have been either inert or app-breaking,
+// depending on a header nobody could observe — the worst kind of security control.
+// If cookie auth ever returns, this comes back WITH it, not before.
 
 app.use('/api/auth',         authRouter);
 app.use('/api/integrations', integrationsRouter);

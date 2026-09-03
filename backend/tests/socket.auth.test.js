@@ -3,7 +3,6 @@
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 process.env.NODE_ENV       = 'test';
-process.env.FRONTEND_URL   = 'http://localhost';
 
 const http = require('http');
 const jwt = require('jsonwebtoken');
