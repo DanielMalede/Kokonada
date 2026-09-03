@@ -34,26 +34,59 @@ const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privac
 const { eraseWearableProvider } = require('../services/privacy/wearableErasure');
 const { getRedis } = require('../config/redis');
 
-// All callbacks land the user back in the app. On failure we redirect with a
-// machine-readable ?error= code (the frontend toasts it) instead of dumping raw
-// JSON on the backend domain. (Provider-redirect UX)
+// BE-001 — THERE IS NO WEB DESTINATION ANY MORE. Every OAuth callback lands in the app.
+//
+// This used to carry a `frontendRedirect` to `${FRONTEND_URL}/integrations?…` and default to it
+// whenever a signed state was unreadable or tampered. With the web surface deleted that default
+// was a live P0, and its failure mode was the dangerous kind: with FRONTEND_URL unset, Express
+// received the literal string `undefined/integrations?…` and sent it as a RELATIVE Location,
+// resolved against the Railway origin — a 404 with no exception, no log line and nothing red.
+// The defect was never where it pointed. It was that the failure was SILENT.
+//
+// The replacement is a CONSTANT deep link. It is never derived from the request: a
+// request-derived redirect target is how open redirects are born, and the tampered-state path is
+// exactly where an attacker would reach for one. The scheme is validated against a bare
+// RFC-3986 grammar below, so a misconfigured APP_DEEPLINK_SCHEME cannot smuggle a host in.
+
+// ── TEMPORARY, ONE COMMIT ONLY ───────────────────────────────────────────────────────────────
+// Garmin's five call sites are the last users of the web redirect and they move to the deep link
+// in the very next commit (BE-003). They survive here solely so THIS commit is independently
+// green and bisectable — deleting them now would leave `fail is not defined` in five places.
+// When BE-003 lands both of these go, and `FRONTEND_URL` has zero readers.
+// IF YOU ARE READING THIS ON `main`, THE THIRD COMMIT DID NOT LAND. Say so.
 const frontendRedirect = (res, query) =>
   res.redirect(`${process.env.FRONTEND_URL}/integrations?${query}`);
 const fail = (res, code) => frontendRedirect(res, `error=${encodeURIComponent(code)}`);
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 
-// Mobile clients open the OAuth connect in the SYSTEM browser and can't be returned to via a
-// web URL — the grant would strand the user on the website. When the connect carried
-// returnTo=app, the signed state remembers it and the callback deep-links back into the native
-// app (kokonada://…) so the OS foregrounds it. Web connects are unaffected (default → website).
-const APP_SCHEME = () => process.env.APP_DEEPLINK_SCHEME || 'kokonada';
+const DEEP_LINK_SCHEME_RE = /^[a-z][a-z0-9+.-]*$/i;
+const APP_SCHEME = () => {
+  const raw = process.env.APP_DEEPLINK_SCHEME || 'kokonada';
+  if (!DEEP_LINK_SCHEME_RE.test(raw)) {
+    // Refuse rather than emit a redirect we cannot vouch for. Observable by construction.
+    throw new Error(`APP_DEEPLINK_SCHEME is not a bare URI scheme: ${JSON.stringify(raw)}`);
+  }
+  return raw;
+};
+const appDeepLink = (query) => `${APP_SCHEME()}://integrations?${query}`;
+
+// An unreadable or tampered state has no trustworthy destination, so it gets none: 400 with a
+// plain body AND A LOGGED LINE. The whole point of BE-001 is that this stops being silent.
+const failUnreadableState = (res, reason) => {
+  console.warn(`[oauth] unroutable callback — ${reason}; refusing to redirect`);
+  return res.status(400).json({ error: 'oauth_state_unreadable' });
+};
+
 const _returnTarget = (state) => {
   try { return verifyOauthState(state)?.returnTo === 'app' ? 'app' : 'web'; }
-  catch { return 'web'; } // unreadable/tampered state → default to the website
+  catch { return null; } // unreadable/tampered — NOT a destination, see failUnreadableState
 };
+// `target` is retained in the signature because callers still distinguish a readable state from
+// an unreadable one; both readable outcomes now go to the same constant deep link.
 const oauthRedirect = (res, target, query) =>
-  target === 'app'
-    ? res.redirect(`${APP_SCHEME()}://integrations?${query}`)
-    : frontendRedirect(res, query);
+  target === null
+    ? failUnreadableState(res, 'signed state did not verify')
+    : res.redirect(appDeepLink(query));
 const failTo = (res, target, code) => oauthRedirect(res, target, `error=${encodeURIComponent(code)}`);
 
 // Recover the authenticated user that a public OAuth callback belongs to, from
@@ -107,7 +140,7 @@ exports.spotifyConnect = (req, res) => {
 exports.spotifyCallback = async (req, res) => {
   const { code, state, error } = req.query;
   // Learn the return target (native app vs website) from the signed state so BOTH success and
-  // every failure land back where the user started. Best-effort — falls back to the website.
+  // every failure land back where the user started. An unreadable state has no destination (BE-001).
   const target = _returnTarget(state);
   try {
     if (error) return failTo(res, target, `spotify_${error}`);
@@ -333,7 +366,7 @@ exports.youtubeConnect = (req, res) => {
 exports.youtubeCallback = async (req, res) => {
   const { code, state, error } = req.query;
   // Learn the return target (native app vs website) from the signed state so BOTH success and
-  // every failure land back where the user started. Best-effort — falls back to the website.
+  // every failure land back where the user started. An unreadable state has no destination (BE-001).
   const target = _returnTarget(state);
   try {
     if (error) return failTo(res, target, `youtube_${error}`);

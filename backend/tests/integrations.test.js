@@ -193,29 +193,46 @@ describe('Spotify OAuth flow', () => {
     const validState = () => signOauthState('user-123', 'spotify');
     const appState   = () => signOauthState('user-123', 'spotify', { returnTo: 'app' });
 
-    it('redirects with an error when Spotify returns an error param', async () => {
-      const req = { query: { error: 'access_denied' }, cookies: {} };
+    // BE-001 — a provider error with a READABLE state still has a destination, so it deep-links.
+    // The fixture now carries a valid state, which is what Spotify actually sends back on a deny;
+    // the previous version omitted it and so was silently exercising the unreadable-state path.
+    it('deep-links with an error when Spotify returns an error param', async () => {
+      const req = { query: { error: 'access_denied', state: validState() }, cookies: {} };
       const res = buildRes();
       await ctrl.spotifyCallback(req, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_access_denied'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=spotify_access_denied');
     });
 
-    it('redirects with error=spotify_state on a tampered state', async () => {
+    // BE-001 — INVERTED. These used to redirect to `${FRONTEND_URL}/integrations?error=…`, and
+    // with FRONTEND_URL unset that was the literal string `undefined/integrations?…` — which
+    // Express sends as a RELATIVE Location resolved against the API origin: a silent 404, no
+    // exception, no log. An unreadable state has no trustworthy destination and must not be
+    // handed one, so it now gets a 400 and a logged line. The redirect must NOT happen: a
+    // request-derived destination on exactly this path is how open redirects are born.
+    it('400s on a TAMPERED state instead of redirecting anywhere', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const req = { query: { code: 'abc', state: 'wrong-state' }, cookies: {} };
       const res = buildRes();
       await ctrl.spotifyCallback(req, res);
 
       expect(spotify.exchangeCode).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_state'));
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'oauth_state_unreadable' });
+      expect(warn).toHaveBeenCalled(); // the failure is OBSERVABLE — that is the fix
+      warn.mockRestore();
     });
 
-    it('redirects with error=spotify_state when state is missing', async () => {
+    it('400s when the state is MISSING entirely', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const req = { query: { code: 'abc' }, cookies: {} };
       const res = buildRes();
       await ctrl.spotifyCallback(req, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_state'));
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      warn.mockRestore();
     });
 
     it('encrypts tokens and redirects to the app on success', async () => {
@@ -236,7 +253,7 @@ describe('Spotify OAuth flow', () => {
       expect(spotify.getProfile).toHaveBeenCalledWith(tokens.accessToken);
       expect(user.setToken).toHaveBeenCalledWith('spotifyToken', tokens);
       expect(user.save).toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=spotify');
     });
 
     it('deep-links back into the native app on success when the state carried returnTo=app', async () => {
@@ -266,7 +283,7 @@ describe('Spotify OAuth flow', () => {
       const res = buildRes();
       await ctrl.spotifyCallback(req, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_failed'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=spotify_failed');
       expect(res.json).not.toHaveBeenCalled();
     });
   });
@@ -344,15 +361,19 @@ describe('YouTube OAuth flow', () => {
     ctrl.youtubeConnect({ user: buildUser() }, res);
 
     expect(youtube.getAuthUrl).not.toHaveBeenCalled();
-    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=youtube_unconfigured'));
+    expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=youtube_unconfigured');
   });
 
-  it('youtubeCallback redirects with error=youtube_state on a tampered state', async () => {
+  // BE-001 — INVERTED: an unreadable state is refused rather than redirected.
+  it('youtubeCallback 400s on a tampered state and never exchanges the code', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const req = { query: { code: 'c', state: 'bad' }, cookies: {} };
     const res = buildRes();
     await ctrl.youtubeCallback(req, res);
     expect(youtube.exchangeCode).not.toHaveBeenCalled();
-    expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=youtube_state'));
+    expect(res.redirect).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    warn.mockRestore();
   });
 
   it('youtubeCallback encrypts tokens and redirects on success', async () => {
@@ -423,13 +444,22 @@ describe('YouTube OAuth flow', () => {
     expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=youtube_access_denied');
   });
 
-  it('youtubeCallback fails closed to the website on a tampered state (no deep link)', async () => {
+  // BE-001 — INVERTED, and the original intent is PRESERVED rather than discarded. This existed
+  // to stop a tampered state being handed a deep link into the native app ("fails closed to the
+  // website"). The website is gone, and the replacement is stricter than what this asked for: a
+  // tampered state now gets NO destination at all — not the app, not a web URL — plus a 400 and
+  // a logged line. The old assertion `url).not.toMatch(/^kokonada:\/\//)` is still satisfied, by
+  // there being no redirect to inspect.
+  it('youtubeCallback gives a tampered state NO destination at all — 400, not a redirect', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const res = buildRes();
     await ctrl.youtubeCallback({ query: { code: 'c', state: 'bad' }, cookies: {} }, res);
 
-    const url = res.redirect.mock.calls[0][0];
-    expect(url).not.toMatch(/^kokonada:\/\//);
-    expect(url).toContain('/integrations?error=youtube_state');
+    expect(res.redirect).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'oauth_state_unreadable' });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('youtubeCallback still runs the full token exchange + save on the mobile success path', async () => {

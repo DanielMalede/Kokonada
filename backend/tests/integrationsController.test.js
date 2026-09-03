@@ -211,7 +211,7 @@ describe('integrationsController — buildProfile wiring', () => {
       await ctrl.spotifyCallback(spotifyReq(), res);
 
       // Redirect must have already been called (before setImmediate runs)
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=spotify');
     });
 
     it('still redirects even if buildProfile throws', async () => {
@@ -224,26 +224,37 @@ describe('integrationsController — buildProfile wiring', () => {
       await ctrl.spotifyCallback(spotifyReq(), res);
       await nextTick();
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=spotify'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=spotify');
     });
 
-    it('redirects with an error and does not call buildProfile when Spotify returns an error param', async () => {
+    // BE-001 — INVERTED. Both fixtures carry an UNREADABLE state (absent, then garbage), which no
+    // longer gets a destination at all: 400 + a logged line rather than a redirect derived from
+    // the request. The point of these two cases is `buildProfile` never running, and that is
+    // unchanged and still asserted. Note the sibling test below — a state that IS readable but
+    // signed for the wrong provider still deep-links, which is what keeps this distinction honest.
+    it('400s and does not call buildProfile when Spotify errors with no usable state', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const res = buildRes();
       await ctrl.spotifyCallback({ query: { error: 'access_denied' }, cookies: {} }, res);
       await nextTick();
 
       expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_access_denied'));
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      warn.mockRestore();
     });
 
-    it('redirects with an error on a tampered/invalid state and does not call buildProfile', async () => {
+    it('400s on a tampered/invalid state and does not call buildProfile', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const res = buildRes();
       await ctrl.spotifyCallback(spotifyReq('not-a-valid-jwt'), res);
       await nextTick();
 
       expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
       expect(spotify.exchangeCode).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_state'));
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      warn.mockRestore();
     });
 
     it('rejects a state signed for a different provider', async () => {
@@ -252,7 +263,7 @@ describe('integrationsController — buildProfile wiring', () => {
       await nextTick();
 
       expect(spotify.exchangeCode).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=spotify_state'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?error=spotify_state');
     });
   });
 
@@ -290,7 +301,7 @@ describe('integrationsController — buildProfile wiring', () => {
       const res  = buildRes();
       await ctrl.youtubeCallback(youtubeReq(), res);
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=youtube'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=youtube');
     });
 
     it('still redirects even if buildProfile throws', async () => {
@@ -303,26 +314,34 @@ describe('integrationsController — buildProfile wiring', () => {
       await ctrl.youtubeCallback(youtubeReq(), res);
       await nextTick();
 
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('/integrations?music=youtube'));
+      expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?music=youtube');
     });
 
-    it('redirects with an error and does not call buildProfile when YouTube returns an error param', async () => {
+    // BE-001 — INVERTED, same reasoning as the Spotify pair above: an unreadable state gets a
+    // 400 and a log line, never a request-derived redirect. `buildProfile` still must not run.
+    it('400s and does not call buildProfile when YouTube errors with no usable state', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const res = buildRes();
       await ctrl.youtubeCallback({ query: { error: 'access_denied' }, cookies: {} }, res);
       await nextTick();
 
       expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=youtube_access_denied'));
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      warn.mockRestore();
     });
 
-    it('redirects with an error on a tampered/invalid state and does not call buildProfile', async () => {
+    it('400s on a tampered/invalid state and does not call buildProfile', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const res = buildRes();
       await ctrl.youtubeCallback(youtubeReq('not-a-valid-jwt'), res);
       await nextTick();
 
       expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
       expect(youtube.exchangeCode).not.toHaveBeenCalled();
-      expect(res.redirect).toHaveBeenCalledWith(expect.stringContaining('error=youtube_state'));
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(400);
+      warn.mockRestore();
     });
   });
 
