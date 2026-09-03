@@ -66,11 +66,22 @@ export async function signInWithGoogle(): Promise<KokonadaUser> {
 // POST /api/auth/apple with client:'mobile' (issues the rotating {access,refresh} pair the
 // socket needs) → install into the single AuthSession token plane. Apple returns the email
 // only on first grant and may hand back a private-relay address — the backend accepts it.
-export async function signInWithApple(): Promise<KokonadaUser> {
-  const resp = await appleAuth.performRequest({
-    requestedOperation: appleAuth.Operation.LOGIN,
-    requestedScopes: [appleAuth.Scope.FULL_NAME, appleAuth.Scope.EMAIL],
-  });
+// Returns null when the user deliberately CANCELS the Apple sheet — a cancel is a normal
+// action, not a failure, so the caller shows no error. Any other ASAuthorization failure is
+// surfaced as a friendly, throwable message.
+export async function signInWithApple(): Promise<KokonadaUser | null> {
+  let resp;
+  try {
+    resp = await appleAuth.performRequest({
+      requestedOperation: appleAuth.Operation.LOGIN,
+      requestedScopes: [appleAuth.Scope.FULL_NAME, appleAuth.Scope.EMAIL],
+    });
+  } catch (e: any) {
+    // 1001 CANCELED — the user backed out. Silent no-op (no error banner, no network).
+    if (e?.code === appleAuth.Error.CANCELED) return null;
+    // Everything else (1000/1002/1003/1004) is an actual failure — one friendly message.
+    throw new Error('Apple sign-in could not be completed. Please try again.');
+  }
 
   const identityToken = resp?.identityToken;
   if (!identityToken) throw new Error('Apple sign-in returned no identity token');
