@@ -1,0 +1,25 @@
+// Legal copy for the interim Track H / H1 disclosures on the v1 screens. ONE exported constant per
+// string, and this is the only production file that spells them (legalSingleSource.test.ts pins
+// that); screens import the constants, never inline a copy. The wording is regulatory draft copy for
+// counsel, pinned verbatim in legalCopy.test.ts — changing a word is a gate-G5 decision.
+//
+// Deliberately NOT used by the consent sheet: that surface gets counsel's final, scope-framed copy
+// together with one consent-version bump, so a grant is always tied to the text actually shown.
+
+// AI Act Art. 50(3) notice — the UI-005 invariant sentence, reused verbatim (TASKS.md:240).
+export const AI_DISCLOSURE_LONG =
+  "An AI system infers your emotional state here. It is a machine's reading, not a person's — and it can be wrong.";
+
+// The same notice for persistent chrome; it drops "here" because no processing happens there.
+export const AI_DISCLOSURE_SHORT = 'An AI system infers your emotional state. It can be wrong.';
+
+// Mirrors the Play store-listing phrase, so there is one claim everywhere.
+export const MEDICAL_DISCLAIMER =
+  'Kokonada is not a medical device and does not diagnose, treat, cure, or prevent any medical condition.';
+
+export type LegalLine = typeof AI_DISCLOSURE_LONG | typeof AI_DISCLOSURE_SHORT | typeof MEDICAL_DISCLAIMER;
+
+// Which lines each surface renders (regulatory brief, "Where it goes").
+export const GENERATE_LEGAL_LINES: readonly LegalLine[] = Object.freeze([AI_DISCLOSURE_LONG]);
+export const ONBOARDING_LEGAL_LINES: readonly LegalLine[] = Object.freeze([AI_DISCLOSURE_SHORT]);
+export const PULSE_LEGAL_LINES: readonly LegalLine[] = Object.freeze([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
