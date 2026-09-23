@@ -19,7 +19,6 @@ jest.mock('../app/models/User', () => ({
 }));
 
 const express = require('express');
-const cookieParser = require('cookie-parser');
 const request = require('supertest');
 const { signToken } = require('../app/utils/jwt');
 const consentService = require('../app/services/privacy/consent');
@@ -30,7 +29,6 @@ const PURPOSE = 'health_biometric_processing';
 function makeApp() {
   const app = express();
   app.use(express.json());
-  app.use(cookieParser());
   app.use('/api/consent', consentRouter);
   return app;
 }

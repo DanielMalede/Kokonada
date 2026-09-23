@@ -138,9 +138,8 @@ beforeEach(() => {
 });
 
 describe('POST /auth/signup', () => {
-  // BE-009 — INVERTED. Signup used to SET the session cookie; it now CLEARS it, so a holder
-  // of a pre-retirement cookie loses it on their next successful auth instead of keeping it
-  // for the remaining span of its 7-day life.
+  // BE-009 — INVERTED. Signup used to SET the session cookie; it now touches no cookie at
+  // all (the interim clear-on-auth lapsed with the last 7-day cookie in 2026-09).
   it('creates the account and returns an access/refresh session pair, and issues NO cookie', async () => {
     const res = buildRes();
     await ctrl.signup({ body: { email: EMAIL, password: PASSWORD } }, res, next);
@@ -150,10 +149,9 @@ describe('POST /auth/signup', () => {
     expect(jwt.verify(body.token, process.env.JWT_SECRET).userId).toBeTruthy();
     expect(body.refreshToken).toMatch(/^krt_/);
     expect(body.user.email).toBe(EMAIL);
-    // never sets the session cookie...
-    expect(res.cookie).not.toHaveBeenCalledWith('kokonada_token', body.token, expect.any(Object));
-    // ...and actively clears any the caller still holds
-    expect(res.clearCookie).toHaveBeenCalledWith('kokonada_token', expect.any(Object));
+    // the cookie plane is gone entirely: nothing is set and nothing is cleared
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
   });
 
   it('maps email-taken to 409 and validation failures to 400', async () => {
@@ -217,8 +215,8 @@ describe('POST /auth/refresh', () => {
     expect(body.token).toBeTruthy();
     expect(body.refreshToken).toMatch(/^krt_/);
     expect(body.refreshToken).not.toBe(refreshToken);
-    expect(res.cookie).not.toHaveBeenCalledWith('kokonada_token', body.token, expect.any(Object));
-    expect(res.clearCookie).toHaveBeenCalledWith('kokonada_token', expect.any(Object));
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
   });
 
   it('rejects replayed, unknown and missing tokens with 401', async () => {

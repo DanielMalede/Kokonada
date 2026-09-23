@@ -1,12 +1,11 @@
 // override:true makes the local .env authoritative over inherited shell vars
-// (e.g. a global NODE_ENV=production leaking into dev, which would force
-// secure:true cookies that browsers drop over http://localhost). In real
+// (e.g. a global NODE_ENV=production leaking into dev, which would switch on
+// production-only guards such as the vetted-LLM boot assertion). In real
 // deployments there is no .env file, so platform env vars still win.
 require('dotenv').config({ override: true });
 const http = require('http');
 const express = require('express');
 const helmet = require('helmet');
-const cookieParser = require('cookie-parser');
 const { initSentry } = require('./config/sentry');
 const connectDB = require('./config/db');
 const { connectRedis } = require('./config/redis');
@@ -57,8 +56,6 @@ app.use(helmet());
 // start rather than silently degrade to an unvetted, training-eligible endpoint with
 // special-category signals. (Wave-0 egress containment)
 require('./config/llmProvider').assertVettedLlmProvider();
-
-app.use(cookieParser());
 
 // The Suunto webhook needs the raw body for HMAC verification, so it bypasses
 // express.json. Bound it hard (every other route is capped at 10kb below) to

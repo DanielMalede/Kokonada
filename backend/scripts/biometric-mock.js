@@ -8,10 +8,10 @@
  * Usage:
  *   node scripts/biometric-mock.js --token <jwt> --scenario running --duration 5m
  *
- * Get your JWT token from the browser: DevTools → Application → Cookies → kokonada_token
+ * Get a JWT from the `token` field of a POST /api/auth/login response (the app sends it as a Bearer).
  *
  * Options:
- *   --token <jwt>        Required. JWT from browser cookie.
+ *   --token <jwt>        Required. Access JWT from /api/auth/login.
  *   --scenario <name>    Scenario name (default: running). See SCENARIOS below.
  *   --duration <time>    How long to run, e.g. 30s, 5m, 1h (default: 5m).
  *   --interval <secs>    Seconds between pushes (default: 30).
@@ -55,7 +55,7 @@ function run() {
     process.exit(1);
   }
   if (!opts.token) {
-    console.error('[Mock] --token <jwt> is required. Copy it from browser cookies (DevTools → Application → Cookies).');
+    console.error('[Mock] --token <jwt> is required. Take the `token` field from a POST /api/auth/login response.');
     process.exit(1);
   }
 

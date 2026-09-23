@@ -1,22 +1,9 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
+// The name of the RETIRED auth cookie (BE-009). Nothing issues, reads or clears it any more;
+// it is exported only so the regression guards can present one and prove it is ignored.
 const COOKIE_NAME = 'kokonada_token';
-
-// In production the frontend (Vercel) and backend (Railway) live on different
-// domains, so the auth cookie is cross-site: it MUST be SameSite=None;Secure to
-// be stored on the login fetch and sent on subsequent cross-site requests
-// (XHR, the Socket.IO handshake, and the integrations connect navigation).
-// Locally everything is same-site over http://localhost, where SameSite=Lax
-// without Secure is what actually works.
-const isProd = process.env.NODE_ENV === 'production';
-
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: isProd,
-  sameSite: isProd ? 'none' : 'lax',
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-};
 
 // Every token carries a unique jti so it can be individually revoked
 // (logout / breach response) via the denylist. (audit F7)
@@ -72,14 +59,10 @@ function verifyToken(token) {
 // ambient credential that outranks nothing and is attached by browsers cross-site. There is
 // no setter to reach for now, so restoring it has to be a deliberate, reviewable act.
 //
-// `clearAuthCookie` REMAINS and is called on every successful auth and on logout/delete, so
-// cookies already in the wild expire on their holder's next interaction instead of living
-// out the remainder of their 7-day span. It can be removed once that window has passed.
-function clearAuthCookie(res) {
-  res.clearCookie(COOKIE_NAME, { ...COOKIE_OPTIONS, maxAge: 0 });
-}
+// `clearAuthCookie` went too, once its job was done: it expired cookies already in the wild,
+// and the last of those (7-day life, cookie plane retired 2026-08-28) lapsed by 2026-09-04.
 
 module.exports = {
   signToken, signConnectToken, signOauthState, verifyOauthState,
-  verifyToken, clearAuthCookie, COOKIE_NAME,
+  verifyToken, COOKIE_NAME,
 };
