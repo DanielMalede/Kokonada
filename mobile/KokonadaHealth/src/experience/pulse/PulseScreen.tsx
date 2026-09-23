@@ -11,6 +11,7 @@ import {
   PixelRatio,
   StyleSheet,
   type LayoutChangeEvent,
+  type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { warmStore } from '../../state/store';
@@ -352,7 +353,7 @@ export function PulseScreen() {
   // The legal band: the last child of every state. A sibling AFTER the body (so after the StateCard,
   // never on its inferred-state wash) and outside the skeleton's busy region and the empty state's
   // live region + fade — static and always read, right after the headline and confidence.
-  const legalBand = (style: typeof styles.legalAfterCard) => (
+  const legalBand = (style: ViewStyle) => (
     <View style={style}>
       <LegalNote lines={PULSE_LEGAL_LINES} />
     </View>

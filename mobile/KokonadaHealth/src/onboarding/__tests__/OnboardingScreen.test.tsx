@@ -203,11 +203,13 @@ describe('OnboardingScreen — three-panel FTUE', () => {
 // Onboarding is per device, one-way and skippable from panel 1, so the notice must be on panel 1
 // BEFORE Skip, identical on every panel, never on a swiping panel, never under the Begin fade.
 describe('OnboardingScreen — AI Act Art. 50 notice in the persistent chrome (H1)', () => {
+  // A host (native) node of the given RN type — 'View' / 'Text' are strings in the jest renderer.
+  const isHost = (n: { type: unknown }, name: 'View' | 'Text') => n.type === name;
   const notices = (tree: ReactTestRenderer.ReactTestRenderer) =>
-    tree.root.findAll((n) => n.type === 'View' && n.props.testID === 'legal-note');
+    tree.root.findAll((n) => isHost(n, 'View') && n.props.testID === 'legal-note');
   const expectNotice = (tree: ReactTestRenderer.ReactTestRenderer) => {
     expect(notices(tree)).toHaveLength(1);
-    const lines = notices(tree)[0].findAll((n) => n.type === 'Text');
+    const lines = notices(tree)[0].findAll((n) => isHost(n, 'Text'));
     expect(lines).toHaveLength(1);
     expect(lines[0].props.children).toBe(AI_DISCLOSURE_SHORT);
   };
@@ -311,7 +313,7 @@ describe('OnboardingScreen — AI Act Art. 50 notice in the persistent chrome (H
 
     it('the line is content.secondary on the AA-proven text scrim', async () => {
       const tree = await render();
-      const line = notices(tree)[0].findAll((n) => n.type === 'Text')[0];
+      const line = notices(tree)[0].findAll((n) => isHost(n, 'Text'))[0];
       expect(flattenStyle(line).color).toBe(C.content.secondary);
       expect(flattenStyle(notices(tree)[0]).backgroundColor).toBe(textScrimFill(C, scheme));
     });

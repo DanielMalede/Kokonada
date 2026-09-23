@@ -352,9 +352,11 @@ describe('GenerateScreen — EmotionListSelector gated behind a quiet affordance
 });
 
 describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, persistent, never tinted', () => {
+  // A host (native) node of the given RN type — 'View' / 'Text' are strings in the jest renderer.
+  const isHost = (n: { type: unknown }, name: 'View' | 'Text') => n.type === name;
   const notices = (tree: ReactTestRenderer.ReactTestRenderer) =>
-    tree.root.findAll((n) => n.type === 'View' && n.props.testID === 'legal-note');
-  const noticeText = (tree: ReactTestRenderer.ReactTestRenderer) => notices(tree)[0].findAll((n) => n.type === 'Text');
+    tree.root.findAll((n) => isHost(n, 'View') && n.props.testID === 'legal-note');
+  const noticeText = (tree: ReactTestRenderer.ReactTestRenderer) => notices(tree)[0].findAll((n) => isHost(n, 'Text'));
   const expectOneNotice = (tree: ReactTestRenderer.ReactTestRenderer) => {
     expect(notices(tree)).toHaveLength(1);
     const texts = noticeText(tree);

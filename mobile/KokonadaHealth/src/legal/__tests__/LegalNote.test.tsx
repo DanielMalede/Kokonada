@@ -20,9 +20,11 @@ afterEach(() => { colorSchemeMock.mockImplementation(PRESET); jest.restoreAllMoc
 
 const FACES: ThemeName[] = ['light', 'dark'];
 const flat = (node: any) => RN.StyleSheet.flatten(node.props.style) as any;
-const hostTexts = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.type === 'Text');
+// A host (native) node of the given RN type — 'View' / 'Text' are strings in the jest renderer.
+const isHost = (n: { type: unknown }, name: 'View' | 'Text') => n.type === name;
+const hostTexts = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => isHost(n, 'Text'));
 const hostNodes = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => typeof n.type === 'string');
-const band = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.type === 'View' && n.props.testID === 'legal-note')[0];
+const band = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => isHost(n, 'View') && n.props.testID === 'legal-note')[0];
 
 function render(lines: React.ComponentProps<typeof LegalNote>['lines']) {
   let tree!: ReactTestRenderer.ReactTestRenderer;

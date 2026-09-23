@@ -279,16 +279,18 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
       pulseStateStore.setState(withData({ stateVector: { status, confidence, computedAt: null } }) as any);
     });
   };
-  const hostTexts = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.type === 'Text');
+  // A host (native) node of the given RN type — 'View' / 'Text' are strings in the jest renderer.
+  const isHost = (n: { type: unknown }, name: 'View' | 'Text') => n.type === name;
+  const hostTexts = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => isHost(n, 'Text'));
   const bands = (tree: ReactTestRenderer.ReactTestRenderer) =>
-    tree.root.findAll((n) => n.type === 'View' && n.props.testID === 'legal-note');
+    tree.root.findAll((n) => isHost(n, 'View') && n.props.testID === 'legal-note');
   const header = (tree: ReactTestRenderer.ReactTestRenderer) =>
-    tree.root.findAll((n) => n.type === 'Text' && n.props.accessibilityRole === 'header');
+    tree.root.findAll((n) => isHost(n, 'Text') && n.props.accessibilityRole === 'header');
   const flat = (node: any) => RN.StyleSheet.flatten(node.props.style) as any;
   const ancestors = (node: any) => { const out: any[] = []; for (let p = node.parent; p; p = p.parent) out.push(p); return out; };
   const expectLegalBand = (tree: ReactTestRenderer.ReactTestRenderer) => {
     expect(bands(tree)).toHaveLength(1);
-    const lines = bands(tree)[0].findAll((n) => n.type === 'Text').map((t) => t.props.children);
+    const lines = bands(tree)[0].findAll((n) => isHost(n, 'Text')).map((t) => t.props.children);
     expect(lines).toEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
   };
   const expectReachable = (tree: ReactTestRenderer.ReactTestRenderer) => {
@@ -302,7 +304,7 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
   // The StateCard is the parent of the pointerEvents="none" wash painted with an emotion wash.
   const stateCard = (tree: ReactTestRenderer.ReactTestRenderer, face: ThemeName) => {
     const washes = Object.values(colors[face].emotionAccent).map((q) => q.wash);
-    const wash = tree.root.findAll((n) => n.type === 'View' && n.props.pointerEvents === 'none' && washes.includes(flat(n).backgroundColor));
+    const wash = tree.root.findAll((n) => isHost(n, 'View') && n.props.pointerEvents === 'none' && washes.includes(flat(n).backgroundColor));
     expect(wash).toHaveLength(1);
     return { wash: wash[0], card: wash[0].parent! };
   };
@@ -387,7 +389,7 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
     await withStatus('Peak Athletic Performance');
     const tree = await open();
     expectReachable(tree);
-    for (const line of bands(tree)[0].findAll((n) => n.type === 'Text')) {
+    for (const line of bands(tree)[0].findAll((n) => isHost(n, 'Text'))) {
       expect(line.props.numberOfLines).toBeUndefined();
       expect(line.props.allowFontScaling).not.toBe(false);
     }
@@ -398,7 +400,7 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
     const styleFor = async (status: string) => {
       await withStatus(status);
       const tree = await open();
-      return { band: flat(bands(tree)[0]), lines: bands(tree)[0].findAll((n) => n.type === 'Text').map(flat) };
+      return { band: flat(bands(tree)[0]), lines: bands(tree)[0].findAll((n) => isHost(n, 'Text')).map(flat) };
     };
     const intense = await styleFor('High-Stress / Pre-Panic');
     const calm = await styleFor('Resting / Meditative');
