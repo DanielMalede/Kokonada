@@ -1,4 +1,4 @@
-import { requestBlePermissions } from './blePermissions';
+import { checkBlePermissions } from './blePermissions';
 import { startBleHeartRate, type LiveHrCallbacks } from './bleHeartRate';
 import { startRestFallback } from './restFallback';
 import { getWatchToken } from './liveHrClient';
@@ -12,9 +12,10 @@ export interface LiveHrSession {
 
 /**
  * Start live heart-rate streaming with a STRICT two-tier strategy:
- *   1. Prefer BLE — real-time readings from a Garmin "Broadcast Heart Rate" stream.
- *   2. If the user denies BLE permission (or it's unavailable), fall back to a fixed
- *      3-minute REST push sourced from Health Connect.
+ *   1. Prefer BLE — real-time readings from a Garmin "Broadcast Heart Rate" stream — but ONLY
+ *      when the BLE permission is ALREADY granted. This never shows the OS "Nearby devices"
+ *      prompt (H2): that prompt needs a disclosure immediately before it, owned by P6.
+ *   2. Otherwise fall back to a fixed 3-minute REST push sourced from Health Connect.
  * Both tiers authenticate with the same watch device token and hit /watch/hr, so the
  * backend/socket pipeline is identical regardless of which one is active.
  *
@@ -23,7 +24,7 @@ export interface LiveHrSession {
 export async function startLiveHr(cb: LiveHrCallbacks = {}): Promise<LiveHrSession> {
   const watchToken = await getWatchToken();
 
-  const bleGranted = await requestBlePermissions();
+  const bleGranted = await checkBlePermissions();
   if (bleGranted) {
     const ctrl = startBleHeartRate(watchToken, cb);
     return { mode: 'ble', stop: ctrl.stop };
