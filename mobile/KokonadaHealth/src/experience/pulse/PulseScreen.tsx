@@ -17,7 +17,9 @@ import { warmStore } from '../../state/store';
 import type { WarmState, BiometricSource, ConnectionStatus } from '../../state/warm/warmStore';
 import { pulseStateStore, type PulseStoreState } from './pulseStateStore';
 import type { PulseState } from './pulseApi';
-import { friendlyStatus } from './statusLabels';
+import { displayStatus } from './statusLabels';
+import { LegalNote } from '../../legal/LegalNote';
+import { PULSE_LEGAL_LINES } from '../../legal/legalCopy';
 import { getLastSyncCounts, subscribeSyncCounts, type SyncCounts } from '../../health/healthSync';
 import { useTheme, useMotion } from '../../design/theme';
 import { space, radius, elevation, motion, type as typography, type ColorScheme, type EmotionQuadrant } from '../../design/tokens';
@@ -45,6 +47,9 @@ import {
 // Non-negotiables live as code: tokens only, calm-fills are always one accent (never a good/bad
 // ramp), the aura PERIOD is always the fixed calm breath (only its HUE carries HR, capped at coral),
 // no bare dash (every null metric renders an honest sentence), and state.danger is forbidden here.
+// H1: the headline renders displayStatus (a clinical label never renders; an unknown one fails closed)
+// while the wash still reads the RAW key, and every state ends with the AI notice + the
+// not-a-medical-device line in one LegalNote band — after the StateCard, never on its wash.
 
 // The hero glow field ≈ 2× the numeral — a restrained halo (the aura's star turns are Generate).
 const HERO_AURA_SIZE = space['4xl'] * AURA_HERO_SCALE;
@@ -264,7 +269,7 @@ export function PulseScreen() {
 
   const data = pulse.data;
   const sv = data?.stateVector;
-  const status = friendlyStatus(sv?.status);
+  const status = displayStatus(sv?.status);
   const confidence = sv?.confidence ?? null;
   const quadrant = statusQuadrant(sv?.status);
   const anyVital = data
@@ -344,6 +349,15 @@ export function PulseScreen() {
     </View>
   );
 
+  // The legal band: the last child of every state. A sibling AFTER the body (so after the StateCard,
+  // never on its inferred-state wash) and outside the skeleton's busy region and the empty state's
+  // live region + fade — static and always read, right after the headline and confidence.
+  const legalBand = (style: typeof styles.legalAfterCard) => (
+    <View style={style}>
+      <LegalNote lines={PULSE_LEGAL_LINES} />
+    </View>
+  );
+
   if (isSyncing) {
     // First load, no prior data: skeletons breathe (never a spinner), announced once as a sentence.
     // Checked BEFORE the empty state — a cold start is "reading", not yet "nothing to read".
@@ -352,6 +366,7 @@ export function PulseScreen() {
         <Skeleton.Group label="Reading your body…" style={styles.syncGroup}>
           {body(true)}
         </Skeleton.Group>
+        {legalBand(styles.legalAfterCard)}
       </ScrollView>
     );
   }
@@ -367,6 +382,7 @@ export function PulseScreen() {
           tone="brand"
           accentQuadrant="calm"
         />
+        {legalBand(styles.legalAfterEmpty)}
       </ScrollView>
     );
   }
@@ -374,6 +390,7 @@ export function PulseScreen() {
   return (
     <ScrollView style={scrollStyle} contentContainerStyle={contentStyle} refreshControl={refreshControl}>
       {body(false)}
+      {legalBand(styles.legalAfterCard)}
     </ScrollView>
   );
 }
@@ -420,4 +437,8 @@ const styles = StyleSheet.create({
   statePlaceholder: { fontSize: typography.size.callout, lineHeight: typography.size.callout * typography.leading.normal },
   stateLink: { marginTop: space.sm, alignSelf: 'flex-start' },
   stateLinkText: { fontSize: typography.size.footnote, fontWeight: typography.weight.semibold, textDecorationLine: 'underline' },
+
+  // Tighter than the stack's xl so the card and its notice read as one unit; xl below EmptyState.
+  legalAfterCard: { marginTop: space.md },
+  legalAfterEmpty: { marginTop: space.xl },
 });

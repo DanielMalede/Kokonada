@@ -39,9 +39,15 @@ jest.mock('@react-navigation/native', () => ({
   },
 }));
 
+import * as RN from 'react-native';
 import { PulseScreen } from '../PulseScreen';
 import { pulseStateStore } from '../pulseStateStore';
 import { warmStore } from '../../../state/store';
+import { colors, space, type ThemeName } from '../../../design/tokens';
+import { textScrimFill } from '../../../design/auroraSurfaces';
+import { AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER } from '../../../legal/legalCopy';
+import { LegalNote } from '../../../legal/LegalNote';
+import { STATE_LABEL_HIGH_ACTIVATION, STATE_LABEL_FALLBACK } from '../stateDisplayVocabulary';
 
 const mockRefresh = pulseStateStore.getState().refresh as jest.Mock;
 
@@ -251,5 +257,153 @@ describe('PulseScreen — syncing first-load (skeletons never spinners)', () => 
     expect(byLabel(tree, 'Reading your body…').length).toBeGreaterThan(0);
     expect(texts(tree.toJSON()).some((s) => s === '—')).toBe(false);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+// ── H1: the state label display map, the AI notice and the not-a-medical-device line ─────────────
+describe('PulseScreen — no clinical label, the AI notice and the medical disclaimer (H1)', () => {
+  // Face forcing without leaking into later tests (see OnboardingScreen.test.tsx for why not spyOn).
+  const colorSchemeMock = RN.useColorScheme as unknown as jest.Mock;
+  const PRESET = colorSchemeMock.getMockImplementation();
+  const forceFace = (face: ThemeName) => colorSchemeMock.mockImplementation(() => face);
+  // Every tree is swept pass-or-fail, so a failing assertion cannot leak an open handle.
+  const live: ReactTestRenderer.ReactTestRenderer[] = [];
+  const open = async () => { const t = await render(); live.push(t); return t; };
+  afterEach(async () => {
+    for (const t of live.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
+    colorSchemeMock.mockImplementation(PRESET);
+  });
+
+  const withStatus = async (status: string | null, confidence: number | null = 0.9) => {
+    await ReactTestRenderer.act(async () => {
+      pulseStateStore.setState(withData({ stateVector: { status, confidence, computedAt: null } }) as any);
+    });
+  };
+  const hostTexts = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.type === 'Text');
+  const bands = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    tree.root.findAll((n) => n.type === 'View' && n.props.testID === 'legal-note');
+  const header = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    tree.root.findAll((n) => n.type === 'Text' && n.props.accessibilityRole === 'header');
+  const flat = (node: any) => RN.StyleSheet.flatten(node.props.style) as any;
+  const ancestors = (node: any) => { const out: any[] = []; for (let p = node.parent; p; p = p.parent) out.push(p); return out; };
+  const expectLegalBand = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    expect(bands(tree)).toHaveLength(1);
+    const lines = bands(tree)[0].findAll((n) => n.type === 'Text').map((t) => t.props.children);
+    expect(lines).toEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+  };
+  const expectReachable = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    for (const a of ancestors(bands(tree)[0])) {
+      expect(a.props.pointerEvents).not.toBe('none');
+      expect(a.props.accessibilityElementsHidden).not.toBe(true);
+      expect(a.props.importantForAccessibility).not.toBe('no-hide-descendants');
+      expect(a.props.accessibilityLiveRegion ?? 'none').toBe('none'); // outside Skeleton.Group / EmptyState
+    }
+  };
+  // The StateCard is the parent of the pointerEvents="none" wash painted with an emotion wash.
+  const stateCard = (tree: ReactTestRenderer.ReactTestRenderer, face: ThemeName) => {
+    const washes = Object.values(colors[face].emotionAccent).map((q) => q.wash);
+    const wash = tree.root.findAll((n) => n.type === 'View' && n.props.pointerEvents === 'none' && washes.includes(flat(n).backgroundColor));
+    expect(wash).toHaveLength(1);
+    return { wash: wash[0], card: wash[0].parent! };
+  };
+
+  it('NEVER renders the pre-panic key: the headline is the display constant and no node says panic/stress', async () => {
+    await withStatus('High-Stress / Pre-Panic');
+    const tree = await open();
+    expect(header(tree)).toHaveLength(1);
+    expect(header(tree)[0].props.children).toBe(STATE_LABEL_HIGH_ACTIVATION);
+    expect(header(tree)[0].props.accessibilityLabel).toBeUndefined(); // accessible name = the display label
+    expect(allText(tree)).not.toMatch(/panic|stress/i);
+    const labels = tree.root.findAll((n) => typeof n.props.accessibilityLabel === 'string').map((n) => n.props.accessibilityLabel);
+    expect(labels.join(' | ')).not.toMatch(/panic|stress/i);
+  });
+
+  it.each(['light', 'dark'] as ThemeName[])('the RAW backend key still drives the violet "intense" wash (%s)', async (face) => {
+    forceFace(face);
+    await withStatus('High-Stress / Pre-Panic');
+    const tree = await open();
+    expect(flat(stateCard(tree, face).wash).backgroundColor).toBe(colors[face].emotionAccent.intense.wash);
+  });
+
+  it('an unknown backend label renders the neutral constant, never verbatim (fails closed)', async () => {
+    await withStatus('Some Future Rule Label');
+    const tree = await open();
+    expect(header(tree)[0].props.children).toBe(STATE_LABEL_FALLBACK);
+    expect(allText(tree)).not.toContain('Some Future Rule Label');
+  });
+
+  it('loaded with a state: AI notice then disclaimer, read straight after the headline and confidence', async () => {
+    await withStatus('Peak Athletic Performance', 0.9);
+    const tree = await open();
+    expectLegalBand(tree);
+    const t = hostTexts(tree);
+    const iHead = t.indexOf(header(tree)[0]);
+    const tail = t.slice(iHead).map((n) => texts(n.props.children).join(''));
+    expect(tail).toEqual(['Peak Athletic Performance', '90% read confidence', AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+  });
+
+  it('sits OUTSIDE the StateCard (never on the inferred-state wash), right after it at a tighter md gap', async () => {
+    forceFace('dark');
+    await withStatus('High-Stress / Pre-Panic');
+    const tree = await open();
+    const { card } = stateCard(tree, 'dark');
+    expect(ancestors(bands(tree)[0])).not.toContain(card);
+    expect(card.findAll((n) => n.props.testID === 'legal-note')).toHaveLength(0);
+    // The caller's wrapper (LegalNote takes no style) carries the gap.
+    expect(flat(tree.root.findByType(LegalNote).parent).marginTop).toBe(space.md);
+  });
+
+  it('empty state: the wrapper keeps the xl rhythm below EmptyState', async () => {
+    const tree = await open();
+    expect(flat(tree.root.findByType(LegalNote).parent).marginTop).toBe(space.xl);
+  });
+
+  it('loaded with NO state label (placeholder + connect link): the band still renders after the card', async () => {
+    await withStatus(null, null);
+    const tree = await open();
+    expect(allText(tree)).toContain("Your state will appear once your body's being read");
+    expectLegalBand(tree);
+    const t = hostTexts(tree).map((n) => texts(n.props.children).join(''));
+    expect(t.slice(-2)).toEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+  });
+
+  it('loading skeleton: the band is present, static, and OUTSIDE the busy live region', async () => {
+    await ReactTestRenderer.act(async () => { pulseStateStore.setState({ data: null, loading: true } as any); });
+    const tree = await open();
+    expect(byLabel(tree, 'Reading your body…').length).toBeGreaterThan(0);
+    expectLegalBand(tree);
+    expectReachable(tree);
+  });
+
+  it('empty state: the band is present after EmptyState, outside its live region and fade', async () => {
+    const tree = await open();
+    expect(allText(tree)).toContain("Your body isn't in the picture yet");
+    expectLegalBand(tree);
+    expectReachable(tree);
+    for (const a of ancestors(bands(tree)[0])) expect(flat(a)?.opacity).toBeUndefined();
+  });
+
+  it('is reachable when loaded: no ancestor hides it, swallows touches, or makes it a live region', async () => {
+    await withStatus('Peak Athletic Performance');
+    const tree = await open();
+    expectReachable(tree);
+    for (const line of bands(tree)[0].findAll((n) => n.type === 'Text')) {
+      expect(line.props.numberOfLines).toBeUndefined();
+      expect(line.props.allowFontScaling).not.toBe(false);
+    }
+  });
+
+  it.each(['light', 'dark'] as ThemeName[])('is NEVER tinted: identical band with an intense status and a calm status (%s)', async (face) => {
+    forceFace(face);
+    const styleFor = async (status: string) => {
+      await withStatus(status);
+      const tree = await open();
+      return { band: flat(bands(tree)[0]), lines: bands(tree)[0].findAll((n) => n.type === 'Text').map(flat) };
+    };
+    const intense = await styleFor('High-Stress / Pre-Panic');
+    const calm = await styleFor('Resting / Meditative');
+    expect(intense).toEqual(calm);
+    expect(intense.band.backgroundColor).toBe(textScrimFill(colors[face], face));
+    for (const l of intense.lines) expect(l.color).toBe(colors[face].content.secondary);
   });
 });
