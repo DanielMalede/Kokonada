@@ -4,6 +4,8 @@ import { apiGet } from './net/apiClient';
 import { currentUserStore, getCurrentUserId } from './auth/currentUser';
 import type { KokonadaUser } from './auth/auth';
 import { playbackSocket, player } from './experience/playback/playbackServices';
+import { connectPlayerIfLinked } from './experience/player/playerBootGate';
+import type { IntegrationsStatus } from './experience/profile/profileController';
 import { startBiometrics } from './health/biometricsWiring';
 import { syncMedicalProfile } from './health/healthSync';
 import { warmStore, store } from './state/store';
@@ -73,7 +75,13 @@ export async function startApp(): Promise<void> {
     bootstrapSession: async () => authSession.getAccessToken() !== null,
     getUserId: getCurrentUserId,
     connectSocket: () => playbackSocket.ensureConnected(),
-    connectPlayer: () => { void player.connect(); },
+    // H2: only a signed-in account whose Spotify link the server confirms now (fail closed).
+    connectPlayer: () => {
+      void connectPlayerIfLinked({
+        fetchIntegrations: () => apiGet<IntegrationsStatus>('/api/integrations/status'),
+        connect: () => player.connect(),
+      });
+    },
     startBiometrics: () => startBiometrics({ warm: warmStore }),
     setupColdPersistence: makeColdPersistence,
   });

@@ -36,8 +36,23 @@ describe('bootstrapApp', () => {
       .toBeLessThan(d._cp.attach.mock.invocationCallOrder[0]);
   });
 
-  it('always attempts the Spotify player (its auth is independent of the Kokonada session)', async () => {
+  // CONTRACT CHANGE (H2, 2026-09-23), recorded, not silently deleted. The retired pin read:
+  //   'always attempts the Spotify player (its auth is independent of the Kokonada session)'
+  //   → bootstrapSession false ⇒ connectPlayer called once.
+  // Retired because the owner-approved H2 ("the player connects only for a signed-in, linked
+  // user") and the compliance gate (B7: Spotify Developer Policy I.1.a + Play User Data policy)
+  // forbid it: on a device with no Spotify grant, connect() falls through to
+  // SpotifyRemote.authorize() — Spotify's login screen at launch for a signed-out user. Its
+  // replacements are the two pins below; the "linked" half of the rule is pinned in
+  // experience/player/__tests__/playerBootGate.test.ts. Needs the resilience co-sign on review.
+  it('with NO session: never attempts the Spotify player', async () => {
     const d = deps({ bootstrapSession: jest.fn().mockResolvedValue(false) });
+    await bootstrapApp(d);
+    expect(d.connectPlayer).not.toHaveBeenCalled();
+  });
+
+  it('with a session: attempts the gated player exactly once', async () => {
+    const d = deps();
     await bootstrapApp(d);
     expect(d.connectPlayer).toHaveBeenCalledTimes(1);
   });
