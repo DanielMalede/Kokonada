@@ -1,9 +1,10 @@
 'use strict';
 
 // Pin (audit H-9 follow-up, replaces the prose "MUST bump when the lane goes live" comment with
-// an ENFORCED guard). The Garmin server-to-server lane discloses three special-category (GDPR
-// Art.9) types — spo2 / respiratory_rate / body_battery — that Health Connect on this client does
-// NOT read. Those may be PERSISTED only once the user re-consents at GARMIN_CONSENT_MIN_VERSION.
+// an ENFORCED guard). The Garmin server-to-server lane discloses four special-category (GDPR
+// Art.9) types — spo2 / respiratory_rate / body_battery / daily_readiness — that Health Connect on
+// this client does NOT read. Those may be PERSISTED only once the user re-consents at
+// GARMIN_CONSENT_MIN_VERSION.
 // Below that (i.e. today, lane dormant, CURRENT_CONSENT_VERSION = 1) they are DROPPED at ingest.
 // The HC-lane metrics (HR / HRV / sleep / resting-HR, lawful at v1) are UNGATED.
 //
@@ -16,9 +17,19 @@ jest.mock('../app/models/ConsentRecord', () => ({ latestFor: jest.fn() }));
 jest.mock('../app/models/User', () => ({ findById: jest.fn() }));
 jest.mock('../app/services/privacy/wearableErasure', () => ({ WEARABLE_PROVIDERS: [], eraseWearableProvider: jest.fn() }));
 
+// The Garmin normalizer runs FOR REAL for every case below (real summaries -> real metrics); this is
+// a PASSTHROUGH spy, not a stub. It exists only so the dailyReadiness block can inject a metric the
+// normalizer map cannot emit yet — without it that assertion would pass vacuously.
+jest.mock('../app/services/wearable/adapter', () => {
+  const actual = jest.requireActual('../app/services/wearable/adapter');
+  return { ...actual, normalizeGarminSummaries: jest.fn(actual.normalizeGarminSummaries) };
+});
+
 const ConsentRecord = require('../app/models/ConsentRecord');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
+const { normalizeGarminSummaries } = require('../app/services/wearable/adapter');
+const { GARMIN_SPECIAL_CATEGORY_METRICS } = require('../app/services/wearable/specialCategoryMetrics');
 const {
   CURRENT_CONSENT_VERSION,
   GARMIN_CONSENT_MIN_VERSION,
@@ -102,5 +113,62 @@ describe('Garmin consent version gate', () => {
     await ingestSummaries(USER, mixedPush());
     const persisted = persistedMetrics();
     for (const s of SPECIAL) expect(persisted).not.toContain(s);
+  });
+});
+
+// ── dailyReadiness — the fourth Garmin-only special category (GDPR Art.9) ──────────────────────
+// Training Readiness is a special-category health INFERENCE: MedicalProfile.dailyReadiness stores it
+// field-level encrypted, aggregateProfileMetrics writes it there from any ingest batch, and it is
+// read back as retained profile state. It was missing from GARMIN_SPECIAL_CATEGORY_METRICS, so —
+// unlike its three siblings — it was admitted at ANY consent version, including none at all.
+//
+// Real semantics: the REAL consent read + REAL predicate + REAL ingestSummaries gate run. No
+// normalizer emits `dailyReadiness` yet, so the map physically cannot produce one; we INJECT it
+// post-normalize (exactly as healthStoreConsentVersionGate.test.js does for its inert backstop) so
+// the GATE is what is under test. Asserting on a real summary would pass for the wrong reason.
+describe('dailyReadiness is gated exactly like the other Garmin special categories', () => {
+  const at = new Date(START * 1000);
+  // What the gate receives: one lawful-at-v1 HC-lane metric + the injected special category. The
+  // HC-lane metric is the control — it proves the batch reached persistMetrics at all, so a
+  // "dropped" assertion can never pass just because nothing was ingested.
+  const injected = () => [
+    { metric: 'restingHeartRate', value: 52, unit: 'bpm',   recordedAt: at, source: 'garmin' },
+    { metric: 'dailyReadiness',   value: 78, unit: 'score', recordedAt: at, source: 'garmin' },
+  ];
+  const ingestInjected = async (record) => {
+    normalizeGarminSummaries.mockReturnValueOnce(injected());
+    ConsentRecord.latestFor.mockResolvedValue(record);
+    await ingestSummaries(USER, [{ type: 'readiness', summary: {} }]);
+    return persistedMetrics();
+  };
+
+  // The ONE source of truth both ingest lanes (garminIngest + healthStore) filter on.
+  it('is in GARMIN_SPECIAL_CATEGORY_METRICS', () => {
+    expect(GARMIN_SPECIAL_CATEGORY_METRICS.has('dailyReadiness')).toBe(true);
+  });
+
+  it('consent below the min → dailyReadiness is DROPPED (HC-lane control still persists)', async () => {
+    const persisted = await ingestInjected(grantedAt(CURRENT_CONSENT_VERSION));
+    expect(persisted).toContain('restingHeartRate');
+    expect(persisted).not.toContain('dailyReadiness');
+  });
+
+  it('no consent record on file → dailyReadiness dropped (fail-closed)', async () => {
+    const persisted = await ingestInjected(null);
+    expect(persisted).toContain('restingHeartRate');
+    expect(persisted).not.toContain('dailyReadiness');
+  });
+
+  it('latest row is a withdrawal at a high version → dailyReadiness dropped (fail-closed)', async () => {
+    const persisted = await ingestInjected({ status: 'withdrawn', consentVersion: GARMIN_CONSENT_MIN_VERSION + 5 });
+    expect(persisted).toContain('restingHeartRate');
+    expect(persisted).not.toContain('dailyReadiness');
+  });
+
+  // The gate must not be a blanket ban — re-consented users at the min version are lawful.
+  it('consent >= GARMIN_CONSENT_MIN_VERSION → dailyReadiness IS persisted', async () => {
+    const persisted = await ingestInjected(grantedAt(GARMIN_CONSENT_MIN_VERSION));
+    expect(persisted).toContain('dailyReadiness');
+    expect(persisted).toContain('restingHeartRate');
   });
 });
