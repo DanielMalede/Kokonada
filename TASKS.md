@@ -436,7 +436,8 @@ _(empty — put anything you are unsure about here rather than losing it)_
   - **Leave Authorized redirect URIs alone** — the `…up.railway.app/api/integrations/{youtube,spotify}/callback` entries are backend-hosted and still in use. Removing them breaks YouTube connect.
   - **Verify:** the origins list is empty or contains only origins you own; then confirm a Google login still works from the mobile app (it uses the native SDK, not a browser origin, so it should be unaffected — that is the point of checking).
 
-  **3 · Railway — repoint `FRONTEND_URL`, never unset it.** railway.app → the backend service → **Variables**.
+  **3 · CORRECTED 2026-09-23 — DELETE `FRONTEND_URL` on Railway; the warning below is obsolete.** PR #187 removed the boot assertion and the last reader, so the service boots without it. Verify `/health` returns 200 after the redeploy.
+  ~~**3 · Railway — repoint `FRONTEND_URL`, never unset it.**~~ railway.app → the backend service → **Variables**.
   - Set `FRONTEND_URL` to an origin you own. Until `kokonada.app` exists (`DAN-007`), any stable placeholder you control is fine — **but do not delete the variable**: `backend/app/index.js:46-48` throws `FRONTEND_URL must be set in production — refusing to start with unsafe CORS` and the service will not boot.
   - **Verify:** after the redeploy, `https://kokonada-backend-production.up.railway.app/health` returns 200, and the mobile app can still open a socket and generate a playlist. If `/health` does not return 200, put the old value back before doing anything else.
 
