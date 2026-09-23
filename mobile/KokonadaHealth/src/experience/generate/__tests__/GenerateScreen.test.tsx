@@ -13,8 +13,11 @@ import { generationStatusStore } from '../generationStatusStore';
 import { playbackErrorStore } from '../../playback/playbackErrorStore';
 import { liveModeStore } from '../liveModeStore';
 import { warmStore } from '../../../state/store';
-import { colors, type ThemeName } from '../../../design/tokens';
+import { colors, space, type as typography, type ThemeName } from '../../../design/tokens';
 import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
+import { textScrimFill } from '../../../design/auroraSurfaces';
+import { AI_DISCLOSURE_LONG } from '../../../legal/legalCopy';
+import { LegalNote } from '../../../legal/LegalNote';
 
 // The HERO composition (single writer, last in the DAG). The sacred emotion→socket→playlist loop
 // stays byte-for-byte (T9 pins the payloads); here we pin the SURFACE contract: 4-state CTA, undo/
@@ -345,6 +348,132 @@ describe('GenerateScreen — EmotionListSelector gated behind a quiet affordance
     const tree = await mount('dark', makeStore(), makeSocket());
     expect(tree.root.findAllByType(EmotionListSelector).length).toBeGreaterThan(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, persistent, never tinted', () => {
+  const notices = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    tree.root.findAll((n) => n.type === 'View' && n.props.testID === 'legal-note');
+  const noticeText = (tree: ReactTestRenderer.ReactTestRenderer) => notices(tree)[0].findAll((n) => n.type === 'Text');
+  const expectOneNotice = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    expect(notices(tree)).toHaveLength(1);
+    const texts = noticeText(tree);
+    expect(texts).toHaveLength(1);
+    expect(texts[0].props.children).toBe(AI_DISCLOSURE_LONG);
+  };
+  // The ScrollView-level sibling that holds the notice, and its neighbours.
+  const placement = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    let n: ReactTestRenderer.ReactTestInstance = tree.root.findByType(LegalNote);
+    const holdsWheel = (x: any) => typeof x !== 'string' && x.findAllByType(RadialWheel).length > 0;
+    while (n.parent && !n.parent.children.some((ch) => ch !== n && holdsWheel(ch))) n = n.parent;
+    const sibs = n.parent!.children.filter((ch): ch is ReactTestRenderer.ReactTestInstance => typeof ch !== 'string');
+    return {
+      wrapper: n,
+      iHero: sibs.findIndex(holdsWheel),
+      iNotice: sibs.indexOf(n),
+      iToggle: sibs.findIndex((ch) => ch.findAll((x) => x.props.accessibilityRole === 'switch').length > 0),
+    };
+  };
+  const ancestors = (node: ReactTestRenderer.ReactTestInstance) => {
+    const out: ReactTestRenderer.ReactTestInstance[] = [];
+    for (let p = node.parent; p; p = p.parent) out.push(p);
+    return out;
+  };
+  // Every tree is swept pass-or-fail: a failed assertion aborts the body before an inline unmount,
+  // and a leaked tree keeps its aurora work alive — an open handle that holds jest open.
+  const live: ReactTestRenderer.ReactTestRenderer[] = [];
+  const open = async (scheme: ThemeName, store = makeStore()) => {
+    const t = await mount(scheme, store, makeSocket());
+    live.push(t);
+    return t;
+  };
+  afterEach(async () => {
+    for (const t of live.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
+  });
+
+  it.each(['light', 'dark'] as ThemeName[])('is on the FIRST frame, before any input: the LONG sentence, content.secondary on the scrim (%s)', async (face) => {
+    const tree = await open(face);
+    expectOneNotice(tree);
+    const text = noticeText(tree)[0];
+    expect(flat(text).color).toBe(colors[face].content.secondary);
+    expect(flat(text).fontSize).toBeGreaterThanOrEqual(typography.size.body);
+    expect(flat(notices(tree)[0]).backgroundColor).toBe(textScrimFill(colors[face], face));
+  });
+
+  it('sits directly between the hero (wheel + aura) and the Live/Manual toggle, as a ScrollView-level sibling', async () => {
+    const tree = await open('dark');
+    const { iHero, iNotice, iToggle } = placement(tree);
+    expect(iHero).toBeGreaterThanOrEqual(0);
+    expect(iNotice).toBe(iHero + 1);
+    expect(iToggle).toBe(iNotice + 1);
+  });
+
+  it('spans the FULL wheel width with a 16 gap, and keeps that width while typing (never shrinks to the mini-ring)', async () => {
+    const tree = await open('dark');
+    const full = tree.root.findByType(RadialWheel).props.size;
+    expect(flat(placement(tree).wrapper).width).toBe(full);
+    expect(flat(placement(tree).wrapper).marginTop).toBe(space.lg);
+    await ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onFocus(); });
+    expect(tree.root.findByType(RadialWheel).props.size).toBeLessThan(full); // the wheel DID shrink
+    expect(flat(placement(tree).wrapper).width).toBe(full);                  // …the notice did not
+  });
+
+  it('stays present in every state: taps, typing, list open, error row, Live mode on', async () => {
+    const store = makeStore();
+    const tree = await open('dark', store);
+    await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: 0.5 })); store.dispatch(addTap({ x: -0.2, y: 0.3 })); store.dispatch(addTap({ x: 0.1, y: -0.4 })); });
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onFocus(); });
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onBlur(); });
+    await ReactTestRenderer.act(async () => { byId(tree, 'generate-list-toggle').props.onPress(); });
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { store.dispatch(setActivity('running')); playbackErrorStore.getState().set('err'); });
+    expect(byId(tree, 'generate-error')).toBeTruthy();
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { liveModeStore.getState().setLiveMode(true); });
+    expect(label(tree)).toBe('Live-tuned');
+    expectOneNotice(tree);
+  });
+
+  it('is NEVER tinted: identical band and ink with taps in the intense corner and in the joyful corner', async () => {
+    const styleOf = async (tap: { x: number; y: number } | null) => {
+      const store = makeStore();
+      const tree = await open('dark', store);
+      if (tap) await ReactTestRenderer.act(async () => { store.dispatch(addTap(tap)); });
+      return { band: flat(notices(tree)[0]), ink: flat(noticeText(tree)[0]) };
+    };
+    const idle = await styleOf(null);
+    const intense = await styleOf({ x: -0.8, y: 0.8 });
+    const joyful = await styleOf({ x: 0.8, y: 0.8 });
+    expect(intense).toEqual(joyful);
+    expect(intense).toEqual(idle);
+  });
+
+  it('is reachable: no ancestor hides it from the accessibility tree, swallows its touches, or makes it a live region', async () => {
+    const tree = await open('dark');
+    for (const a of ancestors(notices(tree)[0])) {
+      expect(a.props.pointerEvents).not.toBe('none');
+      expect(a.props.accessibilityElementsHidden).not.toBe(true);
+      expect(a.props.importantForAccessibility).not.toBe('no-hide-descendants');
+      expect(a.props.accessibilityLiveRegion ?? 'none').toBe('none');
+    }
+    const text = noticeText(tree)[0];
+    expect(text.props.numberOfLines).toBeUndefined();
+    expect(text.props.allowFontScaling).not.toBe(false);
+  });
+
+  it('reading order: the wheel, then the notice as one node, then the Live toggle', async () => {
+    const tree = await open('dark');
+    const order: ReactTestRenderer.ReactTestInstance[] = [];
+    const walk = (n: ReactTestRenderer.ReactTestInstance) => { order.push(n); n.children.forEach((ch) => { if (typeof ch !== 'string') walk(ch); }); };
+    walk(tree.root);
+    const iWheel = order.findIndex((n) => n.type === RadialWheel);
+    const iNotice = order.indexOf(notices(tree)[0]);
+    const iToggle = order.findIndex((n) => n.props.accessibilityRole === 'switch');
+    expect(iWheel).toBeGreaterThanOrEqual(0);
+    expect(iWheel).toBeLessThan(iNotice);
+    expect(iNotice).toBeLessThan(iToggle);
   });
 });
 

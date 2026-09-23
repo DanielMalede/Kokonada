@@ -21,6 +21,8 @@ import { space, radius, stroke, motion, type as typography } from '../../design/
 import { emotionAccentFor, auroraGlow } from '../../design/emotionAccent';
 import { auroraCtaStops, onAuroraInk, textScrimFill } from '../../design/auroraSurfaces';
 import { fireHaptic } from '../../design/haptics';
+import { LegalNote } from '../../legal/LegalNote';
+import { GENERATE_LEGAL_LINES } from '../../legal/legalCopy';
 import type { Tap } from '../../state/cold/emotionSlice';
 
 // The HERO. Composes the reactive bio-aura + radial wheel (the sacred emotion→socket→playlist core
@@ -277,6 +279,13 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
               </Pressable>
             </>
           ) : null}
+        </View>
+
+        {/* AI Act Art. 50 notice (UI-005): on the first frame, persistent in every state, never tinted.
+            A ScrollView-level sibling of the hero (never under its pointerEvents="none" overlays), at
+            the FULL wheel width so it holds its measure while typing shrinks the wheel. */}
+        <View style={[styles.gap16, { width: fullSize }]}>
+          <LegalNote lines={GENERATE_LEGAL_LINES} />
         </View>
 
         <Pressable
