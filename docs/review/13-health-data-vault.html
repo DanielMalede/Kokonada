@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>13 · Health Data Vault — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+  blockquote{margin:10px 0;padding:9px 14px;border-left:3px solid var(--pgline);color:var(--pgink2);font-style:italic}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;
+      --brand:#8B6FE8;--brandink:#6E3FC4;--onbrand:#FFFFFF;--danger:#9E3346;--accent:#3A5CCC}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;
+      --brand:#9B7BF0;--brandink:#9B7BF0;--onbrand:#0E1030;--danger:#FF9BA8;--accent:#9DB4FF}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .spacer{height:44px;flex:none}
+  .topbar{flex:none;display:flex;align-items:center;gap:6px;padding:0 12px}
+  .topbar .ic{display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--ink2)}
+  .topbar .ttl{font:500 11px var(--mono);letter-spacing:.16em;color:var(--ink2)}
+  .scroll{flex:1;min-height:0;overflow:hidden;padding:2px 24px 0;position:relative}
+  .sec{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px}
+  .box{border:1px solid var(--line);border-radius:20px;background:var(--raised);padding:13px;margin-bottom:12px}
+  .box h3{font:600 13px var(--text);color:var(--ink);margin:0 0 5px}
+  .grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px;margin-bottom:10px}
+  .grid2 div{font:400 12.5px/1.4 var(--text);color:var(--ink2)}
+  .enc{font:400 12.5px/1.6 var(--text);color:var(--ink2)}
+  .kv{display:flex;justify-content:space-between;gap:10px;margin-top:8px;font:400 12.5px var(--text);color:var(--ink)}
+  .kv:first-of-type{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .kv em{color:var(--ink2);font-style:normal}
+  .link{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;margin-top:10px;
+        padding-top:10px;border-top:1px solid var(--line)}
+  .link span{font:500 13px var(--text);text-decoration:underline;text-underline-offset:3px}
+  .act{display:flex;align-items:center;justify-content:center;min-height:48px;padding:0 15px;border-radius:999px;
+       font:600 13.5px var(--text)}
+  .note{margin:7px 0 0;font:400 11.5px/1.45 var(--text);color:var(--ink2)}
+  .warn{margin:0 0 8px;font:400 11.5px/1.45 var(--text);color:var(--ink2)}
+  .irr{border-top:1px solid var(--track);padding-top:10px;margin-bottom:12px}
+  .fade{position:absolute;left:0;right:0;bottom:0;height:26px;pointer-events:none;
+        background:linear-gradient(to top,var(--canvas),transparent)}
+  .player{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:8px 20px;
+          border-top:1px solid var(--line);background:var(--raised);flex:none}
+  .player .art{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);flex:none;
+       background:linear-gradient(140deg,color-mix(in srgb,var(--brand) 26%,transparent),color-mix(in srgb,var(--brand) 10%,transparent))}
+  .player .m{flex:1;min-width:0}
+  .player .m b{display:block;font:500 13px var(--text);color:var(--ink)}
+  .player .m i{display:block;font:400 11.5px var(--text);color:var(--ink2);font-style:normal}
+  .markslot{display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;border:1px dashed var(--track);
+            font:600 9px var(--mono);letter-spacing:.08em;color:var(--ink3);flex:none}
+  .tabs{position:relative;display:flex;justify-content:space-around;align-items:center;height:56px;flex:none;
+        border-top:1px solid var(--line);background:var(--canvas)}
+  .tab{width:8px;height:8px;border-radius:50%;background:var(--ink3);opacity:.45}
+  .tab.on{opacity:1;background:var(--ink)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .cap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>13 · Health Data Vault</h1>
+<p class="sub">The withdrawal and deletion surface. Three treatments, both themes, seven independent rows. You asked for a considered answer on whether the mini-player belongs here; that is below, and it turned out to have an evidence trail rather than only a tone.</p>
+
+<div class="card" style="border-color:#9E3346">
+  <div class="lab" style="margin-bottom:9px;color:#9E3346">The warning for the irreversible action is the one thing below the fold</div>
+  <p>Measured, in the scroll region: the <strong>&ldquo;Delete my account&rdquo; button ends 12px above the fold</strong> &mdash; visible. Its explanation, <em>&ldquo;This one cannot be undone. Everything goes &mdash; your account, your history, and every reading we hold&rdquo;</em>, runs from y=676 to y=709 in a 681px window. <strong>28 of its 33 pixels are below the fold.</strong> Roughly five pixels of the sentence are on screen.</p>
+  <p style="margin-bottom:0">So the screen shows a red irreversible button with its warning cut off, and there are only 28px of scroll left to reveal it &mdash; barely enough travel to suggest there is anything down there. Of everything on this screen, the sentence that explains what cannot be undone is the part the layout hides.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Your standing question: does the player belong here?</div>
+  <p>You asked for a considered answer rather than a default. Mine is <strong>no</strong>, and not only on tone.</p>
+  <p><strong>It occludes the warning.</strong> The player bar sits directly beneath the fold that is cutting the delete explanation in half. Whatever else is true, a transport bar is taking the space where the consequence of an irreversible action should be.</p>
+  <p><strong>It is a retention affordance at the foot of a withdrawal screen.</strong> That is structurally the same family as making Agree louder than Decline: the surface where someone is deciding to leave is not the surface on which to keep the product playing. I do not think it was intended that way, and I think it reads that way.</p>
+  <p><strong>The third-party mark makes a claim it should not.</strong> Spotify has nothing to do with health-data consent. Its presence at the foot of this screen implies a relationship between the music provider and the health readings, on the one screen where a user is most alert to exactly that question &mdash; and the copy immediately above it is busy promising &ldquo;never an AI provider, never an advertiser&rdquo;.</p>
+  <p style="margin-bottom:0"><strong>The consistency objection does not hold, because this is not a tab.</strong> The board draws a five-item tab bar with PROFILE selected and <em>no back affordance</em> &mdash; so it presents as a tab-level screen while having no tab of its own, and (as screen 12 found) nothing anywhere navigates to it. §7b already set the precedent for this exact case: the Mix receipt is <em>pushed</em>, carries a back affordance and <strong>no tab bar</strong>. The Vault is the same kind of screen. Make it pushed, and the player and the tab bar both stop being questions.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Correcting your note on the destructive token</div>
+  <p>You wrote that &ldquo;Delete my account&rdquo; is red and <em>&ldquo;no red or destructive token is declared in the system&rdquo;</em>. Half of that is not so: <strong><code>danger</code> is declared</strong> &mdash; <code>#9E3346</code> light and <code>#FF9BA8</code> dark in <code>tokens.ts</code>, and now in the canvas source layer too. It measures <strong>6.96:1</strong> and <strong>8.64:1</strong> on the raised surface, so it clears the text floor comfortably.</p>
+  <p style="margin-bottom:0">What genuinely does <em>not</em> exist is a <em>token</em> for <strong>destructive actions as distinct from errors</strong> &mdash; <code>grep -rn "destructive"</code> over the mobile source returns nothing. But the <em>convention</em> already exists in the code and is written down: <code>ProfileScreen.tsx:358</code> uses <code>state.danger</code> for account deletion, and <code>VaultConsentPanel.tsx:14</code> states the rule outright &mdash; <em>&ldquo;NEUTRAL brand (accent.glowInk), never state.danger &mdash; that hue is reserved for account deletion.&rdquo;</em> So declaring the token codifies a practice the codebase already follows rather than inventing a distinction. You already ruled that error colour is a different axis from the emotion accent (§7.2) and explicitly left this case open for this screen. Row two is that decision, and it is worth noting the two uses have opposite intents: an error says <em>something went wrong</em>; a destructive action says <em>you are about to do something deliberate and final</em>.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What else I measured</div>
+  <p><strong>&ldquo;Withdraw health consent&rdquo; is the undeclared blue</strong> &mdash; <code>#3A5CCC</code>, painted ten times across it and &ldquo;Read what I agreed to&rdquo;. The shipped component is explicit about what it should be: <code>VaultConsentPanel.tsx</code> states <em>&ldquo;Withdrawal is a RIGHT, not destruction: NEUTRAL brand (accent.glowInk), never state.danger&rdquo;</em>. So the intent is already written down and the board is using the wrong token to express it &mdash; <code>--brandink</code> measures 6.62:1 / 5.34:1.</p>
+  <p><strong>&ldquo;Version 1 &middot; agreed [DATE]&rdquo; is not half-fillable. It is entirely unfillable, and I had this wrong.</strong> I wrote that the version was derivable and only the date was missing. A verification pass refuted it: <code>currentVersion</code> is the <em>server&rsquo;s</em> <code>CURRENT_CONSENT_VERSION</code> constant &mdash; <strong>the version the terms are at now, not the version the user agreed to</strong>. The granted version exists only server-internally via <code>getGrantedConsentVersion</code> (<code>consent.js:110-113</code>), which <strong>no route exposes</strong>. No timestamp is sent either: <code>grantedAt</code> and <code>withdrawnAt</code> live on the server-side <code>ConsentRecord</code> and are absent from <code>getConsentStatus</code>&rsquo;s return, the sole payload of all three consent endpoints.</p>
+  <p style="margin-bottom:0">So the client can truthfully say exactly three things: a grant is on file, what version the terms are currently at, and whether the grant on file is behind that. The shipped panel is honest about this &mdash; <code>VaultConsentPanel.tsx:59</code> renders only <em>&ldquo;Consent on file &mdash; personalising with your body&rsquo;s signals.&rdquo;</em> and shows no date or version at all. The date, the granted version and any prior withdrawal are all real data the server holds; all three need exposing before this line can be drawn.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="cap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="cap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>delete label <span style="color:#5B5D77">(danger)</span></td><td class="pass">6.96 : 1</td><td class="pass">8.64 : 1</td></tr>
+      <tr><td>withdraw, as today <span style="color:#5B5D77">(accent)</span></td><td class="pass">5.86 : 1</td><td class="pass">8.56 : 1</td></tr>
+      <tr><td>withdraw <span style="color:#5B5D77">(brandink — code intent)</span></td><td class="pass">6.62 : 1</td><td class="pass">5.34 : 1</td></tr>
+      <tr><td>withdraw border <span style="color:#5B5D77">(brand, 3:1)</span></td><td class="pass">3.79 : 1</td><td class="pass">5.34 : 1</td></tr>
+      <tr><td>body copy on raised</td><td class="pass">17.42 : 1</td><td class="pass">15.32 : 1</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">Measured on the board</div>
+    <table>
+      <tr><td>delete warning below fold</td><td class="fail">28 of 33px</td></tr>
+      <tr><td>back affordance</td><td class="fail">none</td></tr>
+      <tr><td>tab-bar items</td><td class="fail">5, none is this screen</td></tr>
+      <tr><td>consent timestamp, client</td><td class="fail">not in the DTO</td></tr>
+      <tr><td>consent timestamp, server</td><td class="pass"><code>grantedAt</code></td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'warning',name:'The delete warning',hint:'Today the button is visible and 28 of its 33px of explanation are below the fold.',opts:[
+   ['above','Warning above the button','You read what cannot be undone before you can reach the control.'],
+   ['inline','Folded into the button block','Kept together so the layout can never separate them again.'],
+   ['below','Below, as today','The explanation follows the action, and the fold decides whether you see it.']]},
+ {id:'nav',name:'How the screen is framed',hint:'§7b already set this precedent for the Mix receipt: pushed, back affordance, no tab bar.',opts:[
+   ['pushed','Pushed — back, no tab bar','Matches the Receipt. Resolves the player and the tab bar in one move.'],
+   ['both','Back affordance and tab bar','Reachable both ways. Two navigation models on one screen.'],
+   ['tab','Tab bar, as today','Presents as a tab it does not have, with no way back.']]},
+ {id:'player',name:'The mini-player',hint:'The fourth of the four screens carrying it, and the one you asked about.',opts:[
+   ['none','Not on this screen','My recommendation. It occludes the warning and argues against the screen&rsquo;s purpose.'],
+   ['compact','A thin line','Present but quiet. Still a retention affordance on a withdrawal surface.'],
+   ['bar','Full row, as today','Art, transport and the Spotify mark under the delete warning.']]},
+ {id:'withdraw',name:'The withdraw affordance',hint:'VaultConsentPanel: &ldquo;Withdrawal is a RIGHT, not destruction: NEUTRAL brand, never state.danger.&rdquo;',opts:[
+   ['brand','Brand ink','What the shipped component says it should be. 6.62:1 / 5.34:1.'],
+   ['ink','Neutral ink','Even quieter. Reads as a plain setting rather than a branded act.'],
+   ['accent','As today','The undeclared blue, ten paints across this screen.']]},
+ {id:'delete',name:'The destructive treatment',hint:'danger IS declared and clears contrast. What does not exist is a token for destruction distinct from error.',opts:[
+   ['declare','Declare a destructive token','Same red, given its own name and floor, so error and destruction stop sharing a value.'],
+   ['staged','Neutral until confirm','The button is neutral; red appears only in the confirmation step, where the act is real.'],
+   ['error','Keep using the error token','One value for both meanings, as today.']]},
+ {id:'consent',name:'The consent line',hint:'Client holds { granted, currentVersion, staleVersion }. Server holds grantedAt on an append-only record.',opts:[
+   ['version','Version only','Strictly what the client can answer today. No placeholder.'],
+   ['dated','Version and date','Needs one field added to the DTO. The server already stores it.'],
+   ['history','Version, date, and any past withdrawal','Uses the append-only record. The strongest honest statement.']]},
+ {id:'order',name:'Order of the two acts',hint:'Withdrawing consent and deleting the account do different things and are not the same decision.',opts:[
+   ['separated','Withdraw here, delete behind a step','Deletion moves one tap away so the two are never adjacent.'],
+   ['spaced','Both here, clearly divided','As today&rsquo;s structure, with the IRREVERSIBLE rail carrying the break.'],
+   ['together','Both in one block','Compact. Puts a reversible act and a final one side by side.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Pushed, and honest about the fold',tag:'MY RECOMMENDATION',
+  desc:'Makes it the pushed screen §7b already describes: a back affordance, no tab bar, no player. The delete warning moves above its button so the fold can never hide it again, and withdraw takes the token its own component says it should have.',
+  c:{warning:'above',nav:'pushed',player:'none',withdraw:'brand',delete:'declare',consent:'dated',order:'spaced'}},
+ {key:'B',name:'Two acts, two places',tag:'SEPARATES THE DECISIONS',
+  desc:'Treats withdrawal and deletion as what they are — a reversible right and a final act — and stops drawing them on the same surface. Deletion moves behind a step. The vault becomes a consent screen that happens to contain a door, rather than a screen with a red button at the bottom.',
+  c:{warning:'inline',nav:'pushed',player:'none',withdraw:'brand',delete:'staged',consent:'history',order:'separated'}},
+ {key:'C',name:'As it stands, corrected',tag:'MINIMAL CHANGE',
+  desc:'Keeps the tab bar and the player and fixes only what is provably wrong: the warning above the fold, the undeclared blue, and the unfillable date placeholder. Useful as the thing the other two argue against — and it keeps the player, so you can see the objection rather than take my word for it.',
+  c:{warning:'above',nav:'tab',player:'bar',withdraw:'brand',delete:'error',consent:'version',order:'spaced'}}
+];
+
+function consentLine(c){
+  if(c.consent==='version') return '<div class="kv"><span>Consent</span><em>Version 1 &middot; current</em></div>';
+  if(c.consent==='dated')   return '<div class="kv"><span>Consent</span><em>Version 1 &middot; 12 Aug 2026</em></div>';
+  return '<div class="kv"><span>Consent</span><em>Version 1 &middot; 12 Aug 2026</em></div>'+
+         '<div class="kv"><span>Before that</span><em>Withdrawn 3 Jul 2026</em></div>';
+}
+
+function withdrawCol(c){
+  return c.withdraw==='ink' ? 'var(--ink)' : c.withdraw==='brand' ? 'var(--brandink)' : 'var(--accent)';
+}
+function withdrawBorder(c){
+  return c.withdraw==='ink' ? 'var(--ink)' : c.withdraw==='brand' ? 'var(--brand)' : 'var(--accent)';
+}
+
+function deleteBlock(c){
+  var warn='<p class="'+(c.warning==='above'?'warn':'note')+'">This one cannot be undone. Everything goes &mdash; your account, your history, and every reading we hold.</p>';
+  var col = c.delete==='staged' ? 'var(--ink)' : 'var(--danger)';
+  var btn='<div class="act" style="border:1.5px solid '+col+';color:'+col+'">Delete my account</div>';
+  var tag = c.delete==='declare'
+    ? '<div class="sec" style="color:var(--danger);margin-bottom:10px">IRREVERSIBLE &middot; DESTRUCTIVE</div>'
+    : '<div class="sec" style="margin-bottom:10px">IRREVERSIBLE</div>';
+  if(c.order==='separated'){
+    return '<div class="irr">'+tag+
+      '<div class="link" style="border-top:0;padding-top:0"><span style="color:'+col+'">Delete my account</span>'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="'+col+'" stroke-width="1.6" stroke-linecap="round"><path d="M8 4l5 6-5 6"/></svg></div>'+
+      '<p class="note">Opens a separate screen. Nothing is deleted from here.</p></div>';
+  }
+  // 'inline' binds the two into one bordered block so a fold can never separate the
+  // action from its consequence; 'below' leaves them loose, which is what lets the
+  // fold hide 28 of the warning's 33 pixels today.
+  var inner = c.warning==='above' ? (warn+btn)
+    : c.warning==='inline'
+      ? ('<div style="border:1px solid var(--line);border-radius:14px;padding:11px 12px;background:var(--sunken)">'+btn+warn+'</div>')
+      : (btn+warn);
+  // 'together' folds the act into the consent card with no dividing rail;
+  // 'spaced' keeps the IRREVERSIBLE rail that separates a right from a final act.
+  if(c.order==='together')
+    return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">'+tag+inner+'</div>';
+  return '<div class="irr">'+tag+inner+'</div>';
+}
+
+function frame(theme,c){
+  var h='<div class="ph" data-t="'+theme+'"><div class="spacer"></div>';
+  if(c.nav==='pushed'||c.nav==='both'){
+    h+='<div class="topbar"><span class="ic"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-5 6 5 6"/></svg></span>'+
+       '<span class="ttl">HEALTH DATA VAULT</span></div>';
+  }
+  h+='<div class="scroll">';
+  if(c.nav==='tab') h+='<div class="sec">HEALTH DATA VAULT</div>';
+  h+='<div class="box"><h3>What we read</h3>'+
+    '<div class="grid2"><div>&bull; Heart rate</div><div>&bull; Heart-rate variability (HRV)</div>'+
+    '<div>&bull; Sleep</div><div>&bull; Resting heart rate</div>'+
+    '<div style="grid-column:1 / -1">&bull; Historical readings (up to ~6 months back)</div></div>'+
+    '<div class="enc">Encrypted in transit, and encrypted at rest on our servers. Only our own backend can decrypt it &mdash; never an AI provider, never an advertiser. Never written to logs.</div>'+
+    consentLine(c)+
+    '<div class="kv"><span>Last sync</span><em>21:18, today</em></div>'+
+    '<div class="kv"><span>Kept for</span><em>90 days, then deleted</em></div>'+
+    '<div class="link"><span style="color:'+withdrawCol(c)+'">Read what I agreed to</span>'+
+    '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="'+withdrawCol(c)+'" stroke-width="1.6" stroke-linecap="round"><path d="M8 4l5 6-5 6"/></svg></div>'+
+    '<div style="margin-top:9px;padding-top:10px;border-top:1px solid var(--line)">'+
+    '<div class="act" style="border:1.5px solid '+withdrawBorder(c)+';color:'+withdrawCol(c)+'">Withdraw health consent</div>'+
+    '<p class="note">You&rsquo;ll be asked to confirm. Withdrawing stops all reading at once and deletes the readings already held, including the baseline learned from them. Your account and the mood-only path stay exactly as they are.</p>'+
+    '</div>'+(c.order==='together'?deleteBlock(c):'')+'</div>';
+  if(c.order!=='together') h+=deleteBlock(c);
+  h+='<div class="fade"></div></div>';
+  if(c.player==='bar')
+    h+='<div class="player"><span class="art"></span><span class="m"><b>Holocene</b><i>Bon Iver &middot; winding down</i></span>'+
+      '<span style="flex:none;display:flex;align-items:center;gap:10px">'+
+      '<svg width="18" height="18" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg>'+
+      '<span class="markslot">SPOTIFY MARK</span></span></div>';
+  else if(c.player==='compact')
+    h+='<div class="player" style="min-height:44px;padding:6px 20px"><span class="m"><b>Holocene &middot; Bon Iver</b></span>'+
+      '<span style="flex:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px">'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg></span></div>';
+  if(c.nav==='tab'||c.nav==='both')
+    h+='<div class="tabs"><span class="tab"></span><span class="tab"></span><span class="tab"></span><span class="tab"></span><span class="tab on"></span></div>';
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="cap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="cap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 13 — HEALTH DATA VAULT — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-');
+    lines.push(row.name.padEnd(28,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

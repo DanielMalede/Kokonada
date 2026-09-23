@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
-const { watchLimiter, watchPairingLimiter } = require('../middleware/rateLimiter');
+const { watchLimiter } = require('../middleware/rateLimiter');
 const {
   getIntegrationsStatus,
   connectToken,
@@ -8,14 +8,13 @@ const {
   spotifyConnect, spotifyCallback, spotifyDisconnect, spotifyStatus,
   getSpotifyToken, playSpotifyTracks,
   saveSpotifyTracks, removeSpotifyTracks, getSpotifyTracksSaved,
-  youtubeConnect, youtubeCallback, youtubeExchange, youtubeConnectGIS, youtubeDisconnect, youtubeStatus,
+  youtubeConnect, youtubeCallback, youtubeDisconnect, youtubeStatus,
   garminConnect, garminCallback, garminDisconnect, garminWebhook,
   appleHealthPush,
   healthBatchIngest,
   suuntoWebhook,
   wearableStatus,
   issueWatchToken, revokeWatchToken, watchHrIngest, watchStatus,
-  createWatchPairing, exchangeWatchPairing,
 } = require('../controllers/integrationsController');
 // Per-provider wearable erasure lives in a SEPARATE controller (ownership ruling). (T3.2)
 const { deleteWearableProvider } = require('../controllers/wearableErasureController');
@@ -33,7 +32,6 @@ const { HEALTH_CONSENT_PURPOSE: HEALTH_CONSENT } = require('../services/privacy/
 // `state` (Spotify/YouTube) or the request cookie + Redis fallback (Garmin).
 router.get('/spotify/callback',  spotifyCallback);
 router.get('/youtube/callback',  youtubeCallback);
-router.post('/youtube/exchange', youtubeExchange);
 router.get('/garmin/callback',   garminCallback);
 router.post('/garmin/webhook',   garminWebhook); // Garmin Health API server-to-server push
 
@@ -48,9 +46,6 @@ router.post('/garmin/webhook',   garminWebhook); // Garmin Health API server-to-
 // reachable at all, so it carries no live gap today.
 router.post('/watch/hr', watchLimiter, watchHrIngest);
 
-// Watch pairing-code exchange (PUBLIC — the watch has no session; it presents the
-// short-lived one-time code the user just saw in the browser instead). (T5)
-router.post('/watch/pair/exchange', watchPairingLimiter, exchangeWatchPairing);
 
 // All remaining integration routes require a logged-in user
 router.use(auth);
@@ -77,7 +72,6 @@ router.delete('/spotify/saved-tracks',  removeSpotifyTracks);    // Unlike
 
 // YouTube Music (callback registered publicly above)
 router.get('/youtube/connect',        youtubeConnect);
-router.post('/youtube/connect-gis',   youtubeConnectGIS);
 router.delete('/youtube/disconnect',  youtubeDisconnect);
 router.get('/youtube/status',         youtubeStatus);
 
@@ -107,6 +101,5 @@ router.delete('/wearable/:provider', deleteWearableProvider);
 router.post('/watch/token',   issueWatchToken);
 router.delete('/watch/token', revokeWatchToken);
 router.get('/watch/status',   watchStatus);
-router.post('/watch/pair',    createWatchPairing); // mints the short-lived pairing code (T5)
 
 module.exports = router;

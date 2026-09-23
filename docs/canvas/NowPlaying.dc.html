@@ -1,0 +1,121 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+.fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.90; }
+    .fld1, .fld2 { position:absolute; }
+    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; }
+    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; }
+    @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+    .qi[data-theme="dark"] .fldwrap { opacity:0.81; }
+    .qi[data-field="off"] .fldwrap { display:none; }
+    .qi[data-field="calm"] .fld1 { height:74%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="calm"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="joyful"] .fld1 { height:86%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="joyful"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="intense"] .fld1 { height:68%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="intense"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="reflective"] .fld1 { height:62%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="reflective"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    @media (prefers-reduced-motion: reduce) {
+      .fld1, .fld2 { animation: none !important; opacity:.6 !important; transform:scale(1.02) !important; }
+      [style*="animation:breathe"], [style*="animation:glowbreath"] { animation: none !important; opacity:.55 !important; }
+    }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" data-field="{{field}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column">
+
+  <div class="fldwrap">
+    <div class="fld1"></div>
+    <div class="fld2"></div>
+  </div>
+
+  <div style="height:44px;flex:none"></div>
+
+  <div style="position:relative;display:flex;justify-content:space-between;align-items:center;padding:0 12px;flex:none">
+    <span style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--ink2)">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-5 6 5 6"></path></svg>
+    </span>
+    <span style="font:500 11px var(--mono);letter-spacing:.16em;color:var(--ink3)">MANUAL · WINDING DOWN</span>
+    <span style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--ink2)">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor"><circle cx="4.6" cy="10" r="1.5"></circle><circle cx="10" cy="10" r="1.5"></circle><circle cx="15.4" cy="10" r="1.5"></circle></svg>
+    </span>
+  </div>
+
+  <div style="position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;padding:0 24px;min-height:0">
+    <div style="width:224px;height:224px;border-radius:8px;background:transparent;border:1px dashed var(--track);display:flex;align-items:flex-end;padding:12px;box-sizing:border-box">
+      <span style="font:500 11px var(--mono);letter-spacing:.1em;color:var(--ink3)">COVER ART · PROVIDER</span>
+    </div>
+    <div style="text-align:center">
+      <div style="font:600 22px/1.25 var(--disp);letter-spacing:-.01em;color:var(--ink)">Low Water</div>
+      <div style="margin-top:3px;font:400 14px var(--text);color:var(--ink2)">Hallen Vess</div>
+      <div style="margin-top:10px;display:inline-flex;align-items:center;gap:12px;min-height:44px;padding:0 4px">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:6px;border:1px dashed var(--track);color:var(--ink3)" role="img" aria-label="Spotify"><span style="font:600 9.5px var(--mono);letter-spacing:.1em">OFFICIAL SPOTIFY MARK</span></span>
+        <span style="font:500 12px var(--text);color:var(--ink2);text-decoration:underline;text-underline-offset:3px">Listen on Spotify</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:relative;padding:0 24px 8px;flex:none">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font:500 11px var(--mono);color:var(--ink3)">1:48</span>
+      <span style="flex:1;position:relative;display:flex;align-items:center;min-height:44px" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="320" aria-valuenow="108" aria-valuetext="1 minute 48 seconds of 5 minutes 20"><span style="display:block;width:100%;height:6px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--accent);border-radius:999px"></span></span><span style="position:absolute;left:34%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--accent);border:2px solid var(--canvas)"></span></span>
+      <span style="font:500 11px var(--mono);color:var(--ink3)">−3:32</span>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:center;gap:26px;margin-top:10px">
+      <span style="display:flex;align-items:center;justify-content:center;width:44px;height:44px"><svg width="20" height="20" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 4h2.4v12H5zM16 4v12l-8-6z"></path></svg></span>
+      <span style="display:flex;align-items:center;justify-content:center;width:60px;height:60px;border-radius:50%;background:var(--accent)"><svg width="22" height="22" viewBox="0 0 20 20" fill="var(--onink)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"></path></svg></span>
+      <span style="display:flex;align-items:center;justify-content:center;width:44px;height:44px"><svg width="20" height="20" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M15 4h-2.4v12H15zM4 4v12l8-6z"></path></svg></span>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;margin-top:8px;padding:11px 13px;border-radius:13px;border:1px solid var(--line);background:var(--raised)">
+      <span style="flex:1;font:400 12.5px/1.55 var(--text);color:var(--ink)">Your variability was low and you'd been still for two hours, so I kept the tempo under 96 and leaned acoustic.</span>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+  </div>
+
+  <div style="position:relative;display:flex;justify-content:space-around;align-items:center;height:62px;flex:none;border-top:1px solid var(--line);background:var(--canvas)">
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="GENERATE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><circle cx="10" cy="10" r="9"></circle><path d="M3 10 q2.3 -4 4.6 0 t4.6 0 t4.6 0" fill="none" stroke="var(--canvas)" stroke-width="1.7" stroke-linecap="round"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="NOW PLAYING" aria-selected="true">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--accent)" aria-hidden="true"><path d="M4 3v14l12-7z"></path></svg>
+      <span style="font:500 11px var(--mono);letter-spacing:.06em;color:var(--accent);white-space:nowrap">NOW PLAYING</span>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PULSE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><path d="M1 12 q2 0 3-3 t2 6 t2-6 t2 3 h9 v2 H1z"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="HISTORY" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><rect x="2" y="4" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="9" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="14" width="11" height="2.6" rx="1.3"></rect></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PROFILE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><circle cx="10" cy="6.5" r="3.6"></circle><path d="M2.6 18a7.4 7.4 0 0 1 14.8 0z"></path></svg>
+    </span>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["calm","joyful","intense","reflective","off"],"default":"calm"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      theme: this.props.theme ?? 'light',
+      field: this.props.field ?? 'calm'
+    };
+  }
+}
+</script>
+</body>
+</html>

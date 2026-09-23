@@ -1,0 +1,48 @@
+{
+  "pages": [
+    { "id": "screens", "name": "Screens" },
+    { "id": "system", "name": "System" },
+    { "id": "states", "name": "States" }
+  ],
+  "artboards": [
+    { "file": "Plan.dc.html", "page": "screens", "x": 0, "y": 0, "w": 980, "h": 1560, "title": "The rebuild, screen by screen" },
+
+    { "file": "Splash.dc.html",     "page": "screens", "x": 0,    "y": 1720, "w": 390, "h": 844, "title": "01 · Splash" },
+    { "file": "Onboarding.dc.html", "page": "screens", "x": 470,  "y": 1720, "w": 390, "h": 844, "title": "02 · Onboarding" },
+    { "file": "Login.dc.html",      "page": "screens", "x": 940,  "y": 1720, "w": 390, "h": 844, "title": "03 · Login" },
+    { "file": "Connect.dc.html",    "page": "screens", "x": 1410, "y": 1720, "w": 390, "h": 844, "title": "04 · Connect services" },
+
+    { "file": "Main.dc.html",       "page": "screens", "x": 0,    "y": 2684, "w": 390, "h": 844, "title": "05 · Generate — the hero" },
+    { "file": "Genesis.dc.html",    "page": "screens", "x": 470,  "y": 2684, "w": 390, "h": 844, "title": "06 · Genesis" },
+    { "file": "NowPlaying.dc.html", "page": "screens", "x": 940,  "y": 2684, "w": 390, "h": 844, "title": "07 · Now Playing" },
+    { "file": "Receipt.dc.html",    "page": "screens", "x": 1410, "y": 2684, "w": 390, "h": 844, "title": "7b · Mix receipt" },
+
+    { "file": "Pulse.dc.html",      "page": "screens", "x": 0,    "y": 3648, "w": 390, "h": 844, "title": "08 · Pulse" },
+    { "file": "Archive.dc.html",    "page": "screens", "x": 470,  "y": 3648, "w": 390, "h": 844, "title": "09 · History" },
+    { "file": "You.dc.html",        "page": "screens", "x": 940,  "y": 3648, "w": 390, "h": 844, "title": "10 · Profile" },
+    { "file": "YouVault.dc.html",   "page": "screens", "x": 1410, "y": 3648, "w": 390, "h": 844, "title": "10b · Profile — vault" },
+
+    { "file": "Consent.dc.html",    "page": "screens", "x": 0,    "y": 4612, "w": 390, "h": 844, "title": "11 · Health consent" },
+
+    { "file": "Field.dc.html",      "page": "system", "x": 0,    "y": 0,    "w": 1180, "h": 1000, "title": "The living field" },
+    { "file": "Flow.dc.html",       "page": "system", "x": 1280, "y": 0,    "w": 1400, "h": 1180, "title": "How the magic moment moves" },
+    { "file": "Components.dc.html", "page": "system", "x": 0,    "y": 1320, "w": 1400, "h": 1720, "title": "The parts" },
+    { "file": "Tokens.dc.html",     "page": "system", "x": 1500, "y": 1320, "w": 1400, "h": 2370, "title": "The system" },
+
+    { "file": "StateNoWatch.dc.html", "page": "states", "x": 0,    "y": 0, "w": 390, "h": 844, "title": "Pulse · nothing paired" },
+    { "file": "StateLoading.dc.html", "page": "states", "x": 470,  "y": 0, "w": 390, "h": 844, "title": "Pulse · reading" },
+    { "file": "StateOffline.dc.html", "page": "states", "x": 940,  "y": 0, "w": 390, "h": 844, "title": "Generate · offline" },
+    { "file": "StateEmpty.dc.html",   "page": "states", "x": 1410, "y": 0, "w": 390, "h": 844, "title": "History · empty" },
+
+    { "file": "States.dc.html", "page": "states", "x": 0, "y": 1000, "w": 1400, "h": 1492, "title": "The state system — all six, defined once" }
+  ],
+  "annotations": [
+    { "id": "row-first-run", "page": "screens", "x": 0, "y": 1630, "w": 620, "text": "FIRST RUN — Connect draws what providers.ts actually offers: Spotify halted, YouTube deferred, neither with a live Connect. The mood-only path is the forward action, not a grey skip." },
+    { "id": "row-core-loop", "page": "screens", "x": 0, "y": 2594, "w": 660, "text": "THE CORE LOOP — the dots carry the emotion you PLACED (gold), the field and CTA carry the FUSED state (violet). Where they disagree, the read card names both voices instead of overriding you. Generate drops the player sheet for a 3px playing hairline so the plate can hold the screen." },
+    { "id": "row-trust", "page": "screens", "x": 0, "y": 3558, "w": 660, "text": "BODY, ARCHIVE, TRUST — Body battery and Daily readiness are drawn honest-empty: both are Garmin-only, and one of them has no consent record at all today (dev item D1). Withdraw consent is a RIGHT and takes the neutral border; only account deletion is destructive." },
+    { "id": "row-consent", "page": "screens", "x": 0, "y": 4522, "w": 660, "text": "CONSENT — five facts pinned above a notice that genuinely scrolls. READ lists only the five categories Health Connect actually requests; the three Garmin-only ones are disclosed separately as covered-but-not-read. Retention is 90 days, per the TTL indexes." },
+    { "id": "sys-note", "page": "system", "x": 0, "y": -110, "w": 700, "text": "THE SYSTEM — the field's period is now a regulation target (T = 4200 + 2000 × stress), not a division of heart rate. The cardiac-rate beat layer is gone: it repeated at 60000/bpm, which was the mirror the ethic forbids." },
+    { "id": "states-note", "page": "states", "x": 0, "y": -110, "w": 700, "text": "STATES — Pulse's DEFAULT is nothing-paired, not the fully-populated Garmin case most users can never reach. The offline banner is mounted app-wide and pushes content down, so Generate is drawn with it in place rather than assuming it away." }
+  ],
+  "launch": { "view": "canvas", "page": "screens" }
+}

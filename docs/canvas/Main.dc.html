@@ -1,0 +1,164 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+@keyframes breathe { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+
+    /* THE LIVING FIELD — one ambient layer, two lobes, one subliminal beat. */
+    .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.78; }
+    .fld1, .fld2 { position:absolute; }
+    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; }
+    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; }
+    @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+    .qi[data-theme="dark"] .fldwrap { opacity:0.70; }
+    .qi[data-field="off"] .fldwrap { display:none; }
+    .qi[data-field="calm"] .fld1 { height:74%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="calm"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="joyful"] .fld1 { height:86%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="joyful"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="intense"] .fld1 { height:68%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="intense"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    .qi[data-field="reflective"] .fld1 { height:62%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
+    .qi[data-field="reflective"] .fld2 { background:radial-gradient(ellipse 60% 100% at 32% 100%,var(--accentfill),transparent 70%); }
+    @media (prefers-reduced-motion: reduce) {
+      .fld1, .fld2 { animation: none !important; opacity:.6 !important; transform:scale(1.02) !important; }
+      [style*="animation:breathe"], [style*="animation:glowbreath"] { animation: none !important; opacity:.55 !important; }
+    }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" data-field="{{field}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column">
+
+  <div class="fldwrap">
+    <div class="fld1"></div>
+    <div class="fld2"></div>
+  </div>
+
+  <div style="height:44px;flex:none"></div>
+
+  <div style="position:relative;padding:6px 22px 9px;border-bottom:1px solid var(--line);flex:none">
+    <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <span style="font:500 11px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)">Your body · last 6 min</span>
+      <span style="font:500 11px var(--mono);color:var(--accent)">Garmin · live</span>
+    </div>
+    <svg width="342" height="26" viewBox="0 0 342 26" style="display:block;margin-top:4px">
+      <polyline points="0,13.0 12,12.2 24,10.8 36,9.3 48,8.6 60,9.2 72,10.6 84,11.6 96,11.6 108,10.7 120,10.0 132,10.1 144,10.8 156,11.2 168,11.4 180,11.9 192,13.4 204,15.6 216,17.5 228,17.9 240,17.1 252,15.9 264,15.3 276,15.4 288,15.3 300,14.7 312,13.9 324,13.8 336,14.5" fill="none" stroke="var(--accent)" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"></polyline>
+      <circle cx="336" cy="14.5" r="3.2" fill="var(--accent)" style="animation:breathe 4200ms ease-in-out infinite;transform-origin:336px 14.5px"></circle>
+    </svg>
+    <div style="display:flex;align-items:baseline;gap:14px">
+      <span style="display:flex;align-items:baseline;gap:4px"><span style="font:600 22px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></span>
+      <span style="font:500 11px var(--mono);color:var(--ink2)">HRV 29 ms</span>
+      <span style="font:500 11px var(--mono);color:var(--ink2)">still 2 h</span>
+    </div>
+    <div style="margin-top:4px;font:400 11.5px/1.45 var(--text);color:var(--ink2)">Variability is low for you and you have not moved since 19:00. I will keep the ceiling down.</div>
+  </div>
+
+  <div style="position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 22px;min-height:0">
+    <h1 style="margin:0 0 2px;font:600 22px/1.2 var(--disp);letter-spacing:-.02em;color:var(--ink)">Anything else?</h1>
+
+    <div style="position:relative;align-self:center;width:276px;height:276px">
+      <svg width="276" height="276" viewBox="0 0 322 322">
+        <defs>
+          <radialGradient id="plateFaceMain" cx="40%" cy="32%" r="80%">
+            <stop offset="0%" stop-color="var(--plate)"></stop>
+            <stop offset="100%" stop-color="var(--sunken)"></stop>
+          </radialGradient>
+        </defs>
+        <circle cx="161" cy="161" r="132" fill="url(#plateFaceMain)" stroke="var(--line)" stroke-opacity=".55"></circle>
+        <line x1="161" y1="112" x2="161" y2="210" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"></line>
+        <line x1="112" y1="161" x2="210" y2="161" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"></line>
+        <polygon points="206,103 251,135 193,58" fill="var(--accentfill)" stroke="var(--accent)" stroke-width="1" stroke-opacity=".5"></polygon>
+      </svg>
+      <div style="position:absolute;left:50%;top:1px;transform:translateX(-50%);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">HIGH ENERGY</div>
+      <div style="position:absolute;left:50%;bottom:1px;transform:translateX(-50%);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">LOW ENERGY</div>
+      <div style="position:absolute;left:-30px;top:50%;transform:translateY(-50%) rotate(-90deg);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">UNPLEASANT</div>
+      <div style="position:absolute;right:-22px;top:50%;transform:translateY(-50%) rotate(-90deg);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">PLEASANT</div>
+
+      <div style="position:absolute;left:64%;top:32%;transform:translate(-50%,-50%);width:40px;height:40px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 1 of 3, first"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent);display:block"></span></div>
+      <div style="position:absolute;left:78%;top:42%;transform:translate(-50%,-50%);width:50px;height:50px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 2 of 3, second"><span style="width:23px;height:23px;border-radius:50%;background:var(--accent);display:block"></span></div>
+      <div style="position:absolute;left:60%;top:18%;transform:translate(-50%,-50%);width:60px;height:60px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 3 of 3, most recent"><span style="width:28px;height:28px;border-radius:50%;background:var(--accent);display:block"></span></div>
+    </div>
+  </div>
+
+  <div style="position:relative;padding:0 22px 0;flex:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 4px">
+      <div style="min-width:0">
+        <div style="font:600 15px/1.25 var(--disp);color:var(--ink)">Wired, but running on empty</div>
+        <div style="margin-top:2px;display:flex;flex-wrap:wrap;gap:3px 10px;font:400 11.5px/1.35 var(--text);color:var(--ink2)"><span><span style="font:500 11px var(--mono);color:var(--accent)">YOU</span> light, high energy</span><span><span style="font:500 11px var(--mono);color:var(--accent)">BODY</span> low reserves, still 2 h</span></div>
+        <div style="margin-top:4px;display:flex;align-items:center;gap:7px">
+          <span style="display:block;width:54px;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;flex:none"><span style="position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px"></span></span>
+          <span style="font:500 11px var(--mono);color:var(--ink2)">FAIRLY SURE · 0.69</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex:none">
+        <span style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:999px;color:var(--ink2)">
+          <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8.5h8a4 4 0 0 1 0 8H8"></path><path d="M7.5 5.5 4.5 8.5l3 3"></path></svg>
+        </span>
+        <span style="display:flex;align-items:center;justify-content:center;height:44px;padding:0 10px;border-radius:999px;font:500 11.5px var(--text);color:var(--ink2)">Clear</span>
+        <span style="display:flex;align-items:center;justify-content:center;min-width:44px;height:44px;padding:0 10px;border-radius:999px;color:var(--ink2)">
+          <span style="font:500 11.5px var(--text);color:var(--ink2);white-space:nowrap">Words</span>
+        </span>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;min-height:44px;margin-top:6px;border-top:1px solid var(--line);font:400 13px var(--text);color:var(--ink3)"><span>What are you doing?</span><span style="display:flex;align-items:center;gap:8px;flex:none"><span style="font:500 12.5px var(--text);color:var(--ink)">Workout</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 5l5 5-5 5"></path></svg></span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:2px 0;margin-top:4px;border-top:1px solid var(--line)">
+      <span style="flex:1;min-width:0;display:flex;align-items:center;min-height:44px;font:400 13px var(--text);color:var(--ink3)">Anything I should know?</span>
+      <span style="font:500 11px var(--mono);color:var(--ink3);flex:none">0 / 500</span>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:58px;border-radius:999px;background:var(--accent);color:var(--onink);padding:0 20px;box-sizing:border-box">
+      <span style="font:600 16.5px var(--disp)">Generate</span>
+      <span style="font:500 11px var(--mono);letter-spacing:.09em;opacity:.72">TEMPO ≤ 96 · WARM</span>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;font:600 13px var(--text);color:var(--accent);text-decoration:underline;text-underline-offset:4px">Or let my heart lead — live</div>
+  </div>
+
+    <div style="position:relative;height:3px;flex:none;background:var(--line)" role="img" aria-label="Low Water is playing, 34 percent through">
+    <div style="position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--accent)"></div>
+  </div>
+
+<div style="position:relative;display:flex;justify-content:space-around;align-items:center;height:62px;flex:none;border-top:1px solid var(--line);background:var(--canvas)">
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="GENERATE" aria-selected="true">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--accent)" aria-hidden="true"><circle cx="10" cy="10" r="9"></circle><path d="M3 10 q2.3 -4 4.6 0 t4.6 0 t4.6 0" fill="none" stroke="var(--canvas)" stroke-width="1.7" stroke-linecap="round"></path></svg>
+      <span style="font:500 11px var(--mono);letter-spacing:.06em;color:var(--accent);white-space:nowrap">GENERATE</span>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="NOW PLAYING" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><path d="M4 3v14l12-7z"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PULSE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><path d="M1 12 q2 0 3-3 t2 6 t2-6 t2 3 h9 v2 H1z"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="HISTORY" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><rect x="2" y="4" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="9" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="14" width="11" height="2.6" rx="1.3"></rect></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PROFILE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><circle cx="10" cy="6.5" r="3.6"></circle><path d="M2.6 18a7.4 7.4 0 0 1 14.8 0z"></path></svg>
+    </span>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["intense","calm","joyful","reflective","off"],"default":"intense"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      theme: this.props.theme ?? 'light',
+      field: this.props.field ?? 'intense'
+    };
+  }
+}
+</script>
+</body>
+</html>
