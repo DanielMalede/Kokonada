@@ -82,13 +82,13 @@ describe('OPS-013 — the real app assembles', () => {
   // the assertion moves to what can still be named.
   //
   // NOTE ON WHAT THIS CANNOT ASSERT: `apiLimiter` is an anonymous function in the stack —
-  // measured, the layer names are ["helmetMiddleware","cookieParser","<anonymous>","jsonParser",
+  // measured, the layer names are ["helmetMiddleware","<anonymous>","jsonParser",
   // "jsonParser","jsonParser","<anonymous>","router",…] — so there is no name to match and a
   // positional guess would pin the Suunto raw-body reader just as happily. Matching `/limit/i`
   // silently found NOTHING and the test only failed because it also asserted "> -1"; without
   // that it would have passed vacuously. Left as named-middleware ordering rather than a
   // positional fiction.
-  it('helmet and cookieParser are mounted ahead of every router', () => {
+  it('helmet is mounted ahead of every router, and no cookie parser is mounted at all', () => {
     const { app } = require('../app/index');
     const stack = app._router?.stack ?? app.router?.stack ?? [];
     const names = stack.map((l) => l.name);
@@ -96,8 +96,8 @@ describe('OPS-013 — the real app assembles', () => {
     expect(firstRouter).toBeGreaterThan(-1);
     expect(names.indexOf('helmetMiddleware')).toBeGreaterThan(-1);
     expect(names.indexOf('helmetMiddleware')).toBeLessThan(firstRouter);
-    expect(names.indexOf('cookieParser')).toBeGreaterThan(-1);
-    expect(names.indexOf('cookieParser')).toBeLessThan(firstRouter);
+    // Nothing reads a cookie since BE-009, so parsing one would only re-open the door.
+    expect(names).not.toContain('cookieParser');
   });
 
   // And the guard really is gone — not merely unmounted somewhere this test cannot see.

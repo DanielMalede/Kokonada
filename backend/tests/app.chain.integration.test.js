@@ -5,7 +5,8 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 
 // OPS-013 / BE-009 — requests driven through the REAL assembled app and the REAL middleware
-// chain: helmet → cors → cookieParser → body parsers → apiLimiter → csrfOriginGuard → routers.
+// chain: helmet → body parsers → apiLimiter → routers. (cors, cookieParser and csrfOriginGuard
+// were all removed with the web surface; tests/app.boot.integration.test.js pins their absence.)
 //
 // Everything else in this suite tests middleware in isolation on hand-built object literals
 // (tests/csrf.test.js calls csrfOriginGuard(req, res, next) directly), which proves a
@@ -72,8 +73,8 @@ describe('BE-009 — the cookie is not a credential, proven through the real cha
   });
 
   // If a cookie AND a bearer arrive together, the explicit one must win. Unit-pinned in
-  // auth.middleware.test.js; asserted here through the mounted chain because that is where
-  // cookieParser actually populates req.cookies.
+  // auth.middleware.test.js; asserted here through the mounted chain, where no cookie parser
+  // is mounted at all, so the cookie cannot even reach req.cookies.
   it('uses the Bearer header even when a cookie is also present', async () => {
     const res = await request(app)
       .get('/api/integrations/watch/status')

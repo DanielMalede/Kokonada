@@ -28,8 +28,7 @@ jest.mock('../app/sockets/index', () => ({
 }));
 jest.mock('../app/utils/tokenDenylist',    () => ({ revoke: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../app/utils/jwt', () => ({
-  signToken:       jest.fn(),
-  clearAuthCookie: jest.fn(), // setAuthCookie is gone with the cookie plane (BE-009)
+  signToken: jest.fn(), // the cookie setter and clearer are both gone (BE-009)
 }));
 // authController constructs an OAuth2Client at module load — stub it out.
 jest.mock('google-auth-library', () => ({ OAuth2Client: jest.fn() }));
@@ -49,7 +48,6 @@ const RefreshToken    = require('../app/models/RefreshToken');
 const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
 const { revoke }      = require('../app/utils/tokenDenylist');
-const { clearAuthCookie } = require('../app/utils/jwt');
 const { deleteAccount }   = require('../app/controllers/authController');
 
 function buildRes() {
@@ -110,14 +108,13 @@ describe('deleteAccount (GDPR hard-delete)', () => {
     expect(order.filter((s) => s === 'child')).toHaveLength(7);
   });
 
-  it('revokes the presented JWT and clears the auth cookie', async () => {
+  it('revokes the presented JWT', async () => {
     const req = { user: { _id: userId }, auth: { jti: 'jti-1', exp: Math.floor(Date.now() / 1000) + 3600 } };
     const res = buildRes();
 
     await deleteAccount(req, res, jest.fn());
 
     expect(revoke).toHaveBeenCalledWith('jti-1', expect.any(Number));
-    expect(clearAuthCookie).toHaveBeenCalledWith(res);
   });
 
   it('forwards errors to next() and does NOT delete the User when a child delete fails', async () => {

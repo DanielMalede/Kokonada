@@ -2,7 +2,7 @@ const { OAuth2Client } = require('google-auth-library');
 const appleSignin = require('apple-signin-auth');
 const User = require('../models/User');
 const Identity = require('../models/Identity');
-const { signToken, clearAuthCookie } = require('../utils/jwt');
+const { signToken } = require('../utils/jwt');
 const { revoke } = require('../utils/tokenDenylist');
 const passwordAuth = require('../services/auth/passwordAuth');
 const tokenService = require('../services/auth/tokenService');
@@ -98,12 +98,7 @@ async function handleSso(provider, profile, { deviceToken, platform, client } = 
 
   const jwt = signToken({ userId: user._id });
 
-  // BE-009 — the auth cookie is no longer issued. It existed for the web/PWA client, which
-  // is gone; meanwhile React Native's OkHttp keeps a disk-persisted cookie jar by default,
-  // so every client was quietly receiving and replaying one. Clear instead of set, so a
-  // cookie already in the wild dies on the holder's next successful auth rather than
-  // lingering for its remaining 7-day life.
-  clearAuthCookie(res);
+  // BE-009 — no auth cookie is issued. It existed for the web/PWA client, which is gone.
 
   // The token travels in the body; clients store it themselves and send it as a Bearer.
   return res.status(200).json({ token: jwt, user: publicUser(user) });
@@ -139,8 +134,7 @@ const SIGNUP_ERRORS = {
 
 async function respondWithSession(res, status, user) {
   const session = await tokenService.issueSession(user._id);
-  // BE-009 — no cookie is issued; clear any the caller still holds. See handleSso above.
-  clearAuthCookie(res);
+  // BE-009 — no cookie is issued. See handleSso above.
   return res.status(status).json({
     token: session.token,
     refreshToken: session.refreshToken,
@@ -176,13 +170,9 @@ exports.refresh = async (req, res, next) => {
   try {
     const rotated = await tokenService.rotate(req.body?.refreshToken);
     if (!rotated.ok) {
-      clearAuthCookie(res);
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
-    // BE-009 — refresh was the worst offender: it set the cookie on EVERY rotation with no
-    // client check, so the mobile app re-acquired one on a schedule even though it never
-    // asked for it and sends a Bearer header. Clear instead.
-    clearAuthCookie(res);
+    // BE-009 — refresh used to set the cookie on EVERY rotation; it no longer touches one.
     return res.status(200).json({ token: rotated.token, refreshToken: rotated.refreshToken });
   } catch (err) { next(err); }
 };
@@ -214,7 +204,6 @@ exports.logout = async (req, res) => {
   if (req.body?.refreshToken) {
     await tokenService.revokePresented(req.body.refreshToken);
   }
-  clearAuthCookie(res);
   res.json({ message: 'Logged out successfully' });
 };
 
@@ -240,13 +229,12 @@ exports.deleteAccount = async (req, res, next) => {
     // require: the socket module drags the whole handler chain in. (audit S8-3)
     require('../sockets/index').getIo()?.in(`user:${userId}`).disconnectSockets(true);
 
-    // Revoke the caller's JWT (self-expiring denylist entry) and clear the cookie so
-    // the now-deleted account can't keep making authenticated requests.
+    // Revoke the caller's JWT (self-expiring denylist entry) so the now-deleted
+    // account can't keep making authenticated requests.
     if (req.auth?.jti) {
       const ttl = req.auth.exp ? req.auth.exp - Math.floor(Date.now() / 1000) : 7 * 24 * 3600;
       await revoke(req.auth.jti, Math.max(ttl, 1));
     }
-    clearAuthCookie(res);
     res.json({ message: 'Account and all associated data permanently deleted' });
   } catch (err) { next(err); }
 };

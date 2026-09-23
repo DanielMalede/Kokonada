@@ -19,7 +19,6 @@ jest.mock('../app/models/User', () => ({
 }));
 
 const express = require('express');
-const cookieParser = require('cookie-parser');
 const request = require('supertest');
 const { signToken } = require('../app/utils/jwt');
 const trackCatalogRepo = require('../app/repositories/trackCatalogRepo');
@@ -28,7 +27,6 @@ const discoveryRouter = require('../app/routes/discovery');
 function makeApp() {
   const app = express();
   app.use(express.json());
-  app.use(cookieParser());
   app.use('/api/discovery', discoveryRouter);
   return app;
 }
