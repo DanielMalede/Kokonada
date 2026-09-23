@@ -26,7 +26,7 @@ describe('consentApi', () => {
   //   • Health Connect on this client is scope-minimized (PR #152 T3): SpO2 / respiratory / background
   //     were removed for having zero readers — the mobile OS ask must never be broader than this.
   //   • The Garmin server-to-server lane (backend adapter.js normalizeGarminSummaries) additionally
-  //     reports SpO2, respiration and Body Battery; these are disclosed here — labelled as Garmin-
+  //     reports SpO2, respiration, Body Battery and Training Readiness; these are disclosed here — labelled as Garmin-
   //     sourced in the ConsentSheet — so the consent covers them before that (backend-gated) lane
   //     goes live. background_access stays dropped (no lane reads it).
   it('discloses the union of special-category types across wearable lanes (HC scope-min + Garmin shape)', () => {
@@ -38,7 +38,7 @@ describe('consentApi', () => {
       'resting_heart_rate',
       'historical_access_182d',
     ]);
-    expect(GARMIN_ONLY_DATA_CATEGORIES).toEqual(['spo2', 'respiratory_rate', 'body_battery']);
+    expect(GARMIN_ONLY_DATA_CATEGORIES).toEqual(['spo2', 'respiratory_rate', 'body_battery', 'daily_readiness']);
     expect(CONSENT_DATA_CATEGORIES).toEqual([
       ...HEALTH_CONNECT_DATA_CATEGORIES,
       ...GARMIN_ONLY_DATA_CATEGORIES,

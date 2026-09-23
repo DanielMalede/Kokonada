@@ -224,9 +224,9 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       const all = texts(tree.toJSON()).join(' ').toLowerCase();
       // The copy must enumerate exactly the categories sent to the backend — the UNION across
       // wearable lanes. Health Connect stays scope-minimized (PR #152 T3); the Garmin server-to-
-      // server lane's SpO2/respiration/Body Battery are disclosed too (labelled as Garmin-sourced)
+      // server lane's SpO2/respiration/Body Battery/Training Readiness are disclosed too (Garmin-sourced)
       // so the umbrella consent covers them before that backend-gated lane goes live.
-      expect(CONSENT_DATA_CATEGORIES.length).toBe(8);
+      expect(CONSENT_DATA_CATEGORIES.length).toBe(9);
       // Health Connect lane:
       expect(all).toContain('heart rate');
       expect(all).toContain('hrv');
@@ -237,6 +237,7 @@ describe('ConsentSheet (GDPR Art.9 consent wall)', () => {
       expect(all).toMatch(/spo|blood oxygen/);
       expect(all).toContain('respiration');
       expect(all).toContain('body battery');
+      expect(all).toContain('training readiness');
       expect(all).toContain('garmin'); // each Garmin-only category names its source — never over-claiming for a Health-Connect-only user
       // background_access is still NOT disclosed — no lane reads it.
       expect(all).not.toContain('background');

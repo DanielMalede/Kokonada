@@ -33,13 +33,16 @@ export const HEALTH_CONNECT_DATA_CATEGORIES = [
 // types (backend services/wearable/adapter.js normalizeGarminSummaries). Health Connect on this
 // client does NOT read them, so they are disclosed here as provider-specific (labelled as
 // Garmin-sourced in the ConsentSheet) — the umbrella consent must cover them before that lane goes
-// live. This is now ENFORCED, not just documented: the backend DROPS these three special-category
+// live. This is now ENFORCED, not just documented: the backend DROPS these four special-category
 // metrics at ingest (services/wearable/garminIngest.js) unless the user's granted consent version
 // is >= consent.js GARMIN_CONSENT_MIN_VERSION (guard: backend tests/garminConsentVersionGate.test.js).
+// daily_readiness (Garmin Training Readiness, 0-100) has no normalizer of its own yet, but the
+// backend keeps it as an encrypted MedicalProfile scalar, weights it into the recovery axis and
+// serves it on Pulse — so it is disclosed and gated on exactly the same footing as the other three.
 // Go-live (GARMIN_WEBHOOK_SECRET + Garmin production approval) = bump the server's
 // CURRENT_CONSENT_VERSION to GARMIN_CONSENT_MIN_VERSION and CONSENT_SCREEN_VERSION here in lockstep;
 // the gate then admits these only for users who re-consented at that version.
-export const GARMIN_ONLY_DATA_CATEGORIES = ['spo2', 'respiratory_rate', 'body_battery'] as const;
+export const GARMIN_ONLY_DATA_CATEGORIES = ['spo2', 'respiratory_rate', 'body_battery', 'daily_readiness'] as const;
 
 // Full disclosure = the union across every wearable lane. grantConsent sends exactly this.
 export const CONSENT_DATA_CATEGORIES = [
