@@ -145,3 +145,25 @@ Obtain the Commission's May 2026 Annex III guidance and put the Art. 3(34) quest
 - `docs/plans/HALT_CONSENT_VERSION_RETENTION_AND_DECLARATIONS.md` — the GDPR consent work, which is separate and does not address this.
 - `docs/canvas/Consent.dc.html` §3, §4 — where the current automated-processing language lives.
 - `docs/VISION.md` — the product's own description of what it reads and infers.
+
+---
+
+## ADDENDUM 2026-08-28 — a `regulatory-researcher` dossier supersedes parts of this file
+
+A dedicated pass tested this document as a hypothesis and found **two defects in it**. Read the dossier's findings before relying on anything above.
+
+**1. The factual predicate above is drawn from design canvases, not shipped code.** "Resting but content", "Bright and eager", "Settled, fairly even" appear ONLY in `docs/canvas/*` and `docs/review/*`. The shipped onboarding is three copy lines — `['Feel it.', 'Your body is heard.', 'Your soundtrack, tuned to you.']` (`OnboardingScreen.tsx:39`). There is **no live affective read on the shipped onboarding path**.
+
+**2. But the shipped reality is worse than this file claimed.** `backend/app/services/medicalProfileService.js:18-20` ships a priority-1 rule whose label is **`'High-Stress / Pre-Panic'`**, matched on HRV < 20 and a HR/RHR ratio, and rendered to the user as an `accessibilityRole="header"` (`PulseScreen.tsx:198`). "Pre-Panic" is an affective and quasi-clinical prediction about a person. It is a stronger fact than anything in §1 above.
+
+**3. The pivot in §3 is probably the wrong one.** Art. 3(39) is an *intended-purpose* test. The dossier argues the question turns on the **purpose limb** — emotions vs. Recital 18 "physical states" — not the biometric limb, and that **the answer splits the product**: the taxonomy is 34 states across 6 domains and only **four** sit in the `emotional` domain (`stateTaxonomy.js:87,455-482`). Recital 18 is a state-by-state argument, not an all-or-nothing one.
+
+**4. Art. 5 is missing from this file entirely, and it has been in force since 2 February 2025.** Art. 5(1)(f) prohibits emotion inference **in workplace and education**. Irrelevant to consumer B2C — but it is a *distribution-channel* switch, not a product one: any employer-wellness pilot or educational deployment engages a prohibition at the highest penalty tier with no transition period.
+
+**5. Why this file's first version got the calendar wrong.** The Commission's own AI Act Service Desk still displays the **pre-Omnibus text of Arts. 5, 6 and 113** under an easy-to-miss amendment banner. Anyone researching there today gets the superseded dates with no warning.
+
+**6. A live drafting problem in Art. 50(3):** it binds **deployers**, and Art. 3(4) excludes a person using a system "in the course of a personal non-professional activity". On a literal reading Art. 50(3) may have **no addressee in a pure B2C configuration**. This is unresolved and bears directly on `UI-005`.
+
+**Still unretrieved, and named:** the Art. 50 Guidelines (20 July 2026, PDF at `ec.europa.eu/newsroom/dae/redirection/document/131215`) — obtain first, it governs the only live obligation; the draft Annex III guidelines (19 May 2026 — **a DRAFT, not adopted**, contrary to §5 above); and the OJ text of Reg. (EU) 2026/1744 Art. 1 point 40, which would settle whether Chapter III **Section 5 (Art. 49 registration)** was deferred along with Sections 1-3.
+
+**The MDR question is not severable from the AI Act question:** Recital 44's escape from the Art. 5(1)(f) prohibition is "strictly for medical or safety reasons, such as systems intended for therapeutical use" — reaching for that defence concedes the medical-device question.
