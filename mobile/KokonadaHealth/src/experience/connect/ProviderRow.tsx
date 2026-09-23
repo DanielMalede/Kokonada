@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useTheme } from '../../design/theme';
-import { space, radius, type as typography } from '../../design/tokens';
+import { space, radius, stroke, type as typography } from '../../design/tokens';
 import { ProviderGlyph } from './ProviderGlyph';
 import type { Provider } from './providers';
 
@@ -95,6 +95,6 @@ const styles = StyleSheet.create({
   trailing: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   statusWord: { fontSize: typography.size.caption, fontWeight: typography.weight.semibold },
   checkGlyph: { fontSize: typography.size.caption, fontWeight: typography.weight.bold },
-  connectPill: { paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: 1.5, minHeight: space['2xl'], alignItems: 'center', justifyContent: 'center' },
+  connectPill: { paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.pill, borderWidth: stroke.control, minHeight: space['2xl'], alignItems: 'center', justifyContent: 'center' },
   connectWord: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
 });

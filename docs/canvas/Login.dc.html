@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column">
+
+  <div style="position:absolute;left:0;right:0;top:0;height:300px;background:radial-gradient(ellipse 88% 100% at 50% 0%,var(--bloom),transparent 74%)"></div>
+
+  <div style="height:44px;flex:none"></div>
+
+  <div style="position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 26px;min-height:0">
+    <svg width="104" height="104" viewBox="0 0 112 112" style="margin-bottom:22px" role="img" aria-label="Kokonada">
+      <circle cx="56" cy="56" r="34" fill="none" stroke="var(--line2)" stroke-width="1.4"></circle>
+      <path d="M14 56 q10.5 -17 21 0 t21 0 t21 0 t21 0" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linecap="round"></path>
+    </svg>
+    <h1 style="margin:0 0 8px;font:600 28px/1.2 var(--disp);letter-spacing:-.02em;color:var(--ink)">Kokonada</h1>
+    <p style="margin:0;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:300px">Music that moves with your body and mood.</p>
+  </div>
+
+  <div style="position:relative;padding:0 26px 30px;flex:none">
+    <div style="display:flex;flex-direction:column;gap:10px">
+
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;border-radius:999px;border:1px solid #747775;background:#fff;color:#1f1f1f;font:500 15.5px var(--text);box-sizing:border-box">
+        <span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;border:1px dashed var(--track);font:600 9.5px var(--mono);letter-spacing:.1em;color:var(--ink3)" role="img" aria-label="Google">OFFICIAL GOOGLE MARK</span>
+        <span>Sign in with Google</span>
+      </div>
+
+      <sc-if value="{{isIos}}">
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;border-radius:999px;background:#000;color:#fff;font:500 15.5px var(--text);box-sizing:border-box">
+        <span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;border:1px dashed var(--track);font:600 9.5px var(--mono);letter-spacing:.1em;color:var(--ink3)" role="img" aria-label="Apple">OFFICIAL APPLE BUTTON</span>
+        <span>Sign in with Apple</span>
+      </div>
+      </sc-if>
+
+      <div style="display:flex;align-items:center;justify-content:center;width:100%;min-height:52px;border-radius:999px;border:1px solid var(--track);color:var(--ink);font:500 15.5px var(--text);box-sizing:border-box">Continue with email</div>
+    </div>
+
+    <p style="margin:18px 0 0;font:400 12px/1.6 var(--text);color:var(--track)">By continuing you accept the <span style="text-decoration:underline;text-underline-offset:3px">Terms</span> and the <span style="text-decoration:underline;text-underline-offset:3px">Privacy Notice</span>. Kokonada is free, with no ads and no paid tiers.</p>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"platform":{"editor":"enum","options":["android","ios"],"default":"android"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // Apple only exists on iOS (SignInScreen.tsx:48 gates it on Platform.OS).
+    return { theme: this.props.theme ?? 'light', isIos: (this.props.platform ?? 'android') === 'ios' };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SCREEN 16 — States</title>
+<style>
+/* Self-contained. No CDN, no external stylesheet, no network.
+   Token values inlined from docs/canvas/tokens.css SOURCE layer. */
+*{box-sizing:border-box}
+body{margin:0;background:#E8E9EF;color:#14163A;
+  font:400 15px/1.65 "Plus Jakarta Sans",system-ui,sans-serif;padding:36px 28px 92px}
+h1{font:600 27px/1.2 "General Sans","Manrope",system-ui,sans-serif;letter-spacing:-.02em;margin:0 0 6px}
+h2{font:600 17px/1.3 "General Sans","Manrope",system-ui,sans-serif;margin:44px 0 4px}
+.sub{color:#4A4A68;margin:0 0 24px;max-width:80ch}
+.wrap{max-width:1320px;margin:0 auto}
+.note{background:#fff;border:1px solid rgba(20,22,58,.12);border-radius:14px;padding:18px 20px;margin:0 0 16px}
+.note h3{margin:0 0 8px;font:600 12px ui-monospace,monospace;letter-spacing:.12em;color:#6A6589;text-transform:uppercase}
+.note ul{margin:0;padding-left:19px}.note li{margin:5px 0}
+.pair{display:flex;gap:20px;flex-wrap:wrap;margin-top:14px}
+figure{margin:0}
+figcaption{font:600 10px ui-monospace,monospace;letter-spacing:.11em;color:#6A6589;
+  text-transform:uppercase;margin-bottom:7px}
+
+/* ── the board ───────────────────────────────────────────────────────────── */
+.bd{width:600px;border-radius:18px;border:1px solid rgba(20,22,58,.16);padding:22px 24px;flex:none;
+  font-family:"Plus Jakarta Sans",system-ui,sans-serif;background:var(--canvas);color:var(--ink)}
+.bd[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+  --ink3:#6A6589;--line:rgba(20,22,58,.14);--track:rgba(20,22,58,.28);--bartrack:rgba(20,22,58,.10);
+  --accent:#6E3FC4;--accentfill:rgba(139,111,232,.18);--danger:#9E3346;
+  --brand:#8B6FE8;--brandink:#6E3FC4;--onbrand:#FFFFFF}
+.bd[data-t="dark"]{--canvas:#0B0D26;--raised:#15173A;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+  --ink3:#A7A6D0;--line:rgba(238,241,252,.16);--track:rgba(238,241,252,.32);--bartrack:rgba(238,241,252,.12);
+  --accent:#C4A6FF;--accentfill:rgba(155,123,240,.22);--danger:#FF9BA8;
+  --brand:#9B7BF0;--brandink:#9B7BF0;--onbrand:#0E1030}
+.bd .dh{font:600 19px/1.25 "General Sans","Manrope",system-ui;letter-spacing:-.01em;margin:0 0 3px;color:var(--ink)}
+.bd .dsub{font:400 12px/1.5 inherit;color:var(--ink2);margin:0 0 16px}
+.lab{font:600 9px ui-monospace,monospace;letter-spacing:.13em;color:var(--ink3);text-transform:uppercase}
+.card{border:1px solid var(--line);border-radius:12px;background:var(--raised);padding:11px 12px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.nm{font:600 12.5px "General Sans","Manrope",system-ui;color:var(--ink)}
+.rule{font:400 11px/1.45 inherit;color:var(--ink2);margin:4px 0 0}
+.tok{font:500 9px ui-monospace,monospace;color:var(--ink3);margin-top:6px;display:block;line-height:1.4}
+.skelbar{height:8px;border-radius:999px;background:var(--bartrack);display:block}
+@keyframes sk{0%,100%{opacity:.6}50%{opacity:1}}
+.pulse{animation:sk 1400ms ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none;opacity:1}}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:0 13px;
+  border-radius:999px;background:var(--brandink);color:var(--onbrand);font:600 11px inherit;border:0}
+.btn.out{background:transparent;color:var(--ink);border:1.5px solid var(--ink)}
+table.mx{width:100%;border-collapse:collapse;font:400 10.5px inherit}
+table.mx th{font:600 8.5px ui-monospace,monospace;letter-spacing:.09em;color:var(--ink3);
+  text-transform:uppercase;text-align:center;padding:6px 3px;border-bottom:1px solid var(--line)}
+table.mx th:first-child{text-align:left}
+table.mx td{padding:5px 3px;border-bottom:1px solid var(--line);text-align:center;color:var(--ink2)}
+table.mx td:first-child{text-align:left;color:var(--ink);font-weight:500}
+.has{color:var(--accent);font-weight:700}.needs{color:var(--danger);font-weight:700}.na{color:var(--ink3);opacity:.55}
+.tl{position:relative;padding-left:16px;border-left:2px solid var(--line);margin-left:5px}
+.tl>div{position:relative;padding:0 0 13px}
+.tl>div:last-child{padding-bottom:0}
+.tl>div::before{content:"";position:absolute;left:-21px;top:4px;width:8px;height:8px;border-radius:999px;
+  background:var(--accent);outline:3px solid var(--canvas)}
+.ms{font:500 9px ui-monospace,monospace;color:var(--accent)}
+.bd code{font:500 9.5px ui-monospace,monospace;background:var(--bartrack);padding:1px 4px;border-radius:3px}
+
+/* ── decisions ───────────────────────────────────────────────────────────── */
+.dec{background:#fff;border:1px solid rgba(20,22,58,.12);border-radius:14px;padding:6px 20px 16px;margin-top:14px}
+.drow{padding:15px 0;border-bottom:1px solid rgba(20,22,58,.09)}
+.drow:last-child{border-bottom:0}
+.dk{font:600 11px ui-monospace,monospace;letter-spacing:.1em;color:#6A6589;text-transform:uppercase}
+.dq{margin:3px 0 9px;color:#3A3A56;max-width:94ch}
+.opts{display:flex;flex-wrap:wrap;gap:9px}
+.opt{border:1px solid rgba(20,22,58,.2);border-radius:11px;padding:9px 13px;cursor:pointer;background:#fff;
+  min-width:200px;flex:1 1 200px}
+.opt input{margin-right:8px}
+.opt b{font:600 13px inherit}
+.opt span{display:block;color:#5A5A78;font-size:12px;margin-top:3px;line-height:1.45}
+.opt.sel{border-color:#6E3FC4;background:#F7F4FE;box-shadow:inset 0 0 0 1px #6E3FC4}
+.bar{position:sticky;bottom:0;background:rgba(232,233,239,.95);border-top:1px solid rgba(20,22,58,.16);
+  margin:36px -28px -92px;padding:14px 28px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.bar button{font:600 13px inherit;padding:10px 17px;border-radius:999px;border:0;background:#14163A;color:#fff;cursor:pointer}
+.bar button.ghost{background:transparent;color:#14163A;border:1.5px solid #14163A}
+#out{font:500 12px ui-monospace,monospace;color:#3A3A56;flex:1;min-width:250px;word-break:break-all}
+.ctab{width:100%;border-collapse:collapse;font:400 12px inherit;margin-top:10px;background:#fff}
+.ctab th,.ctab td{padding:6px 9px;border-bottom:1px solid rgba(20,22,58,.1);text-align:left}
+.ctab th{font:600 10px ui-monospace,monospace;letter-spacing:.1em;color:#6A6589;text-transform:uppercase}
+.pass{color:#1B6E3C;font-weight:600}.fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Screen 16 — States</h1>
+<p class="sub">The doc board that defines every non-happy state <em>once</em>, so thirteen screens stop each inventing their own. The three treatments differ in what the board is <em>for</em>, not in how it looks.</p>
+
+<div class="note">
+  <h3>What changed since you last saw this material</h3>
+  <ul>
+    <li>Four state screens already exist on the canvas as <em>situated</em> examples — <code>StateLoading</code>, <code>StateEmpty</code>, <code>StateOffline</code>, <code>StateNoWatch</code>, all 390&times;844. This board is not a fifth; it is the system behind them, the way Components is for controls.</li>
+    <li><b>There is no shipped error state.</b> <code>design/system/</code> holds <code>Skeleton</code>, <code>EmptyState</code> and <code>OfflineBanner</code> — and no third. The only error code in the app is <code>playback/playbackErrorStore.ts</code>, which is playback-specific. Every other state has a real component; this one has a hole.</li>
+    <li>The three real components carry constants worth printing rather than paraphrasing: <code>SKELETON_PULSE {rest .6, peak 1, still 1}</code>, <code>EMPTY_GLOW_OPACITY 0.4</code>, <code>OFFLINE_GRACE_MS 1400</code>, <code>BACK_ONLINE_HOLD_MS 1600</code>.</li>
+    <li><code>EmptyState</code>'s action is <b>required at the type level</b> — its source comment says this "makes a dead-end EmptyState unrepresentable". That is why empty and honest-empty must never share a component: honest-empty must have <em>no</em> action.</li>
+    <li><code>OfflineBanner</code> reports visibility upward and <b>pushes content down</b> when shown, so every screen has two correct vertical rhythms. No artboard currently draws the second.</li>
+  </ul>
+</div>
+
+<div class="note">
+  <h3>What I'm unsure about</h3>
+  <ul>
+    <li><b>Whether the board proposes the missing error component or just marks the hole.</b> Proposing means designing something nobody scoped; marking means shipping a board with a visible gap. I lean toward marking — an honest gap gets chased, an invented spec gets built — but that is decision <code>error</code>.</li>
+    <li><b>Whether the per-screen coverage matrix belongs here.</b> It is the most useful thing on the board and the fastest to rot: it is a snapshot of thirteen screens, wrong the moment one changes. A board that lies is worse than one that omits.</li>
+    <li><b>I think the five look-alikes are the real content.</b> Empty, honest-empty, error, first-run and offline all render as "not much here" and mean entirely different things. If you disagree, treatment A collapses into a component index and B or C is the better spine.</li>
+    <li><code>SKELETON_PULSE.still</code> is <code>1.0</code>, so the reduced-motion skeleton sits at full opacity rather than frozen mid-pulse. Drawn that way here. <b>Not verified on a device with the OS setting on.</b></li>
+  </ul>
+</div>
+
+<h2>Treatment A — by state</h2>
+<p class="sub">Six panels, one per state: the rule, the anatomy, the real constant, and what the user is allowed to do next. Reads as a reference.</p>
+<div class="pair" id="tA"></div>
+
+<h2>Treatment B — by screen</h2>
+<p class="sub">Thirteen screens down, five states across. Argues the interesting fact is not what each state <em>is</em> but which screens are missing one. Reads as an audit.</p>
+<div class="pair" id="tB"></div>
+
+<h2>Treatment C — by lifecycle</h2>
+<p class="sub">One request over time, with the real grace periods as the subject: when a state may appear, how long it must wait, what it becomes. Reads as a contract.</p>
+<div class="pair" id="tC"></div>
+
+<h2>Decisions</h2>
+<p class="sub">Independent rows — any combination assembles. The frame below rebuilds live from whatever is selected.</p>
+<div class="dec" id="dec"></div>
+
+<h2>Assembled</h2>
+<p class="sub">Your current selections, both themes.</p>
+<div class="pair" id="asm">
+  <figure><figcaption>light</figcaption><div class="bd" data-t="light" id="live-light"></div></figure>
+  <figure><figcaption>dark</figcaption><div class="bd" data-t="dark" id="live-dark"></div></figure>
+</div>
+
+<h2>Contrast — computed, both themes</h2>
+<p class="sub">Measured from the resolved token values above, not asserted. Text pairs held to 4.5:1 (WCAG 2.2 1.4.3); non-text markers to 3:1 (1.4.11).</p>
+<table class="ctab" id="ctab"></table>
+<div class="note" style="margin-top:14px">
+  <h3>Two things this table found, said plainly</h3>
+  <ul>
+    <li><b>The primary button was failing, and it was my error.</b> It painted <code>--brand</code> (the <em>fill</em> form, <code>#8B6FE8</code>) behind a white label — <b>3.79:1</b> against a 4.5 floor. The token system already separates these: <code>--brandink</code> (<code>#6E3FC4</code>) is the ink form, for exactly the case where the colour has to carry text. Corrected to <code>--brandink</code>, now <b>6.62:1</b> light and <b>5.71:1</b> dark. Same class of mistake as the <code>--inkbtn</code> / <code>accent.glowInk</code> divergence already on the books.</li>
+    <li><b>The skeleton bar measures 1.23:1 and is marked exempt, not passed.</b> SC 1.4.11 binds "visual information <em>required to identify</em> user-interface components and states". The bar is not what identifies the loading state — <code>Skeleton</code> carries <code>accessibilityLiveRegion="polite"</code> and announces "Reading your body…", and the surrounding layout is unchanged, so a user who cannot perceive the bar is still told. A skeleton is a placeholder <em>shape</em>, not information. This follows the standing disc-rim exemption in <code>docs/UI_UX_OVERHAUL_SPEC.md</code> §7.1 rather than inventing a new rule. <b>The number is left visible on purpose</b> — an exemption you can see and argue with is worth more than a floor quietly lowered until it went green.</li>
+  </ul>
+</div>
+
+</div>
+
+<div class="bar">
+  <button onclick="exportChoices()">Copy my choices</button>
+  <button class="ghost" onclick="reset()">Reset</button>
+  <span id="out">—</span>
+</div>
+
+<script>
+var STATES=[
+ {k:'skeleton',n:'Skeleton',gap:false,
+  rule:'We are fetching and we know the shape of what is coming. Never a spinner — a spinner says "wait", a skeleton says "here is what arrives".',
+  tok:'SKELETON_PULSE {rest .6, peak 1, still 1} · 1400ms · line|title|card|row · base|raised',
+  can:'Nothing. It resolves itself.',a:'skel'},
+ {k:'empty',n:'Empty',gap:false,
+  rule:'The container works, you have not filled it yet. Always carries exactly one action.',
+  tok:'EmptyState · action REQUIRED at the type level · EMPTY_GLOW_OPACITY 0.4',
+  can:'One thing, and it is the obvious thing.',a:'empty'},
+ {k:'honest',n:'Honest-empty',gap:false,
+  rule:'Your device does not report this. Not an error, not a gap, and never an advert for a watch. No retry, because no retry can cross a source boundary.',
+  tok:'defined on the Components board · never an EmptyState',
+  can:'Nothing — and that is the point.',a:'honest'},
+ {k:'error',n:'Error',gap:true,
+  rule:'We broke. Name what failed in one sentence and offer the retry.',
+  tok:'NO SHIPPED COMPONENT — playbackErrorStore.ts is playback-only',
+  can:'Retry. Always.',a:'err'},
+ {k:'first',n:'First run',gap:false,
+  rule:'Nothing is set up yet. Must read as an invitation, never as breakage — the app works without the setup.',
+  tok:'StateNoWatch is the archetype',
+  can:'Set it up, or carry on without it.',a:'first'},
+ {k:'offline',n:'Offline',gap:false,
+  rule:'The network went. The last good data stays on screen; the banner pushes content down rather than covering it.',
+  tok:'OFFLINE_GRACE_MS 1400 · BACK_ONLINE_HOLD_MS 1600 · disconnected|connecting|connected',
+  can:'Wait. It self-heals.',a:'off'}];
+
+var SCREENS=[['Splash','—','—','—','○','—'],['Onboarding','—','—','—','●','—'],['Sign in','○','—','○','—','○'],
+ ['Connect','○','—','○','●','○'],['Consent','○','—','○','—','○'],['Generate','●','○','○','●','●'],
+ ['Genesis','●','—','○','—','○'],['Now Playing','○','○','○','—','●'],['Mix receipt','○','○','○','—','○'],
+ ['Pulse','●','●','○','●','●'],['History','○','●','○','●','○'],['Profile','○','○','○','—','○'],['Vault','○','—','○','—','○']];
+
+var LIFE=[['0 ms','Request leaves','The screen still shows the last good data. Nothing clears yet — clearing early is what makes an app feel broken.'],
+ ['~150 ms','Skeleton may appear','Only if the request is still open. Below this, showing then hiding a skeleton is a flash, and a flash reads as a fault.'],
+ ['1400 ms','Offline banner earns the right to show','OFFLINE_GRACE_MS. A blip must not produce a banner — the grace period is the entire reason the banner is trustworthy.'],
+ ['resolve','One of four','Data → render. None → Empty (one action). Source cannot supply → Honest-empty (no action). Threw → Error (retry).'],
+ ['+1600 ms','Back-online holds','BACK_ONLINE_HOLD_MS. Shown long enough to read, then removed. A state the user cannot finish reading should not have been shown.']];
+
+function art(a,opt){
+  if(a==='skel'){var extra = opt.motion==='inline'
+    ? '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)"><span class="lab">Reduced motion</span><span class="skelbar" style="width:70%;margin-top:5px;opacity:1"></span></div>' : '';
+    return '<span class="skelbar pulse" style="width:70%"></span><span class="skelbar pulse" style="width:92%;margin-top:5px"></span><span class="skelbar pulse" style="width:48%;margin-top:5px"></span>'+extra;}
+  if(a==='empty')return '<div style="text-align:center;padding:4px 0"><div style="width:30px;height:30px;border-radius:999px;background:var(--accentfill);margin:0 auto 7px"></div><div style="font:600 11.5px inherit">Nothing here yet.</div><div style="margin-top:7px"><span class="btn">Make the first one</span></div></div>';
+  if(a==='honest')return '<div style="display:flex;justify-content:space-between;font:400 11px inherit"><span>Body Battery&trade;</span><span style="color:var(--ink3)">Garmin-only</span></div><div style="display:flex;justify-content:space-between;font:400 11px inherit;margin-top:5px"><span>Variability</span><span style="color:var(--ink3)">Still learning your normal</span></div>';
+  if(a==='err')return '<div style="border:1px dashed var(--danger);border-radius:9px;padding:8px;text-align:center"><div style="font:600 11px inherit;color:var(--danger)">No component exists</div><div style="font:400 10px inherit;color:var(--ink2);margin-top:3px">Skeleton, EmptyState, OfflineBanner &mdash; and no third</div></div>';
+  if(a==='first')return '<div style="font:600 11.5px inherit">Nothing is reading your body yet.</div><div class="rule">Nothing is missing, and nothing is broken.</div><div style="margin-top:7px"><span class="btn out">Pair a watch</span></div>';
+  return '<div style="display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:9px;padding:6px 8px"><span style="width:7px;height:7px;border-radius:999px;background:var(--danger);flex:none"></span><span style="font:400 10.5px inherit">Offline. Your last set is still here.</span></div><div class="tok">&darr; content pushes down, never covered</div>';
+}
+
+function panel(s,opt){
+  return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">'
+   +'<span class="nm">'+s.n+'</span>'+(s.gap?'<span class="lab" style="color:var(--danger)">GAP</span>':'')+'</div>'
+   +'<p class="rule">'+s.rule+'</p><div style="margin:9px 0 7px">'+art(s.a,opt)+'</div>'
+   +(opt.tokens!=='omit'?'<span class="tok">'+s.tok+'</span>':'')
+   +'<span class="tok" style="color:var(--ink2)">User can: '+s.can+'</span></div>';
+}
+
+function distinguish(opt){
+  if(opt.distinguish==='rule')return '';
+  if(opt.distinguish==='pairs')return '<div class="card" style="margin-top:10px"><span class="lab">The five look-alikes</span>'
+   +'<table class="mx" style="margin-top:7px"><tr><th>Wrong</th><th>Right</th><th>Why</th></tr>'
+   +'<tr><td>A dash where the watch reports nothing</td><td>"Garmin-only &mdash; not shared by Health Connect"</td><td>A dash reads as breakage; it is a source boundary</td></tr>'
+   +'<tr><td>"Try again" under a metric the device never sends</td><td>No action at all</td><td>No retry can cross a source boundary</td></tr>'
+   +'<tr><td>First run drawn like an error</td><td>Drawn like an invitation</td><td>Nothing is broken &mdash; the app works without it</td></tr>'
+   +'</table></div>';
+  return '<div class="card" style="margin-top:10px"><span class="lab">Telling the five apart</span>'
+   +'<table class="mx" style="margin-top:7px"><tr><th>State</th><th>Whose fault</th><th>Action</th><th>Self-heals</th></tr>'
+   +'<tr><td>Empty</td><td>Nobody\'s</td><td>One</td><td>No</td></tr>'
+   +'<tr><td>Honest-empty</td><td>Nobody\'s</td><td class="needs">None</td><td>No</td></tr>'
+   +'<tr><td>Error</td><td>Ours</td><td>Retry</td><td>No</td></tr>'
+   +'<tr><td>First run</td><td>Nobody\'s</td><td>Set up, or skip</td><td>No</td></tr>'
+   +'<tr><td>Offline</td><td>The network</td><td class="needs">None</td><td class="has">Yes</td></tr></table></div>';
+}
+
+function errBlock(opt){
+  if(opt.error==='name')return '<div class="card" style="margin-top:10px;border-color:var(--danger)">'
+   +'<span class="lab" style="color:var(--danger)">Unfilled &mdash; deliberately</span>'
+   +'<p class="rule">There is no error component. This board records the hole rather than inventing a spec for it: an honest gap gets chased, an invented one gets built. Until it exists, every screen\'s error path is whatever that screen improvised.</p></div>';
+  if(opt.error==='spec')return '<div class="card" style="margin-top:10px"><span class="lab">Proposed &mdash; ErrorState</span>'
+   +'<p class="rule">Mirrors EmptyState exactly: title, a one-sentence body naming what failed, and a <b>required</b> retry action, so a dead-end error is unrepresentable too. Tone <code>danger</code>, never the emotion accent &mdash; a fault is not a mood.</p>'
+   +'<span class="tok">title · body · action REQUIRED · tone: danger</span></div>';
+  return '<div class="card" style="margin-top:10px"><span class="lab">Folded into the banner</span>'
+   +'<p class="rule">Errors reuse OfflineBanner\'s slot with an added <code>error</code> status. Cheapest, and it inherits the grace period &mdash; but it makes every error look transient, which a failed write is not.</p></div>';
+}
+
+function cell(v){var c=v==='●'?'has':(v==='○'?'needs':'na');return '<td class="'+c+'">'+v+'</td>';}
+
+function board(t,opt){
+  var inner='';
+  if(t==='A'){inner='<div class="cards">';for(var i=0;i<STATES.length;i++)inner+=panel(STATES[i],opt);inner+='</div>';}
+  if(t==='B'){
+    inner='<div class="card"><table class="mx"><tr><th>Screen</th><th>Skel</th><th>Empty</th><th>Error</th><th>First</th><th>Offline</th></tr>';
+    for(var j=0;j<SCREENS.length;j++){var r=SCREENS[j];inner+='<tr><td>'+r[0]+'</td>';
+      for(var k=1;k<r.length;k++)inner+=cell(r[k]);inner+='</tr>';}
+    inner+='</table><div class="tok" style="display:flex;gap:14px;margin-top:8px"><span><span class="has">&#9679;</span> drawn</span><span><span class="needs">&#9675;</span> owed</span><span><span class="na">&mdash;</span> n/a</span></div></div>'
+     +'<div class="card" style="margin-top:10px"><span class="lab">What the columns say</span>'
+     +'<p class="rule">Error is <b>owed on eleven screens and drawn on none</b> &mdash; the same finding as the missing component, reached from the other end. Skeleton is drawn on three of the four screens that actually wait on a request.</p></div>';
+  }
+  if(t==='C'){
+    inner='<div class="card"><div class="tl">';
+    for(var m=0;m<LIFE.length;m++)inner+='<div><span class="ms">'+LIFE[m][0]+'</span><div style="font:600 12px inherit;margin-top:1px">'+LIFE[m][1]+'</div><p class="rule">'+LIFE[m][2]+'</p></div>';
+    inner+='</div></div><div class="card" style="margin-top:10px"><span class="lab">The two constants that exist to prevent flicker</span>'
+     +'<p class="rule"><code>OFFLINE_GRACE_MS 1400</code> stops a blip becoming a banner. <code>BACK_ONLINE_HOLD_MS 1600</code> stops a recovery vanishing before it is read. Both encode one rule: <b>a state the user cannot finish reading should not have been shown.</b></p></div>';
+  }
+  var cov=(t!=='B'&&opt.coverage==='show')
+   ?'<div class="card" style="margin-top:10px"><span class="lab">Coverage today</span><p class="rule">Error is owed on eleven screens and drawn on none. Skeleton is drawn on three of four waiting screens.</p></div>':'';
+  return '<h3 class="dh">States</h3><p class="dsub">Every non-happy state, defined once. A screen that invents its own has a bug, not a variant.</p>'
+   +inner+distinguish(opt)+errBlock(opt)+cov;
+}
+
+var DEC=[
+ {k:'organise',q:'What is the board organised around? The one row that changes what it argues.',
+  o:[['state','By state','Six panels, one per state. A reference.'],['screen','By screen','A coverage matrix. An audit.'],['lifecycle','By lifecycle','One request over time. A contract.']]},
+ {k:'error',q:'There is no shipped error component. What does the board do about it?',
+  o:[['name','Name the gap','Mark it unfilled and say why.'],['spec','Propose the component','Mirror EmptyState, required retry.'],['fold','Fold into the banner','Reuse OfflineBanner with an error status.']]},
+ {k:'distinguish',q:'Empty, honest-empty, error, first-run and offline all look like "not much here". How does the board tell them apart?',
+  o:[['matrix','A decision table','Whose fault · action · self-heals.'],['pairs','Wrong/right pairs','The mistake next to the fix.'],['rule','One sentence each','Rely on the panel rules alone.']]},
+ {k:'motion',q:'How is reduced motion shown?',
+  o:[['inline','Inside the skeleton panel','Both states drawn together.'],['token','State the token only','SKELETON_PULSE.still = 1.0, not drawn.']]},
+ {k:'tokens',q:'Are the real constants printed on the board?',
+  o:[['show','Print them','1400ms, 0.4, 1600ms on every panel.'],['omit','Leave them out','Keep the board prose-only.']]},
+ {k:'coverage',q:'Does the coverage summary appear when it is not the spine?',
+  o:[['show','Include it','Most useful thing here; rots fastest.'],['omit','Leave it out','A board that lies is worse than one that omits.']]}
+];
+var DEF={organise:'state',error:'name',distinguish:'matrix',motion:'inline',tokens:'show',coverage:'show'};
+var S={};for(var d0 in DEF)S[d0]=DEF[d0];
+
+function frame(t,theme,id){
+  return '<figure><figcaption>'+theme+'</figcaption><div class="bd" data-t="'+theme+'"'
+   +(id?' id="'+id+'"':'')+'>'+board(t,S)+'</div></figure>';
+}
+function paint(){
+  document.getElementById('tA').innerHTML=frame('A','light')+frame('A','dark');
+  document.getElementById('tB').innerHTML=frame('B','light')+frame('B','dark');
+  document.getElementById('tC').innerHTML=frame('C','light')+frame('C','dark');
+  /* Fill the live frames, never replace them. Recreating #live-light orphans
+     any reference held to it, and the frame then silently stops updating. */
+  var at={state:'A',screen:'B',lifecycle:'C'}[S.organise];
+  document.getElementById('live-light').innerHTML=board(at,S);
+  document.getElementById('live-dark').innerHTML=board(at,S);
+  var o=[];for(var i=0;i<DEC.length;i++)o.push(DEC[i].k+'='+S[DEC[i].k]);
+  document.getElementById('out').textContent=o.join(' · ');
+}
+function decs(){
+  var h='';
+  for(var i=0;i<DEC.length;i++){var d=DEC[i];
+    h+='<div class="drow"><div class="dk">'+d.k+'</div><div class="dq">'+d.q+'</div><div class="opts">';
+    for(var j=0;j<d.o.length;j++){var v=d.o[j];
+      h+='<label class="opt'+(S[d.k]===v[0]?' sel':'')+'"><input type="radio" name="'+d.k+'" value="'+v[0]+'"'
+       +(S[d.k]===v[0]?' checked':'')+'><b>'+v[1]+'</b><span>'+v[2]+'</span></label>';}
+    h+='</div></div>';}
+  document.getElementById('dec').innerHTML=h;
+}
+/* Never rebuild #dec on change — replacing its innerHTML detaches the radio
+   nodes any caller (or the verifier) is holding, so later picks land on
+   orphans and the live frame silently stops updating. Toggle classes only. */
+function marks(){
+  var ls=document.querySelectorAll('#dec .opt');
+  for(var i=0;i<ls.length;i++){
+    var r=ls[i].querySelector('input');
+    if(r.checked)ls[i].className='opt sel';else ls[i].className='opt';
+  }
+}
+document.addEventListener('change',function(e){
+  if(!e.target.name||!(e.target.name in S))return;
+  S[e.target.name]=e.target.value;marks();paint();});
+function reset(){
+  for(var k in DEF){S[k]=DEF[k];
+    var r=document.querySelector('#dec input[name="'+k+'"][value="'+DEF[k]+'"]');
+    if(r)r.checked=true;}
+  marks();paint();}
+function exportChoices(){
+  var o=[];for(var i=0;i<DEC.length;i++)o.push(DEC[i].k+'='+S[DEC[i].k]);
+  var s='SCREEN 16 — STATES — my choices: '+o.join(', ');
+  if(navigator.clipboard)navigator.clipboard.writeText(s);
+  document.getElementById('out').textContent='Copied → '+s;
+}
+
+function hx(h){h=h.replace('#','');if(h.length===3)h=h.charAt(0)+h.charAt(0)+h.charAt(1)+h.charAt(1)+h.charAt(2)+h.charAt(2);
+  return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];}
+function comp(f,a,b){return [Math.round(f[0]*a+b[0]*(1-a)),Math.round(f[1]*a+b[1]*(1-a)),Math.round(f[2]*a+b[2]*(1-a))];}
+function lum(r){var s=[];for(var i=0;i<3;i++){var v=r[i]/255;s.push(v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4));}
+  return 0.2126*s[0]+0.7152*s[1]+0.0722*s[2];}
+function ratio(a,b){var L=lum(a),M=lum(b);return (Math.max(L,M)+0.05)/(Math.min(L,M)+0.05);}
+var PAIRS=[
+ ['Body text on canvas','ink2 / canvas',4.5,[hx('#14163A'),0.74,hx('#FAFAFF')],[hx('#EEF1FC'),0.76,hx('#0B0D26')]],
+ ['Panel title on raised','ink / raised',4.5,[hx('#14163A'),1,hx('#FFFFFF')],[hx('#EEF1FC'),1,hx('#15173A')]],
+ ['Eyebrow label on raised','ink3 / raised',4.5,[hx('#6A6589'),1,hx('#FFFFFF')],[hx('#A7A6D0'),1,hx('#15173A')]],
+ ['GAP marker on raised','danger / raised',4.5,[hx('#9E3346'),1,hx('#FFFFFF')],[hx('#FF9BA8'),1,hx('#15173A')]],
+ ['"Drawn" glyph on raised','accent / raised',3,[hx('#6E3FC4'),1,hx('#FFFFFF')],[hx('#C4A6FF'),1,hx('#15173A')]],
+ ['Primary button label','onbrand / brandink',4.5,[hx('#FFFFFF'),1,hx('#6E3FC4')],[hx('#0E1030'),1,hx('#9B7BF0')]],
+ ['Skeleton bar on canvas','bartrack / canvas',0,[hx('#14163A'),0.10,hx('#FAFAFF')],[hx('#EEF1FC'),0.12,hx('#0B0D26')]]
+];
+function ctab(){
+  var h='<tr><th>Pair</th><th>Tokens</th><th>Floor</th><th>Light</th><th>Dark</th></tr>';
+  for(var i=0;i<PAIRS.length;i++){var p=PAIRS[i];
+    var L=ratio(comp(p[3][0],p[3][1],p[3][2]),p[3][2]);
+    var D=ratio(comp(p[4][0],p[4][1],p[4][2]),p[4][2]);
+    var cl=function(x){return p[2]===0?'<span style="color:#6A6589">'+x.toFixed(2)+'</span>'
+      :'<span class="'+(x>=p[2]?'pass':'fail')+'">'+x.toFixed(2)+'</span>';};
+    var fl=p[2]===0?'<span style="color:#6A6589">exempt</span>':p[2]+':1';
+    h+='<tr><td>'+p[0]+'</td><td>'+p[1]+'</td><td>'+fl+'</td><td>'+cl(L)+'</td><td>'+cl(D)+'</td></tr>';}
+  document.getElementById('ctab').innerHTML=h;
+}
+decs();paint();ctab();
+</script>
+</body>
+</html>

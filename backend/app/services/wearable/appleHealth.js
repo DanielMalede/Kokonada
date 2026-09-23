@@ -17,6 +17,7 @@
 
 const BiometricLog = require('../../models/BiometricLog');
 const { normalize }  = require('./adapter');
+const { insertManyAccounted } = require('./insertAccounted');
 
 const MAX_BATCH = 500; // prevent oversized payloads
 
@@ -33,8 +34,10 @@ async function ingestBatch(userId, samples) {
     return { userId, ...normalized };
   });
 
-  await BiometricLog.insertMany(docs, { ordered: false }); // ordered:false = continue on duplicate
-  return { ingested: docs.length };
+  // W4-D08: `ingested` is what the database took, not what was attempted — `ordered:false` continues
+  // past a duplicate AND past a schema-rejected row, and only the driver knows which is which.
+  const { inserted, rejected } = await insertManyAccounted(BiometricLog, docs);
+  return { ingested: inserted, rejected };
 }
 
 module.exports = { ingestBatch };

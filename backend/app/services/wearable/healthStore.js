@@ -44,10 +44,12 @@ async function ingestBatch(userId, platform, samples) {
     ? metrics
     : metrics.filter((m) => !GARMIN_SPECIAL_CATEGORY_METRICS.has(m.metric));
 
-  const { inserted, profileMetrics } = await persistMetrics(userId, gated);
+  const { inserted, rejected, profileMetrics } = await persistMetrics(userId, gated);
 
-  // `accepted` = total recognised (and consent-lawful) samples; `inserted` = new heart-rate rows written.
-  return { accepted: gated.length, inserted, profileMetrics };
+  // `accepted` = total recognised (and consent-lawful) samples; `inserted` = heart-rate rows the
+  // database actually took; `rejected` = the ones it refused, by path + validator kind, never by
+  // value (W4-D08). A client reconciling a backfill needs all three to be true at once.
+  return { accepted: gated.length, inserted, rejected, profileMetrics };
 }
 
 module.exports = { ingestBatch };

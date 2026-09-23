@@ -17,7 +17,7 @@ import { warmStore } from '../../state/store';
 import { playbackSocket } from '../playback/playbackServices';
 import { playbackErrorStore } from '../playback/playbackErrorStore';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, motion, type as typography } from '../../design/tokens';
+import { space, radius, stroke, motion, type as typography } from '../../design/tokens';
 import { emotionAccentFor, auroraGlow } from '../../design/emotionAccent';
 import { auroraCtaStops, onAuroraInk, textScrimFill } from '../../design/auroraSurfaces';
 import { fireHaptic } from '../../design/haptics';
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   cta: {
     flexDirection: 'row', minHeight: space['3xl'], justifyContent: 'center', alignItems: 'center',
     paddingVertical: space.md, paddingHorizontal: space['2xl'],
-    borderRadius: radius.pill, borderWidth: 1.5, overflow: 'hidden', // clip the gradient fill to the pill
+    borderRadius: radius.pill, borderWidth: stroke.control, overflow: 'hidden', // clip the gradient fill to the pill
   },
   ctaLabel: { fontSize: CTA_LABEL_SIZE, fontWeight: typography.weight.bold }, // ≥18.66/700 → WCAG-large
   errorRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, justifyContent: 'center', paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.md },

@@ -7,8 +7,8 @@
 //   • dark  — "Aurora Nocturne": #0E1030 → #080A20 midnight, the same aurora hues
 //             glowing through smoked glass.
 // This file is the plain-hex LEAF of the design graph: it imports NOTHING but the Hex
-// type, so tamagui.config.ts can depend on it without a cycle (config → tokens, never
-// the reverse). Every content-over-surface pairing is WCAG 2.2 AA-verified in
+// type, so anything in the design layer can depend on it without a cycle (never the
+// reverse). Every content-over-surface pairing is WCAG 2.2 AA-verified in
 // tokens.test.ts, and the emotion inks again in emotionAccent.contrast.test.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -219,6 +219,14 @@ export const space = { none: 0, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, '2xl': 32,
 
 // ── Radius (generous, organic) ───────────────────────────────────────────────
 export const radius = { xs: 6, sm: 10, md: 14, lg: 20, xl: 28, pill: 999 } as const;
+
+// ── Border width (stroke) ────────────────────────────────────────────────────
+// The hairline is deliberately NOT here: a true 1-device-pixel rule is StyleSheet.hairlineWidth,
+// which is resolution-dependent and so cannot be a fixed number in a file that imports nothing.
+// These are the two strokes screens were re-typing by hand instead — `control` outlines an
+// interactive pill/button, `glyph` is the heavier stroke that DRAWS a mark out of borders, and
+// `none` turns one edge off (the same role space.none plays for padding).
+export const stroke = { none: 0, control: 1.5, glyph: 2.5 } as const;
 
 // ── Type scale (modular ~1.25) — sizes are Dynamic-Type-scalable units ────────
 export const type = {

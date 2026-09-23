@@ -33,4 +33,30 @@ function auditedDecrypt(userId, purpose, blob, { parseJson = false } = {}) {
   return decrypt(blob, parseJson, userId == null ? null : String(userId));
 }
 
-module.exports = { logBiometricAccess, auditedDecrypt };
+// Values-free summary of a metrics object, for a log line that needs to say WHAT landed without
+// saying what it WAS (ADR-0005 "biometrics are never logged" / §0.2.2 "no numeric vital in any
+// log"). Returns the number of scalars present and the names of the ones drawn from `allowed`.
+//
+// The vocabulary is a required, CLOSED allowlist and the function fails closed (an absent or empty
+// one names nothing): a summariser that echoed whatever keys it was handed would be one malformed
+// producer away from being the leak it exists to prevent — the same reason `insertAccounted` keeps
+// a closed reject vocabulary instead of passing Mongoose's value-quoting messages through. Values
+// are unreachable by construction: only `Object.keys` is ever read.
+//
+// @param {object} obj      e.g. aggregateProfileMetrics' output
+// @param {string[]|Set<string>} allowed  the metric names that may be NAMED
+// @returns {{count:number, keys:string, unknown:number}} `keys` is comma-joined + sorted, or 'none'
+function summarizeMetricKeys(obj, allowed) {
+  const isPlainObject = !!obj && typeof obj === 'object' && !Array.isArray(obj);
+  const keys  = isPlainObject ? Object.keys(obj) : [];
+  const vocab = allowed instanceof Set ? allowed : new Set(Array.isArray(allowed) ? allowed : []);
+  const named = keys.filter((k) => vocab.has(k)).sort();
+
+  return {
+    count:   keys.length,
+    keys:    named.length ? named.join(',') : 'none',
+    unknown: keys.length - named.length,
+  };
+}
+
+module.exports = { logBiometricAccess, auditedDecrypt, summarizeMetricKeys };

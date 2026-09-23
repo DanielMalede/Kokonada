@@ -1,0 +1,72 @@
+{
+  "note": "Pre-existing design-system violations, per file per rule. Only ever shrinks; the gate fails on any increase.",
+  "total": 72,
+  "files": {
+    "src/auth/SignInScreen.tsx": {
+      "kokonada/no-scale-literals": 2
+    },
+    "src/design/system/EmptyState.tsx": {
+      "kokonada/no-scale-literals": 2
+    },
+    "src/design/system/OfflineBanner.tsx": {
+      "kokonada/no-scale-literals": 1
+    },
+    "src/experience/aura/__tests__/BioAura.test.tsx": {
+      "kokonada/no-color-literals": 8
+    },
+    "src/experience/aura/__tests__/BreathingGlow.test.tsx": {
+      "kokonada/no-color-literals": 8
+    },
+    "src/experience/aura/__tests__/SoftGlow.test.tsx": {
+      "kokonada/no-color-literals": 7
+    },
+    "src/experience/aura/auraBreath.ts": {
+      "kokonada/no-color-literals": 1
+    },
+    "src/experience/aurora/LivingAurora.tsx": {
+      "kokonada/no-color-literals": 1
+    },
+    "src/experience/generate/GenerateScreen.tsx": {
+      "kokonada/no-scale-literals": 1
+    },
+    "src/experience/generate/NeuralAnalysisLoader.tsx": {
+      "kokonada/no-color-literals": 8
+    },
+    "src/experience/generate/__tests__/ActivityChips.test.tsx": {
+      "kokonada/no-color-literals": 1
+    },
+    "src/experience/generate/__tests__/NeuralAnalysisLoader.test.tsx": {
+      "kokonada/no-color-literals": 3
+    },
+    "src/experience/history/HistoryScreen.tsx": {
+      "kokonada/no-scale-literals": 2
+    },
+    "src/experience/playback/NowPlayingScreen.tsx": {
+      "kokonada/no-scale-literals": 3
+    },
+    "src/experience/profile/ConsentSheet.tsx": {
+      "kokonada/no-scale-literals": 3
+    },
+    "src/experience/profile/__tests__/ProfileScreen.test.tsx": {
+      "kokonada/no-color-literals": 1
+    },
+    "src/experience/profile/__tests__/VaultConsentPanel.test.tsx": {
+      "kokonada/no-color-literals": 1
+    },
+    "src/experience/wheel/__tests__/RadialWheel.test.tsx": {
+      "kokonada/no-color-literals": 6
+    },
+    "src/navigation/SystemStateDock.tsx": {
+      "kokonada/no-scale-literals": 1
+    },
+    "src/navigation/__tests__/EmotionTabBar.test.tsx": {
+      "kokonada/no-color-literals": 1
+    },
+    "src/navigation/__tests__/TabIcon.test.tsx": {
+      "kokonada/no-color-literals": 10
+    },
+    "src/onboarding/__tests__/onboardingContrast.test.ts": {
+      "kokonada/no-color-literals": 1
+    }
+  }
+}

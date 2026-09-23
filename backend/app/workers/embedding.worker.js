@@ -2,7 +2,8 @@
 
 const featureRepo = require('../repositories/audioFeatureRepo');
 const vectorIndex = require('../services/vector/vectorIndex');
-const { buildVector } = require('../services/vector/embedding');
+const { buildVector, buildVectorV2, MODEL_V2 } = require('../services/vector/embedding');
+const embeddingSpace = require('../services/vector/embeddingSpace');
 const llmClient = require('../services/llmClient');
 const { isSpotifyKey } = require('../utils/spotifyContent');
 const { isYoutubeKey } = require('../utils/youtubeContent');
@@ -58,6 +59,31 @@ Respond ONLY with: {"tags":[{"i":0,"vibeTags":["warm","driving"]}]}`;
   return tagged;
 }
 
+// v2 side-inputs (W4-014), resolved ONCE per job and only when the dual-write flag is on.
+//
+// Both are fail-soft, and they degrade to DIFFERENT-but-correct vectors rather than to no vector:
+// no IDF table → every genre weight is 0 → the genre block is exactly zero → an audio-only v2
+// vector, which is a correct point in the space; no catalog → no genres, same outcome. The job
+// must never die because an ENHANCEMENT's side-input was unreachable.
+//
+// Lazily required so the dark path (flag off) does not even load the catalog repo or register
+// its mongoose model — `idfStats` uses the same lazy-require posture for the same reason.
+async function _v2Inputs(keys) {
+  let idf = null;
+  let genresByKey = new Map();
+  try {
+    idf = await require('../services/vector/idfStats').peek();
+  } catch (e) {
+    console.warn(`[embedding] v2 genre IDF unavailable — audio-only v2 vectors this batch: ${e?.message ?? e}`);
+  }
+  try {
+    genresByKey = await require('../repositories/trackCatalogRepo').getMany(keys);
+  } catch (e) {
+    console.warn(`[embedding] v2 genre lookup failed — audio-only v2 vectors this batch: ${e?.message ?? e}`);
+  }
+  return { idf, genresByKey };
+}
+
 // Named processJob: a function literally named `process` shadows the Node
 // global inside its own body, turning process.env into undefined.
 async function processJob(job) {
@@ -86,6 +112,28 @@ async function processJob(job) {
       vector: buildVector(doc, []),
     });
   }
+
+  // ── v2 dual-write (EMBEDDING_V2_WRITE, default OFF) ──────────────────────────────────────
+  // Runs AFTER the ToS gate, over `docs` rather than `recordingKeys`, so a spotify:/youtube: key
+  // is not even LOOKED UP for genres — the containment boundary is the same one line for both
+  // spaces, and v2 cannot widen it by accident. One catalog read for the whole batch.
+  //
+  // Unlike v1, v2 is built WITH genres. That is the point of the task: v1 writes
+  // `buildVector(doc, [])` because its joint L2 norm let tag count crush the audio dims (PR #139),
+  // and v2's separately-normalised blocks make that structurally impossible, so the genre signal
+  // can finally be carried instead of deleted. v1's call is untouched here — the dilution fix is
+  // not quietly undone by the v2 work.
+  if (docs.length && embeddingSpace.writeV2Enabled()) {
+    const { idf, genresByKey } = await _v2Inputs(docs.map(d => d.recordingKey));
+    for (const d of docs) {
+      const v2 = buildVectorV2(features.get(d.recordingKey), genresByKey.get(d.recordingKey)?.genres ?? [], { idf });
+      // null = the track had no measurable audio AND no weighted genre: v2 ABSTAINS rather than
+      // embedding to a confident direction. Never store it — v1 still writes its neutral-filled
+      // vector, so the row is not lost, it simply has no v2 representation yet.
+      if (v2) { d.vectorV2 = v2; d.modelV2 = MODEL_V2; }
+    }
+  }
+
   if (docs.length) await vectorIndex.upsertMany(docs);
 
   let tagged = 0;

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>02 · Onboarding — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:780px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+  .grid{display:grid;gap:26px}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+                      --track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+                      --track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26}
+  .ph{background:var(--canvas);color:var(--ink)}
+  @keyframes brth{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:.75;transform:scale(1.04)}}
+  .brth{animation:brth 4200ms ease-in-out infinite}
+  @media (prefers-reduced-motion: reduce){ .brth{animation:none!important;opacity:.6!important} }
+
+  .spacer{height:44px;flex:none}
+  .toprow{flex:none;display:flex;justify-content:flex-end;padding:0 18px;min-height:44px;align-items:center}
+  .skip{font:600 13px var(--text);color:var(--ink2);padding:0 12px;min-height:44px;display:flex;align-items:center}
+  .art{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 24px}
+  .copy{flex:none;padding:0 26px}
+  .h1{font:600 28px/1.18 var(--disp);letter-spacing:-.02em;margin:0 0 9px}
+  .lede{font:400 14px/1.6 var(--text);color:var(--ink2);margin:0;max-width:300px}
+  .foot{flex:none;padding:18px 26px 26px}
+  .cta{display:flex;align-items:center;justify-content:center;min-height:56px;border-radius:999px;
+       background:var(--ink);color:var(--onink);font:600 16px var(--text)}
+  .nowatch{text-align:center;font:400 12px var(--text);color:var(--ink2);margin:10px 0 0}
+  .dots{display:flex;align-items:center;margin:0 -9px 12px}
+  .hit{width:44px;height:44px;display:flex;align-items:center;justify-content:center}
+  .pill{display:block;width:26px;height:8px;border-radius:999px}
+  .prule{height:2px;background:var(--line);border-radius:999px;margin:0 0 14px;overflow:hidden}
+  .prule i{display:block;height:100%;width:33%;background:var(--track);border-radius:999px}
+  .beat{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--line)}
+  .beat:first-child{border-top:0}
+  .bt{font:600 15px/1.3 var(--disp);margin:0 0 2px}
+  .bd{font:400 12.5px/1.55 var(--text);color:var(--ink2);margin:0}
+  .stateline{margin-top:16px;text-align:center}
+  .sname{font:600 17px var(--disp)}
+  .sconf{font:600 11px var(--mono);color:var(--ink2);letter-spacing:.1em;margin-top:3px}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .fcap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:840px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:200px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:158px;
+       display:flex;gap:9px;align-items:flex-start}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:170px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>02 · Onboarding</h1>
+<p class="sub">Three treatments, both themes, five independent rows, live assembly at the top. Achromatic throughout — no accent exists before an emotion does.</p>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What this screen actually paints today</div>
+  <p>Enumerated from computed styles on the rendered board, not by searching source — the method that missed the Splash glow. Onboarding paints <strong>three accent-carrying things</strong>, all of which break the achromatic rule:</p>
+  <table style="margin:10px 0 12px">
+    <tr><th>Painted</th><th>On</th><th>Via</th></tr>
+    <tr><td><code>#3A5CCC</code> <span style="color:var(--pgink2)">chroma 146</span></td><td>the "Continue" CTA</td><td>background-color</td></tr>
+    <tr><td><code>#3A5CCC</code></td><td>the placement dot in the plate</td><td>circle fill</td></tr>
+    <tr><td><code>#4B6FD0</code> <span style="color:var(--pgink2)">chroma 133</span></td><td>the top wash</td><td>gradient stop</td></tr>
+  </table>
+  <p>My earlier source-grep reported "4 uses of <code>var(--accent)</code>" — a different number, and untraceable to any element. The painted count is three, and each one has an address.</p>
+  <p><strong>The copy contradicts a requirement.</strong> Panel 1's supporting line reads "Up to three places. <em>Nothing to pick from a list.</em>" The app is required to ship a text/list alternative to the plate for screen-reader and motor-impairment users — <code>UI_UX_OVERHAUL_SPEC.md</code> §7, and it exists on Generate as the "Words" control. The onboarding tells every user the opposite of what the accessible path offers. The "Supporting line" row below resolves it.</p>
+  <p><strong>The screen whose job is to teach the map shows an unlabelled map.</strong> The plate is drawn with its two dashed axes and no axis labels, so it teaches that there is a disc, not what the disc means. Every variant here labels the axes.</p>
+  <p><strong>It is one panel of three.</strong> Panels 2 (the body line) and 3 (the rising arc) were never drawn. Variant A includes all three.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Carried from screen 01, and what I want your eye on</div>
+  <p><strong>Your Splash choice constrains this screen.</strong> You picked <em>wave alone</em> with <em>mark travels</em>, so the element arriving here is the wave — not the ring-and-wave lockup. Every variant below receives it at the top and lets it settle before the content moves. If a variant here has nowhere for the wave to land, that's a defect in the variant.</p>
+  <p><strong>The real question is whether this screen should exist at all.</strong> <code>SCREENS.md</code> §2 wants it "cinematic, wordless where possible… the value-prop moment <em>before</em> any permission ask." Variant C takes that literally and replaces explanation with one real gesture. It is the strongest and the riskiest: it teaches the mechanic and the promise in a single touch, but it puts an interactive surface in front of someone who has not agreed to anything yet, and a throwaway read has to be visibly throwaway or it is a lie.</p>
+  <p><strong>Cold-start p95 — not measured yet.</strong> You asked for the number and said nothing waits on it. It needs an instrumented build on the Galaxy, so it comes with the device-QA pass, not from here.</p>
+  <p><strong>One row I had to rebuild, and why it matters to you.</strong> The &ldquo;No watch needed&rdquo; row first asked <em>how often</em> the line appears &mdash; on every beat, or at the CTA only. Driving all 39 option/structure combinations through the assembler showed those two options producing a byte-identical frame on both single-screen structures: with one screen, &ldquo;every&rdquo; and &ldquo;the last one&rdquo; are the same screen. That is a dead option, and you would have been picking between two things that render the same. It is now a <em>placement</em> decision &mdash; under the headline, at the CTA, or not on this screen &mdash; which stays distinct in all three structures. All 39 combinations now change the frame.</p>
+  <p><strong>Fonts.</strong> System faces, because this file runs offline. The real screen uses General Sans for headlines; tracking and letterform will differ, proportions won't.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="fcap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="fcap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>headline on canvas</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>lede on canvas</td><td class="pass">7.37 : 1</td><td class="pass">9.92 : 1</td></tr>
+      <tr><td>CTA label on ink fill</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>active pager pill</td><td class="pass">16.74 : 1</td><td class="pass">16.93 : 1</td></tr>
+      <tr><td>inactive pager pill <span style="color:#5B5D77">(--track)</span></td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+      <tr><td style="color:#9E3346">inactive pill today <span style="color:#5B5D77">(--line)</span></td><td class="fail">1.34 : 1</td><td class="fail">1.51 : 1</td></tr>
+    </table>
+    <p style="font-size:12.5px;color:var(--pgink2);margin-top:12px">The inactive pager dots are the only signal that more panels exist. At 1.34 : 1 they are invisible, so the carousel loses its affordance. Fixed in all variants.</p>
+  </div>
+</div>
+
+<h2>Decisions</h2>
+<p class="sub" style="margin-bottom:6px">Five rows. Every option in every row changes the assembled frame in every structure — I checked, because the first build of this file had four rows that silently did nothing once Structure moved off the carousel.</p>
+<div id="rows"></div>
+
+<div style="margin-top:22px;display:flex;gap:12px;align-items:center">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to Variant A</button>
+  <span id="msg" style="color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:38px">The three treatments</h2>
+<p class="sub">Same renderer as the assembled frame — presets, not separate drawings.</p>
+<div id="variants" class="grid"></div>
+
+<script>
+const CHOICES=[
+ {id:'structure',name:'Structure',hint:'How the three ideas reach the user. The carousel brings its own pager dots; the single-screen layouts have nothing to page, so there is no separate pager row — offering one would be a choice that does not exist.',opts:[
+   ['carousel','Three panels','Swipe or Continue through three beats, with pager dots. What SCREENS.md §2 specifies.'],
+   ['beats','One screen, three beats','No paging. All three ideas stacked, readable in one look, one CTA.'],
+   ['demo','Interactive first touch','A real plate, one placement, a read marked as practice, then Continue.']]},
+ {id:'art',name:'Illustration',hint:'Applies in all three structures.',opts:[
+   ['plate','The plate','The thing they are about to use, axes labelled.'],
+   ['wave','The body line','The travelling wave from Splash, continued.'],
+   ['none','None','Type only. Fastest to read, least memorable.']]},
+ {id:'lede',name:'Supporting line',hint:'This row resolves the copy defect. Applies in all three structures.',opts:[
+   ['fixed','"…or say it in words."','Names the accessible path: "Up to three places, or say it in words."'],
+   ['neutral','"Up to three places."','Drops the offending clause without adding anything.'],
+   ['none','None','Headline alone. Near-wordless, and nothing to contradict.']]},
+ {id:'skip',name:'Skip',hint:'Onboarding must never be a wall. Applies in all three.',opts:[
+   ['top','Top-right','Conventional, always reachable, competes with nothing.'],
+   ['under','Under the CTA','Reads as a considered second option rather than an escape hatch.'],
+   ['none','No skip','The CTA is the only path. Defensible only for one short screen.']]},
+ {id:'nowatch',name:'"No watch needed"',hint:'The mood-only promise, before any permission ask. This is a placement decision, not a frequency one — "how often" collapses to the same frame on the two single-screen structures, so it would have been a row with a dead option in it. Applies in all three.',opts:[
+   ['head','Under the headline','Read before the user starts wondering whether they need hardware.'],
+   ['cta','At the CTA','Where the worry actually lands — the moment before committing.'],
+   ['off','Not on this screen','It lives on Connect. Risks the user deciding before they reach it.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'Three panels',tag:'SPEC-LITERAL',
+  desc:'The carousel as §2 describes it, with the two panels that were never drawn. The wave arrives from Splash and becomes panel 1’s illustration before the plate replaces it. Costs three screens of attention before anyone has seen the product.',
+  c:{structure:'carousel',art:'plate',skip:'top',nowatch:'cta',lede:'fixed'}},
+ {key:'B',name:'One breath, three beats',tag:'NO PAGING',
+  desc:'Removes the carousel entirely. The three ideas become three short beats on one screen, readable in about ten seconds, with a single CTA. No swipe, no pager, no "which panel am I on" — and no way to skip past the promise without having read it.',
+  c:{structure:'beats',art:'wave',skip:'under',nowatch:'head',lede:'fixed'}},
+ {key:'C',name:'Try it',tag:'SHOW, DO NOT TELL',
+  desc:'Replaces explanation with one gesture. The wave lands and becomes a live plate; the user places a single point and the screen answers with a state name and a confidence, marked clearly as a practice read. Teaches the mechanic and the promise in one touch — and is the only variant where the user has done the thing before being asked for anything.',
+  c:{structure:'demo',art:'plate',skip:'under',nowatch:'cta',lede:'neutral'}}
+];
+const state=Object.assign({},VARIANTS[0].c);
+
+function waveSvg(w,h){return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 150 40" class="brth" style="display:block">'+
+  '<path d="M8 20 q14 -16 28 0 t28 0 t28 0 t28 0" fill="none" stroke="var(--ink)" stroke-width="2.2" stroke-linecap="round"/></svg>';}
+
+function plateSvg(dot){
+  return '<div style="position:relative;width:250px;height:250px">'+
+   '<svg width="250" height="250" viewBox="0 0 322 322">'+
+    '<circle cx="161" cy="161" r="132" fill="var(--sunken)" stroke="var(--line)"/>'+
+    '<line x1="161" y1="112" x2="161" y2="210" stroke="var(--line)" stroke-dasharray="1 10"/>'+
+    '<line x1="112" y1="161" x2="210" y2="161" stroke="var(--line)" stroke-dasharray="1 10"/>'+
+    (dot?'<circle cx="216" cy="106" r="26" fill="none" stroke="var(--track)" stroke-width="1"/><circle cx="216" cy="106" r="13" fill="var(--ink)"/>':'')+
+   '</svg>'+
+   '<div style="position:absolute;left:50%;top:-2px;transform:translateX(-50%);font:600 11px var(--mono);letter-spacing:.16em;color:var(--track)">HIGH ENERGY</div>'+
+   '<div style="position:absolute;left:50%;bottom:-2px;transform:translateX(-50%);font:600 11px var(--mono);letter-spacing:.16em;color:var(--track)">LOW ENERGY</div>'+
+   '<div style="position:absolute;left:-26px;top:50%;transform:translateY(-50%) rotate(-90deg);font:600 11px var(--mono);letter-spacing:.16em;color:var(--track)">UNPLEASANT</div>'+
+   '<div style="position:absolute;right:-22px;top:50%;transform:translateY(-50%) rotate(-90deg);font:600 11px var(--mono);letter-spacing:.16em;color:var(--track)">PLEASANT</div>'+
+  '</div>';
+}
+
+const BEATS=[
+ ['Place how it feels.','Up to three places on a disc — or say it in words.'],
+ ['Your body is already saying something.','Heart rate, variability, how long you have been still. It is read, not judged.'],
+ ['The music comes to meet you.','It starts where you are, then goes somewhere with you.']
+];
+
+function ledeText(c){
+  if(c.lede==='none') return '';
+  if(c.lede==='neutral') return 'Up to three places.';
+  return 'Up to three places, or say it in words.';
+}
+
+function frame(theme,c){
+  let h='<div class="ph" data-t="'+theme+'"><div class="spacer"></div>';
+  h += '<div class="toprow">'+(c.skip==='top'?'<span class="skip">Skip</span>':'')+'</div>';
+
+  function artNode(scale){
+    if(c.art==='plate') return scale?('<div style="transform:scale('+scale+');transform-origin:top center;height:'+Math.round(250*scale)+'px">'+plateSvg(c.structure==='demo')+'</div>'):plateSvg(c.structure==='demo');
+    if(c.art==='wave')  return waveSvg(scale?180:230, scale?48:62);
+    return '';
+  }
+
+  if(c.structure==='beats'){
+    h += '<div class="art" style="padding:0 26px;align-items:flex-start;padding-top:4px"><div style="width:100%">'+
+      (c.art!=='none'?('<div style="display:flex;justify-content:center;margin-bottom:12px">'+artNode(c.art==='plate'?0.58:null)+'</div>'):'')+
+      BEATS.map(function(b,i){
+        var line = i===0 ? ledeText(c) : b[1];
+        return '<div class="beat"><span style="font:600 11px var(--mono);color:var(--track);flex:none;padding-top:3px">0'+(i+1)+'</span>'+
+        '<div><p class="bt">'+b[0]+'</p>'+(line?('<p class="bd">'+line+'</p>'):'')+((i===0&&c.nowatch==='head')?'<p class="nowatch" style="text-align:left;margin-top:6px">No watch needed.</p>':'')+'</div></div>';
+      }).join('')+'</div></div>';
+  } else {
+    h += '<div class="art">'+artNode(null)+'</div>';
+    h += '<div class="copy"><h1 class="h1">'+BEATS[0][0]+'</h1>';
+    var l=ledeText(c);
+    if(l) h += '<p class="lede">'+l+'</p>';
+    if(c.nowatch==='head') h += '<p class="nowatch" style="margin-top:8px">No watch needed.</p>';
+    if(c.structure==='demo'){
+      h += '<div class="stateline"><div class="sname">Settled, fairly even</div><div class="sconf">PRACTICE READ · NOT SAVED</div></div>';
+    }
+    h += '</div>';
+  }
+
+  h += '<div class="foot">';
+  if(c.structure==='carousel'){
+    h += '<div class="dots">'+[0,1,2].map(function(i){
+      return '<span class="hit"><span class="pill" style="background:'+(i===0?'var(--ink)':'var(--track)')+'"></span></span>';}).join('')+'</div>';
+  }
+  h += '<div class="cta">'+(c.structure==='beats'?'Get started':'Continue')+'</div>';
+  if(c.skip==='under') h += '<p class="nowatch" style="margin-top:12px;text-decoration:underline;text-underline-offset:3px">Skip</p>';
+  if(c.nowatch==='cta') h += '<p class="nowatch">No watch needed.</p>';
+  h += '</div></div>';
+  return h;
+}
+
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  const host=document.getElementById('rows');
+  host.innerHTML=CHOICES.map(function(row){
+    const opts=row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+      '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';}).join('');
+    return '<div class="drow"><div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div><div class="opts">'+opts+'</div></div>';
+  }).join('');
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(e){state[e.target.name]=e.target.value;renderLive();});});
+}
+function renderVariants(){
+  document.getElementById('variants').innerHTML=VARIANTS.map(function(v){
+    return '<div><div class="vname">Variant '+v.key+' — '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+    '<p class="vdesc">'+v.desc+'</p><div class="pair">'+
+    '<div>'+frame('light',v.c)+'<div class="fcap">Light</div></div>'+
+    '<div>'+frame('dark',v.c)+'<div class="fcap">Dark</div></div>'+
+    '<div style="flex:1;min-width:240px"><div class="lab" style="margin-bottom:8px">Composes as</div>'+
+      CHOICES.map(function(r){const ch=r.opts.find(function(o){return o[0]===v.c[r.id]});
+        return '<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--pgline)"><span style="color:var(--pgink2)">'+r.name+'</span> &middot; <strong>'+ch[1]+'</strong></div>';}).join('')+
+      '<button class="ghost" style="margin-top:14px;font-size:13px;padding:9px 15px" data-v="'+v.key+'">Load this into the assembler</button>'+
+    '</div></div></div>';}).join('');
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    const v=VARIANTS.find(function(x){return x.key===b.dataset.v});
+    Object.assign(state,v.c);renderRows();renderLive();window.scrollTo({top:0,behavior:'smooth'});});});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  const L=['SCREEN 02 — ONBOARDING — my choices',''];
+  CHOICES.forEach(function(r){const o=r.opts.find(function(x){return x[0]===state[r.id]});
+    L.push(r.name.padEnd(28,' ')+': '+o[1]+'   ['+r.id+'='+o[0]+']');});
+  const m=VARIANTS.find(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id]})});
+  L.push('', m?('= Variant '+m.key+' unchanged'):'= a custom assembly');
+  const ta=document.getElementById('out');ta.style.display='block';ta.value=L.join('\n');ta.select();
+  try{document.execCommand('copy');document.getElementById('msg').textContent='Copied — paste it back to me.';}
+  catch(e){document.getElementById('msg').textContent='Select the text below and copy it.';}
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c);renderRows();renderLive();document.getElementById('msg').textContent='';});
+
+renderRows();renderLive();renderVariants();
+</script>
+</body>
+</html>

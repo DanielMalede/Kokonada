@@ -102,6 +102,15 @@ jest.mock('@kokonada/spotify-remote', () => ({
   },
 }));
 
+// Haptics are fired through src/design/haptics.ts, which requires this package LAZILY inside a
+// catch-everything. That shape means a module which cannot load turns every haptic in the app
+// into a silent no-op and no test notices. Headless, the real package resolves through its
+// `react-native` export condition to untranspiled TS, and then reaches TurboModuleRegistry —
+// neither works here, so before this stub existed `fireHaptic` threw and was swallowed in EVERY
+// test, at all 10 call sites. Stubbing the module (rather than mocking src/design/haptics) keeps
+// fireHaptic's real code path under test and makes the call observable.
+jest.mock('react-native-haptic-feedback', () => ({ trigger: jest.fn() }));
+
 jest.mock('react-native-bootsplash', () => ({
   hide: jest.fn().mockResolvedValue(undefined),
   isVisible: jest.fn().mockResolvedValue(false),

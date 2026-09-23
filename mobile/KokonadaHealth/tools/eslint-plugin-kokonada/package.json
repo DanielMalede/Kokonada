@@ -1,0 +1,10 @@
+{
+  "name": "eslint-plugin-kokonada",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Design-system lint rules: colour and scale values must come from src/design/tokens.ts.",
+  "main": "index.js",
+  "peerDependencies": {
+    "eslint": ">=8"
+  }
+}

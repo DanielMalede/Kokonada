@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
-const { encryptedString, encryptedNumber } = require('./encryptedField');
+const { encryptedString, encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField');
 
-// A single AI-generated playlist session.
+// A single LLM-generated playlist session.
 const emotionTapSchema = new mongoose.Schema({
   x: { type: Number, required: true, min: -1, max: 1 }, // normalized emotion space
   y: { type: Number, required: true, min: -1, max: 1 },
@@ -73,5 +73,10 @@ playlistSessionSchema.index({ userId: 1, createdAt: -1 });
 // here stops index creation; drop the existing prod index manually:
 //   db.playlistsessions.dropIndex('userId_1_moodKey_1_createdAt_-1')
 playlistSessionSchema.index({ llmCacheKey: 1 });
+
+// Every encrypted leaf of this schema needs the W4-D76 pipeline refusal: an aggregation-pipeline
+// update runs server-side, so no setter fires and the value would be stored as plaintext.
+// Registered before `mongoose.model()` so the hook exists on every query.
+playlistSessionSchema.plugin(bindEncryptedAadOnUpdate);
 
 module.exports = mongoose.model('PlaylistSession', playlistSessionSchema);

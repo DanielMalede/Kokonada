@@ -37,9 +37,13 @@ describe('clampFeatures — the poisoning defense', () => {
 });
 
 describe('featuresOf — the ONE feature projection discovery + the pipeline share', () => {
-  it('projects exactly the band-relevant fields from an AudioFeature doc', () => {
-    const doc = { recordingKey: 'spotify:x', source: 'api', loudness: -6, bpm: 122, energy: 0.7, valence: 0.4, acousticness: 0.1, danceability: 0.8 };
-    expect(featuresOf(doc)).toEqual({ bpm: 122, energy: 0.7, valence: 0.4, acousticness: 0.1, danceability: 0.8 });
+  // DELIBERATE RE-PIN (W4-007): the projection now carries measurement provenance
+  // (`source` + `confidence`) alongside the five judged dims, so the v2 scorer can weigh a
+  // measured value above an LLM guess instead of treating them as the same evidence. The
+  // dims themselves and the exclusions (loudness, recordingKey, vibeTags) are unchanged.
+  it('projects the band-relevant fields PLUS measurement provenance from an AudioFeature doc', () => {
+    const doc = { recordingKey: 'spotify:x', source: 'api', confidence: 1, loudness: -6, bpm: 122, energy: 0.7, valence: 0.4, acousticness: 0.1, danceability: 0.8 };
+    expect(featuresOf(doc)).toEqual({ bpm: 122, energy: 0.7, valence: 0.4, acousticness: 0.1, danceability: 0.8, source: 'api', confidence: 1 });
   });
 
   it('returns null for an absent doc (null/undefined) — featureless semantics', () => {

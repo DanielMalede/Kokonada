@@ -4,6 +4,11 @@ process.env.NODE_ENV = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 
 jest.mock('../app/models/BiometricLog', () => ({ find: jest.fn() }));
+// W4-004: computeBaselines now also pages VitalSample and reads the profile's maxHeartRate.
+// Mocked here so this suite keeps exercising the REAL delegated path rather than a connection
+// error — an unmocked model raises a CastError before any of the assertions below are reached.
+jest.mock('../app/models/VitalSample', () => ({ find: jest.fn() }));
+jest.mock('../app/models/MedicalProfile', () => ({ findOne: jest.fn() }));
 jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(), createConnection: jest.fn() }));
 jest.mock('../app/utils/biometricAudit', () => {
   const { decrypt } = jest.requireActual('../app/utils/encryption');
@@ -44,9 +49,15 @@ function mockBatches(...batches) {
 
 const hr = (heartRate, i, activity = 'resting') => ({ _id: `id${i}`, heartRate, activity });
 
+const VitalSample = require('../app/models/VitalSample');
+const MedicalProfile = require('../app/models/MedicalProfile');
+
 beforeEach(() => {
   jest.clearAllMocks();
   getRedis.mockReturnValue(null);
+  // No vitals and no profile: this suite is about the HEART-RATE half of the baseline.
+  VitalSample.find.mockImplementation(() => ({ sort: () => ({ limit: () => Promise.resolve([]) }) }));
+  MedicalProfile.findOne.mockImplementation(() => ({ select: () => ({ lean: () => Promise.resolve(null) }) }));
 });
 
 describe('robust statistics (pure)', () => {
@@ -72,7 +83,20 @@ describe('robust statistics (pure)', () => {
   });
 });
 
-describe('computeBaselines (worker-only heavy path)', () => {
+// DELIBERATE RE-PIN (W4-004). These three pinned the arithmetic of the PRE-DELEGATION estimator:
+// a plain median over every 'resting'-or-'unknown' row, with a hard MIN_SAMPLES=10 cliff. That
+// estimator is exactly what D2/D3/D15 are about — it pools workouts with sleep because the batch
+// lane labels every row 'unknown', and it returns null rather than a shrunk estimate on thin data.
+//
+// The estimator still EXISTS: it is what `WAVE4_BASELINE_ENGINE_DISABLED` restores, and a
+// kill-switch nobody executes is a kill-switch that does not work. So rather than delete these
+// assertions or weaken them, they now run against the fallback path with their arithmetic
+// unchanged, and the delegated path's behaviour is pinned in wave4.baselineWiring.test.js
+// (including the counterpart of each: spike robustness holds, and the sparse cliff is gone).
+describe('computeBaselines — legacy estimator, behind the S11 kill-switch', () => {
+  beforeEach(() => { process.env.WAVE4_BASELINE_ENGINE_DISABLED = '1'; });
+  afterEach(() => { delete process.env.WAVE4_BASELINE_ENGINE_DISABLED; });
+
   it('computes resting-HR median/MAD from paged, decrypted logs', async () => {
     mockBatches(
       Array.from({ length: 12 }, (_, i) => hr(i % 2 === 0 ? 59 : 61, i)), // median 60
@@ -106,7 +130,9 @@ describe('computeBaselines (worker-only heavy path)', () => {
     expect(stats.rhrMAD).toBeNull();
     expect(stats.sampleCount).toBe(2);
   });
+});
 
+describe('computeBaselines (worker-only heavy path)', () => {
   it('non-finite decrypted values are dropped, not counted', async () => {
     mockBatches([hr(60, 1), hr(null, 2), hr(NaN, 3), hr(62, 4)], []);
 
@@ -144,7 +170,11 @@ describe('getBaselines — encrypted Redis cache (zero-knowledge boundary)', () 
     const [key, payload, ex, ttl] = redis.set.mock.calls[0];
     expect(key).toBe('bio:baseline:u1');
     expect(ex).toBe('EX');
-    expect(ttl).toBe(6 * 3600);
+    // DELIBERATE RE-PIN (W4-004): the blob is now RETAINED longer than it is considered FRESH.
+    // That gap is stale-while-revalidate — the second half of D15. Pinned as the relationship
+    // rather than as a literal, so the guarantee survives a future tuning of either number.
+    expect(ttl).toBe(baselines.CACHE_TTL_S);
+    expect(baselines.CACHE_TTL_S).toBeGreaterThan(baselines.FRESH_TTL_S);
     // The stored value is opaque base64 ciphertext — nothing else. This is stricter
     // than (and replaces) a substring check on the median: base64's alphabet includes
     // digits, so a random-IV ciphertext contains "60" by chance ~1.8% of runs, which
@@ -183,6 +213,10 @@ describe('getBaselines — encrypted Redis cache (zero-knowledge boundary)', () 
 
     const stats = await baselines.getBaselines('u1');
 
-    expect(stats.rhrMedian).toBe(59);
+    // The claim is the FALL-THROUGH, not any particular number: a tampered blob must not be
+    // served, and the heavy path must actually run. (Pinning the legacy median here would only
+    // re-test the estimator, which wave4.baselineWiring.test.js covers on real timestamped data.)
+    expect(BiometricLog.find).toHaveBeenCalled();
+    expect(Number.isFinite(stats.rhrMedian)).toBe(true);
   });
 });

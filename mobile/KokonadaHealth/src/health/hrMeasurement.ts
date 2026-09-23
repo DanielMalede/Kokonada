@@ -8,9 +8,10 @@
 export const HR_SERVICE_UUID     = '0000180d-0000-1000-8000-00805f9b34fb';
 export const HR_MEASUREMENT_UUID = '00002a37-0000-1000-8000-00805f9b34fb';
 
-// Local push cadence, mirrored from the sideloaded watch app's HrStreamer so the
-// backend sees a consistent stream regardless of source: send when HR moves ≥ delta,
-// or every liveness window as a heartbeat even if flat.
+// Local push cadence. Originally mirrored from the sideloaded Garmin Connect IQ app's HrStreamer
+// so the backend saw a consistent stream regardless of source; that app has since been retired, so
+// these values are now the phone's own contract with watchHrIngest and the sole definition of the
+// cadence: send when HR moves ≥ delta, or every liveness window as a heartbeat even if flat.
 export const HR_DELTA_BPM = 8;
 export const LIVENESS_MS  = 45_000;
 

@@ -9,7 +9,11 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 jest.mock('../app/utils/biometricAudit', () => ({ logBiometricAccess: jest.fn(), auditedDecrypt: jest.fn() }));
 const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const BiometricLog    = require('../app/models/BiometricLog');
+const VitalSample     = require('../app/models/VitalSample');
 const MedicalProfile  = require('../app/models/MedicalProfile');
+const MorningState    = require('../app/models/MorningState');
+const { RewardEvent } = require('../app/models/RewardEvent');
+const { PersonalWeights } = require('../app/models/PersonalWeights');
 const MusicProfile    = require('../app/models/MusicProfile');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const ServeEvent      = require('../app/models/ServeEvent');
@@ -30,7 +34,15 @@ beforeEach(() => {
   jest.restoreAllMocks();
   // Real model instances so the encrypted getters actually run (real decryption semantics).
   stubFind(BiometricLog, [new BiometricLog({ userId: OID, heartRate: 72, source: 'garmin', recordedAt: new Date() })]);
+  stubFind(VitalSample, [new VitalSample({ userId: OID, metric: 'hrv', value: 63, source: 'garmin', recordedAt: new Date() })]);
   stubFind(MedicalProfile, []);
+  stubFind(MorningState, []);
+  stubFind(RewardEvent, []);   // W4-011, ADR-0012 Track A
+  // W4-013 (B7). A REAL document, unlike the empty stubs around it: the overlay is the one new
+  // collection whose export content is worth asserting, since §M.15's deltas are the whole row.
+  stubFind(PersonalWeights, [new PersonalWeights({
+    userId: OID, deltas: { taste: 0.08, feature: -0.06, genre: 0, rotation: 0 }, updates: 4, updatedAt: new Date(),
+  })]);
   stubFind(MusicProfile, []);
   stubFind(PlaylistSession, [new PlaylistSession({
     userId: OID, emotionTaps: [{ x: 0, y: 0 }], contextPrompt: 'private note', musicProvider: 'spotify',
@@ -51,7 +63,7 @@ afterEach(() => jest.restoreAllMocks());
 describe('exportUserData', () => {
   it('scopes every collection query to the subject userId (never another user)', async () => {
     await exportUserData(OID);
-    for (const model of [BiometricLog, MedicalProfile, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
+    for (const model of [BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
       expect(model.find).toHaveBeenCalledWith({ userId: OID });
     }
     expect(User.findById).toHaveBeenCalledWith(OID);
@@ -60,6 +72,7 @@ describe('exportUserData', () => {
   it('decrypts the subject\'s own special-category data', async () => {
     const out = await exportUserData(OID);
     expect(out.collections.biometriclogs[0].heartRate).toBe(72);       // decrypted
+    expect(out.collections.vitalsamples[0].value).toBe(63);            // decrypted (W4-004, S5)
     expect(out.collections.playlistsessions[0].contextPrompt).toBe('private note'); // decrypted
   });
 
@@ -83,9 +96,20 @@ describe('exportUserData', () => {
   it('reuses the full account-erasure collection list (completeness)', async () => {
     const out = await exportUserData(OID);
     expect(Object.keys(out.collections).sort()).toEqual([
-      'biometriclogs', 'consentrecords', 'identities', 'medicalprofiles', 'musicprofiles',
+      'biometriclogs', 'consentrecords', 'identities', 'medicalprofiles', 'morningstates', 'musicprofiles',
+      'vitalsamples', 'rewardevents', 'personalweights',
       'playlistsessions', 'refreshtokens', 'serveevents', 'unclassifiedtracks',
     ].sort());
+  });
+
+  it('serialises the learned scoring overlay itself, not just an empty bucket (W4-013 B7)', async () => {
+    // The completeness list above proves the collection is PRESENT. This proves the row that
+    // comes out is the subject's actual overlay — an Art.15 export that returns an empty array
+    // for a collection the user has data in satisfies the list and not the right.
+    const out = await exportUserData(OID);
+    expect(out.collections.personalweights).toHaveLength(1);
+    expect(out.collections.personalweights[0].deltas.taste).toBeCloseTo(0.08, 10);
+    expect(out.collections.personalweights[0].updates).toBe(4);
   });
 
   it('records an audited biometric access for the bulk export decrypt (ADR-0005, M2)', async () => {

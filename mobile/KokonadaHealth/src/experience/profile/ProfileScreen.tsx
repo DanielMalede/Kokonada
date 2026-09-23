@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, Image, Alert, Linking, AppState, Mod
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, type as typography, elevation } from '../../design/tokens';
+import { space, radius, stroke, type as typography, elevation } from '../../design/tokens';
 import { fireHaptic } from '../../design/haptics';
 import { EMPTY_GLOW_OPACITY, Skeleton } from '../../design/system';
 import { SoftGlow } from '../aura/SoftGlow';
@@ -16,13 +16,11 @@ import { syncMedicalProfile, type SyncCounts } from '../../health/healthSync';
 import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../health/consentApi';
 import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
 import { createConnectController, type WearableOutcome } from '../connect/connectController';
-import { requestWatchPairing, fetchWatchStatus, revokeWatchPairing } from '../../health/watchPairingClient';
-import { clearWatchToken } from '../../health/liveHrClient';
-import { createWatchPairingFlow, type WatchPairingStore } from './watchPairingStore';
+import { fetchWatchStatus, revokeWatchPairing } from '../../health/watchPairingClient';
 import { PROVIDERS } from '../connect/providers';
 import { SPOTIFY_BETA_CONNECT } from '../connect/betaFlags';
 import { ProfileIntegrationRow } from './ProfileIntegrationRow';
-import { WatchPairingCard } from './WatchPairingCard';
+import { LiveHeartRateCard } from './LiveHeartRateCard';
 import { VaultConsentPanel } from './VaultConsentPanel';
 import { ConsentSheet } from './ConsentSheet';
 import type { ProfileSnapshot } from './profileController';
@@ -61,15 +59,6 @@ export function ProfileScreen() {
 
   const mountedRef = useRef(true);
 
-  // The watch pairing flow, bound once to the real client + Keychain seams. The card drives it.
-  const watchStore = useMemo<WatchPairingStore>(() => createWatchPairingFlow({
-    requestPairing: requestWatchPairing,
-    fetchStatus: fetchWatchStatus,
-    revoke: revokeWatchPairing,
-    clearToken: clearWatchToken,
-    now: () => Date.now(),
-  }), []);
-
   // T5 — Profile Sync rebuilt on the SAME §4 controller as ConnectServices (dedup), so the ONE
   // compliance invariant (OS health sheet only after a server-acked grant) lives in one place. A
   // Profile-specific markResolved flips consentGranted (which reveals Withdraw). The real
@@ -87,8 +76,8 @@ export function ProfileScreen() {
   const reload = useCallback(() => {
     void profileController.loadProfile().then((s) => { if (mountedRef.current) { setSnap(s); setLoaded(true); } });
     void fetchConsentStatus().then((res) => { if (mountedRef.current && res.ok) setConsentGranted(res.data.granted); });
-    void watchStore.getState().hydrate();
-  }, [watchStore]);
+    // Live-HR status is hydrated by LiveHeartRateCard itself on mount — no screen-level fetch.
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -307,7 +296,7 @@ export function ProfileScreen() {
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow
             label="Wearable"
-            reason={wearableConnected ? 'Shaping music to your body.' : 'Pair your watch below to stream live heart rate.'}
+            reason={wearableConnected ? 'Shaping music to your body.' : 'Connect a heart-rate source to stream live heart rate.'}
             statusWord={wearableConnected ? 'Connected' : 'Not connected'}
             connected={wearableConnected}
           />
@@ -320,8 +309,9 @@ export function ProfileScreen() {
           />
         </View>
 
-        {/* Watch pairing — the ephemeral 6-digit code flow (never the whr_ device token). */}
-        <WatchPairingCard store={watchStore} />
+        {/* Live heart rate — status of the phone-held whr_ device credential, and the only place
+            it can be revoked. Replaced the retired Connect IQ pairing-code card. */}
+        <LiveHeartRateCard fetchStatus={fetchWatchStatus} revoke={revokeWatchPairing} />
 
         {/* Health-data Vault — consent summary, "what we read", Sync, and the neutral withdrawal. */}
         <VaultConsentPanel
@@ -410,18 +400,18 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, padding: space.lg },
   divider: { height: StyleSheet.hairlineWidth },
   account: { gap: space.md, marginTop: space['3xl'] },
-  logout: { width: '100%', paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  logout: { width: '100%', paddingVertical: space.lg, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   logoutLabel: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   deleteLink: { paddingVertical: space.md, alignItems: 'center' },
   deleteLinkText: { fontSize: typography.size.callout, fontWeight: typography.weight.semibold },
-  deleteConfirm: { gap: space.md, padding: space.lg, borderRadius: radius.lg, borderWidth: 1.5 },
+  deleteConfirm: { gap: space.md, padding: space.lg, borderRadius: radius.lg, borderWidth: stroke.control },
   deleteTitle: { fontSize: typography.size.callout, fontWeight: typography.weight.semibold },
   deleteBody: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },
   deleteBar: { flexDirection: 'row', gap: space.md },
-  deleteBtn: { flex: 1, paddingVertical: space.md, borderRadius: radius.pill, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  deleteBtn: { flex: 1, paddingVertical: space.md, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   deleteBtnText: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
   retryTitle: { fontSize: typography.size.subheading, fontWeight: typography.weight.semibold, textAlign: 'center' },
-  retryBtn: { marginTop: space.lg, paddingVertical: space.md, paddingHorizontal: space.xl, borderRadius: radius.pill, borderWidth: 1.5 },
+  retryBtn: { marginTop: space.lg, paddingVertical: space.md, paddingHorizontal: space.xl, borderRadius: radius.pill, borderWidth: stroke.control },
   retryLabel: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
 });

@@ -2,6 +2,7 @@
 
 const MedicalProfile = require('../models/MedicalProfile');
 const { encrypt } = require('../utils/encryption');
+const { byId, fromLegacyLabel } = require('../agents/runtime/knowledge/stateTaxonomy');
 
 // ── Priority-ordered state classification rules ────────────────────────────────
 //
@@ -190,17 +191,43 @@ function computeStateVector(telemetry) {
  * @param {object} telemetry - Raw pillar fields from the wearable adapter
  * @returns {Promise<MedicalProfile>}
  */
-async function upsertStateVector(userId, telemetry) {
+async function upsertStateVector(userId, telemetry, { affect = null } = {}) {
   const { status, confidence } = computeStateVector(telemetry);
 
-  // The state label reveals the user's inferred emotional/physiological state, so
-  // it is encrypted at rest. Encrypt explicitly here because setters do not run on
-  // findOneAndUpdate($set). Read it back via decrypt(doc.stateVector.status). (audit F3)
+  // W4-006: resolve the TAXONOMY id alongside the legacy label.
+  //
+  // Preference order, and the reason for it: the affect engine's own label when it produced one
+  // (it reasons over six evidence axes and a temporal posterior), otherwise the nine-rule
+  // classifier's label mapped through the compat table — `computeStateVector` is kept as the
+  // DEGRADED fallback, exactly as the mission specifies, rather than deleted. A label the
+  // taxonomy does not contain is discarded rather than stored: an id nothing can resolve is
+  // worse than no id, because every consumer would silently fall through while looking supplied.
+  const declared = typeof affect?.label === 'string' ? affect.label : null;
+  const fromAffect = declared && byId(declared) ? declared : null;
+  const stateId = fromAffect ?? fromLegacyLabel(status);
+  const stateConfidence = fromAffect != null && Number.isFinite(affect?.confidence)
+    ? affect.confidence
+    : null;
+
+  // The state label reveals the user's inferred emotional/physiological state, so it is encrypted
+  // at rest. `stateVector.status`/`stateId` are plain Strings with no setter, so the encryption
+  // happens HERE — and so does the AAD binding (W4-D71): a field that encrypts itself has to bind
+  // itself, or it is the one Art.9 value in the row a blob from another user's row would satisfy.
+  // Read it back through `decryptOwned(blob, userId)`, which still resolves legacy unbound rows.
+  const aad = String(userId);
   return MedicalProfile.findOneAndUpdate(
     { userId },
     {
       $set: {
-        stateVector: { status: encrypt(status), confidence, computedAt: new Date() },
+        stateVector: {
+          status: encrypt(status, aad),
+          confidence,
+          computedAt: new Date(),
+          // `status`/`confidence` keep their exact prior meaning — they are the pair
+          // pulseController serves to the owner. The taxonomy pair is additive and internal.
+          stateId: stateId ? encrypt(stateId, aad) : null,
+          stateConfidence,
+        },
       },
     },
     { upsert: true, new: true }
@@ -275,4 +302,9 @@ function computeLastNightSleep(metrics) {
   return { ...nights.get(latest), date: latest };
 }
 
-module.exports = { computeStateVector, upsertStateVector, aggregateProfileMetrics, computeLastNightSleep };
+// PROFILE_SCALAR_METRICS is exported so a log line can NAME the metrics a batch touched without
+// naming their values — it is the closed vocabulary `summarizeMetricKeys` filters against (W4-D10).
+module.exports = {
+  computeStateVector, upsertStateVector, aggregateProfileMetrics, computeLastNightSleep,
+  PROFILE_SCALAR_METRICS,
+};

@@ -1,4 +1,5 @@
 'use strict';
+const { applyRecencyDecay } = require('./selection/affinity');
 
 // Phase 7 — the legacy mixer is DELETED. The old mixing entry point and its
 // 40/40/20 bucket machinery (tiered rotation, variety windows, sort axes,
@@ -51,10 +52,13 @@ function personalizeWhitelist(tracks, { genreSet = [], knownArtistIds = [] } = {
  * @param {number} [n=10]
  * @returns {Array}
  */
-function generateFallbackPlaylist(musicProfile, provider = null, n = 10) {
+function generateFallbackPlaylist(musicProfile, provider = null, n = 10, { now = Date.now() } = {}) {
   const lib = musicProfile?.library ?? [];
-  return [...lib]
-    .filter((t) => _matchesProvider(t, provider))
+  // W4-010: the same read-time recency decay the candidate pool applies. The fallback is a
+  // different code path, not a different taste model — without this, the one playlist a user
+  // sees when generation has failed end-to-end would be ranked by the stale evidence every
+  // other path has stopped trusting.
+  return applyRecencyDecay([...lib].filter((t) => _matchesProvider(t, provider)), { now })
     .sort((a, b) => (b.affinity ?? b.listenCount ?? 0) - (a.affinity ?? a.listenCount ?? 0))
     .slice(0, n);
 }

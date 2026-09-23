@@ -97,17 +97,37 @@ function _accumulateTracks(sources) {
       if (!track?.id) return;
       const positionBonus = n > 0 ? (n - i) / n : 0; // ~1 for #1, →0 for the last
       const score = weight + positionBonus;
+      const seen = _engagementTime(track);
       const existing = byId.get(track.id);
       if (existing) {
         existing.affinity += score;
+        // The SAME track can appear as a 2019 playlist add and as a play from this morning.
+        // Recency is the most recent evidence, not the first one encountered (W4-010 a).
+        if (seen && (!existing.lastSeenAt || seen > existing.lastSeenAt)) existing.lastSeenAt = seen;
         // Keep the richest track object (one that carries artists/name/uri).
         if (!existing.track.artists?.length && track.artists?.length) existing.track = track;
       } else {
-        byId.set(track.id, { track, affinity: score });
+        byId.set(track.id, { track, affinity: score, lastSeenAt: seen });
       }
     });
   }
   return byId;
+}
+
+/**
+ * The most recent moment we can HONESTLY say the user engaged with a track, or null.
+ *
+ * `playedAt` (recently-played) and `addedAt` (liked songs, playlist items) are attached by
+ * the Spotify fetchers, which used to discard the wrapper item that carries them. Top-tracks
+ * rows have no timestamp at all — Spotify's term windows are a ranking, not a date — and get
+ * null rather than an invented "now", because W4-010's decay treats missing evidence as no
+ * penalty. Inventing a timestamp here would be the one way to make that dishonest.
+ */
+function _engagementTime(track) {
+  const raw = track?.playedAt ?? track?.addedAt ?? null;
+  if (!raw) return null;
+  const t = new Date(raw);
+  return Number.isFinite(t.getTime()) ? t : null;
 }
 
 /**
@@ -162,7 +182,7 @@ function _analyzeSpotifyProfile({ trackSources = [], artistLists = [], artistGen
   const library = [...trackMap.values()]
     .sort((a, b) => b.affinity - a.affinity)
     .slice(0, LIBRARY_CAP)
-    .map(({ track, affinity }) => {
+    .map(({ track, affinity, lastSeenAt }) => {
       const artistIds = (track.artists || []).map(a => a.id).filter(Boolean);
       const genres    = [...new Set(artistIds.flatMap(id => genreByArtist[id] || []))];
       const entry = {
@@ -175,6 +195,7 @@ function _analyzeSpotifyProfile({ trackSources = [], artistLists = [], artistGen
         genres,
         popularity:   track.popularity ?? null,
         affinity:     Number(affinity.toFixed(3)),
+        lastSeenAt:   lastSeenAt ?? null,
         isrc:         track.external_ids?.isrc ?? null,
         // Audio features are dead for new apps — retained as null for back-compat.
         tempo: null, energy: null, valence: null, acousticness: null, danceability: null,
@@ -296,18 +317,56 @@ const TAG_TO_GENRE = {
   reggae: 'reggae', latin: 'latin',
 };
 
+// YouTube affinity, on the SAME scale as the Spotify sources (D17).
+//
+// It used to be `n - i` over the merged list, so a 500-video account produced affinities up
+// to 500 while Spotify's `weight + positionBonus` tops out around 30. Both end up in ONE
+// array, normalised by a single global maxAffinity in the selection pipeline — so for any
+// user with both providers connected, every Spotify track collapsed toward 0 and their
+// Spotify taste effectively vanished from ranking.
+//
+// A liked video is a per-song save (SOURCE_WEIGHTS.saved); a playlist item is a deliberate
+// curation choice (SOURCE_WEIGHTS.playlist) — the same reading the Spotify side already
+// takes. The 0..1 position bonus stays a tie-breaker within the source.
+function _youtubeAffinity(liked, rank, total) {
+  const base = liked ? SOURCE_WEIGHTS.saved : SOURCE_WEIGHTS.playlist;
+  const positionBonus = total > 0 ? (total - rank) / total : 0;
+  return Number((base + positionBonus).toFixed(3));
+}
+
 /**
  * Analyses a flat list of YouTube video objects (liked videos + playlist items)
  * and extracts genre signals from tags and artist names from channelTitle.
  * Audio feature fields are null because YouTube has no audio-features API.
  *
+ * Affinity is on the SAME scale as the Spotify side (`SOURCE_WEIGHTS` + a 0..1 position
+ * bonus) — see the D17 note on `_youtubeAffinity`.
+ *
  * @param {{ id: string, snippet: { title?: string, channelTitle: string, tags?: string[] } }[]} videos
+ *        deduped video objects, liked first then playlist items (the caller's merge order)
+ * @param {{ likedIds?: Set<string>|null }} [opts]  which video ids came from the LIKED list;
+ *        every other video is a playlist item. Omitted → all treated as liked (back-compat).
  */
-function _analyzeYouTubeTracks(videos) {
+/** The moment a playlist item was added to its playlist, or null if unusable. */
+function _playlistAddTime(snippet) {
+  const raw = snippet?.publishedAt ?? null;
+  if (!raw) return null;
+  const t = new Date(raw);
+  return Number.isFinite(t.getTime()) ? t : null;
+}
+
+function _analyzeYouTubeTracks(videos, { likedIds = null } = {}) {
   const library    = [];
   const genrePool  = [];
   const artistPool = [];
-  const n = videos.length;
+
+  // Per-source totals + running ranks, so the position bonus measures rank WITHIN a source
+  // (as it does for Spotify) rather than position in the concatenated array.
+  const isLiked = (video) => !likedIds || likedIds.has(_videoIdOf(video));
+  const likedTotal = videos.reduce((c, v) => c + (isLiked(v) ? 1 : 0), 0);
+  const playlistTotal = videos.length - likedTotal;
+  let likedRank = 0;
+  let playlistRank = 0;
 
   videos.forEach((video, i) => {
     const snippet = video.snippet ?? video;
@@ -335,7 +394,15 @@ function _analyzeYouTubeTracks(videos) {
       artistIds:    [],
       popularity:   null,
       isrc:         null,
-      affinity:     n - i, // earlier in the liked/playlist list → higher affinity
+      affinity:     _youtubeAffinity(isLiked(video),
+        isLiked(video) ? likedRank++ : playlistRank++,
+        isLiked(video) ? likedTotal  : playlistTotal),
+      // W4-010 (a): a playlistItems `snippet.publishedAt` is when the USER added the video —
+      // engagement, and admissible. A videos.list (liked) `snippet.publishedAt` is when the
+      // CONTENT was uploaded; reading it as engagement would decay a 1970s song liked
+      // yesterday to nothing. Liked videos therefore carry NO recency claim, which the decay
+      // reads as "no penalty" rather than "old".
+      lastSeenAt:   isLiked(video) ? null : _playlistAddTime(snippet),
     };
     entry.canonicalKey = canonicalKey(entry);
     library.push(entry);
@@ -411,11 +478,33 @@ function _subscriptionArtists(subscriptions) {
  * @param {number}   cap      max items to return
  */
 function _weightedMergeRanked(rankedA, weightA, rankedB, weightB, cap) {
+  return _mergeRankedLists([{ ranked: rankedA, weight: weightA }, { ranked: rankedB, weight: weightB }], cap);
+}
+
+// W4-010 (b): provider influence SATURATES with library size instead of scaling with it.
+//
+// Raw size made the merge a row count: 50 curated Spotify tracks against one imported
+// 2000-item YouTube playlist is a 40:1 vote, so the Spotify side's #1 genre could not reach
+// the merged top-10 at all. But the marginal taste evidence in a library's 2000th row is
+// nothing like that in its 50th — the information grows roughly logarithmically, not
+// linearly. log1p is the honest curve for that, and it is the same shape W4-010 (b) asks
+// for: the richer provider still leads (log1p(2000)/log1p(50) ≈ 1.9), it just no longer
+// erases the other one. log1p(0) = 0, so the "no data contributes nothing" guard is
+// preserved exactly, and monotonicity — more data never counts for less — is preserved too.
+const _providerWeight = (size) => (Number.isFinite(size) && size > 0 ? Math.log1p(size) : 0);
+
+/**
+ * N-way version of the same merge, so `recomputeFootprint` can reuse it without folding
+ * pairwise (which would apply the saturation twice to an already-merged accumulator).
+ * @param {{ ranked: string[], weight: number }[]} lists
+ */
+function _mergeRankedLists(lists, cap) {
   const score = new Map();
-  const add = (ranked, weight) => {
+  for (const { ranked, weight } of lists) {
+    const w = _providerWeight(weight);
     // A provider with no data (weight ≤ 0) or an empty list contributes nothing. The
     // empty guard also prevents a divide-by-zero in the positional term below.
-    if (!(weight > 0) || ranked.length === 0) return;
+    if (!(w > 0) || !Array.isArray(ranked) || ranked.length === 0) continue;
     const n = ranked.length;
     ranked.forEach((item, i) => {
       // Position is normalized PER LIST (1.0 for #1 → 1/n for the last) so a longer list
@@ -423,11 +512,9 @@ function _weightedMergeRanked(rankedA, weightA, rankedB, weightB, cap) {
       // `weight` decides cross-provider dominance, and each list's #1 contributes exactly
       // `weight`. This keeps the Spotify-vs-YouTube balance purely about data richness.
       const positional = (n - i) / n;
-      score.set(item, (score.get(item) || 0) + positional * weight);
+      score.set(item, (score.get(item) || 0) + positional * w);
     });
-  };
-  add(rankedA, weightA);
-  add(rankedB, weightB);
+  }
   return [...score.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([item]) => item)
@@ -491,7 +578,10 @@ async function buildProfile(userId, user, onProgress = () => {}) {
       // Dedupe by the real VIDEO id (not the playlist-item id) so the same song appearing
       // in likes AND one or more playlists collapses to a single library entry.
       const allVideos  = _deduplicateById([...likedVideos, ...playlistItems], _videoIdOf);
-      const ytAnalysis = _analyzeYouTubeTracks(allVideos);
+      // Which ids are LIKES decides the affinity weight (D17). Likes are merged first, so a
+      // song that is both liked and playlisted keeps its liked identity through the dedupe.
+      const likedIds   = new Set(likedVideos.map(_videoIdOf).filter(Boolean));
+      const ytAnalysis = _analyzeYouTubeTracks(allVideos, { likedIds });
 
       // ── Extra legal Data-API sources that enrich the taste signals ──────────────────
       // (a) Subscribed MUSIC channels → strong artist-affinity signal. Best-effort: a
@@ -619,14 +709,56 @@ async function buildProfile(userId, user, onProgress = () => {}) {
 
 // Re-derive the taste footprint (topGenres/topArtists/genreSet) from a library. Used after a
 // classification purge or a pool-promotion changes which tracks the profile contains.
+//
+// W4-010 (c) — DUAL-ALGORITHM DRIFT, closed. This used to rank by raw row FREQUENCY while
+// `buildProfile` ranked by weighted affinity and then merged the providers by library size.
+// The two therefore disagreed on the same library: one ambient track the user plays daily
+// (affinity 24) lost to three tail playlist rows tagged "workout" (affinity 1 each), so a
+// classification purge silently replaced the user's taste profile with a different one that
+// no rebuild would ever reproduce.
+//
+// The recompute now uses the build-time shape, restricted to what a stored library actually
+// carries: rank WITHIN each provider by summed affinity, then merge ACROSS providers through
+// the same log-saturated `_mergeRankedLists`. Entries written before affinity existed (or
+// with a non-positive/NaN one) count as 1, which is exactly the old frequency ranking — so
+// legacy libraries re-derive as they always did, and enriched ones re-derive as they were
+// built.
+function _rankByWeight(entries, keyFn) {
+  const weight = new Map();
+  for (const t of entries) {
+    const raw = Number(t?.affinity);
+    const w = Number.isFinite(raw) && raw > 0 ? raw : 1;
+    for (const key of keyFn(t)) {
+      if (typeof key !== 'string' || !key) continue;
+      weight.set(key, (weight.get(key) || 0) + w);
+    }
+  }
+  return [...weight.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+}
+
 function recomputeFootprint(library) {
-  const list    = Array.isArray(library) ? library : [];
-  const genres  = list.flatMap(t => t.genres || []);
-  const artists = list.map(t => t.artist).filter(Boolean);
+  const list = (Array.isArray(library) ? library : []).filter(Boolean);
+
+  // Group by provider so the cross-provider merge is the build-time one. An entry with no
+  // provider (legacy rows, test fixtures) forms its own group rather than being dropped.
+  const groups = new Map();
+  for (const t of list) {
+    const key = typeof t.provider === 'string' && t.provider ? t.provider : 'unknown';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+
+  const genreLists  = [];
+  const artistLists = [];
+  for (const entries of groups.values()) {
+    genreLists.push({ ranked: _rankByWeight(entries, t => (Array.isArray(t.genres) ? t.genres : [])), weight: entries.length });
+    artistLists.push({ ranked: _rankByWeight(entries, t => [t.artist]), weight: entries.length });
+  }
+
   return {
-    topGenres:  _rankByFrequency(genres).slice(0, 10),
-    topArtists: _rankByFrequency(artists).slice(0, 20),
-    genreSet:   [...new Set(genres)],
+    topGenres:  _mergeRankedLists(genreLists, 10),
+    topArtists: _mergeRankedLists(artistLists, 20),
+    genreSet:   [...new Set(list.flatMap(t => (Array.isArray(t.genres) ? t.genres : [])).filter(g => typeof g === 'string' && g))],
   };
 }
 

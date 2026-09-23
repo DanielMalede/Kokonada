@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+</style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:390px;height:844px;position:relative;overflow:hidden;background:var(--canvas);font-family:var(--text);display:flex;flex-direction:column">
+
+  <div style="height:44px;flex:none"></div>
+
+  <div style="padding:8px 22px 12px;flex:none">
+    <h1 style="margin:0;font:600 28px/1.18 var(--disp);letter-spacing:-.02em;color:var(--ink)">Archive</h1>
+  </div>
+
+  <div style="flex:1;min-height:0;padding:0 22px">
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-calm)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-calm)">Unwind</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">12m ago</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Manual &middot; Winding down &middot; 12 tracks</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-intense)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-intense)">Peak Energy</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Sunday</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Live &middot; Running &middot; 18 tracks</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-calm)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-calm)">Resting but content</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Yesterday</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Manual &middot; Reading &middot; 9 tracks</div>
+        <div style="margin-top:4px;font:500 11px var(--mono);letter-spacing:.06em;color:var(--q-calm)">SAME STATE, NEW MUSIC</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-joyful)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-joyful)">Uplift</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Thursday</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Live &middot; Walking &middot; 14 tracks</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-reflective)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-reflective)">Focus</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Aug 19</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Manual &middot; Working &middot; 21 tracks</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-intense)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-intense)">Intense</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Aug 17</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Live &middot; Workout &middot; 16 tracks</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-joyful)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-joyful)">Energize</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Aug 15</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Manual &middot; Commuting &middot; 11 tracks</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-calm)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-calm)">Calm</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Aug 14</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Live &middot; Resting &middot; 8 tracks</div>
+        <div style="margin-top:4px;font:500 11px var(--mono);letter-spacing:.06em;color:var(--q-calm)">SAME STATE, NEW MUSIC</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-reflective)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-reflective)">Focus</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Aug 12</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Manual &middot; Working &middot; 19 tracks</div>
+        <div style="margin-top:4px;font:500 11px var(--mono);letter-spacing:.06em;color:var(--q-reflective)">SAME STATE, NEW MUSIC</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)">
+      <span style="width:34px;height:34px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--sunken)"><span style="width:10px;height:10px;border-radius:50%;background:var(--q-calm)"></span></span>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <div style="font:600 16px/1.3 var(--disp);color:var(--q-calm)">Unwind</div>
+          <div style="font:500 11px var(--mono);color:var(--ink3);flex:none">Aug 11</div>
+        </div>
+        <div style="margin-top:1px;font:400 12.5px var(--text);color:var(--ink2)">Manual &middot; Winding down &middot; 10 tracks</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none" aria-hidden="true"><path d="M8 4l5 6-5 6"></path></svg>
+    </div>
+  
+  </div>
+
+  <div style="position:relative;display:flex;justify-content:space-around;align-items:center;height:62px;flex:none;border-top:1px solid var(--line);background:var(--canvas)">
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="GENERATE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><circle cx="10" cy="10" r="9"></circle><path d="M3 10 q2.3 -4 4.6 0 t4.6 0 t4.6 0" fill="none" stroke="var(--canvas)" stroke-width="1.7" stroke-linecap="round"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="NOW PLAYING" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><path d="M4 3v14l12-7z"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PULSE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><path d="M1 12 q2 0 3-3 t2 6 t2-6 t2 3 h9 v2 H1z"></path></svg>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="HISTORY" aria-selected="true">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink)" aria-hidden="true"><rect x="2" y="4" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="9" width="16" height="2.6" rx="1.3"></rect><rect x="2" y="14" width="11" height="2.6" rx="1.3"></rect></svg>
+      <span style="font:500 11px var(--mono);letter-spacing:.06em;color:var(--ink);white-space:nowrap">HISTORY</span>
+    </span>
+    <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:56px;min-height:44px" role="tab" aria-label="PROFILE" aria-selected="false">
+      <svg width="22" height="22" viewBox="0 0 20 20" fill="var(--ink3)" aria-hidden="true"><circle cx="10" cy="6.5" r="3.6"></circle><path d="M2.6 18a7.4 7.4 0 0 1 14.8 0z"></path></svg>
+    </span>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

@@ -55,6 +55,12 @@ const musicProfileSchema = new mongoose.Schema({
       // Weighted listening affinity (top tracks > saved > recently-played …),
       // used to rank familiar-track selection in the mixer.
       affinity:     { type: Number, default: 0 },
+      // W4-010: the most recent moment the user demonstrably engaged with this track
+      // (a Spotify play or save/playlist add, a YouTube playlist add). null means "no
+      // recency evidence" — top-tracks rows have no timestamp, and a liked YouTube video's
+      // publishedAt is the upload date, not an engagement. The read-time decay in
+      // `services/selection/affinity.js` treats null as NO penalty, never as "old".
+      lastSeenAt:   { type: Date, default: null },
     }],
     default: [],
   },

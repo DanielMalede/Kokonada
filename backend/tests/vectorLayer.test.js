@@ -58,6 +58,24 @@ describe('embedding.buildVector (deterministic v1)', () => {
     expect(buildVector(FEATURES, [])).toHaveLength(70);
     expect(buildVector(null, []).every(Number.isFinite)).toBe(true);
   });
+
+  it('an all-null AudioFeature doc embeds at the neutral fill, not a loudness-maxed unit vector', () => {
+    // Number(null) === 0 is finite, so a naive numeric guard reads "not measured" as
+    // "measured as zero" — AudioFeature's schema default for an unmeasured dim is null
+    // (never absent), and this is the shape embedding.worker.js feeds in for every
+    // undiscovered track.
+    const allNull = { bpm: null, energy: null, valence: null, acousticness: null, danceability: null, loudness: null };
+
+    expect(buildVector(allNull, [])).toEqual(buildVector({}, []));
+  });
+
+  it('a single null dim lands at the same neutral fill as the key being absent entirely', () => {
+    const withNullLoudness = { ...FEATURES, loudness: null };
+    const withoutLoudness = { ...FEATURES };
+    delete withoutLoudness.loudness;
+
+    expect(buildVector(withNullLoudness, ['pop'])).toEqual(buildVector(withoutLoudness, ['pop']));
+  });
 });
 
 describe('vectorIndex port (mongo adapter default, injectable fake)', () => {

@@ -1,0 +1,383 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: #17536F; } a:hover { color: #14163A; }
+.fr { position:relative; width:150px; height:300px; border-radius:18px; overflow:hidden;
+          background:var(--canvas); border:1px solid var(--track); flex:none; }
+    .cap { font:500 11px var(--mono); letter-spacing:.1em; color:var(--ink3); margin-top:9px; }
+    .arrow { align-self:center; color:var(--ink3); flex:none; }
+    @keyframes fbreathe { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
+    @media (prefers-reduced-motion: reduce) { .anim { animation: none !important; opacity:.55 !important; } }
+  </style>
+</helmet>
+
+<div class="qi" data-theme="{{theme}}" style="width:1400px;min-height:3200px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
+
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--track)">
+    <div>
+      <h1 style="margin:0 0 6px;font:600 34px/1.15 var(--disp);letter-spacing:-.02em">How the magic moment moves</h1>
+      <p style="margin:0;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:760px">Five transitions carry the whole product. Until now nothing in the design said how any of them behaved — so each was going to be invented at build time, differently, three times. Every value below is a token from <span style="font-family:var(--mono);font-size:12.5px">tokens.ts</span>, and every one has a designed still for reduced motion.</p>
+    </div>
+    <div style="font:500 11px/1.8 var(--mono);letter-spacing:.12em;color:var(--ink3);text-align:right;flex:none">5 TRANSITIONS<br>3 SHARED ELEMENTS<br>0 SPINNERS</div>
+  </div>
+
+
+  <!-- ============ TRANSITION 00 ============ -->
+  <div style="margin-top:34px">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:6px">
+      <span style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--accent)">TRANSITION 00</span>
+      <span style="font:600 17px var(--disp);color:var(--ink)">The read lands</span>
+      <span style="font:500 11px var(--mono);color:var(--ink3)">1200 MS · EASE/CALM · 80 MS STAGGER</span>
+    </div>
+    <p style="margin:0 0 14px;font:400 13px/1.6 var(--text);color:var(--ink2);max-width:900px">This happens on Generate, before Transition 01. You place how it feels and the dots take the hue of <em>that</em> emotion. Then the body read resolves — and if the body disagrees, the dots move to the fused state in front of you. They warm or cool depending on the fusion &mdash; neither direction is the rule. It is the app saying <em>I heard you, and here is what is actually happening.</em> It is a moment, not a repaint: never instant, never a flicker, and it happens once.</p>
+    <div style="display:flex;gap:20px;align-items:flex-start">
+
+      <div>
+        <div class="fr" data-field="joyful" style="height:260px">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:86%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%)"></div>
+          <div style="position:relative"><svg width="118" height="118" viewBox="0 0 126 126" style="display:block;margin:10px auto 0">
+              <circle cx="63" cy="63" r="50" fill="var(--sunken)" stroke="var(--line)"></circle>
+              <line x1="63" y1="30" x2="63" y2="96" stroke="var(--line)" stroke-dasharray="1 8"></line>
+              <line x1="30" y1="63" x2="96" y2="63" stroke="var(--line)" stroke-dasharray="1 8"></line>
+              <circle cx="80" cy="46" r="12" fill="rgba(245,185,58,.30)"></circle><circle cx="80" cy="46" r="6" fill="#8A5A12"></circle>
+              <circle cx="90" cy="53" r="12" fill="rgba(245,185,58,.30)"></circle><circle cx="90" cy="53" r="6" fill="#8A5A12"></circle>
+              <circle cx="74" cy="36" r="12" fill="rgba(245,185,58,.30)"></circle><circle cx="74" cy="36" r="6" fill="#8A5A12"></circle>
+            </svg>
+            <div style="padding:0 12px;opacity:0">
+              <div style="font:600 12px var(--disp);color:var(--ink)">Wired, but running on empty</div>
+              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#8A5A12">YOU</span> light, high energy</div>
+              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#6E3FC4">BODY</span> low reserves, still 2 h</div>
+            </div></div>
+        </div>
+        <div class="cap">FRAME 0 · 0 MS · you placed it</div>
+      </div>
+
+      <svg class="arrow" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin-top:110px"><path d="M4 12h15M13 6l6 6-6 6"></path></svg>
+
+      <div>
+        <div class="fr" data-field="joyful" style="height:260px">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:78%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%)"></div>
+          <div style="position:relative"><svg width="118" height="118" viewBox="0 0 126 126" style="display:block;margin:10px auto 0">
+              <circle cx="63" cy="63" r="50" fill="var(--sunken)" stroke="var(--line)"></circle>
+              <line x1="63" y1="30" x2="63" y2="96" stroke="var(--line)" stroke-dasharray="1 8"></line>
+              <line x1="30" y1="63" x2="96" y2="63" stroke="var(--line)" stroke-dasharray="1 8"></line>
+              <circle cx="80" cy="46" r="12" fill="rgba(190,148,150,.30)"></circle><circle cx="80" cy="46" r="6" fill="#7C4E6B"></circle>
+              <circle cx="90" cy="53" r="12" fill="rgba(190,148,150,.30)"></circle><circle cx="90" cy="53" r="6" fill="#7C4E6B"></circle>
+              <circle cx="74" cy="36" r="12" fill="rgba(190,148,150,.30)"></circle><circle cx="74" cy="36" r="6" fill="#7C4E6B"></circle>
+            </svg>
+            <div style="padding:0 12px;opacity:.45">
+              <div style="font:600 12px var(--disp);color:var(--ink)">Wired, but running on empty</div>
+              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#8A5A12">YOU</span> light, high energy</div>
+              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#6E3FC4">BODY</span> low reserves, still 2 h</div>
+            </div></div>
+        </div>
+        <div class="cap">FRAME 1 · 600 MS · mid-move</div>
+      </div>
+
+      <svg class="arrow" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin-top:110px"><path d="M4 12h15M13 6l6 6-6 6"></path></svg>
+
+      <div>
+        <div class="fr" data-field="intense" style="height:260px">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:68%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%)"></div>
+          <div style="position:relative"><svg width="118" height="118" viewBox="0 0 126 126" style="display:block;margin:10px auto 0">
+              <circle cx="63" cy="63" r="50" fill="var(--sunken)" stroke="var(--line)"></circle>
+              <line x1="63" y1="30" x2="63" y2="96" stroke="var(--line)" stroke-dasharray="1 8"></line>
+              <line x1="30" y1="63" x2="96" y2="63" stroke="var(--line)" stroke-dasharray="1 8"></line>
+              <circle cx="80" cy="46" r="12" fill="rgba(139,111,232,.30)"></circle><circle cx="80" cy="46" r="6" fill="#6E3FC4"></circle>
+              <circle cx="90" cy="53" r="12" fill="rgba(139,111,232,.30)"></circle><circle cx="90" cy="53" r="6" fill="#6E3FC4"></circle>
+              <circle cx="74" cy="36" r="12" fill="rgba(139,111,232,.30)"></circle><circle cx="74" cy="36" r="6" fill="#6E3FC4"></circle>
+            </svg>
+            <div style="padding:0 12px;opacity:1">
+              <div style="font:600 12px var(--disp);color:var(--ink)">Wired, but running on empty</div>
+              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#8A5A12">YOU</span> light, high energy</div>
+              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#6E3FC4">BODY</span> low reserves, still 2 h</div>
+            </div></div>
+        </div>
+        <div class="cap">FRAME 2 · 1500 MS · the fused read</div>
+      </div>
+
+      <div style="flex:1;min-width:0;padding-left:12px">
+        <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:9px">HOW IT BEHAVES</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font:400 13px/1.6 var(--text);color:var(--ink2)">
+          <div><span style="color:var(--ink)">It waits for the body, not the tap.</span> The dots hold the placed hue until the read resolves — about 300 ms. Moving before the answer exists would be theatre.</div>
+          <div><span style="color:var(--ink)">1200 ms on <span style="font-family:var(--mono);font-size:12px">ease/calm</span>,</span> the same duration as a field state change, because it is the same event seen from a different element. Token: <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">motion.duration.settle</span> = 1200 &mdash; one name for the duration this and Transition 03 share.</div>
+          <div><span style="color:var(--ink)">80 ms stagger, newest dot first.</span> The three cool as a wave rather than a switch, so it reads as something arriving rather than a value being overwritten.</div>
+          <div><span style="color:var(--ink)">The halo and the hull follow the dot;</span> the field, the CTA and the confidence fill cross-fade on the same curve. One event, every accent-bearing element, one duration.</div>
+          <div><span style="color:var(--ink)">It happens once per read.</span> A second placement that does not change the fused quadrant does not re-run it. Nothing about a calm screen should blink.</div>
+          <div><span style="color:var(--ink)">No haptic.</span> <span style="font-family:var(--mono);font-size:12px">selection</span> already fired when the dot landed. Buzzing again on the app's own answer would make the verdict feel like an alert.</div>
+          <div style="padding-top:9px;border-top:1px solid var(--line)"><span style="color:var(--ink)">Reduced motion:</span> the dots render at the fused hue from the moment the read resolves. No cross-fade, no stagger — the amber frame is never shown, because a still of a transition is a lie about what happened. The read card appears without its fade.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TRANSITION 1 ============ -->
+  <div style="margin-top:34px">
+    <div style="margin:4px 0 18px;padding:14px 15px;border-radius:16px;background:var(--sunken)">
+            <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:9px">AND THE OTHER WAY &mdash; THE SAME MOMENT, WARMING</div>
+            <p style="margin:0 0 12px;font:400 12.5px/1.65 var(--text);color:var(--ink2);max-width:860px">You placed it low and inward. Your body reports that you slept well and have been moving for an hour. The fused read is lighter than the one you gave it, so the dots warm. Nothing about the mechanism changed &mdash; only which hue it arrived at.</p>
+            <div style="display:flex;gap:10px">
+              <div style="flex:1;border:1px solid var(--line);border-radius:14px;background:var(--raised);padding:11px">
+                <div style="font:600 12.5px/1.3 var(--disp);color:var(--ink)">Quiet and inward</div>
+                <div style="margin-top:3px;font:400 10.5px/1.35 var(--text);color:var(--ink2)">YOU low, turned down &middot; BODY not yet read</div>
+                <div style="display:flex;gap:5px;margin:10px 0 8px">
+                  <span style="width:15px;height:15px;border-radius:50%;background:var(--q-reflective)"></span>
+                  <span style="width:15px;height:15px;border-radius:50%;background:var(--q-reflective)"></span>
+                  <span style="width:15px;height:15px;border-radius:50%;background:var(--q-reflective)"></span>
+                </div>
+                <div style="font:500 9.5px var(--mono);letter-spacing:.08em;color:var(--ink3)">FRAME 0 &middot; 0 MS &middot; YOU PLACED IT</div>
+              </div>
+              <div style="flex:1;border:1px solid var(--line);border-radius:14px;background:var(--raised);padding:11px">
+                <div style="font:600 12.5px/1.3 var(--disp);color:var(--ink)">Lighter than you thought</div>
+                <div style="margin-top:3px;font:400 10.5px/1.35 var(--text);color:var(--ink2)">YOU low, turned down &middot; BODY rested, moving 1 h</div>
+                <div style="display:flex;gap:5px;margin:10px 0 8px">
+                  <span style="width:15px;height:15px;border-radius:50%;background:color-mix(in srgb, var(--q-reflective) 45%, var(--q-joyful))"></span>
+                  <span style="width:15px;height:15px;border-radius:50%;background:color-mix(in srgb, var(--q-reflective) 30%, var(--q-joyful))"></span>
+                  <span style="width:15px;height:15px;border-radius:50%;background:var(--q-joyful)"></span>
+                </div>
+                <div style="font:500 9.5px var(--mono);letter-spacing:.08em;color:var(--ink3)">FRAME 1 &middot; 600 MS &middot; MID-MOVE</div>
+              </div>
+              <div style="flex:1;border:1px solid var(--line);border-radius:14px;background:var(--raised);padding:11px">
+                <div style="font:600 12.5px/1.3 var(--disp);color:var(--ink)">Lighter than you thought</div>
+                <div style="margin-top:3px;font:400 10.5px/1.35 var(--text);color:var(--ink2)">YOU low, turned down &middot; BODY rested, moving 1 h</div>
+                <div style="display:flex;gap:5px;margin:10px 0 8px">
+                  <span style="width:15px;height:15px;border-radius:50%;background:var(--q-joyful)"></span>
+                  <span style="width:15px;height:15px;border-radius:50%;background:var(--q-joyful)"></span>
+                  <span style="width:15px;height:15px;border-radius:50%;background:var(--q-joyful)"></span>
+                </div>
+                <div style="font:500 9.5px var(--mono);letter-spacing:.08em;color:var(--ink3)">FRAME 2 &middot; 1500 MS &middot; THE FUSED READ</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+      <span style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--accent)">TRANSITION 01</span>
+      <span style="font:600 17px var(--disp);color:var(--ink)">Commit → Genesis</span>
+      <span style="font:500 11px var(--mono);color:var(--ink3)">240 MS · EASE/CALM · cubic-bezier(.22, 1, .36, 1)</span>
+    </div>
+    <div style="display:flex;gap:20px;align-items:flex-start">
+
+      <div>
+        <div class="fr" data-field="intense">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:68%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
+          <div style="position:relative;padding:14px 12px">
+            <svg width="126" height="126" viewBox="0 0 126 126" style="display:block;margin:6px auto 0">
+              <circle cx="63" cy="63" r="52" fill="var(--sunken)" stroke="var(--line)"></circle>
+              <circle cx="80" cy="46" r="11" fill="var(--accentfill)"></circle><circle cx="80" cy="46" r="5.5" fill="var(--accent)"></circle>
+              <circle cx="88" cy="52" r="11" fill="var(--accentfill)"></circle><circle cx="88" cy="52" r="5.5" fill="var(--accent)"></circle>
+              <circle cx="74" cy="41" r="11" fill="var(--accentfill)"></circle><circle cx="74" cy="41" r="5.5" fill="var(--accent)"></circle>
+            </svg>
+            <div style="margin-top:10px;height:30px;border-radius:999px;background:var(--accent)"></div>
+          </div>
+        </div>
+        <div class="cap">FRAME 0 · 0 MS</div>
+      </div>
+
+      <svg class="arrow" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin-top:130px"><path d="M4 12h15M13 6l6 6-6 6"></path></svg>
+
+      <div>
+        <div class="fr" data-field="intense">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:68%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
+          <div style="position:relative;padding:14px 12px">
+            <svg width="126" height="126" viewBox="0 0 126 126" style="display:block;margin:6px auto 0">
+              <circle cx="63" cy="63" r="52" fill="var(--sunken)" stroke="var(--line)" opacity=".5"></circle>
+              <circle cx="70" cy="55" r="9" fill="var(--accentfill)"></circle><circle cx="70" cy="55" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="73" cy="58" r="9" fill="var(--accentfill)"></circle><circle cx="73" cy="58" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="67" cy="53" r="9" fill="var(--accentfill)"></circle><circle cx="67" cy="53" r="4.5" fill="var(--accent)"></circle>
+            </svg>
+            <div style="margin-top:10px;height:30px;border-radius:999px;background:var(--accent);opacity:.35"></div>
+          </div>
+        </div>
+        <div class="cap">FRAME 1 · 120 MS</div>
+      </div>
+
+      <svg class="arrow" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin-top:130px"><path d="M4 12h15M13 6l6 6-6 6"></path></svg>
+
+      <div>
+        <div class="fr" data-field="intense">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:68%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
+          <div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:118px;height:118px">
+            <div class="anim" style="position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--accent);animation:fbreathe 4200ms ease-in-out infinite"></div>
+            <div class="anim" style="position:absolute;inset:14px;border-radius:50%;border:1.5px solid var(--accent);opacity:.7;animation:fbreathe 4200ms ease-in-out infinite 380ms"></div>
+            <div class="anim" style="position:absolute;inset:30px;border-radius:50%;background:var(--accentfill);animation:fbreathe 4200ms ease-in-out infinite 760ms"></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font:400 12px var(--disp);color:var(--ink)">Reading your body.</div>
+        </div>
+        <div class="cap">FRAME 2 · 240 MS</div>
+      </div>
+
+      <div style="flex:1;min-width:0;padding-left:12px">
+        <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:9px">WHAT CARRIES ACROSS THE CUT</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font:400 13px/1.6 var(--text);color:var(--ink2)">
+          <div><span style="color:var(--ink)">The placements are the shared element.</span> All three converge on the plate's centre and become the filled inner ring. They do not fade out and get replaced — the same objects move, so the user's marks visibly become the thing that is thinking.</div>
+          <div><span style="color:var(--ink)">The field does not reset.</span> Hue and reach hold exactly as they were. Crossing this cut must never feel like arriving in a different body.</div>
+          <div><span style="color:var(--ink)">Everything else leaves first.</span> Chips, prompt and CTA fade over <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">motion.duration.fast</span> (120 ms) so the plate is alone before it transforms.</div>
+          <div><span style="color:var(--ink)">Haptic:</span> <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">commit</span> fires once, on touch-up, before the animation — not on arrival.</div>
+          <div style="padding-top:9px;border-top:1px solid var(--line)"><span style="color:var(--ink)">Reduced motion:</span> the placements cross-fade to the ring over 120 ms in place. No convergence, no scale. Identical layout, identical copy.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TRANSITION 2 ============ -->
+  <div style="margin-top:40px;padding-top:32px;border-top:1px solid var(--line)">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+      <span style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--accent)">TRANSITION 02</span>
+      <span style="font:600 17px var(--disp);color:var(--ink)">Genesis → Now Playing</span>
+      <span style="font:500 11px var(--mono);color:var(--ink3)">420 MS · EASE/CALM · REACH OVER 1200 MS</span>
+    </div>
+    <div style="display:flex;gap:20px;align-items:flex-start">
+
+      <div>
+        <div class="fr" data-field="intense">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:68%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
+          <div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:118px;height:118px">
+            <div style="position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--accent);opacity:.5"></div>
+            <div style="position:absolute;inset:14px;border-radius:50%;border:1.5px solid var(--accent);opacity:.4"></div>
+            <div style="position:absolute;inset:30px;border-radius:50%;background:var(--accentfill)"></div>
+          </div>
+          <div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font:400 12px var(--disp);color:var(--ink)">Choosing the first three minutes.</div>
+        </div>
+        <div class="cap">FRAME 0 · 0 MS</div>
+      </div>
+
+      <svg class="arrow" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin-top:130px"><path d="M4 12h15M13 6l6 6-6 6"></path></svg>
+
+      <div>
+        <div class="fr" data-field="intense">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:71%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
+          <div style="position:absolute;left:50%;top:41%;transform:translate(-50%,-50%);width:104px;height:104px;border-radius:8px;border:1px dashed var(--track);background:transparent;display:flex;align-items:center;justify-content:center"></div>
+          <div style="position:absolute;left:0;right:0;bottom:44px;text-align:center;font:400 12px var(--disp);color:var(--ink);opacity:.5">Low Water</div>
+        </div>
+        <div class="cap">FRAME 1 · 210 MS</div>
+      </div>
+
+      <svg class="arrow" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="margin-top:130px"><path d="M4 12h15M13 6l6 6-6 6"></path></svg>
+
+      <div>
+        <div class="fr" data-field="calm">
+          <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:74%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
+          <div style="position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);width:96px;height:96px;border-radius:8px;border:1px dashed var(--track);background:transparent;display:flex;align-items:center;justify-content:center"></div>
+          <div style="position:absolute;left:0;right:0;top:60%;text-align:center">
+            <div style="font:600 13px var(--disp);color:var(--ink)">Low Water</div>
+            <div style="font:400 10.5px var(--text);color:var(--ink2)">Hallen Vess</div>
+          </div>
+          <div style="position:absolute;left:16px;right:16px;bottom:22px;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track)"><div style="width:12%;height:100%;border-radius:999px;background:var(--accent)"></div></div>
+        </div>
+        <div class="cap">FRAME 2 · 420 MS</div>
+      </div>
+
+      <div style="flex:1;min-width:0;padding-left:12px">
+        <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:9px">WHAT CARRIES ACROSS THE CUT</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font:400 13px/1.6 var(--text);color:var(--ink2)">
+          <div><span style="color:var(--ink)">The filled inner ring is the album art.</span> One shared element, morphing <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">border-radius 50% → radius.md</span> while it grows and rises. The thing that was thinking becomes the thing that is playing; nothing is created or destroyed at the cut.</div>
+          <div><span style="color:var(--ink)">The status line becomes the track title.</span> Same position, cross-faded over the last 140 ms as it rises 22 px.</div>
+          <div><span style="color:var(--ink)">The field settles, slowly.</span> Nothing about the field happens at this cut, because <span style="color:var(--ink)">Now Playing has no living field.</span> <span style="font-family:var(--mono);font-size:12px">NowPlayingScreen.tsx</span> renders no <span style="font-family:var(--mono);font-size:12px">LivingAurora</span>, no <span style="font-family:var(--mono);font-size:12px">AuroraGradientFill</span> and no <span style="font-family:var(--mono);font-size:12px">BioAura</span> — its only ambient element is the <span style="font-family:var(--mono);font-size:12px">PlaybackAura</span> behind the art, and that is <span style="font-family:var(--mono);font-size:12px">accent.glow</span>: the FIXED brand accent, never the emotion. The canvas draws a field here that the app does not have. Until that is resolved this transition claims nothing about hue — and if the field is ever extended to this screen, it moves under Transition 03&rsquo;s rule (two consecutive reads), never on arrival.</div>
+          <div><span style="color:var(--ink)">Haptic:</span> <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">success</span> fires when audio actually starts — never when the request is sent.</div>
+          <div style="padding-top:9px;border-top:1px solid var(--line)"><span style="color:var(--ink)">Reduced motion:</span> cross-fade only, 160 ms, art already at its final size and radius. The field still re-tints — it is a state change, not an animation — but it steps rather than eases.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TRANSITION 3 + LADDER ============ -->
+  <div style="display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:34px;margin-top:40px;padding-top:32px;border-top:1px solid var(--line)">
+
+    <div>
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:12px">
+        <span style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--accent)">TRANSITION 03</span>
+        <span style="font:600 17px var(--disp);color:var(--ink)">The field changes state</span>
+        <span style="font:500 11px var(--mono);color:var(--ink3)">1200 MS · EASE/CALM</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px;font:400 13px/1.6 var(--text);color:var(--ink2)">
+        <div><span style="color:var(--ink)">Hue and reach cross-fade together</span> over 1200 ms. Two field layers are alive during the change; the outgoing one fades as the incoming one rises, so there is never a flat frame.</div>
+        <div><span style="color:var(--ink)">The period only ever retimes at a cycle boundary.</span> If the breath is mid-inhale when the state changes, the new period takes effect at the next zero-crossing. Retiming mid-breath produces a visible stutter — and a stutter in the one element whose whole job is to be calm is worse than being 4 seconds late.</div>
+        <div><span style="color:var(--ink)">It is never triggered by a single reading.</span> The state must hold for two consecutive reads before the field moves. A field that flickered between states on sensor noise would be exhausting.</div>
+        <div style="padding-top:9px;border-top:1px solid var(--line)"><span style="color:var(--ink)">Reduced motion:</span> hue and reach step to their new values in one frame. No cross-fade, no easing.</div>
+      </div>
+    </div>
+
+    <div>
+<div style="margin-top:34px;padding-top:24px;border-top:1px solid var(--track)">
+      <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:4px">TRANSITION 04</div>
+      <div style="font:600 26px/1.2 var(--disp);letter-spacing:-.01em;color:var(--ink);margin-bottom:4px">The two pushed screens</div>
+      <div style="font:500 11px var(--mono);letter-spacing:.1em;color:var(--ink3);margin-bottom:14px">240 MS &middot; EASE/CALM &middot; MOTION.DURATION.BASE</div>
+      <p style="margin:0 0 16px;font:400 13px/1.7 var(--text);color:var(--ink2);max-width:900px">Neither the Mix receipt nor the Health Data Vault is a tab. Both are pushed and both are dismissed, and until now this board said nothing about either &mdash; which is how one screen ends up sliding, one fading and one doing whatever the navigator does by default.</p>
+
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div style="flex:1;min-width:340px">
+          <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">NOW PLAYING &rarr; MIX RECEIPT</div>
+          <div style="border-top:1px solid var(--line);padding:9px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)"><span style="color:var(--ink);font-weight:600">The receipt sentence is the shared element.</span> It is already on Now Playing as one line; on push it rises into the verdict head and grows to 21px. The user&rsquo;s own summary becomes the argument&rsquo;s title &mdash; nothing is created at the cut.</div>
+          <div style="border-top:1px solid var(--line);padding:9px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)"><span style="color:var(--ink);font-weight:600">The art stays put.</span> It does not travel and it does not fade; the receipt covers it. Returning uncovers the same object in the same place, so the set never feels interrupted.</div>
+          <div style="border-top:1px solid var(--line);padding:9px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)"><span style="color:var(--ink);font-weight:600">Playback is untouched.</span> No pause, no duck, no haptic. Reading why a track was chosen is not an interaction with the track.</div>
+        </div>
+
+        <div style="flex:1;min-width:340px">
+          <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">PROFILE &rarr; HEALTH DATA VAULT</div>
+          <div style="border-top:1px solid var(--line);padding:9px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)"><span style="color:var(--ink);font-weight:600">No shared element, deliberately.</span> This is a detour, not a continuation. Nothing from Profile travels, because implying continuity would soften a screen whose job is to be plain.</div>
+          <div style="border-top:1px solid var(--line);padding:9px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)"><span style="color:var(--ink);font-weight:600">The tab bar leaves on the push and returns on dismiss.</span> While the Vault is open there is exactly one way out, and it is the back affordance. A tab bar here would offer four ways to leave a decision half-made.</div>
+          <div style="border-top:1px solid var(--line);padding:9px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)"><span style="color:var(--ink);font-weight:600">The field is still.</span> No breath, no drift, for as long as the Vault is open. The one screen about switching the reading off should not be visibly reading.</div>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--sunken);font:400 12px/1.6 var(--text);color:var(--ink2)">
+        <span style="display:block;font:600 10.5px var(--mono);letter-spacing:.1em;color:var(--ink);margin-bottom:2px">REDUCED MOTION</span>
+        Both open and close as a 0 ms cut, with the field unchanged across it. A pushed screen that slides is decoration; a pushed screen that appears is navigation.
+      </div>
+    </div>
+
+          <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:12px">THE DEGRADATION LADDER</div>
+      <p style="margin:0 0 12px;font:400 12px/1.6 var(--text);color:var(--ink2);max-width:900px">The order is the design. The <span style="color:var(--ink)">condition</span> is what makes it implementable &mdash; without one named per rung the thresholds get invented at build time, which is the failure this board exists to prevent. <span style="color:var(--ink)">Reduced motion is not a rung.</span> It is a separate, complete still that applies at any rung, and it is the only one of these signals the app can read today: <span style="font-family:var(--mono);font-size:11.5px">AccessibilityInfo.isReduceMotionEnabled()</span>, via <span style="font-family:var(--mono);font-size:11.5px">useMotion()</span>.</p>
+      <div>
+        <div style="border-top:1px solid var(--line);padding:10px 0">
+          <div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 11px var(--mono);letter-spacing:.1em;color:var(--ink);flex:none;min-width:44px">FIRST</span><span style="flex:1;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The second field lobe stops. One lobe still breathes; the drift is what goes.</span><span style="font:600 9.5px var(--mono);letter-spacing:.08em;padding:2px 8px;border-radius:999px;border:1px solid var(--danger);color:var(--danger);flex:none;white-space:nowrap">LOW-POWER MODE</span></div>
+          <div style="margin:3px 0 0 54px;font:400 11px/1.5 var(--text);color:var(--danger)">No detection exists for this today &mdash; no battery, power-state or thermal API is wired anywhere in the client.</div>
+        </div>
+        <div style="border-top:1px solid var(--line);padding:10px 0">
+          <div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 11px var(--mono);letter-spacing:.1em;color:var(--ink);flex:none;min-width:44px">THEN</span><span style="flex:1;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The breath holds at its rest frame. Hue and reach still respond to state changes.</span><span style="font:600 9.5px var(--mono);letter-spacing:.08em;padding:2px 8px;border-radius:999px;border:1px solid var(--danger);color:var(--danger);flex:none;white-space:nowrap">THERMAL, SUSTAINED</span></div>
+          <div style="margin:3px 0 0 54px;font:400 11px/1.5 var(--text);color:var(--danger)">No detection exists for this today &mdash; no battery, power-state or thermal API is wired anywhere in the client.</div>
+        </div>
+        <div style="border-top:1px solid var(--line);padding:10px 0">
+          <div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 11px var(--mono);letter-spacing:.1em;color:var(--ink);flex:none;min-width:44px">THEN</span><span style="flex:1;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The field flattens to a single static wash at its current hue.</span><span style="font:600 9.5px var(--mono);letter-spacing:.08em;padding:2px 8px;border-radius:999px;border:1px solid var(--danger);color:var(--danger);flex:none;white-space:nowrap">THERMAL, CRITICAL</span></div>
+          <div style="margin:3px 0 0 54px;font:400 11px/1.5 var(--text);color:var(--danger)">No detection exists for this today &mdash; no battery, power-state or thermal API is wired anywhere in the client.</div>
+        </div>
+        <div style="border-top:1px solid var(--line);padding:10px 0">
+          <div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 11px var(--mono);letter-spacing:.1em;color:var(--ink);flex:none;min-width:44px">LAST</span><span style="flex:1;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Genesis. The three rings are the last thing to stop moving, because they are the only place motion is carrying meaning rather than atmosphere.</span><span style="font:600 9.5px var(--mono);letter-spacing:.08em;padding:2px 8px;border-radius:999px;border:1px solid var(--track);color:var(--ink3);flex:none;white-space:nowrap">NEVER AUTOMATICALLY</span></div>
+        </div>
+      </div>
+      <p style="margin:14px 0 0;font:400 12.5px/1.65 var(--text);color:var(--ink2)">Layout never changes at any rung. Every step is a texture change, so nothing reflows and nothing moves under a finger already travelling toward it.</p>
+    </div>
+
+  </div>
+
+  <div style="margin-top:36px;padding-top:26px;border-top:1px solid var(--track)">
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:12px">ONE BREATH, FOUR APPEARANCES</div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:22px">
+      <div><div style="font:600 13px var(--disp);color:var(--ink);margin-bottom:4px">The splash mark</div><div style="font:400 12.5px/1.55 var(--text);color:var(--ink2)">One cycle while the session restores, then it hands off at the top of the inhale.</div></div>
+      <div><div style="font:600 13px var(--disp);color:var(--ink);margin-bottom:4px">The live dot</div><div style="font:400 12.5px/1.55 var(--text);color:var(--ink2)">At the end of the six-minute trace, on Generate and Pulse. The only thing on either screen that moves.</div></div>
+      <div><div style="font:600 13px var(--disp);color:var(--ink);margin-bottom:4px">The field</div><div style="font:400 12.5px/1.55 var(--text);color:var(--ink2)">Two lobes at T and 1.35 T, where T is the regulation target.</div></div>
+      <div><div style="font:600 13px var(--disp);color:var(--ink);margin-bottom:4px">The Genesis rings</div><div style="font:400 12.5px/1.55 var(--text);color:var(--ink2)">Three, on 380 ms phase offsets, so the group reads as one organism rather than three circles.</div></div>
+    </div>
+    <p style="margin:16px 0 0;font:400 13px/1.65 var(--text);color:var(--ink2);max-width:900px">All four are the same curve — <span style="font-family:var(--mono);font-size:12.5px;color:var(--ink)">motion.duration.breath</span> at 4200 ms, opacity .45 → .75, scale 1 → 1.04, nothing else. No blur, no position, no colour. Phase advances by elapsed time, never by frame count, so it is identical at 60 and at 120 Hz and it does not lurch when a frame is dropped. Only one loop runs at a time on any screen.</p>
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":3200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

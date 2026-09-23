@@ -18,6 +18,7 @@ const {
   _buildBiometricPrompt,
   TEMPO_CATEGORIES,
 } = require('../app/services/geminiEngine');
+const { biometricBand } = require('../app/services/moodDescriptors');
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -366,6 +367,118 @@ describe('_buildBiometricPrompt', () => {
   it('instructs the model to return BPM, energy and acoustics parameters', () => {
     const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
     expect(prompt.toLowerCase()).toMatch(/bpm|tempo|energy/);
+  });
+});
+
+// ── _buildBiometricPrompt — W4-016 band routed through the real state source ───
+
+describe('_buildBiometricPrompt — W4-016 band-from-state', () => {
+  afterEach(() => { delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED; });
+
+  it('two users at the SAME raw HR but different personal baselines resolve to DIFFERENT bands', () => {
+    // Raw HR 130 alone would read as "peak" for everyone. hrRatio (HR / personal resting
+    // baseline) says otherwise for the first user, who is barely above their own normal.
+    const calm      = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 130, hrRatio: 1.05, activity: 'walking' });
+    const strained  = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 130, hrRatio: 1.6, activity: 'walking' });
+    expect(calm.toLowerCase()).toContain('intensity band: resting');
+    expect(strained.toLowerCase()).toContain('intensity band: peak');
+  });
+
+  it('a present stateLabel wins over hrRatio, which wins over raw HR', () => {
+    // 'deep-rest' (taxonomy band: resting) overrides a peak-implying hrRatio and raw HR.
+    const byState = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 170, hrRatio: 1.8, stateLabel: 'deep-rest' });
+    expect(byState.toLowerCase()).toContain('intensity band: resting');
+
+    // No stateLabel → falls to hrRatio, ignoring raw HR.
+    const byRatio = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 170, hrRatio: 1.05 });
+    expect(byRatio.toLowerCase()).toContain('intensity band: resting');
+
+    // Neither stateLabel nor hrRatio → falls to raw HR, exactly as before.
+    const byRawHr = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 170 });
+    expect(byRawHr.toLowerCase()).toContain('intensity band: peak');
+  });
+
+  it('cold start (no stateLabel, no hrRatio) is byte-identical to raw-HR banding (dormancy invariant)', () => {
+    const ctx = { heartRate: 155, activity: 'running' };
+    expect(_buildBiometricPrompt(MUSIC_PROFILE, ctx)).toBe(_buildBiometricPrompt(MUSIC_PROFILE, { ...ctx }));
+    expect(_buildBiometricPrompt(MUSIC_PROFILE, ctx).toLowerCase()).toContain('intensity band: peak');
+  });
+
+  it('agrees with biometricBand — the same chain applyBiometricBands uses — on the resolved band', () => {
+    const ctx = { heartRate: 130, hrRatio: 1.35, stateLabel: 'acute-stress', activity: 'walking' };
+    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
+    const [, band] = prompt.match(/intensity band: (\w+)/i);
+    expect(band.toLowerCase()).toBe(biometricBand(ctx));
+  });
+
+  it('WAVE4_LLM_BAND_FROM_STATE_DISABLED restores raw-HR-only banding byte-for-byte', () => {
+    const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
+    process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = 'true';
+    const disabledPrompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
+    delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
+    const rawOnlyPrompt = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: ctx.heartRate, activity: ctx.activity });
+    expect(disabledPrompt).toBe(rawOnlyPrompt);
+    expect(disabledPrompt.toLowerCase()).toContain('intensity band: peak'); // raw 170bpm wins; state/ratio ignored
+  });
+
+  // W4-D58 — this flag used to be read as `=== 'true'`, so the one spelling an operator is most
+  // likely to reach for in an incident did nothing at all, silently. Every ON spelling must work.
+  it.each(['1', 'true', 'TRUE', ' 1 ', 'yes', 'on'])(
+    'WAVE4_LLM_BAND_FROM_STATE_DISABLED=%p engages the kill-switch (W4-D58: not just =true)',
+    (spelling) => {
+      const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
+      process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = spelling;
+      const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
+      delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
+      expect(prompt.toLowerCase()).toContain('intensity band: peak');
+    },
+  );
+
+  // ...and every OFF spelling must leave the new behaviour running. `=false` is the row that
+  // eleven other kill-switches used to get backwards (reading A).
+  it.each(['false', 'FALSE', '0', 'off', 'no', ''])(
+    'WAVE4_LLM_BAND_FROM_STATE_DISABLED=%p leaves band-from-state ON (W4-D58)',
+    (spelling) => {
+      const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
+      process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = spelling;
+      const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
+      delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
+      expect(prompt.toLowerCase()).toContain('intensity band: resting');
+    },
+  );
+});
+
+// ── adjustBiometricPlaylist — W4-016 prompt/band agreement ─────────────────────
+
+describe('adjustBiometricPlaylist — W4-016 band agreement', () => {
+  const fetch = jest.fn().mockResolvedValue([]);
+  beforeEach(() => { fetch.mockClear(); axios.post.mockClear(); });
+  afterEach(() => { delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED; });
+
+  it('the prompt band and the applyBiometricBands band agree for the same session', async () => {
+    makeGeminiResponse(VALID_AI_PARAMS);
+    const biometric = { heartRate: 130, hrRatio: 1.35, stateLabel: 'acute-stress', activity: 'walking' };
+    const expectedBand = biometricBand(biometric); // 'resting' — same chain applyBiometricBands uses
+    const result = await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: fetch });
+    const promptSent = axios.post.mock.calls[0][1].messages[0].content;
+    const [, promptBand] = promptSent.match(/intensity band: (\w+)/i);
+    expect(promptBand.toLowerCase()).toBe(expectedBand);
+    const BAND_ENERGY = { resting: 0.2, active: 0.6, peak: 0.9 };
+    const expectedEnergy = 0.5 * VALID_AI_PARAMS.target_energy + 0.5 * BAND_ENERGY[expectedBand];
+    expect(result.params.target_energy).toBeCloseTo(expectedEnergy, 6);
+  });
+
+  it('kill switch: bands on raw HR only, ignoring stateLabel/hrRatio, in both the prompt and applyBiometricBands', async () => {
+    process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = 'true';
+    makeGeminiResponse(VALID_AI_PARAMS);
+    // raw HR 60 → 'resting'; hrRatio/stateLabel both imply 'peak' and must be ignored.
+    const biometric = { heartRate: 60, hrRatio: 1.8, stateLabel: 'peak-effort', activity: 'resting' };
+    const result = await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: fetch });
+    const promptSent = axios.post.mock.calls[0][1].messages[0].content;
+    expect(promptSent.toLowerCase()).toContain('intensity band: resting');
+    const BAND_ENERGY = { resting: 0.2, active: 0.6, peak: 0.9 };
+    const expectedEnergy = 0.5 * VALID_AI_PARAMS.target_energy + 0.5 * BAND_ENERGY.resting;
+    expect(result.params.target_energy).toBeCloseTo(expectedEnergy, 6);
   });
 });
 

@@ -2,6 +2,7 @@
 
 const { getRedis } = require('../../config/redis');
 const { attachCanonicalKeys, canonicalKey } = require('../identity/trackIdentity');
+const { applyRecencyDecay } = require('./affinity');
 
 // Identity trust boundary (shadow-audit): tracks from OUR library carry keys
 // attached at profile build — fill only the missing ones (regex canonicalization
@@ -36,18 +37,28 @@ function _plainTrack(t) {
   return typeof t?.toObject === 'function' ? t.toObject() : { ...t };
 }
 
-function _partitionLibrary(library, excludeGenres) {
+// W4-010: recency decay is applied HERE, on the cache-MISS path, and only here. The
+// partition is what both the affinity cap/sort and the scorer's taste term read, so decaying
+// it once gives the whole selection path one consistent view of "how much does this user
+// still care about this track". Applying it after the cache read instead would decay an
+// already-decayed partition on every hit; applying it in the pipeline would leave the
+// POOL_MAX cap ranking on stale evidence. The cached blob therefore holds decayed values —
+// bounded staleness of one TTL (12h) against a 90-day time constant, i.e. <0.6%.
+function _partitionLibrary(library, excludeGenres, now) {
   const excludeSet = new Set((excludeGenres || []).map(g => String(g).toLowerCase().trim()));
   return _fillMissingKeys(
-    (library || [])
-      .filter(t => t && !_genreExcluded(t, excludeSet))
+    applyRecencyDecay(
+      (library || [])
+        .filter(t => t && !_genreExcluded(t, excludeSet))
+        .map(_plainTrack),
+      { now },
+    )
       .sort((a, b) => (b.affinity ?? 0) - (a.affinity ?? 0))
       .slice(0, POOL_MAX())
-      .map(_plainTrack)
   );
 }
 
-async function buildPool({ userId, musicProfile = {}, moodKey = null, excludeGenres = [], discoveryTracks = [] }) {
+async function buildPool({ userId, musicProfile = {}, moodKey = null, excludeGenres = [], discoveryTracks = [], now = Date.now() }) {
   const builtFrom = musicProfile.lastAnalyzed ? new Date(musicProfile.lastAnalyzed).getTime() : 0;
   const redis = getRedis();
   const key = _poolKey(userId, moodKey);
@@ -66,7 +77,7 @@ async function buildPool({ userId, musicProfile = {}, moodKey = null, excludeGen
   }
 
   if (!partition) {
-    partition = _partitionLibrary(musicProfile.library, excludeGenres);
+    partition = _partitionLibrary(musicProfile.library, excludeGenres, now);
     if (redis) {
       redis.set(key, JSON.stringify({ builtFrom, tracks: partition }), 'EX', POOL_TTL_S()).catch(() => {});
     }

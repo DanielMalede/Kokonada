@@ -249,7 +249,13 @@ async function getRecentlyPlayed(accessToken, limit = 50) {
       timeout: 10_000,
     })
   );
-  return (data.items ?? []).map(i => i.track).filter(Boolean);
+  // W4-010: `played_at` lives on the WRAPPER item, and unwrapping used to throw it away —
+  // so the one endpoint that knows exactly when the user last heard a track contributed no
+  // recency signal at all. Carried as `playedAt` on the track (additive; every existing
+  // reader looks at id/name/artists/uri and is unaffected).
+  return (data.items ?? [])
+    .filter(i => i?.track)
+    .map(i => (i.played_at ? { ...i.track, playedAt: i.played_at } : i.track));
 }
 
 /**
@@ -324,7 +330,8 @@ async function paginateLikedSongs(accessToken) {
       axios.get(url, { headers: authHeader(accessToken), timeout: 10_000 })
     );
     for (const item of data.items) {
-      if (item.track?.id) tracks.push(item.track);
+      // W4-010: `added_at` (when the user saved the song) rides on the wrapper item.
+      if (item.track?.id) tracks.push(item.added_at ? { ...item.track, addedAt: item.added_at } : item.track);
     }
     url = data.next;
   }
@@ -360,7 +367,8 @@ async function paginatePlaylistTracks(accessToken) {
         axios.get(tUrl, { headers: authHeader(accessToken), timeout: 10_000 })
       );
       for (const item of data.items) {
-        if (item.track?.id) tracks.push(item.track);
+        // W4-010: `added_at` (when the user added the track to the playlist).
+        if (item.track?.id) tracks.push(item.added_at ? { ...item.track, addedAt: item.added_at } : item.track);
       }
       tUrl = data.next;
     }

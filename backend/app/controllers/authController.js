@@ -2,7 +2,7 @@ const { OAuth2Client } = require('google-auth-library');
 const appleSignin = require('apple-signin-auth');
 const User = require('../models/User');
 const Identity = require('../models/Identity');
-const { signToken, setAuthCookie, clearAuthCookie } = require('../utils/jwt');
+const { signToken, clearAuthCookie } = require('../utils/jwt');
 const { revoke } = require('../utils/tokenDenylist');
 const passwordAuth = require('../services/auth/passwordAuth');
 const tokenService = require('../services/auth/tokenService');
@@ -98,10 +98,14 @@ async function handleSso(provider, profile, { deviceToken, platform, client } = 
 
   const jwt = signToken({ userId: user._id });
 
-  // HTTP-only cookie for web/PWA clients
-  setAuthCookie(res, jwt);
+  // BE-009 — the auth cookie is no longer issued. It existed for the web/PWA client, which
+  // is gone; meanwhile React Native's OkHttp keeps a disk-persisted cookie jar by default,
+  // so every client was quietly receiving and replaying one. Clear instead of set, so a
+  // cookie already in the wild dies on the holder's next successful auth rather than
+  // lingering for its remaining 7-day life.
+  clearAuthCookie(res);
 
-  // Also return token in body so native mobile can store it in secure storage
+  // The token travels in the body; clients store it themselves and send it as a Bearer.
   return res.status(200).json({ token: jwt, user: publicUser(user) });
 }
 
@@ -135,8 +139,8 @@ const SIGNUP_ERRORS = {
 
 async function respondWithSession(res, status, user) {
   const session = await tokenService.issueSession(user._id);
-  // Cookie carries the access token for web/PWA; native clients use the body.
-  setAuthCookie(res, session.token);
+  // BE-009 — no cookie is issued; clear any the caller still holds. See handleSso above.
+  clearAuthCookie(res);
   return res.status(status).json({
     token: session.token,
     refreshToken: session.refreshToken,
@@ -175,7 +179,10 @@ exports.refresh = async (req, res, next) => {
       clearAuthCookie(res);
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
-    setAuthCookie(res, rotated.token);
+    // BE-009 — refresh was the worst offender: it set the cookie on EVERY rotation with no
+    // client check, so the mobile app re-acquired one on a schedule even though it never
+    // asked for it and sends a Bearer header. Clear instead.
+    clearAuthCookie(res);
     return res.status(200).json({ token: rotated.token, refreshToken: rotated.refreshToken });
   } catch (err) { next(err); }
 };

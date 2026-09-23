@@ -64,15 +64,22 @@ function verifyToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET, VERIFY_OPTS);
 }
 
-function setAuthCookie(res, token) {
-  res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
-}
-
+// BE-009 — `setAuthCookie` is GONE, deliberately, rather than merely left uncalled.
+//
+// The auth cookie is no longer a credential: nothing issues it and `middleware/auth.js` no
+// longer reads it. Leaving a ready-made setter in the shared jwt module is precisely how it
+// would come back — one `setAuthCookie(res, token)` in a future handler silently restores an
+// ambient credential that outranks nothing and is attached by browsers cross-site. There is
+// no setter to reach for now, so restoring it has to be a deliberate, reviewable act.
+//
+// `clearAuthCookie` REMAINS and is called on every successful auth and on logout/delete, so
+// cookies already in the wild expire on their holder's next interaction instead of living
+// out the remainder of their 7-day span. It can be removed once that window has passed.
 function clearAuthCookie(res) {
   res.clearCookie(COOKIE_NAME, { ...COOKIE_OPTIONS, maxAge: 0 });
 }
 
 module.exports = {
   signToken, signConnectToken, signOauthState, verifyOauthState,
-  verifyToken, setAuthCookie, clearAuthCookie, COOKIE_NAME,
+  verifyToken, clearAuthCookie, COOKIE_NAME,
 };

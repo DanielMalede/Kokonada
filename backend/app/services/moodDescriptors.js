@@ -211,11 +211,19 @@ function buildMoodParams(taps, musicProfile = {}) {
 
 // Coarse HR banding for the synthetic bio moodKey. Personal HR zones refine
 // this in the biosonic phase; these fixed cuts keep the key deterministic.
+//
+// The lower bound of each band, and the ONE definition of the cuts. D11's lesson was that a
+// trigger keyed on anything other than what the buffer is keyed by disagrees with the buffer;
+// a consumer that needs to reason ABOUT a cut (W4-D05's release margin measures from one)
+// reads it here rather than hand-copying 90/120 into a second place that can drift.
+// `resting` has no lower cut — it starts at the first physiologically usable reading.
+const BAND_LOWER_CUT = Object.freeze({ resting: null, active: 90, peak: 120 });
+
 function bandFromHeartRate(hr) {
   const n = Number(hr);
   if (!Number.isFinite(n) || n <= 0) return null;
-  if (n < 90) return 'resting';
-  if (n < 120) return 'active';
+  if (n < BAND_LOWER_CUT.active) return 'resting';
+  if (n < BAND_LOWER_CUT.peak) return 'active';
   return 'peak';
 }
 
@@ -258,17 +266,28 @@ function moodCoords(moodKey) {
 
 // The deterministic state label (from medicalProfileService.computeStateVector) → coarse
 // tempo band. High-stress/exhaustion de-escalate to a calmer band; exertion pushes to peak.
-const _STATE_TO_BAND = {
-  'High-Stress / Pre-Panic':           'resting',
-  'Peak Athletic Performance':         'peak',
-  'Intense Workout':                   'peak',
-  'Active Recovery':                   'active',
-  'Morning Activation':                'active',
-  'Exhausted Commute':                 'resting',
-  'Screen-Off / Background Listening': 'resting',
-  'Deep Focus / Flow State':           'active',
-  'Resting / Meditative':              'resting',
-};
+// W4-006 (seam half): DERIVED from the taxonomy rather than hand-written.
+//
+// `stateBandTable()` emits a STRICT SUPERSET of the nine entries that used to live here — every
+// legacy label keeps the exact band it resolved to (pinned in `wave4.stateSeam.test.js` against a
+// written-out record of the pre-W4-006 table, not against the taxonomy itself), and every
+// taxonomy id is added alongside. That is what lets a state label steer the band without any
+// label ever reaching a prompt or a log: the lookup stays a CLOSED table (§0.2.2, R10).
+//
+// The fallback state contributes no entry on purpose, so "nothing in particular stands out"
+// falls through to the heart rate instead of asserting a band of its own.
+// Required LAZILY and memoized, which is load-bearing rather than stylistic: the module graph
+// closes a cycle here — stateTaxonomy -> affectEngine -> translate -> moodDescriptors -> back —
+// so an eager top-level require resolves to a half-initialised taxonomy and `stateBandTable` is
+// `undefined` at load time. Deferring to first USE is the same fix `baselines._scheduleRefresh`
+// and `affectEngine`'s chronobiology import already use in this tree.
+let _bandTable = null;
+function _stateToBand() {
+  if (_bandTable === null) {
+    _bandTable = require('../agents/runtime/knowledge/stateTaxonomy').stateBandTable();
+  }
+  return _bandTable;
+}
 
 /**
  * Coarse physiological band ('resting' | 'active' | 'peak') from a biometric context,
@@ -277,7 +296,7 @@ const _STATE_TO_BAND = {
  */
 function biometricBand(ctx) {
   if (!ctx) return null;
-  const byLabel = _STATE_TO_BAND[ctx.stateLabel];
+  const byLabel = _stateToBand()[ctx.stateLabel];
   if (byLabel) return byLabel;
   if (Number.isFinite(ctx.hrRatio)) {
     if (ctx.hrRatio >= 1.4) return 'peak';
@@ -396,6 +415,7 @@ module.exports = {
   applyMoodFallback,
   buildMoodParams,
   bandFromHeartRate,
+  BAND_LOWER_CUT,
   syntheticBioMoodKey,
   moodCoords,
   biometricBand,
@@ -403,3 +423,14 @@ module.exports = {
   extractIntent,
   normalizeActivity,
 };
+
+// Exported additively for the W4-006 taxonomy, which is now the SOURCE of this projection rather
+// than merely an extension of it. A getter, not a value, because the table is built lazily to
+// break the require cycle above — and because handing out the memoized object itself lets a
+// caller mutate the live lookup, which for a closed-vocabulary table is exactly the property it
+// is supposed to have. The suite pins the superset guarantee against the real table this way,
+// rather than against a copy of it that could drift (the ACTIVITY_EXERTION_FLOOR precedent).
+Object.defineProperty(module.exports, '_STATE_TO_BAND', {
+  enumerable: true,
+  get: () => ({ ..._stateToBand() }),
+});

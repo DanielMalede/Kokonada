@@ -10,7 +10,11 @@
 // single registry is deferred to the post-Wave-1 rebase — until then keep them in lockstep.
 
 const BiometricLog      = require('../../models/BiometricLog');
+const VitalSample       = require('../../models/VitalSample');
 const MedicalProfile    = require('../../models/MedicalProfile');
+const MorningState      = require('../../models/MorningState');
+const { RewardEvent }   = require('../../models/RewardEvent');
+const { PersonalWeights } = require('../../models/PersonalWeights');
 const MusicProfile      = require('../../models/MusicProfile');
 const PlaylistSession   = require('../../models/PlaylistSession');
 const ServeEvent        = require('../../models/ServeEvent');
@@ -25,7 +29,11 @@ const { logBiometricAccess } = require('../../utils/biometricAudit');
 // (the row is still represented — only the secret field is removed).
 const COLLECTIONS = [
   { model: BiometricLog },
+  { model: VitalSample },                              // per-metric vitals (W4-004, S5)
   { model: MedicalProfile },
+  { model: MorningState },                             // nightly consolidation history (W4-012, S5)
+  { model: RewardEvent },                              // learned context-bucket rewards (W4-011, S5)
+  { model: PersonalWeights },                          // learned scoring overlay (W4-013 B7, S5)
   { model: MusicProfile },
   { model: PlaylistSession },
   { model: ServeEvent },

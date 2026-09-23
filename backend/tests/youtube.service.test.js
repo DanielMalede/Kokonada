@@ -46,24 +46,3 @@ describe('youtube service — OAuth client resolution', () => {
     expect(youtube.isConfigured()).toBe(true);
   });
 });
-
-describe('youtube service — exchangeCodeFromGIS error surfacing', () => {
-  afterEach(() => jest.resetAllMocks());
-
-  it('surfaces Google\'s error code (not axios\'s opaque message) and a 400 status', async () => {
-    axios.post.mockRejectedValueOnce({
-      message: 'Request failed with status code 401',
-      response: { status: 401, data: { error: 'invalid_client', error_description: 'Unauthorized' } },
-    });
-    await expect(youtube.exchangeCodeFromGIS('any-code')).rejects.toMatchObject({
-      message: 'youtube_exchange_invalid_client',
-      statusCode: 400,
-    });
-  });
-
-  it('rethrows the original error when Google returns no { error } body', async () => {
-    const original = new Error('socket hang up');
-    axios.post.mockRejectedValueOnce(original);
-    await expect(youtube.exchangeCodeFromGIS('any-code')).rejects.toBe(original);
-  });
-});

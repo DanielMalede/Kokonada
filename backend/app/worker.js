@@ -39,6 +39,10 @@ function makeShutdown(workers, { logger = console, exit = (code) => process.exit
 async function runWorker({
   connectDB: connect = connectDB,
   startWorkers: start = startWorkers,
+  // Lazily defaulted (see the call site): requiring ./queues/queue eagerly would pull a
+  // BullMQ producer into every consumer of this module. Injectable for the same reason
+  // connectDB/startWorkers are - it is the only step here that opens a Redis socket.
+  scheduleRepeatable: schedule = null,
   onFatal = (code) => process.exit(code),
   exit = (code) => process.exit(code),
   logger = console,
@@ -88,8 +92,8 @@ async function runWorker({
   // app/index.js only registers repeatables on the in-process path, so a standalone worker service
   // would otherwise never enqueue the recurring job. DARK by default (GLOBAL_SEED_INGEST_ENABLED).
   if (process.env.GLOBAL_SEED_INGEST_ENABLED === 'true') {
-    const { scheduleRepeatable } = require('./queues/queue');
-    await scheduleRepeatable(QUEUES.GLOBAL_SEED_INGEST, process.env.GLOBAL_SEED_CRON || '0 3 * * *', {})
+    const scheduleFn = schedule || require('./queues/queue').scheduleRepeatable;
+    await scheduleFn(QUEUES.GLOBAL_SEED_INGEST, process.env.GLOBAL_SEED_CRON || '0 3 * * *', {})
       .then((r) => logger.log(`[globalSeedIngest] repeatable scheduled: ${JSON.stringify(r)}`))
       .catch((e) => logger.error(`[globalSeedIngest] schedule failed: ${e.message}`));
   }

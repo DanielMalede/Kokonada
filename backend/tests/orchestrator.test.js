@@ -50,6 +50,26 @@ describe('orchestrator.generateV2', () => {
     expect(out.targets.bpmCenter).toBeGreaterThanOrEqual(30);
   });
 
+  it('W4-013 (B7): threads the pipeline gradient capture out to the caller', async () => {
+    // The serve-time half of the overlay's write lane. §M.15's `∂` is a residual of the scorer's
+    // own per-term values against the weight table in force, and BOTH die with the request — so
+    // if this seam drops it, every later play reports an UNKNOWN gradient and the listener simply
+    // never learns, silently. Pinned here because no unit test either side can see the drop.
+    const gradients = [{ key: 'at:a|f1', g: { taste: 0.2, feature: -0.2, genre: 0, rotation: 0 } }];
+    selectPlaylist.mockResolvedValueOnce({ tracks: [{ id: 'f1', canonicalKey: 'at:a|f1' }], telemetry: {}, gradients });
+
+    const out = await orchestrator.generateV2({ userId: 'u1', musicProfile: {}, moodKey: 'calm' });
+    expect(out.gradients).toBe(gradients);
+  });
+
+  it('W4-013 (B7): reports NO gradients when the overlay is off — the dormant shape', async () => {
+    // The pipeline returns `gradients: null` unless `WAVE4_PERSONAL_WEIGHTS` is set, and the
+    // default mock above does not return the key at all (a deployment mid-rollout). Both must
+    // arrive as a falsy value rather than as `undefined` leaking into a Map lookup.
+    const out = await orchestrator.generateV2({ userId: 'u1', musicProfile: {}, moodKey: 'calm' });
+    expect(out.gradients ?? null).toBeNull();
+  });
+
   it('wires the COMPLETE biosonic inputs: baselines + lastNightSleep + profile scalars + live', async () => {
     peekBaselines.mockResolvedValue({ rhrMedian: 60, rhrMAD: 4, hrvMedian: 45, hrvMAD: 8 });
     MedicalProfile.findOne.mockResolvedValue({

@@ -246,6 +246,16 @@ describe('score.scoreTrack', () => {
   it('featureless tracks pay the unknown penalty; discovery earns its bonus', () => {
     const unknown = scoreTrack({ ...lib('a'), canonicalKey: 'k1', features: null }, ctx);
     expect(unknown.terms.unknownFeaturePenalty).toBeGreaterThan(0);
+    // W4-007 · the penalty is now REPORTED but not subtracted, so assert the demotion it
+    // stands for rather than the number alone: a featureless track sits at the prior and
+    // must lose to the same track measured and on-target. Without this the pin would pass
+    // on a diagnostic field while the mechanism it names had quietly stopped biting.
+    const measured = scoreTrack(
+      { ...lib('a'), canonicalKey: 'k1', features: { bpm: 122, energy: 0.6, valence: 0.6, source: 'api', confidence: 1 } },
+      ctx,
+    );
+    expect(unknown.terms.featureDistance).toBeLessThan(measured.terms.featureDistance);
+    expect(unknown.total).toBeLessThan(measured.total);
 
     const disc = scoreTrack({ ...lib('b'), canonicalKey: 'k2', isDiscovery: true }, ctx);
     expect(disc.terms.discoveryBonus).toBeGreaterThan(0);

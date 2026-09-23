@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>12 · Profile — review</title>
+<style>
+  :root{
+    --pg:#F2F2F5; --pgink:#16182E; --pgink2:#5B5D77; --pgline:#D9DAE4; --pgcard:#FFFFFF;
+    --disp: ui-sans-serif, -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --text: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--pg);color:var(--pgink);font-family:var(--text);font-size:14px;line-height:1.6;padding:28px 30px 90px}
+  h1{font:600 30px/1.15 var(--disp);letter-spacing:-.02em;margin:0 0 4px}
+  h2{font:600 17px/1.3 var(--disp);margin:0 0 12px}
+  .sub{color:var(--pgink2);margin:0 0 22px;max-width:840px}
+  .lab{font:600 11px var(--mono);letter-spacing:.14em;color:var(--pgink2);text-transform:uppercase}
+  .card{background:var(--pgcard);border:1px solid var(--pgline);border-radius:14px;padding:18px 20px;margin-bottom:22px}
+  .card p{margin:0 0 10px} .card p:last-child{margin-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#EEEFF4;padding:1px 5px;border-radius:4px}
+
+  /* ---------- phone ---------- */
+  .ph{width:390px;height:844px;position:relative;overflow:hidden;border-radius:26px;border:1px solid var(--pgline);
+      flex:none;display:flex;flex-direction:column}
+  .ph[data-t="light"]{--canvas:#FAFAFF;--raised:#FFFFFF;--sunken:#F1F3FB;--ink:#14163A;--ink2:rgba(20,22,58,.74);
+      --ink3:#6A6589;--track:#6A6589;--line:rgba(20,22,58,.14);--onink:#FAFAFF;--brand:#8B6FE8;--brandink:#6E3FC4;
+      --onbrand:#FFFFFF;--danger:#9E3346;--accent:#3A5CCC;
+      --q-calm:#1F6FA6;--q-joyful:#8A5A12;--q-intense:#6E3FC4;--q-reflective:#3A5CCC}
+  .ph[data-t="dark"] {--canvas:#0B0D26;--raised:#15173A;--sunken:#090B1E;--ink:#EEF1FC;--ink2:rgba(238,241,252,.76);
+      --ink3:#A7A6D0;--track:#A7A6D0;--line:rgba(238,241,252,.16);--onink:#0B0D26;--brand:#9B7BF0;--brandink:#9B7BF0;
+      --onbrand:#0E1030;--danger:#FF9BA8;--accent:#9DB4FF;
+      --q-calm:#7FCDF5;--q-joyful:#FFD37A;--q-intense:#C4A6FF;--q-reflective:#9DB4FF}
+  .ph{background:var(--canvas);color:var(--ink)}
+  .spacer{height:44px;flex:none}
+  .scroll{position:relative;flex:1;min-height:0;overflow:hidden;padding:8px 22px 0}
+  .fade{position:absolute;left:0;right:0;bottom:0;height:30px;pointer-events:none;
+        background:linear-gradient(to top,var(--canvas),transparent)}
+  .name{margin:0 0 2px;font:600 28px/1.18 var(--disp);letter-spacing:-.02em;color:var(--ink)}
+  .mailrow{font:400 13px var(--text);color:var(--ink2);margin-bottom:20px}
+  .stmt{margin:0 0 20px;font:400 14px/1.6 var(--text);color:var(--ink2)}
+  .stmt b{color:var(--ink);font-weight:600}
+  .sec{font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px}
+  .cardbox{border:1px solid var(--line);border-radius:18px;background:var(--raised);overflow:hidden;margin-bottom:20px}
+  .crow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--line)}
+  .crow:last-child{border-bottom:0}
+  .crow .l b{display:block;font:500 13.5px var(--text);color:var(--ink)}
+  .crow .l i{display:block;font:400 12px var(--text);color:var(--ink2);font-style:normal}
+  .pill{display:flex;align-items:center;min-height:44px;padding:0 13px;border-radius:999px;border:1px solid var(--track);
+        font:500 12px var(--text);color:var(--ink);flex:none}
+  .fieldbox{border:1px solid var(--line);border-radius:18px;background:var(--raised);padding:15px;margin-bottom:20px}
+  .frow{display:flex;justify-content:space-between;align-items:center;gap:14px;min-height:44px}
+  .frow b{font:500 14px var(--text);color:var(--ink)}
+  .sw{display:flex;align-items:center;justify-content:flex-end;border-radius:999px;padding:3px;box-sizing:border-box;flex:none}
+  .sw i{display:block;border-radius:50%;background:var(--onbrand)}
+  .fcopy{margin:2px 0 12px;font:400 12.5px/1.6 var(--text);color:var(--ink2)}
+  .prev{height:44px;border-radius:12px;position:relative;overflow:hidden;border:1px solid var(--line);background:var(--sunken)}
+  .prevglow{position:absolute;left:-10%;right:-10%;top:-60%;height:220%;
+            background:radial-gradient(ellipse 60% 60% at 50% 50%,color-mix(in srgb,var(--q-calm) 42%,transparent),transparent 70%)}
+  .swatches{position:absolute;inset:0;display:flex}
+  .swatches span{flex:1}
+  .fcap{margin-top:8px;display:flex;justify-content:space-between;gap:10px;font:500 11px var(--mono);color:var(--ink3)}
+  .slider{border-top:1px solid var(--line);padding-top:10px;margin-bottom:20px}
+  .slabels{display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2)}
+  .strack{position:relative;height:44px;display:flex;align-items:center}
+  .strack .bg{display:block;width:100%;height:8px;border-radius:999px;
+              background:color-mix(in srgb,var(--brand) 18%,transparent);outline:1px solid var(--track)}
+  .strack .fl{position:absolute;left:0;top:50%;transform:translateY(-50%);width:35%;height:8px;border-radius:999px}
+  .strack .kn{position:absolute;left:35%;top:50%;transform:translate(-50%,-50%);width:20px;height:20px;border-radius:50%;
+              background:var(--canvas)}
+  .pend{display:inline-block;margin-left:8px;font:600 9.5px var(--mono);letter-spacing:.1em;padding:2px 7px;
+        border-radius:999px;border:1px solid var(--track);color:var(--ink3);vertical-align:2px}
+  .drow2{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:48px;border-top:1px solid var(--line);
+         font:400 13.5px var(--text);color:var(--ink)}
+  .legal{display:flex;align-items:center;justify-content:center;width:100%;min-height:48px;border-radius:999px;
+         font:600 13.5px var(--text);margin-top:8px}
+  .player{position:relative;display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:8px 20px;
+          border-top:1px solid var(--line);background:var(--raised);flex:none}
+  .player .art{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);flex:none;
+               background:linear-gradient(140deg,color-mix(in srgb,var(--brand) 26%,transparent),color-mix(in srgb,var(--brand) 10%,transparent))}
+  .player .m{flex:1;min-width:0}
+  .player .m b{display:block;font:500 13px var(--text);color:var(--ink)}
+  .player .m i{display:block;font:400 11.5px var(--text);color:var(--ink2);font-style:normal}
+  .tabs{position:relative;display:flex;justify-content:space-around;align-items:center;height:56px;flex:none;
+        border-top:1px solid var(--line);background:var(--canvas)}
+  .tab{width:8px;height:8px;border-radius:50%;background:var(--ink3);opacity:.45}
+  .tab.on{opacity:1;background:var(--ink)}
+
+  /* ---------- page furniture ---------- */
+  .pair{display:flex;gap:20px;flex-wrap:wrap}
+  .cap{font:600 11px var(--mono);letter-spacing:.1em;color:var(--pgink2);margin-top:9px;text-transform:uppercase}
+  .vname{font:600 16px var(--disp);margin:0 0 2px}
+  .vdesc{color:var(--pgink2);font-size:13px;margin:0 0 14px;max-width:860px}
+  .vtag{display:inline-block;font:600 10.5px var(--mono);letter-spacing:.1em;padding:3px 8px;border:1px solid var(--pgline);
+        border-radius:999px;color:var(--pgink2);margin-left:8px;vertical-align:2px}
+  .drow{border-top:1px solid var(--pgline);padding:15px 0;display:grid;grid-template-columns:215px 1fr;gap:18px;align-items:start}
+  .drow:last-child{border-bottom:1px solid var(--pgline)}
+  .dname{font:600 14px var(--disp)} .dhint{color:var(--pgink2);font-size:12.5px;margin-top:2px}
+  .opts{display:flex;gap:10px;flex-wrap:wrap}
+  .opt{border:1px solid var(--pgline);border-radius:10px;padding:9px 13px;cursor:pointer;background:#fff;min-width:172px;
+       display:flex;gap:9px;align-items:flex-start;max-width:252px}
+  .opt:hover{border-color:#A9AAB8}
+  .opt input{margin:3px 0 0;flex:none;accent-color:#16182E}
+  .otitle{font-weight:600;font-size:13px} .odesc{color:var(--pgink2);font-size:12px;line-height:1.45}
+  .opt:has(input:checked){border-color:#16182E;box-shadow:0 0 0 1px #16182E inset}
+  button{font:600 14px var(--text);padding:12px 20px;border-radius:999px;border:1px solid #16182E;background:#16182E;color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#16182E}
+  #out{width:100%;min-height:190px;margin-top:14px;font-family:var(--mono);font-size:12.5px;padding:13px;
+       border:1px solid var(--pgline);border-radius:10px;background:#fff;display:none}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--pgline)}
+  th{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--pgink2)}
+  .pass{color:#1B6E4A;font-weight:600} .fail{color:#9E3346;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>12 · Profile</h1>
+<p class="sub">Three treatments, both themes, seven independent rows, live assembly at the top. One finding here outranks the rest, so it goes first.</p>
+
+<div class="card" style="border-color:#9E3346">
+  <div class="lab" style="margin-bottom:9px;color:#9E3346">The finding that outranks the others</div>
+  <p><strong>&ldquo;Withdraw health consent&rdquo; and &ldquo;Delete my account&rdquo; are unreachable in the drawn flow.</strong> They exist &mdash; on <code>YouVault.dc.html</code>, drawn properly, with an IRREVERSIBLE label. But <strong>no screen board navigates to that board.</strong> I checked all 22: only <code>Plan.dc.html</code> (a documentation board) and the Vault itself mention it, and the Flow board does not route to it either. Profile&rsquo;s <code>YOUR DATA</code> section contains exactly two rows: <em>Export everything</em> and <em>Log out</em>.</p>
+  <p><strong>The shipped app already does this correctly &mdash; it is the canvas that is behind.</strong> An independent verification pass confirmed it at high confidence: <code>ProfileScreen.tsx:354-358</code> renders &ldquo;Delete account&rdquo; <em>unconditionally</em>, behind a two-step confirm at <code>:361-383</code>; withdrawal renders through <code>VaultConsentPanel</code> (mounted at <code>:327-333</code>), with its own neutral two-step confirm &mdash; &ldquo;Keep it&rdquo; / &ldquo;Withdraw&rdquo; &mdash; and it appears only when <code>consentGranted</code> is true. So the board is not ahead of the product; it is behind it, and the product is the reference for what the board should draw, including that conditional.</p>
+  <p style="margin-bottom:0">Your Stage 2 requirement was that these &ldquo;come back as real, reachable actions in the markup &mdash; not fit by trimming copy elsewhere.&rdquo; They came back as markup on a board with no door. That is a different failure from the original one, and it is arguably worse, because it looks solved. Row one is where they live.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">Two controls that do not exist</div>
+  <p><strong>The Living background toggle is not built &mdash; but persisting it is solved.</strong> There is no ambient-field setting anywhere (<code>livingBackground</code>, <code>fieldEnabled</code>, <code>auraEnabled</code>, <code>backgroundEnabled</code> all return nothing). I first wrote that mobile had no settings-persistence layer; that was wrong twice over. The sanctioned path is <strong>SecureStore</strong> (<code>storage/secureStore.ts:19</code> &mdash; &ldquo;the only sanctioned persistence path on the device&rdquo;) over a <code>KVBackend</code> port, encrypted MMKV plus a cipher in production. And there is already a <strong>three-instance pattern for persisted toggles</strong> under the <code>koko.</code> namespace &mdash; <code>koko.liveMode</code>, <code>koko.onboarding.seen</code> and <code>koko.connect.&lt;uid&gt;.resolved</code> &mdash; each a zustand vanilla store with <code>hydrate()</code> bound in <code>prodBootstrap.ts</code>. So this is not an architectural question at all: there is an exact precedent to copy. Worth knowing that the live-mode switch on Generate is currently the <em>only</em> toggle in the whole app, so this would be the second. The board currently shows a switch that cannot be switched.</p>
+  <p style="margin-bottom:0"><strong>The &ldquo;HOW ADVENTUROUS&rdquo; slider is not unbacked &mdash; it is <em>counter</em>-backed, which is worse.</strong> My first search said no such parameter existed. That was wrong, and I re-ran it before writing this. <code>backend/app/agents/runtime/knowledge/noveltyController.js</code> is a Thompson-sampling bandit that decides exactly this, per context bucket &mdash; <code>{stateDomain, targetBand, hourBin}</code> &mdash; because the trade-off is <em>contextual</em>. The file argues the point directly: <em>&ldquo;the same person who welcomes an unknown track on a Sunday morning skips it three times in a row mid-interval&rdquo;</em>, and a fixed draw is <em>&ldquo;noise wearing exploration&rsquo;s clothes.&rdquo;</em> It also abstains entirely until it has an observation, so it never guesses. Its cap is <code>MAX_NOVELTY_SHARE = 0.3</code> &mdash; which is where the board&rsquo;s &ldquo;about a third of each set&rdquo; comes from. So the copy is right and the control is the problem: a user-set dial would override a learner built specifically to be context-sensitive, and would replace something that abstains when ignorant with something that always has an opinion.</p>
+</div>
+
+<div class="card">
+  <div class="lab" style="margin-bottom:9px">What I measured</div>
+  <p><strong>The preview box is empty, and I can tell you exactly why.</strong> It renders 314&times;42 with three children, two of which do paint &mdash; so it is not missing markup. The field layer is <code>.fld1 { bottom:-40%; height:150% }</code> and its gradient origin is <code>at 50% 100%</code>. In a 42px box that puts the bright core of the gradient roughly <strong>17px below the visible area</strong>. The geometry is percentage-based and tuned for an 844px screen; dropped into a 42px preview it aims its light off-stage. A preview of the living field has to be drawn for its own box, not inherited from the screen.</p>
+  <p><strong>The toggle is 50&times;30.</strong> Below the 44px floor, on the only switch in the app.</p>
+  <p><strong>Three hues on screen.</strong> <code>#3A5CCC</code> nine times (toggle fill, slider fill, slider knob border) &mdash; the same undeclared blue you named; <code>#4B6FD0</code> in the field preview; <code>#9B7BF0</code> on the mini-player artwork. Worth being exact about the objection: the blue <strong>passes</strong> contrast at 5.86:1 and 5.63:1. It is an undeclared-token problem, not a legibility one.</p>
+  <p style="margin-bottom:0"><strong>Content is not clipped; it scrolls.</strong> 681px box over 846px of content &mdash; 80% visible, with a bottom fade. The 20% below the fold is the whole <code>YOUR DATA</code> section, which is where the account actions would live.</p>
+</div>
+
+<h2>The assembled screen</h2>
+<p class="sub" style="margin-bottom:16px">Rebuilds from your selections below.</p>
+<div class="pair" style="margin-bottom:30px">
+  <div><div id="live-light"></div><div class="cap">Light — assembled</div></div>
+  <div><div id="live-dark"></div><div class="cap">Dark — assembled</div></div>
+  <div style="flex:1;min-width:250px">
+    <div class="lab" style="margin-bottom:10px">Computed contrast — both faces</div>
+    <table>
+      <tr><th>Pair</th><th>Light</th><th>Dark</th></tr>
+      <tr><td>toggle, as today <span style="color:#5B5D77">(--accent)</span></td><td class="pass">5.86 : 1</td><td class="pass">8.56 : 1</td></tr>
+      <tr><td>toggle if <code>--brand</code></td><td class="pass">3.79 : 1</td><td class="pass">5.34 : 1</td></tr>
+      <tr><td>toggle if <code>--ink</code></td><td class="pass">17.42 : 1</td><td class="pass">15.32 : 1</td></tr>
+      <tr><td>slider fill</td><td class="pass">5.63 : 1</td><td class="pass">9.46 : 1</td></tr>
+      <tr><td>row label on raised</td><td class="pass">17.42 : 1</td><td class="pass">15.32 : 1</td></tr>
+      <tr><td>section rail</td><td class="pass">5.26 : 1</td><td class="pass">8.19 : 1</td></tr>
+    </table>
+    <div class="lab" style="margin:16px 0 8px">Measured</div>
+    <table>
+      <tr><td>toggle target</td><td class="fail">50 × 30</td></tr>
+      <tr><td>preview box</td><td class="fail">gradient ~17px off-stage</td></tr>
+      <tr><td>visible at rest</td><td>80%</td></tr>
+      <tr><td>routes to the Vault</td><td class="fail">0 of 22 boards</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>The decisions</h2>
+<div id="rows"></div>
+<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+  <button id="copy">Copy my choices</button>
+  <button class="ghost" id="reset">Reset to variant A</button>
+  <span id="msg" style="align-self:center;color:var(--pgink2);font-size:13px"></span>
+</div>
+<textarea id="out" readonly></textarea>
+
+<h2 style="margin-top:34px">The three treatments</h2>
+<div id="variants"></div>
+
+<script>
+const CHOICES=[
+ {id:'legal',name:'Withdraw and delete',hint:'They exist on the Vault board, and nothing on the canvas navigates to it. Your Stage 2 requirement was that they be reachable.',opts:[
+   ['inline','On Profile, in full','Both actions rendered here. Reachable by definition; puts an irreversible action on a settings screen.'],
+   ['link','A row into the Vault','&ldquo;Health data &amp; account&rdquo; opens the Vault. Keeps the weight off Profile — and the door finally exists.'],
+   ['both','A row, and delete here','The Vault holds the health consent; delete-account stays on Profile where people look for it.']]},
+ {id:'toggle',name:'The Living background switch',hint:'50×30 today, filled with the undeclared blue. Every option below is ≥44px.',opts:[
+   ['brand','Brand accent, 44px','--brand, a declared token. 3.79:1 — passes the 3:1 non-text floor.'],
+   ['ink','Neutral ink, 44px','--ink at 17.42:1. Reads as a system control rather than a branded one.'],
+   ['accent','As today','The undeclared blue, and a 30px target.']]},
+ {id:'preview',name:'The field preview',hint:'The gradient currently aims its core ~17px below the box.',opts:[
+   ['fixed','Re-aimed for its own box','The same field, with geometry drawn for 44px instead of 844px.'],
+   ['swatch','The four states, side by side','A static strip showing what the field can be. Cannot mis-aim; shows less life.'],
+   ['none','No preview','The sentence explains it. Removes a component that has never worked.']]},
+ {id:'slider',name:'How adventurous',hint:'A novelty bandit already decides this per context, and abstains until it has evidence. A fixed dial would override it.',opts:[
+   ['remove','Not on this screen','The engine already does this, contextually. Nothing for a dial to improve.'],
+   ['readout','A readout, not a control','Show what the bandit is currently doing and why. Informs without overriding.'],
+   ['keep','A user override, as today','A fixed setting replacing a context-sensitive learner.']]},
+ {id:'identity',name:'The header',hint:'Today: name, email, and &ldquo;free, always&rdquo;.',opts:[
+   ['stmt','A reading statement','&ldquo;Kokonada reads your body only while you allow it.&rdquo; Says what the app does, not who you are.'],
+   ['name','Name and email','Conventional. What the board draws.'],
+   ['min','Name only','Least said. The email is on the account rows anyway.']]},
+ {id:'data',name:'The data section',hint:'Today: Export everything, Log out.',opts:[
+   ['full','Export, log out, and the account door','The section actually named YOUR DATA contains the data actions.'],
+   ['split','Data here, account below','Export separated from the destructive end of the screen.'],
+   ['min','Export and log out','As today, with the account actions living elsewhere.']]},
+ {id:'player',name:'The mini-player',hint:'Third of the four screens carrying it.',opts:[
+   ['bar','Full row','As today.'],
+   ['compact','A thin line','Present without competing with settings.'],
+   ['none','Not on this screen','Settings is not a listening surface.']]}
+];
+
+const VARIANTS=[
+ {key:'A',name:'The door exists',tag:'FIXES THE BLOCKER',
+  desc:'The minimum that makes the screen honest: a real route to the Vault, a switch that is a legal target and a declared colour, a preview drawn for its own box, and the slider removed until something can receive it.',
+  c:{legal:'link',toggle:'brand',preview:'fixed',slider:'remove',identity:'name',data:'full',player:'bar'}},
+ {key:'B',name:'Everything reachable here',tag:'STAGE 2, LITERALLY',
+  desc:'Reads your Stage 2 requirement at its word: both actions rendered on Profile itself, not behind a door. The cost is an irreversible action sitting on a settings screen, two taps from a toggle.',
+  c:{legal:'inline',toggle:'ink',preview:'swatch',slider:'remove',identity:'stmt',data:'split',player:'none'}},
+ {key:'C',name:'As it stands, corrected',tag:'MINIMAL CHANGE',
+  desc:'Keeps the slider and the layout, fixes only the provable defects: the target size, the undeclared blue, the preview geometry, and a route to the Vault. The baseline the other two argue against.',
+  c:{legal:'link',toggle:'brand',preview:'fixed',slider:'readout',identity:'name',data:'min',player:'bar'}}
+];
+
+function swNode(c){
+  var big = c.toggle!=='accent';
+  var w = big?52:50, h = big?32:30, kn = big?26:24, pad=big?44:30;
+  var fill = c.toggle==='ink' ? 'var(--ink)' : c.toggle==='brand' ? 'var(--brand)' : 'var(--accent)';
+  return '<span style="display:flex;align-items:center;justify-content:center;min-height:'+pad+'px;min-width:'+pad+'px;flex:none">'+
+    '<span class="sw" style="width:'+w+'px;height:'+h+'px;background:'+fill+'">'+
+    '<i style="width:'+kn+'px;height:'+kn+'px"></i></span></span>';
+}
+
+function prevNode(c){
+  if(c.preview==='none') return '';
+  if(c.preview==='swatch')
+    return '<div class="prev"><div class="swatches">'+
+      ['calm','joyful','intense','reflective'].map(function(q){
+        return '<span style="background:color-mix(in srgb,var(--q-'+q+') 38%,transparent)"></span>';}).join('')+
+      '</div></div>';
+  return '<div class="prev"><div class="prevglow"></div></div>';
+}
+
+function sliderNode(c){
+  if(c.slider==='remove') return '';
+  if(c.slider==='readout')
+    return '<div class="sec">HOW ADVENTUROUS</div>'+
+      '<div class="slider"><div style="font:400 13px/1.6 var(--text);color:var(--ink2)">'+
+      'About a third of tonight&rsquo;s set is new to you. That share is learned per situation, and it '+
+      'stays where it is until there is a reason to move it.</div>'+
+      '<div style="margin-top:8px;font:500 11px var(--mono);color:var(--ink3)">EVENINGS, WINDING DOWN &middot; 31% NEW</div></div>';
+  var dim='';
+  var fill='var(--brand)';
+  return '<div class="sec">HOW ADVENTUROUS'+(c.slider==='pending'?'<span class="pend">NOT YET</span>':'')+'</div>'+
+    '<div class="slider" style="'+dim+'">'+
+    '<div class="slabels"><span>Familiar</span><span>New</span></div>'+
+    '<div class="strack"><span class="bg"></span><span class="fl" style="background:'+fill+'"></span>'+
+    '<span class="kn" style="border:1.5px solid '+fill+'"></span></div>'+
+    '<div style="font:400 12.5px/1.6 var(--text);color:var(--ink2)">A steady mix &mdash; about a third of each set will be new to you.</div></div>';
+}
+
+function dataNode(c){
+  var chev='<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="var(--ink2)" stroke-width="1.6" stroke-linecap="round"><path d="M8 4l5 6-5 6"/></svg>';
+  function row(label){return '<div class="drow2"><span>'+label+'</span>'+chev+'</div>';}
+  // `legal` decides WHERE the account actions live; `data` decides how this section is STRUCTURED.
+  var door = (c.legal==='link'||c.legal==='both') ? row('Health data &amp; account') : '';
+  var acts='';
+  if(c.legal==='inline'){
+    acts+='<div class="legal" style="border:1.5px solid var(--brand);color:var(--brandink)">Withdraw health consent</div>'+
+          '<div class="legal" style="border:1.5px solid var(--danger);color:var(--danger)">Delete my account</div>';
+  } else if(c.legal==='both'){
+    acts+='<div class="legal" style="border:1.5px solid var(--danger);color:var(--danger)">Delete my account</div>';
+  }
+  if(c.data==='split'){
+    var h='<div class="sec">YOUR DATA</div><div style="margin-bottom:16px">'+row('Export everything')+row('Log out')+'</div>';
+    if(door||acts) h+='<div class="sec">ACCOUNT</div><div style="margin-bottom:20px">'+door+acts+'</div>';
+    else h+='<div style="margin-bottom:4px"></div>';
+    return h;
+  }
+  if(c.data==='min'){
+    // compact: the account actions become quiet text rows, never full-width buttons
+    var quiet = acts
+      ? acts.replace(/class="legal" style="border:1\.5px solid var\(--brand\);color:var\(--brandink\)"/g,
+                     'class="drow2" style="color:var(--brandink);justify-content:flex-start"')
+            .replace(/class="legal" style="border:1\.5px solid var\(--danger\);color:var\(--danger\)"/g,
+                     'class="drow2" style="color:var(--danger);justify-content:flex-start"')
+      : '';
+    return '<div class="sec">YOUR DATA</div><div style="margin-bottom:20px">'+
+      row('Export everything')+row('Log out')+door+quiet+'</div>';
+  }
+  return '<div class="sec">YOUR DATA</div><div style="margin-bottom:20px">'+
+    row('Export everything')+door+row('Log out')+acts+'</div>';
+}
+
+function frame(theme,c){
+  var h='<div class="ph" data-t="'+theme+'"><div class="spacer"></div><div class="scroll">';
+  if(c.identity==='stmt'){
+    h+='<h2 class="name" style="font-size:22px">Your account</h2>'+
+       '<p class="stmt">Kokonada reads your body <b>only while you allow it</b>, and stops the moment you say so. '+
+       'Everything it has learned about you lives here.</p>';
+  } else {
+    h+='<h2 class="name">Daniel</h2>';
+    if(c.identity==='name') h+='<div class="mailrow">daniel@kokonada.app &middot; free, always</div>';
+    else h+='<div style="height:20px"></div>';
+  }
+  h+='<div class="sec">CONNECTIONS</div><div class="cardbox">'+
+    '<div class="crow"><span class="l"><b>Spotify</b><i>Connected</i></span><span class="pill">Disconnect</span></div>'+
+    '<div class="crow"><span class="l"><b>YouTube Music</b><i>Not connected</i></span><span class="pill">Connect</span></div>'+
+    '<div class="crow"><span class="l"><b>Wearable &amp; Health</b><i>Paired</i></span><span class="pill">Manage</span></div></div>';
+  h+='<div class="sec">THE FIELD</div><div class="fieldbox">'+
+    '<div class="frow"><b>Living background</b>'+swNode(c)+'</div>'+
+    '<p class="fcopy">The light behind the app follows your body. It never speeds up when you are stressed &mdash; it slows down.</p>'+
+    prevNode(c)+
+    '<div class="fcap"><span>NOW &middot; RESTING, RUNNING LOW</span><span>4200 MS</span></div></div>';
+  h+=sliderNode(c);
+  h+=dataNode(c);
+  h+='<div class="fade"></div></div>';
+  if(c.player==='compact')
+    h+='<div class="player" style="min-height:44px;padding:6px 20px"><span class="m"><b>Holocene &middot; Bon Iver</b></span>'+
+      '<span style="flex:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px">'+
+      '<svg width="16" height="16" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg></span></div>';
+  else if(c.player==='bar')
+    h+='<div class="player"><span class="art"></span><span class="m"><b>Holocene</b><i>Bon Iver &middot; winding down</i></span>'+
+      '<span style="flex:none;display:flex;align-items:center;gap:12px">'+
+      '<svg width="18" height="18" viewBox="0 0 20 20" fill="var(--ink2)"><path d="M5 3h3.6v14H5zM11.4 3H15v14h-3.6z"/></svg></span></div>';
+  h+='<div class="tabs"><span class="tab"></span><span class="tab"></span><span class="tab"></span><span class="tab"></span><span class="tab on"></span></div>';
+  return h+'</div>';
+}
+
+const state=Object.assign({},VARIANTS[0].c);
+function renderLive(){
+  document.getElementById('live-light').innerHTML=frame('light',state);
+  document.getElementById('live-dark').innerHTML=frame('dark',state);
+}
+function renderRows(){
+  var host=document.getElementById('rows'); host.innerHTML='';
+  CHOICES.forEach(function(row){
+    var el=document.createElement('div'); el.className='drow';
+    el.innerHTML='<div><div class="dname">'+row.name+'</div><div class="dhint">'+row.hint+'</div></div>'+
+     '<div class="opts">'+row.opts.map(function(o){
+      return '<label class="opt"><input type="radio" name="'+row.id+'" value="'+o[0]+'"'+(state[row.id]===o[0]?' checked':'')+'>'+
+       '<span><span class="otitle">'+o[1]+'</span><br><span class="odesc">'+o[2]+'</span></span></label>';
+     }).join('')+'</div>';
+    host.appendChild(el);
+  });
+  host.querySelectorAll('input[type=radio]').forEach(function(r){
+    r.addEventListener('change',function(){ state[r.name]=r.value; renderLive(); });
+  });
+}
+function renderVariants(){
+  var host=document.getElementById('variants'); host.innerHTML='';
+  VARIANTS.forEach(function(v){
+    var el=document.createElement('div'); el.style.marginBottom='34px';
+    el.innerHTML='<div class="vname">'+v.key+' &middot; '+v.name+'<span class="vtag">'+v.tag+'</span></div>'+
+      '<p class="vdesc">'+v.desc+'</p>'+
+      '<div class="pair"><div><div>'+frame('light',v.c)+'</div><div class="cap">Light</div></div>'+
+      '<div><div>'+frame('dark',v.c)+'</div><div class="cap">Dark</div></div>'+
+      '<div style="align-self:flex-end;padding-bottom:26px"><button class="ghost" data-v="'+v.key+'">Load into the assembler</button></div></div>';
+    host.appendChild(el);
+  });
+  document.querySelectorAll('button[data-v]').forEach(function(b){b.addEventListener('click',function(){
+    var v=VARIANTS.filter(function(x){return x.key===b.getAttribute('data-v');})[0];
+    Object.assign(state,v.c); renderRows(); renderLive(); window.scrollTo({top:0,behavior:'smooth'});
+  });});
+}
+document.getElementById('copy').addEventListener('click',function(){
+  var lines=['SCREEN 12 — PROFILE — my choices',''];
+  CHOICES.forEach(function(row){
+    var o=row.opts.filter(function(x){return x[0]===state[row.id];})[0];
+    var label=o[1].replace(/&ldquo;|&rdquo;/g,'"').replace(/&rsquo;/g,"'").replace(/&mdash;/g,'-').replace(/&amp;/g,'&');
+    lines.push(row.name.padEnd(28,' ')+': '+label+'   ['+row.id+'='+o[0]+']');
+  });
+  var match=VARIANTS.filter(function(v){return CHOICES.every(function(r){return v.c[r.id]===state[r.id];});})[0];
+  lines.push(''); lines.push(match?('= variant '+match.key+' ('+match.name+')'):'= a custom assembly');
+  var out=document.getElementById('out'); out.value=lines.join('\n'); out.style.display='block'; out.select();
+  try{ document.execCommand('copy'); document.getElementById('msg').textContent='Copied.'; }
+  catch(e){ document.getElementById('msg').textContent='Select the box and copy.'; }
+});
+document.getElementById('reset').addEventListener('click',function(){
+  Object.assign(state,VARIANTS[0].c); renderRows(); renderLive(); document.getElementById('msg').textContent='';
+});
+renderRows(); renderLive(); renderVariants();
+</script>
+</body>
+</html>

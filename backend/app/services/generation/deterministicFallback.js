@@ -73,7 +73,10 @@ async function buildDeterministicFallback({
   // zeroed confidence (widest band tolerance) — keeping featureFit ordering while widening.
   let t0 = targets;
   if (t0 == null) {
-    try { t0 = await orchestrator.buildTargets({ userId, live, moodKey: key, now }); }
+    // W4-006: the taps travel too. The affect engine fuses ALL declared taps (centroid +
+    // dispersion), and its valence axis is declared-only by design — without them it abstains
+    // permanently and every state separated from a rival only by valence becomes unreachable.
+    try { t0 = await orchestrator.buildTargets({ userId, live, moodKey: key, taps, now }); }
     catch { t0 = {}; }
   }
   const t1 = { ...(t0 || {}), confidence: 0 };

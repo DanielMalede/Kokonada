@@ -2,6 +2,7 @@ const axios      = require('axios');
 const crypto     = require('crypto');
 const BiometricLog = require('../../models/BiometricLog');
 const { normalize } = require('./adapter');
+const { insertManyAccounted } = require('./insertAccounted');
 
 const BASE = 'https://cloudapi.suunto.com/v2';
 
@@ -46,11 +47,10 @@ async function handleWebhook(userId, rawBody, signatureHeader) {
     .filter(s => s.hr != null)
     .map(raw => ({ userId, ...normalize('suunto', raw) }));
 
-  if (docs.length > 0) {
-    await BiometricLog.insertMany(docs, { ordered: false });
-  }
+  // W4-D08: report what the database actually took, not the attempted count.
+  const { inserted, rejected } = await insertManyAccounted(BiometricLog, docs);
 
-  return { ingested: docs.length };
+  return { ingested: inserted, rejected };
 }
 
 // Fetch historical workout data using Suunto API access token

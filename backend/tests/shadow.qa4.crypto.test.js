@@ -17,11 +17,28 @@ const { purgeUserKeys } = require('../app/utils/userRedisPurge');
 const MODELS_DIR = path.join(__dirname, '../app/models');
 const ERASURE_SRC = fs.readFileSync(path.join(__dirname, '../app/services/privacy/erasure.js'), 'utf8');
 const GDPR_SCRIPT_SRC = fs.readFileSync(path.join(__dirname, '../scripts/gdpr-delete.js'), 'utf8');
+const EXPORT_SRC = fs.readFileSync(path.join(__dirname, '../app/services/privacy/userDataExport.js'), 'utf8');
+const WEARABLE_ERASURE_SRC = fs.readFileSync(path.join(__dirname, '../app/services/privacy/wearableErasure.js'), 'utf8');
 
 function userOwnedModels() {
   return fs.readdirSync(MODELS_DIR)
     .filter((f) => f.endsWith('.js') && f !== 'User.js' && f !== 'encryptedField.js')
     .filter((f) => /userId\s*:/.test(fs.readFileSync(path.join(MODELS_DIR, f), 'utf8')))
+    .map((f) => f.replace('.js', ''));
+}
+
+// Wearable-DERIVED subset: a user-owned model that also carries the wearable provider
+// vocabulary (`'garmin'`). These are the collections a single-provider disconnect must
+// erase source-scoped — account-wide erasure is not enough, because the user keeps the
+// account and only revokes one device. Discovered the same way as the set above, so a new
+// wearable collection is caught by existence rather than by someone remembering (S5).
+function wearableDerivedModels() {
+  return fs.readdirSync(MODELS_DIR)
+    .filter((f) => f.endsWith('.js') && f !== 'User.js' && f !== 'encryptedField.js')
+    .filter((f) => {
+      const src = fs.readFileSync(path.join(MODELS_DIR, f), 'utf8');
+      return /userId\s*:/.test(src) && /'garmin'/.test(src);
+    })
     .map((f) => f.replace('.js', ''));
 }
 
@@ -46,6 +63,29 @@ describe('Q3 — GDPR erasure completeness (guards every future sprint incl. A11
   it('scripts/gdpr-delete.js mirrors the same collection set (lockstep)', () => {
     for (const m of models) {
       expect(GDPR_SCRIPT_SRC).toMatch(new RegExp(`models/${m}'\\)`));
+    }
+  });
+
+  // §0.4 S5 extends the completeness rule beyond deletion: a collection that erasure removes
+  // but export omits is an Art.15 (right of access) gap, and one that account-erasure removes
+  // but per-provider erasure omits is a T3.2 gap. Both were previously guarded by nothing.
+  it('EVERY model with a userId field is serialized by the GDPR export (Art.15)', () => {
+    for (const m of models) {
+      expect(EXPORT_SRC).toContain(`models/${m}')`);
+      expect(EXPORT_SRC).toMatch(new RegExp(`model:\\s*${m}\\b`));
+    }
+  });
+
+  it('EVERY wearable-derived model is erased source-scoped by per-provider erasure (T3.2)', () => {
+    const wearable = wearableDerivedModels();
+    // Sanity: the discovery is not vacuous.
+    expect(wearable).toEqual(expect.arrayContaining(['BiometricLog', 'VitalSample']));
+    for (const m of wearable) {
+      expect(WEARABLE_ERASURE_SRC).toContain(`models/${m}')`);
+      // source-SCOPED, not a blanket delete: the query must carry the provider.
+      expect(WEARABLE_ERASURE_SRC).toMatch(
+        new RegExp(`${m}\\.deleteMany\\(\\{\\s*userId,\\s*source:\\s*provider\\s*\\}\\)`),
+      );
     }
   });
 

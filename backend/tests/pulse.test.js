@@ -10,7 +10,13 @@ process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'a'.repeat(64);
 //      res.json(doc) would leak spO2/gpsVelocity/etc. Only the whitelist may ship.
 
 jest.mock('../app/models/MedicalProfile');
+// W4-D43: the controller gained a second read (the latest MorningState). Mocked here so this
+// stays a unit test of the DTO + wiring; the REAL query is pinned against real Mongo in
+// tests/morningState.integration.test.js, per the mission's "never a green mock for an
+// integration boundary".
+jest.mock('../app/models/MorningState');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const MorningState = require('../app/models/MorningState');
 const { encrypt } = require('../app/utils/encryption');
 const ctrl = require('../app/controllers/pulseController');
 
@@ -43,7 +49,10 @@ function mockFindOne(doc) {
   return calls;
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  MorningState.findOne.mockImplementation(() => ({ sort: () => Promise.resolve(null) }));
+});
 
 describe('GET /api/pulse/state — decrypted vitals + whitelist', () => {
   it('decrypts stateVector.status and returns the owner vitals', async () => {
@@ -87,11 +96,25 @@ describe('GET /api/pulse/state — no profile', () => {
     const res = buildRes();
     await ctrl.getPulseState({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
     expect(res.statusCode).toBe(200);
+    // DELIBERATE RE-PIN (W4-D43): the response is now a strict SUPERSET — every key below is
+    // unchanged, and the two additive blocks are asserted separately so this case keeps saying
+    // exactly what it always said about the legacy half.
     expect(res.body).toEqual({
       stateVector: { status: null, confidence: null, computedAt: null },
       vitals: { hrv: null, bodyBattery: null, dailyReadiness: null, restingHeartRate: null },
       sleep: { lastNight: { deep: null, light: null, rem: null, date: null }, updatedAt: null },
       lastAnalyzed: null, sampleCount: 0,
+      affect: { domain: null, band: null, confidence: null, computedAt: null },
+      morning: {
+        date: null, readinessBucket: 'n/a', readinessConfidence: null,
+        sleepDebt: { bucket: 'n/a', nights: 0, confidence: null },
+        cosinor: { confidence: null, source: null },
+        drift: {
+          rhr: { flagged: false, direction: null, referenceDays: 0 },
+          hrv: { flagged: false, direction: null, referenceDays: 0 },
+        },
+        v: null,
+      },
     });
   });
 });

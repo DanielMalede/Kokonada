@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./tokens.css">
+  <style>
+    body { margin: 0; background: var(--pagebg, #E8E9EF); }
+    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
+</style>
+</helmet>
+
+<div class="doc" data-theme="{{theme}}" style="width:980px;min-height:1560px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 48px">
+
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:24px;padding-bottom:20px;border-bottom:1px solid var(--line2)">
+    <div>
+      <h1 style="margin:0 0 6px;font:600 34px/1.15 var(--disp);letter-spacing:-.02em">The rebuild, screen by screen</h1>
+      <p style="margin:0;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:640px">Quiet Instrument, rebuilt in <span style="font-family:var(--mono);font-size:12.5px">mobile/KokonadaHealth</span> on Tamagui / Reanimated / Skia. One screen per PR, in this order. The artboards on this canvas are what each PR is expected to produce.</p>
+    </div>
+    <div style="font:500 11px/1.8 var(--mono);letter-spacing:.12em;color:var(--ink3);text-align:right;flex:none">14 PRs<br>22 ARTBOARDS<br>0 CONTRACT CHANGES</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:64px 190px 1fr 250px;gap:0;margin-top:26px">
+
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);padding:0 0 10px">PR</div>
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);padding:0 0 10px">SCREEN</div>
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);padding:0 16px 10px">WHAT CHANGES IN THE APP</div>
+    <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);padding:0 0 10px">WATCH OUT FOR</div>
+
+    <div style="border-top:1px solid var(--line2);padding:13px 0;font:500 13px var(--mono);color:var(--accent)">00</div>
+    <div style="border-top:1px solid var(--line2);padding:13px 0;font:600 14px var(--disp)">Tokens &amp; shell</div>
+    <div style="border-top:1px solid var(--line2);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)"><span style="font-family:var(--mono);font-size:12px;color:var(--ink)">design/tokens.ts</span> re-authored to the Quiet Instrument palette; one hairline elevation replaces glass; motion tokens gain the 6200 ms stressed breath. Tab bar becomes glyph-first (label under the active tab only); the persistent player sheet lands on every tab root except Generate, which takes a 3px playing hairline instead.</div>
+    <div style="border-top:1px solid var(--line2);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Cross-cutting by nature — this is the one PR that touches every screen. Ship it first or every later diff carries palette noise.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">01</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Splash</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Mark + wordmark on the breathing glow; the 4200 ms brand breath becomes a shared hook the Genesis rings reuse.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Bootsplash asset is native — Android XML and the iOS imageset both need re-export.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">02</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Onboarding</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Three panels — plate, body line, rising arc — each a Skia scene. "No watch needed" sits under the CTA on every panel.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Pager dots need a 44 px hit area around a 26×8 pill, each labelled for screen readers.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">03</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Login</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Three providers at equal weight; submitting becomes a determinate bar, not a spinner; the error names what happened and that nothing was sent.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Apple and Google buttons must be the official assets — compliance gate before merge.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">04</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Connect services</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Two cards, one row shape, REQUIRED against NEVER A GATE. "Try with mood only" becomes a permanent underlined path.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The wearable route must still enter the Art. 9 gate before the OS Health Connect sheet — do not re-order it.</div>
+
+    <div style="border-top:1px solid var(--line2);padding:13px 0;font:500 13px var(--mono);color:var(--accent)">05</div>
+    <div style="border-top:1px solid var(--line2);padding:13px 0;font:600 14px var(--disp)">Generate — the hero</div>
+    <div style="border-top:1px solid var(--line2);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">The body strip moves onto this screen: six-minute trace, bpm / HRV / stillness, one plain sentence. The wheel becomes the plate; the state read card carries a named state, a confidence word and its number, undo, clear and the list alternative. The living field replaces the aura.</div>
+    <div style="border-top:1px solid var(--line2);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The biggest PR. Needs a state name and confidence from the engine; until Wave 4 lands those, read from the existing targets and say less rather than inventing a number.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">06</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Genesis</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Three breathing rings on phase offsets, three status lines, three ticks. Failure silently becomes "Using a set I already trust for this."</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Reduced motion and low power hold the rings still with identical layout and copy. Never a spinner.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">07</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Now Playing</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Art, transport, More / Less, and the receipt sentence promoted to a tappable card. Foreign-track and end-of-set get real copy instead of silence.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">More / Less needs a feedback endpoint. If it isn't there yet, ship the screen without the pills rather than with dead ones.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">08</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Mix receipt</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">New screen. Reads as an argument: what I read → what that set → where it goes → up next, closing on where the data stayed.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The trajectory line needs the arc from the engine. Without it, ship the first two sections only — never a drawn arc that means nothing.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">09</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Pulse</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">State headline with confidence, two live tiles, the trace, the whole picture, and the honest empties kept verbatim. Adds the baseline warm-up card.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">"Not shared by your watch" stays exactly that — not a dash, not an error, not a nudge to buy a different watch.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">10</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Archive</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Rows split into two intents — play it again, or same state with new music. Nothing scored, nothing expires.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Two 44 px actions per row on a 390 pt screen: check the wrap at the largest Dynamic Type step.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">11</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">You / Vault</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">One row shape for every connection, the vault panel with consent version and retention, the discovery dial, and the irreversible pair separated below a rule.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">The watch shows a pairing code, never a raw token. The discovery dial needs somewhere to persist to.</div>
+
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:500 13px var(--mono);color:var(--ink3)">12</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:600 14px var(--disp)">Health consent</div>
+    <div style="border-top:1px solid var(--line);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">Restyled only: static surface, no tint, no motion, eight numbered sections, Decline and Agree identical in every dimension.</div>
+    <div style="border-top:1px solid var(--line);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Version and date are legal content, not copy — the version bump is a separate decision, not part of a restyle.</div>
+
+    <div style="border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:13px 0;font:500 13px var(--mono);color:var(--accent)">13</div>
+    <div style="border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:13px 0;font:600 14px var(--disp)">The living field</div>
+    <div style="border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:13px 16px;font:400 13px/1.6 var(--text);color:var(--ink2)">The ambient layer lands on Place, Genesis, Now Playing and Pulse — hue from the state, breath from the heart, reach from arousal — and its switch lands in You. Driven by the <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">deriveAuraUniforms</span> that already ships, so this re-skins a hardened driver rather than adding a second one.</div>
+    <div style="border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:13px 0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Two animated layers across four screens — measure on the S22+ before merging, and keep the drop order under thermal pressure: second lobe, then breath, then flat. There is no beat layer — one was drafted at cardiac rate and cut as a regulator violation.</div>
+
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:34px">
+
+    <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);padding:20px 22px">
+      <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:12px">UNTOUCHED IN EVERY PR</div>
+      <div style="display:flex;flex-direction:column;gap:9px;font:400 13px/1.55 var(--text);color:var(--ink2)">
+        <div>The emotion payload stays at most three placements on a continuous 2-D disc — the plate is a new skin over the same ring buffer.</div>
+        <div><span style="font-family:var(--mono);font-size:12px;color:var(--ink)">screenToCircumplex</span> and the wheel geometry keep their maths; only the paint changes.</div>
+        <div>Every socket and DTO contract, the three-lane state split, and the pinned S- and D-series tests stay as they are.</div>
+        <div>The arousal ramp still stops at violet. No red enters the emotion range in any token this rebuild introduces.</div>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);padding:20px 22px">
+      <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:12px">DECIDE BEFORE PR 05</div>
+      <div style="display:flex;flex-direction:column;gap:9px;font:400 13px/1.55 var(--text);color:var(--ink2)">
+        <div><span style="color:var(--ink)">Five tabs or four.</span> The handoff chose five. With five, NOW is empty for a first-run user — route it to Generate with an honest line rather than an empty player.</div>
+        <div><span style="color:var(--ink)">Where the state name comes from.</span> Wave 4 produces it. Until then the read card either quotes the existing targets or says less — it never invents a confidence.</div>
+        <div><span style="color:var(--ink)">The activity presets already match.</span> The app ships the same eight the design shows; the eleven in the README belong to the retired web surface.</div>
+        <div><span style="color:var(--ink)">Does the field start on?</span> It should — it is the product&#39;s whole argument, and turning it off is one tap in You. Starting it off would mean most people never see the thing that makes this app itself.</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+</x-dc>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":980,"height":1560}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'light' };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+// A miniature src/design/tokens.ts, used ONLY by the rule tests so their expected messages
+// do not churn every time a real brand colour is retuned. The real file is exercised by
+// tokenIndex.test.js. Kept as .txt so neither jest nor eslint tries to claim it.
+
+export const space = { none: 0, xs: 4, sm: 8, md: 12, lg: 16, xl: 24, '2xl': 32 } as const;
+
+export const radius = { xs: 6, sm: 10, md: 14, pill: 999 } as const;
+
+export const type = {
+  size: { body: 16, caption: 11 },
+  tracking: { display: -0.4, body: 0 },
+  leading: { tight: 1.12, normal: 1.44 },
+} as const;
+
+const dark = {
+  surface: { base: '#0E1030' },
+  accent: { glow: '#8B6FE8' },
+  aurora: { glass: { night: { bg: 'rgba(255,255,255,0.10)' } } },
+};
+
+export const colors = { dark } as const;
+
+export const stroke = { none: 0, control: 1.5, glyph: 2.5 } as const;

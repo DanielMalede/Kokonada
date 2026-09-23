@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { encryptedNumber } = require('./encryptedField');
+const { encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField');
 
 const hrZoneSchema = new mongoose.Schema({
   label: { type: String }, // "easy", "fat-burn", "aerobic", "anaerobic", "max"
@@ -91,6 +91,16 @@ const medicalProfileSchema = new mongoose.Schema({
     status:      { type: String, default: null }, // e.g. "Peak Athletic Performance"
     confidence:  { type: Number, default: null }, // 0–1
     computedAt:  { type: Date,   default: null },
+    // W4-006, ADDITIVE. The taxonomy state id ("peak-effort") — the INTERNAL vocabulary the
+    // engines reason in, stored encrypted for the same reason `status` is (audit F3, R10) and
+    // written explicitly by medicalProfileService because $set skips setters.
+    //
+    // Deliberately a SECOND field rather than a change of vocabulary on `status`: that field is
+    // decrypted and served to the owner by pulseController, and what a person is shown for a
+    // state is HITL H6 — Daniel's open decision, pending a compliance pass on the wording. A
+    // seam is not the place to settle it by accident.
+    stateId:         { type: String, default: null },
+    stateConfidence: { type: Number, default: null }, // 0–1, the affect engine's own
   },
 
   // How many biometric readings the AI used to build this profile
@@ -105,5 +115,10 @@ const medicalProfileSchema = new mongoose.Schema({
   // any code path; when they begin storing real values, wrap them with
   // encryptedNumber() the same way (and write via document .save(), not $set). (audit F3)
 });
+
+// Every encrypted leaf of this schema needs the W4-D76 pipeline refusal: an aggregation-pipeline
+// update runs server-side, so no setter fires and the value would be stored as plaintext.
+// Registered before `mongoose.model()` so the hook exists on every query.
+medicalProfileSchema.plugin(bindEncryptedAadOnUpdate);
 
 module.exports = mongoose.model('MedicalProfile', medicalProfileSchema);

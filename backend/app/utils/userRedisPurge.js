@@ -23,6 +23,10 @@ const USER_KEY_NAMESPACES = Object.freeze([
   { name: 'candidate-pool', pattern: (id) => `pool:${id}:*` },     // candidate-pool partitions
   { name: 'live-buffer',    pattern: (id) => `buffer:${id}:*` },   // precompiled live-biometric playlists
   { name: 'bio-baseline',   pattern: (id) => `bio:baseline:${id}` }, // AAD-bound encrypted baseline blob
+  // W4-006 (§0.4 S5): the carried affect posterior — an AAD-bound encrypted HMM state whose
+  // `label` is an INFERRED emotional/physiological state. Self-expires in 2 h, but right-to-
+  // erasure means an inference about a person goes when they ask, not when a TTL gets round to it.
+  { name: 'bio-affect',     pattern: (id) => `bio:affect:${id}` },
 ]);
 
 function patternsFor(userId) {
