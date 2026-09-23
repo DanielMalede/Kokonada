@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme, useMotion } from '../design/theme';
 import { space, radius, type as typography, motion, type HapticKey } from '../design/tokens';
 import { fireHaptic } from '../design/haptics';
+import { LegalNote } from '../legal/LegalNote';
+import { ONBOARDING_LEGAL_LINES } from '../legal/legalCopy';
 import { onboardingStore } from './onboardingStore';
 import { OnboardingPanel } from './OnboardingPanel';
 import { AuraHero } from './AuraHero';
@@ -26,6 +28,10 @@ import { WheelTeaseHero } from './WheelTeaseHero';
 // Both exits call onComplete → markSeen, so the App route machine flips to Sign-in (never
 // back to Onboarding). Every motion is token-driven and stills under reduced motion; the
 // layout is byte-identical either way, so swipe always works.
+// The bottom chrome carries the AI Act Art. 50 notice (UI-005) on every panel, from panel 1 —
+// Skip can end onboarding there. The chrome FLOWS below the pager (not an overlay), so the notice
+// can never sit over or under a panel's copy at any font scale, and Skip comes after it in the
+// tree so a screen reader reaches the notice before either exit.
 
 const PANEL_COUNT = 3;
 const HERO_FRACTION = 0.7;     // hero size vs the viewport width (proportional)
@@ -83,6 +89,7 @@ export function OnboardingScreen({
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
       <Animated.ScrollView
         ref={listRef}
+        style={styles.pager}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
@@ -122,18 +129,7 @@ export function OnboardingScreen({
         })}
       </Animated.ScrollView>
 
-      {/* Skip — quiet, persistent, top-right (safe-area aware) */}
-      <Pressable
-        onPress={complete}
-        accessibilityRole="button"
-        accessibilityLabel="Skip"
-        style={[styles.skip, { top: insets.top + space.md }]}
-        hitSlop={space.sm}
-      >
-        <Text style={{ color: c.content.secondary, fontSize: typography.size.callout, fontWeight: typography.weight.medium }}>Skip</Text>
-      </Pressable>
-
-      {/* Bottom chrome: pager dots + the primary CTA (safe-area aware) */}
+      {/* Bottom chrome: pager dots + the AI notice + the primary CTA (safe-area aware), in flow */}
       <View style={[styles.chrome, { paddingBottom: insets.bottom + space.xl }]}>
         <View
           accessible
@@ -159,6 +155,11 @@ export function OnboardingScreen({
           })}
         </View>
 
+        {/* AI Act Art. 50 notice — identical on all three panels, outside the pager and the Begin fade */}
+        <View style={styles.legal}>
+          <LegalNote lines={ONBOARDING_LEGAL_LINES} />
+        </View>
+
         {page < LAST ? (
           <Pressable
             onPress={() => goTo(page + 1)}
@@ -182,15 +183,29 @@ export function OnboardingScreen({
           </AnimatedPressable>
         )}
       </View>
+
+      {/* Skip — quiet, persistent, top-right (safe-area aware). Absolutely positioned, so it sits
+          last in the tree without moving: the notice is read before this exit. */}
+      <Pressable
+        onPress={complete}
+        accessibilityRole="button"
+        accessibilityLabel="Skip"
+        style={[styles.skip, { top: insets.top + space.md }]}
+        hitSlop={space.sm}
+      >
+        <Text style={{ color: c.content.secondary, fontSize: typography.size.callout, fontWeight: typography.weight.medium }}>Skip</Text>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  pager: { flex: 1 },
   skip: { position: 'absolute', right: space.xl, paddingVertical: space.sm, paddingHorizontal: space.sm },
-  chrome: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', paddingHorizontal: space.xl },
+  chrome: { alignItems: 'center', paddingHorizontal: space.xl },
   dots: { flexDirection: 'row', alignItems: 'center', marginBottom: space.xl },
+  legal: { width: '100%', maxWidth: CTA_MAX_WIDTH, marginBottom: space.lg },
   cta: { width: '100%', maxWidth: CTA_MAX_WIDTH, paddingVertical: space.lg, alignItems: 'center', borderRadius: radius.pill },
   ctaText: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
 });
