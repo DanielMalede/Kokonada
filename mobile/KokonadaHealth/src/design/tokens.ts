@@ -63,11 +63,17 @@ export interface ColorScheme {
     tertiary: Hex;  // captions / disabled (still AA on base)
     muted: Hex;     // the Aurora supporting-text hue (mockup --mut)
     onAccent: Hex;  // text/icon on an accent fill
+    onCtaFill: Hex; // text/icon on the standard primary-CTA ink fill (accent.ctaFill)
   };
   accent: {
     glow: Hex;      // THE brand accent — the Aurora violet focal glow
     glowIdle: Hex;  // the focal glow at rest, before any emotion tap re-tints it
     glowInk: Hex;   // accent fill that carries onAccent text at AA (button surfaces)
+    // The STANDARD primary-CTA fill: pure INK — near-black indigo in Day, near-white in Nocturne —
+    // fixed, never re-tinted, carrying `content.onCtaFill` at AA. Deliberately NOT `glowInk`: the
+    // ONE gradient CTA is the Generate hero (auroraSurfaces.ts), which still reads glowInk as a
+    // gradient stop. Both pairings are contrast-proven in tokens.test.ts.
+    ctaFill: Hex;
     gold: Hex;      // the premium gold signature (key moments only)
     goldInk: Hex;   // gold as TEXT — darkened/lightened per theme so it reads at AA
     goldGraphic: Hex; // gold as an icon/graphic (AA-large), e.g. the active tab
@@ -136,11 +142,13 @@ const dark: ColorScheme = {
     tertiary: '#A7A6D0',
     muted: '#A7A6D0',
     onAccent: '#0E1030',    // midnight ink rides ON the bright violet fill
+    onCtaFill: '#0B0D26',   // deepest midnight rides ON the near-white CTA ink fill (16.93:1)
   },
   accent: {
     glow: '#9B7BF0',        // the Aurora violet — the signature focal glow
     glowIdle: '#9B7BF0',
     glowInk: '#9B7BF0',     // bright violet is dark-theme-safe as a fill for midnight onAccent text
+    ctaFill: '#EEF1FC',     // the CTA INVERTS in Nocturne — near-white ink over the midnight canvas
     gold: '#F5B93A',
     goldInk: '#FFD37A',     // lifted gold so it reads as TEXT on midnight
     goldGraphic: '#E7C879',
@@ -177,11 +185,13 @@ const light: ColorScheme = {
     tertiary: '#6A6589',    // folded onto `muted` — see the Nocturne note above
     muted: '#6A6589',
     onAccent: '#FFFFFF',    // white rides ON the deep violet fill
+    onCtaFill: '#FAFAFF',   // the canvas near-white rides ON the ink fill (16.74:1)
   },
   accent: {
     glow: '#8B6FE8',        // the Aurora violet, readable as a graphic on porcelain
     glowIdle: '#8B6FE8',
     glowInk: '#6E3FC4',     // DEEPER violet fill so white onAccent clears AA (the glow itself is too light)
+    ctaFill: '#14163A',     // near-black indigo — on porcelain the standard CTA is INK, not violet
     gold: '#F5B93A',
     goldInk: '#8A5A12',     // deepened gold so it reads as TEXT on porcelain
     goldGraphic: '#C99A1E',

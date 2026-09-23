@@ -7,6 +7,7 @@
 const ConsentRecord = require('../../models/ConsentRecord');
 const User = require('../../models/User');
 const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('./wearableErasure');
+const { purgeLearnedPersonalization } = require('./learningErasure');
 
 // CROSS-PACKAGE CONTRACT: the mobile client reads this to decide whether an on-file grant is
 // still current (a bump re-prompts before the OS health sheet). Bump this — and update the
@@ -65,7 +66,16 @@ async function recordConsent(userId, { purpose, dataCategories, appVersion, loca
 // currently-active one. Redundant no-op erasures on unconnected providers are acceptable for a
 // rare, user-initiated action. We reuse the existing per-provider primitive (no new erasure
 // machinery); MedicalProfile drops once the last provider's samples are gone.
+//
+// It ALSO erases the learned personalization (BE-015 / ADR-0015) — see the block below.
 async function withdrawConsent(userId, purpose) {
+  // Read the grant state BEFORE the withdrawal row is written. ORDER IS LOAD-BEARING: after the
+  // create() below, `latestFor` IS the withdrawal we just wrote, so this would read 'withdrawn'
+  // every time and the learning purge would never run for anyone. The integration test's main
+  // assertion fails outright if this read is moved down.
+  const priorConsent = await ConsentRecord.latestFor(userId, purpose);
+  const hadGrantOnFile = priorConsent?.status === 'granted';
+
   const record = await ConsentRecord.create({
     userId,
     purpose,
@@ -82,7 +92,20 @@ async function withdrawConsent(userId, purpose) {
   // after the one that threw). Failures are collected, not swallowed, so an operator can see
   // an incomplete erasure and retry — they do not fail withdrawConsent itself.
   const erasureFailures = [];
-  const user = await User.findById(userId);
+  // GUARDED. This lookup was the one unguarded await in the erasure block, and it failed in the
+  // UNSAFE direction: the per-provider loop below is carefully isolated, but a transient Mongo
+  // error here (a replica-set step-down, a redeploy mid-request) rejected withdrawConsent AFTER
+  // the withdrawal row was committed and BEFORE the learning purge — so consent was revoked, the
+  // learned personalization survived, and the Art.5(2) accountability line never emitted, leaving
+  // no record anywhere that the promised erasure had not happened. The comment above says the
+  // withdrawal row "stands regardless of what follows"; that was true of the row and false of the
+  // erasure. Now the purge and the log still run, and the operator sees WHICH step failed.
+  let user = null;
+  try {
+    user = await User.findById(userId);
+  } catch {
+    erasureFailures.push('user-lookup');
+  }
   if (user) {
     for (const provider of WEARABLE_PROVIDERS) {
       try {
@@ -92,6 +115,47 @@ async function withdrawConsent(userId, purpose) {
       }
     }
   }
+
+  // Everything collected so far is a PROVIDER failure; captured before the learning block so the
+  // two are never conflated in the count below.
+  const providerErasureFailures = erasureFailures.length;
+
+  // The learned personalization (BE-015 / ADR-0015). OUTSIDE the provider loop, deliberately:
+  // `RewardEvent` / `PersonalWeights` are addressed by the USER alone — there is no provider in a
+  // taste profile — so running this per-provider would repeat a whole-user delete four times. It
+  // also runs whether or not a User doc was found: these rows are keyed by userId and need no
+  // credential to erase. Its own try/catch, contributing a DISTINCT 'learning' entry rather than
+  // a provider name, so an operator reading `erasureFailures` sees WHICH promise went unkept —
+  // a learning failure misfiled as a provider failure would send them to retry the wrong thing.
+  //
+  // GUARDED on an actual grant. POST /api/consent/withdraw is directly callable by any
+  // authenticated client and the UI only HIDES the button, so a mood-only listener who never
+  // granted health consent can reach this path. For them the erasure was never promised and the
+  // data was never covered by the consent being withdrawn — destroying their taste model would
+  // be over-erasure of exactly the kind wearableErasure.js's exclusion rationale argues against.
+  let learning = 'skipped';
+  let learningPurged = { rewardEvents: 0, personalWeights: 0 };
+  if (hadGrantOnFile) {
+    try {
+      learningPurged = await purgeLearnedPersonalization(userId);
+      learning = 'purged';
+    } catch {
+      learning = 'failed';
+      erasureFailures.push('learning');
+    }
+  }
+
+  // GDPR Art.5(2) accountability: the controller must be able to DEMONSTRATE the erasure ran.
+  // consentController.withdraw discards this function's return value, so without this line the
+  // `erasureFailures` list an operator is meant to act on reaches nobody, and there is no record
+  // anywhere that the promised erasure happened. ONE line, COUNTS ONLY — never a value, never a
+  // bucket coordinate (ADR-0005: biometrics are never logged), on the same footing as
+  // utils/biometricAudit's values-free access record.
+  console.info(
+    `[consent-withdrawal] user=${userId} purpose=${purpose} `
+    + `providerErasureFailures=${providerErasureFailures} learning=${learning} `
+    + `rewardEvents=${learningPurged.rewardEvents} personalWeights=${learningPurged.personalWeights}`,
+  );
 
   // Explicit shape (not a spread of the Mongoose document — `create()` returns a real Document
   // whose getters/virtuals don't survive `{...record}`; no current caller reads the return

@@ -41,7 +41,11 @@ So bumping `CURRENT_CONSENT_VERSION` 1 → 2 **for copy reasons would flip the G
 
 `backend/tests/garminConsentVersionGate.test.js:59` asserts `GARMIN_CONSENT_MIN_VERSION > CURRENT_CONSENT_VERSION` and will fail the build. **That failure is the guard working. Do not edit the assertion.**
 
-**Correct move:** `CURRENT_CONSENT_VERSION = 2` **and** `GARMIN_CONSENT_MIN_VERSION = 3`, with `CONSENT_SCREEN_VERSION = 2` client-side in the same commit.
+**Correct move — SUPERSEDED, see below.** The original prescription was `CURRENT_CONSENT_VERSION = 2` **and** `GARMIN_CONSENT_MIN_VERSION = 3`, with `CONSENT_SCREEN_VERSION = 2` client-side in the same commit.
+
+**The owner has chosen `CURRENT_CONSENT_VERSION = 3` and `GARMIN_CONSENT_MIN_VERSION = 4`** (2026-08-29), with `CONSENT_SCREEN_VERSION = 3` client-side in the same commit. Both forms hold the invariant `min > current`, so `garminConsentVersionGate.test.js:58` passes either way; 3/4 was chosen to leave a clear gap. **The two prescriptions must not be left disagreeing** — this doc is the discoverable internal rule, and a discoverable rule contradicted by the shipped code is the posture this plan itself warns against at the Decline rule.
+
+**Deploy hazard, added by `compliance-auditor`:** the server bump must be sequenced *behind client adoption*. `recordConsent` rejects any `clientVersion !== CURRENT_CONSENT_VERSION` with `stale_client` and writes no row (`consent.js:44-46`). On a server-only bump every existing grantor becomes `staleVersion: true`, which hard-blocks all ingestion — sockets, the Garmin webhook, and the Apple/health batch via `requireConsent` — while users on an older binary cannot re-grant, because their `clientVersion: 1` is rejected. That is a health-lane outage they cannot escape until they update. Ship the client carrying `CONSENT_SCREEN_VERSION = 3` first, then bump the server.
 
 ## C3 · LIVE — placeholder legal copy is being recorded as consent v1 right now
 

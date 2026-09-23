@@ -11,12 +11,17 @@
   <link rel="stylesheet" href="./tokens.css">
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
-    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
 .samp { position:relative; overflow:hidden; border-radius:20px; border:1px solid var(--line); background:var(--canvas); height:300px; }
     .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:1; }
     .fld1, .fld2 { position:absolute; }
-    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; }
-    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; }
+    /* animation-fill-mode:backwards is LOAD-BEARING, not tidiness. .fld2 carries a 1400ms
+       delay and declares no opacity of its own, so with the default `none` it rendered at
+       opacity 1.0 -- 2.22x its own .45 ceiling -- for the first 1.4s of EVERY screen entry,
+       then snapped to .45 un-eased when the animation took over at its 0% keyframe. The
+       largest soft form on the screen, dropping 2.2x instantly, on every entry.
+       `backwards` applies the 0% keyframe during the delay instead. */
+    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; animation-fill-mode:backwards; }
+    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; animation-fill-mode:backwards; }
     @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
     .qi[data-theme="dark"] .fldwrap { opacity:0.90; }
     [data-field="calm"] .fld1 { height:74%; background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 74%); }
@@ -34,14 +39,15 @@
 </style>
 </helmet>
 
-<div class="qi" data-theme="{{theme}}" style="width:1180px;min-height:1000px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 48px">
+<div class="qi" data-theme="{{theme}}" style="width:1180px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 48px">
 
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--line2)">
     <div>
       <h1 style="margin:0 0 6px;font:600 34px/1.15 var(--disp);letter-spacing:-.02em">The living field</h1>
-      <p style="margin:0;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:720px">One ambient layer behind the app that answers the body. It takes its colour from the state you are in, it breathes on your heart, and it reaches further up the screen the more activated you are. It is the only ambient element — it replaces the tide, and it never becomes four drifting blobs again.</p>
+      <p style="margin:0 0 10px;font:400 12px/1.55 var(--text);color:var(--ink3);max-width:720px;border-left:2px solid var(--line2);padding-left:10px">The app today renders the shipped four-blob aurora (<span class="mono">auroraField.ts</span> &mdash; sky / violet / gold / pink, drifting over <span class="mono">motion.duration.flow</span>). The two-lobe field on this board <b>has not been ratified</b> and is not built. See <span class="mono">docs/plans/DECISION_TWO_LOBE_FIELD.md</span>.</p>
+<p style="margin:0;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:720px">One ambient layer behind the app that answers the body. It takes its colour from the state you are in, it breathes on your heart, and it reaches further up the screen the more activated you are. It is the only ambient element — it replaces the tide, and it never becomes four drifting blobs again.</p>
     </div>
-    <div style="font:500 11px/1.8 var(--mono);letter-spacing:.12em;color:var(--ink3);text-align:right;flex:none">2 LOBES<br>2 PERIODS<br>0 BLUR</div>
+    <div style="text-align:right;flex:none"><div style="display:inline-block;padding:5px 10px;border-radius:8px;border:1px dashed var(--line2);font:500 10px/1.5 var(--mono);letter-spacing:.1em;color:var(--ink2);margin-bottom:8px">INTENDED END-STATE &mdash; NOT WHAT THE APP RENDERS TODAY</div><div style="font:500 11px/1.8 var(--mono);letter-spacing:.12em;color:var(--ink3)">2 LOBES<br>2 PERIODS<br>0 BLUR</div></div>
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin-top:28px">
@@ -127,7 +133,7 @@
       <div style="border:1px solid var(--line);border-radius:18px;background:var(--raised);padding:16px 16px 18px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:14px">
           <div style="font:600 14.5px var(--disp);color:var(--ink)">Living background</div>
-          <span style="display:flex;align-items:center;width:50px;height:30px;border-radius:15px;background:var(--accent);padding:3px;box-sizing:border-box;flex:none;justify-content:flex-end">
+          <span style="display:flex;align-items:center;width:50px;height:30px;border-radius:15px;background:var(--brand);padding:3px;box-sizing:border-box;flex:none;justify-content:flex-end">
             <span style="display:block;width:24px;height:24px;border-radius:50%;background:var(--raised)"></span>
           </span>
         </div>
@@ -152,7 +158,7 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1180,"height":1000}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1180,"height":1585}}'>
 class Component extends DCLogic {
   renderVals() {
     return { theme: this.props.theme ?? 'light' };

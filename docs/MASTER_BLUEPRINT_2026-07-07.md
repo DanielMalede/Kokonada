@@ -1,5 +1,25 @@
 # MASTER EXECUTION BLUEPRINT — 2026-07-07 (Orchestrator-Fable, Phase 2 — APPROVED)
 
+> ## ⚠️ READ THIS BEFORE ANY DATE IN THIS FILE — amended 2026-09-02
+>
+> **Launch is around 2027. There is no deadline, and nothing in this file is a commitment.**
+> The app is not stable and there is a lot still to improve (Daniel, 2026-09-02). This document
+> reads as though Wave 3 store submission follows shortly after the current wave. **It does not.**
+> Every date here is descriptive of when it was written, never a target.
+>
+> **The operative consequence:** *nothing may be rushed on the grounds of a deadline, because there
+> is no deadline.* An argument of the form "we need to ship, so accept this" is invalid here by
+> construction. A REVISE, a HALT, or a defect found late is the process working — not schedule
+> pressure — and the schedule absorbs it. On-device capture, mutation proofs and re-audits cost
+> time this project has.
+>
+> **Launch platform is RULED: Android-first** ([ADR-0016](adr/0016-launch-platform.md), 2026-09-02).
+> Wave 3 targets **Google Play only**; iOS submission and on-device iOS verification move to a
+> post-launch "iOS Parity" wave with **no date attached**. The "OPEN DECISION — Launch platform"
+> section below is **closed**; it is kept for the reasoning, not for the choice.
+>
+> **PREREQ-iOS below is factually wrong and is struck** — see the amended row.
+
 > Companion to `GROUND_TRUTH_2026-07-07.md`. Approved by Daniel 2026-07-07 with the gate
 > decisions recorded below. **Phase 3+ (squad dispatch) starts only on an explicit
 > `EXECUTE BLUEPRINT`, on an Opus 4.8 session** per `docs/ORCHESTRATOR_FABLE.md`
@@ -21,14 +41,16 @@
 
 | ID | Prerequisite | Nature | Blocks |
 | :--- | :--- | :--- | :--- |
-| **PREREQ-iOS** | **iOS build environment** — iOS builds require **macOS + Xcode + an Apple Developer account with signing certificates and provisioning profiles.** The current dev environment is **Windows/Android-only, so iOS is not buildable today.** | **HARD external prerequisite — Pause & Guide.** Only Daniel can provision it; no agent/session can satisfy it from code. Do not attempt any iOS build, sign, or submit step until it exists. | A12 native "Sign in with Apple" button (2.1) · A13 iOS release-pipeline half (2.4) · Wave 3 iOS store submission + on-device iOS verification (3.1) |
+| **PREREQ-iOS** | ~~**iOS build environment** — iOS builds require macOS + Xcode… "iOS is not buildable today."~~ **STRUCK 2026-09-02 — the build clause is FALSE.** iOS builds **green on CI**: `OPS-008`, run `32992549921`, sha `0e19ad8` on `main`, `Xcode build (simulator, unsigned) → success`; and `DAN-006` records its own "needs a human with a Mac" premise as falsified. **The true, narrower prerequisite:** **signing, App Store Connect submission, and on-device iOS verification** require an Apple Developer enrolment and a physical iPhone, neither of which exists. Under ADR-0016 (Android-first) **nothing waits on this.** | **HARD external prerequisite — Pause & Guide.** Only Daniel can provision it; no agent/session can satisfy it from code. Do not attempt any iOS build, sign, or submit step until it exists. | A12 native "Sign in with Apple" button (2.1) · A13 iOS release-pipeline half (2.4) · Wave 3 iOS store submission + on-device iOS verification (3.1) |
 
 **🔒 BLOCKED on PREREQ-iOS** (do not attempt until provisioned) — the iOS-only portions of **2.1, 2.4, and 3.1** (flagged inline below).
 **✅ NOT blocked — proceed normally on Android:** free-tier Entitlements (**2.2** — RevenueCat is cross-platform) · a11y/i18n/RTL (**2.3** — folds into 2.8) · **Android** build, release pipeline, and Play submission (Android halves of 2.4 / 3.1).
 
 ## OPEN DECISION — Launch platform (Daniel to rule; record the answer as an ADR)
 
-PREREQ-iOS forces a launch-platform choice. **Both options are presented for Daniel; do not decide by default.** Once ruled, record the decision as a new ADR under `docs/adr/`.
+**CLOSED 2026-09-02 — ruled Option A, Android-first. See [ADR-0016](adr/0016-launch-platform.md).** The table below is retained for its reasoning only; the choice is made. Daniel's reason: no Apple enrolment exists and none has been started, and a launch date should not be set by a queue you have not joined.
+
+~~PREREQ-iOS forces a launch-platform choice. Both options are presented for Daniel; do not decide by default.~~
 
 | Option | What it means | Impact |
 | :--- | :--- | :--- |

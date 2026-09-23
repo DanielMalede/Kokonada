@@ -11,14 +11,19 @@
   <link rel="stylesheet" href="./tokens.css">
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
-    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
 @keyframes breathe { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
 
     /* THE LIVING FIELD — one ambient layer, two lobes, one subliminal beat. */
     .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.78; }
     .fld1, .fld2 { position:absolute; }
-    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; }
-    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; }
+    /* animation-fill-mode:backwards is LOAD-BEARING, not tidiness. .fld2 carries a 1400ms
+       delay and declares no opacity of its own, so with the default `none` it rendered at
+       opacity 1.0 -- 2.22x its own .45 ceiling -- for the first 1.4s of EVERY screen entry,
+       then snapped to .45 un-eased when the animation took over at its 0% keyframe. The
+       largest soft form on the screen, dropping 2.2x instantly, on every entry.
+       `backwards` applies the 0% keyframe during the delay instead. */
+    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; animation-fill-mode:backwards; }
+    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; animation-fill-mode:backwards; }
     @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
     .qi[data-theme="dark"] .fldwrap { opacity:0.70; }
     .qi[data-field="off"] .fldwrap { display:none; }
@@ -56,11 +61,11 @@
       <circle cx="336" cy="14.5" r="3.2" fill="var(--accent)" style="animation:breathe 4200ms ease-in-out infinite;transform-origin:336px 14.5px"></circle>
     </svg>
     <div style="display:flex;align-items:baseline;gap:14px">
-      <span style="display:flex;align-items:baseline;gap:4px"><span style="font:600 22px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></span>
+      <span style="display:flex;align-items:baseline;gap:4px"><span style="font:600 19px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></span>
       <span style="font:500 11px var(--mono);color:var(--ink2)">HRV 29 ms</span>
-      <span style="font:500 11px var(--mono);color:var(--ink2)">still 2 h</span>
+      <span style="font:500 11px var(--mono);color:var(--ink2)">slept 5 h 40</span>
     </div>
-    <div style="margin-top:4px;font:400 11.5px/1.45 var(--text);color:var(--ink2)">Variability is low for you and you have not moved since 19:00. I will keep the ceiling down.</div>
+    <div style="margin-top:4px;font:400 11.5px/1.45 var(--text);color:var(--ink2)">Variability is low for you and you slept under six hours. I will keep the ceiling down.</div>
   </div>
 
   <div style="position:relative;flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 22px;min-height:0">
@@ -77,24 +82,24 @@
         <circle cx="161" cy="161" r="132" fill="url(#plateFaceMain)" stroke="var(--line)" stroke-opacity=".55"></circle>
         <line x1="161" y1="112" x2="161" y2="210" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"></line>
         <line x1="112" y1="161" x2="210" y2="161" stroke="var(--line)" stroke-dasharray="1 10" opacity=".45"></line>
-        <polygon points="206,103 251,135 193,58" fill="var(--accentfill)" stroke="var(--accent)" stroke-width="1" stroke-opacity=".5"></polygon>
+        <polygon points="206,103 251,135 193,58" fill="var(--accentwash)" stroke="var(--accent)" stroke-width="1" stroke-opacity=".5"></polygon>
       </svg>
-      <div style="position:absolute;left:50%;top:1px;transform:translateX(-50%);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">HIGH ENERGY</div>
-      <div style="position:absolute;left:50%;bottom:1px;transform:translateX(-50%);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">LOW ENERGY</div>
-      <div style="position:absolute;left:-30px;top:50%;transform:translateY(-50%) rotate(-90deg);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">UNPLEASANT</div>
-      <div style="position:absolute;right:-22px;top:50%;transform:translateY(-50%) rotate(-90deg);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.65">PLEASANT</div>
+      <div style="position:absolute;left:50%;top:15px;transform:translateX(-50%);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.42">HIGH ENERGY</div>
+      <div style="position:absolute;left:50%;bottom:15px;transform:translateX(-50%);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.42">LOW ENERGY</div>
+      <div style="position:absolute;left:6px;top:50%;transform:translateY(-50%) rotate(-90deg);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.42">UNPLEASANT</div>
+      <div style="position:absolute;right:6px;top:50%;transform:translateY(-50%) rotate(-90deg);font:500 11px var(--mono);letter-spacing:.18em;color:var(--ink);opacity:.42">PLEASANT</div>
 
-      <div style="position:absolute;left:64%;top:32%;transform:translate(-50%,-50%);width:40px;height:40px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 1 of 3, first"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent);display:block"></span></div>
-      <div style="position:absolute;left:78%;top:42%;transform:translate(-50%,-50%);width:50px;height:50px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 2 of 3, second"><span style="width:23px;height:23px;border-radius:50%;background:var(--accent);display:block"></span></div>
-      <div style="position:absolute;left:60%;top:18%;transform:translate(-50%,-50%);width:60px;height:60px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 3 of 3, most recent"><span style="width:28px;height:28px;border-radius:50%;background:var(--accent);display:block"></span></div>
+      <div style="position:absolute;left:64%;top:32%;transform:translate(-50%,-50%);width:40px;height:40px;border-radius:50%;background:var(--accentwash);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 1 of 3, first"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent);display:block"></span></div>
+      <div style="position:absolute;left:78%;top:42%;transform:translate(-50%,-50%);width:50px;height:50px;border-radius:50%;background:var(--accentwash);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 2 of 3, second"><span style="width:23px;height:23px;border-radius:50%;background:var(--accent);display:block"></span></div>
+      <div style="position:absolute;left:60%;top:18%;transform:translate(-50%,-50%);width:60px;height:60px;border-radius:50%;background:var(--accentwash);display:flex;align-items:center;justify-content:center" role="img" aria-label="Placement 3 of 3, most recent"><span style="width:28px;height:28px;border-radius:50%;background:var(--accent);display:block"></span></div>
     </div>
   </div>
 
   <div style="position:relative;padding:0 22px 0;flex:none">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 2px 4px">
       <div style="min-width:0">
-        <div style="font:600 15px/1.25 var(--disp);color:var(--ink)">Wired, but running on empty</div>
-        <div style="margin-top:2px;display:flex;flex-wrap:wrap;gap:3px 10px;font:400 11.5px/1.35 var(--text);color:var(--ink2)"><span><span style="font:500 11px var(--mono);color:var(--accent)">YOU</span> light, high energy</span><span><span style="font:500 11px var(--mono);color:var(--accent)">BODY</span> low reserves, still 2 h</span></div>
+        <div style="font:600 19px/1.22 var(--disp);color:var(--ink)">Wired, but running on empty</div>
+        <div style="margin-top:2px;display:flex;flex-wrap:wrap;gap:3px 10px;font:400 11.5px/1.35 var(--text);color:var(--ink2)"><span><span style="font:500 11px var(--mono);color:var(--accent)">YOU</span> light, high energy</span><span><span style="font:500 11px var(--mono);color:var(--accent)">BODY</span> low reserves, slept 5 h 40</span></div>
         <div style="margin-top:4px;display:flex;align-items:center;gap:7px">
           <span style="display:block;width:54px;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;flex:none"><span style="position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px"></span></span>
           <span style="font:500 11px var(--mono);color:var(--ink2)">FAIRLY SURE · 0.69</span>
@@ -117,10 +122,13 @@
       <span style="font:500 11px var(--mono);color:var(--ink3);flex:none">0 / 500</span>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:58px;border-radius:999px;background:var(--accent);color:var(--onink);padding:0 20px;box-sizing:border-box">
-      <span style="font:600 16.5px var(--disp)">Generate</span>
-      <span style="font:500 11px var(--mono);letter-spacing:.09em;opacity:.72">TEMPO ≤ 96 · WARM</span>
+    <div style="display:flex;align-items:center;justify-content:center;min-height:58px;border-radius:999px;background:linear-gradient(90deg,var(--hue-calm) 0%,var(--accent-hue) 55%,var(--hue-joyful) 100%);color:var(--onaurora);padding:0 20px;box-sizing:border-box">
+      <span style="font:600 24px var(--disp)">Generate</span>
     </div>
+    <!-- The constraint is metadata ABOUT the generation, not part of the action. It rode
+         the gradient at 11px and measured ~3.2:1 there, where no size exemption exists.
+         Off the band it sits on the canvas at --ink3 and is plainly legible. -->
+    <div style="margin-top:9px;text-align:center;font:500 11px var(--mono);letter-spacing:.09em;color:var(--ink3)">TEMPO ≤ 96 · WARM</div>
 
     <div style="display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;font:600 13px var(--text);color:var(--accent);text-decoration:underline;text-underline-offset:4px">Or let my heart lead — live</div>
   </div>

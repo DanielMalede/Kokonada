@@ -1,6 +1,6 @@
 {
   "note": "Pre-existing design-system violations, per file per rule. Only ever shrinks; the gate fails on any increase.",
-  "total": 72,
+  "total": 70,
   "files": {
     "src/auth/SignInScreen.tsx": {
       "kokonada/no-scale-literals": 2
@@ -46,12 +46,6 @@
     },
     "src/experience/profile/ConsentSheet.tsx": {
       "kokonada/no-scale-literals": 3
-    },
-    "src/experience/profile/__tests__/ProfileScreen.test.tsx": {
-      "kokonada/no-color-literals": 1
-    },
-    "src/experience/profile/__tests__/VaultConsentPanel.test.tsx": {
-      "kokonada/no-color-literals": 1
     },
     "src/experience/wheel/__tests__/RadialWheel.test.tsx": {
       "kokonada/no-color-literals": 6

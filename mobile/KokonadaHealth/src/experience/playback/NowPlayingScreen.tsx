@@ -305,9 +305,9 @@ export function NowPlayingScreen() {
           accessibilityRole="button"
           accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
           accessibilityState={{ disabled: !track }}
-          style={[styles.playBtn, elevation.e1, { backgroundColor: c.accent.glowInk, opacity: track ? 1 : 0.4 }]}
+          style={[styles.playBtn, elevation.e1, { backgroundColor: c.accent.ctaFill, opacity: track ? 1 : 0.4 }]}
         >
-          <Text style={{ fontSize: typography.size.heading, color: c.content.onAccent }}>{isPlaying ? '❙❙' : '▶'}</Text>
+          <Text style={{ fontSize: typography.size.heading, color: c.content.onCtaFill }}>{isPlaying ? '❙❙' : '▶'}</Text>
         </Pressable>
 
         <Pressable

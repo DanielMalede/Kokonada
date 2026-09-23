@@ -20,6 +20,16 @@ jest.mock('../app/models/MedicalProfile', () => ({
 jest.mock('../app/models/MorningState', () => ({
   deleteMany: jest.fn().mockResolvedValue({ deletedCount: 2 }),
 }));
+// BE-015 / ADR-0015 NEGATIVE GUARD. wearableErasure.js does not require these two at all, and
+// that absence IS the behaviour under test — mocking them is what turns "the module happens not
+// to import this" into an assertion that survives someone adding the import. See the describe
+// at the foot of this file for why the boundary matters.
+jest.mock('../app/models/RewardEvent', () => ({
+  RewardEvent: { deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }) },
+}));
+jest.mock('../app/models/PersonalWeights', () => ({
+  PersonalWeights: { deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }) },
+}));
 
 jest.mock('../app/config/redis', () => {
   const fake = { del: jest.fn().mockResolvedValue(1) };
@@ -36,6 +46,8 @@ const BiometricLog   = require('../app/models/BiometricLog');
 const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const MorningState   = require('../app/models/MorningState');
+const { RewardEvent }     = require('../app/models/RewardEvent');
+const { PersonalWeights } = require('../app/models/PersonalWeights');
 const garmin         = require('../app/services/wearable/garmin');
 const { getRedis, __fake: fakeRedis } = require('../app/config/redis');
 const {
@@ -222,5 +234,45 @@ describe('WEARABLE_PROVIDERS', () => {
     expect([...WEARABLE_PROVIDERS].sort()).toEqual(
       ['apple_health', 'garmin', 'health_connect', 'suunto'],
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// BE-015 / ADR-0015 — THE BOUNDARY BETWEEN "I WITHDREW CONSENT" AND "I UNPAIRED A WATCH"
+//
+// Withdrawing Art.9 consent now DOES erase the learned personalization (RewardEvent +
+// PersonalWeights), because the consent notice promises exactly that on its pinned first layer.
+// It is erased by services/privacy/learningErasure.js, called from consent.withdrawConsent ONLY.
+//
+// It must NOT be erased here, and the reason is arithmetic rather than taste: purgeWearableData
+// has THREE callers, and two of them are not withdrawals —
+//   · integrationsController.garminDisconnect   ← the LIVE "Disconnect Garmin" button
+//   · wearableErasureController.deleteWearableProvider
+// Moving the delete into this module (the obvious "tidy-up" for the next reader, since erasure
+// already lives here) would silently wire it to both of them: unpairing a watch would destroy a
+// listener's whole taste profile. No notice promises that, half of a bucket's evidence is
+// behavioural and never touched a wearable, and a scoring weight has no `source` to scope by —
+// it is precisely the over-erasure this module's own exclusion rationale argues against, and
+// ADR-0015 overrules that rationale at withdrawal scope ONLY.
+//
+// So this is a guard against a REFACTOR, not against today's code. It passes on arrival; it is
+// here to fail the day somebody merges the two scopes. Its non-vacuity was proven by moving the
+// delete into purgeWearableData and watching both this suite and the real-Mongo one go red.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+describe('per-provider erasure NEVER touches the learned personalization (ADR-0015)', () => {
+  it('purgeWearableData leaves RewardEvent and PersonalWeights alone', async () => {
+    await purgeWearableData(USER, 'garmin');
+    expect(RewardEvent.deleteMany).not.toHaveBeenCalled();
+    expect(PersonalWeights.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('eraseWearableProvider — the LIVE disconnect path — leaves them alone too', async () => {
+    const user = { _id: USER, wearableProvider: 'garmin', wearableToken: null, save: jest.fn().mockResolvedValue(undefined) };
+    await eraseWearableProvider(user, 'garmin');
+    expect(RewardEvent.deleteMany).not.toHaveBeenCalled();
+    expect(PersonalWeights.deleteMany).not.toHaveBeenCalled();
+    // Sanity: the erasure it IS responsible for really ran, so the assertions above are not
+    // passing merely because nothing happened at all.
+    expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
   });
 });

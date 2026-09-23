@@ -51,9 +51,9 @@ export function EmptyState({ title, body, action, glyph, tone = 'brand', accentQ
   }, [reduced, duration.slow, entry]);
 
   const quiet = tone === 'quiet';
-  const ctaLabelColor = quiet ? c.emotionAccent[accentQuadrant].ink : c.content.onAccent;
-  // FILL is ALWAYS accent.glowInk when present — re-tinting it would break the onAccent AA proof.
-  const ctaSurface = quiet ? { borderColor: c.content.tertiary } : { backgroundColor: c.accent.glowInk, borderColor: c.accent.glowInk };
+  const ctaLabelColor = quiet ? c.emotionAccent[accentQuadrant].ink : c.content.onCtaFill;
+  // FILL is ALWAYS accent.ctaFill when present — re-tinting it would break the onCtaFill AA proof.
+  const ctaSurface = quiet ? { borderColor: c.content.tertiary } : { backgroundColor: c.accent.ctaFill, borderColor: c.accent.ctaFill };
 
   return (
     <Animated.View accessibilityLiveRegion="polite" style={[styles.root, { opacity: entry }, style]}>

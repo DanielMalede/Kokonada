@@ -15,7 +15,9 @@ const BiometricLog   = require('../app/models/BiometricLog');
 const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const MorningState   = require('../app/models/MorningState');
-const { purgeWearableData } = require('../app/services/privacy/wearableErasure');
+const { RewardEvent }     = require('../app/models/RewardEvent');
+const { PersonalWeights } = require('../app/models/PersonalWeights');
+const { purgeWearableData, eraseWearableProvider } = require('../app/services/privacy/wearableErasure');
 
 jest.setTimeout(120000);
 
@@ -33,6 +35,8 @@ beforeEach(async () => {
   await VitalSample.deleteMany({});
   await MedicalProfile.deleteMany({});
   await MorningState.deleteMany({});
+  await RewardEvent.deleteMany({});
+  await PersonalWeights.deleteMany({});
 });
 
 const log = (userId, source, hr = 60) =>
@@ -149,5 +153,57 @@ describe('purgeWearableData — MorningState (real Mongo)', () => {
 
     expect(res.morningStates).toBe(2);
     expect(await MorningState.countDocuments({ userId: userG })).toBe(0);
+  });
+});
+
+// BE-015 / ADR-0015 — the same boundary as the unit suite's closing guard, against REAL query
+// semantics. Withdrawing Art.9 consent erases the learned personalization (that promise is kept
+// by learningErasure.js, proven in consentWithdrawalErasure.integration.test.js). Unpairing ONE
+// WATCH must not: purgeWearableData is reached by the live "Disconnect Garmin" button and by
+// DELETE /integrations/wearable/:provider, neither of which ever promised a taste profile would
+// be destroyed. The unit guard asserts on mocks the module does not import; this one asserts the
+// ROWS are still there afterwards, which is the claim that actually matters to a listener.
+describe('purgeWearableData — the learned personalization SURVIVES a disconnect (real Mongo)', () => {
+  const seedLearned = async (userId) => {
+    await RewardEvent.create({
+      userId, bucket: { stateDomain: 'movement', targetBand: 'peak', hourBin: 0 },
+      rewardSum: 3.2, count: 9, updatedAt: new Date(),
+    });
+    await PersonalWeights.create({
+      userId, deltas: { taste: 0.31, feature: -0.12, genre: 0.04, rotation: 0 },
+      updates: 40, updatedAt: new Date(),
+    });
+  };
+
+  it('keeps RewardEvent + PersonalWeights when the LAST provider is purged (nothing left to derive from)', async () => {
+    // The hardest case on purpose: this purge leaves the user with no samples at all, so it is
+    // the branch that drops MedicalProfile/MorningState. The learned rows still must not follow.
+    const userH = new mongoose.Types.ObjectId();
+    await log(userH, 'garmin');
+    await vital(userH, 'garmin', 'hrv', 48);
+    await MedicalProfile.create({ userId: userH, restingHeartRate: 59 });
+    await seedLearned(userH);
+
+    const res = await purgeWearableData(userH, 'garmin');
+
+    expect(res.medicalProfiles).toBe(1);                                          // derived data went
+    expect(await BiometricLog.countDocuments({ userId: userH })).toBe(0);
+    expect(await RewardEvent.countDocuments({ userId: userH })).toBe(1);          // taste stayed
+    expect(await PersonalWeights.countDocuments({ userId: userH })).toBe(1);
+  });
+
+  it('the LIVE disconnect path (eraseWearableProvider) keeps them too', async () => {
+    const userI = new mongoose.Types.ObjectId();
+    // A plain object stands in for the User doc — this suite has no User rows, and the credential
+    // clearing is already covered by the unit suite; what is under test is the DATA footprint.
+    const user = { _id: userI, wearableProvider: 'garmin', wearableToken: null, save: async () => {} };
+    await log(userI, 'garmin');
+    await seedLearned(userI);
+
+    await eraseWearableProvider(user, 'garmin');
+
+    expect(await BiometricLog.countDocuments({ userId: userI })).toBe(0);         // its own job done
+    expect(await RewardEvent.countDocuments({ userId: userI })).toBe(1);
+    expect(await PersonalWeights.countDocuments({ userId: userI })).toBe(1);
   });
 });

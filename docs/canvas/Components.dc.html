@@ -11,37 +11,37 @@
   <link rel="stylesheet" href="./tokens.css">
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
-    a { color: #17536F; } a:hover { color: #14163A; }
 .lab { font:500 11px var(--mono); letter-spacing:.14em; color:var(--ink3); }
     .nm { font:600 16px var(--disp); color:var(--ink); }
     .dsc { font:400 12.5px/1.6 var(--text); color:var(--ink2); }
     .st { font:500 11px var(--mono); color:var(--ink3); margin-top:7px; }
     .sec { padding-top:26px; margin-top:26px; border-top:1px solid var(--line); }
+    .mono { font-family:var(--mono); font-size:12px; color:var(--ink); }
   </style>
 </helmet>
 
-<div class="qi" data-theme="{{theme}}" style="width:1400px;min-height:2000px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
+<div class="qi" data-theme="{{theme}}" data-field="{{field}}" style="width:1400px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
 
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--track)">
     <div>
       <h1 style="margin:0 0 6px;font:600 34px/1.15 var(--disp);letter-spacing:-.02em">The parts</h1>
       <p style="margin:0;font:400 14px/1.6 var(--text);color:var(--ink2);max-width:800px">Every control in the system, once, with its full state matrix. Drawn here so the fourteen screens can stop each inventing their own — the canvas previously carried seven button geometries for two roles, and one identical bar shape encoding four incompatible meanings.</p>
     </div>
-    <div style="font:500 11px/1.8 var(--mono);letter-spacing:.12em;color:var(--ink3);text-align:right;flex:none">2 BUTTON ROLES<br>4 BAR GRAMMARS<br>1 RADIUS</div>
+    <div style="font:500 11px/1.8 var(--mono);letter-spacing:.12em;color:var(--ink3);text-align:right;flex:none">4 BUTTON ROLES<br>4 BAR GRAMMARS<br>1 CONTROL RADIUS</div>
   </div>
 
   <!-- ================= BUTTON ================= -->
   <div style="margin-top:30px">
-    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px"><span class="nm">Button</span><span class="lab">RADIUS.PILL · MIN-HEIGHT 48 · ACCENT.GLOWINK</span></div>
-    <p class="dsc" style="margin:0 0 18px;max-width:900px">One geometry, four roles. The fill is the shipped <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">accent.glowInk</span> — the canvas had been using an ink value that exists in no token file. Destructive is reserved for account deletion alone; withdrawing consent is a right, and takes the neutral role.</p>
+    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px"><span class="nm">Button</span><span class="lab">RADIUS.PILL · MIN-HEIGHT 48 · --INKBTN</span></div>
+    <p class="dsc" style="margin:0 0 18px;max-width:900px">One geometry, four roles. The fill is <span style="font-family:var(--mono);font-size:12px;color:var(--ink)">--inkbtn</span> &mdash; ink, fixed, never re-tinting. A legal choice is never emotionally nudged, and making that the rule rather than an exception means no future edit has to remember it. The one carve-out is the Generate hero, documented separately below — the canvas had been using an ink value that exists in no token file. Destructive is reserved for account deletion alone; withdrawing consent is a right, and takes the neutral role.</p>
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:26px">
 
       <div>
         <div class="lab" style="margin-bottom:10px">PRIMARY · one per screen</div>
         <div style="display:flex;flex-direction:column;gap:9px">
-          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text)">Generate</div>
-          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text);filter:brightness(.88)">Generate</div>
-          <div style="display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;border-radius:999px;background:var(--accent);color:var(--onink);font:600 15px var(--text);opacity:.75"><span style="display:block;width:44px;height:3px;border-radius:999px;background:var(--onink);opacity:.55"></span>Working</div>
+          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--inkbtn);color:var(--onink);font:600 15px var(--text)">Generate</div>
+          <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--inkbtn);color:var(--onink);font:600 15px var(--text);filter:brightness(.88)">Generate</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;border-radius:999px;background:var(--inkbtn);color:var(--onink);font:600 15px var(--text);opacity:.75"><span style="display:block;width:44px;height:3px;border-radius:999px;background:var(--onink);opacity:.55"></span>Working</div>
           <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;background:var(--track);color:var(--canvas);font:600 15px var(--text);opacity:.5">Place how it feels first</div>
         </div>
         <div class="st">REST · PRESS · BUSY · DISABLED</div>
@@ -76,6 +76,7 @@
           <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;border:1.5px solid var(--danger);background:var(--danger);color:var(--onink);font:600 14px var(--text)">Delete my account</div>
           <div style="display:flex;align-items:center;justify-content:center;min-height:48px;border-radius:999px;border:1.5px solid var(--accent);color:var(--accent);font:600 14px var(--text)">Withdraw consent</div>
           <div style="font:400 11.5px/1.5 var(--text);color:var(--ink2);padding:2px 2px 0">Withdrawal is reversible, so it never takes this role — it uses the neutral border above.</div>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)"><div class="lab" style="margin-bottom:8px;color:var(--danger)">ERROR &mdash; A DIFFERENT RED</div><div style="display:flex;align-items:flex-start;gap:9px;border:1px solid var(--danger);border-radius:11px;padding:9px 11px"><span style="width:7px;height:7px;border-radius:999px;background:var(--danger);flex:none;margin-top:5px"></span><span style="font:400 12px/1.45 var(--text);color:var(--ink)">Couldn&rsquo;t reach Spotify. <span style="color:var(--accent)">Try again</span></span></div><p style="margin:8px 0 0;font:400 11.5px/1.5 var(--text);color:var(--ink2)">Same hue, opposite meaning. <span style="color:var(--ink)">Destructive</span> is a thing <i>you</i> chose that cannot be undone &mdash; it asks to confirm. <span style="color:var(--ink)">Error</span> is a thing <i>we</i> broke &mdash; it offers a retry and never asks you to confirm anything. They are drawn together here because sharing a colour is exactly why they get confused.</p></div>
         </div>
         <div class="st">REST · CONFIRM · (NOT DESTRUCTIVE)</div>
       </div>
@@ -84,16 +85,40 @@
 
   <!-- ================= BARS ================= -->
   <div class="sec">
+    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px">
+      <span class="nm">Aurora CTA &mdash; the Generate hero</span>
+      <span class="lab">ONE SCREEN ONLY &middot; NOT A BUTTON VARIANT</span>
+    </div>
+    <p class="dsc" style="margin:0 0 16px;max-width:900px">The one control that is <i>not</i> the ink fill, named here so it is a component rather than a remembered exception. It is a <b>live, morphing gradient</b>: sky &rarr; your current emotion &rarr; gold, rebuilt from the mean of your placements on every render. The middle stop is the only place in the app where a CTA follows the emotion &mdash; that is the point of it.</p>
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:26px;align-items:start">
+      <div>
+        <div data-field="reflective" style="display:flex;align-items:center;justify-content:center;min-height:58px;border-radius:999px;background:linear-gradient(90deg,var(--hue-calm) 0%,var(--accent-hue) 55%,var(--hue-joyful) 100%);color:var(--onaurora);padding:0 20px;box-sizing:border-box">
+          <span style="font:600 24px var(--disp)">Generate</span>
+        </div>
+        <div style="margin-top:9px;text-align:center;font:500 11px var(--mono);letter-spacing:.09em;color:var(--ink3)">TEMPO &le; 96 &middot; WARM</div>
+        <div class="st">REST &mdash; the middle stop is your emotion, not a fixed hue</div>
+      </div>
+      <div style="font:400 12px/1.6 var(--text);color:var(--ink2)">
+        <div class="lab" style="margin-bottom:7px">RULES THAT TRAVEL WITH IT</div>
+        <p style="margin:0 0 7px">Stops are <span class="mono">auroraCtaStops(x,y)</span> &mdash; <span class="mono">#3FB4F0</span> &rarr; <span class="mono">mix(glow, #6E3FC4, intenseWeight)</span> &rarr; <span class="mono">#F5B93A</span>. Never hand-picked.</p>
+        <p style="margin:0 0 7px">The label ink is <b>computed, not chosen</b> &mdash; <span class="mono">onAuroraInk</span> picks the ink whose <i>worst</i> contrast across the whole gradient is best. A fixed ink fails somewhere along the sweep &mdash; <i>unless</i> the run says otherwise. Here it does: across the band <span class="mono">#241B45</span> wins at all four <i>pure quadrant hues</i> (worst 3.40 on reflective, the field shown here) because the sweep reaches the gold end, where <span class="mono">#FFFFFF</span> falls to 1.77. One value here, because it was computed &mdash; not because one was assumed. The canvas samples only the four pure hues; the <b>product must not</b>. At the full intense corner the mid stop becomes <span class="mono">#6E3FC4</span> and the answer flips &mdash; <span class="mono">#241B45</span> drops to 2.41, under the floor, and <span class="mono">#FFFFFF</span> takes over at 3.62. That is the branch <span class="mono">onAuroraInk</span> exists to make.</p>
+        <p style="margin:0 0 7px"><b>Legal at AA-large, on SIZE alone.</b> The label must stay <b>&ge;24px</b> &mdash; WCAG 1.4.3 counts 24px as large text at <i>any</i> weight, and a moving gradient cannot hold 4.5:1 at every stop. <b>No proof here may rest on weight:</b> the display face is a single Semibold cut, so a &ldquo;700&rdquo; rule is unsatisfiable and any exemption claimed on it is void. Porting this to a smaller label silently drops it below its own proof &mdash; which is why it is not a Button variant.</p>
+        <p style="margin:0">Solid fallback is the middle stop; border is <span class="mono">surface.hairlineGold</span>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
     <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px"><span class="nm">The four bar grammars</span><span class="lab">HEIGHT 8 · RADIUS.PILL · TRACK AT 3:1</span></div>
     <p class="dsc" style="margin:0 0 20px;max-width:900px">A ceiling is an exclusion. A target is a point. A bias is a signed nudge. A stack is a composition. The canvas was drawing all four as one left-anchored fill, which made "tempo ceiling 96" read as an achievement and put four bars on Pulse where fuller meant better for three of them and worse for the fourth. Every one of these carries its unit and its direction in words.</p>
     <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:30px">
 
       <div>
-        <div class="lab" style="margin-bottom:10px;color:var(--accent)">CEILINGBAR</div>
+        <div class="lab" style="margin-bottom:10px">CEILINGBAR</div>
         <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2);margin-bottom:6px"><span>Tempo ceiling</span><span style="font:500 11px var(--mono);color:var(--ink)">≤ 96 BPM</span></div>
         <svg width="100%" height="18" viewBox="0 0 260 18" preserveAspectRatio="none" style="display:block">
           <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--track)" stroke-width="1.4" opacity=".55"></line></pattern></defs>
-          <rect x="0" y="5" width="78" height="8" rx="4" fill="var(--accentfill)"></rect>
+          <rect x="0" y="5" width="78" height="8" rx="4" fill="var(--accentwash)"></rect>
           <rect x="78" y="5" width="182" height="8" rx="4" fill="url(#hatch)"></rect>
           <rect x="76" y="0" width="2.5" height="18" fill="var(--accent)"></rect>
         </svg>
@@ -102,19 +127,19 @@
       </div>
 
       <div>
-        <div class="lab" style="margin-bottom:10px;color:var(--accent)">TARGETBAR</div>
+        <div class="lab" style="margin-bottom:10px">TARGETBAR</div>
         <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2);margin-bottom:6px"><span>Warmth of mood</span><span style="font:500 11px var(--mono);color:var(--ink)">0.58 ± 0.10</span></div>
         <svg width="100%" height="18" viewBox="0 0 260 18" preserveAspectRatio="none" style="display:block">
           <rect x="0" y="5" width="260" height="8" rx="4" fill="var(--bartrack)" stroke="var(--track)" stroke-width="1"></rect>
-          <rect x="125" y="5" width="52" height="8" rx="4" fill="var(--accentfill)"></rect>
-          <rect x="149" y="0" width="2.5" height="18" fill="var(--accent)"></rect>
+          <rect x="125" y="5" width="52" height="8" rx="4" fill="var(--accent)"></rect>
+          <rect x="149" y="0" width="2.5" height="18" fill="var(--ink)"></rect>
         </svg>
         <div style="display:flex;justify-content:space-between;font:500 11px var(--mono);color:var(--ink3);margin-top:5px"><span>COOL</span><span>WARM</span></div>
         <p class="dsc" style="margin:9px 0 0">A point with a tolerance band, on a full-width axis whose ends are named. Nothing is "filled up to" anything.</p>
       </div>
 
       <div>
-        <div class="lab" style="margin-bottom:10px;color:var(--accent)">BIASBAR</div>
+        <div class="lab" style="margin-bottom:10px">BIASBAR</div>
         <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2);margin-bottom:6px"><span>Acoustic</span><span style="font:500 11px var(--mono);color:var(--ink)">+0.21 toward acoustic</span></div>
         <svg width="100%" height="18" viewBox="0 0 260 18" preserveAspectRatio="none" style="display:block">
           <rect x="0" y="5" width="260" height="8" rx="4" fill="var(--bartrack)" stroke="var(--track)" stroke-width="1"></rect>
@@ -123,12 +148,17 @@
         </svg>
         <div style="display:flex;justify-content:space-between;font:500 11px var(--mono);color:var(--ink3);margin-top:5px"><span>PRODUCED</span><span>ACOUSTIC</span></div>
         <p class="dsc" style="margin:9px 0 0">Anchored at zero in the centre, reading left or right. A signed nudge is never drawn from the left edge.</p>
+        <p class="dsc" style="margin:7px 0 0"><b>The marker must overhang the band, top and bottom.</b> Its contrast <i>against the band</i> is 1.25:1 to 3.22:1 across the eight face &times; quadrant combinations &mdash; never the proof. The proof is the 5px of overhang onto the surface behind, where <span class="mono">--ink</span> reads 16.7:1 light and 16.2:1 dark. A marker clipped to the band height is not this component: put it inside a rounded track, or on <span class="mono">--raised</span>, or under the field wash, and it drops to 1.25:1 with no warning.</p>
       </div>
 
       <div>
-        <div class="lab" style="margin-bottom:10px;color:var(--accent)">STACKBAR</div>
+        <div class="lab" style="margin-bottom:10px">STACKBAR</div>
         <div style="display:flex;justify-content:space-between;font:400 12.5px var(--text);color:var(--ink2);margin-bottom:6px"><span>Sleep</span><span style="font:500 11px var(--mono);color:var(--ink)">5 h 40 m</span></div>
-        <div style="display:flex;height:8px;border-radius:999px;overflow:hidden;gap:2px">
+        <!-- STACKBAR carries the same neutral track + 3:1 outline as the other three grammars.
+             It had none, while Pulse:125 -- the only place this component is actually USED --
+             drew it WITH both. The component board and its own use disagreed, and the board
+             that defines the part was the one in the wrong. -->
+        <div style="display:flex;height:8px;border-radius:999px;overflow:hidden;gap:2px;background:var(--bartrack);outline:1px solid var(--track)">
           <div style="width:19%;background:var(--accent)"></div>
           <div style="width:56%;background:var(--accent);opacity:.55"></div>
           <div style="flex:1;background:var(--accent);opacity:.3"></div>
@@ -178,8 +208,8 @@
         <div class="st">REST · SELECTED · PRESS</div>
         <div style="display:flex;align-items:baseline;gap:12px;margin:22px 0 4px"><span class="nm">Placement</span><span class="lab">52 HALO · 26 DOT</span></div>
         <div style="display:flex;gap:10px;align-items:center">
-          <span style="width:52px;height:52px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center"><span style="width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--onink);font:500 11px var(--mono);display:flex;align-items:center;justify-content:center">1</span></span>
-          <span style="width:52px;height:52px;border-radius:50%;background:var(--accentfill);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--accent)"><span style="width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--onink);font:500 11px var(--mono);display:flex;align-items:center;justify-content:center">2</span></span>
+          <span style="width:52px;height:52px;border-radius:50%;background:var(--accentwash);display:flex;align-items:center;justify-content:center"><span style="width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--onink);font:500 11px var(--mono);display:flex;align-items:center;justify-content:center">1</span></span>
+          <span style="width:52px;height:52px;border-radius:50%;background:var(--accentwash);display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--accent)"><span style="width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--onink);font:500 11px var(--mono);display:flex;align-items:center;justify-content:center">2</span></span>
         </div>
         <div class="st">PLACED · FOCUSED — carries the emotion you placed, not the fused state</div>
       </div>
@@ -208,7 +238,7 @@
           <div style="font:600 15px/1.25 var(--disp);color:var(--ink)">Wired, but running on empty</div>
           <div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px 12px;font:400 12px/1.4 var(--text);color:var(--ink2)">
             <span><span style="font:500 11px var(--mono);color:var(--accent)">YOU</span> light, high energy</span>
-            <span><span style="font:500 11px var(--mono);color:var(--accent)">BODY</span> low reserves, still 2 h</span>
+            <span><span style="font:500 11px var(--mono);color:var(--accent)">BODY</span> low reserves, slept 5 h 40</span>
           </div>
           <div style="margin-top:7px;display:flex;align-items:center;gap:8px">
             <span style="display:block;width:54px;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;flex:none"><span style="position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px"></span></span>
@@ -247,6 +277,50 @@
     </div>
   </div>
 
+
+  <div class="sec">
+    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:4px">
+      <span class="nm">Switch, Slider, Accordion</span>
+      <span class="lab">EVERY STATE THE DoD NAMES</span>
+    </div>
+    <p class="dsc" style="margin:0 0 18px;max-width:900px">The three controls the screens use and the sheet never defined. Switch and Slider both take <span class="mono">--brand</span> &mdash; the ratified rule below &mdash; <i>not</i> the CTA ink fill: a control you set is not a control you press once. Interaction states are drawn here; the four system states the DoD names (<span class="mono">Loading</span> &middot; <span class="mono">Empty</span> &middot; <span class="mono">Error/offline</span> &middot; <span class="mono">Reduced-motion</span>) are defined once on the <span class="mono">States</span> board and are deliberately not redrawn per component.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:26px">
+      <div>
+        <div class="lab" style="margin-bottom:10px">SWITCH &middot; a setting, not an action</div>
+        <div style="display:flex;flex-direction:column;gap:11px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:50px;height:30px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;flex:none"><span style="position:absolute;left:3px;top:3px;width:24px;height:24px;border-radius:999px;background:var(--canvas);outline:1px solid var(--track)"></span></span><span style="font:400 12.5px var(--text);color:var(--ink2)">Off</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:50px;height:30px;border-radius:999px;background:var(--brand);position:relative;flex:none"><span style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:999px;background:var(--onbrand)"></span></span><span style="font:400 12.5px var(--text);color:var(--ink2)">On</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:50px;height:30px;border-radius:999px;background:var(--brand);position:relative;flex:none;filter:brightness(.92)"><span style="position:absolute;right:3px;top:3px;width:27px;height:24px;border-radius:999px;background:var(--onbrand)"></span></span><span style="font:400 12.5px var(--text);color:var(--ink2)">Pressed &mdash; the thumb stretches, never bounces</span></div>
+          <div style="display:flex;align-items:center;gap:10px;opacity:.45"><span style="width:50px;height:30px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative;flex:none"><span style="position:absolute;left:3px;top:3px;width:24px;height:24px;border-radius:999px;background:var(--canvas);outline:1px solid var(--track)"></span></span><span style="font:400 12.5px var(--text);color:var(--ink2)">Disabled</span></div>
+        </div>
+        <div class="st">OFF &middot; ON &middot; PRESSED &middot; DISABLED</div>
+        <p style="margin:7px 0 0;font:400 11.5px/1.5 var(--text);color:var(--ink2)">The tap target is the switch plus its padding to 44px &mdash; the 50&times;30 pill is never the target on its own.</p>
+      </div>
+      <div>
+        <div class="lab" style="margin-bottom:10px">SLIDER &middot; a dial with a default</div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div><span style="display:block;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:50%;background:var(--brand);border-radius:999px"></span><span style="position:absolute;left:50%;top:-8px;width:24px;height:24px;margin-left:-12px;border-radius:999px;background:var(--canvas);outline:1.5px solid var(--brand)"></span></span><div style="margin-top:10px;font:400 12.5px var(--text);color:var(--ink2)">Rest &mdash; sitting on today&rsquo;s behaviour</div></div>
+          <div><span style="display:block;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:72%;background:var(--brand);border-radius:999px"></span><span style="position:absolute;left:72%;top:-10px;width:28px;height:28px;margin-left:-14px;border-radius:999px;background:var(--canvas);outline:1.5px solid var(--brand);box-shadow:0 0 0 6px var(--accentwash)"></span></span><div style="margin-top:12px;font:400 12.5px var(--text);color:var(--ink2)">Dragging &mdash; the halo is the only thing that grows</div></div>
+          <div style="opacity:.45"><span style="display:block;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:50%;background:var(--track);border-radius:999px"></span><span style="position:absolute;left:50%;top:-8px;width:24px;height:24px;margin-left:-12px;border-radius:999px;background:var(--canvas);outline:1.5px solid var(--track)"></span></span><div style="margin-top:10px;font:400 12.5px var(--text);color:var(--ink2)">Disabled</div></div>
+        </div>
+        <div class="st">REST &middot; DRAGGING &middot; DISABLED</div>
+        <p style="margin:7px 0 0;font:400 11.5px/1.5 var(--text);color:var(--ink2)">Untouched must equal today&rsquo;s behaviour exactly. A dial that changes what the algorithm does for someone who never moved it is a dark pattern, not a preference.</p>
+      </div>
+      <div>
+        <div class="lab" style="margin-bottom:10px">ACCORDION &middot; layered disclosure</div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;border-top:1px solid var(--line);font:500 13px var(--text);color:var(--ink)"><span>Collapsed</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 8l4 4 4-4"></path></svg></div>
+          <div style="border-top:1px solid var(--line)">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;font:500 13px var(--text);color:var(--ink)"><span>Expanded</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" style="transform:rotate(180deg)"><path d="M6 8l4 4 4-4"></path></svg></div>
+            <p style="margin:0 0 11px;font:400 12px/1.6 var(--text);color:var(--ink2)">The body carries the detail. Height animates; the text never fades, because fading copy is unreadable exactly while it moves.</p>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font:500 13px var(--text);color:var(--ink);background:var(--sunken)"><span>Pressed</span><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 8l4 4 4-4"></path></svg></div>
+        </div>
+        <div class="st">COLLAPSED &middot; EXPANDED &middot; PRESSED</div>
+        <p style="margin:7px 0 0;font:400 11.5px/1.5 var(--text);color:var(--ink2)">More than one may be open at once. An accordion that closes one to open another cannot claim to be showing a whole document &mdash; that was the Consent defect, found on this canvas.</p>
+      </div>
+    </div>
+  </div>
 
   <div class="sec">
     <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
@@ -300,10 +374,10 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":2000}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["calm","joyful","intense","reflective"],"default":"calm"},"$preview":{"width":1400,"height":3330}}'>
 class Component extends DCLogic {
   renderVals() {
-    return { theme: this.props.theme ?? 'light' };
+    return { theme: this.props.theme ?? 'light', field: this.props.field ?? 'calm' };
   }
 }
 </script>

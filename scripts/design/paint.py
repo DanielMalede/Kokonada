@@ -12,6 +12,11 @@ CHROME = os.environ.get('CHROME') or r"C:\Program Files\Google\Chrome\Applicatio
 os.makedirs(OUT, exist_ok=True)
 # the boards read ONE shared token sheet; it must sit beside the rendered copy
 shutil.copy(os.path.join(CANVAS, 'tokens.css'), os.path.join(OUT, 'tokens.css'))
+# ...and the display face the sheet @font-face's by a RELATIVE url. General Sans is a
+# Fontshare cut, not a Google one, so the <helmet> link cannot supply it: without this
+# copy the probe silently renders every heading in the Manrope fallback and measures a
+# board nobody ships. Copy it or the fix is invisible exactly where it is measured.
+shutil.copy(os.path.join(CANVAS, 'GeneralSans-Semibold.otf'), os.path.join(OUT, 'GeneralSans-Semibold.otf'))
 
 # Genesis renders three states off one board; the fixture must supply them or the
 # probe silently measures a board with its copy and two of three ticks stripped.

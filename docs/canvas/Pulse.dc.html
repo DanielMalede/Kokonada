@@ -11,12 +11,17 @@
   <link rel="stylesheet" href="./tokens.css">
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
-    a { color: var(--ink-calm-l); } a:hover { color: var(--ink-l); }
 @keyframes breathe { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
     .fldwrap { position:absolute; inset:0; overflow:hidden; pointer-events:none; opacity:.82; }
     .fld1, .fld2 { position:absolute; }
-    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; }
-    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; }
+    /* animation-fill-mode:backwards is LOAD-BEARING, not tidiness. .fld2 carries a 1400ms
+       delay and declares no opacity of its own, so with the default `none` it rendered at
+       opacity 1.0 -- 2.22x its own .45 ceiling -- for the first 1.4s of EVERY screen entry,
+       then snapped to .45 un-eased when the animation took over at its 0% keyframe. The
+       largest soft form on the screen, dropping 2.2x instantly, on every entry.
+       `backwards` applies the 0% keyframe during the delay instead. */
+    .fld1 { left:-20%; right:-20%; bottom:-26%; height:78%; animation:fieldbreath 4200ms ease-in-out infinite; animation-fill-mode:backwards; }
+    .fld2 { left:-32%; right:4%; bottom:-6%; height:54%; animation:fieldbreath var(--d-field) ease-in-out infinite 1400ms; animation-fill-mode:backwards; }
     @keyframes fieldbreath { 0%,100% { opacity:.45; transform:scale(1); } 50% { opacity:.75; transform:scale(1.04); } }
     .qi[data-theme="dark"] .fldwrap { opacity:0.74; }
     .qi[data-field="off"] .fldwrap { display:none; }
@@ -49,25 +54,61 @@
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
       <span style="display:block;width:58px;height:8px;border-radius:999px;background:var(--bartrack);outline:1px solid var(--track);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:69%;background:var(--accent);border-radius:999px"></span></span>
       <span style="font:500 11px var(--mono);color:var(--ink2)">FAIRLY SURE · 0.69</span>
+      <!-- The headline is the strongest claim on the screen, so it is the thing that
+           must carry the time. Freshness used to sit in the SOURCE tile, where it read
+           as a property of the transport rather than of the reading — the conflation
+           that let the board state live vitals for a body it had not read. -->
+      <span style="margin-left:auto;font:500 11px var(--mono);color:var(--ink3)">{{stamp}}</span>
     </div>
 
     <div style="display:flex;gap:8px;margin-bottom:16px">
-      <div style="flex:1;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+      <!-- NO min-height, and that is the measured answer rather than the assumed one.
+           A pin was here to stop the row reflowing between frames. Measured: the row is
+           81.5px in ALL THREE source values, and "Heart-rate sensor" renders on one 19.5px
+           line -- it does not wrap at 139px of content width. The tiles are flex:1 siblings
+           under align-items:stretch, so they are always equal and the row is always
+           max(HEART, SOURCE); SOURCE carries three rows in every frame and is always the
+           taller. The reflow the pin guarded against is structurally impossible, so the pin
+           was 14.5px of dead space in every frame, justified by a failure that cannot occur.
+           The app DOES pin -- GAUGE_TILE_MIN_H (pulsePresentation.ts:58) = space['4xl'] * 2
+           = 128 -- for its six gauge tiles, which are two-up at 48% basis only while the OS
+           font scale is at or below ACCESSIBILITY_FONT_SCALE; above it they collapse to one
+           column at 100% (PulseScreen.tsx:277-278). Those tiles hold a value, an honest
+           sentence or a skeleton in one silhouette, so they need a floor. This pair does not.
+           NOTE, and it is a real spec gap: this board declares no large-font-scale behaviour
+           for the pair at all, while the component it is compared to has exactly that. -->
+      <div style="flex:1;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">HEART</div>
+        <sc-if value="{{live}}">
         <div style="margin-top:1px;display:flex;align-items:baseline;gap:5px"><span style="font:600 36px/1 var(--disp);color:var(--ink)">68</span><span style="font:500 11px var(--mono);color:var(--ink2)">BPM</span></div>
-        <div style="margin-top:2px;font:400 11.5px var(--text);color:var(--ink2)">live</div>
+        </sc-if>
+        <!-- With nothing streaming, HEART takes the SOURCE tile's own type but at --ink2,
+             where SOURCE's sits at --ink. THAT is the signal, not structural identity:
+             the tiles are a matched PAIR, not identical -- SOURCE keeps its sub-line. The
+             missing numeral removes the present-tense claim; the hushed ink says the
+             reading is still true but no longer being taken. Verbatim PulseScreen.tsx:309. -->
+        <sc-if value="{{noLive}}">
+        <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink2)">No live reading</div>
+        </sc-if>
       </div>
-      <div style="flex:1;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
+      <div style="flex:1;box-sizing:border-box;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:var(--raised)">
         <div style="font:500 11px var(--mono);color:var(--ink3)">SOURCE</div>
         <div style="margin-top:3px;font:600 15px/1.3 var(--disp);color:var(--ink)">{{sourceLabel}}</div>
-        <div style="font:400 11.5px var(--text);color:var(--ink2)">{{sourceFresh}}</div>
+        <div style="font:400 11.5px var(--text);color:var(--ink2)">{{sourceSub}}</div>
       </div>
     </div>
 
+    <!-- The sparkline is the live HR trace. With no live source it is removed rather than
+         emptied: an empty chart frame is decoration pretending to be data. No placeholder,
+         and no "start a session" CTA either — no such affordance exists (PulseScreen.tsx:209,
+         :366 offer only "Connect a device"), and inventing one makes the board specify a
+         product that does not exist. -->
+    <sc-if value="{{live}}">
     <svg width="326" height="52" viewBox="0 0 326 52" style="display:block;margin-bottom:18px">
       <polyline points="0,30 26,31 52,29 78,33 104,32 130,35 156,34 182,37 208,36 234,38 260,37 286,39 312,38 320,38" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round"></polyline>
       <circle cx="320" cy="38" r="3.4" fill="var(--accent)" style="animation:breathe 4200ms ease-in-out infinite;transform-origin:320px 38px"></circle>
     </svg>
+    </sc-if>
 
     <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:8px">THE WHOLE PICTURE</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:18px">
@@ -101,7 +142,7 @@
     
     <div style="margin-top:auto;padding:12px 0 0;border-top:1px solid var(--line)">
       <div style="font:500 11px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-bottom:7px">WHAT IT DID</div>
-      <p style="margin:0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Low variability and two hours still &rarr; tempo held under 96, leaning acoustic. That is the set playing now.</p>
+      <p style="margin:0;font:400 12.5px/1.6 var(--text);color:var(--ink2)">Low variability and under six hours slept &rarr; tempo held under 96, leaning acoustic. That is the set playing now.</p>
     </div>
   </div>
 
@@ -138,17 +179,31 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["reflective","calm","joyful","intense","off"],"default":"intense"},"source":{"editor":"enum","options":["health-connect","garmin","none"],"default":"health-connect"},"$preview":{"width":390,"height":844}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"field":{"editor":"enum","options":["reflective","calm","joyful","intense","off"],"default":"intense"},"source":{"editor":"enum","options":["health-connect","ble","none"],"default":"health-connect"},"$preview":{"width":390,"height":844}}'>
 class Component extends DCLogic {
   renderVals() {
     const src = this.props.source ?? 'health-connect';
-    // PulseState carries no device model. It does carry lastAnalyzed, so the second
-    // line is freshness — a real field — rather than an unbacked device name.
+    // `source` now equals BiometricSource exactly (warmStore.ts:7): ble | health-connect
+    // | none. It names the live TRANSPORT, not the data's provenance — PulseScreen.tsx:288.
+    // Every sourceLabel below is verbatim from that switch, and 'No live reading' from :309.
+    // The sub-lines are NOT verbatim -- the app's MetaChip renders none. They are cadence,
+    // grounded: 'every 3 min' in restFallback.ts:6, 'streaming' in liveHr.ts:14.
+    // `none` here is LIVE TRANSPORT DROPPED, not cold start. History still stands, so the
+    // gauges below are real readings — just not present-tense ones. The cold start (nothing
+    // paired, no history, PulseScreen.tsx:275 isEmpty) is a different screen: StateNoWatch.
+    const live = src !== 'none';
     return {
       theme: this.props.theme ?? 'light',
       field: this.props.field ?? 'intense',
-      sourceLabel: src === 'garmin' ? 'Garmin' : src === 'none' ? 'No source' : 'Health Connect',
-      sourceFresh: src === 'none' ? 'connect a wearable' : 'synced 4 min ago',
+      live,
+      noLive: !live,
+      sourceLabel: src === 'ble' ? 'Heart-rate sensor'
+        : src === 'none' ? 'No live source' : 'Health Connect',
+      sourceSub: src === 'ble' ? 'streaming'
+        : src === 'none' ? 'nothing streaming' : 'every 3 min',
+      // Provenance, not freshness-of-transport. LIVE while something is feeding the
+      // reading; otherwise the wall-clock the reading was taken at.
+      stamp: live ? 'LIVE' : 'AS OF 21:18',
     };
   }
 }

@@ -11,7 +11,6 @@
   <link rel="stylesheet" href="./tokens.css">
   <style>
     body { margin: 0; background: var(--pagebg, #E8E9EF); }
-    a { color: #17536F; } a:hover { color: #14163A; }
 .fr { position:relative; width:150px; height:300px; border-radius:18px; overflow:hidden;
           background:var(--canvas); border:1px solid var(--track); flex:none; }
     .cap { font:500 11px var(--mono); letter-spacing:.1em; color:var(--ink3); margin-top:9px; }
@@ -21,7 +20,7 @@
   </style>
 </helmet>
 
-<div class="qi" data-theme="{{theme}}" style="width:1400px;min-height:3200px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
+<div class="qi" data-theme="{{theme}}" style="width:1400px;box-sizing:border-box;background:var(--canvas);color:var(--ink);font-family:var(--text);padding:44px 48px 52px">
 
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:32px;padding-bottom:20px;border-bottom:1px solid var(--track)">
     <div>
@@ -49,14 +48,14 @@
               <circle cx="63" cy="63" r="50" fill="var(--sunken)" stroke="var(--line)"></circle>
               <line x1="63" y1="30" x2="63" y2="96" stroke="var(--line)" stroke-dasharray="1 8"></line>
               <line x1="30" y1="63" x2="96" y2="63" stroke="var(--line)" stroke-dasharray="1 8"></line>
-              <circle cx="80" cy="46" r="12" fill="rgba(245,185,58,.30)"></circle><circle cx="80" cy="46" r="6" fill="#8A5A12"></circle>
-              <circle cx="90" cy="53" r="12" fill="rgba(245,185,58,.30)"></circle><circle cx="90" cy="53" r="6" fill="#8A5A12"></circle>
-              <circle cx="74" cy="36" r="12" fill="rgba(245,185,58,.30)"></circle><circle cx="74" cy="36" r="6" fill="#8A5A12"></circle>
+              <circle cx="80" cy="46" r="12" fill="color-mix(in srgb, var(--hue-joyful) 30%, transparent)"></circle><circle cx="80" cy="46" r="6" fill="var(--q-joyful)"></circle>
+              <circle cx="90" cy="53" r="12" fill="color-mix(in srgb, var(--hue-joyful) 30%, transparent)"></circle><circle cx="90" cy="53" r="6" fill="var(--q-joyful)"></circle>
+              <circle cx="74" cy="36" r="12" fill="color-mix(in srgb, var(--hue-joyful) 30%, transparent)"></circle><circle cx="74" cy="36" r="6" fill="var(--q-joyful)"></circle>
             </svg>
             <div style="padding:0 12px;opacity:0">
               <div style="font:600 12px var(--disp);color:var(--ink)">Wired, but running on empty</div>
-              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#8A5A12">YOU</span> light, high energy</div>
-              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#6E3FC4">BODY</span> low reserves, still 2 h</div>
+              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:var(--q-joyful)">YOU</span> light, high energy</div>
+              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:var(--q-intense)">BODY</span> low reserves, slept 5 h 40</div>
             </div></div>
         </div>
         <div class="cap">FRAME 0 · 0 MS · you placed it</div>
@@ -71,14 +70,14 @@
               <circle cx="63" cy="63" r="50" fill="var(--sunken)" stroke="var(--line)"></circle>
               <line x1="63" y1="30" x2="63" y2="96" stroke="var(--line)" stroke-dasharray="1 8"></line>
               <line x1="30" y1="63" x2="96" y2="63" stroke="var(--line)" stroke-dasharray="1 8"></line>
-              <circle cx="80" cy="46" r="12" fill="rgba(190,148,150,.30)"></circle><circle cx="80" cy="46" r="6" fill="#7C4E6B"></circle>
-              <circle cx="90" cy="53" r="12" fill="rgba(190,148,150,.30)"></circle><circle cx="90" cy="53" r="6" fill="#7C4E6B"></circle>
-              <circle cx="74" cy="36" r="12" fill="rgba(190,148,150,.30)"></circle><circle cx="74" cy="36" r="6" fill="#7C4E6B"></circle>
+              <circle cx="80" cy="46" r="12" fill="color-mix(in srgb, color-mix(in srgb, var(--hue-joyful) 50%, var(--hue-intense)) 30%, transparent)"></circle><circle cx="80" cy="46" r="6" fill="color-mix(in srgb, var(--q-joyful) 50%, var(--q-intense))"></circle>
+              <circle cx="90" cy="53" r="12" fill="color-mix(in srgb, color-mix(in srgb, var(--hue-joyful) 50%, var(--hue-intense)) 30%, transparent)"></circle><circle cx="90" cy="53" r="6" fill="color-mix(in srgb, var(--q-joyful) 50%, var(--q-intense))"></circle>
+              <circle cx="74" cy="36" r="12" fill="color-mix(in srgb, color-mix(in srgb, var(--hue-joyful) 50%, var(--hue-intense)) 30%, transparent)"></circle><circle cx="74" cy="36" r="6" fill="color-mix(in srgb, var(--q-joyful) 50%, var(--q-intense))"></circle>
             </svg>
             <div style="padding:0 12px;opacity:.45">
               <div style="font:600 12px var(--disp);color:var(--ink)">Wired, but running on empty</div>
-              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#8A5A12">YOU</span> light, high energy</div>
-              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#6E3FC4">BODY</span> low reserves, still 2 h</div>
+              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:var(--q-joyful)">YOU</span> light, high energy</div>
+              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:var(--q-intense)">BODY</span> low reserves, slept 5 h 40</div>
             </div></div>
         </div>
         <div class="cap">FRAME 1 · 600 MS · mid-move</div>
@@ -93,14 +92,14 @@
               <circle cx="63" cy="63" r="50" fill="var(--sunken)" stroke="var(--line)"></circle>
               <line x1="63" y1="30" x2="63" y2="96" stroke="var(--line)" stroke-dasharray="1 8"></line>
               <line x1="30" y1="63" x2="96" y2="63" stroke="var(--line)" stroke-dasharray="1 8"></line>
-              <circle cx="80" cy="46" r="12" fill="rgba(139,111,232,.30)"></circle><circle cx="80" cy="46" r="6" fill="#6E3FC4"></circle>
-              <circle cx="90" cy="53" r="12" fill="rgba(139,111,232,.30)"></circle><circle cx="90" cy="53" r="6" fill="#6E3FC4"></circle>
-              <circle cx="74" cy="36" r="12" fill="rgba(139,111,232,.30)"></circle><circle cx="74" cy="36" r="6" fill="#6E3FC4"></circle>
+              <circle cx="80" cy="46" r="12" fill="color-mix(in srgb, var(--hue-intense) 30%, transparent)"></circle><circle cx="80" cy="46" r="6" fill="var(--q-intense)"></circle>
+              <circle cx="90" cy="53" r="12" fill="color-mix(in srgb, var(--hue-intense) 30%, transparent)"></circle><circle cx="90" cy="53" r="6" fill="var(--q-intense)"></circle>
+              <circle cx="74" cy="36" r="12" fill="color-mix(in srgb, var(--hue-intense) 30%, transparent)"></circle><circle cx="74" cy="36" r="6" fill="var(--q-intense)"></circle>
             </svg>
             <div style="padding:0 12px;opacity:1">
               <div style="font:600 12px var(--disp);color:var(--ink)">Wired, but running on empty</div>
-              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#8A5A12">YOU</span> light, high energy</div>
-              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:#6E3FC4">BODY</span> low reserves, still 2 h</div>
+              <div style="margin-top:2px;font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:var(--q-joyful)">YOU</span> light, high energy</div>
+              <div style="font:400 9.5px/1.35 var(--text);color:var(--ink2)"><span style="font:500 9px var(--mono);color:var(--q-intense)">BODY</span> low reserves, slept 5 h 40</div>
             </div></div>
         </div>
         <div class="cap">FRAME 2 · 1500 MS · the fused read</div>
@@ -172,9 +171,9 @@
           <div style="position:relative;padding:14px 12px">
             <svg width="126" height="126" viewBox="0 0 126 126" style="display:block;margin:6px auto 0">
               <circle cx="63" cy="63" r="52" fill="var(--sunken)" stroke="var(--line)"></circle>
-              <circle cx="80" cy="46" r="11" fill="var(--accentfill)"></circle><circle cx="80" cy="46" r="5.5" fill="var(--accent)"></circle>
-              <circle cx="88" cy="52" r="11" fill="var(--accentfill)"></circle><circle cx="88" cy="52" r="5.5" fill="var(--accent)"></circle>
-              <circle cx="74" cy="41" r="11" fill="var(--accentfill)"></circle><circle cx="74" cy="41" r="5.5" fill="var(--accent)"></circle>
+              <circle cx="80" cy="46" r="11" fill="var(--accentwash)"></circle><circle cx="80" cy="46" r="5.5" fill="var(--accent)"></circle>
+              <circle cx="88" cy="52" r="11" fill="var(--accentwash)"></circle><circle cx="88" cy="52" r="5.5" fill="var(--accent)"></circle>
+              <circle cx="74" cy="41" r="11" fill="var(--accentwash)"></circle><circle cx="74" cy="41" r="5.5" fill="var(--accent)"></circle>
             </svg>
             <div style="margin-top:10px;height:30px;border-radius:999px;background:var(--accent)"></div>
           </div>
@@ -190,9 +189,9 @@
           <div style="position:relative;padding:14px 12px">
             <svg width="126" height="126" viewBox="0 0 126 126" style="display:block;margin:6px auto 0">
               <circle cx="63" cy="63" r="52" fill="var(--sunken)" stroke="var(--line)" opacity=".5"></circle>
-              <circle cx="70" cy="55" r="9" fill="var(--accentfill)"></circle><circle cx="70" cy="55" r="4.5" fill="var(--accent)"></circle>
-              <circle cx="73" cy="58" r="9" fill="var(--accentfill)"></circle><circle cx="73" cy="58" r="4.5" fill="var(--accent)"></circle>
-              <circle cx="67" cy="53" r="9" fill="var(--accentfill)"></circle><circle cx="67" cy="53" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="70" cy="55" r="9" fill="var(--accentwash)"></circle><circle cx="70" cy="55" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="73" cy="58" r="9" fill="var(--accentwash)"></circle><circle cx="73" cy="58" r="4.5" fill="var(--accent)"></circle>
+              <circle cx="67" cy="53" r="9" fill="var(--accentwash)"></circle><circle cx="67" cy="53" r="4.5" fill="var(--accent)"></circle>
             </svg>
             <div style="margin-top:10px;height:30px;border-radius:999px;background:var(--accent);opacity:.35"></div>
           </div>
@@ -207,10 +206,10 @@
           <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:68%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
           <div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:118px;height:118px">
             <div class="anim" style="position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--accent);animation:fbreathe 4200ms ease-in-out infinite"></div>
-            <div class="anim" style="position:absolute;inset:14px;border-radius:50%;border:1.5px solid var(--accent);opacity:.7;animation:fbreathe 4200ms ease-in-out infinite 380ms"></div>
-            <div class="anim" style="position:absolute;inset:30px;border-radius:50%;background:var(--accentfill);animation:fbreathe 4200ms ease-in-out infinite 760ms"></div>
+            <div class="anim" style="position:absolute;inset:14px;border-radius:50%;border:1.5px solid var(--accent);opacity:.7;animation:fbreathe 4200ms ease-in-out infinite 380ms;animation-fill-mode:backwards"></div>
+            <div class="anim" style="position:absolute;inset:30px;border-radius:50%;background:var(--accentwash);animation:fbreathe 4200ms ease-in-out infinite 760ms;animation-fill-mode:backwards"></div>
           </div>
-          <div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font:400 12px var(--disp);color:var(--ink)">Reading your body.</div>
+          <div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font:600 12px var(--disp);color:var(--ink)">Reading your body.</div>
         </div>
         <div class="cap">FRAME 2 · 240 MS</div>
       </div>
@@ -243,9 +242,9 @@
           <div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:118px;height:118px">
             <div style="position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--accent);opacity:.5"></div>
             <div style="position:absolute;inset:14px;border-radius:50%;border:1.5px solid var(--accent);opacity:.4"></div>
-            <div style="position:absolute;inset:30px;border-radius:50%;background:var(--accentfill)"></div>
+            <div style="position:absolute;inset:30px;border-radius:50%;background:var(--accentwash)"></div>
           </div>
-          <div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font:400 12px var(--disp);color:var(--ink)">Choosing the first three minutes.</div>
+          <div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font:600 12px var(--disp);color:var(--ink)">Choosing the first three minutes.</div>
         </div>
         <div class="cap">FRAME 0 · 0 MS</div>
       </div>
@@ -256,7 +255,7 @@
         <div class="fr" data-field="intense">
           <div style="position:absolute;left:-20%;right:-20%;bottom:-26%;height:71%;background:radial-gradient(ellipse 62% 100% at 50% 100%,var(--accentfill),transparent 72%)"></div>
           <div style="position:absolute;left:50%;top:41%;transform:translate(-50%,-50%);width:104px;height:104px;border-radius:8px;border:1px dashed var(--track);background:transparent;display:flex;align-items:center;justify-content:center"></div>
-          <div style="position:absolute;left:0;right:0;bottom:44px;text-align:center;font:400 12px var(--disp);color:var(--ink);opacity:.5">Low Water</div>
+          <div style="position:absolute;left:0;right:0;bottom:44px;text-align:center;font:600 12px var(--disp);color:var(--ink);opacity:.5">Low Water</div>
         </div>
         <div class="cap">FRAME 1 · 210 MS</div>
       </div>
@@ -372,7 +371,7 @@
 
 </div>
 </x-dc>
-<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":3200}}'>
+<script data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1400,"height":3644}}'>
 class Component extends DCLogic {
   renderVals() {
     return { theme: this.props.theme ?? 'light' };

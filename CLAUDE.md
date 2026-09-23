@@ -27,7 +27,7 @@ The orchestration directive is **`docs/ORCHESTRATOR_FABLE.md`** (the "main" syst
 
 ## Build-time agents (`.claude/agents/`) — the team that writes Kokonada
 
-Dispatch work to these six named sub-agents (all Opus, all read the docs above). Pair a `developer` with the reviewers a task needs; **UI screens also get `designer`**; anything touching a third-party API/store/brand also gets `compliance-auditor`.
+Dispatch work to these seven named sub-agents (all Opus, all read the docs above). Pair a `developer` with the reviewers a task needs; **UI screens also get `designer`**; anything touching a third-party API/store/brand also gets `compliance-auditor`.
 
 - **`architect`** — read-only. Principal-level analysis + dependency-ordered plans; surfaces forks as decision tables. Invoke before any non-trivial change.
 - **`designer`** — read-only. Design lead: authors the Vision Frame + tokens + per-screen direction, and gives the **SHIP / REVISE** design-review verdict. No screen merges without a `designer` SHIP.
@@ -35,6 +35,8 @@ Dispatch work to these six named sub-agents (all Opus, all read the docs above).
 - **`resilience-auditor`** — read-only. Master QA: stress/boundary tests, fault-tree root-cause, hunts false-greens, pins regression guards.
 - **`compliance-auditor`** — read-only (+ web). Verifies external-API/store/branding surfaces against current TOS and **HALTs** on ban/rejection risk; mandatory gate before store submission.
 - **`custodian`** — full tools. Repo hygiene & structural truth: dead code, unused deps, orphan assets, config/doc sprawl, surface-boundary drift. Proves death before removing and pins a guard so it cannot return. Reviews are **risk-tiered** (report-only → suite-only → one jurisdiction reviewer → full squad), never all five by default. Runs **between** waves, never inside one, and never touches untracked human work.
+
+- **`regulatory-researcher`** — read-only (+ web). EU technology regulation: AI Act, GDPR, and the adjacent instruments. Retrieves primary sources, maps which obligations attach under each possible classification, and prepares a dossier counsel can act on in an hour. **Prepares, never decides** — a legal classification is the owner's and counsel's, and an agent does not change that. Distinct from `compliance-auditor`, which reads a *provider's* terms; this one reads *law*.
 
 No agent merges or approves its own work. Cloud portals = Pause & Guide (stop and hand the human a tutorial).
 
