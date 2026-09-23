@@ -4,7 +4,7 @@
 // wiring is the missing feeder: it bridges the live HR stream → warm store, and is
 // additive — the existing pushLiveHr(backend) path inside startLiveHr is untouched.
 
-import { startBiometrics } from '../biometricsWiring';
+import { startBiometrics, clearBiometricFeed } from '../biometricsWiring';
 import { createWarmStore } from '../../state/warm/warmStore';
 import type { LiveHrSession } from '../liveHr';
 import type { LiveHrCallbacks } from '../bleHeartRate';
@@ -46,5 +46,61 @@ describe('startBiometrics — feed the warm lane (Suspect #3)', () => {
     const boom = async () => { throw new Error('no bluetooth'); };
     await expect(startBiometrics({ warm, start: boom })).resolves.toBeNull();
     expect(warm.getState().biometricSource).toBe('none');
+  });
+});
+
+// H2: the health lane tears the feed down on withdrawal / Disconnect / logout. Readings that
+// arrive after that — or a start that only resolves after it — must never repopulate the warm
+// lane (the next account on the phone would otherwise see the previous account's heart rate).
+describe('startBiometrics — isActive guard (H2 teardown)', () => {
+  it('drops a reading that arrives after the lane went inactive', async () => {
+    const warm = createWarmStore();
+    let active = true;
+    let emit!: (hr: number) => void;
+    await startBiometrics({
+      warm,
+      isActive: () => active,
+      start: fakeStart('ble', (cb) => { emit = (hr) => cb.onHr?.(hr); }),
+    });
+    emit(72);
+    expect(warm.getState().liveHr).toBe(72);
+    active = false;
+    emit(95);
+    expect(warm.getState().liveHr).toBe(72); // the late reading never lands
+  });
+
+  it('a start that resolves after teardown is stopped at once and never sets a source', async () => {
+    const warm = createWarmStore();
+    let active = true;
+    let resolveStart!: (s: LiveHrSession) => void;
+    const session: LiveHrSession = { mode: 'ble', stop: jest.fn() };
+    const pending = startBiometrics({
+      warm,
+      isActive: () => active,
+      start: () => new Promise<LiveHrSession>((r) => { resolveStart = r; }),
+    });
+    active = false; // torn down while the start was in flight
+    resolveStart(session);
+    await expect(pending).resolves.toBeNull();
+    expect(session.stop).toHaveBeenCalledTimes(1);
+    expect(warm.getState().biometricSource).toBe('none');
+  });
+});
+
+describe('clearBiometricFeed — the lane-teardown wipe (S12-1 safe)', () => {
+  it('clears liveHr and the source but leaves the server connection and the permissions alone', () => {
+    const warm = createWarmStore();
+    warm.getState().setConnection('connected');
+    warm.getState().setPermissions({ bluetooth: 'granted', health: 'granted' });
+    warm.getState().setBiometricSource('ble');
+    warm.getState().setLiveHr(72);
+
+    clearBiometricFeed(warm);
+
+    const s = warm.getState();
+    expect(s.liveHr).toBeNull();
+    expect(s.biometricSource).toBe('none');
+    expect(s.connection).toBe('connected');
+    expect(s.permissions).toEqual({ bluetooth: 'granted', health: 'granted' });
   });
 });

@@ -34,7 +34,7 @@ jest.mock('react-native', () => ({
 
 import { PermissionsAndroid } from 'react-native';
 import { parseHeartRateMeasurement, shouldSend, newGateState, isPlausibleHr } from '../hrMeasurement';
-import { FALLBACK_INTERVAL_MS, readLatestHealthConnectHr } from '../restFallback';
+import { FALLBACK_INTERVAL_MS, readLatestHealthConnectHr, startRestFallback } from '../restFallback';
 import { startLiveHr } from '../liveHr';
 
 const readRecords = require('react-native-health-connect').readRecords as jest.Mock;
@@ -90,6 +90,36 @@ describe('REST fallback', () => {
       ],
     });
     expect(await readLatestHealthConnectHr(new Date('2026-07-01T10:03:00Z'))).toBe(66);
+  });
+
+  // H2 race gap: stop() can land while a tick is awaiting Health Connect. The tick must re-check
+  // after the await, or one reading leaks into the warm lane and one push leaves the device
+  // AFTER logout / withdrawal.
+  it('a tick whose Health Connect read resolves AFTER stop() emits no reading and pushes nothing', async () => {
+    let release!: (v: unknown) => void;
+    readRecords.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+    const onHr = jest.fn();
+    const ctrl = startRestFallback('fake-test-token', { onHr });
+    await new Promise((r) => setImmediate(r)); // let the tick reach the pending read
+    expect(readRecords).toHaveBeenCalledTimes(1);
+
+    ctrl.stop();
+    release({ records: [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 71 }] }] });
+    await new Promise((r) => setImmediate(r));
+
+    expect(onHr).not.toHaveBeenCalled();
+    expect((global as any).fetch).not.toHaveBeenCalled();
+  });
+
+  it('control: the same tick WITHOUT a stop does emit and push (the fake is live)', async () => {
+    readRecords.mockResolvedValueOnce({ records: [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 71 }] }] });
+    const onHr = jest.fn();
+    const ctrl = startRestFallback('fake-test-token', { onHr });
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    expect(onHr).toHaveBeenCalledWith(71);
+    expect((global as any).fetch).toHaveBeenCalledTimes(1);
+    ctrl.stop();
   });
 });
 
