@@ -29,8 +29,7 @@ jest.mock('../app/sockets/index', () => ({
 jest.mock('../app/utils/tokenDenylist',    () => ({ revoke: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../app/utils/jwt', () => ({
   signToken:       jest.fn(),
-  setAuthCookie:   jest.fn(),
-  clearAuthCookie: jest.fn(),
+  clearAuthCookie: jest.fn(), // setAuthCookie is gone with the cookie plane (BE-009)
 }));
 // authController constructs an OAuth2Client at module load — stub it out.
 jest.mock('google-auth-library', () => ({ OAuth2Client: jest.fn() }));

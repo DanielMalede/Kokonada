@@ -138,7 +138,10 @@ beforeEach(() => {
 });
 
 describe('POST /auth/signup', () => {
-  it('creates the account and returns an access/refresh session pair + cookie', async () => {
+  // BE-009 — INVERTED. Signup used to SET the session cookie; it now CLEARS it, so a holder
+  // of a pre-retirement cookie loses it on their next successful auth instead of keeping it
+  // for the remaining span of its 7-day life.
+  it('creates the account and returns an access/refresh session pair, and issues NO cookie', async () => {
     const res = buildRes();
     await ctrl.signup({ body: { email: EMAIL, password: PASSWORD } }, res, next);
 
@@ -147,7 +150,10 @@ describe('POST /auth/signup', () => {
     expect(jwt.verify(body.token, process.env.JWT_SECRET).userId).toBeTruthy();
     expect(body.refreshToken).toMatch(/^krt_/);
     expect(body.user.email).toBe(EMAIL);
-    expect(res.cookie).toHaveBeenCalledWith('kokonada_token', body.token, expect.any(Object));
+    // never sets the session cookie...
+    expect(res.cookie).not.toHaveBeenCalledWith('kokonada_token', body.token, expect.any(Object));
+    // ...and actively clears any the caller still holds
+    expect(res.clearCookie).toHaveBeenCalledWith('kokonada_token', expect.any(Object));
   });
 
   it('maps email-taken to 409 and validation failures to 400', async () => {
@@ -196,7 +202,10 @@ describe('POST /auth/login', () => {
 });
 
 describe('POST /auth/refresh', () => {
-  it('rotates a valid refresh token and re-sets the cookie', async () => {
+  // BE-009 — INVERTED. Refresh was the worst offender: it set the cookie on EVERY rotation
+  // with no client check, so the mobile app re-acquired one on a schedule despite never
+  // asking for it and despite sending a Bearer header.
+  it('rotates a valid refresh token and issues NO cookie', async () => {
     const login = buildRes();
     await ctrl.signup({ body: { email: EMAIL, password: PASSWORD } }, login, next);
     const { refreshToken } = lastJson(login);
@@ -208,7 +217,8 @@ describe('POST /auth/refresh', () => {
     expect(body.token).toBeTruthy();
     expect(body.refreshToken).toMatch(/^krt_/);
     expect(body.refreshToken).not.toBe(refreshToken);
-    expect(res.cookie).toHaveBeenCalledWith('kokonada_token', body.token, expect.any(Object));
+    expect(res.cookie).not.toHaveBeenCalledWith('kokonada_token', body.token, expect.any(Object));
+    expect(res.clearCookie).toHaveBeenCalledWith('kokonada_token', expect.any(Object));
   });
 
   it('rejects replayed, unknown and missing tokens with 401', async () => {

@@ -64,10 +64,9 @@ jest.mock('@react-navigation/native', () => ({
     useEffect(() => { cb(); }, []); // run once on mount, mimicking a first focus
   },
 }));
-// The §10 watch pairing seam — mocked so the WatchPairingCard's mount hydrate never touches the
-// network. The card/store are proven end-to-end in their own suites; here they just stay quiet.
+// The §10 live-HR credential seam — mocked so LiveHeartRateCard's mount hydrate never touches the
+// network. The card is proven end-to-end in its own suite; here it just stays quiet.
 jest.mock('../../../health/watchPairingClient', () => ({
-  requestWatchPairing: jest.fn().mockResolvedValue({ ok: true, data: { code: '123456', expiresAt: new Date(Date.now() + 300000).toISOString() } }),
   fetchWatchStatus: jest.fn().mockResolvedValue({ ok: true, data: { connected: false, lastSeenAt: null } }),
   revokeWatchPairing: jest.fn().mockResolvedValue({ ok: true, data: { message: 'ok' } }),
 }));

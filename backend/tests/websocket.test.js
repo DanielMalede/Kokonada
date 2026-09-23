@@ -4,7 +4,6 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET      = 'test-jwt-secret-for-tests-only';
 process.env.JWT_EXPIRES_IN  = '1h';
 process.env.NODE_ENV        = 'test';
-process.env.FRONTEND_URL    = 'http://localhost:3000';
 
 const http = require('http');
 const { io: Client } = require('socket.io-client');
@@ -139,16 +138,26 @@ describe('WebSocket auth', () => {
     client.on('connect_error', done);
   });
 
-  it('connects successfully with a valid token in cookie header', done => {
+  // BE-008 — INVERTED. This asserted that a bare `Cookie:` header opened a socket, which was
+  // the cross-site WebSocket hijacking hole: `SameSite=None` means a browser attaches that
+  // cookie to CROSS-site requests, a WS upgrade is exempt from the same-origin policy, and
+  // `/socket.io/` never reaches `csrfOriginGuard`. Any page on the internet could open an
+  // authenticated duplex socket and read Art.9 biometric payloads. The handshake now takes
+  // `auth.token` only. Kept and flipped rather than deleted so the hole cannot quietly return.
+  it('REJECTS a valid token supplied only via the cookie header', done => {
     const token = signToken({ userId: MOCK_USER._id });
     const client = connectSocket(port, {
       extraHeaders: { cookie: `${COOKIE_NAME}=${token}` },
     });
     client.on('connect', () => {
       client.close();
+      done(new Error('handshake accepted an ambient cookie — BE-008 has regressed'));
+    });
+    client.on('connect_error', (err) => {
+      expect(err.message).toBe('unauthorized');
+      client.close();
       done();
     });
-    client.on('connect_error', done);
   });
 });
 

@@ -104,7 +104,12 @@ describe('auth middleware', () => {
   describe('valid token — user lookup', () => {
     const fakeUser = { _id: 'user-123', email: 'test@example.com', deletedAt: null };
 
-    it('attaches user to req and calls next when cookie token is valid', async () => {
+    // BE-009 — INVERTED, deliberately, in the same commit that removed the cookie read.
+    // This test used to assert the opposite ("attaches user to req … when cookie token is
+    // valid") and was the pin proving cookie auth worked. It is kept and flipped rather
+    // than deleted, so the old behaviour cannot come back unnoticed: a green suite with
+    // this case simply absent would say nothing at all.
+    it('returns 401 when ONLY a cookie is present — an ambient credential is not authentication', async () => {
       const token = signToken({ userId: fakeUser._id });
       mockSelect.mockResolvedValue(fakeUser);
 
@@ -114,11 +119,10 @@ describe('auth middleware', () => {
 
       await authMiddleware(req, res, next);
 
-      expect(mockFindById).toHaveBeenCalledWith(fakeUser._id);
-      expect(mockSelect).toHaveBeenCalledWith('-spotifyToken -youtubeMusicToken -wearableToken');
-      expect(req.user).toBe(fakeUser);
-      expect(next).toHaveBeenCalledTimes(1);
-      expect(res.status).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+      // and it must not even reach the database on a cookie
+      expect(mockFindById).not.toHaveBeenCalled();
     });
 
     it('attaches user to req and calls next when Bearer header token is valid', async () => {
@@ -135,11 +139,17 @@ describe('auth middleware', () => {
       expect(next).toHaveBeenCalledTimes(1);
     });
 
-    it('prefers cookie over Bearer header when both present', async () => {
+    // BE-009 — INVERTED. This used to assert "prefers cookie over Bearer header when both
+    // present", which is the precise reason the mobile app was authenticating by cookie
+    // without anyone intending it: React Native's OkHttp keeps a disk-persisted cookie jar
+    // (OkHttpClientProvider.kt wires ReactCookieJarContainer by default), the backend set a
+    // cookie on every /auth/refresh, and this preference then made the app's own Bearer
+    // header decorative. Now the explicit credential wins and the ambient one is ignored.
+    it('IGNORES the cookie and uses the Bearer header when both are present', async () => {
       const cookieToken  = signToken({ userId: 'cookie-user' });
       const bearerToken  = signToken({ userId: 'bearer-user' });
-      const cookieUser   = { _id: 'cookie-user', deletedAt: null };
-      mockSelect.mockResolvedValue(cookieUser);
+      const bearerUser   = { _id: 'bearer-user', deletedAt: null };
+      mockSelect.mockResolvedValue(bearerUser);
 
       const req = {
         cookies: { [COOKIE_NAME]: cookieToken },
@@ -150,15 +160,17 @@ describe('auth middleware', () => {
 
       await authMiddleware(req, res, next);
 
-      expect(mockFindById).toHaveBeenCalledWith('cookie-user');
-      expect(req.user).toBe(cookieUser);
+      expect(mockFindById).toHaveBeenCalledWith('bearer-user');
+      expect(mockFindById).not.toHaveBeenCalledWith('cookie-user');
+      expect(req.user).toBe(bearerUser);
+      expect(next).toHaveBeenCalledTimes(1);
     });
 
     it('returns 401 when user is not found in DB', async () => {
       const token = signToken({ userId: 'ghost-user' });
       mockSelect.mockResolvedValue(null);
 
-      const req  = { cookies: { [COOKIE_NAME]: token }, headers: {} };
+      const req  = { cookies: {}, headers: { authorization: `Bearer ${token}` } };
       const res  = buildRes();
       const next = jest.fn();
 
@@ -174,7 +186,7 @@ describe('auth middleware', () => {
       const deletedUser = { _id: 'deleted-user', deletedAt: new Date() };
       mockSelect.mockResolvedValue(deletedUser);
 
-      const req  = { cookies: { [COOKIE_NAME]: token }, headers: {} };
+      const req  = { cookies: {}, headers: { authorization: `Bearer ${token}` } };
       const res  = buildRes();
       const next = jest.fn();
 
@@ -188,7 +200,7 @@ describe('auth middleware', () => {
       const token = signToken({ userId: fakeUser._id });
       mockSelect.mockResolvedValue(fakeUser);
 
-      const req  = { cookies: { [COOKIE_NAME]: token }, headers: {} };
+      const req  = { cookies: {}, headers: { authorization: `Bearer ${token}` } };
       await authMiddleware(req, buildRes(), jest.fn());
 
       // Verify -spotifyToken etc. are excluded

@@ -1,11 +1,16 @@
 import { apiGet, apiPost, apiDelete } from '../../net/apiClient';
 import { clearWatchToken } from '../liveHrClient';
-import { requestWatchPairing, fetchWatchStatus, revokeWatchPairing } from '../watchPairingClient';
+import { fetchWatchStatus, revokeWatchPairing } from '../watchPairingClient';
 
-// T0 — the §10 watch pairing REST seam. It uses the shared apiClient (auth + 401-refresh),
-// NEVER raw fetch, and mints ONLY the ephemeral pairing code — the long-lived whr_ device token
-// is never fetched/rendered here (audit L-15). Revoking additionally forgets the phone's cached
-// whr_ (liveHrClient Keychain slot) so a stale phone token can't outlive the revoked server slot.
+// T0 — the §10 live-HR DEVICE-CREDENTIAL REST seam. It uses the shared apiClient (auth +
+// 401-refresh), NEVER raw fetch. The pairing-code half (requestWatchPairing → /watch/pair) was
+// retired with the Garmin Connect IQ app, which was the only party that could redeem a code.
+// What remains is status and revoke for the whr_ token the PHONE mints for its live-HR tiers;
+// revoking additionally forgets the cached phone copy (liveHrClient Keychain slot) so a stale
+// token can't outlive the revoked server slot.
+//
+// `apiPost` stays mocked deliberately: it is the guard for "this module no longer POSTs anything",
+// asserted below.
 
 jest.mock('../../net/apiClient', () => ({
   apiGet: jest.fn(),
@@ -27,12 +32,6 @@ beforeEach(() => {
 });
 
 describe('watchPairingClient', () => {
-  it('requestWatchPairing POSTs the pairing-code mint endpoint and returns { code, expiresAt }', async () => {
-    const res = await requestWatchPairing();
-    expect(mockPost).toHaveBeenCalledWith('/api/integrations/watch/pair');
-    expect(res).toEqual({ ok: true, data: { code: '123456', expiresAt: '2026-01-01T00:05:00.000Z' } });
-  });
-
   it('fetchWatchStatus GETs the status endpoint and returns { connected, lastSeenAt }', async () => {
     mockGet.mockResolvedValue({ ok: true, data: { connected: true, lastSeenAt: '2026-01-01T00:00:00.000Z' } });
     const res = await fetchWatchStatus();
@@ -48,11 +47,17 @@ describe('watchPairingClient', () => {
   });
 
   it('uses the shared apiClient (never raw fetch) — the whr_ token is never fetched or returned', async () => {
-    const pair = await requestWatchPairing();
     const status = await fetchWatchStatus();
     const revoke = await revokeWatchPairing();
-    // The mint returns only the ephemeral pairing code; no whr_ ever crosses this seam.
-    expect(JSON.stringify([pair, status, revoke])).not.toContain('whr_');
-    expect(mockPost).toHaveBeenCalledWith('/api/integrations/watch/pair');
+    // No whr_ ever crosses this seam: the phone's copy is minted by liveHrClient, not here.
+    expect(JSON.stringify([status, revoke])).not.toContain('whr_');
+  });
+
+  // Guard for the retired pairing seam. The Connect IQ app was the only party that could redeem a
+  // pairing code, so re-introducing a POST here would be resurrecting a flow with no client.
+  it('no longer POSTs anything — the pairing-code mint died with the Connect IQ app', async () => {
+    await fetchWatchStatus();
+    await revokeWatchPairing();
+    expect(mockPost).not.toHaveBeenCalled();
   });
 });

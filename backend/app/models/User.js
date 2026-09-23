@@ -51,15 +51,6 @@ const userSchema = new mongoose.Schema({
     lastSeenAt: { type: Date,   default: null },
   },
 
-  // Short-lived, single-use pairing code (watch onboarding, audit L-15). The web
-  // UI shows only this code — never the long-lived watchToken — so the DOM/
-  // clipboard never carry a durable credential. Consumed (nulled) atomically on
-  // first successful exchange, or simply expires unused.
-  watchPairing: {
-    hash:      { type: String, default: null },
-    expiresAt: { type: Date,   default: null },
-  },
-
   // Mobile push notification tokens (FCM for Android, APNs for iOS) — device secrets,
   // ENCRYPTED at rest (T3.3). The getter decrypts transparently, so authController's
   // `t.token === deviceToken` dedup still works.
@@ -103,8 +94,6 @@ userSchema.index({ email: 1 });
 // Sparse: most users never enroll a watch, so watchToken.hash is null for them
 // — sparse keeps those documents out of the index and the lookup unique-friendly.
 userSchema.index({ 'watchToken.hash': 1 }, { sparse: true });
-// Sparse: only set while a pairing is in flight (minutes at most).
-userSchema.index({ 'watchPairing.hash': 1 }, { sparse: true });
 // Blind-index lookup path for the Garmin webhook (garminUserId is encrypted, unqueryable).
 // Sparse: most users never connect Garmin. (T3.3)
 userSchema.index({ garminUserIdHmac: 1 }, { sparse: true });

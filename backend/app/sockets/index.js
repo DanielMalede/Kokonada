@@ -1,8 +1,7 @@
 'use strict';
 
 const { Server } = require('socket.io');
-const cookie = require('cookie');
-const { verifyToken, COOKIE_NAME } = require('../utils/jwt');
+const { verifyToken } = require('../utils/jwt');
 const { isRevoked } = require('../utils/tokenDenylist');
 const User = require('../models/User');
 const { registerBiometricHandler } = require('./biometricHandler');
@@ -13,24 +12,32 @@ const { captureException } = require('../config/sentry');
 let _io = null;
 
 function createSocketServer(httpServer) {
-  const io = new Server(httpServer, {
-    cors: {
-      origin: process.env.FRONTEND_URL,
-      credentials: true,
-    },
-  });
+  // No `cors` option at all. Engine.IO only builds a CORS middleware when `opts.cors` is truthy,
+  // so omitting it emits no Access-Control-Allow-Origin and no browser page can open this socket.
+  // It was never a real gate anyway — Engine.IO wires the same `cors` npm middleware, which sets
+  // headers and calls next(); it does NOT reject an upgrade (that was half of BE-008). The only
+  // client is the React Native app, which is not a browser and is authenticated by an explicit
+  // `handshake.auth.token`. `FRONTEND_URL` was its last reader in this file.
+  const io = new Server(httpServer);
 
   io.use(async (socket, next) => {
     try {
-      let token = socket.handshake.auth?.token;
-
-      if (!token) {
-        const rawCookie = socket.handshake.headers.cookie;
-        if (rawCookie) {
-          const parsed = cookie.parse(rawCookie);
-          token = parsed[COOKIE_NAME];
-        }
-      }
+      // BE-008 — EXPLICIT CREDENTIAL ONLY. This handshake used to fall back to the raw
+      // `Cookie:` header, which was a cross-site WebSocket hijacking hole: the session
+      // cookie is `SameSite=None` in production so a browser attaches it to CROSS-SITE
+      // requests; a WebSocket upgrade is exempt from the same-origin policy; and
+      // `/socket.io/` never reaches Express middleware at all (Engine.IO installs its own
+      // request/upgrade listeners ahead of it), so `csrfOriginGuard` could never see this
+      // door. Any page on the internet could open an authenticated duplex socket for a
+      // logged-in user and read back Art.9 biometric payloads.
+      //
+      // An Origin check is NOT the fix — nothing here reads one, and React Native sends
+      // none, so an allowlist would break the real client while the hole stayed open to
+      // anyone willing to omit the header. The fix is to refuse the AMBIENT credential the
+      // browser attaches by itself and require an EXPLICIT one. Both shipping clients
+      // already pass `auth.token` (mobile/.../net/socketFactory.ts).
+      // Pinned by tests/socket.crossSite.test.js.
+      const token = socket.handshake.auth?.token;
 
       if (!token) return next(new Error('unauthorized'));
 
