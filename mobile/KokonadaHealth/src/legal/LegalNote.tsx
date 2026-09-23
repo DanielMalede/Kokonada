@@ -8,7 +8,7 @@ import type { LegalLine } from './legalCopy';
 // The ONE primitive every interim legal line renders through, so the three surfaces cannot drift.
 // It owns every colour and type value and takes no style/colour/tone prop: callers wrap it in their
 // own View for width and margin, and nothing a caller holds (an emotion, an inferred state) can
-// tint it. A quiet band on the AA-proven text scrim (legalContrast.test.ts proves content.secondary
+// tint it. A quiet band on the AA-proven text scrim (legalNoteContrast.test.ts proves content.secondary
 // on it over every aurora, aura and canvas backdrop), one Text node per line so each line is one
 // screen-reader utterance, font scaling on, never truncated, never dismissible, and no motion.
 // Only useTheme() — no motion or keyboard subscription that could leak.

@@ -1,9 +1,11 @@
-import { colors, emotionAnchors, type ThemeName } from '../../design/tokens';
-import { textScrimFill, glassFor } from '../../design/auroraSurfaces';
-import { auroraGlow } from '../../design/emotionAccent';
+import { colors, emotionAnchors, type ThemeName } from '../tokens';
+import { textScrimFill, glassFor } from '../auroraSurfaces';
+import { auroraGlow } from '../emotionAccent';
 import { hrGlowColor } from '../../experience/aura/auraBreath';
-import { contrastRatio, parseHex, flatten, AA_NORMAL } from '../../design/contrast';
+import { contrastRatio, parseHex, flatten, AA_NORMAL } from '../contrast';
 
+// A palette pin, so it lives with the other contrast pins under src/design/__tests__ (the directory
+// the design-system lint policy reserves for tests that specify colour values).
 // The legal lines must hold WCAG AA (4.5:1, body text) on the worst frame of whatever is behind them.
 // LegalNote paints content.secondary on textScrimFill (pinned in LegalNote.test.tsx); this file proves
 // THAT pair over every backdrop the band can float over, in both faces, judged at full strength (no
