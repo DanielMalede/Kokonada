@@ -176,8 +176,9 @@ describe('LiveHeartRateCard — the not-connected note states the gated behaviou
       tree = ReactTestRenderer.create(<LiveHeartRateCard fetchStatus={fetchStatus} revoke={jest.fn()} />);
     });
     await flush();
-    const texts = tree.root.findAll((n) => typeof n.type === 'string' && n.type === 'Text').map((n) => n.props.children);
-    expect(texts).toContain(LIVE_HR_NOT_CONNECTED_NOTE);
+    // A host node whose whole text IS the constant — rendered from it, not from a copy.
+    const hosts = tree.root.findAll((n) => typeof n.type === 'string' && n.props.children === LIVE_HR_NOT_CONNECTED_NOTE);
+    expect(hosts.length).toBeGreaterThan(0);
     expect(JSON.stringify(tree.toJSON())).not.toMatch(/on its own/);
   });
 });

@@ -1,3 +1,7 @@
+// A module, not a script: this suite only require()s at run time, and without a top-level import
+// or export TypeScript would merge its helpers into the global scope of every other such suite.
+export {};
+
 // H2-4 — the PRODUCTION health lane: the real createHealthLane wired to the real consent client,
 // the real startBiometrics → startLiveHr → getWatchToken chain, the real warm store and the real
 // live-HR switch. What is faked is only the outside world, and every fake is STATEFUL:

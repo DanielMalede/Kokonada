@@ -1,3 +1,7 @@
+// A module, not a script: this suite only require()s at run time, and without a top-level import
+// or export TypeScript would merge its helpers into the global scope of every other such suite.
+export {};
+
 // H2-7 — logout and account deletion STOP the live heart-rate feed, inside the existing teardown.
 //
 // Before H2 nothing could stop the feed: the session handle was thrown away, so after logout the

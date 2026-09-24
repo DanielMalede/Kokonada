@@ -1,3 +1,7 @@
+// A module, not a script: this suite only require()s at run time, and without a top-level import
+// or export TypeScript would merge its helpers into the global scope of every other such suite.
+export {};
+
 // H2 — the production ignition (prodBootstrap) against a FAKE BACKEND, not mocked internals.
 //
 // What runs for real: AuthSession (tokens from the jest Keychain fake), the shared apiClient, the
