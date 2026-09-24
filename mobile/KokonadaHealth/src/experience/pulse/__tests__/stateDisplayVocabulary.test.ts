@@ -25,7 +25,7 @@ const parseStatusLabels = (src: string): string[] => [...src.matchAll(/status:\s
 const classifierLabels = (): string[] => parseStatusLabels(fs.readFileSync(CLASSIFIER, 'utf8'));
 
 describe('state display vocabulary — one exported constant per display string', () => {
-  it('pins each display label exactly (regulatory draft copy; final at G5)', () => {
+  it('pins each display label exactly (draft copy for counsel; conformance-checked at G5)', () => {
     expect(STATE_LABEL_HIGH_ACTIVATION).toBe('Highly activated');
     expect(STATE_LABEL_LOW_ENERGY).toBe('Low on energy');
     expect(STATE_LABEL_FALLBACK).toBe('Current state');

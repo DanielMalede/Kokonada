@@ -5,7 +5,7 @@ import * as path from 'path';
 // SINGLE-SOURCE GUARD for the interim legal copy (H1). Static scans over the real production tree,
 // the same idiom as shadow.authMigration.test.ts. They pin three things a green screen test cannot:
 //   1. the legal sentences are DEFINED once (legalCopy.ts) — a second inline copy is how wording
-//      drifts from what counsel cleared;
+//      drifts from the one text counsel reviews;
 //   2. the clinical backend key is spelled in exactly one production file (the display vocabulary),
 //      so it cannot creep back into a screen;
 //   3. the scope decision (DT-7): the notice ships on Generate, the Onboarding chrome and Pulse —

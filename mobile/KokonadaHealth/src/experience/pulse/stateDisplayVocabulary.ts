@@ -2,9 +2,10 @@
 //
 // stateVector.status is a BACKEND LOOKUP KEY (medicalProfileService.js rules, keyed again in
 // stateTaxonomy.js and read raw by statusQuadrant for the wash), so the keys never change here.
-// What changes is what a person SEES: a condition name or a prediction ("pre-" anything) is
-// medical-device language, so it is remapped on the client before it can render. One exported
-// constant per display string; the copy is regulatory draft copy, final at gate G5.
+// What changes is what a person SEES: a condition name or a prediction ("pre-" anything) can read as
+// medical-device language (the regulatory brief's classification; counsel decides), so it is
+// remapped on the client before it can render. One exported constant per display string; the copy is
+// draft for counsel, conformance-checked at G5.
 //
 // This file is the ONLY production file allowed to spell the clinical backend key
 // (legalSingleSource.test.ts pins that), so the word cannot creep back into a screen.

@@ -9,7 +9,8 @@ import {
 } from '../legalCopy';
 
 // Track H / H1 legal copy. One exported constant per string, pinned VERBATIM here: a wording change
-// is a regulatory decision (gate G5), so it must fail this file before it can reach a screen.
+// goes back through regulatory (the G5 conformance check) and counsel, so it must fail this file
+// before it can reach a screen.
 // Source: the regulatory brief D1/D2 (draft copy for counsel, not cleared copy).
 
 const ALL = [AI_DISCLOSURE_LONG, AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER];
