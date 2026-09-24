@@ -9,7 +9,8 @@
 // the same two-method interface), and "survives a restart" is proven by building a SECOND switch over
 // the same storage — the way a fresh process would.
 
-import { createLiveHrSwitch, liveHrOffKey } from '../liveHrSwitch';
+import { createLiveHrSwitch, liveHrOffKey, liveHrSwitch, bindLiveHrSwitchKV } from '../liveHrSwitch';
+import { currentUserStore } from '../../auth/currentUser';
 
 function makeKv() {
   const map = new Map<string, string>();
@@ -94,5 +95,33 @@ describe('liveHrSwitch — the durable per-account live-HR off marker', () => {
   it('the key lives outside the cold.* namespace, so logout\'s cold wipe never erases the choice', () => {
     expect(liveHrOffKey('user-a')).toBe('koko.liveHr.user-a.off');
     expect(liveHrOffKey('user-a').startsWith('cold.')).toBe(false);
+  });
+});
+
+describe('liveHrSwitch — the prod singleton', () => {
+  afterEach(() => { currentUserStore.getState().clear(); });
+
+  // The identity comes straight from the signed-in user, NOT from a late binding: a device whose
+  // encrypted store failed to open never binds a KV, and a switch with no identity reads as OFF —
+  // tying identity to the KV bind would have switched live HR off for every account on that device.
+  it('reads the signed-in account even when no store was ever bound (in-memory only)', () => {
+    currentUserStore.getState().setUser({ id: 'user-a', displayName: 'A', email: 'a@x.io' } as any);
+    expect(liveHrSwitch.isOff()).toBe(false);
+    liveHrSwitch.switchOff();
+    expect(liveHrSwitch.isOff()).toBe(true);
+    liveHrSwitch.switchOn();
+    expect(liveHrSwitch.isOff()).toBe(false);
+  });
+
+  it('signed out: reads as off', () => {
+    expect(liveHrSwitch.isOff()).toBe(true);
+  });
+
+  it('once a store is bound, the choice is written through to it', () => {
+    const { kv, map } = makeKv();
+    bindLiveHrSwitchKV(kv);
+    currentUserStore.getState().setUser({ id: 'user-b', displayName: 'B', email: 'b@x.io' } as any);
+    liveHrSwitch.switchOff();
+    expect(map.get(liveHrOffKey('user-b'))).toBe('1');
   });
 });

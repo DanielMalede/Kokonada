@@ -14,6 +14,8 @@
 // Fails closed: with no identity, or a store that cannot be read, the switch reads as OFF. A write
 // that fails is still honoured for the rest of this process.
 
+import { getCurrentUserId } from '../auth/currentUser';
+
 export const LIVE_HR_KEY_PREFIX = 'koko.liveHr';
 export const liveHrOffKey = (uid: string): string => `${LIVE_HR_KEY_PREFIX}.${uid}.off`;
 
@@ -56,15 +58,15 @@ export function createLiveHrSwitch(kv: KV | undefined, getUserId: () => string |
   };
 }
 
-// Prod singleton. The encrypted KV and the identity are known only at/after bootstrap, so it reads
-// and writes through late-bound references (mirrors connectStore's bindConnectKV).
+// Prod singleton. The identity is read straight from the signed-in user; only the encrypted KV binds
+// late (it is created async at bootstrap). Deliberately NOT a late-bound identity: a device whose
+// secure store failed to open never binds, and a switch with no identity reads as off — so tying the
+// identity to the bind would switch live HR off for every account on that device.
 let _boundKv: KV | undefined;
-let _getUserId: (() => string | null) | undefined;
 export const liveHrSwitch = createLiveHrSwitch(
   { getString: (k) => _boundKv?.getString(k), set: (k, v) => { _boundKv?.set(k, v); } },
-  () => _getUserId?.() ?? null,
+  getCurrentUserId,
 );
-export function bindLiveHrSwitchKV(kv: KV, getUserId: () => string | null): void {
+export function bindLiveHrSwitchKV(kv: KV): void {
   _boundKv = kv;
-  _getUserId = getUserId;
 }
