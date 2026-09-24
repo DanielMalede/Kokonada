@@ -34,7 +34,7 @@ describe('state display vocabulary — one exported constant per display string'
   });
 
   it('remaps exactly the two backend keys the regulatory brief classes as clinical / a health verdict', () => {
-    expect(STATE_DISPLAY_MAP).toEqual({
+    expect(STATE_DISPLAY_MAP).toStrictEqual({
       'high-stress / pre-panic': STATE_LABEL_HIGH_ACTIVATION,
       'exhausted commute': STATE_LABEL_LOW_ENERGY,
     });

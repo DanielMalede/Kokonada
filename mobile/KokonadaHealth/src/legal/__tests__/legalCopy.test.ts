@@ -48,11 +48,11 @@ describe('legal copy — exact strings', () => {
 
 describe('legal copy — which string each surface shows (regulatory brief, "Where it goes")', () => {
   it('Generate (first in-app surface) shows the LONG sentence', () => {
-    expect(GENERATE_LEGAL_LINES).toEqual([AI_DISCLOSURE_LONG]);
+    expect(GENERATE_LEGAL_LINES).toStrictEqual([AI_DISCLOSURE_LONG]);
   });
 
   it('the Onboarding chrome shows the SHORT sentence (no processing happens there)', () => {
-    expect(ONBOARDING_LEGAL_LINES).toEqual([AI_DISCLOSURE_SHORT]);
+    expect(ONBOARDING_LEGAL_LINES).toStrictEqual([AI_DISCLOSURE_SHORT]);
   });
 
   it('Pulse shows the SHORT sentence, the not-a-medical-device line, then the consult reminder, in that order', () => {
