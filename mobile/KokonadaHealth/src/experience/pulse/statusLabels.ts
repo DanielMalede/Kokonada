@@ -46,14 +46,17 @@ export function friendlyStatus(raw?: string | null): string | null {
   return FORBIDDEN_STATE_TERMS.test(shown) ? STATE_LABEL_FALLBACK : shown;
 }
 
-const KNOWN_KEYS: ReadonlySet<string> = new Set(
-  [...BACKEND_STATUS_LABELS, ...LEGACY_STATUS_LABELS].map(normalizeStatusKey),
+// Normalised key → the label exactly as the classifier spells it. A Map, so no key can resolve to an
+// Object.prototype member.
+const CANONICAL: ReadonlyMap<string, string> = new Map(
+  [...BACKEND_STATUS_LABELS, ...LEGACY_STATUS_LABELS].map((label) => [normalizeStatusKey(label), label]),
 );
 
-/** What the Pulse headline renders: friendlyStatus for a label the classifier is known to emit,
- *  the neutral constant for anything else, null (→ the calm placeholder) for nothing. */
+/** What the Pulse headline renders: the friendly copy of the CANONICAL label for a label the
+ *  classifier is known to emit (whatever its case or spacing), the neutral constant for anything
+ *  else, null (→ the calm placeholder) for nothing. So the headline is one of a closed set. */
 export function displayStatus(raw?: string | null): string | null {
-  const shown = friendlyStatus(raw);
-  if (shown === null) return null;
-  return KNOWN_KEYS.has(normalizeStatusKey(String(raw))) ? shown : STATE_LABEL_FALLBACK;
+  if (friendlyStatus(raw) === null) return null;
+  const canonical = CANONICAL.get(normalizeStatusKey(String(raw)));
+  return canonical === undefined ? STATE_LABEL_FALLBACK : friendlyStatus(canonical);
 }

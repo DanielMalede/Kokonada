@@ -104,12 +104,25 @@ describe('displayStatus — the Pulse render boundary FAILS CLOSED on any label 
     expect(displayStatus('High-Stress / Pre-Panic')).toBe(STATE_LABEL_HIGH_ACTIVATION);
   });
 
-  it('case / spacing variants of a known label are still known (not collapsed to the fallback)', () => {
-    for (const v of ['deep focus/flow state', 'DEEP FOCUS  /  FLOW STATE', '  Resting/Meditative ']) {
-      expect(displayStatus(v)).not.toBe(STATE_LABEL_FALLBACK);
-      expect(displayStatus(v)).toBe(friendlyStatus(v));
+  it('case / spacing variants of a known label render that label\'s CANONICAL display (never the raw variant)', () => {
+    for (const v of ['deep focus/flow state', 'DEEP FOCUS  /  FLOW STATE', '  Deep Focus/Flow State ']) {
+      expect(displayStatus(v)).toBe('Deep Focus / Flow State');
     }
+    expect(displayStatus('  Resting/Meditative ')).toBe('Resting / Meditative');
+    expect(displayStatus('PEAK ATHLETIC PERFORMANCE')).toBe('Peak Athletic Performance');
     expect(displayStatus('  NEUTRAL ')).toBe('Balanced');
+    expect(displayStatus('HIGH-STRESS/PRE-PANIC')).toBe(STATE_LABEL_HIGH_ACTIVATION);
+  });
+
+  it('the headline is a CLOSED set: every output is a known label\'s display, the fallback, or null', () => {
+    const closed = new Set<string>([STATE_LABEL_FALLBACK, ...[...BACKEND_STATUS_LABELS, ...LEGACY_STATUS_LABELS].map((l) => friendlyStatus(l)!)]);
+    const variants = [...FUZZ, ...BACKEND_STATUS_LABELS.map((s) => s.replace(/ \/ /g, '  /  ').toUpperCase()), '', ' ', 'Some Future Rule'];
+    for (const v of variants) {
+      const out = displayStatus(v);
+      if (out === null) continue;
+      expect(closed.has(out)).toBe(true);
+    }
+    expect(closed.size).toBeLessThanOrEqual(BACKEND_STATUS_LABELS.length + LEGACY_STATUS_LABELS.length + 1);
   });
 
   it('an unknown label (legacy row, future rule) renders the neutral constant, never verbatim or title-cased', () => {
