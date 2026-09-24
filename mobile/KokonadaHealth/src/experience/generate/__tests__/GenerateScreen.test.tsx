@@ -357,11 +357,27 @@ describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, p
   const notices = (tree: ReactTestRenderer.ReactTestRenderer) =>
     tree.root.findAll((n) => isHost(n, 'View') && n.props.testID === 'legal-note');
   const noticeText = (tree: ReactTestRenderer.ReactTestRenderer) => notices(tree)[0].findAll((n) => isHost(n, 'Text'));
+  // VISIBLE, not merely present: nothing on the band, its lines or any ancestor fades, collapses,
+  // hides or moves it. The device dump (visible-to-user, on-screen bounds) is the closing evidence.
+  const expectVisible = (band: ReactTestRenderer.ReactTestInstance) => {
+    for (const n of [band, ...ancestors(band)]) {
+      const s = (RN.StyleSheet.flatten(n.props?.style) ?? {}) as any;
+      expect(s.opacity ?? 1).toBe(1);
+      expect(s.display).not.toBe('none');
+      for (const k of ['width', 'height', 'maxWidth', 'maxHeight']) expect(s[k]).not.toBe(0);
+      expect(s.transform).toBeUndefined();
+    }
+    for (const line of band.findAll((n) => isHost(n, 'Text'))) {
+      expect(flat(line).opacity ?? 1).toBe(1);
+      expect(flat(line).color).not.toBe('transparent');
+    }
+  };
   const expectOneNotice = (tree: ReactTestRenderer.ReactTestRenderer) => {
     expect(notices(tree)).toHaveLength(1);
     const texts = noticeText(tree);
     expect(texts).toHaveLength(1);
     expect(texts[0].props.children).toBe(AI_DISCLOSURE_LONG);
+    expectVisible(notices(tree)[0]);
   };
   // The ScrollView-level sibling that holds the notice, and its neighbours.
   const placement = (tree: ReactTestRenderer.ReactTestRenderer) => {

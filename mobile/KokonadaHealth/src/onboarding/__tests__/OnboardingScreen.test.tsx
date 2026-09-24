@@ -212,11 +212,27 @@ describe('OnboardingScreen — AI Act Art. 50 notice in the persistent chrome (H
     const lines = notices(tree)[0].findAll((n) => isHost(n, 'Text'));
     expect(lines).toHaveLength(1);
     expect(lines[0].props.children).toBe(AI_DISCLOSURE_SHORT);
+    expectVisible(notices(tree)[0]);
   };
   const ancestors = (node: any) => {
     const out: any[] = [];
     for (let p = node.parent; p; p = p.parent) out.push(p);
     return out;
+  };
+  // VISIBLE, not merely present: nothing on the band, its line or any ancestor fades, collapses,
+  // hides or moves it. The device dump (visible-to-user, on-screen bounds) is the closing evidence.
+  const expectVisible = (band: any) => {
+    for (const n of [band, ...ancestors(band)]) {
+      const s = (RN.StyleSheet.flatten(n.props?.style) ?? {}) as any;
+      expect(s.opacity ?? 1).toBe(1);
+      expect(s.display).not.toBe('none');
+      for (const k of ['width', 'height', 'maxWidth', 'maxHeight']) expect(s[k]).not.toBe(0);
+      expect(s.transform).toBeUndefined();
+    }
+    for (const line of band.findAll((n: any) => isHost(n, 'Text'))) {
+      expect(flattenStyle(line).opacity ?? 1).toBe(1);
+      expect(flattenStyle(line).color).not.toBe('transparent');
+    }
   };
   const dfs = (tree: ReactTestRenderer.ReactTestRenderer) => {
     const order: any[] = [];

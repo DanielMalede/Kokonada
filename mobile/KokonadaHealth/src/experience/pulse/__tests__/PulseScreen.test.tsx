@@ -288,10 +288,26 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
     tree.root.findAll((n) => isHost(n, 'Text') && n.props.accessibilityRole === 'header');
   const flat = (node: any) => RN.StyleSheet.flatten(node.props.style) as any;
   const ancestors = (node: any) => { const out: any[] = []; for (let p = node.parent; p; p = p.parent) out.push(p); return out; };
+  // VISIBLE, not merely present: nothing on the band, its lines or any ancestor fades, collapses,
+  // hides or moves it. The device dump (visible-to-user, on-screen bounds) is the closing evidence.
+  const expectVisible = (band: any) => {
+    for (const n of [band, ...ancestors(band)]) {
+      const s = (RN.StyleSheet.flatten(n.props?.style) ?? {}) as any;
+      expect(s.opacity ?? 1).toBe(1);
+      expect(s.display).not.toBe('none');
+      for (const k of ['width', 'height', 'maxWidth', 'maxHeight']) expect(s[k]).not.toBe(0);
+      expect(s.transform).toBeUndefined();
+    }
+    for (const line of band.findAll((n: any) => isHost(n, 'Text'))) {
+      expect(flat(line).opacity ?? 1).toBe(1);
+      expect(flat(line).color).not.toBe('transparent');
+    }
+  };
   const expectLegalBand = (tree: ReactTestRenderer.ReactTestRenderer) => {
     expect(bands(tree)).toHaveLength(1);
     const lines = bands(tree)[0].findAll((n) => isHost(n, 'Text')).map((t) => t.props.children);
     expect(lines).toStrictEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
+    expectVisible(bands(tree)[0]);
   };
   const expectReachable = (tree: ReactTestRenderer.ReactTestRenderer) => {
     for (const a of ancestors(bands(tree)[0])) {
