@@ -2,14 +2,16 @@ import { colors, emotionAnchors, type ThemeName } from '../tokens';
 import { textScrimFill, glassFor } from '../auroraSurfaces';
 import { auroraGlow } from '../emotionAccent';
 import { hrGlowColor } from '../../experience/aura/auraBreath';
-import { contrastRatio, parseHex, flatten, AA_NORMAL } from '../contrast';
+import { contrastRatio, relativeLuminance, parseHex, flatten, AA_NORMAL } from '../contrast';
 
 // A palette pin, so it lives with the other contrast pins under src/design/__tests__ (the directory
 // the design-system lint policy reserves for tests that specify colour values).
 // The legal lines must hold WCAG AA (4.5:1, body text) on the worst frame of whatever is behind them.
 // LegalNote paints content.secondary on textScrimFill (pinned in LegalNote.test.tsx); this file proves
-// THAT pair over every backdrop the band can float over, in both faces, judged at full strength (no
-// blob alpha, no blur, no veil) — strictly worse than anything that can render:
+// THAT pair in both faces two ways. First, an ABSOLUTE bound over pure black and pure white, which holds
+// whatever Skia blends beneath the band. Second, a sweep over every named backdrop, judged at full
+// strength (no blob alpha, no blur, no veil). The sweep alone is not a bound (blending is not monotonic
+// across hues), which is why the absolute test exists. The swept backdrops:
 //   • Generate: the Living Aurora blobs, the frosted glass, the aura's focal glow for ANY emotion mean
 //     (auroraGlow) and its heart-rate hue for ANY heart rate (hrGlowColor) — the halo overspills the
 //     hero under the band — plus the canvas.
@@ -68,6 +70,21 @@ describe.each(['light', 'dark'] as ThemeName[])('legal line contrast — %s face
     for (const blob of Object.values(colors[face].aurora.blobs)) {
       expect(contrastRatio(ink, glassOver(face, underBand(face, blob.color)))).toBeGreaterThanOrEqual(AA_NORMAL);
     }
+  });
+
+  it('ABSOLUTE bound: AA over pure black AND pure white, so no backdrop Skia can paint (any blend, any hue) breaks it', () => {
+    // src-over is monotonic in every backdrop channel, and luminance is monotonic in every channel, so
+    // the pixel under a legal glyph always lies between the band over #000000 and the band over
+    // #FFFFFF. If the ink sits on the SAME side of both composites (never straddles them), the worst
+    // backdrop is one of those two — and both must clear AA.
+    const overBlack = underBand(face, '#000000');
+    const overWhite = underBand(face, '#FFFFFF');
+    const inkL = relativeLuminance(ink);
+    const side = (hex: string) => Math.sign(relativeLuminance(hex) - inkL);
+    expect(side(overBlack)).not.toBe(0);
+    expect(side(overBlack)).toBe(side(overWhite));
+    expect(contrastRatio(ink, overBlack)).toBeGreaterThanOrEqual(AA_NORMAL);
+    expect(contrastRatio(ink, overWhite)).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 
   it('the sweep is real: it covers the full emotion plane and heart-rate range, not a handful of points', () => {
