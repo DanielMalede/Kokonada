@@ -36,8 +36,9 @@ const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch')
 const captionService = require('../services/discovery/captionService');
 const { peekBaselines } = require('../services/biosonic/baselines');
 const { readNightHistory } = require('../repositories/sleepHistoryRepo');
-// Art.9 consent gate (audit H-9 follow-up) for the live socket biometric_push path.
-const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
+// Art.9 consent gate (audit H-9 follow-up; H3a) for every socket event that accepts a biometric —
+// the ONE shared definition of a current grant, fail-closed and never throwing.
+const { admitHealthProcessing } = require('../services/privacy/healthConsentGate');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -145,7 +146,7 @@ const _hrBand = (hr) => bandFromHeartRate(hr) ?? 'none';
 // candidatePool) and the playlist-level trigger + LLM targets (aiResult.params). No new
 // scoring, no guessing — honest, already-present data. Shape: { label, detail? }.
 function buildReceipt(t, context = {}) {
-  const { trigger, params, source, targets } = context || {};
+  const { trigger, params, source, targets, hrDriven } = context || {};
   const label = t?.isDiscovery ? 'New discovery' : 'Familiar favorite';
   const parts = [];
   if (source === 'favorites') {
@@ -154,7 +155,11 @@ function buildReceipt(t, context = {}) {
     parts.push('From your favorites');
   } else {
     if (trigger === 'emotion') parts.push('Matched to your mood');
-    else if (trigger) parts.push('Tuned to your heart rate'); // biometric / heart / skip_loop
+    // biometric / heart / skip_loop — but ONLY when a heart rate actually drove the mix (H3a,
+    // DT-S4 R-A, L1). The generation passes hrDriven:false when it had none: a heart request
+    // without a current Art.9 grant, or a mood-only listener's skip_loop. A caller that does not
+    // pass the flag keeps the claim, so every existing receipt string is unchanged.
+    else if (trigger && hrDriven !== false) parts.push('Tuned to your heart rate');
     const bpm = Math.round(Number(params?.target_bpm));
     if (Number.isFinite(bpm) && bpm > 0) parts.push(`${bpm} BPM`);
   }
@@ -488,6 +493,32 @@ function clearTimer(state) {
 function _resetDebounceState() {
   for (const state of debounceMap.values()) clearTimer(state);
   debounceMap.clear();
+}
+
+/**
+ * H3a (DT-S3 Q-A) — drop every Art.9 value this socket holds in memory, because the user has no
+ * CURRENT grant: the confirmed and pending heart rate (and the armed timer that would confirm it),
+ * the served-band latch, the anomaly-filter trace, the play window's heart-rate samples, the held
+ * baseline blob and nights, and the watch-reported activity. Without this a withdrawn or unconsented
+ * user's last reading kept feeding the next generation (PlaylistSession.biometricSnapshot, the LLM
+ * band, the affect targets) and the rewards.
+ *
+ * KEPT, because none of it was sensed: the mood intent (taps, prompt, chosen activity chip), the
+ * playback mode, the request id, Live/Manual, the feedback rate budget and the generation lock.
+ */
+function _withholdBiometrics(state) {
+  clearTimer(state);
+  state.stableHR = null;
+  state.pendingHR = null;
+  state.servedHR = null;
+  state.filterState = null;
+  state.playWindow = null;
+  state.liveBaselines = null;
+  state.liveNights = null;
+  state.latestActivity = null;
+  state.stableActivity = null;
+  state.pendingActivity = null;
+  state.servedBioMoodKey = null;
 }
 
 const THIRTY_MIN_MS = 30 * 60 * 1000;
@@ -828,6 +859,10 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     const moodKey   = useEmotion
       ? resolveMoodKey(state.lastEmotionTaps)
       : syntheticBioMoodKey(state.stableHR, state.latestActivity);
+    // H3a (DT-S4 R-A): did a real heart rate drive THIS mix? Snapshotted with the mood key so every
+    // exit of this run tells the receipt the same thing. False on the heart branch with no usable
+    // HR — a heart request without a current Art.9 grant, or a mood-only listener's skip_loop.
+    const hrDriven = !useEmotion && isPhysiologicalHR(state.stableHR);
     // W4-D34: the other half of the duplicate-serve latch. A generation that actually delivers
     // a playlist under a synthetic bio key IS that key's buffer starting to play (it warms the
     // buffer on the way out), so a policy-only taxonomy transition arriving straight afterwards
@@ -999,7 +1034,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         } catch { /* keep raw; native-Spotify entries still resolve at toClientTracks */ }
       }
       const context = featured > 0
-        ? { trigger, params: useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : {} }
+        ? { trigger, params: useEmotion ? buildMoodParams(state.lastEmotionTaps, musicProfile) : {}, hrDriven }
         : { source: 'favorites' };
       // Carry the SERVED (post-translate) canonical identity onto each surviving client track so the
       // fallback's serve ledger records EXACTLY what was served (LOW-1) — not a raw candidate dropped
@@ -1074,7 +1109,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
           targets: bandTargets,
           crossPlatform: false, // no Spotify sink to translate onto
         });
-        familiarTracks = toClientTracks(familiarPlaylist?.merged, provider, { trigger, params: {} });
+        familiarTracks = toClientTracks(familiarPlaylist?.merged, provider, { trigger, params: {}, hrDriven });
       } catch (e) {
         // Observability parity with the LLM path (this file's standard): a systemic generateV2
         // failure for no-playback users must NOT masquerade as a plain empty playlist. Always-on
@@ -1139,13 +1174,19 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         let hrRatio = null;
         if (!disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED)) {
           stateLabel = bandTargets?.stateId || null;
-          try {
-            const personalBaselines = await peekBaselines(userId);
-            const rhr = Number(personalBaselines?.rhrMedian);
-            if (Number.isFinite(rhr) && rhr > 0 && isPhysiologicalHR(state.stableHR)) {
-              hrRatio = Math.round((state.stableHR / rhr) * 100) / 100;
-            }
-          } catch { /* degrade to raw-HR band */ }
+          // H3a: the ratio needs a real heart rate, so without one the baseline blob is not read at
+          // all. Same result on every path that has one; on a heart request without a current
+          // Art.9 grant it means no stored-vitals read, no audit line and no cold-cache recompute
+          // (which would upsert a MedicalProfile for a user who never consented — BE-022).
+          if (isPhysiologicalHR(state.stableHR)) {
+            try {
+              const personalBaselines = await peekBaselines(userId);
+              const rhr = Number(personalBaselines?.rhrMedian);
+              if (Number.isFinite(rhr) && rhr > 0) {
+                hrRatio = Math.round((state.stableHR / rhr) * 100) / 100;
+              }
+            } catch { /* degrade to raw-HR band */ }
+          }
         }
         aiResult = await withTimeout(adjustBiometricPlaylist({
           musicProfile,
@@ -1268,7 +1309,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // Normalize to the client contract (and reconstruct/validate uris). Guard on
     // the PLAYABLE result: never push an empty/unplayable playlist — it would blank
     // the queue and spin the overlay forever. Surface a recoverable error instead.
-    const clientTracks = toClientTracks(playlist?.merged, provider, { trigger, params: aiResult.params, targets: playlist?.targets });
+    const clientTracks = toClientTracks(playlist?.merged, provider, { trigger, params: aiResult.params, targets: playlist?.targets, hrDriven });
     if (clientTracks.length === 0) {
       // Always-on diagnostic: show WHY the playlist is empty (library size, discovery
       // candidates, post-mix bucket sizes, and the mood filters) so prod logs pinpoint
@@ -1767,15 +1808,18 @@ function registerBiometricHandler(socket) {
 
   // biometric_push is live special-category (Art.9) processing. Even though the socket is
   // authenticated, a reading must not be processed without a CURRENT consent grant on the socket's
-  // user — the SAME gate the ingest routes enforce (getConsentStatus). A missing/stale grant, or a
-  // consent-store error, DROPS the reading (fail closed) without ever crashing the socket.
+  // user — the SAME definition every ingest route enforces (healthConsentGate). A missing/stale
+  // grant, or a consent-store error, DROPS the reading (fail closed) without ever crashing the socket.
   socket.on('biometric_push', async ({ source, raw } = {}) => {
     const uid = socket?.data?.user?._id;
     if (!uid) return;
-    let status;
-    try { status = await getConsentStatus(uid, HEALTH_CONSENT_PURPOSE); }
-    catch { return; } // fail closed: never process special-category data on a consent-store error
-    if (!status.granted || status.staleVersion) return;
+    if (!(await admitHealthProcessing(uid))) {
+      // H3a (Q-A): nothing sensed stays in memory without a current grant. Only state that ALREADY
+      // exists is withheld — a denied push must never create state for this socket.
+      const held = debounceMap.get(socketId);
+      if (held) _withholdBiometrics(held);
+      return;
+    }
     handleBiometricReading(socket, source, raw);
   });
 
@@ -1813,10 +1857,26 @@ function registerBiometricHandler(socket) {
   // "Listen to your heart" — an explicit, user-initiated biometric playlist.
   // Uses the 'heart' trigger (not 'biometric') so the client replaces playback
   // immediately rather than queueing it behind the current track.
+  //
+  // H3a (N1): the payload carries the phone's heart rate, and resolving the context reads stored
+  // vitals — so NOTHING biometric happens here without a CURRENT Art.9 grant (the same definition
+  // as biometric_push and every ingest route). Without one (DT-S2 D-A, DT-S3 Q-A): the payload's
+  // heartRate is dropped unread, no stored source is read, whatever this socket already holds is
+  // withheld, and a biometric-free generation still answers — same event, same keys, no consent
+  // toast, and its receipt claims no heart-rate tuning (hrDriven is false with no HR).
   socket.on('request_heart_playlist', async ({ mode, reqId, heartRate } = {}) => {
     const state = getState(socketId);
     if (mode) state.lastMode = mode;
     if (reqId !== undefined) state.lastReqId = reqId;
+
+    if (!(await admitHealthProcessing(socket?.data?.user?._id))) {
+      _withholdBiometrics(state);
+      console.warn(`[consent] heart request without a current Art.9 grant — biometrics withheld, biometric-free mix reqId=${reqId}`);
+      // Captured, never an unhandled rejection (BE-026): generateAndEmitPlaylist has no catch of its own.
+      generateAndEmitPlaylist(socket, 'heart', state)
+        .catch((err) => captureException(err, { scope: 'generate.heart', reqId }));
+      return;
+    }
 
     const ctx = await resolveHeartContext(socket, state, heartRate);
     if (!ctx) {
@@ -1826,7 +1886,8 @@ function registerBiometricHandler(socket) {
     state.stableHR       = ctx.heartRate;
     state.latestActivity = ctx.activity;
     log(`[heart] generate band=${_hrBand(ctx.heartRate)} activity=${ctx.activity} source=${ctx.source} reqId=${reqId}`);
-    generateAndEmitPlaylist(socket, 'heart', state);
+    generateAndEmitPlaylist(socket, 'heart', state)
+      .catch((err) => captureException(err, { scope: 'generate.heart', reqId }));
   });
 
   // W4-011: the listener's own verdict on what they were served — the ONLY signal in this wave
