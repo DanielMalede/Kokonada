@@ -46,7 +46,7 @@ describe('LegalNote — one readable Text node per line, in order', () => {
     expect(texts.map((t) => t.props.children)).toStrictEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
   });
 
-  it('the band itself is not an accessibility group, so each line is its own screen-reader stop', () => {
+  it('the band itself is not an accessibility group, so each line is its own accessibility node', () => {
     const tree = render([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
     expect(band(tree).props.accessible).not.toBe(true);
     expect(band(tree).props.accessibilityLabel).toBeUndefined();

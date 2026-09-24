@@ -483,7 +483,7 @@ describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, p
     expect(text.props.allowFontScaling).not.toBe(false);
   });
 
-  it('reading order: the wheel, then the notice as one node, then the Live toggle', async () => {
+  it('tree order: the wheel, then the notice as one node, then the Live toggle (the spoken TalkBack order is device capture G8)', async () => {
     const tree = await open('dark');
     const order: ReactTestRenderer.ReactTestInstance[] = [];
     const walk = (n: ReactTestRenderer.ReactTestInstance) => { order.push(n); n.children.forEach((ch) => { if (typeof ch !== 'string') walk(ch); }); };

@@ -293,7 +293,7 @@ describe('OnboardingScreen — AI Act Art. 50 notice in the persistent chrome (H
     expect(wrapper.marginBottom).toBe(space.lg);
   });
 
-  it('reading order: TalkBack reaches the notice before EITHER exit (the CTA and Skip)', async () => {
+  it('tree order: the notice precedes EITHER exit (the CTA and Skip); the spoken TalkBack order is device capture O5', async () => {
     const tree = await render();
     // indexOf(undefined) is -1, which is "before" everything — so presence is asserted first.
     const before = (a: any, b: any) => {

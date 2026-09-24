@@ -30,8 +30,8 @@ import { WheelTeaseHero } from './WheelTeaseHero';
 // layout is byte-identical either way, so swipe always works.
 // The bottom chrome carries the AI Act Art. 50 notice (UI-005) on every panel, from panel 1 —
 // Skip can end onboarding there. The chrome FLOWS below the pager (not an overlay), so the notice
-// can never sit over or under a panel's copy at any font scale, and Skip comes after it in the
-// tree so a screen reader reaches the notice before either exit.
+// can never sit over or under a panel's copy at any font scale. Skip comes after it in the tree, but
+// Android TalkBack orders siblings by screen position, so the spoken order is decided on device (O5).
 
 const PANEL_COUNT = 3;
 const HERO_FRACTION = 0.7;     // hero size vs the viewport width (proportional)
@@ -185,7 +185,8 @@ export function OnboardingScreen({
       </View>
 
       {/* Skip — quiet, persistent, top-right (safe-area aware). Absolutely positioned, so it sits
-          last in the tree without moving: the notice is read before this exit. */}
+          last in the tree without moving. That fixes tree order only; TalkBack may still reach this
+          top-right exit first (it sorts by screen position), which device capture O5 settles. */}
       <Pressable
         onPress={complete}
         accessibilityRole="button"
