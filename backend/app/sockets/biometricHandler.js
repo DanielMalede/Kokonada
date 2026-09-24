@@ -521,6 +521,19 @@ function _withholdBiometrics(state) {
   state.servedBioMoodKey = null;
 }
 
+/**
+ * H3b (DT-S6 W-A) — a consent withdrawal reaching a socket that is still OPEN: withhold that
+ * socket's held Art.9 state, keep the connection. Called by consentController.withdraw for every
+ * live socket of the user after the withdrawal row is written. Returns whether the socket held any
+ * state; an unknown socket is left alone — this never creates state.
+ */
+function withholdSocketBiometrics(socketId) {
+  const held = debounceMap.get(socketId);
+  if (!held) return false;
+  _withholdBiometrics(held);
+  return true;
+}
+
 const THIRTY_MIN_MS = 30 * 60 * 1000;
 
 // "Listen to your heart": resolve the heart-rate context to drive a playlist,
@@ -1948,6 +1961,7 @@ module.exports = {
   generateAndEmitPlaylist,
   recalibrateForBand,
   handleBiometricReading,
+  withholdSocketBiometrics,
   // exported so the suite pins the hold WINDOW itself rather than a copy of the number
   LIVE_BASELINE_HOLD_MS,
   LIVE_NIGHTS_HOLD_MS,

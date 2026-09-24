@@ -3524,3 +3524,43 @@ describe('request_heart_playlist — Art.9 gate (N1)', () => {
     }
   });
 });
+
+// H3b — what a consent withdrawal does to a socket that is still open (consentController calls this
+// for every live socket of the user, after the withdrawal row is written).
+describe('withholdSocketBiometrics (H3b)', () => {
+  const { withholdSocketBiometrics } = require('../app/sockets/biometricHandler');
+
+  it('clears the Art.9 fields, keeps intent/mode/reqId/liveMode/playbackRate, and never creates state for an unknown socket', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    await socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 128, activityType: 1, startTimeLocal: new Date(Date.now() - 60_000).toISOString() },
+    });
+    socket._trigger('live_mode', { enabled: true });
+    socket._trigger('emotion_update', { taps: [{ x: 0.4, y: -0.2 }], textPrompt: 'rainy walk', activity: 'walking', mode: 'export' });
+    const held = _debounceMap.get(socket.id);
+    held.lastReqId = 41;
+    held.playbackRate = { tokens: 3 };
+    held.servedHR = 128;
+    held.servedBioMoodKey = 'bio:peak:running';
+    held.liveBaselines = { atMs: 1, promise: Promise.resolve(null), value: null };
+    held.liveNights = { atMs: 1, promise: Promise.resolve([]), value: [] };
+    expect(held.stableHR).toBe(128);
+
+    expect(withholdSocketBiometrics(socket.id)).toBe(true);
+
+    expect(held).toEqual(expect.objectContaining({
+      stableHR: null, pendingHR: null, servedHR: null, filterState: null, playWindow: null,
+      liveBaselines: null, liveNights: null, latestActivity: null, stableActivity: null,
+      pendingActivity: null, servedBioMoodKey: null, timer: null,
+    }));
+    expect(held).toEqual(expect.objectContaining({
+      lastEmotionTaps: [{ x: 0.4, y: -0.2 }], lastTextPrompt: 'rainy walk', lastActivity: 'walking',
+      lastMode: 'export', lastReqId: 41, liveMode: true, playbackRate: { tokens: 3 },
+    }));
+
+    expect(withholdSocketBiometrics('socket-that-never-connected')).toBe(false);
+    expect(_debounceMap.has('socket-that-never-connected')).toBe(false);
+  });
+});
