@@ -47,7 +47,6 @@ app.post('/suunto/webhook', (req, _res, next) => {
   req.rawBody = RAW;
   next();
 }, suuntoWebhook);
-// eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => res.status(500).json({ error: 'internal' }));
 
 const post = (user) => request(app).post('/suunto/webhook').set('x-user', user).set('x-suunto-signature', 'sig-1');
