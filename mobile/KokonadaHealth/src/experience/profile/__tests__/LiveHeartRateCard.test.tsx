@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { LiveHeartRateCard } from '../LiveHeartRateCard';
+import { LiveHeartRateCard, LIVE_HR_NOT_CONNECTED_NOTE } from '../LiveHeartRateCard';
 import { haptics } from '../../../design/tokens';
 
 // The §10 live-HR credential card. It replaces the retired watch PAIRING-CODE card: the Connect IQ
@@ -148,5 +148,36 @@ describe('LiveHeartRateCard', () => {
 
     expect(revoke).toHaveBeenCalledTimes(1);
     expect(findByLabel(tree, 'live-hr-disconnect').length).toBe(1);
+  });
+});
+
+// H2 (compliance C1): the not-connected line used to promise that live heart rate "starts on its own
+// once a source is available". Under H2 that is false — it runs only for a linked wearable with
+// health data on, and a Disconnect keeps it off until the next link — and an in-app statement about
+// health-data access must describe the practice accurately (Play Health Connect policy). ONE exported
+// constant, pinned verbatim, plain wording, no provider names.
+describe('LiveHeartRateCard — the not-connected note states the gated behaviour (H2)', () => {
+  it('is one exported constant, pinned verbatim', () => {
+    expect(LIVE_HR_NOT_CONNECTED_NOTE).toBe(
+      'Not connected. Live heart rate runs only while a wearable is linked and health data is on. '
+      + 'After you disconnect, it stays off until you sync health data again.',
+    );
+  });
+
+  it('names no provider and no longer promises to start on its own', () => {
+    expect(LIVE_HR_NOT_CONNECTED_NOTE).not.toMatch(/garmin|health connect|spotify|youtube|apple|fitbit|strap/i);
+    expect(LIVE_HR_NOT_CONNECTED_NOTE).not.toMatch(/on its own|automatic/i);
+  });
+
+  it('the card renders exactly that constant when nothing is connected', async () => {
+    const fetchStatus = jest.fn().mockResolvedValue({ ok: true, data: { connected: false, lastSeenAt: null } });
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      tree = ReactTestRenderer.create(<LiveHeartRateCard fetchStatus={fetchStatus} revoke={jest.fn()} />);
+    });
+    await flush();
+    const texts = tree.root.findAll((n) => typeof n.type === 'string' && n.type === 'Text').map((n) => n.props.children);
+    expect(texts).toContain(LIVE_HR_NOT_CONNECTED_NOTE);
+    expect(JSON.stringify(tree.toJSON())).not.toMatch(/on its own/);
   });
 });
