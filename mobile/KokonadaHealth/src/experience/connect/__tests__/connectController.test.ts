@@ -119,3 +119,56 @@ describe('connectController — the wearable connect flow', () => {
     expect(markResolved).toHaveBeenCalledTimes(1);
   });
 });
+
+// H2-7: a Health Connect grant obtained HERE — through the consent wall — is the explicit
+// wearable-path action that may start live heart rate (and switch it back on after a Disconnect).
+// Nothing else in the connect flow may: not begin() without a current grant, not a denied sheet.
+describe('connectController — telling the health lane about a new wearable link (H2)', () => {
+  it('notifies ONCE after a real Health Connect grant, and only after the gate is resolved', async () => {
+    const order: string[] = [];
+    const onWearableLinked = jest.fn(() => { order.push('linked'); });
+    const { deps } = makeDeps({ onWearableLinked, markResolved: jest.fn(() => { order.push('resolved'); }) });
+    const outcome = await createConnectController(deps).runSync();
+    expect(outcome.kind).toBe('connected');
+    expect(onWearableLinked).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['resolved', 'linked']);
+  });
+
+  it('the already-consented short-circuit (a Profile "Sync now") re-links too', async () => {
+    const onWearableLinked = jest.fn();
+    const { deps } = makeDeps({ onWearableLinked, fetchConsentStatus: jest.fn().mockResolvedValue(okStatus({ granted: true })) });
+    await createConnectController(deps).begin();
+    expect(onWearableLinked).toHaveBeenCalledTimes(1);
+  });
+
+  it('never on the deny-twice throttle (no grant, no link)', async () => {
+    const onWearableLinked = jest.fn();
+    const { deps } = makeDeps({ onWearableLinked, requestHealthPermissions: jest.fn().mockResolvedValue([]) });
+    await createConnectController(deps).runSync();
+    expect(onWearableLinked).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['no grant on file', okStatus()],
+    ['a stale grant', okStatus({ granted: true, staleVersion: true })],
+    ['offline', { ok: false, error: 'offline' }],
+  ])('never from begin() with %s — the wall is presented instead', async (_l, status) => {
+    const onWearableLinked = jest.fn();
+    const { deps } = makeDeps({ onWearableLinked, fetchConsentStatus: jest.fn().mockResolvedValue(status) });
+    const outcome = await createConnectController(deps).begin();
+    expect(outcome.kind).toBe('consent');
+    expect(onWearableLinked).not.toHaveBeenCalled();
+  });
+
+  it('a throwing notification never breaks the connect flow (the link and the sync still complete)', async () => {
+    const { deps, syncMedicalProfile } = makeDeps({ onWearableLinked: jest.fn(() => { throw new Error('lane busy'); }) });
+    const outcome = await createConnectController(deps).runSync();
+    expect(outcome.kind).toBe('connected');
+    expect(syncMedicalProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('is optional — a controller without it still connects', async () => {
+    const { deps } = makeDeps();
+    await expect(createConnectController(deps).runSync()).resolves.toMatchObject({ kind: 'connected' });
+  });
+});
