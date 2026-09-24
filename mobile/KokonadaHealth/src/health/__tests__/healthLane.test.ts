@@ -39,6 +39,9 @@ function makeWorld() {
     startFails: false,
     tokenSlot: 'whr_cached' as string | null,
     sessions: [] as FakeSession[],
+    // The durable per-account live-HR switch (Disconnect). Off = the user switched live HR off.
+    switchedOff: false,
+    switchThrows: false,
   };
 
   const device = {
@@ -78,6 +81,10 @@ function makeWorld() {
     startFeed: (isActive) => startBiometrics({ warm, isActive, start: device.start }),
     clearFeed: () => { log.push('clearFeed'); clearBiometricFeed(warm); },
     clearWatchToken,
+    feedSwitchedOff: () => {
+      if (world.switchThrows) throw new Error('keystore locked');
+      return world.switchedOff;
+    },
   });
 
   return { world, lane, warm, log, device, hasWearableOptIn, fetchConsentStatus, clearWatchToken };
@@ -200,12 +207,42 @@ describe('healthLane — closing a running feed', () => {
     expect(w.lane.status()).toBe('idle');
   });
 
-  it('a closed re-check while IDLE touches nothing (no feed wipe, no token wipe)', async () => {
+  // Revised from 'a closed re-check while IDLE touches nothing': a credential can be cached while
+  // the lane is idle — minted by a previous process, or by the pre-H2 boot that minted one for EVERY
+  // signed-in user (compliance C5). Left there, a withdrawal made on ANOTHER phone kills it
+  // server-side (the erasure nulls the hash) while this phone keeps it, and the next re-consent here
+  // starts the feed on the dead credential: every push 401s, forever (getWatchToken never re-mints
+  // over a cached token). So a DEFINITIVE closed answer forgets it — once per process, not on every
+  // foreground — and still never touches the feed, which is not running.
+  it('a DEFINITIVE closed answer while idle forgets a leftover credential once, and never wipes the feed', async () => {
     const w = makeWorld();
     w.world.optIn = false;
     await w.lane.evaluate({ allowStart: false });
-    expect(w.clearWatchToken).not.toHaveBeenCalled();
+    await w.lane.evaluate({ allowStart: false });
+    await w.lane.evaluate({ allowStart: true });
+    expect(w.clearWatchToken).toHaveBeenCalledTimes(1);
+    expect(w.world.tokenSlot).toBeNull();
     expect(w.log).not.toContain('clearFeed');
+  });
+
+  it('withdrawn on another phone while this one was idle: the dead credential is gone before the re-consent start', async () => {
+    const w = makeWorld();
+    w.world.consent = { ok: true, data: { granted: false, currentVersion: 1, staleVersion: false } };
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(w.world.tokenSlot).toBeNull(); // the real getWatchToken now mints a fresh one on the next start
+    expect(w.device.start).not.toHaveBeenCalled();
+
+    w.world.consent = { ok: true, data: CURRENT }; // the user re-consents here
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(true);
+    expect(w.device.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('an UNKNOWN answer while idle (offline) keeps the credential — it may still be valid', async () => {
+    const w = makeWorld();
+    w.world.consent = { ok: false, error: 'network error' };
+    await w.lane.evaluate({ allowStart: true });
+    expect(w.clearWatchToken).not.toHaveBeenCalled();
+    expect(w.world.tokenSlot).toBe('whr_cached');
   });
 
   it('stop({ forgetToken }) stops the session BEFORE the token is cleared, and wipes the reading', async () => {
@@ -337,6 +374,61 @@ describe('healthLane — closing a running feed', () => {
     await w.lane.evaluate({ allowStart: true });
     expect(w.device.start).toHaveBeenCalledTimes(2);
     expect(w.lane.status()).toBe('running');
+  });
+});
+
+// Compliance B5 / C2: Disconnect must be DURABLE. The switch is the user's choice about the LIVE
+// feed only — it does not change whether Art.9 processing is lawful, so evaluate() still reports the
+// consent gate truthfully (the boot Health Connect sync keys off that answer, not off the switch).
+describe('healthLane — the durable live-HR switch (Disconnect)', () => {
+  it('switched off: the gate still reports open, but nothing starts — no feed, no mint', async () => {
+    const w = makeWorld();
+    w.world.switchedOff = true;
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(true);
+    expect(w.device.start).not.toHaveBeenCalled();
+    expect(w.lane.status()).toBe('idle');
+  });
+
+  it('switched off while a feed runs: the next re-check stops it, wipes the reading and forgets the credential', async () => {
+    const w = makeWorld();
+    await w.lane.evaluate({ allowStart: true });
+    w.world.sessions[0].emit(82);
+    w.world.switchedOff = true;
+    w.log.length = 0;
+    await w.lane.evaluate({ allowStart: false });
+    expect(w.log.filter((e) => ['session.stop', 'clearFeed', 'clearToken'].includes(e)))
+      .toEqual(['session.stop', 'clearFeed', 'clearToken']);
+    expect(w.warm.getState().liveHr).toBeNull();
+    expect(w.lane.status()).toBe('idle');
+  });
+
+  it('switched back on (an explicit wearable link): the next start-allowed evaluation starts the feed', async () => {
+    const w = makeWorld();
+    w.world.switchedOff = true;
+    await w.lane.evaluate({ allowStart: true });
+    w.world.switchedOff = false;
+    await w.lane.evaluate({ allowStart: true });
+    expect(w.device.start).toHaveBeenCalledTimes(1);
+    expect(w.lane.status()).toBe('running');
+  });
+
+  it('a switch that cannot be read counts as OFF — a Disconnect is never silently undone', async () => {
+    const w = makeWorld();
+    w.world.switchThrows = true;
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(true);
+    expect(w.device.start).not.toHaveBeenCalled();
+  });
+
+  it('a lane built without a switch behaves as switched ON (the dependency is optional)', async () => {
+    const lane = createHealthLane({
+      hasWearableOptIn: async () => true,
+      fetchConsentStatus: async () => ({ ok: true, data: CURRENT }),
+      startFeed: async () => ({ mode: 'rest-fallback' as const, stop: jest.fn() }),
+      clearFeed: () => {},
+      clearWatchToken: async () => {},
+    });
+    await lane.evaluate({ allowStart: true });
+    expect(lane.status()).toBe('running');
   });
 });
 

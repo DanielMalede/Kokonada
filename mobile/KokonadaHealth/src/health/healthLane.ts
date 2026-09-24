@@ -19,6 +19,16 @@ import type { LiveHrSession } from './liveHr';
 // before it — even one whose work has not begun yet — and a session that resolves late is stopped
 // at once; a gate found closed while running stops the feed, wipes the reading, then forgets the
 // token (in that order); neither evaluate() nor stop() ever throws.
+//
+// Two more rules, both about what is left behind while the lane is IDLE:
+//   • a DEFINITIVE closed answer (no opt-in, or the server saying the grant is not current) forgets
+//     a cached credential, once per process. An unknown answer (offline, 401, a throw) does not:
+//     that credential may still be valid. Without this a withdrawal made on another phone left a
+//     dead whr_ cached here, and the next re-consent started the feed on it — 401 on every push.
+//   • the user's durable live-HR switch (Disconnect, compliance B5/C2) keeps the FEED off without
+//     changing the answer: evaluate() still reports whether Art.9 processing is open, because the
+//     boot Health Connect sync keys off that, not off the live-HR preference. A switch that cannot
+//     be read counts as off.
 
 export const isCurrentGrant = (s: ConsentStatus | null | undefined): boolean =>
   !!s && s.granted === true && s.staleVersion === false;
@@ -32,12 +42,15 @@ export interface HealthLaneDeps {
   /** Wipe the live reading (warmStore.liveHr + source). */
   clearFeed(): void;
   clearWatchToken(): Promise<void>;
+  /** The user switched live heart rate off (Disconnect) and has not linked a wearable since. */
+  feedSwitchedOff?(): boolean;
 }
 
 export interface HealthLane {
   /** Re-check the gate. `allowStart` lets an open gate start the feed (boot, sign-in, a new
    *  wearable link); without it a re-check can only close a running feed (foreground).
-   *  Resolves whether the gate is open. */
+   *  Resolves whether the Art.9 gate is open (opt-in + current grant), even while the user's
+   *  live-HR switch keeps the feed itself off. */
   evaluate(o?: { allowStart?: boolean }): Promise<boolean>;
   /** Stop the feed and wipe the reading; `forgetToken` also clears the cached whr_ token. */
   stop(o?: { forgetToken?: boolean }): Promise<void>;
@@ -57,6 +70,15 @@ export function createHealthLane(deps: HealthLaneDeps): HealthLane {
   // feed from an older generation is dead: its late readings are dropped and a late start is stopped.
   let feedGen = 0;
   let inflight: { promise: Promise<boolean>; allowStart: boolean } | null = null;
+  // Could a credential be cached right now that this lane has not already forgotten? True at
+  // process start (an earlier process, or the pre-H2 boot, may have minted one) and whenever a
+  // feed start may mint; false once it has been forgotten.
+  let leftoverCredential = true;
+
+  async function forgetCredential(): Promise<void> {
+    leftoverCredential = false;
+    await quietly(() => deps.clearWatchToken());
+  }
 
   async function closeFeed(forgetToken: boolean): Promise<void> {
     feedGen += 1;
@@ -64,33 +86,50 @@ export function createHealthLane(deps: HealthLaneDeps): HealthLane {
     session = null;
     if (running) await quietly(() => running.stop());
     await quietly(() => deps.clearFeed());
-    if (forgetToken) await quietly(() => deps.clearWatchToken());
+    if (forgetToken) await forgetCredential();
   }
 
-  async function gateOpen(): Promise<boolean> {
+  // 'closed' is a definitive answer (no opt-in, or the server says the grant is not current);
+  // 'unknown' is anything that failed to answer (a throw, offline, 401, a refused read).
+  async function gate(): Promise<'open' | 'closed' | 'unknown'> {
     try {
-      if ((await deps.hasWearableOptIn()) !== true) return false;
+      if ((await deps.hasWearableOptIn()) !== true) return 'closed';
       const res = await deps.fetchConsentStatus();
-      return res.ok && isCurrentGrant(res.data);
+      if (!res.ok) return 'unknown';
+      return isCurrentGrant(res.data) ? 'open' : 'closed';
     } catch {
-      return false;
+      return 'unknown';
+    }
+  }
+
+  function switchedOff(): boolean {
+    try {
+      return deps.feedSwitchedOff?.() === true;
+    } catch {
+      return true; // unreadable: never silently undo a Disconnect
     }
   }
 
   async function run(requestedIn: number, allowStart: boolean): Promise<boolean> {
     const voided = () => requestedIn !== stopEra;
     if (voided()) return false; // stopped before the work began: not even a consent read
-    const open = await gateOpen();
+    const verdict = await gate();
     if (voided()) return false;
 
-    if (!open) {
+    if (verdict !== 'open') {
       if (session) await closeFeed(true);
+      else if (verdict === 'closed' && leftoverCredential) await forgetCredential();
       return false;
+    }
+    if (switchedOff()) {
+      if (session) await closeFeed(true);
+      return true;
     }
     if (session || !allowStart) return true;
 
     const gen = feedGen;
     const current = () => gen === feedGen;
+    leftoverCredential = true; // the start may mint one
     try {
       const started = await deps.startFeed(current);
       if (!current()) {
