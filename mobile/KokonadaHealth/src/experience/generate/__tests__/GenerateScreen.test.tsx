@@ -19,6 +19,11 @@ import { textScrimFill } from '../../../design/auroraSurfaces';
 import { AI_DISCLOSURE_LONG } from '../../../legal/legalCopy';
 import { LegalNote } from '../../../legal/LegalNote';
 
+// Cold-require headroom (same as PulseScreen / ProfileScreen, #105): on a cold transform cache the
+// FIRST mount lazily requires and Babel-transforms the RN internals inside that test's timer, which
+// overran 5 s under full-suite worker contention (reproduced on main and on this branch).
+jest.setTimeout(20000);
+
 // The HERO composition (single writer, last in the DAG). The sacred emotion→socket→playlist loop
 // stays byte-for-byte (T9 pins the payloads); here we pin the SURFACE contract: 4-state CTA, undo/
 // clear, tap-most-recent-dot, mini-ring on keyboard focus, full-bleed Genesis gated on generating,
