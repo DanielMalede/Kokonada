@@ -199,6 +199,9 @@ describe('the production lane, against a fake backend', () => {
     expect(w.BleManager).not.toHaveBeenCalled();
     expect(w.requestMultiple).not.toHaveBeenCalled();
     expect(w.hc.readRecords).not.toHaveBeenCalled();
+    // The cached whr_ is never even READ for a mood-only account (compliance E5).
+    const keychain = require('react-native-keychain');
+    expect(keychain.getGenericPassword.mock.calls.filter(([o]: any[]) => o?.service === WATCH_SLOT)).toEqual([]);
     expect(w.svc.healthLane.status()).toBe('idle');
   });
 
