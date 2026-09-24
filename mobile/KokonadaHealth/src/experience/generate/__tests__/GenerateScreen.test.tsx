@@ -438,10 +438,10 @@ describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, p
     expectOneNotice(tree);
   });
 
-  it('is NEVER tinted: identical band and ink with taps in the intense corner and in the joyful corner', async () => {
+  it.each(['light', 'dark'] as ThemeName[])('is NEVER tinted: identical band and ink with taps in the intense corner and in the joyful corner (%s)', async (face) => {
     const styleOf = async (tap: { x: number; y: number } | null) => {
       const store = makeStore();
-      const tree = await open('dark', store);
+      const tree = await open(face, store);
       if (tap) await ReactTestRenderer.act(async () => { store.dispatch(addTap(tap)); });
       return { band: flat(notices(tree)[0]), ink: flat(noticeText(tree)[0]) };
     };
@@ -450,6 +450,8 @@ describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, p
     const joyful = await styleOf({ x: 0.8, y: 0.8 });
     expect(intense).toEqual(joyful);
     expect(intense).toEqual(idle);
+    expect(intense.band.backgroundColor).toBe(textScrimFill(colors[face], face));
+    expect(intense.ink.color).toBe(colors[face].content.secondary);
   });
 
   it('is reachable: no ancestor hides it from the accessibility tree, swallows its touches, or makes it a live region', async () => {
