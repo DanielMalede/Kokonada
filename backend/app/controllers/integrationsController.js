@@ -30,7 +30,7 @@ const { revoke, isRevoked } = require('../utils/tokenDenylist');
 // Art.9 consent gate for the device-token-authed watch/hr path (audit H-9 follow-up).
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
 // H3a: the inline gates below (routes with no req.user for requireConsent) decide with the ONE
-// shared definition of a current grant instead of hand-copied granted/staleVersion checks.
+// shared definition of a current grant instead of hand-copied granted-and-not-stale checks.
 const { isCurrentGrant, denialReason } = require('../services/privacy/healthConsentGate');
 // Per-provider GDPR erasure — the LIVE disconnect route reuses this (clears credentials AND
 // purges the provider's biometric/medical footprint AND best-effort deregisters). (T3.2)
