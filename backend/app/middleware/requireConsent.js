@@ -8,13 +8,14 @@
 //   consent_stale    — granted, but at an older consent version (re-prompt for the new terms)
 
 const { getConsentStatus } = require('../services/privacy/consent');
+// H3a: the one definition of "current" (and of the two reasons) lives in the gate helper.
+const { denialReason } = require('../services/privacy/healthConsentGate');
 
 function requireConsent(purpose) {
   return async (req, res, next) => {
     try {
-      const status = await getConsentStatus(req.user._id, purpose);
-      if (!status.granted)     return res.status(403).json({ error: 'consent_required' });
-      if (status.staleVersion) return res.status(403).json({ error: 'consent_stale' });
+      const reason = denialReason(await getConsentStatus(req.user._id, purpose));
+      if (reason) return res.status(403).json({ error: reason });
       next();
     } catch (err) { next(err); }
   };

@@ -29,6 +29,9 @@ const timingSafe = require('../utils/timingSafeEqual');
 const { revoke, isRevoked } = require('../utils/tokenDenylist');
 // Art.9 consent gate for the device-token-authed watch/hr path (audit H-9 follow-up).
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../services/privacy/consent');
+// H3a: the inline gates below (routes with no req.user for requireConsent) decide with the ONE
+// shared definition of a current grant instead of hand-copied granted/staleVersion checks.
+const { isCurrentGrant, denialReason } = require('../services/privacy/healthConsentGate');
 // Per-provider GDPR erasure — the LIVE disconnect route reuses this (clears credentials AND
 // purges the provider's biometric/medical footprint AND best-effort deregisters). (T3.2)
 const { eraseWearableProvider } = require('../services/privacy/wearableErasure');
@@ -506,7 +509,7 @@ exports.garminCallback = async (req, res) => {
     // current consent grant. The webhook itself also drops unconsented data (defense in depth), but
     // we don't even ask for it here. If/when the user consents, a later sync re-establishes the grant.
     const consent = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
-    if (consent.granted && !consent.staleVersion) {
+    if (isCurrentGrant(consent)) {
       // Kick off the ~6-month historical backfill (async, best-effort) — Garmin then
       // pushes the historical summaries to our webhook. (garmin.requestSixMonthBackfill)
       setImmediate(async () => {
@@ -596,7 +599,7 @@ exports.garminWebhook = async (req, res, next) => {
       // on the resolved user. An unconsented or stale-consent user's summaries are DROPPED, never
       // persisted, mirroring the requireConsent 403 on the session-authed ingest routes.
       const consent = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
-      if (!consent.granted || consent.staleVersion) { skipped += 1; continue; }
+      if (!isCurrentGrant(consent)) { skipped += 1; continue; }
       await garminIngest.ingestSummaries(user._id, items);
       users += 1;
     }
@@ -676,8 +679,13 @@ exports.healthBatchIngest = async (req, res, next) => {
 // ── Suunto (webhooks) ─────────────────────────────────────────────────────────
 
 // Suunto pushes workout data here; body must be raw Buffer for HMAC verification
+// H3a (DT-S5 S-A, BE-010 addendum): handleWebhook writes BiometricLog, and this was the one ingest
+// path with no Art.9 gate — with SUUNTO_WEBHOOK_SECRET unset outside production, any signed-in
+// client could write heart rate here. Gated inline, before any parsing or write.
 exports.suuntoWebhook = async (req, res, next) => {
   try {
+    const reason = denialReason(await getConsentStatus(req.user._id, HEALTH_CONSENT_PURPOSE));
+    if (reason) return res.status(403).json({ error: reason });
     const signature = req.headers['x-suunto-signature'];
     const result = await suunto.handleWebhook(req.user._id, req.rawBody, signature);
     res.json(result);
@@ -760,9 +768,12 @@ exports.watchHrIngest = async (req, res, next) => {
     // middleware to key on — checked inline instead, on the SAME already-resolved user._id,
     // against the SAME consent service every other special-category ingestion path uses. Runs
     // BEFORE any body validation/processing (fail fast, no partial work on an unconsented user).
+    // H3a: decided by the shared isCurrentGrant; the reason is spelled out here (not denialReason)
+    // so the pinned route test can keep asserting this handler's own consent_required literal.
     const consentStatus = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
-    if (!consentStatus.granted) return res.status(403).json({ error: 'consent_required' });
-    if (consentStatus.staleVersion) return res.status(403).json({ error: 'consent_stale' });
+    if (!isCurrentGrant(consentStatus)) {
+      return res.status(403).json({ error: consentStatus?.granted === true ? 'consent_stale' : 'consent_required' });
+    }
 
     const { heartRate, activityType, ts } = req.body || {};
     // ONE physiological range for the whole system (D9). This route used to accept
