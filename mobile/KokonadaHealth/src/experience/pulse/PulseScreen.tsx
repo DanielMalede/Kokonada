@@ -44,7 +44,8 @@ import {
 // Pulse (§8) — the body dashboard, read HONESTLY. Live tiles (HR hero · source · socket) →
 // Gauges (Vitals · Last night · Recovery) → the State headline (the payoff). This is a RESKIN +
 // honest-empty LANGUAGE only: the /api/pulse/state DTO, the single-flight / stale-while-revalidate
-// store, warmStore, friendlyStatus and the sync-counts pipeline are all sacred and untouched.
+// store, warmStore, friendlyStatus's D-4b contract and the sync-counts pipeline are all sacred and
+// untouched (H1 puts the displayStatus render boundary in front of friendlyStatus; see below).
 // Non-negotiables live as code: tokens only, calm-fills are always one accent (never a good/bad
 // ramp), the aura PERIOD is always the fixed calm breath (only its HUE carries HR, capped at coral),
 // no bare dash (every null metric renders an honest sentence), and state.danger is forbidden here.
@@ -179,7 +180,8 @@ function GaugeTile({ def, value, counts, source, reduced, loading, basis, c }: {
   );
 }
 
-// The payoff: friendlyStatus over the body's decorative wash (the ONE reactive accent on Pulse).
+// The payoff: the displayStatus headline over the body's decorative wash (the ONE reactive accent on
+// Pulse; the wash still reads the raw key).
 // Text stays content.primary for AA over the wash — never accent ink at body size; violet never red.
 function StateCard({ loading, status, confidence, quadrant, reduced, onConnect, c }: {
   loading: boolean; status: string | null; confidence: number | null; quadrant: EmotionQuadrant; reduced: boolean; onConnect: () => void; c: ColorScheme;
