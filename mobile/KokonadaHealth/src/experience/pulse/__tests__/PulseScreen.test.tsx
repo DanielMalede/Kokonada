@@ -45,7 +45,7 @@ import { pulseStateStore } from '../pulseStateStore';
 import { warmStore } from '../../../state/store';
 import { colors, space, type ThemeName } from '../../../design/tokens';
 import { textScrimFill } from '../../../design/auroraSurfaces';
-import { AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER } from '../../../legal/legalCopy';
+import { AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER } from '../../../legal/legalCopy';
 import { LegalNote } from '../../../legal/LegalNote';
 import { STATE_LABEL_HIGH_ACTIVATION, STATE_LABEL_FALLBACK } from '../stateDisplayVocabulary';
 
@@ -291,7 +291,7 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
   const expectLegalBand = (tree: ReactTestRenderer.ReactTestRenderer) => {
     expect(bands(tree)).toHaveLength(1);
     const lines = bands(tree)[0].findAll((n) => isHost(n, 'Text')).map((t) => t.props.children);
-    expect(lines).toEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+    expect(lines).toStrictEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
   };
   const expectReachable = (tree: ReactTestRenderer.ReactTestRenderer) => {
     for (const a of ancestors(bands(tree)[0])) {
@@ -334,14 +334,14 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
     expect(allText(tree)).not.toContain('Some Future Rule Label');
   });
 
-  it('loaded with a state: AI notice then disclaimer, read straight after the headline and confidence', async () => {
+  it('loaded with a state: AI notice, disclaimer, then the consult reminder, straight after the headline and confidence in tree order', async () => {
     await withStatus('Peak Athletic Performance', 0.9);
     const tree = await open();
     expectLegalBand(tree);
     const t = hostTexts(tree);
     const iHead = t.indexOf(header(tree)[0]);
     const tail = t.slice(iHead).map((n) => texts(n.props.children).join(''));
-    expect(tail).toEqual(['Peak Athletic Performance', '90% read confidence', AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+    expect(tail).toStrictEqual(['Peak Athletic Performance', '90% read confidence', AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
   });
 
   it('sits OUTSIDE the StateCard (never on the inferred-state wash), right after it at a tighter md gap', async () => {
@@ -366,7 +366,7 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
     expect(allText(tree)).toContain("Your state will appear once your body's being read");
     expectLegalBand(tree);
     const t = hostTexts(tree).map((n) => texts(n.props.children).join(''));
-    expect(t.slice(-2)).toEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+    expect(t.slice(-3)).toStrictEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
   });
 
   it('loading skeleton: the band is present, static, and OUTSIDE the busy live region', async () => {

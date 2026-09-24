@@ -3,7 +3,7 @@ import * as RN from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { AccessibilityInfo, Keyboard } from 'react-native';
 import { LegalNote } from '../LegalNote';
-import { AI_DISCLOSURE_LONG, AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER } from '../legalCopy';
+import { AI_DISCLOSURE_LONG, AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER, PULSE_LEGAL_LINES } from '../legalCopy';
 import { colors, space, radius, type as typography, type ThemeName } from '../../design/tokens';
 import { textScrimFill } from '../../design/auroraSurfaces';
 
@@ -39,6 +39,11 @@ describe('LegalNote — one readable Text node per line, in order', () => {
     expect(texts).toHaveLength(2);
     expect(texts[0].props.children).toBe(AI_DISCLOSURE_SHORT); // a single string, never fragments
     expect(texts[1].props.children).toBe(MEDICAL_DISCLAIMER);
+  });
+
+  it('renders the full Pulse band — notice, disclaimer, consult reminder — as three Text nodes in that order', () => {
+    const texts = hostTexts(render(PULSE_LEGAL_LINES));
+    expect(texts.map((t) => t.props.children)).toStrictEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
   });
 
   it('the band itself is not an accessibility group, so each line is its own screen-reader stop', () => {

@@ -58,6 +58,10 @@ describe('legal copy is defined once', () => {
     expect(filesMatching(/not a medical device/i)).toEqual(['legal/legalCopy.ts']);
   });
 
+  it('"consult a healthcare professional" is spelled only in legal/legalCopy.ts', () => {
+    expect(filesMatching(/consult a healthcare professional/i)).toEqual(['legal/legalCopy.ts']);
+  });
+
   it('the clinical pre-panic backend key is spelled only in the display vocabulary', () => {
     expect(filesMatching(/pre[\s-]*panic/i)).toEqual(['experience/pulse/stateDisplayVocabulary.ts']);
   });

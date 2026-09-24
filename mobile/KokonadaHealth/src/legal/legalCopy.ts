@@ -17,9 +17,23 @@ export const AI_DISCLOSURE_SHORT = 'An AI system infers your emotional state. It
 export const MEDICAL_DISCLAIMER =
   'Kokonada is not a medical device and does not diagnose, treat, cure, or prevent any medical condition.';
 
-export type LegalLine = typeof AI_DISCLOSURE_LONG | typeof AI_DISCLOSURE_SHORT | typeof MEDICAL_DISCLAIMER;
+// Play's Health and Medical Functionalities rule: "Apps must also remind users to consult a healthcare
+// professional for medical advice, diagnosis, or treatment." Its own line, so MEDICAL_DISCLAIMER stays
+// the listing phrase word for word.
+export const MEDICAL_CONSULT_REMINDER = 'Consult a healthcare professional for medical advice, diagnosis, or treatment.';
 
-// Which lines each surface renders (regulatory brief, "Where it goes").
+export type LegalLine =
+  | typeof AI_DISCLOSURE_LONG
+  | typeof AI_DISCLOSURE_SHORT
+  | typeof MEDICAL_DISCLAIMER
+  | typeof MEDICAL_CONSULT_REMINDER;
+
+// Which lines each surface renders (regulatory brief, "Where it goes"; the reminder sits with the
+// disclaimer, per the compliance review).
 export const GENERATE_LEGAL_LINES: readonly LegalLine[] = Object.freeze([AI_DISCLOSURE_LONG]);
 export const ONBOARDING_LEGAL_LINES: readonly LegalLine[] = Object.freeze([AI_DISCLOSURE_SHORT]);
-export const PULSE_LEGAL_LINES: readonly LegalLine[] = Object.freeze([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+export const PULSE_LEGAL_LINES: readonly LegalLine[] = Object.freeze([
+  AI_DISCLOSURE_SHORT,
+  MEDICAL_DISCLAIMER,
+  MEDICAL_CONSULT_REMINDER,
+]);

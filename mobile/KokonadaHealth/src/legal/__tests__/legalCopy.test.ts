@@ -2,6 +2,7 @@ import {
   AI_DISCLOSURE_LONG,
   AI_DISCLOSURE_SHORT,
   MEDICAL_DISCLAIMER,
+  MEDICAL_CONSULT_REMINDER,
   GENERATE_LEGAL_LINES,
   ONBOARDING_LEGAL_LINES,
   PULSE_LEGAL_LINES,
@@ -11,7 +12,7 @@ import {
 // is a regulatory decision (gate G5), so it must fail this file before it can reach a screen.
 // Source: the regulatory brief D1/D2 (draft copy for counsel, not cleared copy).
 
-const ALL = [AI_DISCLOSURE_LONG, AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER];
+const ALL = [AI_DISCLOSURE_LONG, AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER];
 
 describe('legal copy — exact strings', () => {
   it('AI_DISCLOSURE_LONG is the UI-005 invariant sentence (TASKS.md:240), reused verbatim', () => {
@@ -28,6 +29,12 @@ describe('legal copy — exact strings', () => {
     expect(MEDICAL_DISCLAIMER).toBe(
       'Kokonada is not a medical device and does not diagnose, treat, cure, or prevent any medical condition.',
     );
+  });
+
+  it('MEDICAL_CONSULT_REMINDER mirrors Play\'s required reminder (Health and Medical Functionalities)', () => {
+    // Play: "Apps must also remind users to consult a healthcare professional for medical advice,
+    // diagnosis, or treatment." A separate line, so MEDICAL_DISCLAIMER stays the listing phrase verbatim.
+    expect(MEDICAL_CONSULT_REMINDER).toBe('Consult a healthcare professional for medical advice, diagnosis, or treatment.');
   });
 
   it('pins the punctuation: an em dash (U+2014) and straight apostrophes (U+0027), never curly', () => {
@@ -48,8 +55,13 @@ describe('legal copy — which string each surface shows (regulatory brief, "Whe
     expect(ONBOARDING_LEGAL_LINES).toEqual([AI_DISCLOSURE_SHORT]);
   });
 
-  it('Pulse shows the SHORT sentence, then the not-a-medical-device line, in that order', () => {
-    expect(PULSE_LEGAL_LINES).toEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER]);
+  it('Pulse shows the SHORT sentence, the not-a-medical-device line, then the consult reminder, in that order', () => {
+    expect(PULSE_LEGAL_LINES).toStrictEqual([AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
+  });
+
+  it('the consult reminder ships on Pulse only (where the medical disclaimer is), not on Generate or Onboarding', () => {
+    expect(GENERATE_LEGAL_LINES).not.toContain(MEDICAL_CONSULT_REMINDER);
+    expect(ONBOARDING_LEGAL_LINES).not.toContain(MEDICAL_CONSULT_REMINDER);
   });
 
   it('the surface lists cannot be mutated at runtime', () => {
