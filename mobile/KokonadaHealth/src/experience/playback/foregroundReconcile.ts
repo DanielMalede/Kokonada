@@ -18,6 +18,10 @@ export interface ForegroundReconcileDeps {
   // Optional: refresh the state-vector Pulse snapshot on foreground (A11). Guarded
   // and fire-and-forget — a fetch failure must not break the reconcile.
   refreshPulse?: () => void;
+  // Optional (H2-8, DT-H2-5 F1): re-check the health lane. It can only STOP a running live-HR
+  // feed (a withdrawal whose response was lost, a grant revoked in Settings), never start one.
+  // Guarded and fire-and-forget like refreshPulse.
+  reevaluateHealth?: () => void;
 }
 
 export async function reconcileOnForeground(deps: ForegroundReconcileDeps): Promise<void> {
@@ -38,6 +42,13 @@ export async function reconcileOnForeground(deps: ForegroundReconcileDeps): Prom
     deps.warmStore.getState().setPermissions(perms);
   } catch {
     deps.warmStore.getState().setPermissions({ bluetooth: 'denied', health: 'denied' });
+  }
+
+  // Health lane: the server-side truth behind the OS grants — is the Art.9 grant still current?
+  try {
+    deps.reevaluateHealth?.();
+  } catch {
+    /* a broken re-check must never break the reconcile */
   }
 
   // Pulse snapshot: refresh the state-vector vitals on foreground (best-effort). The

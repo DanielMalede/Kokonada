@@ -87,3 +87,33 @@ describe('reconcileOnForeground — combined desync (attack #2)', () => {
     expect(warm.getState().permissions).toEqual({ bluetooth: 'granted', health: 'granted' });
   });
 });
+
+// H2-8 (DT-H2-5 option F1): every foreground re-checks the health lane, which can only STOP a
+// running feed — it catches a withdrawal whose response was lost and a grant revoked in Settings.
+// Starting is never its job (the lane is called with allowStart:false), so it can never silently
+// mint a fresh credential right after a Disconnect.
+describe('reconcileOnForeground — health lane re-check (H2)', () => {
+  it('re-checks the health lane once per activation, after the permission reconcile', async () => {
+    const order: string[] = [];
+    const { deps } = build({
+      readPermissions: jest.fn(async () => { order.push('permissions'); return { bluetooth: 'granted', health: 'granted' }; }),
+    });
+    const reevaluateHealth = jest.fn(() => { order.push('health-lane'); });
+    await reconcileOnForeground({ ...deps, reevaluateHealth });
+    expect(reevaluateHealth).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['permissions', 'health-lane']);
+  });
+
+  it('a throwing re-check never breaks the reconcile', async () => {
+    const { deps, reconcile, warm } = build();
+    const reevaluateHealth = () => { throw new Error('lane down'); };
+    await expect(reconcileOnForeground({ ...deps, reevaluateHealth })).resolves.toBeUndefined();
+    expect(reconcile).toHaveBeenCalled();
+    expect(warm.getState().permissions).toEqual({ bluetooth: 'granted', health: 'granted' });
+  });
+
+  it('is optional — a reconcile without it still works', async () => {
+    const { deps } = build();
+    await expect(reconcileOnForeground(deps)).resolves.toBeUndefined();
+  });
+});
