@@ -5,6 +5,7 @@ import { wipeLocalSession } from './sessionTeardown';
 import { authSession } from '../../auth/session';
 import { currentUserStore } from '../../auth/currentUser';
 import { clearWatchToken } from '../../health/liveHrClient';
+import { healthLane, stopLaneThenClearToken } from '../../health/healthLaneServices';
 import { warmStore } from '../../state/store';
 import { player, kokoSocket } from '../playback/playbackServices';
 import { playerStatusStore } from '../player/playerStatusStore';
@@ -26,7 +27,10 @@ async function clearLocal(): Promise<void> {
     disconnectSocket: () => kokoSocket.disconnect(),
     disposePlayer: () => player.dispose(),
     clearAuthSession: () => authSession.clear(),
-    clearWatchToken: () => clearWatchToken(),
+    // H2: the live-HR feed stops inside this SAME slot, before the credential it rides is wiped —
+    // and so well before resetWarm, which a late reading used to refill for the next account.
+    // The teardown order itself is unchanged.
+    clearWatchToken: () => stopLaneThenClearToken(healthLane, clearWatchToken),
     clearLegacyToken: async () => { await Keychain.resetGenericPassword({ service: LEGACY_JWT_SERVICE }); },
     wipeColdPersistence: () => wipeColdPersistence(),
     resetWarm: () => warmStore.getState().reset(),
