@@ -20,10 +20,9 @@ import {
 // The classifier that produces stateVector.status. Read from the real backend file so a new or
 // renamed rule label cannot drift past the client vocabulary unnoticed.
 const CLASSIFIER = path.resolve(__dirname, '../../../../../../backend/app/services/medicalProfileService.js');
-const classifierLabels = (): string[] => {
-  const src = fs.readFileSync(CLASSIFIER, 'utf8');
-  return [...src.matchAll(/status:\s*'([^']+)'/g)].map((m) => m[1]);
-};
+// Any quote style (', " or `): a label restyled in the backend must still be seen, never skipped.
+const parseStatusLabels = (src: string): string[] => [...src.matchAll(/status:\s*(['"`])(.+?)\1/g)].map((m) => m[2]);
+const classifierLabels = (): string[] => parseStatusLabels(fs.readFileSync(CLASSIFIER, 'utf8'));
 
 describe('state display vocabulary — one exported constant per display string', () => {
   it('pins each display label exactly (regulatory draft copy; final at G5)', () => {
@@ -63,6 +62,10 @@ describe('BACKEND_STATUS_LABELS — the fixture IS the real classifier (drift gu
     const real = classifierLabels();
     expect(real.length).toBe(10); // 9 rules + the Neutral default — a parse that finds nothing must fail
     expect([...BACKEND_STATUS_LABELS].sort()).toEqual([...real].sort());
+  });
+
+  it('the parse reads every quote style, so a label restyled to " or ` cannot slip past the guard', () => {
+    expect(parseStatusLabels('status: \'A\', status: "B", status:`C`, status: rule.status')).toStrictEqual(['A', 'B', 'C']);
   });
 
   it('keeps the legacy classifier value as a known label', () => {
