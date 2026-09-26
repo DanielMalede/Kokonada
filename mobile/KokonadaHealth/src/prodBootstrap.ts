@@ -110,8 +110,14 @@ export async function startApp(): Promise<void> {
 export async function onSignedIn(): Promise<void> {
   try {
     playbackSocket.ensureConnected();
-    // H2: the same gate as boot — the lane starts the feed only for a linked, consented account.
-    void healthLane.evaluate({ allowStart: true });
+    // H2: a fresh sign-in starts the health lane from nothing. A session can die without a logout (a
+    // revoked refresh family only clears the session pair), so the teardown that stops the feed and
+    // wipes the whr_ credential may never have run: the previous account's feed can still be running,
+    // or its credential still sit in the phone's one Keychain slot. Both are stopped and forgotten
+    // BEFORE the new account's gate is read — one account's credential never carries another's
+    // readings. Then the same gate as boot: the feed starts only for an account linked here and
+    // consented.
+    void healthLane.stop({ forgetToken: true }).then(() => healthLane.evaluate({ allowStart: true }));
     if (getCurrentUserId()) {
       const cp = makeColdPersistence();
       cp.rehydrate();

@@ -333,3 +333,81 @@ describe('prodBootstrap — account B on the phone where account A linked (revie
     expect(second.healthLane.status()).toBe('idle');
   });
 });
+
+// The class the review names, one step further: whatever an EARLIER identity left behind on this
+// phone must not carry the next account's readings. A session can die without a logout (a revoked
+// refresh family: the socket's auth-expired path and the boot's dead-token path only clear the session
+// pair), so the logout teardown that stops the feed and wipes the whr_ credential never ran. The
+// credential belongs to the account it was minted for; the Keychain slot belongs to the phone.
+describe('prodBootstrap — a fresh sign-in starts the health lane from nothing (identity boundary)', () => {
+  const current = { granted: true, staleVersion: false };
+  const pushesOn = (token: string) =>
+    backend.requests.filter((r) => r.path === '/api/integrations/watch/hr' && r.auth === `Bearer ${token}`).length;
+
+  it('a feed still running on account A\'s credential is stopped when B signs in, and B\'s readings ride only a credential minted for B', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+    const { FALLBACK_INTERVAL_MS } = require('../health/restFallback');
+    mockSecure = linkedDisk({ 'account-a': 'on', 'account-b': 'on' }); // both linked this phone before
+    mockHc.granted = [HC_GRANT];
+    mockHc.records = [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 70 }] }];
+    backend.consent = current;
+    backend.me = { id: 'account-a', displayName: 'A', email: 'a@x.io' };
+
+    const w = load({ signedIn: true });
+    await w.prod.startApp();
+    await settle();
+    expect(pushesOn('whr_minted_1')).toBe(1); // A's feed is live on A's credential
+
+    await w.authSession.clear(); // A's session dies — no logout, no teardown
+    await w.signIn('account-b');
+    await settle();
+
+    expect(backend.mints).toBe(2); // B gets a credential of its own
+    expect(keychainSlots.get(WATCH_SLOT)).toBe('whr_minted_2');
+    const aBefore = pushesOn('whr_minted_1');
+    await jest.advanceTimersByTimeAsync(FALLBACK_INTERVAL_MS * 3);
+    await settle();
+    expect(pushesOn('whr_minted_1')).toBe(aBefore); // A's feed is gone for good
+    expect(pushesOn('whr_minted_2')).toBeGreaterThan(0);
+    expect(w.healthLane.status()).toBe('running');
+  });
+
+  it('a credential account A left in the Keychain (its session died, so nothing wiped it) is never used for B', async () => {
+    mockSecure = linkedDisk({ 'account-b': 'on' });
+    mockHc.granted = [HC_GRANT];
+    mockHc.records = [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 70 }] }];
+    backend.consent = current;
+    keychainSlots.set(WATCH_SLOT, 'whr_account_a');
+
+    const w = load({ signedIn: false }); // the boot found A's session dead and landed on SignIn
+    await w.prod.startApp();
+    await w.signIn('account-b');
+    await settle();
+
+    expect(pushesOn('whr_account_a')).toBe(0);
+    expect(backend.mints).toBe(1);
+    expect(keychainSlots.get(WATCH_SLOT)).toBe('whr_minted_1');
+    expect(pushesOn('whr_minted_1')).toBe(1);
+  });
+
+  it('B with no link here: A\'s running feed and A\'s credential are both gone, and nothing is minted', async () => {
+    mockSecure = linkedDisk({ 'account-a': 'on' });
+    mockHc.granted = [HC_GRANT];
+    backend.consent = current;
+    backend.me = { id: 'account-a', displayName: 'A', email: 'a@x.io' };
+
+    const w = load({ signedIn: true });
+    await w.prod.startApp();
+    await settle();
+    expect(w.healthLane.status()).toBe('running');
+
+    await w.authSession.clear();
+    backend.requests.length = 0;
+    await w.signIn('account-b');
+    await settle();
+
+    expect(w.healthLane.status()).toBe('idle');
+    expect(keychainSlots.has(WATCH_SLOT)).toBe(false);
+    expect(HEALTH_PATHS.map(hits)).toEqual([0, 0, 0]);
+  });
+});
