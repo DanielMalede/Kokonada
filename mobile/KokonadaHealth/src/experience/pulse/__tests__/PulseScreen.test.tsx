@@ -43,7 +43,7 @@ import * as RN from 'react-native';
 import { PulseScreen } from '../PulseScreen';
 import { pulseStateStore } from '../pulseStateStore';
 import { warmStore } from '../../../state/store';
-import { colors, space, type ThemeName } from '../../../design/tokens';
+import { colors, space, radius, type ThemeName } from '../../../design/tokens';
 import { textScrimFill } from '../../../design/auroraSurfaces';
 import { AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER } from '../../../legal/legalCopy';
 import { LegalNote } from '../../../legal/LegalNote';
@@ -317,12 +317,20 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
       expect(a.props.accessibilityLiveRegion ?? 'none').toBe('none'); // outside Skeleton.Group / EmptyState
     }
   };
-  // The StateCard is the parent of the pointerEvents="none" wash painted with an emotion wash.
+  // The StateCard is the nearest HOST View above the pointerEvents="none" emotion wash. Never the
+  // wash's `.parent`: the jest-preset View mock is a class that renders the host 'View', so a host's
+  // `.parent` is its own mock wrapper, and a pin against that wrapper can never fail. The card is
+  // proven by its own style (raised surface, xl corners) and by holding the headline.
   const stateCard = (tree: ReactTestRenderer.ReactTestRenderer, face: ThemeName) => {
     const washes = Object.values(colors[face].emotionAccent).map((q) => q.wash);
     const wash = tree.root.findAll((n) => isHost(n, 'View') && n.props.pointerEvents === 'none' && washes.includes(flat(n).backgroundColor));
     expect(wash).toHaveLength(1);
-    return { wash: wash[0], card: wash[0].parent! };
+    const card = ancestors(wash[0]).find((a) => isHost(a, 'View'));
+    expect(card).toBeDefined();
+    expect(flat(card).borderRadius).toBe(radius.xl);
+    expect(flat(card).backgroundColor).toBe(colors[face].surface.raised);
+    expect(card.findAll((n: any) => isHost(n, 'Text') && n.props.accessibilityRole === 'header')).toHaveLength(1);
+    return { wash: wash[0], card };
   };
 
   it('NEVER renders the pre-panic key: the headline is the display constant and no node says panic/stress', async () => {
@@ -365,8 +373,20 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
     await withStatus('High-Stress / Pre-Panic');
     const tree = await open();
     const { card } = stateCard(tree, 'dark');
-    expect(ancestors(bands(tree)[0])).not.toContain(card);
-    expect(card.findAll((n) => n.props.testID === 'legal-note')).toHaveLength(0);
+    const band = bands(tree)[0];
+    // Booleans, not toContain: a failing toContain pretty-prints whole fibers and blows the timeout.
+    expect(ancestors(band).includes(card)).toBe(false);
+    expect(card.findAll((n: any) => n.props.testID === 'legal-note')).toHaveLength(0);
+    // Not inside the body stack either: the band is the stack's next sibling, so it follows the card.
+    const stack = ancestors(card).find((a) => isHost(a, 'View') && flat(a)?.gap === space.xl);
+    expect(stack).toBeDefined();
+    expect(ancestors(band).includes(stack)).toBe(false);
+    const common = ancestors(stack).find((a) => ancestors(band).includes(a));
+    const kids = common.children.filter((ch: any) => typeof ch !== 'string');
+    const iStack = kids.findIndex((ch: any) => ch === stack || ancestors(stack).includes(ch));
+    const iBand = kids.findIndex((ch: any) => ch === band || ancestors(band).includes(ch));
+    expect(iStack).toBeGreaterThanOrEqual(0);
+    expect(iBand).toBe(iStack + 1);
     // The caller's wrapper (LegalNote takes no style) carries the gap.
     expect(flat(tree.root.findByType(LegalNote).parent).marginTop).toBe(space.md);
   });
