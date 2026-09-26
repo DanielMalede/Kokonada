@@ -97,18 +97,31 @@ function installFakeBackend(): void {
 const hits = (method: string, path: string) =>
   backend.requests.filter((r) => r.method === method && r.path === path).length;
 
+// The phone's encrypted KV (the real prod port is encrypted MMKV behind the same three methods). It
+// outlives a test's module graph the way the disk outlives a process, so "linked in an earlier
+// session" is a value an earlier process really wrote, not a flag poked into memory.
+const mockDisk = new Map<string, string>();
+
 // A fresh module graph per test: the lane, the switch and the stores are module singletons.
-function load() {
+// `linkedHere` lists the accounts that made an explicit wearable link on THIS phone earlier.
+function load(opts: { linkedHere?: string[] } = { linkedHere: ['user-1'] }) {
   jest.resetModules();
   const svc = require('../healthLaneServices');
   const { currentUserStore } = require('../../auth/currentUser');
   const { warmStore } = require('../../state/store');
-  const { liveHrSwitch } = require('../liveHrSwitch');
+  const { liveHrSwitch, bindLiveHrSwitchKV, liveHrLinkKey } = require('../liveHrSwitch');
+  for (const uid of opts.linkedHere ?? []) mockDisk.set(liveHrLinkKey(uid), 'on');
+  bindLiveHrSwitchKV({
+    getString: (k: string) => mockDisk.get(k),
+    set: (k: string, v: string) => { mockDisk.set(k, v); },
+    delete: (k: string) => { mockDisk.delete(k); },
+  });
   const rn = require('react-native');
   const hc = require('react-native-health-connect');
   const { BleManager } = require('react-native-ble-plx');
   const signIn = (id: string) => currentUserStore.getState().setUser({ id, displayName: id, email: `${id}@x.io` });
-  return { svc, warmStore, liveHrSwitch, signIn, requestMultiple: rn.PermissionsAndroid.requestMultiple as jest.Mock, hc, BleManager: BleManager as jest.Mock };
+  const signOut = () => currentUserStore.getState().clear();
+  return { svc, warmStore, liveHrSwitch, signIn, signOut, requestMultiple: rn.PermissionsAndroid.requestMultiple as jest.Mock, hc, BleManager: BleManager as jest.Mock };
 }
 
 let running: { stop: () => Promise<void> } | null = null;
@@ -125,6 +138,7 @@ beforeEach(() => {
   mockHc.records = [];
   mockSlots.clear();
   mockBleManagers.length = 0;
+  mockDisk.clear();
 });
 
 afterEach(async () => {
@@ -201,8 +215,8 @@ describe('stopLaneThenClearToken — the logout / delete teardown slot', () => {
 });
 
 describe('the production lane, against a fake backend', () => {
-  it('mood-only (no Health Connect grant): nothing leaves the device, no Bluetooth manager, no prompt, no Health Connect read', async () => {
-    const w = load();
+  it('mood-only (never linked here, no Health Connect grant): nothing leaves the device, no Bluetooth manager, no prompt, no Health Connect read', async () => {
+    const w = load({ linkedHere: [] });
     w.signIn('user-1');
     backend.consent = { granted: true, staleVersion: false }; // even a grant on the server must not matter
     await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false);
@@ -331,7 +345,9 @@ describe('the production lane, against a fake backend', () => {
 describe('compliance E5 — a closed gate touches nothing behind it (production binding)', () => {
   const CURRENT = { granted: true, staleVersion: false };
   it.each([
-    ['mood-only: no Health Connect link, even with a current grant on file', () => { mockHc.granted = []; backend.consent = CURRENT; }],
+    ['mood-only: never linked here and no Health Connect grant, even with a current grant on file', () => { mockDisk.clear(); mockHc.granted = []; backend.consent = CURRENT; }],
+    ['never linked here, though the PHONE holds a Health Connect grant (another account\'s) and a current grant is on file', () => { mockDisk.clear(); backend.consent = CURRENT; }],
+    ['linked here, but Health Connect no longer holds a grant (revoked in Settings)', () => { mockHc.granted = []; backend.consent = CURRENT; }],
     ['linked, but no grant on file', () => { backend.consent = { granted: false, staleVersion: false }; }],
     ['linked, but a stale grant', () => { backend.consent = { granted: true, staleVersion: true }; }],
     ['linked, but the consent read is refused (401)', () => { backend.consent = CURRENT; backend.consentMode = '401'; }],
@@ -369,6 +385,147 @@ describe('compliance E5 — a closed gate touches nothing behind it (production 
     await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(true);
     expect(hits('POST', '/api/integrations/watch/token')).toBe(1);
     expect(w.svc.healthLane.status()).toBe('running');
+  });
+});
+
+// Review H2-C1 at the PRODUCTION binding: the wearable opt-in belongs to the ACCOUNT on this phone.
+// The Health Connect grant belongs to the phone and the Art.9 grant to the account (given on any
+// phone), so neither — nor both together — may open the lane for an account that never made a
+// wearable link HERE. Account A links this phone and logs out; account B, holding a current grant
+// given on another phone, signs in. Every request, credential read and Health Connect call is
+// counted from the moment B signs in.
+describe('review H2-C1 — the opt-in is per account on this phone, never the phone\'s Health Connect grant', () => {
+  const CURRENT = { granted: true, staleVersion: false };
+
+  async function accountALinksThisPhoneThenLogsOut() {
+    const w = load({ linkedHere: [] });
+    w.signIn('account-a');
+    mockHc.granted = [HC_GRANT]; // A's grant through the OS sheet — it stays on the PHONE
+    mockHc.records = [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 71 }] }];
+    backend.consent = CURRENT;
+    running = w.svc.healthLane;
+    await expect(w.svc.onWearableLinked()).resolves.toBe(true);
+    expect(w.svc.healthLane.status()).toBe('running'); // the fakes are live for A
+    await w.svc.stopLaneThenClearToken(w.svc.healthLane, require('../liveHrClient').clearWatchToken);
+    w.signOut();
+    return w;
+  }
+
+  function accountBSignsIn(w: ReturnType<typeof load>) {
+    backend.requests.length = 0;
+    const keychain = require('react-native-keychain');
+    keychain.getGenericPassword.mockClear();
+    w.hc.initialize.mockClear();
+    w.hc.getGrantedPermissions.mockClear();
+    w.hc.readRecords.mockClear();
+    w.BleManager.mockClear();
+    backend.consent = CURRENT; // B's current grant, given on ANOTHER phone
+    w.signIn('account-b');
+  }
+
+  function expectNothingTouchedFor(w: ReturnType<typeof load>) {
+    expect(backend.requests).toEqual([]); // no consent read, no mint, no /watch/hr
+    const keychain = require('react-native-keychain');
+    expect(keychain.getGenericPassword.mock.calls.filter(([o]: any[]) => o?.service === WATCH_SLOT)).toEqual([]);
+    expect(w.hc.readRecords).not.toHaveBeenCalled();
+    expect(w.hc.getGrantedPermissions).not.toHaveBeenCalled(); // not even the phone's grant table
+    expect(w.BleManager).not.toHaveBeenCalled();
+    expect(w.requestMultiple).not.toHaveBeenCalled();
+    expect(w.warmStore.getState().liveHr).toBeNull();
+    expect(w.svc.healthLane.status()).toBe('idle');
+  }
+
+  it('B signs in on the phone where A made the Health Connect grant: the gate stays shut at sign-in, on the next boot and on every foreground', async () => {
+    const w = await accountALinksThisPhoneThenLogsOut();
+    accountBSignsIn(w);
+
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false); // sign-in
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false); // next boot: this answer gates the Health Connect sync
+    await expect(w.svc.recheckHealthOnForeground()).resolves.toBe(false);
+
+    expectNothingTouchedFor(w);
+  });
+
+  it('B taps mood-only on this phone: still nothing starts', async () => {
+    const w = await accountALinksThisPhoneThenLogsOut();
+    accountBSignsIn(w);
+    require('../../experience/connect/connectStore').connectStore.getState().setMoodOnly();
+
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false);
+    await expect(w.svc.recheckHealthOnForeground()).resolves.toBe(false);
+
+    expectNothingTouchedFor(w);
+  });
+
+  it('B\'s OWN link on this phone (the explicit wearable action) opens it: B\'s grant is read and B\'s credential minted', async () => {
+    const w = await accountALinksThisPhoneThenLogsOut();
+    accountBSignsIn(w);
+
+    await expect(w.svc.onWearableLinked()).resolves.toBe(true);
+    expect(hits('GET', '/api/consent/status')).toBe(1);
+    expect(hits('POST', '/api/integrations/watch/token')).toBe(1);
+    expect(w.svc.healthLane.status()).toBe('running');
+  });
+
+  it('A\'s link stays A\'s: after B leaves, A signs back in and the lane opens without a new link', async () => {
+    const w = await accountALinksThisPhoneThenLogsOut();
+    accountBSignsIn(w);
+    await w.svc.healthLane.evaluate({ allowStart: true });
+    w.signOut();
+
+    w.signIn('account-a');
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(true);
+    expect(w.svc.healthLane.status()).toBe('running');
+  });
+
+  it('a withdrawal made on THIS phone ends the link: a later re-consent elsewhere does not reopen it, only a new link here does', async () => {
+    const w = load();
+    w.signIn('user-1');
+    mockHc.granted = [HC_GRANT];
+    backend.consent = CURRENT;
+    running = w.svc.healthLane;
+    await w.svc.healthLane.evaluate({ allowStart: true });
+    expect(w.svc.healthLane.status()).toBe('running');
+
+    backend.consent = { granted: false, staleVersion: false };
+    await w.svc.onConsentWithdrawn();
+    expect(w.liveHrSwitch.isLinkedHere()).toBe(false);
+
+    backend.consent = CURRENT; // re-consented on another phone
+    backend.requests.length = 0;
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(backend.requests).toEqual([]);
+
+    await expect(w.svc.onWearableLinked()).resolves.toBe(true);
+    expect(w.svc.healthLane.status()).toBe('running');
+  });
+
+  it('a withdrawal made on ANOTHER phone ends the link here at the first answer that says so', async () => {
+    const w = load();
+    w.signIn('user-1');
+    mockHc.granted = [HC_GRANT];
+    backend.consent = { granted: false, staleVersion: false }; // withdrawn elsewhere
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(w.liveHrSwitch.isLinkedHere()).toBe(false);
+
+    backend.consent = CURRENT; // re-consented on that other phone
+    backend.requests.length = 0;
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(backend.requests).toEqual([]);
+  });
+
+  it.each([
+    ['a stale grant (a new consent version)', () => { backend.consent = { granted: true, staleVersion: true }; }],
+    ['offline', () => { backend.consent = CURRENT; backend.consentMode = 'offline'; }],
+    ['a refused read (401)', () => { backend.consent = CURRENT; backend.consentMode = '401'; }],
+    ['a malformed answer', () => { backend.consent = CURRENT; backend.consentMode = 'malformed'; }],
+  ])('%s is not a withdrawal: the gate stays shut but the link survives', async (_l, arrange) => {
+    const w = load();
+    w.signIn('user-1');
+    mockHc.granted = [HC_GRANT];
+    arrange();
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(w.liveHrSwitch.isLinkedHere()).toBe(true);
   });
 });
 

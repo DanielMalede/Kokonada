@@ -80,12 +80,14 @@ const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((r) =
 function load() {
   jest.resetModules();
   const { profileController } = require('../profileServices');
-  const { healthLane } = require('../../../health/healthLaneServices');
+  const { healthLane, onWearableLinked } = require('../../../health/healthLaneServices');
   const { warmStore } = require('../../../state/store');
   const { currentUserStore } = require('../../../auth/currentUser');
   mockLaneStatus = () => healthLane.status();
   currentUserStore.getState().setUser({ id: 'account-a', displayName: 'A', email: 'a@x.io' });
-  return { profileController, healthLane, warmStore };
+  // Account A links a wearable on this phone (the explicit action that opens the lane for A).
+  const linkWearable = () => onWearableLinked();
+  return { profileController, healthLane, warmStore, linkWearable };
 }
 
 let lane: { stop: () => Promise<void> } | null = null;
@@ -109,7 +111,7 @@ describe.each([
   it('the feed is stopped BEFORE the credential is wiped, and the socket is still severed first', async () => {
     const w = load();
     lane = w.healthLane;
-    await w.healthLane.evaluate({ allowStart: true });
+    await w.linkWearable();
     expect(w.healthLane.status()).toBe('running');
 
     await signOut(w.profileController);
@@ -124,7 +126,7 @@ describe.each([
   it('a reading still in flight at sign-out never lands in the warm store the next account inherits', async () => {
     const w = load();
     lane = w.healthLane;
-    await w.healthLane.evaluate({ allowStart: true });
+    await w.linkWearable();
     await settle();
     expect(mockReadRelease).not.toBeNull(); // the fallback's first read is in flight
 

@@ -19,10 +19,9 @@ import { warmStore } from '../state/store';
 //   logout / delete ........ stopLaneThenClearToken(...)                 (profileServices)
 
 /**
- * The wearable opt-in (DT-H2-1 option A): this device holds a Health Connect grant for Kokonada.
- * That grant is reachable only through the Art.9 consent wall (connectController), so a mood-only
- * account never has one. Reads the OS grant table and never shows UI; not Android, or any failure,
- * reads as no link.
+ * This PHONE holds a Health Connect grant for Kokonada. Reads the OS grant table and never shows
+ * UI; not Android, or any failure, reads as no link. The grant belongs to the phone, not to an
+ * account, so on its own it is never the opt-in (review H2-C1) — see hasWearableOptIn.
  */
 export async function hasHealthConnectLink(): Promise<boolean> {
   if (Platform.OS !== 'android') return false;
@@ -35,13 +34,25 @@ export async function hasHealthConnectLink(): Promise<boolean> {
   }
 }
 
+/**
+ * The wearable opt-in (compliance B5, review H2-C1): the signed-in ACCOUNT made an explicit wearable
+ * link on THIS phone (the per-account marker, written only by onWearableLinked) AND the phone still
+ * holds the Health Connect grant (it can be revoked in Settings). The marker is read first, so an
+ * account that never linked here costs nothing at all: no Health Connect call, no network.
+ */
+export async function hasWearableOptIn(): Promise<boolean> {
+  if (!liveHrSwitch.isLinkedHere()) return false;
+  return hasHealthConnectLink();
+}
+
 export const healthLane: HealthLane = createHealthLane({
-  hasWearableOptIn: hasHealthConnectLink,
+  hasWearableOptIn,
   fetchConsentStatus,
   startFeed: (isActive) => startBiometrics({ warm: warmStore, isActive }),
   clearFeed: () => clearBiometricFeed(warmStore),
   clearWatchToken,
   feedSwitchedOff: () => liveHrSwitch.isOff(),
+  forgetWearableOptIn: () => liveHrSwitch.unlink(),
 });
 
 /**
@@ -58,23 +69,27 @@ export async function stopLaneThenClearToken(
   await clear();
 }
 
-/** An explicit wearable-path action (a Health Connect link through the consent wall) switches live
- *  HR back on for this account and starts it if the gate is open. */
+/** The explicit wearable-path action — a real Health Connect grant through the consent wall on THIS
+ *  phone (connectController.runSync) — and the ONLY way an account becomes linked here: it marks
+ *  the account linked with live HR on, and starts the feed if the gate is open. */
 export function onWearableLinked(): Promise<boolean> {
-  liveHrSwitch.switchOn();
+  liveHrSwitch.markLinked();
   return healthLane.evaluate({ allowStart: true });
 }
 
 /** Disconnect on the Live heart rate card: switch live HR off for this account, durably (it stays
- *  off across restarts until the next wearable link), stop the feed and forget the credential. */
+ *  off across restarts until the next wearable link), stop the feed and forget the credential. The
+ *  link itself stays, so the Art.9 sync keeps running; a Disconnect never creates a link. */
 export async function onLiveHrDisconnected(): Promise<void> {
   liveHrSwitch.switchOff();
   await healthLane.stop({ forgetToken: true });
 }
 
-/** A successful consent withdrawal: stop the feed and forget the credential the server just
- *  revoked, so a later re-consent mints a fresh one instead of pushing a dead one. */
+/** A successful consent withdrawal: the account's wearable link on this phone ends (compliance B5 —
+ *  a re-consent given elsewhere never reopens it; only a new link here does), the feed stops and
+ *  the credential the server just revoked is forgotten, so a later re-link mints a fresh one. */
 export async function onConsentWithdrawn(): Promise<void> {
+  liveHrSwitch.unlink();
   await healthLane.stop({ forgetToken: true });
 }
 

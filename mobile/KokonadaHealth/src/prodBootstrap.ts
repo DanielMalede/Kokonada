@@ -50,8 +50,9 @@ export async function startApp(): Promise<void> {
     // Hydrate the one-shot FTUE flag so the splash can resolve straight to Sign-in for a
     // returning (but logged-out) device, skipping Onboarding.
     bindOnboardingKV(kv);
-    // H2: the durable live-HR switch (Disconnect) persists per account through the same store.
-    bindLiveHrSwitchKV(kv);
+    // H2: the per-account wearable link on this phone (and its live-HR switch) persists through the
+    // same store; a withdrawal deletes it.
+    bindLiveHrSwitchKV({ ...kv, delete: (k: string) => { s.removeItem(k); } });
   }
 
   // Recover the logged-in identity from a stored session (currentUser is in-memory and

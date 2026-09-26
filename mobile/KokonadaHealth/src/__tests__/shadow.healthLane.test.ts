@@ -141,10 +141,40 @@ describe('the live-HR chain has exactly one entrance: the health lane', () => {
   });
 });
 
-describe('the durable live-HR switch changes only through the named triggers', () => {
-  it('switchOn / switchOff are called only by the lane services (a wearable link, a Disconnect)', () => {
-    expect(filesMatching(/\bliveHrSwitch\.switchOn\(/)).toEqual(['health/healthLaneServices.ts']);
+// Review H2-C1: the wearable opt-in is the account's link on THIS phone, and only an explicit
+// wearable action creates it — a real Health Connect grant through the consent wall
+// (connectController.runSync → onWearableLinked). No other path may write it, and the lane may not
+// open on the phone's Health Connect grant alone.
+describe('the per-account wearable link changes only through the named triggers', () => {
+  it('the link is written only by the lane services (a wearable link, a Disconnect, a withdrawal)', () => {
+    expect(filesMatching(/\bliveHrSwitch\.markLinked\(/)).toEqual(['health/healthLaneServices.ts']);
     expect(filesMatching(/\bliveHrSwitch\.switchOff\(/)).toEqual(['health/healthLaneServices.ts']);
+    expect(filesMatching(/\bliveHrSwitch\.unlink\(/)).toEqual(['health/healthLaneServices.ts']);
+    expect(importersOf('health/liveHrSwitch')).toEqual(['health/healthLaneServices.ts', 'prodBootstrap.ts']);
+  });
+
+  it('markLinked runs only inside onWearableLinked', () => {
+    const svc = PROD.find((p) => p.file === 'health/healthLaneServices.ts')!.code;
+    const body = svc.match(/export function onWearableLinked\(\)[^{]*\{([\s\S]*?)\n\}/);
+    expect(body?.[1]).toMatch(/liveHrSwitch\.markLinked\(\)/);
+    expect(svc.match(/\bmarkLinked\(/g)).toHaveLength(1);
+  });
+
+  it('onWearableLinked is reached only from the two hosts of the connect controller, as its onWearableLinked step', () => {
+    expect(importersOf('health/healthLaneServices').filter((f) => PROD.find((p) => p.file === f)!.code.includes('onWearableLinked')))
+      .toEqual(['experience/connect/ConnectServicesScreen.tsx', 'experience/profile/ProfileScreen.tsx']);
+    for (const f of ['experience/connect/ConnectServicesScreen.tsx', 'experience/profile/ProfileScreen.tsx']) {
+      const code = PROD.find((p) => p.file === f)!.code;
+      expect({ f, calls: code.match(/\bonWearableLinked\(\)/g) }).toEqual({ f, calls: ['onWearableLinked()'] });
+      expect(code).toMatch(/onWearableLinked:\s*\(\)\s*=>\s*\{\s*void onWearableLinked\(\);\s*\}/);
+    }
+  });
+
+  it('the lane opens on the account\'s link here, never on the phone\'s Health Connect grant alone', () => {
+    const svc = PROD.find((p) => p.file === 'health/healthLaneServices.ts')!.code;
+    expect(svc).not.toMatch(/hasWearableOptIn:\s*hasHealthConnectLink/);
+    const optIn = svc.match(/export async function hasWearableOptIn\(\)[^{]*\{([\s\S]*?)\n\}/);
+    expect(optIn?.[1]).toMatch(/liveHrSwitch\.isLinkedHere\(\)/);
   });
 });
 
