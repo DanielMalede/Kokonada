@@ -23,7 +23,7 @@ jest.mock('react-native', () => ({
   },
 }));
 
-const mockHc = { initialized: true, initThrows: false, granted: [] as unknown[], grantsThrow: false };
+const mockHc = { initialized: true, initThrows: false, granted: [] as unknown[], grantsThrow: false, records: [] as unknown[] };
 jest.mock('react-native-health-connect', () => ({
   initialize: jest.fn(async () => {
     if (mockHc.initThrows) throw new Error('health connect binder died');
@@ -34,7 +34,7 @@ jest.mock('react-native-health-connect', () => ({
     return mockHc.granted;
   }),
   requestPermission: jest.fn(),
-  readRecords: jest.fn(async () => ({ records: [] })),
+  readRecords: jest.fn(async () => ({ records: mockHc.records })),
 }));
 
 const mockSlots = new Map<string, string>();
@@ -62,13 +62,16 @@ const HC_GRANT = { accessType: 'read', recordType: 'HeartRate' };
 
 interface FakeBackend {
   consent: { granted: boolean; staleVersion: boolean };
+  // How the consent read ANSWERS, independent of what is on file: a normal answer, a refused read
+  // (401, and no refresh token to rotate), no network at all, or a 200 whose body lacks the shape.
+  consentMode: 'ok' | '401' | 'offline' | 'malformed';
   mints: number;
   requests: Array<{ method: string; path: string }>;
 }
 let backend: FakeBackend;
 
 function installFakeBackend(): void {
-  backend = { consent: { granted: false, staleVersion: false }, mints: 0, requests: [] };
+  backend = { consent: { granted: false, staleVersion: false }, consentMode: 'ok', mints: 0, requests: [] };
   (global as any).fetch = jest.fn(async (url: string, init: { method?: string } = {}) => {
     const method = init.method ?? 'GET';
     const path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
@@ -76,6 +79,9 @@ function installFakeBackend(): void {
     const json = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
     const current = backend.consent.granted && !backend.consent.staleVersion;
     if (method === 'GET' && path === '/api/consent/status') {
+      if (backend.consentMode === 'offline') throw new TypeError('Network request failed');
+      if (backend.consentMode === '401') return json(401, { error: 'unauthorized' });
+      if (backend.consentMode === 'malformed') return json(200, { granted: true });
       return json(200, { ...backend.consent, currentVersion: 1 });
     }
     if (method === 'POST' && path === '/api/integrations/watch/token') {
@@ -116,6 +122,7 @@ beforeEach(() => {
   mockHc.initThrows = false;
   mockHc.granted = [];
   mockHc.grantsThrow = false;
+  mockHc.records = [];
   mockSlots.clear();
   mockBleManagers.length = 0;
 });
@@ -312,5 +319,55 @@ describe('the production lane, against a fake backend', () => {
     await expect(w.svc.recheckHealthOnForeground()).resolves.toBe(true);
     expect(w.svc.healthLane.status()).toBe('idle');
     expect(hits('POST', '/api/integrations/watch/token')).toBe(0);
+  });
+});
+
+// Compliance B1 / E5 at the PRODUCTION binding. The lane's own suite proves every closed answer
+// keeps a fake feed from starting; here the same matrix runs through the real chain (consent client
+// → lane → startBiometrics → startLiveHr → getWatchToken → Bluetooth / Health Connect), and the
+// assertion is the compliance one: with the gate closed, NOTHING behind it is touched. Where the
+// consent read itself fails, the server still holds a current grant, so a gate that wrongly opened
+// would mint for real and fail these assertions rather than hide behind a refused mint.
+describe('compliance E5 — a closed gate touches nothing behind it (production binding)', () => {
+  const CURRENT = { granted: true, staleVersion: false };
+  it.each([
+    ['mood-only: no Health Connect link, even with a current grant on file', () => { mockHc.granted = []; backend.consent = CURRENT; }],
+    ['linked, but no grant on file', () => { backend.consent = { granted: false, staleVersion: false }; }],
+    ['linked, but a stale grant', () => { backend.consent = { granted: true, staleVersion: true }; }],
+    ['linked, but the consent read is refused (401)', () => { backend.consent = CURRENT; backend.consentMode = '401'; }],
+    ['linked, but offline', () => { backend.consent = CURRENT; backend.consentMode = 'offline'; }],
+    ['linked, but a malformed consent answer', () => { backend.consent = CURRENT; backend.consentMode = 'malformed'; }],
+  ])('%s: no mint, no push, no cached-credential read, no Bluetooth manager, grant read or prompt, no Health Connect data read', async (_l, arrange) => {
+    const w = load();
+    w.signIn('user-1');
+    mockHc.granted = [HC_GRANT];
+    mockBleGrants.set('scan', true);
+    mockBleGrants.set('connect', true); // a Bluetooth grant from an older build must not matter either
+    arrange();
+
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(false);
+
+    expect(hits('POST', '/api/integrations/watch/token')).toBe(0);
+    expect(hits('POST', '/api/integrations/watch/hr')).toBe(0);
+    const keychain = require('react-native-keychain');
+    expect(keychain.getGenericPassword.mock.calls.filter(([o]: any[]) => o?.service === WATCH_SLOT)).toEqual([]);
+    expect(w.BleManager).not.toHaveBeenCalled();
+    expect(require('react-native').PermissionsAndroid.check).not.toHaveBeenCalled();
+    expect(w.requestMultiple).not.toHaveBeenCalled();
+    expect(w.hc.readRecords).not.toHaveBeenCalled();
+    expect(w.hc.requestPermission).not.toHaveBeenCalled();
+    expect(w.warmStore.getState().liveHr).toBeNull();
+    expect(w.svc.healthLane.status()).toBe('idle');
+  });
+
+  it('control: the same world with a current grant does mint and start (the fakes are live)', async () => {
+    const w = load();
+    w.signIn('user-1');
+    mockHc.granted = [HC_GRANT];
+    backend.consent = CURRENT;
+    running = w.svc.healthLane;
+    await expect(w.svc.healthLane.evaluate({ allowStart: true })).resolves.toBe(true);
+    expect(hits('POST', '/api/integrations/watch/token')).toBe(1);
+    expect(w.svc.healthLane.status()).toBe('running');
   });
 });
