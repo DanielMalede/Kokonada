@@ -371,3 +371,96 @@ describe('compliance E5 — a closed gate touches nothing behind it (production 
     expect(w.svc.healthLane.status()).toBe('running');
   });
 });
+
+// Compliance B6 at the PRODUCTION binding: a withdrawal, a live-HR Disconnect and logout / account
+// delete each end the feed FOR GOOD — "no further POST /watch/hr" asserted over time and against
+// callbacks the OS had already queued, not only as "the lane reports idle". Each tier is first shown
+// live (readings land and leave), so the silence afterwards is the teardown's doing.
+describe('compliance B6 — withdraw, Disconnect and logout end the feed for good (production binding)', () => {
+  const CURRENT = { granted: true, staleVersion: false };
+  const TEARDOWNS: Array<[string, (svc: any) => Promise<void>]> = [
+    ['a consent withdrawal', (svc) => svc.onConsentWithdrawn()],
+    ['a live-HR Disconnect', (svc) => svc.onLiveHrDisconnected()],
+    ['logout / account delete (the teardown slot)', (svc) =>
+      svc.stopLaneThenClearToken(svc.healthLane, require('../liveHrClient').clearWatchToken)],
+  ];
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+  const bpm = (hr: number) => Buffer.from([0x00, hr]).toString('base64'); // 0x2A37, 8-bit value
+
+  afterEach(() => { jest.useRealTimers(); });
+
+  it.each(TEARDOWNS)('%s, over the Health Connect fallback: no reading, no push and no Health Connect read in any later window', async (_l, teardown) => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+    const { FALLBACK_INTERVAL_MS } = require('../restFallback');
+    const w = load();
+    w.signIn('user-1');
+    mockHc.granted = [HC_GRANT];
+    mockHc.records = [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 72 }] }];
+    backend.consent = CURRENT;
+    running = w.svc.healthLane;
+    await w.svc.healthLane.evaluate({ allowStart: true });
+    await settle();
+    expect(hits('POST', '/api/integrations/watch/hr')).toBe(1); // the immediate tick
+    await jest.advanceTimersByTimeAsync(FALLBACK_INTERVAL_MS);
+    await settle();
+    expect(hits('POST', '/api/integrations/watch/hr')).toBe(2); // and the 3-minute cadence
+    expect(w.warmStore.getState().liveHr).toBe(72);
+
+    await teardown(w.svc);
+    const reads = w.hc.readRecords.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(FALLBACK_INTERVAL_MS * 4);
+    await settle();
+
+    expect(hits('POST', '/api/integrations/watch/hr')).toBe(2);
+    expect(w.hc.readRecords.mock.calls.length).toBe(reads);
+    expect(w.warmStore.getState().liveHr).toBeNull();
+    expect(w.svc.healthLane.status()).toBe('idle');
+  });
+
+  it.each(TEARDOWNS)('%s, over Bluetooth: a queued reading never lands or leaves, a late advertisement is never connected, the manager is destroyed', async (_l, teardown) => {
+    const w = load();
+    w.signIn('user-1');
+    mockHc.granted = [HC_GRANT];
+    mockBleGrants.set('scan', true);
+    mockBleGrants.set('connect', true);
+    backend.consent = CURRENT;
+    running = w.svc.healthLane;
+    await w.svc.healthLane.evaluate({ allowStart: true });
+    const manager = mockBleManagers[0] as unknown as { startDeviceScan: jest.Mock; destroy: jest.Mock };
+    const onScan = manager.startDeviceScan.mock.calls[0][2];
+
+    let onReading: (err: unknown, ch: { value: string } | null) => Promise<void> = async () => {};
+    const makeStrap = () => {
+      const strap = {
+        connect: jest.fn(async () => strap),
+        discoverAllServicesAndCharacteristics: jest.fn(async () => strap),
+        monitorCharacteristicForService: jest.fn((_s: string, _c: string, listener: typeof onReading) => {
+          onReading = listener;
+          return { remove: jest.fn() };
+        }),
+        cancelConnection: jest.fn(async () => strap),
+      };
+      return strap;
+    };
+    const strap = makeStrap();
+    await onScan(null, strap);
+    await onReading(null, { value: bpm(80) });
+    expect(hits('POST', '/api/integrations/watch/hr')).toBe(1); // live over Bluetooth
+    expect(w.warmStore.getState().liveHr).toBe(80);
+
+    await teardown(w.svc);
+    expect(manager.destroy).toHaveBeenCalledTimes(1);
+    expect(strap.cancelConnection).toHaveBeenCalled();
+
+    // Callbacks the OS had already queued still fire after the teardown.
+    await onReading(null, { value: bpm(120) }); // a 40 bpm jump: the send gate would pass it
+    const lateStrap = makeStrap();
+    await onScan(null, lateStrap);
+    await settle();
+
+    expect(hits('POST', '/api/integrations/watch/hr')).toBe(1);
+    expect(lateStrap.connect).not.toHaveBeenCalled();
+    expect(w.warmStore.getState().liveHr).toBeNull();
+    expect(w.svc.healthLane.status()).toBe('idle');
+  });
+});
