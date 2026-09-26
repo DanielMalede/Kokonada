@@ -587,8 +587,12 @@ describe('compliance B6 — withdraw, Disconnect and logout end the feed for goo
     const onScan = manager.startDeviceScan.mock.calls[0][2];
 
     let onReading: (err: unknown, ch: { value: string } | null) => Promise<void> = async () => {};
-    const makeStrap = () => {
-      const strap = {
+    interface FakeStrap {
+      connect: jest.Mock; discoverAllServicesAndCharacteristics: jest.Mock;
+      monitorCharacteristicForService: jest.Mock; cancelConnection: jest.Mock;
+    }
+    const makeStrap = (): FakeStrap => {
+      const strap: FakeStrap = {
         connect: jest.fn(async () => strap),
         discoverAllServicesAndCharacteristics: jest.fn(async () => strap),
         monitorCharacteristicForService: jest.fn((_s: string, _c: string, listener: typeof onReading) => {
