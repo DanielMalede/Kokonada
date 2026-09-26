@@ -502,6 +502,161 @@ describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, p
   });
 });
 
+describe('GenerateScreen — the focused prompt clears the keyboard (H1 G5: targetSdk 36 is edge-to-edge, the window never resizes)', () => {
+  // The G5 capture (Galaxy S22+, 420dpi, so px / 2.625 = dp), typing layout: the ScrollView
+  // [0,0][1080,2125], its content [0,0][1080,2036], the mini-ring [393,168][687,462], the prompt
+  // [126,1422][954,1541] and the keyboard's top edge at y=1322. The prompt sat behind the keyboard,
+  // and the content was SHORTER than the viewport, so there was nothing to scroll.
+  const PX = 2.625;
+  const G5 = {
+    window: { width: 1080 / PX, height: 2340 / PX },
+    viewport: { top: 0, height: 2125 / PX },
+    content: 2036 / PX,                        // includes the content's paddingBottom, space['3xl']
+    wheel: (687 - 393) / PX,
+    prompt: { top: 1422 / PX, height: (1541 - 1422) / PX },
+    keyboardTop: 1322 / PX,
+  };
+
+  // A stateful stand-in for the native ScrollView on that device. It lays the content out from what
+  // React rendered (the wheel's size and the content's paddingBottom) and keeps a scroll offset that
+  // CLAMPS to the scrollable range the way Android's ScrollView.scrollTo does. It keeps Fabric's
+  // ordering too: a measurement reads the COMMITTED layout, a scroll command runs against the
+  // MOUNTED one, and a frame mounts the layout before its layout event reaches JS.
+  const g5Native = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    let offset = 0;
+    let mounted = 0;
+    const scrolls: Array<{ y: number; animated?: boolean }> = [];
+    const scrollView = () => tree.root.findByType(RN.ScrollView);
+    const paddingBottom = () => RN.StyleSheet.flatten(scrollView().props.contentContainerStyle).paddingBottom as number;
+    const committed = () => {
+      const grow = tree.root.findByType(RadialWheel).props.size - G5.wheel;
+      return { promptTop: G5.prompt.top + grow, content: G5.content - space['3xl'] + paddingBottom() + grow };
+    };
+    const scrollToClamped = (y: number) => {
+      const next = Math.min(Math.max(0, y), Math.max(0, mounted - G5.viewport.height));
+      if (next === offset) { return; }
+      offset = next;
+      scrollView().props.onScroll?.({ nativeEvent: { contentOffset: { x: 0, y: offset } } });
+    };
+    jest.spyOn(RN.ScrollView.prototype, 'scrollTo').mockImplementation((opts: any) => {
+      scrolls.push(opts);
+      scrollToClamped(opts.y);
+    });
+    jest.spyOn(RN.ScrollView.prototype, 'getNativeScrollRef').mockImplementation(() => ({
+      measureInWindow: (cb: RN.MeasureInWindowOnSuccessCallback) => cb(0, G5.viewport.top, G5.window.width, G5.viewport.height),
+    }) as any);
+    jest.spyOn(RN.View.prototype, 'measureInWindow').mockImplementation(function (this: any, cb) {
+      if (this.props.testID !== 'generate-prompt') { return; }
+      cb(0, G5.viewport.top + committed().promptTop - offset, G5.window.width, G5.prompt.height);
+    });
+    return {
+      scrolls,
+      contentPaddingBottom: paddingBottom,
+      promptBottomOnScreen: () => G5.viewport.top + committed().promptTop + G5.prompt.height - offset,
+      // One UI frame: mount the committed layout, re-clamp the offset (onLayoutChange), then deliver
+      // the content's layout event.
+      frame: () => ReactTestRenderer.act(async () => {
+        const { content } = committed();
+        if (content === mounted) { return; }
+        mounted = content;
+        scrollToClamped(offset);
+        scrollView().props.onContentSizeChange?.(G5.window.width, content);
+      }),
+    };
+  };
+
+  // Native delivers keyboard events through the device event emitter; so does this.
+  const keyboard = (event: 'keyboardDidShow' | 'keyboardDidHide', screenY = G5.window.height) =>
+    ReactTestRenderer.act(async () => {
+      RN.DeviceEventEmitter.emit(event, {
+        duration: 0,
+        easing: 'keyboard',
+        endCoordinates: { screenX: 0, screenY, width: G5.window.width, height: G5.window.height - screenY },
+      });
+    });
+  const focusPrompt = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onFocus(); });
+
+  const live: ReactTestRenderer.ReactTestRenderer[] = [];
+  const typingOnG5 = async () => {
+    const tree = await mount('dark', makeStore(), makeSocket());
+    live.push(tree);
+    const native = g5Native(tree);
+    await native.frame();
+    await focusPrompt(tree);
+    await native.frame();
+    return { tree, native };
+  };
+  afterEach(async () => {
+    for (const t of live.splice(0)) { await ReactTestRenderer.act(async () => { t.unmount(); }); }
+    await keyboard('keyboardDidHide'); // reset RN's Keyboard singleton for the next test
+  });
+
+  it('scrolls the prompt so its bottom sits space.lg above the keyboard top (the G5 capture)', async () => {
+    const { native } = await typingOnG5();
+    expect(native.promptBottomOnScreen()).toBeGreaterThan(G5.keyboardTop); // the capture: behind the keyboard
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    expect(native.promptBottomOnScreen()).toBeCloseTo(G5.keyboardTop - space.lg, 6);
+    expect(native.scrolls).toHaveLength(1);
+    expect(native.scrolls[0].animated).toBe(true);
+  });
+
+  it('follows a taller keyboard from where the scroll already is (Android re-emits on a height change)', async () => {
+    const { native } = await typingOnG5();
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    const taller = G5.keyboardTop - space['4xl'];
+    await keyboard('keyboardDidShow', taller);
+    await native.frame();
+    expect(native.promptBottomOnScreen()).toBeCloseTo(taller - space.lg, 6);
+  });
+
+  it.each([
+    ['well below the prompt', G5.prompt.top + G5.prompt.height + space['4xl']],
+    ['exactly space.lg below the prompt', G5.prompt.top + G5.prompt.height + space.lg],
+  ])('leaves the scroll alone when the keyboard top is already %s', async (_label, keyboardTop) => {
+    const { native } = await typingOnG5();
+    const before = native.promptBottomOnScreen();
+    await keyboard('keyboardDidShow', keyboardTop);
+    await native.frame();
+    expect(native.scrolls).toEqual([]);
+    expect(native.promptBottomOnScreen()).toBe(before);
+  });
+
+  it('jumps without animation under reduced motion', async () => {
+    (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
+    const { native } = await typingOnG5();
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    expect(native.promptBottomOnScreen()).toBeCloseTo(G5.keyboardTop - space.lg, 6);
+    expect(native.scrolls[0].animated).toBe(false);
+  });
+
+  it('gives the room back when the keyboard hides: the content padding returns to space.3xl', async () => {
+    const { tree, native } = await typingOnG5();
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    expect(native.contentPaddingBottom()).toBeGreaterThan(space['3xl']);
+    await keyboard('keyboardDidHide');
+    await native.frame();
+    expect(native.contentPaddingBottom()).toBe(space['3xl']);
+    expect(tree.root.findByType(RadialWheel).props.size).toBeGreaterThan(G5.wheel); // the full wheel is back
+  });
+
+  it('after unmount, its keyboard listeners are gone and a keyboard event neither scrolls nor throws', async () => {
+    const count = () => ['keyboardDidShow', 'keyboardDidHide'].map((e) => RN.DeviceEventEmitter.listenerCount(e));
+    const [shows, hides] = count();
+    const { tree, native } = await typingOnG5();
+    expect(count()).toEqual([shows + 1, hides + 1]); // the same two listeners as before, no new one
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+    live.splice(0);
+    expect(count()).toEqual([shows, hides]);
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    expect(native.scrolls).toEqual([]);
+  });
+});
+
 describe('GenerateScreen — ATTACK-6 EXTENDED: every subscription torn down on unmount', () => {
   it('warm + generationStatus + liveMode + error stores AND keyboard listeners are all cleaned up', async () => {
     const counts: Record<string, { sub: number; unsub: number }> = {};
