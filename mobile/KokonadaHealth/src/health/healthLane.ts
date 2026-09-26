@@ -20,6 +20,11 @@ import type { LiveHrSession } from './liveHr';
 // at once; a gate found closed while running stops the feed, wipes the reading, then forgets the
 // token (in that order); neither evaluate() nor stop() ever throws.
 //
+// A withdrawal ends the wearable opt-in (compliance B5): the first answer that says no grant is on
+// file — the withdrawal made here, or on another phone — tells the binding to forget it, so a
+// re-consent given elsewhere later never silently reopens this phone. A stale grant is not a
+// withdrawal and an unknown answer is not an answer; neither touches the opt-in.
+//
 // Two more rules, both about what is left behind while the lane is IDLE:
 //   • a DEFINITIVE closed answer (no opt-in, or the server saying the grant is not current) forgets
 //     a cached credential, once per process. An unknown answer (offline, 401, a throw) does not:
@@ -44,6 +49,9 @@ export interface HealthLaneDeps {
   clearWatchToken(): Promise<void>;
   /** The user switched live heart rate off (Disconnect) and has not linked a wearable since. */
   feedSwitchedOff?(): boolean;
+  /** The server says no Art.9 grant is on file (a withdrawal, made on this phone or another): the
+   *  account's wearable opt-in on this phone ends with it (compliance B5). */
+  forgetWearableOptIn?(): void;
 }
 
 export interface HealthLane {
@@ -89,14 +97,16 @@ export function createHealthLane(deps: HealthLaneDeps): HealthLane {
     if (forgetToken) await forgetCredential();
   }
 
-  // 'closed' is a definitive answer (no opt-in, or the server says the grant is not current);
-  // 'unknown' is anything that failed to answer (a throw, offline, 401, a refused read).
-  async function gate(): Promise<'open' | 'closed' | 'unknown'> {
+  // 'closed' is a definitive answer (no opt-in, or the server says the grant is not current), and
+  // 'no-grant' the definitive answer that no grant is on file at all; 'unknown' is anything that
+  // failed to answer (a throw, offline, 401, a refused read).
+  async function gate(): Promise<'open' | 'closed' | 'no-grant' | 'unknown'> {
     try {
       if ((await deps.hasWearableOptIn()) !== true) return 'closed';
       const res = await deps.fetchConsentStatus();
       if (!res.ok) return 'unknown';
-      return isCurrentGrant(res.data) ? 'open' : 'closed';
+      if (isCurrentGrant(res.data)) return 'open';
+      return res.data?.granted === false ? 'no-grant' : 'closed';
     } catch {
       return 'unknown';
     }
@@ -114,11 +124,12 @@ export function createHealthLane(deps: HealthLaneDeps): HealthLane {
     const voided = () => requestedIn !== stopEra;
     if (voided()) return false; // stopped before the work began: not even a consent read
     const verdict = await gate();
-    if (voided()) return false;
+    if (voided()) return false; // a voided answer may belong to the previous account: act on none of it
 
     if (verdict !== 'open') {
+      if (verdict === 'no-grant') await quietly(() => deps.forgetWearableOptIn?.());
       if (session) await closeFeed(true);
-      else if (verdict === 'closed' && leftoverCredential) await forgetCredential();
+      else if (verdict !== 'unknown' && leftoverCredential) await forgetCredential();
       return false;
     }
     if (switchedOff()) {

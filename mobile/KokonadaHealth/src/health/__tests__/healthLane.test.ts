@@ -74,6 +74,8 @@ function makeWorld() {
     return world.consent;
   });
   const clearWatchToken = jest.fn(async () => { log.push('clearToken'); world.tokenSlot = null; });
+  // The account's wearable link on this phone ends (compliance B5: a withdrawal clears the opt-in).
+  const forgetWearableOptIn = jest.fn(() => { log.push('forgetOptIn'); world.optIn = false; });
 
   const lane: HealthLane = createHealthLane({
     hasWearableOptIn,
@@ -85,9 +87,10 @@ function makeWorld() {
       if (world.switchThrows) throw new Error('keystore locked');
       return world.switchedOff;
     },
+    forgetWearableOptIn,
   });
 
-  return { world, lane, warm, log, device, hasWearableOptIn, fetchConsentStatus, clearWatchToken };
+  return { world, lane, warm, log, device, hasWearableOptIn, fetchConsentStatus, clearWatchToken, forgetWearableOptIn };
 }
 
 describe('healthLane.evaluate — the gate stays CLOSED unless opt-in AND a current grant', () => {
@@ -232,7 +235,11 @@ describe('healthLane — closing a running feed', () => {
     expect(w.world.tokenSlot).toBeNull(); // the real getWatchToken now mints a fresh one on the next start
     expect(w.device.start).not.toHaveBeenCalled();
 
-    w.world.consent = { ok: true, data: CURRENT }; // the user re-consents here
+    // The user re-consents here. Re-consenting runs through the consent wall and the Health Connect
+    // sheet, whose grant is the explicit wearable link that re-establishes the opt-in (the no-grant
+    // answer above ended it — compliance B5).
+    w.world.consent = { ok: true, data: CURRENT };
+    w.world.optIn = true;
     await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(true);
     expect(w.device.start).toHaveBeenCalledTimes(1);
   });
@@ -429,6 +436,80 @@ describe('healthLane — the durable live-HR switch (Disconnect)', () => {
     });
     await lane.evaluate({ allowStart: true });
     expect(lane.status()).toBe('running');
+  });
+});
+
+// Compliance B5 (review H2-C1): a withdrawal ends the account's wearable opt-in on this phone —
+// wherever it was made. The phone that withdraws clears it itself; every other phone of the account
+// learns it from the first consent answer that says "no grant on file", and ends its opt-in then,
+// so a re-consent given elsewhere later never silently reopens it. Only that DEFINITIVE answer
+// counts: a stale grant (a new consent version) is not a withdrawal, and an unknown answer is not
+// an answer at all.
+describe('healthLane — a no-grant answer ends the opt-in (compliance B5)', () => {
+  it('the server says no grant is on file: the opt-in ends, and a later current grant finds the gate shut', async () => {
+    const w = makeWorld();
+    w.world.consent = { ok: true, data: { granted: false, currentVersion: 1, staleVersion: false } };
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(w.forgetWearableOptIn).toHaveBeenCalledTimes(1);
+
+    w.world.consent = { ok: true, data: CURRENT };
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(w.fetchConsentStatus).toHaveBeenCalledTimes(1); // shut before any consent read
+    expect(w.device.start).not.toHaveBeenCalled();
+  });
+
+  it('while running: the feed stops and the opt-in ends', async () => {
+    const w = makeWorld();
+    await w.lane.evaluate({ allowStart: true });
+    w.world.consent = { ok: true, data: { granted: false, currentVersion: 1, staleVersion: false } };
+    await expect(w.lane.evaluate({ allowStart: false })).resolves.toBe(false);
+    expect(w.world.sessions[0].stop).toHaveBeenCalledTimes(1);
+    expect(w.forgetWearableOptIn).toHaveBeenCalledTimes(1);
+    expect(w.lane.status()).toBe('idle');
+  });
+
+  it.each([
+    ['a stale grant (a new consent version, not a withdrawal)', { ok: true, data: { granted: true, currentVersion: 2, staleVersion: true } }],
+    ['a malformed payload', { ok: true, data: { granted: true, currentVersion: 1 } }],
+    ['a malformed payload with no granted field', { ok: true, data: { currentVersion: 1, staleVersion: false } }],
+    ['signed out / 401', { ok: false, status: 401, error: 'unauthorized' }],
+    ['offline', { ok: false, error: 'network error' }],
+    ['the consent read throws', 'throw'],
+  ])('%s: the gate stays shut, the opt-in stands', async (_label, consent) => {
+    const w = makeWorld();
+    w.world.consent = consent as ApiResult<ConsentStatus> | 'throw';
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(false);
+    expect(w.forgetWearableOptIn).not.toHaveBeenCalled();
+  });
+
+  it('no opt-in: nothing to end, and consent is never read', async () => {
+    const w = makeWorld();
+    w.world.optIn = false;
+    await w.lane.evaluate({ allowStart: true });
+    expect(w.forgetWearableOptIn).not.toHaveBeenCalled();
+  });
+
+  it('a no-grant answer that lands AFTER a stop() (logout, the next account signing in) ends nobody\'s opt-in', async () => {
+    // The answer belonged to the evaluation stop() voided; the switch reads whoever is signed in
+    // NOW, so acting on it would end the NEXT account's opt-in with the previous account's answer.
+    const w = makeWorld();
+    const hold = deferred<void>();
+    w.world.consentHold = hold.promise;
+    w.world.consent = { ok: true, data: { granted: false, currentVersion: 1, staleVersion: false } };
+    const stale = w.lane.evaluate({ allowStart: true });
+    await new Promise((r) => setImmediate(r));
+    expect(w.fetchConsentStatus).toHaveBeenCalledTimes(1);
+    await w.lane.stop();
+    hold.resolve();
+    await expect(stale).resolves.toBe(false);
+    expect(w.forgetWearableOptIn).not.toHaveBeenCalled();
+  });
+
+  it('a throwing opt-in wipe never breaks the evaluation', async () => {
+    const w = makeWorld();
+    w.forgetWearableOptIn.mockImplementation(() => { throw new Error('keystore busy'); });
+    w.world.consent = { ok: true, data: { granted: false, currentVersion: 1, staleVersion: false } };
+    await expect(w.lane.evaluate({ allowStart: true })).resolves.toBe(false);
   });
 });
 
