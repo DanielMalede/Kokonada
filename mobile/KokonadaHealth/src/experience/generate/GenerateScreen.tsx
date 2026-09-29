@@ -1,5 +1,6 @@
-import React, { useMemo, useEffect, useState, useCallback } from 'react';
+import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, Keyboard, AccessibilityInfo, useWindowDimensions } from 'react-native';
+import type { NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { useStore, useSelector } from 'react-redux';
 import { useSharedValue } from 'react-native-reanimated';
 import { RadialWheel } from '../wheel/RadialWheel';
@@ -21,6 +22,8 @@ import { space, radius, stroke, motion, type as typography } from '../../design/
 import { emotionAccentFor, auroraGlow } from '../../design/emotionAccent';
 import { auroraCtaStops, onAuroraInk, textScrimFill } from '../../design/auroraSurfaces';
 import { fireHaptic } from '../../design/haptics';
+import { LegalNote } from '../../legal/LegalNote';
+import { GENERATE_LEGAL_LINES } from '../../legal/legalCopy';
 import type { Tap } from '../../state/cold/emotionSlice';
 
 // The HERO. Composes the reactive bio-aura + radial wheel (the sacred emotion→socket→playlist core
@@ -123,12 +126,48 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
 
   // Keyboard focus collapses the wheel to a display-only mini-ring (Fork 3A: onFocus/onBlur is
   // primary, the Keyboard listener the fallback — BOTH torn down on unmount).
+  //
+  // The same two listeners keep the focused prompt clear of the keyboard. targetSdk 36 is
+  // edge-to-edge, so adjustResize no longer shrinks the ScrollView: the keyboard simply covers its
+  // bottom, and the typing layout is shorter than the viewport, so there is nothing to scroll. On
+  // show, the content gets a bottom inset of the part of the viewport the keyboard covers (what
+  // adjustResize used to take away). Once that layout lands (onContentSizeChange; a scroll issued
+  // earlier is clamped to the old range), the prompt scrolls so its bottom sits space.lg above the
+  // keyboard's top edge: endCoordinates.screenY, in the window space measureInWindow reports.
   const [typing, setTyping] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const promptRef = useRef<View>(null);
+  const scrollY = useRef(0);
+  const pendingKeyboardTop = useRef<number | null>(null);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setTyping(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setTyping(false));
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      setTyping(true);
+      const keyboardTop = e.endCoordinates.screenY;
+      scrollRef.current?.getNativeScrollRef()?.measureInWindow((_x, viewportTop, _w, viewportHeight) => {
+        pendingKeyboardTop.current = keyboardTop;
+        setKeyboardInset(Math.max(0, viewportTop + viewportHeight - keyboardTop));
+      });
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => {
+      setTyping(false);
+      pendingKeyboardTop.current = null;
+      setKeyboardInset(0);
+    });
     return () => { show.remove(); hide.remove(); };
   }, []);
+  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollY.current = e.nativeEvent.contentOffset.y;
+  }, []);
+  const onContentSizeChange = useCallback(() => {
+    const keyboardTop = pendingKeyboardTop.current;
+    if (keyboardTop === null) return;
+    pendingKeyboardTop.current = null;
+    promptRef.current?.measureInWindow((_x, promptTop, _w, promptHeight) => {
+      const overlap = promptTop + promptHeight + space.lg - keyboardTop;
+      if (overlap > 0) scrollRef.current?.scrollTo({ y: scrollY.current + overlap, animated: !reduced });
+    });
+  }, [reduced]);
 
   // The wheel's list alternative is gated behind a quiet affordance, but AUTO-OPENS under a
   // screen reader so the full a11y path is always reachable. Listener cleaned up on unmount.
@@ -207,8 +246,11 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
       </View>
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, keyboardInset > 0 && { paddingBottom: space['3xl'] + keyboardInset }]}
+        onScroll={onScroll}
+        onContentSizeChange={onContentSizeChange}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -279,6 +321,13 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
           ) : null}
         </View>
 
+        {/* AI Act Art. 50 notice (UI-005): on the first frame, persistent in every state, never tinted.
+            A ScrollView-level sibling of the hero (never under its pointerEvents="none" overlays), at
+            the FULL wheel width so it holds its measure while typing shrinks the wheel. */}
+        <View style={[styles.gap16, { width: fullSize }]}>
+          <LegalNote lines={GENERATE_LEGAL_LINES} />
+        </View>
+
         <Pressable
           onPress={() => {
             const next = !liveModeStore.getState().liveMode;
@@ -299,7 +348,7 @@ export function GenerateScreen({ socket = playbackSocket }: { socket?: SocketApi
         </Pressable>
 
         <View style={[styles.fullWidth, styles.gap24]}><ActivityChips /></View>
-        <View style={[styles.fullWidth, styles.gap16]}><PromptBox onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} /></View>
+        <View ref={promptRef} testID="generate-prompt" style={[styles.fullWidth, styles.gap16]}><PromptBox onFocus={() => setTyping(true)} onBlur={() => setTyping(false)} /></View>
 
         <Pressable
           testID="generate-list-toggle"

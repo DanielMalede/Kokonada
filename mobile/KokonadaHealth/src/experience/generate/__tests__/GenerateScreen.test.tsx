@@ -13,8 +13,16 @@ import { generationStatusStore } from '../generationStatusStore';
 import { playbackErrorStore } from '../../playback/playbackErrorStore';
 import { liveModeStore } from '../liveModeStore';
 import { warmStore } from '../../../state/store';
-import { colors, type ThemeName } from '../../../design/tokens';
+import { colors, space, type as typography, type ThemeName } from '../../../design/tokens';
 import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
+import { textScrimFill } from '../../../design/auroraSurfaces';
+import { AI_DISCLOSURE_LONG } from '../../../legal/legalCopy';
+import { LegalNote } from '../../../legal/LegalNote';
+
+// Cold-require headroom (same as PulseScreen / ProfileScreen, #105): on a cold transform cache the
+// FIRST mount lazily requires and Babel-transforms the RN internals inside that test's timer, which
+// overran 5 s under full-suite worker contention (reproduced on main and on this branch).
+jest.setTimeout(20000);
 
 // The HERO composition (single writer, last in the DAG). The sacred emotion→socket→playlist loop
 // stays byte-for-byte (T9 pins the payloads); here we pin the SURFACE contract: 4-state CTA, undo/
@@ -345,6 +353,307 @@ describe('GenerateScreen — EmotionListSelector gated behind a quiet affordance
     const tree = await mount('dark', makeStore(), makeSocket());
     expect(tree.root.findAllByType(EmotionListSelector).length).toBeGreaterThan(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+});
+
+describe('GenerateScreen — AI Act Art. 50 notice (H1 / UI-005): first frame, persistent, never tinted', () => {
+  // A host (native) node of the given RN type — 'View' / 'Text' are strings in the jest renderer.
+  const isHost = (n: { type: unknown }, name: 'View' | 'Text') => n.type === name;
+  const notices = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    tree.root.findAll((n) => isHost(n, 'View') && n.props.testID === 'legal-note');
+  const noticeText = (tree: ReactTestRenderer.ReactTestRenderer) => notices(tree)[0].findAll((n) => isHost(n, 'Text'));
+  // VISIBLE, not merely present: nothing on the band, its lines or any ancestor fades, collapses,
+  // hides or moves it. The device dump (visible-to-user, on-screen bounds) is the closing evidence.
+  const expectVisible = (band: ReactTestRenderer.ReactTestInstance) => {
+    for (const n of [band, ...ancestors(band)]) {
+      const s = (RN.StyleSheet.flatten(n.props?.style) ?? {}) as any;
+      expect(s.opacity ?? 1).toBe(1);
+      expect(s.display).not.toBe('none');
+      for (const k of ['width', 'height', 'maxWidth', 'maxHeight']) expect(s[k]).not.toBe(0);
+      expect(s.transform).toBeUndefined();
+    }
+    for (const line of band.findAll((n) => isHost(n, 'Text'))) {
+      expect(flat(line).opacity ?? 1).toBe(1);
+      expect(flat(line).color).not.toBe('transparent');
+    }
+  };
+  const expectOneNotice = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    expect(notices(tree)).toHaveLength(1);
+    const texts = noticeText(tree);
+    expect(texts).toHaveLength(1);
+    expect(texts[0].props.children).toBe(AI_DISCLOSURE_LONG);
+    expectVisible(notices(tree)[0]);
+  };
+  // The ScrollView-level sibling that holds the notice, and its neighbours.
+  const placement = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    let n: ReactTestRenderer.ReactTestInstance = tree.root.findByType(LegalNote);
+    const holdsWheel = (x: any) => typeof x !== 'string' && x.findAllByType(RadialWheel).length > 0;
+    while (n.parent && !n.parent.children.some((ch) => ch !== n && holdsWheel(ch))) n = n.parent;
+    const sibs = n.parent!.children.filter((ch): ch is ReactTestRenderer.ReactTestInstance => typeof ch !== 'string');
+    return {
+      wrapper: n,
+      iHero: sibs.findIndex(holdsWheel),
+      iNotice: sibs.indexOf(n),
+      iToggle: sibs.findIndex((ch) => ch.findAll((x) => x.props.accessibilityRole === 'switch').length > 0),
+    };
+  };
+  const ancestors = (node: ReactTestRenderer.ReactTestInstance) => {
+    const out: ReactTestRenderer.ReactTestInstance[] = [];
+    for (let p = node.parent; p; p = p.parent) out.push(p);
+    return out;
+  };
+  // Every tree is swept pass-or-fail: a failed assertion aborts the body before an inline unmount,
+  // and a leaked tree keeps its aurora work alive — an open handle that holds jest open.
+  const live: ReactTestRenderer.ReactTestRenderer[] = [];
+  const open = async (scheme: ThemeName, store = makeStore()) => {
+    const t = await mount(scheme, store, makeSocket());
+    live.push(t);
+    return t;
+  };
+  afterEach(async () => {
+    for (const t of live.splice(0)) await ReactTestRenderer.act(async () => { t.unmount(); });
+  });
+
+  it.each(['light', 'dark'] as ThemeName[])('is on the FIRST frame, before any input: the LONG sentence, content.secondary on the scrim (%s)', async (face) => {
+    const tree = await open(face);
+    expectOneNotice(tree);
+    const text = noticeText(tree)[0];
+    expect(flat(text).color).toBe(colors[face].content.secondary);
+    expect(flat(text).fontSize).toBeGreaterThanOrEqual(typography.size.body);
+    expect(flat(notices(tree)[0]).backgroundColor).toBe(textScrimFill(colors[face], face));
+  });
+
+  it('sits directly between the hero (wheel + aura) and the Live/Manual toggle, as a ScrollView-level sibling', async () => {
+    const tree = await open('dark');
+    const { iHero, iNotice, iToggle } = placement(tree);
+    expect(iHero).toBeGreaterThanOrEqual(0);
+    expect(iNotice).toBe(iHero + 1);
+    expect(iToggle).toBe(iNotice + 1);
+  });
+
+  it('spans the FULL wheel width with a 16 gap, and keeps that width while typing (never shrinks to the mini-ring)', async () => {
+    const tree = await open('dark');
+    const full = tree.root.findByType(RadialWheel).props.size;
+    expect(flat(placement(tree).wrapper).width).toBe(full);
+    expect(flat(placement(tree).wrapper).marginTop).toBe(space.lg);
+    await ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onFocus(); });
+    expect(tree.root.findByType(RadialWheel).props.size).toBeLessThan(full); // the wheel DID shrink
+    expect(flat(placement(tree).wrapper).width).toBe(full);                  // …the notice did not
+  });
+
+  it('stays present in every state: taps, typing, list open, error row, Live mode on', async () => {
+    const store = makeStore();
+    const tree = await open('dark', store);
+    await ReactTestRenderer.act(async () => { store.dispatch(addTap({ x: 0.5, y: 0.5 })); store.dispatch(addTap({ x: -0.2, y: 0.3 })); store.dispatch(addTap({ x: 0.1, y: -0.4 })); });
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onFocus(); });
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onBlur(); });
+    await ReactTestRenderer.act(async () => { byId(tree, 'generate-list-toggle').props.onPress(); });
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { store.dispatch(setActivity('running')); playbackErrorStore.getState().set('err'); });
+    expect(byId(tree, 'generate-error')).toBeTruthy();
+    expectOneNotice(tree);
+    await ReactTestRenderer.act(async () => { liveModeStore.getState().setLiveMode(true); });
+    expect(label(tree)).toBe('Live-tuned');
+    expectOneNotice(tree);
+  });
+
+  it.each(['light', 'dark'] as ThemeName[])('is NEVER tinted: identical band and ink with taps in the intense corner and in the joyful corner (%s)', async (face) => {
+    const styleOf = async (tap: { x: number; y: number } | null) => {
+      const store = makeStore();
+      const tree = await open(face, store);
+      if (tap) await ReactTestRenderer.act(async () => { store.dispatch(addTap(tap)); });
+      return { band: flat(notices(tree)[0]), ink: flat(noticeText(tree)[0]) };
+    };
+    const idle = await styleOf(null);
+    const intense = await styleOf({ x: -0.8, y: 0.8 });
+    const joyful = await styleOf({ x: 0.8, y: 0.8 });
+    expect(intense).toEqual(joyful);
+    expect(intense).toEqual(idle);
+    expect(intense.band.backgroundColor).toBe(textScrimFill(colors[face], face));
+    expect(intense.ink.color).toBe(colors[face].content.secondary);
+  });
+
+  it('is reachable: no ancestor hides it from the accessibility tree, swallows its touches, or makes it a live region', async () => {
+    const tree = await open('dark');
+    for (const a of ancestors(notices(tree)[0])) {
+      expect(a.props.pointerEvents).not.toBe('none');
+      expect(a.props.accessibilityElementsHidden).not.toBe(true);
+      expect(a.props.importantForAccessibility).not.toBe('no-hide-descendants');
+      expect(a.props.accessibilityLiveRegion ?? 'none').toBe('none');
+    }
+    const text = noticeText(tree)[0];
+    expect(text.props.numberOfLines).toBeUndefined();
+    expect(text.props.allowFontScaling).not.toBe(false);
+  });
+
+  it('tree order: the wheel, then the notice as one node, then the Live toggle (the spoken TalkBack order is device capture G8)', async () => {
+    const tree = await open('dark');
+    const order: ReactTestRenderer.ReactTestInstance[] = [];
+    const walk = (n: ReactTestRenderer.ReactTestInstance) => { order.push(n); n.children.forEach((ch) => { if (typeof ch !== 'string') walk(ch); }); };
+    walk(tree.root);
+    const iWheel = order.findIndex((n) => n.type === RadialWheel);
+    const iNotice = order.indexOf(notices(tree)[0]);
+    const iToggle = order.findIndex((n) => n.props.accessibilityRole === 'switch');
+    expect(iWheel).toBeGreaterThanOrEqual(0);
+    expect(iWheel).toBeLessThan(iNotice);
+    expect(iNotice).toBeLessThan(iToggle);
+  });
+});
+
+describe('GenerateScreen — the focused prompt clears the keyboard (H1 G5: targetSdk 36 is edge-to-edge, the window never resizes)', () => {
+  // The G5 capture (Galaxy S22+, 420dpi, so px / 2.625 = dp), typing layout: the ScrollView
+  // [0,0][1080,2125], its content [0,0][1080,2036], the mini-ring [393,168][687,462], the prompt
+  // [126,1422][954,1541] and the keyboard's top edge at y=1322. The prompt sat behind the keyboard,
+  // and the content was SHORTER than the viewport, so there was nothing to scroll.
+  const PX = 2.625;
+  const G5 = {
+    window: { width: 1080 / PX, height: 2340 / PX },
+    viewport: { top: 0, height: 2125 / PX },
+    content: 2036 / PX,                        // includes the content's paddingBottom, space['3xl']
+    wheel: (687 - 393) / PX,
+    prompt: { top: 1422 / PX, height: (1541 - 1422) / PX },
+    keyboardTop: 1322 / PX,
+  };
+
+  // A stateful stand-in for the native ScrollView on that device. It lays the content out from what
+  // React rendered (the wheel's size and the content's paddingBottom) and keeps a scroll offset that
+  // CLAMPS to the scrollable range the way Android's ScrollView.scrollTo does. It keeps Fabric's
+  // ordering too: a measurement reads the COMMITTED layout, a scroll command runs against the
+  // MOUNTED one, and a frame mounts the layout before its layout event reaches JS.
+  const g5Native = (tree: ReactTestRenderer.ReactTestRenderer) => {
+    let offset = 0;
+    let mounted = 0;
+    const scrolls: Array<{ y: number; animated?: boolean }> = [];
+    const scrollView = () => tree.root.findByType(RN.ScrollView);
+    const paddingBottom = () => RN.StyleSheet.flatten(scrollView().props.contentContainerStyle).paddingBottom as number;
+    const committed = () => {
+      const grow = tree.root.findByType(RadialWheel).props.size - G5.wheel;
+      return { promptTop: G5.prompt.top + grow, content: G5.content - space['3xl'] + paddingBottom() + grow };
+    };
+    const scrollToClamped = (y: number) => {
+      const next = Math.min(Math.max(0, y), Math.max(0, mounted - G5.viewport.height));
+      if (next === offset) { return; }
+      offset = next;
+      scrollView().props.onScroll?.({ nativeEvent: { contentOffset: { x: 0, y: offset } } });
+    };
+    jest.spyOn(RN.ScrollView.prototype, 'scrollTo').mockImplementation((opts: any) => {
+      scrolls.push(opts);
+      scrollToClamped(opts.y);
+    });
+    jest.spyOn(RN.ScrollView.prototype, 'getNativeScrollRef').mockImplementation(() => ({
+      measureInWindow: (cb: RN.MeasureInWindowOnSuccessCallback) => cb(0, G5.viewport.top, G5.window.width, G5.viewport.height),
+    }) as any);
+    jest.spyOn(RN.View.prototype, 'measureInWindow').mockImplementation(function (this: any, cb) {
+      if (this.props.testID !== 'generate-prompt') { return; }
+      cb(0, G5.viewport.top + committed().promptTop - offset, G5.window.width, G5.prompt.height);
+    });
+    return {
+      scrolls,
+      contentPaddingBottom: paddingBottom,
+      promptBottomOnScreen: () => G5.viewport.top + committed().promptTop + G5.prompt.height - offset,
+      // One UI frame: mount the committed layout, re-clamp the offset (onLayoutChange), then deliver
+      // the content's layout event.
+      frame: () => ReactTestRenderer.act(async () => {
+        const { content } = committed();
+        if (content === mounted) { return; }
+        mounted = content;
+        scrollToClamped(offset);
+        scrollView().props.onContentSizeChange?.(G5.window.width, content);
+      }),
+    };
+  };
+
+  // Native delivers keyboard events through the device event emitter; so does this.
+  const keyboard = (event: 'keyboardDidShow' | 'keyboardDidHide', screenY = G5.window.height) =>
+    ReactTestRenderer.act(async () => {
+      RN.DeviceEventEmitter.emit(event, {
+        duration: 0,
+        easing: 'keyboard',
+        endCoordinates: { screenX: 0, screenY, width: G5.window.width, height: G5.window.height - screenY },
+      });
+    });
+  const focusPrompt = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    ReactTestRenderer.act(async () => { tree.root.findByType(RN.TextInput).props.onFocus(); });
+
+  const live: ReactTestRenderer.ReactTestRenderer[] = [];
+  const typingOnG5 = async () => {
+    const tree = await mount('dark', makeStore(), makeSocket());
+    live.push(tree);
+    const native = g5Native(tree);
+    await native.frame();
+    await focusPrompt(tree);
+    await native.frame();
+    return { tree, native };
+  };
+  afterEach(async () => {
+    for (const t of live.splice(0)) { await ReactTestRenderer.act(async () => { t.unmount(); }); }
+    await keyboard('keyboardDidHide'); // reset RN's Keyboard singleton for the next test
+  });
+
+  it('scrolls the prompt so its bottom sits space.lg above the keyboard top (the G5 capture)', async () => {
+    const { native } = await typingOnG5();
+    expect(native.promptBottomOnScreen()).toBeGreaterThan(G5.keyboardTop); // the capture: behind the keyboard
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    expect(native.promptBottomOnScreen()).toBeCloseTo(G5.keyboardTop - space.lg, 6);
+    expect(native.scrolls).toHaveLength(1);
+    expect(native.scrolls[0].animated).toBe(true);
+  });
+
+  it('follows a taller keyboard from where the scroll already is (Android re-emits on a height change)', async () => {
+    const { native } = await typingOnG5();
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    const taller = G5.keyboardTop - space['4xl'];
+    await keyboard('keyboardDidShow', taller);
+    await native.frame();
+    expect(native.promptBottomOnScreen()).toBeCloseTo(taller - space.lg, 6);
+  });
+
+  it.each([
+    ['well below the prompt', G5.prompt.top + G5.prompt.height + space['4xl']],
+    ['exactly space.lg below the prompt', G5.prompt.top + G5.prompt.height + space.lg],
+  ])('leaves the scroll alone when the keyboard top is already %s', async (_label, keyboardTop) => {
+    const { native } = await typingOnG5();
+    const before = native.promptBottomOnScreen();
+    await keyboard('keyboardDidShow', keyboardTop);
+    await native.frame();
+    expect(native.scrolls).toEqual([]);
+    expect(native.promptBottomOnScreen()).toBe(before);
+  });
+
+  it('jumps without animation under reduced motion', async () => {
+    (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
+    const { native } = await typingOnG5();
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    expect(native.promptBottomOnScreen()).toBeCloseTo(G5.keyboardTop - space.lg, 6);
+    expect(native.scrolls[0].animated).toBe(false);
+  });
+
+  it('gives the room back when the keyboard hides: the content padding returns to space.3xl', async () => {
+    const { tree, native } = await typingOnG5();
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    await native.frame();
+    expect(native.contentPaddingBottom()).toBeGreaterThan(space['3xl']);
+    await keyboard('keyboardDidHide');
+    await native.frame();
+    expect(native.contentPaddingBottom()).toBe(space['3xl']);
+    expect(tree.root.findByType(RadialWheel).props.size).toBeGreaterThan(G5.wheel); // the full wheel is back
+  });
+
+  it('after unmount, its keyboard listeners are gone and a keyboard event neither scrolls nor throws', async () => {
+    const count = () => ['keyboardDidShow', 'keyboardDidHide'].map((e) => RN.DeviceEventEmitter.listenerCount(e));
+    const [shows, hides] = count();
+    const { tree, native } = await typingOnG5();
+    expect(count()).toEqual([shows + 1, hides + 1]); // the same two listeners as before, no new one
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+    live.splice(0);
+    expect(count()).toEqual([shows, hides]);
+    await keyboard('keyboardDidShow', G5.keyboardTop);
+    expect(native.scrolls).toEqual([]);
   });
 });
 
