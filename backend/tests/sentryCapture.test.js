@@ -57,4 +57,68 @@ describe('captureException (Sentry wrapper)', () => {
     captureException(err);
     expect(captured).toHaveBeenCalledWith(err, undefined);
   });
+
+  // Defence in depth. An AxiosError carries the outbound request: config.headers (a Spotify/YouTube
+  // OAuth Bearer or the Groq key), config.data (the body) and the request/response objects. The SDK
+  // does not serialize arbitrary error properties today, but extraErrorDataIntegration or a deeper
+  // normalizeDepth would ship all of it. Sentry gets a copy without them; the caller's error is untouched.
+  it('hands Sentry a copy of an AxiosError without config, request or response', () => {
+    jest.resetModules();
+    const captured = jest.fn();
+    jest.doMock('@sentry/node', () => ({
+      init: jest.fn(),
+      setupExpressErrorHandler: jest.fn(),
+      captureException: captured,
+    }));
+    process.env.SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0';
+    const { AxiosError } = require('axios');
+    const util = require('util');
+
+    const { initSentry, captureException } = require('../app/config/sentry');
+    initSentry(null);
+
+    const config = {
+      url: 'https://api.spotify.com/v1/me/tracks',
+      method: 'get',
+      headers: { Authorization: 'Bearer CANARY-SPOTIFY-TOKEN' },
+      data: '{"note":"CANARY-BODY"}',
+    };
+    const request = { _header: 'GET /v1/me/tracks HTTP/1.1\r\nAuthorization: Bearer CANARY-SPOTIFY-TOKEN\r\n\r\n' };
+    const response = { status: 401, statusText: 'Unauthorized', headers: {}, config, data: { error: 'CANARY-RESPONSE' } };
+    const err = new AxiosError('Request failed with status code 401', 'ERR_BAD_REQUEST', config, request, response);
+
+    captureException(err, { scope: 'spotify' });
+
+    const [sent, options] = captured.mock.calls[0];
+    expect(sent).not.toBe(err);
+    expect(sent).toBeInstanceOf(Error);
+    expect(sent).not.toHaveProperty('config');
+    expect(sent).not.toHaveProperty('request');
+    expect(sent).not.toHaveProperty('response');
+    expect(sent).toMatchObject({ name: 'AxiosError', message: 'Request failed with status code 401', code: 'ERR_BAD_REQUEST', status: 401 });
+    expect(sent.stack).toBe(err.stack);
+    expect(options).toEqual({ extra: { scope: 'spotify' } });
+    expect(util.inspect(captured.mock.calls, { depth: 20, showHidden: true })).not.toMatch(/CANARY/);
+    // The caller's error is not mutated — code after the capture may still read err.response.
+    expect(err.response.status).toBe(401);
+    expect(err.config.headers.Authorization).toBe('Bearer CANARY-SPOTIFY-TOKEN');
+  });
+
+  it('passes a non-axios error through unchanged (same object)', () => {
+    jest.resetModules();
+    const captured = jest.fn();
+    jest.doMock('@sentry/node', () => ({
+      init: jest.fn(),
+      setupExpressErrorHandler: jest.fn(),
+      captureException: captured,
+    }));
+    process.env.SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0';
+
+    const { initSentry, captureException } = require('../app/config/sentry');
+    initSentry(null);
+
+    const err = Object.assign(new Error('plain'), { config: { note: 'not axios' } });
+    captureException(err);
+    expect(captured.mock.calls[0][0]).toBe(err);
+  });
 });

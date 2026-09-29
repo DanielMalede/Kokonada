@@ -61,6 +61,23 @@ function getSentry() {
   return Sentry;
 }
 
+// Defence in depth: an AxiosError carries its outbound request — config.headers (an OAuth Bearer
+// or the Groq key), config.data (the body) and the request/response objects. The SDK does not
+// serialize arbitrary error properties today, but extraErrorDataIntegration or a deeper
+// normalizeDepth would. Sentry gets a COPY keeping name, message, code, status and stack (so issue
+// grouping is unchanged); the caller's error is not mutated. Detected by the flag axios sets
+// (the same check as axios.isAxiosError), so this module needs no axios import.
+function _withoutAxiosRequest(err) {
+  if (!err || err.isAxiosError !== true) return err;
+  const copy = new Error(err.message);
+  copy.name = err.name;
+  copy.stack = err.stack;
+  if (err.code != null) copy.code = err.code;
+  const status = err.response?.status ?? err.status;
+  if (status != null) copy.status = status;
+  return copy;
+}
+
 /**
  * Report a caught error to Sentry with optional structured context. A NO-OP when
  * Sentry isn't configured (no DSN), so call sites can wrap any silent `catch` without
@@ -71,7 +88,7 @@ function getSentry() {
 function captureException(err, context) {
   if (!Sentry) return;
   try {
-    Sentry.captureException(err, context ? { extra: context } : undefined);
+    Sentry.captureException(_withoutAxiosRequest(err), context ? { extra: context } : undefined);
   } catch {
     /* swallow — a failing monitor must not cascade */
   }
