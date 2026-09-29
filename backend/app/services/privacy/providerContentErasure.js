@@ -52,6 +52,11 @@ async function stripProviderContent(filter) {
   return res?.modifiedCount ?? 0;
 }
 
+// On disconnect: the same strip for ONE user's sessions from ONE provider, at any age.
+function purgeProviderData(userId, provider) {
+  return stripProviderContent({ userId, musicProvider: provider });
+}
+
 // Delete ServeEvent rows served before the cutoff. The 30-day TTL index is only the backstop.
 async function expireServeEvents(cutoff) {
   const res = await ServeEvent.deleteMany({ servedAt: { $lt: cutoff } });
@@ -81,6 +86,7 @@ module.exports = {
   providerContentRetentionDays,
   providerContentCutoff,
   stripProviderContent,
+  purgeProviderData,
   expireServeEvents,
   backfillUnclassifiedCreatedAt,
   expireUnclassifiedTracks,

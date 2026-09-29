@@ -41,6 +41,10 @@ jest.mock('../app/services/wearable/metricStore',   () => ({ persistMetrics: jes
 jest.mock('../app/models/BiometricLog',  () => ({}));
 jest.mock('../app/models/MusicProfile',  () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
 jest.mock('../app/models/ServeEvent',    () => ({ deleteMany: jest.fn().mockResolvedValue({}) }));
+// HX-2: the disconnect purge also strips PlaylistSession provider fields and the Spotify pool rows
+// (proven on real Mongo in spotifyDisconnectErasure.integration.test.js); stubbed here like its siblings.
+jest.mock('../app/models/PlaylistSession', () => ({ updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }) }));
+jest.mock('../app/models/UnclassifiedTrack', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }) }));
 jest.mock('../app/utils/userRedisPurge', () => ({ purgeUserKeys: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/services/selection/candidatePool', () => ({ invalidateUserPools: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/models/User', () => ({
