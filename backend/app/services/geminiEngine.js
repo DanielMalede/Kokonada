@@ -1,12 +1,11 @@
 'use strict';
 
 const crypto           = require('crypto');
-const axios            = require('axios');
-const { withRetry }    = require('../utils/retry');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
 const { disabled }     = require('../utils/envFlag');
-const { DEFAULT_LLM_MODEL, reasoningParams } = require('../config/llmProvider');
+const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
+const { chatJson, LlmTruncatedError } = require('./llmCall');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, biometricBand, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
@@ -32,37 +31,26 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_
   if (!llmKey) {
     throw new Error('No vetted LLM provider configured (set LLM_API_KEY) — refusing to call an unvetted endpoint');
   }
-  const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
   // One default shared with llmClient (config/llmProvider); override with LLM_MODEL
   // globally, or per call.
   const model   = modelOverride || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
-  // Groq's free tier caps tokens-per-minute (6000 TPM). Under load, generation 429s and —
-  // without a retry — the whole playlist silently collapses to the static fallback (the
-  // "tracks=10, ignores the activity" symptom). withRetry rides out the 429 honoring
-  // Retry-After; 4xx/5xx and timeouts still fail fast to the caller's fallback.
+  // Groq's free tier caps tokens-per-minute. Under load, generation 429s and — without a
+  // retry — the whole playlist silently collapses to the static fallback (the "tracks=10,
+  // ignores the activity" symptom). chatJson rides out the 429 honoring Retry-After;
+  // 4xx/5xx and timeouts still fail fast to the caller's fallback. It also writes the one
+  // `[llm]` log line for this call.
   const maxRetries = (() => { const n = parseInt(process.env.LLM_MAX_RETRIES ?? '', 10); return Number.isFinite(n) && n >= 0 ? n : 3; })();
   try {
-    const { data } = await withRetry(() => axios.post(
-      `${baseUrl}/chat/completions`,
-      {
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        // The prompts already demand strict JSON; json_object mode guarantees it.
-        response_format: { type: 'json_object' },
-        ...reasoningParams(model),
-      },
-      {
-        headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
-        timeout: timeoutMs,
-      },
-    ), maxRetries);
-    return data.choices?.[0]?.message?.content ?? '';
+    // The prompts already demand strict JSON; json_object mode guarantees it.
+    return await chatJson({ via: 'geminiEngine', key: llmKey, model, prompt, temperature: 0.7, timeoutMs, maxRetries });
   } catch (err) {
+    if (err instanceof LlmTruncatedError) {
+      captureException(err, { scope: 'llm', model });
+      throw err;
+    }
     // Surface the provider's real reason (e.g. a decommissioned model) instead
     // of axios's opaque "Request failed with status code 404".
     const apiMsg = err.response?.data?.error?.message || err.message;
-    console.error('[llm] request failed', { status: err.response?.status, model, error: apiMsg });
     // Report LLM outages/timeouts (previously only console-logged) so a provider going
     // down — which silently degrades every playlist to the static fallback — is visible.
     captureException(err, { scope: 'llm', model, status: err.response?.status, apiMsg });

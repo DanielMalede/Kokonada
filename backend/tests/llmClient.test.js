@@ -5,7 +5,7 @@ process.env.NODE_ENV = 'test';
 jest.mock('axios');
 const axios = require('axios');
 
-const { generateJson, isConfigured } = require('../app/services/llmClient');
+const { generateJson, isConfigured, LlmTruncatedError } = require('../app/services/llmClient');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -194,5 +194,131 @@ describe('llmClient.generateJson', () => {
 
     await expect(generateJson('p', { retries: 2 })).rejects.toThrow(/Rate limit reached/);
     expect(axios.post).toHaveBeenCalledTimes(3); // initial + 2 retries, then gives up
+  });
+});
+
+// One `[llm]` line per call, success or failure: the only signal that tells a dead model, a
+// rate-limit storm or a reasoning budget blow-out apart in production logs. It must never carry
+// the prompt, the response content, headers or the key.
+describe('llmClient call log line', () => {
+  const PROMPT = 'CANARY-PROMPT tempo=92bpm energy=0.31 please answer in JSON';
+  const CONTENT = '{"canary":"CANARY-CONTENT"}';
+  let spies;
+
+  beforeEach(() => {
+    spies = ['log', 'info', 'warn', 'error'].map((m) => jest.spyOn(console, m).mockImplementation(() => {}));
+  });
+  afterEach(() => spies.forEach((s) => s.mockRestore()));
+
+  const llmLines = () => spies
+    .flatMap((s) => s.mock.calls)
+    .filter((args) => typeof args[0] === 'string' && args[0].startsWith('[llm]'))
+    .map((args) => args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+
+  const expectNoLeak = (lines) => {
+    const all = lines.join('\n');
+    for (const secret of ['CANARY-PROMPT', PROMPT, 'CANARY-CONTENT', 'test-key', 'Bearer', 'Authorization']) {
+      expect(all).not.toContain(secret);
+    }
+  };
+
+  it('logs model, status, finish reason, token usage and wall time on success, and nothing else', async () => {
+    axios.post.mockResolvedValue({
+      status: 200,
+      data: {
+        choices: [{ finish_reason: 'stop', message: { content: CONTENT, reasoning: 'CANARY-CONTENT thinking' } }],
+        usage: { prompt_tokens: 412, completion_tokens: 96, completion_tokens_details: { reasoning_tokens: 58 } },
+      },
+    });
+
+    await generateJson(PROMPT);
+
+    const lines = llmLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^\[llm\] via=llmClient model=openai\/gpt-oss-20b status=200 finish=stop prompt_tokens=412 completion_tokens=96 reasoning_tokens=58 ms=\d+$/,
+    );
+    expectNoLeak(lines);
+  });
+
+  it('omits reasoning_tokens when the response does not report them', async () => {
+    axios.post.mockResolvedValue({
+      status: 200,
+      data: { choices: [{ finish_reason: 'stop', message: { content: CONTENT } }], usage: { prompt_tokens: 10, completion_tokens: 5 } },
+    });
+
+    await generateJson(PROMPT);
+
+    const [line] = llmLines();
+    expect(line).toMatch(/ prompt_tokens=10 completion_tokens=5 ms=\d+$/);
+    expect(line).not.toContain('reasoning_tokens');
+  });
+
+  it('logs one line on an HTTP failure with the status and the provider error code, never the message text', async () => {
+    axios.post.mockRejectedValue(Object.assign(new Error('Request failed with status code 404'), {
+      config: { headers: { Authorization: 'Bearer test-key' }, data: JSON.stringify({ messages: [{ content: PROMPT }] }) },
+      response: { status: 404, data: { error: { message: `model not found; you sent: ${PROMPT}`, code: 'model_not_found' } } },
+    }));
+
+    await expect(generateJson(PROMPT)).rejects.toThrow(/LLM request failed/);
+
+    const lines = llmLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^\[llm\] via=llmClient model=openai\/gpt-oss-20b status=404 finish=- prompt_tokens=- completion_tokens=- ms=\d+ error=model_not_found$/,
+    );
+    expectNoLeak(lines);
+  });
+
+  it('logs a timeout (no HTTP status) with the transport error code', async () => {
+    axios.post.mockRejectedValue(Object.assign(new Error('timeout of 8000ms exceeded'), { code: 'ECONNABORTED' }));
+
+    await expect(generateJson(PROMPT)).rejects.toThrow(/timeout/);
+
+    const [line] = llmLines();
+    expect(line).toMatch(/ status=- .* error=ECONNABORTED$/);
+  });
+
+  it('writes ONE line per call even when 429s are retried first', async () => {
+    const rateLimited = Object.assign(new Error('429'), {
+      response: { status: 429, headers: { 'retry-after': '0' }, data: { error: { message: 'Rate limit', code: 'rate_limit_exceeded' } } },
+    });
+    axios.post
+      .mockRejectedValueOnce(rateLimited)
+      .mockResolvedValueOnce({ status: 200, data: { choices: [{ finish_reason: 'stop', message: { content: CONTENT } }] } });
+
+    await generateJson(PROMPT);
+
+    const lines = llmLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(' status=200 ');
+  });
+
+  // Truncated output used to reach JSON.parse as a cut-off string and fail with a parse error that
+  // named neither the cause nor the model. finish_reason 'length' is now a typed error.
+  it('throws LlmTruncatedError with the model and token counts when finish_reason is "length"', async () => {
+    axios.post.mockResolvedValue({
+      status: 200,
+      data: {
+        choices: [{ finish_reason: 'length', message: { content: '{"captions":[{"i":0,"cap' } }],
+        usage: { prompt_tokens: 300, completion_tokens: 1024, completion_tokens_details: { reasoning_tokens: 990 } },
+      },
+    });
+
+    const err = await generateJson(PROMPT).catch((e) => e);
+
+    expect(err).toBeInstanceOf(LlmTruncatedError);
+    expect(err).toMatchObject({
+      name: 'LlmTruncatedError',
+      model: 'openai/gpt-oss-20b',
+      promptTokens: 300,
+      completionTokens: 1024,
+      reasoningTokens: 990,
+    });
+    expect(err.message).toMatch(/truncated.*openai\/gpt-oss-20b/);
+    const lines = llmLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(' finish=length ');
+    expectNoLeak(lines);
   });
 });

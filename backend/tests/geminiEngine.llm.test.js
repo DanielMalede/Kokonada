@@ -202,5 +202,86 @@ describe('generation model and request shape', () => {
   });
 });
 
+// One `[llm]` line per generation call, success or failure, carrying no prompt, no content, no key.
+describe('generation call log line and truncation', () => {
+  const SEED = 'CANARY-SEED-7f3a'; // lands in the prompt as the variation token
+  let spies;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.LLM_MODEL;
+    spies = ['log', 'info', 'warn', 'error'].map((m) => jest.spyOn(console, m).mockImplementation(() => {}));
+  });
+  afterEach(() => spies.forEach((s) => s.mockRestore()));
+
+  const llmLines = () => spies
+    .flatMap((s) => s.mock.calls)
+    .filter((args) => typeof args[0] === 'string' && args[0].startsWith('[llm]'))
+    .map((args) => args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+
+  const expectNoLeak = (lines, prompt) => {
+    const all = lines.join('\n');
+    for (const secret of [prompt, SEED, 'expert musicologist', 'target_bpm', 'test-llm-key', 'Bearer', 'Authorization']) {
+      expect(all).not.toContain(secret);
+    }
+  };
+
+  it('logs model, status, finish reason, token usage and wall time on success', async () => {
+    axios.post.mockResolvedValue({
+      status: 200,
+      data: {
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(VALID) } }],
+        usage: { prompt_tokens: 640, completion_tokens: 120, completion_tokens_details: { reasoning_tokens: 44 } },
+      },
+    });
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: `${SEED}-ok` });
+
+    const lines = llmLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^\[llm\] via=geminiEngine model=openai\/gpt-oss-20b status=200 finish=stop prompt_tokens=640 completion_tokens=120 reasoning_tokens=44 ms=\d+$/,
+    );
+    expectNoLeak(lines, axios.post.mock.calls[0][1].messages[0].content);
+  });
+
+  it('logs one line on failure with the status and error code, and nothing from the prompt', async () => {
+    axios.post.mockRejectedValue(Object.assign(new Error('Request failed with status code 404'), {
+      config: { headers: { Authorization: 'Bearer test-llm-key' } },
+      response: { status: 404, data: { error: { message: 'The model does not exist', code: 'model_not_found' } } },
+    }));
+
+    await expect(
+      buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: `${SEED}-404` }),
+    ).rejects.toThrow('does not exist');
+
+    const lines = llmLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^\[llm\] via=geminiEngine model=openai\/gpt-oss-20b status=404 finish=- prompt_tokens=- completion_tokens=- ms=\d+ error=model_not_found$/,
+    );
+    expectNoLeak(lines, axios.post.mock.calls[0][1].messages[0].content);
+  });
+
+  it('a truncated completion rejects with LlmTruncatedError instead of a JSON parse failure', async () => {
+    axios.post.mockResolvedValue({
+      status: 200,
+      data: {
+        choices: [{ finish_reason: 'length', message: { content: '{"target_bpm": 120, "target_ene' } }],
+        usage: { prompt_tokens: 640, completion_tokens: 1024 },
+      },
+    });
+
+    const err = await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: `${SEED}-len` })
+      .catch((e) => e);
+
+    expect(err).toMatchObject({ name: 'LlmTruncatedError', model: 'openai/gpt-oss-20b', promptTokens: 640, completionTokens: 1024 });
+    expect(err.message).not.toMatch(/invalid JSON/);
+    const lines = llmLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(' finish=length ');
+  });
+});
+
 // ── Layer 2: Groq critic re-rank (vibe energy filter) ─────────────────────────
 
