@@ -12,7 +12,7 @@ Prepared 2026-09-29 for Stage 0 step L1 of `docs/plans/DESIGN_V2_PLAN.md`, at re
 
 ## HALT items
 
-Fifteen CMP entries carry status HALT. The text is `cmp-compliance.md` §3, word for word, with one scribe substitution noted below the table. A HALT blocks every store submission, every provider review and every release build that goes to anyone other than the owner. It closes when its fix is on main and verified on device, in the HALT fix lane, which must finish before P2's G1 (the owner's ruling DEC-097; TASKS `ARCH-011`). That replaces `cmp-compliance.md`'s status legend, under which a HALT closed at the owning page's G12.
+Fifteen CMP entries carry status HALT. The text is `cmp-compliance.md` §3, word for word, with one scribe substitution noted below the table. A HALT blocks every store submission, every provider review and every release build that goes to anyone other than the owner. It closes when its fix is on main and verified on device, in the HALT fix lane, which must finish before P2's G1 (the owner's rulings DEC-097 and DEC-101; TASKS `ARCH-011`). Where a device action exists, the fix is proved through it and the result read in the production database or logs; where none exists, integration tests and a production count of zero affected users suffice; each PR states what was proved on the device and what was not (DEC-101). That replaces `cmp-compliance.md`'s status legend, under which a HALT closed at the owning page's G12.
 
 | # | ID | Title | Applies to | §3 text | TASKS | DEC |
 |---|---|---|---|---|---|---|
