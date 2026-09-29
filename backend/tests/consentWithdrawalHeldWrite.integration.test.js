@@ -371,11 +371,18 @@ describe('HX-1 A2 (F1) — the compensation leaves the state the erasure would h
 });
 
 describe('HX-1 A3 — a consent-read error after the insert fails closed (real Mongo)', () => {
-  it('the row is removed and the line says reason=consent_read_error — never the error text', async () => {
-    const user = await consentingListener('a3'); // nothing is withdrawn: the grant stays current
+  it('only the held reading is removed — the rest of a possibly-still-consented history stays — and the line says reason=consent_read_error, never the error text', async () => {
+    const user = await consentingListener('a3'); // nothing is withdrawn: the grant may well still be current
+    const raw = garminRaw(131);
+    const { recordedAt } = normalize('garmin', raw);
+    // B1: what a read-error delete must NOT touch. The same user's older garmin reading, another
+    // provider's reading at the held reading's exact time, and the profile they back.
+    await BiometricLog.create({ userId: user._id, heartRate: 64, source: 'garmin', recordedAt: new Date(recordedAt.getTime() - 2 * 3600_000) });
+    await BiometricLog.create({ userId: user._id, heartRate: 66, source: 'health_connect', recordedAt });
+    await MedicalProfile.create({ userId: user._id, restingHeartRate: 58 });
     const socket = appSocket(user);
     mockHeld.armed = true;
-    await socket._trigger('biometric_push', { source: 'garmin', raw: garminRaw(131) });
+    await socket._trigger('biometric_push', { source: 'garmin', raw });
     await until(() => mockHeld.holding, 'the held live write');
 
     // The next consent read — the post-insert re-check — hits a store failure whose text quotes values.
@@ -383,10 +390,13 @@ describe('HX-1 A3 — a consent-read error after the insert fails closed (real M
     jest.spyOn(ConsentRecord, 'latestFor').mockRejectedValueOnce(readError);
 
     await releaseHeldWrite();
-    const remaining = await eventually(() => countFor(BiometricLog, user), (n) => n === 0);
-    expect(remaining).toBe(0);
     const lines = await eventually(compensatingLines, (l) => l.length > 0);
     expect(lines).toEqual([`[biometricHandler] compensating-delete user=${user._id} lane=socket reason=consent_read_error outcome=deleted1`]);
+    expect({
+      heldKey: await BiometricLog.countDocuments({ userId: user._id, source: 'garmin', recordedAt }),
+      biometricLogs: await countFor(BiometricLog, user),
+      medicalProfiles: await countFor(MedicalProfile, user),
+    }).toEqual({ heldKey: 0, biometricLogs: 2, medicalProfiles: 1 });
     expect(logged.map((l) => l.line).join('\n')).not.toContain('127.0.0.1');
     expect(captureException).not.toHaveBeenCalled();
   });
@@ -417,7 +427,7 @@ describe('HX-1 A4 — control: without a withdrawal the row stays', () => {
 });
 
 describe('HX-1 A5 — a failed compensating delete is its own outcome', () => {
-  it('logs outcome=failed with the error TYPE only — not "live persistence failed", not Sentry', async () => {
+  it('logs outcome=failed with the error TYPE only — not "live persistence failed", no captureException call', async () => {
     const user = await consentingListener('a5');
     const socket = appSocket(user);
     mockHeld.armed = true;
