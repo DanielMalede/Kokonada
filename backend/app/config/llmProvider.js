@@ -6,6 +6,12 @@
 // to boot without a vetted provider so special-category signals can never reach an
 // unvetted endpoint; a runtime LLM failure degrades to the deterministic mood/BPM path.
 
+// The one default model for every Groq call (llmClient and geminiEngine), overridable with
+// LLM_MODEL. Groq retires models on a schedule and every caller falls back instead of
+// failing when a model is gone, so keep this in step with https://console.groq.com/docs/deprecations —
+// tests/llmModel.decommissionGuard.test.js fails if a default names a retired ID it lists.
+const DEFAULT_LLM_MODEL = 'openai/gpt-oss-20b';
+
 function hasVettedProvider() {
   return !!(process.env.LLM_API_KEY || process.env.GROQ_API_KEY);
 }
@@ -19,4 +25,4 @@ function assertVettedLlmProvider() {
   }
 }
 
-module.exports = { hasVettedProvider, assertVettedLlmProvider };
+module.exports = { DEFAULT_LLM_MODEL, hasVettedProvider, assertVettedLlmProvider };

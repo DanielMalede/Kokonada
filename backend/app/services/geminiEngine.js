@@ -6,6 +6,7 @@ const { withRetry }    = require('../utils/retry');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
 const { disabled }     = require('../utils/envFlag');
+const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, biometricBand, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
@@ -32,11 +33,9 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_
     throw new Error('No vetted LLM provider configured (set LLM_API_KEY) — refusing to call an unvetted endpoint');
   }
   const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
-  // 8b-instant is Groq's most stable always-on model and is plenty for this
-  // small structured-JSON task. Providers rotate larger models, so default to
-  // the safe one; override with LLM_MODEL globally, or per-call (the Tempo Critic
-  // passes a bigger model whose world-knowledge judges niche tracks' real tempo).
-  const model   = modelOverride || process.env.LLM_MODEL || 'llama-3.1-8b-instant';
+  // One default shared with llmClient (config/llmProvider); override with LLM_MODEL
+  // globally, or per call.
+  const model   = modelOverride || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
   // Groq's free tier caps tokens-per-minute (6000 TPM). Under load, generation 429s and —
   // without a retry — the whole playlist silently collapses to the static fallback (the
   // "tracks=10, ignores the activity" symptom). withRetry rides out the 429 honoring

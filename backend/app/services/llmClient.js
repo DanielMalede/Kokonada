@@ -2,12 +2,12 @@
 
 const axios = require('axios');
 const { withRetry } = require('../utils/retry');
+const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
 
 // Thin OpenAI-compatible (Groq) client for strict-JSON tasks. Mirrors the
 // conventions of geminiEngine._generate (env names, error surfacing) so the
 // two can be unified when the critics move to workers (Phase 7).
 
-const DEFAULT_MODEL = 'llama-3.1-8b-instant';
 const DEFAULT_TIMEOUT_MS = 8000;
 // Groq's free tier caps tokens-per-minute (e.g. 6000 TPM). A burst of batch
 // requests saturates the bucket and every subsequent call 429s. withRetry
@@ -31,7 +31,7 @@ async function generateJson(prompt, { model = null, timeoutMs = DEFAULT_TIMEOUT_
   if (!llmKey) throw new Error('LLM not configured (set LLM_API_KEY or GROQ_API_KEY)');
 
   const baseUrl = process.env.LLM_BASE_URL || 'https://api.groq.com/openai/v1';
-  const resolvedModel = model || process.env.LLM_MODEL || DEFAULT_MODEL;
+  const resolvedModel = model || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
   const maxRetries = Number.isFinite(retries) ? retries : DEFAULT_MAX_RETRIES();
   try {
     // withRetry retries ONLY 429s (honoring Retry-After); 4xx/5xx and timeouts

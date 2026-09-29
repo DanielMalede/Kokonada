@@ -34,16 +34,73 @@ describe('llmClient.generateJson', () => {
     expect(url).toBe('https://api.groq.com/openai/v1/chat/completions');
     expect(body.response_format).toEqual({ type: 'json_object' });
     expect(body.temperature).toBe(0.1);
-    expect(body.model).toBe('llama-3.1-8b-instant');
     expect(config.headers.Authorization).toBe('Bearer test-key');
+  });
+
+  // The previous default was shut down by Groq on 2026-08-16; the replacement is the one Groq's
+  // deprecations page recommends for it (see tests/llmModel.decommissionGuard.test.js).
+  it('defaults to openai/gpt-oss-20b when neither a per-call model nor LLM_MODEL is set', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
+
+    await generateJson('p');
+
+    expect(axios.post.mock.calls[0][1].model).toBe('openai/gpt-oss-20b');
+  });
+
+  it('LLM_MODEL overrides the default', async () => {
+    process.env.LLM_MODEL = 'openai/gpt-oss-120b';
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
+
+    await generateJson('p');
+
+    expect(axios.post.mock.calls[0][1].model).toBe('openai/gpt-oss-120b');
   });
 
   it('honors per-call model override', async () => {
     axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
 
-    await generateJson('p', { model: 'llama-3.3-70b-versatile' });
+    await generateJson('p', { model: 'openai/gpt-oss-120b' });
 
-    expect(axios.post.mock.calls[0][1].model).toBe('llama-3.3-70b-versatile');
+    expect(axios.post.mock.calls[0][1].model).toBe('openai/gpt-oss-120b');
+  });
+
+  // Request shape, pinned to what Groq documents for the gpt-oss models (checked 2026-09-29):
+  //  - https://console.groq.com/docs/reasoning: "With openai/gpt-oss-20b and openai/gpt-oss-120b,
+  //    the reasoning_format parameter is not supported."
+  //  - https://console.groq.com/docs/openai: logprobs, logit_bias, top_logprobs and messages[].name
+  //    "will result in a 400 error"; temperature should be "> 0 and <= 2".
+  //  - https://console.groq.com/docs/structured-outputs#json-object-mode: json_object is supported
+  //    by "All models". Any new body field must be re-checked against these pages first.
+  it('sends only the fields checked against the Groq docs, and none the gpt-oss models reject', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
+
+    await generateJson('p', { temperature: 0.3 });
+
+    const body = axios.post.mock.calls[0][1];
+    expect(Object.keys(body).sort()).toEqual(['messages', 'model', 'response_format', 'temperature']);
+    expect(body.messages).toEqual([{ role: 'user', content: 'p' }]);
+    expect(body.temperature).toBeGreaterThan(0);
+    expect(body.temperature).toBeLessThanOrEqual(2);
+  });
+
+  // gpt-oss returns its chain of thought in message.reasoning by default and the final answer in
+  // message.content (https://console.groq.com/docs/reasoning, "GPT-OSS Models": "By default, these
+  // models will include reasoning content in the reasoning field of the assistant response").
+  it('returns the final content, never the reasoning field a gpt-oss response carries', async () => {
+    axios.post.mockResolvedValue({
+      data: {
+        choices: [{
+          finish_reason: 'stop',
+          message: {
+            role: 'assistant',
+            content: '{"ok":1}',
+            reasoning: 'We need a JSON object with key ok. Output {"ok":0}? No, ok is 1.',
+          },
+        }],
+      },
+    });
+
+    await expect(generateJson('p')).resolves.toBe('{"ok":1}');
   });
 
   it('throws a descriptive error when unconfigured', async () => {

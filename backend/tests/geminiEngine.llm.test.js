@@ -106,5 +106,67 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
   });
 });
 
+// The model the generation path resolves, and the request it sends. The previous fallback was shut
+// down by Groq on 2026-08-16 (see tests/llmModel.decommissionGuard.test.js), so every generation
+// silently degraded to the deterministic path. Pinned against Groq's docs as checked 2026-09-29:
+// https://console.groq.com/docs/reasoning and https://console.groq.com/docs/openai.
+describe('generation model and request shape', () => {
+  const ok = () => ({ data: { choices: [{ message: { content: JSON.stringify(VALID) } }] } });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.LLM_MODEL;
+  });
+  afterAll(() => { delete process.env.LLM_MODEL; });
+
+  it('defaults to openai/gpt-oss-20b when LLM_MODEL is not set', async () => {
+    axios.post.mockResolvedValue(ok());
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'default-model' });
+
+    expect(axios.post.mock.calls[0][1].model).toBe('openai/gpt-oss-20b');
+  });
+
+  it('LLM_MODEL overrides the default', async () => {
+    process.env.LLM_MODEL = 'openai/gpt-oss-120b';
+    axios.post.mockResolvedValue(ok());
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'env-model' });
+
+    expect(axios.post.mock.calls[0][1].model).toBe('openai/gpt-oss-120b');
+  });
+
+  it('sends only the documented fields: no reasoning_format (unsupported on gpt-oss) and nothing Groq 400s on', async () => {
+    axios.post.mockResolvedValue(ok());
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'shape' });
+
+    const body = axios.post.mock.calls[0][1];
+    expect(Object.keys(body).sort()).toEqual(['messages', 'model', 'response_format', 'temperature']);
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.temperature).toBeGreaterThan(0);
+    expect(body.temperature).toBeLessThanOrEqual(2);
+  });
+
+  it('parses the final content of a gpt-oss response, ignoring its reasoning field', async () => {
+    axios.post.mockResolvedValue({
+      data: {
+        choices: [{
+          finish_reason: 'stop',
+          message: {
+            role: 'assistant',
+            content: JSON.stringify(VALID),
+            reasoning: 'Calm, positive coordinates. Maybe target_bpm 90? The user leans electronic, so 120.',
+          },
+        }],
+      },
+    });
+
+    const result = await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'reasoning-field' });
+
+    expect(result.params.target_bpm).toBe(120);
+  });
+});
+
 // ── Layer 2: Groq critic re-rank (vibe energy filter) ─────────────────────────
 
