@@ -130,7 +130,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         if: steps.changes.outputs.android == 'true'
       - name: Install JS dependencies
         if: steps.changes.outputs.android == 'true'
