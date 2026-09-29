@@ -242,7 +242,7 @@ export const stroke = { none: 0, control: 1.5, glyph: 2.5 } as const;
 export const type = {
   family: {
     // Indirection so bundled faces can replace these later without touching screens.
-    display: 'GeneralSans-Semibold',
+    display: 'System',
     text: 'System',
     mono: 'monospace',
   },

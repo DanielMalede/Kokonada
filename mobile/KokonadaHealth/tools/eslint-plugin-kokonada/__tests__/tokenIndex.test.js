@@ -39,8 +39,8 @@ describe('parseTokenIndex — colours', () => {
   });
 
   it('ignores strings that are not colours', () => {
-    const idx = parseTokenIndex(`const type = { family: { display: 'GeneralSans-Semibold' } };`);
-    expect(idx.colorPath('GeneralSans-Semibold')).toBeNull();
+    const idx = parseTokenIndex(`const type = { family: { display: 'SampleFace-Semibold' } };`);
+    expect(idx.colorPath('SampleFace-Semibold')).toBeNull();
   });
 
   it('does not let a type annotation swallow the declaration name', () => {
