@@ -21,6 +21,7 @@ import { onWearableLinked, onConsentWithdrawn, onLiveHrDisconnected } from '../.
 import { PROVIDERS } from '../connect/providers';
 import { SPOTIFY_BETA_CONNECT } from '../connect/betaFlags';
 import { ProfileIntegrationRow } from './ProfileIntegrationRow';
+import { SpotifyDisconnectControl, SPOTIFY_DISCONNECT_COPY } from './SpotifyDisconnectControl';
 import { LiveHeartRateCard } from './LiveHeartRateCard';
 import { VaultConsentPanel } from './VaultConsentPanel';
 import { ConsentSheet } from './ConsentSheet';
@@ -51,6 +52,7 @@ export function ProfileScreen() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);      // logout / delete (account zone)
   const [ytBusy, setYtBusy] = useState(false);
+  const [spBusy, setSpBusy] = useState(false);  // Spotify disconnect (HX-2)
   const [hcBusy, setHcBusy] = useState(false);  // health sync
   const [withdrawing, setWithdrawing] = useState(false);
   // GDPR Art.9 consent (audit H-9). `consentGranted` drives the Withdraw affordance; a non-null
@@ -120,6 +122,24 @@ export function ProfileScreen() {
       }
     } finally {
       if (mountedRef.current) setYtBusy(false);
+    }
+  };
+
+  // HX-2 M8: server-first. On success the controller has already stopped the player and emptied the
+  // queue and Now Playing; the fresh snapshot then shows the row as it now is. On failure nothing
+  // changed — the account is still connected — and the confirm stays open to retry or cancel.
+  const onDisconnectSpotify = async () => {
+    setSpBusy(true);
+    try {
+      const res = await profileController.disconnectSpotify();
+      if (res.ok) {
+        const s = await profileController.loadProfile();
+        if (mountedRef.current) setSnap(s);
+      } else {
+        Alert.alert(SPOTIFY_DISCONNECT_COPY.failureTitle, SPOTIFY_DISCONNECT_COPY.failureBody);
+      }
+    } finally {
+      if (mountedRef.current) setSpBusy(false);
     }
   };
 
@@ -302,6 +322,11 @@ export function ProfileScreen() {
                   : undefined
             }
           />
+          {/* HX-2 (DEC-100): Disconnect, on the Spotify row whenever Spotify is connected. Two taps;
+              line 3 of the confirm only while a disconnected account cannot come back. */}
+          {spotifyConnected ? (
+            <SpotifyDisconnectControl busy={spBusy} showNoReconnectLine={!SPOTIFY_BETA_CONNECT} onConfirm={onDisconnectSpotify} />
+          ) : null}
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow
             label={youtubeProvider.label}

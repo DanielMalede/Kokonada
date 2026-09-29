@@ -17,6 +17,7 @@ jest.mock('../profileServices', () => ({
     logout: jest.fn().mockResolvedValue(undefined),
     deleteAccount: jest.fn().mockResolvedValue({ ok: true, data: {} }),
     disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } }),
+    disconnectSpotify: jest.fn().mockResolvedValue({ ok: true, data: { message: 'Spotify disconnected' } }),
     getSpotifyConnectToken: jest.fn(),
   },
 }));
@@ -503,6 +504,90 @@ describe('ProfileScreen', () => {
     // Re-focus re-fetched → the local UI reflects ungranted (Withdraw gone), no manual refresh.
     expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'withdraw-consent')).toHaveLength(0);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // ── HX-2 M8/M9 (DEC-100): Disconnect Spotify on the Spotify row ────────────────────────────────
+  // The control's own copy/contrast/two-tap behaviour is pinned in SpotifyDisconnectControl.test.tsx
+  // and the device half (dispose, queue, Now Playing) in profileServices.spotifyDisconnect.test.ts.
+  // Here: WHEN the screen shows it, what it calls, and what the user sees after.
+  const connectedSnapshot = {
+    me: { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null },
+    integrations: { spotifyConnected: true },
+  };
+  const disconnectedSnapshot = {
+    me: { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null },
+    integrations: { spotifyConnected: false },
+  };
+  const disconnectSpotify = () => profileController.disconnectSpotify as jest.Mock;
+
+  it('HX-2: Spotify connected → a Disconnect action sits on the Spotify row; not connected → none', async () => {
+    loadProfile.mockResolvedValue(connectedSnapshot);
+    const connected = await render();
+    expect(byTestId(connected, 'disconnect-spotify')).toBeTruthy();
+    expect(byTestId(connected, 'reconnect-spotify')).toBeTruthy(); // Reconnect is still offered
+    await ReactTestRenderer.act(async () => { connected.unmount(); });
+
+    loadProfile.mockResolvedValue(disconnectedSnapshot);
+    const notConnected = await render();
+    expect(notConnected.root.findAll((n) => n.props.testID === 'disconnect-spotify')).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { notConnected.unmount(); });
+  });
+
+  it('HX-2: two taps — the first opens the exact confirm, the second disconnects; then the status is refreshed', async () => {
+    loadProfile.mockResolvedValue(connectedSnapshot);
+    const tree = await render();
+
+    await ReactTestRenderer.act(async () => { byTestId(tree, 'disconnect-spotify').props.onPress(); });
+    expect(disconnectSpotify()).not.toHaveBeenCalled();
+    const shown = texts(tree.toJSON()).join(' ');
+    expect(shown).toContain('Disconnect Spotify?');
+    expect(shown).toContain('Kokonada will stop using your Spotify account and delete your Spotify connection, the music profile built from it, and the Spotify tracks listed in History. Your moments stay.');
+    expect(shown).toContain('To remove Kokonada from your Spotify account as well, go to spotify.com/account/apps and choose Remove access.');
+
+    const loadsBefore = loadProfile.mock.calls.length;
+    loadProfile.mockResolvedValue(disconnectedSnapshot); // what the server reports once it is done
+    await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-spotify-confirm').props.onPress(); });
+    await flush();
+
+    expect(disconnectSpotify()).toHaveBeenCalledTimes(1);
+    expect(loadProfile.mock.calls.length).toBeGreaterThan(loadsBefore);           // status refreshed
+    expect(tree.root.findAll((n) => n.props.testID === 'disconnect-spotify')).toHaveLength(0);
+    expect(texts(tree.toJSON()).join(' ')).toContain('Unavailable');             // the row now says so
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('HX-2: a failed disconnect says so in the exact words, and the account stays connected', async () => {
+    loadProfile.mockResolvedValue(connectedSnapshot);
+    disconnectSpotify().mockResolvedValueOnce({ ok: false, status: 500, error: 'request failed (500)' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+
+    await ReactTestRenderer.act(async () => { byTestId(tree, 'disconnect-spotify').props.onPress(); });
+    await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-spotify-confirm').props.onPress(); });
+    await flush();
+
+    expect(alertSpy).toHaveBeenCalledWith('Could not disconnect Spotify', 'Please try again in a moment.');
+    expect(texts(tree.toJSON()).join(' ')).toContain('Connected');
+    expect(byTestId(tree, 'disconnect-spotify-confirm')).toBeTruthy(); // still there to retry or cancel
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('HX-2: "You can\'t reconnect Spotify in this version." shows only while SPOTIFY_BETA_CONNECT is off', async () => {
+    loadProfile.mockResolvedValue(connectedSnapshot);
+    const line3 = "You can't reconnect Spotify in this version.";
+
+    mockSpotifyBetaConnect = false;
+    const off = await render();
+    await ReactTestRenderer.act(async () => { byTestId(off, 'disconnect-spotify').props.onPress(); });
+    expect(texts(off.toJSON()).join(' ')).toContain(line3);
+    await ReactTestRenderer.act(async () => { off.unmount(); });
+
+    mockSpotifyBetaConnect = true;
+    const on = await render();
+    await ReactTestRenderer.act(async () => { byTestId(on, 'disconnect-spotify').props.onPress(); });
+    expect(texts(on.toJSON()).join(' ')).not.toContain(line3);
+    await ReactTestRenderer.act(async () => { on.unmount(); });
   });
 
   // ── T10: reduced-motion polish — the consent Modal drops its slide when reduce-motion is on ─────
