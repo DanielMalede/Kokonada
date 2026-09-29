@@ -8,6 +8,7 @@ const {
   backfillUnclassifiedCreatedAt,
   expireUnclassifiedTracks,
 } = require('../services/privacy/providerContentErasure');
+const { sweepOwedSpotifyErasures } = require('../services/privacy/spotifyErasure');
 
 // The daily retention job. Two clocks run here:
 //   • T3.1 — the encrypted, re-identifying context (the free-text contextPrompt and the HR
@@ -16,6 +17,8 @@ const {
 //     fields on every PlaylistSession, ServeEvent rows, and UnclassifiedTrack pool rows. A
 //     schema TTL cannot empty a SUBSET of fields, so PlaylistSession is trimmed field by field
 //     and never deleted; its moodKey, emotion taps, activity and skip count stay for History.
+//   • HX-2 M6 — a Spotify disconnect whose purge did not finish is finished here, so every
+//     disconnect is fully erased within days with no user action.
 // Each step runs even if another fails; the run then fails loudly so the worker logs it.
 // The `[sessionTrim]` line (counts only) is the production check that the job ran.
 
@@ -50,13 +53,17 @@ async function processJob() {
     // Backfill BEFORE expiry, so a row that just got its clock is judged by it in the same run.
     ['unclassifiedBackfilled', () => backfillUnclassifiedCreatedAt()],
     ['unclassifiedExpired', () => expireUnclassifiedTracks(providerCutoff)],
+    ['spotifyErasures', () => sweepOwedSpotifyErasures()],
   ];
 
   const result = {};
   let failures = 0;
   for (const [name, run] of steps) {
     try {
-      result[name] = await run();
+      // A step returns a count, or { count, failed } when it works through many units (users).
+      const out = await run();
+      result[name] = typeof out === 'number' ? out : (out?.count ?? 0);
+      failures += typeof out === 'number' ? 0 : (out?.failed ?? 0);
     } catch (err) {
       result[name] = 0;
       failures += 1;

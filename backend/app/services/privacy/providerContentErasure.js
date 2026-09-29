@@ -83,6 +83,7 @@ async function expireUnclassifiedTracks(cutoff) {
 module.exports = {
   PROVIDER_CONTENT_MAX_DAYS,
   PROVIDER_CONTENT_FIELDS,
+  HOLDS_PROVIDER_CONTENT,
   providerContentRetentionDays,
   providerContentCutoff,
   stripProviderContent,

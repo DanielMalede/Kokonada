@@ -187,6 +187,9 @@ exports.spotifyCallback = async (req, res) => {
 // DELETE /api/integrations/spotify/disconnect
 // Spotify Developer Terms V.8: stop using the account, then delete what was derived from it —
 // synchronously, before answering (HX-2 M5; the purge lives in services/privacy/spotifyErasure).
+// The intent is recorded FIRST and in one write — the token goes and the owed purge is marked — so a
+// purge that fails still completes within 5 days: the response errors, and the daily sessionTrim
+// run finishes it (M6). Never on a Spotify 400/401: an expired grant is not a disconnect.
 // Global cross-user corpus/embedding/feature caches are eliminated separately by the one-time
 // Spotify purge (scripts/purgeSpotifyCorpus.js), not per-user erasure.
 exports.spotifyDisconnect = async (req, res, next) => {
@@ -196,6 +199,7 @@ exports.spotifyDisconnect = async (req, res, next) => {
     req.user.spotifyToken = null;
     req.user.spotifyScopes = '';
     req.user.spotifySessionPlaylistId = null;
+    req.user.spotifyErasurePendingAt = new Date();
     await req.user.save();
     await purgeSpotifyData(userId);
     res.json({ message: 'Spotify disconnected' });

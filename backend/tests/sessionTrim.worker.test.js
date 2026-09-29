@@ -278,7 +278,7 @@ describe('sessionTrim — the [sessionTrim] line is the production check, and ca
     spies.forEach((s) => s.mockRestore());
     const trim = lines.filter((l) => l.includes('[sessionTrim]'));
     expect(trim).toHaveLength(1);
-    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ failures=\d+$/);
+    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ spotifyErasures=\d+ failures=\d+$/);
     const all = lines.join('\n');
     for (const secret of ['Song A', 'Artist A', 'trk1', 'isrc:', 'hidden-playlist-1', String(userId)]) {
       expect(all).not.toContain(secret);

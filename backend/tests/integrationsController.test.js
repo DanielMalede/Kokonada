@@ -45,11 +45,26 @@ jest.mock('../app/models/ServeEvent',    () => ({ deleteMany: jest.fn().mockReso
 // (proven on real Mongo in spotifyDisconnectErasure.integration.test.js); stubbed here like its siblings.
 jest.mock('../app/models/PlaylistSession', () => ({ updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }) }));
 jest.mock('../app/models/UnclassifiedTrack', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }) }));
-jest.mock('../app/utils/userRedisPurge', () => ({ purgeUserKeys: jest.fn().mockResolvedValue(0) }));
+// The namespace registry stays real (patternsFor): the Spotify disconnect deletes those keys strictly
+// through it (HX-2 M6), against the small stateful Redis below.
+jest.mock('../app/utils/userRedisPurge', () => ({
+  ...jest.requireActual('../app/utils/userRedisPurge'),
+  purgeUserKeys: jest.fn().mockResolvedValue(0),
+}));
+jest.mock('../app/config/redis', () => {
+  const keys = new Set();
+  const fake = {
+    __keys: keys,
+    scan: async (_c, _m, pattern) => ['0', [...keys].filter((k) => k.startsWith(pattern.replace(/\*$/, '')))],
+    del: async (...ks) => ks.reduce((n, k) => n + (keys.delete(k) ? 1 : 0), 0),
+  };
+  return { getRedis: () => fake, connectRedis: jest.fn(), createConnection: jest.fn(), __fake: fake };
+});
 jest.mock('../app/services/selection/candidatePool', () => ({ invalidateUserPools: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
+  updateOne:         jest.fn().mockResolvedValue({}),
 }));
 // Art.9 consent service — the Garmin callback now gates its 6-month backfill on a current grant.
 // Default to granted so existing callback tests are unaffected; the gate test overrides it.
@@ -71,7 +86,7 @@ const musicProfileService = require('../app/services/musicProfileService');
 const User               = require('../app/models/User');
 const MusicProfile       = require('../app/models/MusicProfile');
 const ServeEvent         = require('../app/models/ServeEvent');
-const { purgeUserKeys }  = require('../app/utils/userRedisPurge');
+const { __fake: redisFake } = require('../app/config/redis');
 const candidatePool      = require('../app/services/selection/candidatePool');
 const { signOauthState } = require('../app/utils/jwt');
 const { getConsentStatus } = require('../app/services/privacy/consent');
@@ -124,10 +139,15 @@ describe('spotifyDisconnect', () => {
   it('erases the personalized serve history and user Redis state (Spotify retention containment)', async () => {
     const user = buildUser({ spotifyToken: { blob: 'x' }, musicProvider: 'spotify' });
     const res = buildRes();
+    redisFake.__keys.add('ledger:user-123:served');
+    redisFake.__keys.add('ledger:someone-else:served');
     await ctrl.spotifyDisconnect({ user }, res, jest.fn());
 
     expect(ServeEvent.deleteMany).toHaveBeenCalledWith({ userId: 'user-123' });
-    expect(purgeUserKeys).toHaveBeenCalledWith('user-123');
+    // HX-2: observed on the Redis state itself rather than on the best-effort purgeUserKeys spy —
+    // the disconnect now deletes these keys strictly (a Redis failure is a failed erasure, M6).
+    expect(redisFake.__keys.has('ledger:user-123:served')).toBe(false);
+    expect(redisFake.__keys.has('ledger:someone-else:served')).toBe(true);
   });
 });
 

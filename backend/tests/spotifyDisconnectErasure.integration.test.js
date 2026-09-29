@@ -235,3 +235,98 @@ describe('spotifyDisconnect — logs carry counts only (M10)', () => {
     for (const secret of [...CONTENT, String(userId)]) expect(all).not.toContain(secret);
   });
 });
+
+describe('a disconnect whose purge fails is completed within 5 days with no user action (M6)', () => {
+  const { process: runDailyJob } = require('../app/workers/sessionTrim.worker');
+  const quiet = () => { for (const m of ['log', 'info', 'warn', 'error']) jest.spyOn(console, m).mockImplementation(() => {}); };
+  const boom = () => Object.assign(new Error('primary stepped down'), { name: 'MongoServerError' });
+
+  // Every purge step, made to fail once. ServeEvent is the case a "look for Spotify-marked rows"
+  // sweep can never find again (a serve row names no provider), so the owed purge must be recorded.
+  const FAILURES = [
+    ['the session strip', () => jest.spyOn(PlaylistSession, 'updateMany').mockRejectedValueOnce(boom())],
+    ['the ServeEvent delete', () => jest.spyOn(ServeEvent, 'deleteMany').mockRejectedValueOnce(boom())],
+    ['the MusicProfile delete', () => jest.spyOn(MusicProfile, 'deleteOne').mockRejectedValueOnce(boom())],
+    ['the pool-row delete', () => jest.spyOn(UnclassifiedTrack, 'deleteMany').mockRejectedValueOnce(boom())],
+    ['the Redis purge', () => {
+      const scan = redis.scan;
+      redis.scan = async () => { redis.scan = scan; throw new Error('READONLY'); };
+    }],
+  ];
+
+  it.each(FAILURES)('%s throws: the response errors, the intent is kept, and the next daily run finishes the erasure', async (_label, inject) => {
+    const userId = await seedConnectedUser('m6');
+    quiet();
+    inject();
+    const next = jest.fn();
+    const res = makeRes();
+
+    await spotifyDisconnect({ user: await authUser(userId) }, res, next);
+
+    expect(res.json).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const mid = await User.findById(userId);
+    expect(mid.spotifyToken).toBeNull();                        // the account is no longer used
+    expect(mid.spotifyErasurePendingAt).toBeInstanceOf(Date);   // the owed purge is on record
+    expect(await counts(userId)).not.toEqual(ERASED);           // the failure really stranded data
+
+    await runDailyJob();
+
+    expect(await counts(userId)).toEqual(ERASED);
+    expect((await User.findById(userId)).spotifyErasurePendingAt).toBeNull();
+  });
+
+  it('a disconnect made before HX-2 (token null, no record) is found by its Spotify rows and erased', async () => {
+    const userId = await seedConnectedUser('legacy');
+    // What the old handler left: token gone, profile/serves/Redis gone, everything else kept.
+    await User.updateOne({ _id: userId }, { $set: { spotifyToken: null, musicProvider: null } });
+    await Promise.all([MusicProfile.deleteMany({ userId }), ServeEvent.deleteMany({ userId })]);
+    redis.__keys.clear();
+    quiet();
+
+    await runDailyJob();
+
+    expect(await counts(userId)).toEqual(ERASED);
+  });
+
+  it('a user who reconnected before the run keeps the new link\'s data; the stale record is cleared', async () => {
+    const userId = await seedConnectedUser('back');
+    await User.updateOne({ _id: userId }, { $set: { spotifyErasurePendingAt: new Date(Date.now() - 3600e3) } });
+    const before = await counts(userId);
+    quiet();
+
+    await runDailyJob();
+
+    expect(await counts(userId)).toEqual(before);
+    expect((await User.findById(userId)).spotifyErasurePendingAt).toBeNull();
+  });
+
+  it('a connected user with young Spotify sessions is never swept', async () => {
+    const userId = await seedConnectedUser('live');
+    const before = await counts(userId);
+    quiet();
+
+    const res = await runDailyJob();
+
+    expect(res.spotifyErasures).toBe(0);
+    expect(await counts(userId)).toEqual(before);
+  });
+
+  it('one user\'s failed erasure does not stop another\'s; the run counts it and fails loudly', async () => {
+    const a = await seedConnectedUser('s1');
+    const b = await seedConnectedUser('s2');
+    await User.updateMany({ _id: { $in: [a, b] } }, { $set: { spotifyToken: null, spotifyErasurePendingAt: new Date() } });
+    const original = MusicProfile.deleteOne.bind(MusicProfile);
+    jest.spyOn(MusicProfile, 'deleteOne').mockImplementation((filter) => (
+      String(filter.userId) === String(a) ? Promise.reject(boom()) : original(filter)));
+    const lines = [];
+    jest.spyOn(console, 'log').mockImplementation((...x) => lines.push(x.join(' ')));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(runDailyJob()).rejects.toThrow(/step/);
+
+    expect(await counts(b)).toEqual(ERASED);
+    expect((await User.findById(a)).spotifyErasurePendingAt).toBeInstanceOf(Date); // retried tomorrow
+    expect(lines.find((l) => l.startsWith('[sessionTrim]'))).toMatch(/spotifyErasures=1 failures=1$/);
+  });
+});

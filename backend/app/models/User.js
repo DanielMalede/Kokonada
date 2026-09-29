@@ -27,6 +27,10 @@ const userSchema = new mongoose.Schema({
   // D-1: id of the hidden "Kokonada Session" playlist backing App Remote context playback
   // (created once, rewritten each generation; plaintext, non-sensitive).
   spotifySessionPlaylistId: { type: String, default: null },
+  // HX-2 M6: set in the SAME write that clears the Spotify token, cleared once the disconnect
+  // purge has fully run. A non-null value is a purge still owed; the daily sessionTrim job finishes
+  // it. It is the only way to find a stranded ServeEvent set — a serve row names no provider.
+  spotifyErasurePendingAt: { type: Date, default: null },
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'health_connect', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },
