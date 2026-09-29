@@ -5,7 +5,7 @@ const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
 const { disabled }     = require('../utils/envFlag');
 const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
-const { chatJson, LlmTruncatedError } = require('./llmCall');
+const { chatJson, failureMessage, LlmTruncatedError } = require('./llmCall');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, biometricBand, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
@@ -51,10 +51,10 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_
       captureException(err, { scope: 'llm', model });
       throw err;
     }
-    // Surface the provider's real reason (e.g. a decommissioned model) instead
-    // of axios's opaque "Request failed with status code 404".
-    const apiMsg = err.response?.data?.error?.message || err.message;
-    const failure = new Error(`LLM request failed (${model}): ${apiMsg}`);
+    // Name the real reason (e.g. status=404 code=model_decommissioned) instead of axios's opaque
+    // "Request failed with status code 404" — from the status and error CODE only, never the
+    // provider's message text, which can quote the prompt back.
+    const failure = new Error(failureMessage(model, err));
     // Report LLM outages/timeouts so a provider going down — which silently degrades every
     // playlist to the static fallback — is visible. SANITIZED: the raw axios error carries
     // config.headers.Authorization (the key), config.data (the prompt) and request._header;

@@ -71,14 +71,15 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
     expect(content1).not.toEqual(content2); // different seed → different prompt → different cache key
   });
 
-  it('surfaces the provider error message on a model 404 (not axios\'s opaque text)', async () => {
+  it('surfaces the status and provider error code on a model 404, never the provider message text', async () => {
     axios.post.mockRejectedValue({
-      response: { status: 404, data: { error: { message: 'The model `foo` does not exist or you do not have access to it.' } } },
+      response: { status: 404, data: { error: { message: 'The model `foo` does not exist or you do not have access to it.', code: 'model_not_found' } } },
     });
 
-    await expect(
-      buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn() }),
-    ).rejects.toThrow('does not exist');
+    const err = await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn() }).catch((e) => e);
+
+    expect(err.message).toBe('LLM request failed (openai/gpt-oss-20b): status=404 code=model_not_found');
+    expect(err.message).not.toContain('does not exist');
   });
 
   it('retries a 429 rate-limit (honoring retry-after) instead of collapsing to the static fallback', async () => {
@@ -101,7 +102,7 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
 
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: 'no-retry' }),
-    ).rejects.toThrow('bad request');
+    ).rejects.toThrow('status=400');
     expect(axios.post).toHaveBeenCalledTimes(1);
   });
 });
@@ -265,7 +266,7 @@ describe('generation call log line and truncation', () => {
 
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: `${SEED}-404` }),
-    ).rejects.toThrow('does not exist');
+    ).rejects.toThrow('LLM request failed (openai/gpt-oss-20b): status=404 code=model_not_found');
 
     const lines = llmLines();
     expect(lines).toHaveLength(1);

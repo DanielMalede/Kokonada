@@ -167,20 +167,37 @@ describe('llmClient.generateJson', () => {
     expect(axios.post).not.toHaveBeenCalled();
   });
 
-  it('surfaces the provider error message, not the opaque axios one', async () => {
+  // The wrapper names the status and the provider's error CODE, never its message text: that text
+  // can echo input, and this message reaches logs, Sentry and (on an empty fallback) the client.
+  it('surfaces the status and the provider error code, never the provider message text', async () => {
     axios.post.mockRejectedValue(Object.assign(new Error('Request failed with status code 404'), {
-      response: { status: 404, data: { error: { message: 'model decommissioned' } } },
+      response: { status: 404, data: { error: { message: 'model decommissioned', code: 'model_decommissioned' } } },
     }));
 
-    await expect(generateJson('p')).rejects.toThrow(/model decommissioned/);
+    const err = await generateJson('p').catch((e) => e);
+
+    expect(err.message).toBe('LLM request failed (openai/gpt-oss-20b): status=404 code=model_decommissioned');
+    expect(err.message).not.toContain('model decommissioned');
+  });
+
+  it('a provider message that echoes the prompt never reaches the thrown message', async () => {
+    const PROMPT = 'CANARY-PROMPT-7 energy=0.4 answer in JSON';
+    axios.post.mockRejectedValue(Object.assign(new Error('Request failed with status code 400'), {
+      response: { status: 400, data: { error: { message: `Invalid request: ${PROMPT}`, type: 'invalid_request_error' } } },
+    }));
+
+    const err = await generateJson(PROMPT).catch((e) => e);
+
+    expect(err.message).toBe('LLM request failed (openai/gpt-oss-20b): status=400 code=invalid_request_error');
+    expect(err.message).not.toContain('CANARY-PROMPT-7');
   });
 
   it('does NOT retry a non-429 error (fails fast on 404)', async () => {
     axios.post.mockRejectedValue(Object.assign(new Error('404'), {
-      response: { status: 404, data: { error: { message: 'model decommissioned' } } },
+      response: { status: 404, data: { error: { message: 'model decommissioned', code: 'model_decommissioned' } } },
     }));
 
-    await expect(generateJson('p')).rejects.toThrow(/decommissioned/);
+    await expect(generateJson('p')).rejects.toThrow(/status=404 code=model_decommissioned/);
     expect(axios.post).toHaveBeenCalledTimes(1);
   });
 
@@ -203,17 +220,17 @@ describe('llmClient.generateJson', () => {
     expect(axios.post).toHaveBeenCalledTimes(3); // two 429s ridden out, third lands
   });
 
-  it('a persistent 429 past the retry budget surfaces the provider message', async () => {
+  it('a persistent 429 past the retry budget surfaces status 429 and the rate-limit code', async () => {
     const rateLimited = Object.assign(new Error('429'), {
       response: {
         status: 429,
         headers: { 'retry-after': '0' },
-        data: { error: { message: 'Rate limit reached (TPM)' } },
+        data: { error: { message: 'Rate limit reached (TPM)', code: 'rate_limit_exceeded' } },
       },
     });
     axios.post.mockRejectedValue(rateLimited);
 
-    await expect(generateJson('p', { retries: 2 })).rejects.toThrow(/Rate limit reached/);
+    await expect(generateJson('p', { retries: 2 })).rejects.toThrow('status=429 code=rate_limit_exceeded');
     expect(axios.post).toHaveBeenCalledTimes(3); // initial + 2 retries, then gives up
   });
 });
@@ -281,7 +298,9 @@ describe('llmClient call log line', () => {
       response: { status: 404, data: { error: { message: `model not found; you sent: ${PROMPT}`, code: 'model_not_found' } } },
     }));
 
-    await expect(generateJson(PROMPT)).rejects.toThrow(/LLM request failed/);
+    const err = await generateJson(PROMPT).catch((e) => e);
+    expect(err.message).toBe('LLM request failed (openai/gpt-oss-20b): status=404 code=model_not_found');
+    expect(err.message).not.toContain('CANARY-PROMPT');
 
     const lines = llmLines();
     expect(lines).toHaveLength(1);
@@ -294,7 +313,7 @@ describe('llmClient call log line', () => {
   it('logs a timeout (no HTTP status) with the transport error code', async () => {
     axios.post.mockRejectedValue(Object.assign(new Error('timeout of 8000ms exceeded'), { code: 'ECONNABORTED' }));
 
-    await expect(generateJson(PROMPT)).rejects.toThrow(/timeout/);
+    await expect(generateJson(PROMPT)).rejects.toThrow('LLM request failed (openai/gpt-oss-20b): status=- code=ECONNABORTED');
 
     const [line] = llmLines();
     expect(line).toMatch(/ status=- .* error=ECONNABORTED$/);

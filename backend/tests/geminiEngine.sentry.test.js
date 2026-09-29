@@ -26,12 +26,14 @@ const MUSIC_PROFILE = {
 const emotionTaps = [{ x: 0.5, y: 0.5 }];
 const SEED = 'CANARY-SEED-sentry'; // lands in the prompt as the variation token
 
-// Reject exactly the way axios does, from the request our code actually sent.
+// Reject exactly the way axios does, from the request our code actually sent. `error` may be a
+// function of the sent prompt, for a provider message that echoes input back.
 function rejectLikeAxios(status, error) {
   axios.post.mockImplementation((url, body, cfg) => {
     const config = { url, method: 'post', data: JSON.stringify(body), headers: { ...cfg.headers }, timeout: cfg.timeout };
     const request = { _header: `POST ${url} HTTP/1.1\r\nAuthorization: ${cfg.headers.Authorization}\r\n\r\n` };
-    const response = { status, statusText: 'x', headers: {}, config, data: { error } };
+    const payload = typeof error === 'function' ? error(body.messages[0].content) : error;
+    const response = { status, statusText: 'x', headers: {}, config, data: { error: payload } };
     return Promise.reject(new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_RESPONSE', config, request, response));
   });
 }
@@ -50,7 +52,7 @@ describe('generation failures reach Sentry sanitized', () => {
 
     expect(captureException).toHaveBeenCalledTimes(1);
     const [err, context] = captureException.mock.calls[0];
-    expect(err.message).toBe('LLM request failed (openai/gpt-oss-20b): Service unavailable');
+    expect(err.message).toBe('LLM request failed (openai/gpt-oss-20b): status=503 code=service_unavailable');
     expect(context).toMatchObject({ model: 'openai/gpt-oss-20b', status: 503 });
     expect(err).not.toHaveProperty('config');
     expect(err).not.toHaveProperty('request');
@@ -63,6 +65,22 @@ describe('generation failures reach Sentry sanitized', () => {
     }
   });
 
+  // A provider 400 can quote the offending input back in error.message. Sanitizing the axios
+  // object is not enough if the wrapper message itself is built from that text.
+  it('a provider message that echoes the prompt reaches neither Sentry nor the thrown message', async () => {
+    rejectLikeAxios(400, (prompt) => ({ message: `Failed to generate JSON for: ${prompt}`, code: 'json_validate_failed' }));
+
+    const thrown = await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: `${SEED}-echo` })
+      .catch((e) => e);
+
+    const prompt = axios.post.mock.calls[0][1].messages[0].content;
+    expect(thrown.message).toBe('LLM request failed (openai/gpt-oss-20b): status=400 code=json_validate_failed');
+    for (const fragment of [prompt, `${SEED}-echo`, 'expert musicologist']) {
+      expect(thrown.message).not.toContain(fragment);
+      expect(everythingCaptured()).not.toContain(fragment);
+    }
+  });
+
   it('a timeout (no HTTP response) is captured sanitized too', async () => {
     axios.post.mockImplementation((url, body, cfg) => Promise.reject(new AxiosError(
       'timeout of 5000ms exceeded', 'ECONNABORTED',
@@ -72,7 +90,7 @@ describe('generation failures reach Sentry sanitized', () => {
 
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: `${SEED}-timeout` }),
-    ).rejects.toThrow('timeout');
+    ).rejects.toThrow('status=- code=ECONNABORTED');
 
     const captured = everythingCaptured();
     expect(captured).not.toContain('test-llm-key');

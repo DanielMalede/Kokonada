@@ -1,7 +1,7 @@
 'use strict';
 
 const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
-const { chatJson, LlmTruncatedError } = require('./llmCall');
+const { chatJson, failureMessage, LlmTruncatedError } = require('./llmCall');
 
 // Thin OpenAI-compatible (Groq) client for strict-JSON tasks. The request, the
 // 429 retry, the per-call log line and the truncation check are shared with
@@ -35,8 +35,7 @@ async function generateJson(prompt, { model = null, timeoutMs = DEFAULT_TIMEOUT_
     return await chatJson({ via: 'llmClient', key: llmKey, model: resolvedModel, prompt, temperature, timeoutMs, maxRetries });
   } catch (err) {
     if (err instanceof LlmTruncatedError) throw err; // typed: callers can tell truncation from failure
-    const apiMsg = err.response?.data?.error?.message || err.message;
-    throw new Error(`LLM request failed (${resolvedModel}): ${apiMsg}`);
+    throw new Error(failureMessage(resolvedModel, err)); // status + code, never provider text
   }
 }
 

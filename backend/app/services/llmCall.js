@@ -57,6 +57,14 @@ function _errorCode(err) {
   return ident(e?.code) ?? ident(e?.type) ?? ident(err?.code) ?? ident(err?.name) ?? 'error';
 }
 
+// The message both clients throw for a failed call: the HTTP status and the same sanitized code
+// the log line carries — NEVER the provider's error text, which can quote input back. This
+// message reaches the logs, Sentry and, when the deterministic fallback also comes up empty, the
+// client (biometricHandler → emptyPlaylistError).
+function failureMessage(model, err) {
+  return `LLM request failed (${ident(model) ?? 'unknown'}): status=${count(err?.response?.status) ?? '-'} code=${_errorCode(err)}`;
+}
+
 /**
  * POST one chat completion in JSON-object mode and return the final `message.content`
  * (never `message.reasoning`). Rejects with the raw transport error on failure (callers wrap
@@ -104,4 +112,4 @@ async function chatJson({ via, key, model, prompt, temperature, timeoutMs, maxRe
   return choice?.message?.content ?? '';
 }
 
-module.exports = { chatJson, LlmTruncatedError };
+module.exports = { chatJson, failureMessage, LlmTruncatedError };
