@@ -118,6 +118,15 @@ describe('llmClient.generateJson', () => {
     expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('medium');
   });
 
+  it('an unsupported LLM_REASONING_EFFORT never reaches Groq (it would 400): the request carries "low"', async () => {
+    process.env.LLM_REASONING_EFFORT = 'max';
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
+
+    await generateJson('p');
+
+    expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('low');
+  });
+
   // gpt-oss returns its chain of thought in message.reasoning by default and the final answer in
   // message.content (https://console.groq.com/docs/reasoning, "GPT-OSS Models": "By default, these
   // models will include reasoning content in the reasoning field of the assistant response").

@@ -17,12 +17,15 @@ const DEFAULT_LLM_MODEL = 'openai/gpt-oss-20b';
 // (https://console.groq.com/docs/api-reference), so an LLM_MODEL override to another family
 // must not carry the field. Low keeps these small JSON tasks inside their latency budgets and
 // spends fewer tokens of the per-minute quota on reasoning.
+// LLM_REASONING_EFFORT is validated, not passed through: one typo on Railway would otherwise
+// 400 every gpt-oss call. Anything outside the supported set falls back to low.
 const GPT_OSS = /^openai\/gpt-oss-/;
+const EFFORTS = new Set(['low', 'medium', 'high']);
 
 function reasoningParams(model) {
-  return GPT_OSS.test(String(model ?? ''))
-    ? { reasoning_effort: process.env.LLM_REASONING_EFFORT || 'low' }
-    : {};
+  if (!GPT_OSS.test(String(model ?? ''))) return {};
+  const v = String(process.env.LLM_REASONING_EFFORT ?? '').trim().toLowerCase();
+  return { reasoning_effort: EFFORTS.has(v) ? v : 'low' };
 }
 
 function hasVettedProvider() {
