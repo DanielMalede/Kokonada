@@ -11,6 +11,7 @@ import { checkAvailability, requestHealthPermissions, openHealthConnectInStore, 
 import { fetchConsentStatus, grantConsent } from '../../health/consentApi';
 import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
 import { syncMedicalProfile } from '../../health/healthSync';
+import { onWearableLinked } from '../../health/healthLaneServices';
 import { ConsentSheet } from '../profile/ConsentSheet';
 import { providersByKind } from './providers';
 import { ProviderRow } from './ProviderRow';
@@ -92,6 +93,8 @@ function defaultController(connect: ConnectStore): ConnectController {
     syncMedicalProfile: (d) => syncMedicalProfile(d),
     createConsentFlow,
     markResolved: () => connect.getState().markResolved(),
+    // H2-7: the link made here may start live heart rate (the lane still checks the grant itself).
+    onWearableLinked: () => { void onWearableLinked(); },
   });
 }
 

@@ -11,8 +11,10 @@
  *                                     watch: liveHrClient mints a whr_ device token via
  *                                     POST /watch/token and POSTs every reading to /watch/hr, for
  *                                     BOTH live-HR tiers (BLE via react-native-ble-plx, and the
- *                                     3-minute Health Connect fallback). appBootstrap.startBiometrics
- *                                     runs that chain on EVERY app start. Only the NAME is stale.
+ *                                     3-minute Health Connect fallback). Since H2 that chain starts
+ *                                     only through the mobile health lane — a wearable link AND a
+ *                                     current Art.9 grant — and the mint itself sits behind
+ *                                     requireConsent server-side. Only the NAME is stale.
  *   3. Garmin CONNECT (cloud) API   — /garmin/connect|callback|webhook|disconnect + the wearable
  *                                     services. A completely separate integration that supplies the
  *                                     signals Health Connect does not (stress, respiration, pulse-ox,
@@ -82,7 +84,7 @@ describe('surface boundary — the Connect IQ watch app is gone; the live-HR lan
     const client = read('mobile/KokonadaHealth/src/health/liveHrClient.ts');
     expect(client).toContain('/api/integrations/watch/token');
     expect(client).toContain('/api/integrations/watch/hr');
-    // The chain that runs on every app start, per appBootstrap.startBiometrics.
+    // The chain the mobile health lane starts for a linked, consented account (H2).
     expect(read('mobile/KokonadaHealth/src/health/bleHeartRate.ts')).toContain('pushLiveHr');
     expect(read('mobile/KokonadaHealth/src/health/restFallback.ts')).toContain('pushLiveHr');
   });

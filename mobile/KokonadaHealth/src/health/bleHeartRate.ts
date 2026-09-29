@@ -50,8 +50,14 @@ export function startBleHeartRate(watchToken: string, cb: LiveHrCallbacks = {}):
     manager.stopDeviceScan();
     try {
       cb.onStatus?.('Connecting…');
-      device = await scanned.connect();
+      // stop() can land while either await is pending, when `device` was not yet assigned and
+      // so could not be cancelled there. Re-check after each one and cancel the link ourselves,
+      // or a zombie connection is monitored and keeps streaming after logout / withdrawal.
+      const connected = await scanned.connect();
+      if (stopped) { connected.cancelConnection().catch(() => {}); return; }
+      device = connected;
       await device.discoverAllServicesAndCharacteristics();
+      if (stopped) { connected.cancelConnection().catch(() => {}); return; }
       cb.onStatus?.('Streaming live heart rate');
 
       device.monitorCharacteristicForService(

@@ -4,9 +4,12 @@ import { apiGet } from './net/apiClient';
 import { currentUserStore, getCurrentUserId } from './auth/currentUser';
 import type { KokonadaUser } from './auth/auth';
 import { playbackSocket, player } from './experience/playback/playbackServices';
-import { startBiometrics } from './health/biometricsWiring';
+import { connectPlayerIfLinked } from './experience/player/playerBootGate';
+import type { IntegrationsStatus } from './experience/profile/profileController';
+import { healthLane } from './health/healthLaneServices';
+import { bindLiveHrSwitchKV } from './health/liveHrSwitch';
 import { syncMedicalProfile } from './health/healthSync';
-import { warmStore, store } from './state/store';
+import { store } from './state/store';
 import { ColdPersistence } from './state/cold/coldPersistence';
 import { setColdPersistence } from './state/cold/coldPersistenceHolder';
 import { createSecureStore } from './storage/secureStoreFactory';
@@ -47,6 +50,9 @@ export async function startApp(): Promise<void> {
     // Hydrate the one-shot FTUE flag so the splash can resolve straight to Sign-in for a
     // returning (but logged-out) device, skipping Onboarding.
     bindOnboardingKV(kv);
+    // H2: the per-account wearable link on this phone (and its live-HR switch) persists through the
+    // same store; a withdrawal deletes it.
+    bindLiveHrSwitchKV({ ...kv, delete: (k: string) => { s.removeItem(k); } });
   }
 
   // Recover the logged-in identity from a stored session (currentUser is in-memory and
@@ -69,20 +75,34 @@ export async function startApp(): Promise<void> {
     bindConnectKV(connectKv, getCurrentUserId);
   }
 
+  // H2: the health lane's boot answer — does this signed-in account have a wearable link AND a
+  // current Art.9 grant? Stays false when bootstrapApp never reaches the biometrics step (no session).
+  let laneBoot: Promise<boolean> = Promise.resolve(false);
+
   await bootstrapApp({
     bootstrapSession: async () => authSession.getAccessToken() !== null,
     getUserId: getCurrentUserId,
     connectSocket: () => playbackSocket.ensureConnected(),
-    connectPlayer: () => { void player.connect(); },
-    startBiometrics: () => startBiometrics({ warm: warmStore }),
+    // H2: only a signed-in account whose Spotify link the server confirms now (fail closed).
+    connectPlayer: () => {
+      void connectPlayerIfLinked({
+        fetchIntegrations: () => apiGet<IntegrationsStatus>('/api/integrations/status'),
+        connect: () => player.connect(),
+      });
+    },
+    // H2 (DT-6): the live-HR feed, the whr_ mint and any Bluetooth use start ONLY through the
+    // health lane — a wearable link AND a fresh, current Art.9 grant; a mood-only account makes no
+    // health request at all. The lane holds the session handle, so logout / withdrawal can stop it.
+    startBiometrics: () => (laneBoot = healthLane.evaluate({ allowStart: true })),
     setupColdPersistence: makeColdPersistence,
   });
 
-  // D-4a: silent incremental medical-profile sync — only runs if Health Connect
-  // permission was already granted (never prompts), throttled to 12h via the encrypted
-  // KV, fail-soft (a missing/erroring HC degrades to no-op, never blocks bootstrap).
+  // D-4a: silent incremental medical-profile sync — never prompts, throttled to 12h via the
+  // encrypted KV, fail-soft. H2: it reads Health Connect and uploads Art.9 data, so it waits for the
+  // lane's answer and runs only when the gate is open — never signed out, never for a mood-only
+  // account, never after a withdrawal (the OS Health Connect grant survives one).
   const kvForSync = s ? { getString: (k: string) => s.getItem(k), set: (k: string, v: string) => { s.setItem(k, v); } } : null;
-  void syncMedicalProfile({ kv: kvForSync });
+  void laneBoot.then((open) => { if (open) void syncMedicalProfile({ kv: kvForSync }); }).catch(() => {});
 }
 
 // After a fresh login: wire the authenticated session (socket + biometrics + cold
@@ -90,7 +110,14 @@ export async function startApp(): Promise<void> {
 export async function onSignedIn(): Promise<void> {
   try {
     playbackSocket.ensureConnected();
-    void startBiometrics({ warm: warmStore });
+    // H2: a fresh sign-in starts the health lane from nothing. A session can die without a logout (a
+    // revoked refresh family only clears the session pair), so the teardown that stops the feed and
+    // wipes the whr_ credential may never have run: the previous account's feed can still be running,
+    // or its credential still sit in the phone's one Keychain slot. Both are stopped and forgotten
+    // BEFORE the new account's gate is read — one account's credential never carries another's
+    // readings. Then the same gate as boot: the feed starts only for an account linked here and
+    // consented.
+    void healthLane.stop({ forgetToken: true }).then(() => healthLane.evaluate({ allowStart: true }));
     if (getCurrentUserId()) {
       const cp = makeColdPersistence();
       cp.rehydrate();

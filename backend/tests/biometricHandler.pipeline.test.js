@@ -3337,3 +3337,230 @@ describe('W4-011 — S11: WAVE4_FEEDBACK_DISABLED restores the pre-wave socket b
     expect(_debounceMap.get(socket.id).playWindow).toBeNull();
   });
 });
+
+// ── request_heart_playlist — Art.9 gate (N1, H3a) ──────────────────────────────
+//
+// N1: "Listen to your heart" sent the phone's heart rate over the socket, and this handler had NO
+// consent check — it read 30 minutes of stored BiometricLog and the encrypted resting HR (with an
+// audit line), fell back to the client's value, and put the result into state.stableHR, from where
+// it reached the LLM band, generateV2's affect targets, PlaylistSession.biometricSnapshot, the
+// shadow buffer and the serve ledger. Its sibling biometric_push was gated; this one was not.
+//
+// Without a CURRENT grant (DT-S2 D-A, DT-S3 Q-A): the payload's heartRate is dropped unread, no
+// stored source is read, every Art.9 value the socket already holds is withheld, and a
+// biometric-free generation still answers the request with the same event and key set — no new
+// consent toast, no new field. No receipt may then claim "Tuned to your heart rate" (DT-S4 R-A).
+describe('request_heart_playlist — Art.9 gate (N1)', () => {
+  const consent = require('../app/services/privacy/consent');
+  const orchestrator = require('../app/services/generation/orchestrator');
+  const serveLedger = require('../app/services/ledger/serveLedger');
+  const { captureException } = require('../app/config/sentry');
+  const GRANTED = { granted: true, currentVersion: 1, staleVersion: false };
+  const NOT_GRANTED = { granted: false, currentVersion: 1, staleVersion: false };
+
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+  async function fireHeart(socket, payload) {
+    registerBiometricHandler(socket);
+    socket._trigger('request_heart_playlist', payload);
+    await settle();
+  }
+  const emitted = (socket, event) => socket.emit.mock.calls.filter(([e]) => e === event).map(([, p]) => p);
+
+  afterEach(() => { consent.getConsentStatus.mockResolvedValue(GRANTED); });
+
+  it('no grant: the client heartRate never reaches adjustBiometricPlaylist, generateV2 live, PlaylistSession.biometricSnapshot, the shadow buffer or the ledger band', async () => {
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 21, heartRate: 88 });
+
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: null, hrRatio: null }) }),
+    );
+    expect(orchestrator.generateV2).toHaveBeenCalledWith(expect.objectContaining({ live: { heartRate: null, activity: null } }));
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ biometricSnapshot: { heartRate: null, activity: null } }));
+    expect(shadowBufferRepo.setBuffer).not.toHaveBeenCalled();
+    const bands = serveLedger.recordServes.mock.calls.flatMap(([arg]) => arg.entries.map((e) => e.bioState.tempoBand));
+    expect(bands.length).toBeGreaterThan(0);
+    expect(bands.every((b) => b === null)).toBe(true);
+  });
+
+  it('no grant: no stored source is read — no BiometricLog, no MedicalProfile, no audit line, no baseline peek', async () => {
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    mockBiometricLogs([{ heartRate: 120, activity: 'running' }]);
+    MedicalProfile.findOne.mockResolvedValue({ restingHeartRate: 60 });
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 22, heartRate: 88 });
+
+    expect(BiometricLog.find).not.toHaveBeenCalled();
+    expect(MedicalProfile.findOne).not.toHaveBeenCalled();
+    expect(logBiometricAccess).not.toHaveBeenCalled();
+    // A peek on a cold cache schedules a baseline recompute, which upserts a MedicalProfile (BE-022).
+    expect(baselines.peekBaselines).not.toHaveBeenCalled();
+  });
+
+  it('no grant: exactly one playlist_ready with trigger heart and the request reqId, zero playlist_error', async () => {
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 23, heartRate: 88 });
+
+    const ready = emitted(socket, 'playlist_ready');
+    expect(ready).toHaveLength(1);
+    expect(ready[0]).toEqual(expect.objectContaining({ trigger: 'heart', reqId: 23 }));
+    expect(emitted(socket, 'playlist_error')).toHaveLength(0);
+  });
+
+  it('no grant: playlist_ready has the same key set as the granted path', async () => {
+    const granted = makeSocket('user-123');
+    await fireHeart(granted, { mode: 'live', reqId: 24, heartRate: 88 });
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    const denied = makeSocket('user-123');
+    await fireHeart(denied, { mode: 'live', reqId: 25, heartRate: 88 });
+
+    const keys = (s) => Object.keys(emitted(s, 'playlist_ready')[0]).sort();
+    expect(keys(denied)).toEqual(keys(granted));
+    const trackKeys = (s) => Object.keys(emitted(s, 'playlist_ready')[0].tracks[0]).sort();
+    expect(trackKeys(denied)).toEqual(trackKeys(granted));
+  });
+
+  it('no grant: no receipt detail mentions heart rate', async () => {
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 26, heartRate: 88 });
+
+    const details = emitted(socket, 'playlist_ready')[0].tracks.map((t) => t.receipt.detail || '');
+    expect(details.length).toBeGreaterThan(0);
+    for (const d of details) expect(d).not.toMatch(/heart/i);
+  });
+
+  it('a stale grant is treated as no grant', async () => {
+    consent.getConsentStatus.mockResolvedValue({ granted: true, currentVersion: 2, staleVersion: true });
+    mockBiometricLogs([{ heartRate: 120, activity: 'running' }]);
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 27, heartRate: 88 });
+
+    expect(BiometricLog.find).not.toHaveBeenCalled();
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ biometricSnapshot: { heartRate: null, activity: null } }));
+  });
+
+  it('a consent-store rejection fails closed and never crashes the socket', async () => {
+    consent.getConsentStatus.mockRejectedValue(new Error('MongoServerSelectionError'));
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 28, heartRate: 88 });
+
+    expect(BiometricLog.find).not.toHaveBeenCalled();
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ biometricSnapshot: { heartRate: null, activity: null } }));
+    expect(emitted(socket, 'playlist_ready')).toHaveLength(1);
+  });
+
+  it('no grant: previously held biometric state is withheld and never persisted', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    // A granted live reading first: the socket now holds a confirmed HR and the watch's activity.
+    await socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 131, activityType: 1, startTimeLocal: new Date(Date.now() - 60_000).toISOString() },
+    });
+    const held = _debounceMap.get(socket.id);
+    expect(held.stableHR).toBe(131);
+
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    socket._trigger('request_heart_playlist', { mode: 'live', reqId: 29, heartRate: 88 });
+    await settle();
+
+    expect(held.stableHR).toBeNull();
+    expect(held.filterState).toBeNull();
+    expect(held.latestActivity).toBeNull();
+    expect(held.lastReqId).toBe(29); // the request itself is still answered
+    expect(PlaylistSession.create).toHaveBeenCalledWith(expect.objectContaining({ biometricSnapshot: { heartRate: null, activity: null } }));
+    expect(shadowBufferRepo.setBuffer).not.toHaveBeenCalled();
+  });
+
+  it('current grant: consent is consulted with (user-123, health_biometric_processing) and the client HR still resolves as today', async () => {
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 30, heartRate: 88 });
+
+    expect(consent.getConsentStatus).toHaveBeenCalledWith('user-123', 'health_biometric_processing');
+    expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalledWith(
+      expect.objectContaining({ biometric: expect.objectContaining({ heartRate: 88 }) }),
+    );
+  });
+
+  it('receipt honesty: a skip_loop with no heart rate never claims heart-rate tuning', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket); // a mood-only listener: no reading was ever pushed
+    socket._trigger('track_skipped');
+    socket._trigger('track_skipped');
+    await settle();
+
+    const ready = emitted(socket, 'playlist_ready');
+    expect(ready).toHaveLength(1);
+    for (const t of ready[0].tracks) expect(t.receipt.detail || '').not.toMatch(/heart/i);
+  });
+
+  it('receipt honesty (pin): a heart generation with a real HR still says "Tuned to your heart rate"', async () => {
+    const socket = makeSocket();
+    await fireHeart(socket, { mode: 'live', reqId: 31, heartRate: 88 });
+
+    const details = emitted(socket, 'playlist_ready')[0].tracks.map((t) => t.receipt.detail);
+    expect(details.every((d) => /Tuned to your heart rate/.test(d))).toBe(true);
+  });
+
+  it.each([
+    ['the granted branch', GRANTED],
+    ['the denied branch', NOT_GRANTED],
+  ])('a generation failure on %s is captured, never an unhandledRejection', async (_label, status) => {
+    consent.getConsentStatus.mockResolvedValue(status);
+    const unhandled = jest.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      User.findById.mockRejectedValueOnce(new Error('mongo blip'));
+      const socket = makeSocket();
+      await fireHeart(socket, { mode: 'live', reqId: 32, heartRate: 88 });
+      await new Promise((r) => setImmediate(r));
+      expect(captureException).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ scope: 'generate.heart' }));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.removeListener('unhandledRejection', unhandled);
+    }
+  });
+});
+
+// H3b — what a consent withdrawal does to a socket that is still open (consentController calls this
+// for every live socket of the user, after the withdrawal row is written).
+describe('withholdSocketBiometrics (H3b)', () => {
+  const { withholdSocketBiometrics } = require('../app/sockets/biometricHandler');
+
+  it('clears the Art.9 fields, keeps intent/mode/reqId/liveMode/playbackRate, and never creates state for an unknown socket', async () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    await socket._trigger('biometric_push', {
+      source: 'garmin',
+      raw: { heartRate: 128, activityType: 1, startTimeLocal: new Date(Date.now() - 60_000).toISOString() },
+    });
+    socket._trigger('live_mode', { enabled: true });
+    socket._trigger('emotion_update', { taps: [{ x: 0.4, y: -0.2 }], textPrompt: 'rainy walk', activity: 'walking', mode: 'export' });
+    const held = _debounceMap.get(socket.id);
+    held.lastReqId = 41;
+    held.playbackRate = { tokens: 3 };
+    held.servedHR = 128;
+    held.servedBioMoodKey = 'bio:peak:running';
+    held.liveBaselines = { atMs: 1, promise: Promise.resolve(null), value: null };
+    held.liveNights = { atMs: 1, promise: Promise.resolve([]), value: [] };
+    expect(held.stableHR).toBe(128);
+
+    expect(withholdSocketBiometrics(socket.id)).toBe(true);
+
+    expect(held).toEqual(expect.objectContaining({
+      stableHR: null, pendingHR: null, servedHR: null, filterState: null, playWindow: null,
+      liveBaselines: null, liveNights: null, latestActivity: null, stableActivity: null,
+      pendingActivity: null, servedBioMoodKey: null, timer: null,
+    }));
+    expect(held).toEqual(expect.objectContaining({
+      lastEmotionTaps: [{ x: 0.4, y: -0.2 }], lastTextPrompt: 'rainy walk', lastActivity: 'walking',
+      lastMode: 'export', lastReqId: 41, liveMode: true, playbackRate: { tokens: 3 },
+    }));
+
+    expect(withholdSocketBiometrics('socket-that-never-connected')).toBe(false);
+    expect(_debounceMap.has('socket-that-never-connected')).toBe(false);
+  });
+});

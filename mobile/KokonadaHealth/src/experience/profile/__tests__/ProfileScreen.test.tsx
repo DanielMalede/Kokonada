@@ -70,6 +70,14 @@ jest.mock('../../../health/watchPairingClient', () => ({
   fetchWatchStatus: jest.fn().mockResolvedValue({ ok: true, data: { connected: false, lastSeenAt: null } }),
   revokeWatchPairing: jest.fn().mockResolvedValue({ ok: true, data: { message: 'ok' } }),
 }));
+// H2: the health-lane triggers this screen fires (a new link, a withdrawal, a live-HR Disconnect).
+// Recorders only — the lane's own behaviour is proven against stateful fakes in
+// health/__tests__/healthLane*.test.ts; this suite pins WHEN the screen fires each one.
+jest.mock('../../../health/healthLaneServices', () => ({
+  onWearableLinked: jest.fn(async () => true),
+  onConsentWithdrawn: jest.fn(async () => {}),
+  onLiveHrDisconnected: jest.fn(async () => {}),
+}));
 
 import { Linking, Alert, AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -80,6 +88,8 @@ import { warmStore } from '../../../state/store';
 import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../../health/consentApi';
 import { requestHealthPermissions, checkAvailability } from '../../../health/healthConnect';
 import { syncMedicalProfile } from '../../../health/healthSync';
+import { fetchWatchStatus, revokeWatchPairing } from '../../../health/watchPairingClient';
+import { onWearableLinked, onConsentWithdrawn, onLiveHrDisconnected } from '../../../health/healthLaneServices';
 import { colors } from '../../../design/tokens';
 
 const loadProfile = profileController.loadProfile as jest.Mock;
@@ -138,6 +148,9 @@ beforeEach(() => {
   (checkAvailability as jest.Mock).mockResolvedValue('available');
   (requestHealthPermissions as jest.Mock).mockResolvedValue([]);
   (syncMedicalProfile as jest.Mock).mockResolvedValue({ synced: false, reason: 'no-data' });
+  (fetchWatchStatus as jest.Mock).mockResolvedValue({ ok: true, data: { connected: false, lastSeenAt: null } });
+  (revokeWatchPairing as jest.Mock).mockResolvedValue({ ok: true, data: { message: 'ok' } });
+  (onConsentWithdrawn as jest.Mock).mockImplementation(async () => {});
 });
 
 describe('ProfileScreen', () => {
@@ -398,6 +411,82 @@ describe('ProfileScreen', () => {
     expect(DANGERS).not.toContain(s.backgroundColor);
     expect(DANGERS).not.toContain(s.borderColor);
     expect(DANGERS).not.toContain(flattenStyle(firstText(confirm)).color);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // Placed BEFORE T10 on purpose: T10 spies on AccessibilityInfo.isReduceMotionEnabled, which the RN
+  // jest preset already mocks, so its mockRestore() strips the implementation and any later render
+  // that calls useMotion() throws. Tests appended after T10 inherit that.
+  // ── H2: the live-HR lane follows the Vault's own actions ─────────────────────────────────────
+  it('H2: a Sync that links Health Connect tells the health lane once (an explicit wearable action)', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    (requestHealthPermissions as jest.Mock).mockResolvedValue([{ recordType: 'HeartRate', accessType: 'read' }]);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'sync-health').props.onPress(); });
+    await flush();
+    expect(onWearableLinked).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('H2: a Sync the OS throttle blocks (no grant) never reaches the lane', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    (requestHealthPermissions as jest.Mock).mockResolvedValue([]);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'sync-health').props.onPress(); });
+    await flush();
+    expect(onWearableLinked).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('H2: a successful withdrawal stops the live-HR lane, only AFTER the server recorded it', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    const order: string[] = [];
+    (withdrawConsent as jest.Mock).mockImplementation(async () => { order.push('withdrawn'); return status({ granted: false }); });
+    (onConsentWithdrawn as jest.Mock).mockImplementation(async () => { order.push('lane-stopped'); });
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { byLabel(tree, 'withdraw-consent').props.onPress(); });
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'withdraw-confirm').props.onPress(); });
+    await flush();
+    expect(order).toEqual(['withdrawn', 'lane-stopped']);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('H2: a FAILED withdrawal leaves the lane alone (consent still stands)', async () => {
+    (fetchConsentStatus as jest.Mock).mockResolvedValue(status({ granted: true }));
+    (withdrawConsent as jest.Mock).mockResolvedValue({ ok: false, error: 'network error' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { byLabel(tree, 'withdraw-consent').props.onPress(); });
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'withdraw-confirm').props.onPress(); });
+    await flush();
+    expect(onConsentWithdrawn).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('H2: a successful live-HR Disconnect switches live heart rate off and stops the lane', async () => {
+    (fetchWatchStatus as jest.Mock).mockResolvedValue({ ok: true, data: { connected: true, lastSeenAt: null } });
+    const tree = await render();
+    await flush();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'live-hr-disconnect').props.onPress(); });
+    await flush();
+    expect(revokeWatchPairing).toHaveBeenCalledTimes(1);
+    expect(onLiveHrDisconnected).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('H2: a FAILED Disconnect (the server kept the credential) leaves the lane alone', async () => {
+    (fetchWatchStatus as jest.Mock).mockResolvedValue({ ok: true, data: { connected: true, lastSeenAt: null } });
+    (revokeWatchPairing as jest.Mock).mockResolvedValue({ ok: false, status: 500, error: 'request failed (500)' });
+    const tree = await render();
+    await flush();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'live-hr-disconnect').props.onPress(); });
+    await flush();
+    expect(onLiveHrDisconnected).not.toHaveBeenCalled();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

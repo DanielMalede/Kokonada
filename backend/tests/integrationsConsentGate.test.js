@@ -39,6 +39,14 @@ describe('integrations routes — consent hard gate', () => {
     expect(ROUTES_SRC).toMatch(gated('/apple/push', 'appleHealthPush'));
   });
 
+  // H2 (DT-H2-3 option S1): the whr_ live-HR credential is minted only for a CURRENT Art.9 grant.
+  // Before this the mobile boot minted it for every signed-in user — and minting also stamps
+  // wearableProvider='garmin' — before any consent. Behaviour is proven through the real chain in
+  // watchTokenConsentGate.integration.test.js; this pin keeps the route line from regressing.
+  it('gates POST /watch/token (whr_ mint) with requireConsent', () => {
+    expect(ROUTES_SRC).toMatch(gated('/watch/token', 'issueWatchToken'));
+  });
+
   it('watch/hr is gated INLINE in the controller, not via route middleware (device-token auth, no req.user)', () => {
     // The earlier "must remain intentionally UNGATED" claim was stale: watch/hr IS gated — it just
     // cannot use the session-authed middleware, so watchHrIngest enforces the SAME consent service

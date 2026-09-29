@@ -33,6 +33,10 @@ export interface ConnectControllerDeps {
   syncMedicalProfile: (deps?: { minIntervalMs?: number }) => Promise<HealthSyncResult>;
   createConsentFlow: (deps: ConsentFlowDeps) => ConsentFlowStore;
   markResolved: () => void;
+  // H2-7: a Health Connect grant obtained through this flow is the explicit wearable-path action
+  // that may start live heart rate (healthLaneServices.onWearableLinked). Fire-and-forget and
+  // guarded: the lane's own work must never break or delay the connect flow.
+  onWearableLinked?: () => void;
 }
 
 export interface ConnectController {
@@ -54,6 +58,7 @@ export function createConnectController(deps: ConnectControllerDeps): ConnectCon
     // A wearable is now linked (a real permission grant). Satisfy the forward gate BEFORE the
     // sync — a transient upload failure must not un-connect an already-granted wearable.
     deps.markResolved();
+    try { deps.onWearableLinked?.(); } catch { /* the health lane never breaks the connect flow */ }
     const result = await deps.syncMedicalProfile({ minIntervalMs: 0 });
     if (result.synced || result.reason === 'no-data') return { kind: 'connected', result };
     return { kind: 'sync-failed', result };

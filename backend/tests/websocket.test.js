@@ -248,6 +248,31 @@ describe('biometricHandler — normalize + ack', () => {
     expect(getConsentStatus).toHaveBeenCalledWith('user-abc', 'health_biometric_processing');
   });
 
+  // H3a (DT-S3 Q-A): a denied push no longer just drops THIS reading — whatever the socket already
+  // holds from earlier (granted) readings is withheld too, so a withdrawn user's last heart rate can
+  // never feed the next generation. And it must not CREATE state for a socket that has none.
+  it('[FIX5] a denied biometric_push withholds previously held biometric state and creates none for an unknown socket', async () => {
+    const recent = (msAgo) => new Date(Date.now() - msAgo).toISOString();
+    const held = { ...makeMockSocket('user-held'), id: 'sock-held' };
+    registerBiometricHandler(held);
+    await held._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 75, activityType: 1, startTimeLocal: recent(120_000) } });
+    const state = _debounceMap.get('sock-held');
+    expect(state.stableHR).toBe(75);
+    expect(state.latestActivity).toBe('running');
+
+    getConsentStatus.mockResolvedValueOnce({ granted: false, currentVersion: 1, staleVersion: false });
+    await held._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 140, activityType: 1, startTimeLocal: recent(60_000) } });
+    expect(state.stableHR).toBeNull();
+    expect(state.latestActivity).toBeNull();
+    expect(state.filterState).toBeNull();
+
+    const fresh = { ...makeMockSocket('user-fresh'), id: 'sock-fresh' };
+    registerBiometricHandler(fresh);
+    getConsentStatus.mockResolvedValueOnce({ granted: false, currentVersion: 1, staleVersion: false });
+    await fresh._trigger('biometric_push', { source: 'garmin', raw: { heartRate: 80, activityType: 1, startTimeLocal: recent(30_000) } });
+    expect(_debounceMap.has('sock-fresh')).toBe(false);
+  });
+
   it('[FIX5] processes biometric_push normally when consent is current (ack emitted)', async () => {
     const socket = makeMockSocket();
     registerBiometricHandler(socket);

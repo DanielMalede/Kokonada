@@ -98,7 +98,10 @@ router.get('/wearable/status',       wearableStatus);
 router.delete('/wearable/:provider', deleteWearableProvider);
 
 // Garmin watch endpoints
-router.post('/watch/token',   issueWatchToken);
+// The whr_ mint issues the live-HR (special-category) credential, and it stamps the account's
+// wearableProvider — so it needs a CURRENT Art.9 grant, like every other health ingest route
+// (H2, DT-H2-3 S1). The revoke below stays ungated: a credential must always be revocable.
+router.post('/watch/token',   requireConsent(HEALTH_CONSENT), issueWatchToken);
 router.delete('/watch/token', revokeWatchToken);
 router.get('/watch/status',   watchStatus);
 

@@ -48,6 +48,8 @@ export function startRestFallback(watchToken: string, cb: LiveHrCallbacks = {}):
     if (stopped) return;
     try {
       const hr = await readLatestHealthConnectHr();
+      // stop() may have landed while the read was in flight (logout / withdrawal): drop it.
+      if (stopped) return;
       if (hr != null) {
         cb.onHr?.(hr);
         await pushLiveHr(hr, watchToken);

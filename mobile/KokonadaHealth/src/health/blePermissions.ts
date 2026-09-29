@@ -24,9 +24,31 @@ export function requiredBlePermissions(): string[] {
 }
 
 /**
+ * Report whether ALL the BLE permissions are ALREADY granted, without ever showing a prompt.
+ * This is the only BLE permission call the live-HR lane makes (H2): the "Nearby devices"
+ * prompt (and the location prompt on API 26–30) needs a prominent in-app disclosure right
+ * before it, which does not exist yet. Any read error fails closed to false.
+ */
+export async function checkBlePermissions(): Promise<boolean> {
+  const perms = requiredBlePermissions();
+  if (perms.length === 0) return false; // non-Android: no BLE path
+  try {
+    for (const p of perms) {
+      if (!(await PermissionsAndroid.check(p as any))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Request the BLE permissions and report whether ALL were granted. A single denial
  * means the caller must fall back to the REST path — never silently degrade to a
  * broken BLE stream.
+ *
+ * NOT called by the live-HR lane (H2). Reserved for the Connect page (P6), which must show
+ * the Bluetooth disclosure immediately before it; a static guard pins that nothing else calls it.
  */
 export async function requestBlePermissions(): Promise<boolean> {
   const perms = requiredBlePermissions();

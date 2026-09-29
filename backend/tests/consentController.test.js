@@ -12,7 +12,14 @@ jest.mock('../app/services/privacy/consent', () => ({
   withdrawConsent:  jest.fn().mockResolvedValue({ _id: 'c2' }),
   getConsentStatus: jest.fn(),
   CURRENT_CONSENT_VERSION: 1,
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
 }));
+// H3b: the live-socket seam a withdrawal reaches. The socket server is a recorder whose room lookup
+// returns the user's live sockets; the per-socket withhold is a recorder (its real effect on held
+// state is proven in biometricHandler.pipeline.test.js and consentWithdrawalLiveState.integration).
+const mockLiveSockets = { io: null };
+jest.mock('../app/sockets/index', () => ({ getIo: jest.fn(() => mockLiveSockets.io) }));
+jest.mock('../app/sockets/biometricHandler', () => ({ withholdSocketBiometrics: jest.fn(() => true) }));
 // auth middleware loads the caller from the DB; supply a live, non-deleted user.
 jest.mock('../app/models/User', () => ({
   findById: jest.fn((id) => ({ select: () => Promise.resolve({ _id: id }) })),
@@ -123,6 +130,60 @@ describe('POST /api/consent/withdraw', () => {
     const res = await request(app).post('/api/consent/withdraw').send({ purpose: PURPOSE });
     expect(res.status).toBe(401);
     expect(consentService.withdrawConsent).not.toHaveBeenCalled();
+  });
+});
+
+// H3b (DT-S6 W-A) — a withdrawal used to stop at the database: a live socket kept its held heart
+// rate, play-window samples and baselines in memory, wrote them into the next (mood) generation's
+// PlaylistSession and fed them to the rewards. After the withdrawal row is written, every live
+// socket of the user has its held Art.9 state withheld. The socket stays up (W-B's disconnect would
+// strand the client, which does not auto-reconnect after a server-initiated disconnect).
+describe('POST /api/consent/withdraw — reaching the user\'s live sockets (H3b)', () => {
+  const { getIo } = require('../app/sockets/index');
+  const { withholdSocketBiometrics } = require('../app/sockets/biometricHandler');
+
+  function liveSockets(ids, { fail = false } = {}) {
+    const fetchSockets = jest.fn(async () => {
+      if (fail) throw new Error('adapter unavailable');
+      return ids.map((id) => ({ id }));
+    });
+    const inRoom = jest.fn(() => ({ fetchSockets }));
+    mockLiveSockets.io = { in: inRoom };
+    return { inRoom, fetchSockets };
+  }
+
+  afterEach(() => { mockLiveSockets.io = null; });
+
+  it('withdraw (health purpose) withholds state on every live socket of the user, after the withdrawal row', async () => {
+    const { inRoom, fetchSockets } = liveSockets(['sock-phone', 'sock-tablet']);
+    consentService.getConsentStatus.mockResolvedValue({ granted: false, currentVersion: 1, staleVersion: false });
+    const res = await request(app).post('/api/consent/withdraw').set(...bearer()).send({ purpose: PURPOSE });
+
+    expect(res.status).toBe(200);
+    expect(inRoom).toHaveBeenCalledWith('user:u1');
+    expect(withholdSocketBiometrics.mock.calls.map(([id]) => id)).toEqual(['sock-phone', 'sock-tablet']);
+    expect(consentService.withdrawConsent.mock.invocationCallOrder[0])
+      .toBeLessThan(fetchSockets.mock.invocationCallOrder[0]);
+  });
+
+  it('withdraw still answers with the status when the purge throws', async () => {
+    liveSockets([], { fail: true });
+    consentService.getConsentStatus.mockResolvedValue({ granted: false, currentVersion: 1, staleVersion: false });
+    const res = await request(app).post('/api/consent/withdraw').set(...bearer()).send({ purpose: PURPOSE });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ granted: false, currentVersion: 1, staleVersion: false });
+    expect(withholdSocketBiometrics).not.toHaveBeenCalled();
+  });
+
+  it('no socket server: the withdrawal is unchanged', async () => {
+    mockLiveSockets.io = null;
+    consentService.getConsentStatus.mockResolvedValue({ granted: false, currentVersion: 1, staleVersion: false });
+    const res = await request(app).post('/api/consent/withdraw').set(...bearer()).send({ purpose: PURPOSE });
+
+    expect(res.status).toBe(200);
+    expect(getIo).toHaveBeenCalled();
+    expect(withholdSocketBiometrics).not.toHaveBeenCalled();
   });
 });
 

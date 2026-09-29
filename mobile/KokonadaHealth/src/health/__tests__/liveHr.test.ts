@@ -25,17 +25,21 @@ jest.mock('react-native', () => ({
   PermissionsAndroid: {
     PERMISSIONS: { BLUETOOTH_SCAN: 'scan', BLUETOOTH_CONNECT: 'connect', ACCESS_FINE_LOCATION: 'loc' },
     RESULTS: { GRANTED: 'granted', DENIED: 'denied' },
+    // H2: the lane only READS the grant (check); requestMultiple stays mocked so a regression
+    // that re-introduces the boot-time prompt is caught by the not.toHaveBeenCalled pins below.
+    check: jest.fn(),
     requestMultiple: jest.fn(),
   },
 }));
 
 import { PermissionsAndroid } from 'react-native';
 import { parseHeartRateMeasurement, shouldSend, newGateState, isPlausibleHr } from '../hrMeasurement';
-import { FALLBACK_INTERVAL_MS, readLatestHealthConnectHr } from '../restFallback';
+import { FALLBACK_INTERVAL_MS, readLatestHealthConnectHr, startRestFallback } from '../restFallback';
 import { startLiveHr } from '../liveHr';
 
 const readRecords = require('react-native-health-connect').readRecords as jest.Mock;
 const requestMultiple = PermissionsAndroid.requestMultiple as unknown as jest.Mock;
+const check = PermissionsAndroid.check as unknown as jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -87,20 +91,54 @@ describe('REST fallback', () => {
     });
     expect(await readLatestHealthConnectHr(new Date('2026-07-01T10:03:00Z'))).toBe(66);
   });
+
+  // H2 race gap: stop() can land while a tick is awaiting Health Connect. The tick must re-check
+  // after the await, or one reading leaks into the warm lane and one push leaves the device
+  // AFTER logout / withdrawal.
+  it('a tick whose Health Connect read resolves AFTER stop() emits no reading and pushes nothing', async () => {
+    let release!: (v: unknown) => void;
+    readRecords.mockImplementationOnce(() => new Promise((r) => { release = r; }));
+    const onHr = jest.fn();
+    const ctrl = startRestFallback('fake-test-token', { onHr });
+    await new Promise((r) => setImmediate(r)); // let the tick reach the pending read
+    expect(readRecords).toHaveBeenCalledTimes(1);
+
+    ctrl.stop();
+    release({ records: [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 71 }] }] });
+    await new Promise((r) => setImmediate(r));
+
+    expect(onHr).not.toHaveBeenCalled();
+    expect((global as any).fetch).not.toHaveBeenCalled();
+  });
+
+  it('control: the same tick WITHOUT a stop does emit and push (the fake is live)', async () => {
+    readRecords.mockResolvedValueOnce({ records: [{ samples: [{ time: new Date().toISOString(), beatsPerMinute: 71 }] }] });
+    const onHr = jest.fn();
+    const ctrl = startRestFallback('fake-test-token', { onHr });
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    expect(onHr).toHaveBeenCalledWith(71);
+    expect((global as any).fetch).toHaveBeenCalledTimes(1);
+    ctrl.stop();
+  });
 });
 
 describe('startLiveHr — strict BLE→REST selection', () => {
+  // H2 (DT-H2-2 option 1): the selection reads the EXISTING grant and never prompts — the
+  // "Nearby devices" prompt needs a disclosure right before it, which only P6 will provide.
   it('uses BLE when permission is granted', async () => {
-    requestMultiple.mockResolvedValue({ scan: 'granted', connect: 'granted' });
+    check.mockImplementation(async (p: string) => p === 'scan' || p === 'connect');
     const session = await startLiveHr();
     expect(session.mode).toBe('ble');
+    expect(requestMultiple).not.toHaveBeenCalled();
     session.stop();
   });
 
   it('falls back to the 3-minute REST push when BLE permission is denied', async () => {
-    requestMultiple.mockResolvedValue({ scan: 'denied', connect: 'granted' });
+    check.mockImplementation(async (p: string) => p === 'connect'); // scan not granted
     const session = await startLiveHr();
     expect(session.mode).toBe('rest-fallback');
+    expect(requestMultiple).not.toHaveBeenCalled();
     session.stop();
   });
 });

@@ -10,7 +10,8 @@ import type { WatchStatus } from '../../health/watchPairingClient';
 // Connect IQ app was retired. The pairing seam is gone, but the whr_ device token it shared is
 // still live: the PHONE mints it (liveHrClient.getWatchToken → POST /watch/token) for both live-HR
 // tiers — BLE via react-native-ble-plx and the 3-minute Health Connect fallback — and every reading
-// rides it to POST /watch/hr.
+// rides it to POST /watch/hr. Since H2 it is minted only through the health lane (a linked wearable
+// plus a current Art.9 grant), and the server refuses the mint without that grant.
 //
 // This card exists for ONE reason: Disconnect. Revoking that long-lived health credential was
 // reachable only from the retired card, and dropping it with the pairing flow would have left a
@@ -19,6 +20,15 @@ import type { WatchStatus } from '../../health/watchPairingClient';
 // Honest-empty by default (SCREENS §8): a failed status read renders "not connected" rather than
 // asserting a connection we could not confirm, and a failed revoke keeps the affordance on screen
 // rather than pretending the credential is gone.
+
+// H2 (compliance C1): what the not-connected state tells the user must match what the app does. Live
+// heart rate runs only through the health lane — a linked wearable AND health data (the Art.9
+// consent) on — and a Disconnect here keeps it off, durably, until the next wearable link ("Sync now"
+// under Health data). The old line promised it "starts on its own once a source is available",
+// which H2 made false. Plain wording, no provider names; pinned verbatim by the card's suite.
+export const LIVE_HR_NOT_CONNECTED_NOTE =
+  'Not connected. Live heart rate runs only while a wearable is linked and health data is on. '
+  + 'After you disconnect, it stays off until you sync health data again.';
 
 function relativeLastSeen(iso: string | null): string {
   if (!iso) return 'never seen';
@@ -95,9 +105,7 @@ export function LiveHeartRateCard({ fetchStatus, revoke, triggerHaptic = fireHap
           </Pressable>
         </>
       ) : (
-        <Text style={[styles.caption, { color: c.content.secondary }]}>
-          Not connected — live heart rate starts on its own once a source is available.
-        </Text>
+        <Text style={[styles.caption, { color: c.content.secondary }]}>{LIVE_HR_NOT_CONNECTED_NOTE}</Text>
       )}
     </View>
   );

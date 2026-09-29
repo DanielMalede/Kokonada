@@ -21,11 +21,12 @@ export async function bootstrapApp(deps: AppBootstrapDeps): Promise<void> {
   try {
     const authed = await deps.bootstrapSession();
 
-    // Spotify has its own token plane — attempt the player regardless of the
-    // Kokonada session so a returning user with a linked Spotify keeps playback.
-    deps.connectPlayer();
-
     if (!authed) return;
+
+    // H2: the player is attempted only with a Kokonada session — a signed-out connect fell
+    // through to Spotify's login screen at launch. The prod binding adds the "linked" half
+    // (experience/player/playerBootGate).
+    deps.connectPlayer();
 
     deps.connectSocket();
     // Fire-and-forget, but never let a rejected biometrics start surface as an

@@ -17,6 +17,7 @@ import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../health/
 import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
 import { createConnectController, type WearableOutcome } from '../connect/connectController';
 import { fetchWatchStatus, revokeWatchPairing } from '../../health/watchPairingClient';
+import { onWearableLinked, onConsentWithdrawn, onLiveHrDisconnected } from '../../health/healthLaneServices';
 import { PROVIDERS } from '../connect/providers';
 import { SPOTIFY_BETA_CONNECT } from '../connect/betaFlags';
 import { ProfileIntegrationRow } from './ProfileIntegrationRow';
@@ -71,6 +72,9 @@ export function ProfileScreen() {
     syncMedicalProfile: (d) => syncMedicalProfile(d),
     createConsentFlow,
     markResolved: () => setConsentGranted(true),
+    // H2-7: a Health Connect link made from "Sync now" is an explicit wearable action — it may
+    // start live heart rate, and switches it back on after a Disconnect.
+    onWearableLinked: () => { void onWearableLinked(); },
   }), []);
 
   const reload = useCallback(() => {
@@ -180,12 +184,25 @@ export function ProfileScreen() {
     setWithdrawing(true);
     try {
       const res = await withdrawConsent();
-      if (res.ok) { if (mountedRef.current) setConsentGranted(false); }
-      else Alert.alert('Could not withdraw consent', 'Please try again when you have a connection.');
+      if (res.ok) {
+        if (mountedRef.current) setConsentGranted(false);
+        // H2: the withdrawal is recorded — stop live heart rate on this device now (it used to run
+        // until the process died) and forget the credential the server-side erasure just revoked.
+        await onConsentWithdrawn();
+      } else Alert.alert('Could not withdraw consent', 'Please try again when you have a connection.');
     } finally {
       if (mountedRef.current) setWithdrawing(false);
     }
   };
+
+  // H2 (compliance B5/C2): Disconnect on the Live heart rate card is DURABLE. Once the server says the
+  // credential is gone, live heart rate is switched off for this account (it stays off across
+  // restarts until the next wearable link) and the running feed stops. A failed revoke changes nothing.
+  const revokeLiveHr = useCallback(async () => {
+    const res = await revokeWatchPairing();
+    if (res.ok) await onLiveHrDisconnected();
+    return res;
+  }, []);
 
   const onLogout = async () => {
     setBusy(true);
@@ -311,7 +328,7 @@ export function ProfileScreen() {
 
         {/* Live heart rate — status of the phone-held whr_ device credential, and the only place
             it can be revoked. Replaced the retired Connect IQ pairing-code card. */}
-        <LiveHeartRateCard fetchStatus={fetchWatchStatus} revoke={revokeWatchPairing} />
+        <LiveHeartRateCard fetchStatus={fetchWatchStatus} revoke={revokeLiveHr} />
 
         {/* Health-data Vault — consent summary, "what we read", Sync, and the neutral withdrawal. */}
         <VaultConsentPanel
