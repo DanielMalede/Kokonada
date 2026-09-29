@@ -27,16 +27,17 @@ The orchestration directive is **`docs/ORCHESTRATOR_FABLE.md`** (the "main" syst
 
 ## Build-time agents (`.claude/agents/`) — the team that writes Kokonada
 
-Dispatch work to these seven named sub-agents (all Opus, all read the docs above). Pair a `developer` with the reviewers a task needs; **UI screens also get `designer`**; anything touching a third-party API/store/brand also gets `compliance-auditor`.
+Dispatch work to these eight named sub-agents (all Opus, all read the docs above). Pair a `developer` with the reviewers a task needs; **UI screens also get `designer`**; anything touching a third-party API/store/brand also gets `compliance-auditor`. **A page is built only through `/page`** — gates G0–G14 of `docs/plans/DESIGN_V2_PLAN.md`: the architect charter and the compliance, regulatory and state briefs come before any pixel, every verdict is recorded with its input SHA, and a fix re-runs the gate that found it.
 
 - **`architect`** — read-only. Principal-level analysis + dependency-ordered plans; surfaces forks as decision tables. Invoke before any non-trivial change.
-- **`designer`** — read-only. Design lead: authors the Vision Frame + tokens + per-screen direction, and gives the **SHIP / REVISE** design-review verdict. No screen merges without a `designer` SHIP.
+- **`designer`** — read-only. Design lead: authors the Vision Frame + tokens + per-page direction on live HTML boards, and gives the **SHIP / REVISE** verdict on on-device Design Lab captures. No screen merges without a `designer` SHIP.
 - **`developer`** — full tools. Builds ONE scoped task under strict TDD; real (on-device) evidence, never green mocks.
 - **`resilience-auditor`** — read-only. Master QA: stress/boundary tests, fault-tree root-cause, hunts false-greens, pins regression guards.
 - **`compliance-auditor`** — read-only (+ web). Verifies external-API/store/branding surfaces against current TOS and **HALTs** on ban/rejection risk; mandatory gate before store submission.
 - **`custodian`** — full tools. Repo hygiene & structural truth: dead code, unused deps, orphan assets, config/doc sprawl, surface-boundary drift. Proves death before removing and pins a guard so it cannot return. Reviews are **risk-tiered** (report-only → suite-only → one jurisdiction reviewer → full squad), never all five by default. Runs **between** waves, never inside one, and never touches untracked human work.
 
-- **`regulatory-researcher`** — read-only (+ web). EU technology regulation: AI Act, GDPR, and the adjacent instruments. Retrieves primary sources, maps which obligations attach under each possible classification, and prepares a dossier counsel can act on in an hour. **Prepares, never decides** — a legal classification is the owner's and counsel's, and an agent does not change that. Distinct from `compliance-auditor`, which reads a *provider's* terms; this one reads *law*.
+- **`regulatory-researcher`** — read-only (+ web). Technology and privacy law in every market the app ships to: the EU (AI Act, GDPR and the adjacent instruments), the UK (UK GDPR), the US (Washington My Health My Data Act, FTC Health Breach Notification Rule, CCPA/CPRA, COPPA) and Israel (Privacy Protection Law Amendment 13, IS 5568 accessibility). Retrieves primary sources, maps which obligations attach under each possible classification, and prepares a dossier counsel can act on in an hour. **Prepares, never decides** — a legal classification is the owner's and counsel's, and an agent does not change that. Distinct from `compliance-auditor`, which reads a *provider's* terms; this one reads *law*.
+- **`sentinel`** — read-only on code; writes only `WEAKNESSES_AND_FAILURES.md`. Strategic risk officer: looks at the whole product from above (end-to-end usability, the platform floor, the legal calendar, the owner's capacity), ranks each risk by when it bites, and gives every finding a solution or an explicit NEEDS ATTENTION. **Manual invocation only:** before a strategic decision, a store submission or a scope expansion, and at G1 of any page that touches a provider.
 
 No agent merges or approves its own work. Cloud portals = Pause & Guide (stop and hand the human a tutorial).
 
@@ -49,7 +50,8 @@ No agent merges or approves its own work. Cloud portals = Pause & Guide (stop an
 - **`KOKONADA_ARCHITECTURE_MASTER.md` §0** — authoritative current state (supersedes all).
 - **`docs/ORCHESTRATOR_FABLE.md`** — the orchestration directive (agents, workflow, gates, session-start).
 - **`docs/VISION.md`** — product vision (body + mind → music; the "magic moment").
-- **`docs/UI_UX_OVERHAUL_SPEC.md`** — design language (Calm × Bioluminescent) + APPROVED VISUAL DIRECTION.
+- **`docs/plans/DESIGN_V2_PLAN.md`** — the approved from-zero redesign (owner decisions of 2026-09-23) and the page pipeline G0–G14 that `/page` runs. Where an older design doc conflicts with it, it wins until ADR-0017 records the chosen direction.
+- **`docs/UI_UX_OVERHAUL_SPEC.md`** — the v1 design language; superseded where it conflicts with `docs/plans/DESIGN_V2_PLAN.md` and ADR-0017 (pending).
 - **`docs/SCREENS.md`** — per-screen catalog + build queue + per-screen Definition of Done.
 - **`docs/MASTER_BLUEPRINT_2026-07-07.md`** — the execution roadmap (waves).
 - **`docs/RUNTIME_AGENT_ARCHITECTURE.md`** — the app's runtime multi-agent system.
