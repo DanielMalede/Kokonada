@@ -90,6 +90,7 @@ describe('decommissioned Groq model guard', () => {
       const rels = files.map((f) => f.rel);
       expect(files.length).toBeGreaterThan(100);
       expect(rels).toEqual(expect.arrayContaining([
+        'app/config/llmProvider.js', // holds DEFAULT_LLM_MODEL, the one code default
         'app/services/llmClient.js',
         'app/services/geminiEngine.js',
         '.env.example',

@@ -138,6 +138,18 @@ describe('llmClient.generateJson', () => {
     await expect(generateJson('p')).resolves.toBe('{"ok":1}');
   });
 
+  // The tempting "fix" for an empty answer is to fall back to message.reasoning. That field is the
+  // model's scratchpad: it can hold a well-formed JSON draft the model then rejected.
+  it('returns "" when content is empty, even if reasoning holds valid JSON', async () => {
+    axios.post.mockResolvedValue({
+      data: {
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '', reasoning: '{"ok":1}' } }],
+      },
+    });
+
+    await expect(generateJson('p')).resolves.toBe('');
+  });
+
   it('throws a descriptive error when unconfigured', async () => {
     delete process.env.LLM_API_KEY;
     delete process.env.GROQ_API_KEY;

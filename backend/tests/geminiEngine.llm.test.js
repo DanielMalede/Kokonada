@@ -200,6 +200,18 @@ describe('generation model and request shape', () => {
 
     expect(result.params.target_bpm).toBe(120);
   });
+
+  it('empty content fails as empty (caller falls back) even when reasoning holds valid params JSON', async () => {
+    axios.post.mockResolvedValue({
+      data: {
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '', reasoning: JSON.stringify(VALID) } }],
+      },
+    });
+
+    await expect(
+      buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn(), seed: 'empty-content' }),
+    ).rejects.toThrow('empty response');
+  });
 });
 
 // One `[llm]` line per generation call, success or failure, carrying no prompt, no content, no key.
