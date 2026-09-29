@@ -3,8 +3,9 @@
 The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC-<n>.md`. This index is never a gate input (`.claude/commands/page.md`, G2). Prepared 2026-09-29 for Stage 0 step L1, at repo HEAD `b9639c5`.
 
 - **DECIDED, DEC-001 to DEC-038.** DEC-001 to DEC-020 are the rows of the decisions table in `docs/plans/DESIGN_V2_PLAN.md` (section "ההחלטות שלך"); DEC-021 to DEC-034 are its defaults not asked (section "ברירות מחדל שלא נשאלו"); all dated 2026-09-23. DEC-035 to DEC-038 are the owner's answers of 2026-09-29, given by selecting an option in the session; each entry quotes his selection, and the designer's V0 synthesis §7 (`Kokonada-private/design-v2/v0/synthesis-2026-09-29.md`, outside the repo) is the designer's record of it. The four mood names of plan line 41 are in DEC-013, the row that carries them.
-- **Opened 2026-09-29, DEC-039 to DEC-096.** Every owner question in `cmp-compliance.md` §4, `reg-eu.md` §8, `reg-world-and-dossier.md` PART 4 and `qa-resilience.md` §5, and five of the sentinel's proposals. Where several sources ask the same question, one entry quotes each of them. The owner ruled DEC-052, DEC-055, DEC-062 and DEC-066 on 2026-09-29 (one ruling covers DEC-055 and DEC-066); the rest are OPEN.
+- **Opened 2026-09-29, DEC-039 to DEC-096.** Every owner question in `cmp-compliance.md` §4, `reg-eu.md` §8, `reg-world-and-dossier.md` PART 4 and `qa-resilience.md` §5, and five of the sentinel's proposals. Where several sources ask the same question, one entry quotes each of them. The owner ruled DEC-052, DEC-055, DEC-062 and DEC-066 on 2026-09-29 (one ruling covers DEC-055 and DEC-066), and DEC-040, DEC-041, DEC-043, DEC-051 and DEC-091 on 2026-09-30; the rest are OPEN.
 - **Added after the architect's L1 review (round 1), DEC-097 and DEC-098.** DEC-097 is the HALT closure rule (the review's Fork C), ruled by the owner on 2026-09-29. DEC-098 is the dark re-sample from the V0 synthesis §7 item 5, asked on 2026-09-29 and OPEN.
+- **From the architect's Track HX plan, DEC-099 to DEC-101** (its DT-4, DT-8 and DT-9), asked and ruled by the owner on 2026-09-30. DEC-101 is read together with DEC-097: it says what "verified on device" means for a fix with no device path.
 - **Titles** are the scribe's English labels. The quoted text in each file is the record.
 - **A ruling** is recorded only from the owner's own message (`.claude/commands/page.md`, owner gates).
 
@@ -49,10 +50,10 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-037](decisions/DEC-037.md) | Pebble: kept for the warm look as a whole | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:208` (the owner's session answer is quoted in the entry) | — |
 | [DEC-038](decisions/DEC-038.md) | Hue set B is out; set A is used everywhere | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:209` (the owner's session answer is quoted in the entry) | — |
 | [DEC-039](decisions/DEC-039.md) | Is the Spotify-derived taste model "building profiles of users"? | OPEN | 2026-09-29 | cmp-compliance.md §4 item 1 | CMP-018 |
-| [DEC-040](decisions/DEC-040.md) | Drop the YouTube → Spotify translation path, or ask Spotify | OPEN | 2026-09-29 | cmp-compliance.md §4 item 2 | CMP-021 |
-| [DEC-041](decisions/DEC-041.md) | The retention window for provider track data | OPEN | 2026-09-29 | cmp-compliance.md §4 item 3 | CMP-024 |
+| [DEC-040](decisions/DEC-040.md) | Drop the YouTube → Spotify translation path, or ask Spotify | DECIDED (ruled 2026-09-30) | 2026-09-30 | cmp-compliance.md §4 item 2 | CMP-021 |
+| [DEC-041](decisions/DEC-041.md) | The retention window for provider track data | DECIDED (ruled 2026-09-30) | 2026-09-30 | cmp-compliance.md §4 item 3 | CMP-024 |
 | [DEC-042](decisions/DEC-042.md) | Is App Remote playback a Spotify "Streaming SDA"? | OPEN | 2026-09-29 | cmp-compliance.md §4 item 4 | CMP-033 |
-| [DEC-043](decisions/DEC-043.md) | A domain and Google OAuth verification for youtube.readonly, or YouTube stays deferred | OPEN | 2026-09-29 | cmp-compliance.md §4 item 5 | CMP-050 |
+| [DEC-043](decisions/DEC-043.md) | A domain and Google OAuth verification for youtube.readonly, or YouTube stays deferred | DECIDED (ruled 2026-09-30) | 2026-09-30 | cmp-compliance.md §4 item 5 | CMP-050 |
 | [DEC-044](decisions/DEC-044.md) | Legal entity, controller and D-U-N-S number | OPEN | 2026-09-29 | cmp-compliance.md §4 item 6; reg-eu.md §8 D-03; reg-world-and-dossier.md PART 4 DEC-W01; sentinel-calendar.md C2 and proposed row | CMP-051, CMP-093, REG-024, REG-025, REG-201, REG-202, REG-249, REG-252, REG-254, REG-257 |
 | [DEC-045](decisions/DEC-045.md) | Which Garmin agreement variant applies, and when to serve the 30-day notice | OPEN | 2026-09-29 | cmp-compliance.md §4 item 7 | CMP-052 |
 | [DEC-046](decisions/DEC-046.md) | How to obtain the Garmin Connect tile | OPEN | 2026-09-29 | cmp-compliance.md §4 item 8 | CMP-060 |
@@ -60,7 +61,7 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-048](decisions/DEC-048.md) | Adopt Garmin's §15.10 AI transparency statement in the privacy policy | OPEN | 2026-09-29 | cmp-compliance.md §4 item 10 | CMP-064 |
 | [DEC-049](decisions/DEC-049.md) | The route through Play's 12-tester closed test given Spotify's 5-user cap | OPEN | 2026-09-29 | cmp-compliance.md §4 item 11 | CMP-092 |
 | [DEC-050](decisions/DEC-050.md) | Minimum age, the age check and the Play target audience | OPEN | 2026-09-29 | cmp-compliance.md §4 item 12; reg-eu.md §8 D-06; reg-world-and-dossier.md PART 4 DEC-W04 | CMP-094, REG-042, REG-043, REG-203, REG-204, REG-224, REG-225, REG-240, REG-241, REG-263 |
-| [DEC-051](decisions/DEC-051.md) | The Google button label in Hebrew and right-to-left | OPEN | 2026-09-29 | cmp-compliance.md §4 item 13 | CMP-103 |
+| [DEC-051](decisions/DEC-051.md) | The Google button label in Hebrew and right-to-left | DECIDED (ruled 2026-09-30) | 2026-09-30 | cmp-compliance.md §4 item 13 | CMP-103 |
 | [DEC-052](decisions/DEC-052.md) | May Bellefair replace F6's serif voice face? | DECIDED (ruled 2026-09-29) | 2026-09-29 | cmp-compliance.md §4 item 14 | CMP-125 |
 | [DEC-053](decisions/DEC-053.md) | Translate Spotify's link-back labels, or keep English | OPEN | 2026-09-29 | cmp-compliance.md §4 item 15 | CMP-131 |
 | [DEC-054](decisions/DEC-054.md) | Trademark clearance on "Kokonada" | OPEN | 2026-09-29 | cmp-compliance.md §4 item 16; sentinel-calendar.md C4 and proposed row | CMP-137 |
@@ -100,7 +101,7 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-088](decisions/DEC-088.md) | The v1 module set for the import ban and the importer ratchet | OPEN | 2026-09-29 | qa-resilience.md §5 D9 | QA-053, QA-054 |
 | [DEC-089](decisions/DEC-089.md) | The consent transition window | OPEN | 2026-09-29 | qa-resilience.md §5 D10 | QA-140 |
 | [DEC-090](decisions/DEC-090.md) | Where P12's 1000 ms budget ends | OPEN | 2026-09-29 | qa-resilience.md §5 D11 | QA-160 |
-| [DEC-091](decisions/DEC-091.md) | Who signs a RETIRE entry | OPEN | 2026-09-29 | qa-resilience.md §5 D12 | QA-041, QA-118 |
+| [DEC-091](decisions/DEC-091.md) | Who signs a RETIRE entry | DECIDED (ruled 2026-09-30) | 2026-09-30 | qa-resilience.md §5 D12 | QA-041, QA-118 |
 | [DEC-092](decisions/DEC-092.md) | The Spotify "no Premium" and "another device active" states | OPEN | 2026-09-29 | qa-resilience.md §5 D13 | QA-123, QA-124 |
 | [DEC-093](decisions/DEC-093.md) | Required status checks on main | OPEN | 2026-09-29 | qa-resilience.md §5 D14 | QA-074 |
 | [DEC-094](decisions/DEC-094.md) | Touch-target exemptions | OPEN | 2026-09-29 | qa-resilience.md §5 D15 | QA-028 |
@@ -108,6 +109,9 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-096](decisions/DEC-096.md) | The owner's Spotify Premium renewal date | OPEN | 2026-09-29 | sentinel-calendar.md A4, Unverified 8 and proposed row | — |
 | [DEC-097](decisions/DEC-097.md) | HALT closure: a fix lane now, and a HALT closes on main | DECIDED (ruled 2026-09-29) | 2026-09-29 | architect-review-r1.md §3 Fork C | CMP-008, CMP-021, CMP-022, CMP-023, CMP-026, CMP-043, CMP-045, CMP-046, CMP-066, CMP-081, CMP-086 |
 | [DEC-098](decisions/DEC-098.md) | The dark re-sample: F1, D2 and B8 re-voted in the board's dark mode | OPEN | 2026-09-29 | Kokonada-private/design-v2/v0/synthesis-2026-09-29.md §5 question 5 and §7 item 5 | — |
+| [DEC-099](decisions/DEC-099.md) | Up Next until P3, whose Spotify rows carry no link to each track (DT-4) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HX_PLAN.md DT-4 | — |
+| [DEC-100](decisions/DEC-100.md) | The Spotify disconnect in the current app (DT-8) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HX_PLAN.md DT-8 | — |
+| [DEC-101](decisions/DEC-101.md) | What 'verified on device' means for a fix with no device path (DT-9) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HX_PLAN.md DT-9 | — |
 
 ## Source numbers and their DEC- entries
 
@@ -189,6 +193,9 @@ The source files number their owner questions themselves. The registry bodies an
 | sentinel-calendar.md | A4, Unverified 8 and proposed row | DEC-096 |
 | architect-review-r1.md §3 | Fork C | DEC-097 |
 | Kokonada-private/design-v2/v0/synthesis-2026-09-29.md | §5 question 5 and §7 item 5 | DEC-098 |
+| HX_PLAN.md | DT-4 | DEC-099 |
+| HX_PLAN.md | DT-8 | DEC-100 |
+| HX_PLAN.md | DT-9 | DEC-101 |
 
 ## Merged questions
 
@@ -203,14 +210,22 @@ The source files number their owner questions themselves. The registry bodies an
 
 ## Rulings recorded
 
-Each was selected by the owner on 2026-09-29, in the session, from the options of a question; the entry quotes the question, the selected option and, where the option carried one, its description.
+Each was selected by the owner in the session, on the date shown, from the options of a question; the entry quotes the question, the selected option and, where the option carried one, its description.
 
-- **DEC-035** (The plate dot: a bead with a small halo): "חרוז עם הילה קטנה (מומלץ)".
-- **DEC-036** (The rim words: the axis ends): "קצוות הצירים (מומלץ)".
-- **DEC-037** (Pebble: kept for the warm look as a whole): "המראה החם כולו".
-- **DEC-038** (Hue set B is out; set A is used everywhere): "על הצבעים עצמם".
-- **DEC-052** (May Bellefair replace F6's serif voice face?): "כן, Bellefair לקול (מומלץ)".
-- **DEC-055** (Keep the Art. 50 notice on every inferred-state surface under every option): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-066.
-- **DEC-062** (The "Working" and "Focus" chips): "להסיר (מומלץ)".
-- **DEC-066** (A consent-step slot before the first tap on P2 and P10): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-055.
-- **DEC-097** (HALT closure: a fix lane now, and a HALT closes on main): "מסלול תיקון עכשיו (מומלץ)".
+- **DEC-035** (2026-09-29; The plate dot: a bead with a small halo): "חרוז עם הילה קטנה (מומלץ)".
+- **DEC-036** (2026-09-29; The rim words: the axis ends): "קצוות הצירים (מומלץ)".
+- **DEC-037** (2026-09-29; Pebble: kept for the warm look as a whole): "המראה החם כולו".
+- **DEC-038** (2026-09-29; Hue set B is out; set A is used everywhere): "על הצבעים עצמם".
+- **DEC-052** (2026-09-29; May Bellefair replace F6's serif voice face?): "כן, Bellefair לקול (מומלץ)".
+- **DEC-055** (2026-09-29; Keep the Art. 50 notice on every inferred-state surface under every option): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-066.
+- **DEC-062** (2026-09-29; The "Working" and "Focus" chips): "להסיר (מומלץ)".
+- **DEC-066** (2026-09-29; A consent-step slot before the first tap on P2 and P10): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-055.
+- **DEC-097** (2026-09-29; HALT closure: a fix lane now, and a HALT closes on main): "מסלול תיקון עכשיו (מומלץ)".
+- **DEC-040** (2026-09-30; Drop the YouTube → Spotify translation path, or ask Spotify): "לכבות (מומלץ)".
+- **DEC-041** (2026-09-30; The retention window for provider track data): "30 יום (מומלץ)".
+- **DEC-043** (2026-09-30; A domain and Google OAuth verification for youtube.readonly, or YouTube stays deferred): "להשאיר דחוי (מומלץ)".
+- **DEC-051** (2026-09-30; The Google button label in Hebrew and right-to-left): "אנגלית עד F7 (מומלץ)".
+- **DEC-091** (2026-09-30; Who signs a RETIRE entry): "אני, מראש לתוכנית (מומלץ)".
+- **DEC-099** (2026-09-30; Up Next until P3, whose Spotify rows carry no link to each track (DT-4)): "להסתיר עד P3 (מומלץ)".
+- **DEC-100** (2026-09-30; The Spotify disconnect in the current app (DT-8)): "כפתור ניתוק בפרופיל (מומלץ)".
+- **DEC-101** (2026-09-30; What 'verified on device' means for a fix with no device path (DT-9)): "מכשיר או בדיקה בייצור (מומלץ)".
