@@ -40,7 +40,7 @@ Before any mass rollout, present a **Vision Frame** for sign-off:
 2. 2–3 mockup directions within Calm/Premium × Bioluminescent,
 3. **one fully-built hero screen** (the Generate screen) running on-device.
 After approval → free hand *within* the approved system. No approval-fishing on every screen; no unbounded "overhaul the whole codebase" in one commit.
-> *Superseded (DESIGN_V2_PLAN):* the gate is V0/V1 (`/vision-frame`), then G0–G14 per page (`/page`); approval boards are live HTML, the SHIP contract is on-device Design Lab captures, and the owner approves at G3, G6 and G13.
+> *Superseded (DESIGN_V2_PLAN):* the gate is V0/V1 (`/vision-frame`), then G0–G14 per page (`/page`); approval boards are live HTML, the G12 SHIP is measured, read from the G11 device-evidence report and checked against the captures (Design Lab captures serve only G8 and V1), and the owner approves at G3, G6 and G13.
 
 **Incremental delivery:** PR-per-screen, each with before/after on-device screenshots as closing evidence. Big-bang rewrites are unreviewable and get rejected.
 
