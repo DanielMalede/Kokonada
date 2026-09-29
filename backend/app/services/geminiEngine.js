@@ -21,6 +21,11 @@ const TEMPO_CATEGORIES = ['resting', 'active', 'peak'];
 
 const LLM_TIMEOUT_MS = 5_000;
 
+// One default shared with llmClient (config/llmProvider); override with LLM_MODEL
+// globally, or per call. Resolved ONCE per call so the cache key and the request name
+// the same model.
+const _resolveModel = (override = null) => override || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
+
 // Generation against the VETTED OpenAI-compatible provider (Groq via LLM_API_KEY).
 // Wave-0 egress containment: the old silent fallback to Google Gemini's free tier —
 // training-eligible, no Zero-Data-Retention — is REMOVED. With no vetted key configured
@@ -31,9 +36,7 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_
   if (!llmKey) {
     throw new Error('No vetted LLM provider configured (set LLM_API_KEY) — refusing to call an unvetted endpoint');
   }
-  // One default shared with llmClient (config/llmProvider); override with LLM_MODEL
-  // globally, or per call.
-  const model   = modelOverride || process.env.LLM_MODEL || DEFAULT_LLM_MODEL;
+  const model   = _resolveModel(modelOverride);
   // Groq's free tier caps tokens-per-minute. Under load, generation 429s and — without a
   // retry — the whole playlist silently collapses to the static fallback (the "tracks=10,
   // ignores the activity" symptom). chatJson rides out the 429 honoring Retry-After;
@@ -266,21 +269,23 @@ Choose musical parameters that match a "${band}" intensity. Output ONLY a valid 
 // as a sub-processor in the privacy policy / DPA. Wave-0 egress containment: prompts carry
 // NO name/email/userId, NO special-category vitals, NO raw free-text, and NO Spotify Content
 // — only abstract emotion coords, activity, closed-vocabulary intent tags, and mood-descriptor
-// genres. The Redis cache key is md5(prompt) and the cached VALUE is only the derived AI
-// params (target_bpm, etc.); the md5 key is not reversible.
+// genres. The Redis cache key is `gemini:<model>:md5(prompt)` and the cached VALUE is only
+// the derived AI params (target_bpm, etc.); the md5 is not reversible. The model is in the
+// key so a model switch never replays the previous model's params for the 24 h TTL.
 async function _callLlm(prompt) {
   const redis = getRedis();
+  const model = _resolveModel();
   let cacheKey = null;
 
   if (redis) {
-    cacheKey = `gemini:${crypto.createHash('md5').update(prompt).digest('hex')}`;
+    cacheKey = `gemini:${model}:${crypto.createHash('md5').update(prompt).digest('hex')}`;
     try {
       const cached = await redis.get(cacheKey);
       if (cached) return JSON.parse(cached);
     } catch { /* cache miss — proceed to API */ }
   }
 
-  const parsed = _parseAndValidate(await _generate(prompt));
+  const parsed = _parseAndValidate(await _generate(prompt, { model }));
 
   if (redis && cacheKey) {
     redis.setex(cacheKey, 86_400, JSON.stringify(parsed)).catch(() => {});
