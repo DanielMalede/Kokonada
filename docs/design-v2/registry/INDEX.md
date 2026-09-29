@@ -6,17 +6,18 @@ Prepared 2026-09-29 for Stage 0 step L1 of `docs/plans/DESIGN_V2_PLAN.md`, at re
 - **Kinds of scribe change:** owner-decision numbers in the three source files replaced with their DEC- IDs; four QA dependencies named by topic resolved to registry IDs; one email address in a quoted agreement omitted. REG-001 to REG-089 also carry `source keys`: the full reference behind each `[Kn]` the body cites, from the key table in `reg-eu.md` §0.
 - **Counts:** CMP 137, REG 153 (REG-001 to REG-089 from the EU run; REG-200 to REG-263 from the worldwide run; the REG numbers 090 to 199 are reserved for the EU run and unused), QA 164. Total 454.
 - **Authors:** CMP, `compliance-auditor` (`cmp-compliance.md`); REG, `regulatory-researcher` (`reg-eu.md`, `reg-world-and-dossier.md`); QA, `resilience-auditor` (`qa-resilience.md`).
+- **DSN-** is reserved for design rules, which ADR-0017 mints at V1. None exist yet.
 - **Status column:** the leading status word. A `+` means the entry's status line carries a qualifier; read the file.
 - **Related files:** `docs/design-v2/registry/state-label-review.md` (the state-label table, `reg-eu.md` §6); `docs/design-v2/counsel/counsel-dossier-2026-09-29.md`; `docs/design-v2/calendar.md`.
 
 ## HALT items
 
-Fifteen CMP entries carry status HALT. The text is `cmp-compliance.md` §3, word for word. A HALT blocks every store submission, every provider review and every release build that goes to anyone other than the owner; it closes at the owning page's G12, with the fix verified on the device (`cmp-compliance.md`, status legend).
+Fifteen CMP entries carry status HALT. The text is `cmp-compliance.md` §3, word for word, with one scribe substitution noted below the table. A HALT blocks every store submission, every provider review and every release build that goes to anyone other than the owner. It closes when its fix is on main and verified on device, in the HALT fix lane, which must finish before P2's G1 (the owner's ruling DEC-097; TASKS `ARCH-011`). That replaces `cmp-compliance.md`'s status legend, under which a HALT closed at the owning page's G12.
 
 | # | ID | Title | Applies to | §3 text | TASKS | DEC |
 |---|---|---|---|---|---|---|
 | 1 | `CMP-008` | Link back to the exact Spotify content | P3, P4, P8, F10 | `mobile/KokonadaHealth/src/experience/player/spotifyLinkBack.ts:27` opens bare `spotify:`, which breaks Spotify Policy II.4.2. Risk: loss of the Spotify client. Fix: open the playing item's own URI. | MB-043 | — |
-| 2 | `CMP-021` | The YouTube library is played through Spotify | backend, P2, P3, P6 | `backend/app/services/crossPlatform.js:57-95` plays the YouTube library through Spotify (Spotify III.5). Risk: loss of the Spotify client. Fix: pin the translation off until the owner rules (DEC-). | BE-035 | DEC-040 |
+| 2 | `CMP-021` | The YouTube library is played through Spotify | backend, P2, P3, P6 | `backend/app/services/crossPlatform.js:57-95` plays the YouTube library through Spotify (Spotify III.5). Risk: loss of the Spotify client. Fix: pin the translation off until the owner rules DEC-040. | BE-035 | DEC-040 |
 | 3 | `CMP-022` | Spotify content is never stored indefinitely | backend, server plumbing, P8, P3 | `backend/app/models/PlaylistSession.js:39-53` and `workers/sessionTrim.worker.js:8,25` keep Spotify content indefinitely (Terms IV.3.1.a). Fix: a TTL on the window picked in CMP-024. | BE-021 | DEC-041 |
 | 4 | `CMP-023` | Delete Spotify personal data within 5 days of disconnect | backend, P9 | The Spotify disconnect never purges `PlaylistSession` (Terms V.8 and Appendix A §5.c, 5 days). Fix: purge on disconnect, with a test. | BE-021 | — |
 | 5 | `CMP-026` | Privacy policy shown before sign-up (Spotify) | P11, P14, store listing | No privacy policy exists, and `SignInScreen.tsx:62-116` has no link (Spotify Terms V.12). This is a condition of the API access the app uses now. Fix: host the policy (DAN-015) and link it on sign-in. | MB-034, DAN-015 | — |
@@ -30,6 +31,8 @@ Fifteen CMP entries carry status HALT. The text is `cmp-compliance.md` §3, word
 | 13 | `CMP-086` | No misleading health or capability claims | P2, P4, P7, P8, P10, P13, store listing | `PulseScreen.tsx:207-210` shows "N% read confidence", which presents rule coverage as accuracy (Play health claims; Apple 1.4.1 later). Risk: rejection, and the screenshots cannot be used. Fix: a word, not a number, per the plan's default, or remove it. | UI-008, UI-020 | — |
 | 14 | `CMP-099` | Official Sign in with Google button | P11, F1, F2, F10 | `SignInScreen.tsx:78-97` draws a home-made Google button. Risk: failed Google app verification. Fix: the spec colours, the standard G and Google Sans, or the pre-approved assets. | MB-036 | — |
 | 15 | `CMP-120` | Remove General Sans (FF EULA) from the app and the repo | F6, P12, P14, Q1 | General Sans ships under the FF EULA in three `.otf` copies, next to a licence file misnamed `OFL.txt` (`tokens.ts:245`). This is a licence breach (legal P0). Fix: plan step S9, replaced by an OFL face (F6). | UI-013 | — |
+
+Scribe substitution: in item 2 (`CMP-021`), the source's placeholder "(DEC-)" is written as DEC-040, the entry it stands for (the architect's L1 review, round 1, finding 14).
 
 The owner-decision items marked NEEDS OWNER are not HALTs. The Garmin surfaces stay dormant until CMP-051 is resolved.
 
