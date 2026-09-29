@@ -48,7 +48,7 @@ describe('sentry scrubber — request credentials (headers and cookies)', () => 
 
   // The event exactly as the SDK shapes it: the real RequestData integration, run by the production
   // client class configured the way app/config/sentry.js configures it (sendDefaultPii: false).
-  function sdkShapedEvent(headers) {
+  function sdkShapedEvent(headers, data) {
     const client = new SentryNode.NodeClient({
       integrations: [],
       transport: () => ({ send: async () => ({}), flush: async () => true }),
@@ -63,11 +63,26 @@ describe('sentry scrubber — request credentials (headers and cookies)', () => 
           url: 'https://api.kokonada.app/api/integrations/hydrate-library?state=CANARY-STATE',
           query_string: 'state=CANARY-STATE',
           headers,
+          ...(data !== undefined ? { data } : {}),
         },
       },
     };
     return SentryNode.requestDataIntegration().processEvent(event, {}, client);
   }
+
+  // B1 — the Http integration buffers every incoming body (@sentry/core http/server-subscription.js
+  // patchRequestToCaptureBody, default 'medium' = 10 kB, no sendDefaultPii check) and RequestData
+  // ALWAYS attaches it (requestdata.js `data: true`). Login, refresh and SSO bodies are credentials.
+  it('strips the request body the SDK attaches (request.data)', () => {
+    const body = '{"email":"a@b.c","password":"CANARY-PW","refreshToken":"CANARY-REFRESH"}';
+    const shaped = sdkShapedEvent(BENIGN, body);
+    expect(shaped.request.data).toBe(body); // precondition: the SDK really attaches it
+
+    const out = scrubEvent(shaped);
+
+    expect(out.request).not.toHaveProperty('data');
+    expect(JSON.stringify(out.request)).not.toMatch(/CANARY/);
+  });
 
   it('(precondition) the SDK really attaches the credentials under sendDefaultPii:false', () => {
     const event = sdkShapedEvent({ ...BENIGN, ...CREDENTIALS });
@@ -139,6 +154,145 @@ describe('sentry scrubber — request credentials (headers and cookies)', () => 
     expect(() => scrubEvent({ request: { url: 'https://x/y', headers: null } })).not.toThrow();
     expect(() => scrubEvent({ request: { url: 'https://x/y' } })).not.toThrow();
   });
+
+  // A credential scrubber must fail CLOSED: if scrubbing throws halfway, returning the event would
+  // ship it half-scrubbed. beforeSend returning null drops the event instead.
+  it('fails closed: an event that makes scrubbing throw is dropped (null), never sent half-scrubbed', () => {
+    const hostile = { request: { url: 'https://x/y?secret=CANARY' } };
+    Object.defineProperty(hostile.request, 'headers', { enumerable: true, get() { throw new Error('boom'); } });
+
+    expect(scrubEvent(hostile)).toBeNull();
+  });
+});
+
+// B2 — the server span's attributes (node-core httpServerSpansIntegration: http.url, http.target
+// WITH the query, http.client_ip from X-Forwarded-For; net.peer.ip on response) land in
+// contexts.trace.data of every sampled transaction, and outgoing client spans / breadcrumbs carry
+// url.full and http.query. The Garmin push's permanent credential is `?secret=`.
+describe('sentry scrubber — query strings and client addresses in spans and breadcrumbs', () => {
+  const SERVER_SPAN_DATA = () => ({
+    'http.method': 'POST',
+    'http.url': 'https://api.kokonada.app/api/integrations/garmin/webhook?secret=CANARY-SECRET',
+    'http.target': '/api/integrations/garmin/webhook?secret=CANARY-SECRET',
+    'url.full': 'https://api.kokonada.app/api/integrations/garmin/webhook?secret=CANARY-SECRET#frag',
+    'http.query': 'secret=CANARY-SECRET',
+    'url.query': 'secret=CANARY-SECRET',
+    'http.client_ip': '203.0.113.77',
+    'net.peer.ip': '203.0.113.77',
+    'net.host.ip': '10.0.0.5',
+    'http.status_code': 200,
+  });
+
+  it('cuts the query off url attributes and deletes query and client-address attributes, keeping the rest', () => {
+    const out = scrubEvent({
+      type: 'transaction',
+      contexts: { trace: { op: 'http.server', data: SERVER_SPAN_DATA() } },
+      spans: [{ op: 'http.client', data: { 'url.full': 'https://api.spotify.com/v1/search?q=CANARY-ARTIST', 'http.query': '?q=CANARY-ARTIST', 'http.method': 'GET' } }, { op: 'db' }],
+    });
+
+    expect(out.contexts.trace.data).toEqual({
+      'http.method': 'POST',
+      'http.url': 'https://api.kokonada.app/api/integrations/garmin/webhook',
+      'http.target': '/api/integrations/garmin/webhook',
+      'url.full': 'https://api.kokonada.app/api/integrations/garmin/webhook',
+      'net.host.ip': '10.0.0.5',
+      'http.status_code': 200,
+    });
+    expect(out.spans[0].data).toEqual({ 'url.full': 'https://api.spotify.com/v1/search', 'http.method': 'GET' });
+    expect(out.spans[1]).toEqual({ op: 'db' });
+  });
+
+  // Found by the closing-evidence run: the SDK copies request headers into span attributes as
+  // `http.request.header.<name>` and cookies as `http.request.header.cookie.<cookie-name>`, masking
+  // only names on its sensitive-snippet list. `sid` is masked; a cookie named `io` shipped raw, and
+  // `x-suunto-signature` ("signature" is not a snippet) ships raw too.
+  it('deletes credential header attributes — every cookie, authorization, the webhook headers — from span data', () => {
+    const out = scrubEvent({
+      type: 'transaction',
+      contexts: {
+        trace: {
+          data: {
+            'http.request.header.cookie.io': 'CANARY-IO-COOKIE',
+            'http.request.header.cookie.sid': '[Filtered]',
+            'http.request.header.authorization': '[Filtered]',
+            'http.request.header.proxy_authorization': 'CANARY-PROXY',
+            'http.request.header.x_suunto_signature': 'CANARY-SUUNTO-SIG',
+            'http.request.header.x_garmin_webhook_secret': '[Filtered]',
+            'http.request.header.x_api_key': '[Filtered]',
+            'http.response.header.set_cookie.session': 'CANARY-SET-COOKIE',
+            'http.request.header.user_agent': 'okhttp/4.12',
+            'http.request.header.content_type': 'application/json',
+          },
+        },
+      },
+    });
+
+    expect(out.contexts.trace.data).toEqual({
+      'http.request.header.user_agent': 'okhttp/4.12',
+      'http.request.header.content_type': 'application/json',
+    });
+  });
+
+  it('cuts the query off outgoing-request breadcrumbs (http.query, url)', () => {
+    const out = scrubEvent({
+      breadcrumbs: [
+        { category: 'http', data: { url: 'https://api.spotify.com/v1/search?q=CANARY-ARTIST', 'http.query': '?q=CANARY-ARTIST', status_code: 200 } },
+        { category: 'console', message: 'hello' },
+      ],
+    });
+
+    expect(out.breadcrumbs[0].data).toEqual({ url: 'https://api.spotify.com/v1/search', status_code: 200 });
+    expect(out.breadcrumbs[1]).toEqual({ category: 'console', message: 'hello' });
+  });
+
+  // A real transaction event through the production client class: RequestData attaches the
+  // request (URL, query, body), beforeSendTransaction runs, and the envelope is what would ship.
+  it('a transaction with a query secret, a client IP and a body reaches the envelope with none of them', async () => {
+    const sent = [];
+    const client = new SentryNode.NodeClient({
+      dsn: 'https://public@o0.ingest.sentry.io/0',
+      integrations: [SentryNode.requestDataIntegration()],
+      transport: () => ({ send: async (envelope) => { sent.push(envelope); return {}; }, flush: async () => true }),
+      stackParser: SentryNode.defaultStackParser,
+      sendDefaultPii: false,
+      beforeSend: scrubEvent,
+      beforeSendTransaction: scrubEvent,
+    });
+    try {
+      client.init();
+      const scope = new SentryNode.Scope();
+      scope.setClient(client);
+      scope.setSDKProcessingMetadata({
+        normalizedRequest: {
+          method: 'POST',
+          url: 'https://api.kokonada.app/api/integrations/garmin/webhook?secret=CANARY-SECRET',
+          query_string: 'secret=CANARY-SECRET',
+          headers: { host: 'api.kokonada.app', 'x-forwarded-for': '203.0.113.77' },
+          data: '{"dailies":[],"note":"CANARY-BODY"}',
+        },
+        ipAddress: '203.0.113.77',
+      });
+      const now = Date.now() / 1000;
+      client.captureEvent({
+        type: 'transaction',
+        transaction: 'POST /api/integrations/garmin/webhook',
+        start_timestamp: now - 0.05,
+        timestamp: now,
+        contexts: { trace: { trace_id: '0123456789abcdef0123456789abcdef', span_id: '0123456789abcdef', op: 'http.server', data: SERVER_SPAN_DATA() } },
+        spans: [],
+      }, {}, scope);
+      await client.flush(2000);
+
+      expect(sent).toHaveLength(1);
+      const wire = JSON.stringify(sent);
+      expect(wire).toContain('"type":"transaction"');
+      expect(wire).toContain('/api/integrations/garmin/webhook'); // the transaction really shipped…
+      expect(wire).not.toMatch(/CANARY/);                        // …without the secret or the body
+      expect(wire).not.toContain('203.0.113.77');                 // …or the client address
+    } finally {
+      await client.close(100);
+    }
+  });
 });
 
 // beforeSend runs for ERROR events only; transaction events go through beforeSendTransaction
@@ -151,10 +305,14 @@ describe('initSentry wires the scrubber for both error and transaction events', 
     delete process.env.SENTRY_DSN;
   });
 
+  const mockSdk = (init, httpIntegration) => jest.doMock('@sentry/node', () => ({
+    init, httpIntegration, setupExpressErrorHandler: jest.fn(), captureException: jest.fn(),
+  }));
+
   it('passes scrubEvent as beforeSend AND beforeSendTransaction', () => {
     jest.resetModules();
     const init = jest.fn();
-    jest.doMock('@sentry/node', () => ({ init, setupExpressErrorHandler: jest.fn(), captureException: jest.fn() }));
+    mockSdk(init, jest.fn(() => ({ name: 'Http' })));
     process.env.SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0';
 
     const sentry = require('../app/config/sentry');
@@ -164,5 +322,23 @@ describe('initSentry wires the scrubber for both error and transaction events', 
     expect(options.sendDefaultPii).toBe(false);
     expect(options.beforeSend).toBe(sentry.scrubEvent);
     expect(options.beforeSendTransaction).toBe(sentry.scrubEvent);
+  });
+
+  // B1 at the source: `maxIncomingRequestBodySize: 'none'` → @sentry/node integrations/http.js:21
+  // maps it to the server integration's maxRequestBodySize → @sentry/core
+  // integrations/http/server-subscription.js:54 skips patchRequestToCaptureBody when it is 'none'.
+  // Passing an `Http` instance in `integrations` REPLACES the default one (core integration.js
+  // filterDuplicates: a user instance wins over the default of the same name).
+  it('replaces the default Http integration with one that never buffers incoming bodies', () => {
+    jest.resetModules();
+    const init = jest.fn();
+    const httpIntegration = jest.fn((options) => ({ name: 'Http', options }));
+    mockSdk(init, httpIntegration);
+    process.env.SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0';
+
+    require('../app/config/sentry').initSentry(null);
+
+    expect(httpIntegration).toHaveBeenCalledWith({ maxIncomingRequestBodySize: 'none' });
+    expect(init.mock.calls[0][0].integrations).toEqual([{ name: 'Http', options: { maxIncomingRequestBodySize: 'none' } }]);
   });
 });
