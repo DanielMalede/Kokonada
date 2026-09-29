@@ -51,7 +51,7 @@ const { PersonalWeights } = require('../app/models/PersonalWeights');
 const garmin         = require('../app/services/wearable/garmin');
 const { getRedis, __fake: fakeRedis } = require('../app/config/redis');
 const {
-  purgeWearableData, clearWearableCredentials, eraseWearableProvider, WEARABLE_PROVIDERS,
+  purgeWearableData, purgeOrphanedAggregates, clearWearableCredentials, eraseWearableProvider, WEARABLE_PROVIDERS,
 } = require('../app/services/privacy/wearableErasure');
 
 const USER = '507f1f77bcf86cd799439011';
@@ -226,6 +226,39 @@ describe('eraseWearableProvider — Garmin deregistration (Wave 6 T4, flag-gated
     // erasure was NOT blocked by the Garmin failure
     expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
     expect(res.biometricLogs).toBe(5);
+  });
+});
+
+// HX-1 (F1) — the derived-aggregate rule on its own. The live lane's compensating delete removes a
+// reading that landed after a withdrawal's erasure; every count that erasure took saw the reading,
+// so the aggregates survived it. The compensation re-applies THIS rule — the same code the erasure
+// runs, never a copy — and nothing else: no sample delete, no Redis key.
+describe('purgeOrphanedAggregates — the rule purgeWearableData applies after its deletes', () => {
+  it('drops MedicalProfile and MorningState when no HR and no vital samples remain, and reports the counts', async () => {
+    await expect(purgeOrphanedAggregates(USER)).resolves.toEqual({ medicalProfiles: 1, morningStates: 2 });
+    expect(BiometricLog.countDocuments).toHaveBeenCalledWith({ userId: USER });
+    expect(VitalSample.countDocuments).toHaveBeenCalledWith({ userId: USER });
+    expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId: USER });
+    expect(MorningState.deleteMany).toHaveBeenCalledWith({ userId: USER });
+  });
+
+  it.each([['an HR sample', BiometricLog], ['a vital sample', VitalSample]])('keeps both while %s remains', async (_label, Model) => {
+    Model.countDocuments.mockResolvedValue(1);
+    await expect(purgeOrphanedAggregates(USER)).resolves.toEqual({ medicalProfiles: 0, morningStates: 0 });
+    expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
+    expect(MorningState.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('deletes no sample and touches no Redis key', async () => {
+    await purgeOrphanedAggregates(USER);
+    expect(BiometricLog.deleteMany).not.toHaveBeenCalled();
+    expect(VitalSample.deleteMany).not.toHaveBeenCalled();
+    expect(fakeRedis.del).not.toHaveBeenCalled();
+  });
+
+  it('propagates a store failure to its caller (the erasure isolates it per provider, the compensation logs it)', async () => {
+    MedicalProfile.deleteMany.mockRejectedValue(Object.assign(new Error('boom'), { name: 'MongoNetworkError' }));
+    await expect(purgeOrphanedAggregates(USER)).rejects.toThrow('boom');
   });
 });
 
