@@ -23,17 +23,28 @@ function denialReason(status) {
 }
 
 /**
- * The socket form: may this user's biometric input be processed right now? Never throws — a
- * missing identity or a consent-store failure answers false (fail closed). The user id is passed to
- * the consent service exactly as received.
+ * The socket form, with its reason: may this user's biometric input be processed right now, and if
+ * not, why? Never throws. `consent_not_current` when the store answered and the grant is not current
+ * (withdrawn, never granted, stale, or no identity); `consent_read_error` when the store could not be
+ * read — fail closed either way. The error itself is not carried: its message can quote values.
+ * The user id is passed to the consent service exactly as received.
  */
-async function admitHealthProcessing(userId) {
-  if (!userId) return false;
+async function healthProcessingVerdict(userId) {
+  if (!userId) return { admitted: false, reason: 'consent_not_current' };
+  let status;
   try {
-    return isCurrentGrant(await consent.getConsentStatus(userId, consent.HEALTH_CONSENT_PURPOSE));
+    status = await consent.getConsentStatus(userId, consent.HEALTH_CONSENT_PURPOSE);
   } catch {
-    return false;
+    return { admitted: false, reason: 'consent_read_error' };
   }
+  return isCurrentGrant(status)
+    ? { admitted: true, reason: null }
+    : { admitted: false, reason: 'consent_not_current' };
 }
 
-module.exports = { isCurrentGrant, denialReason, admitHealthProcessing };
+/** The socket form: the verdict's admitted bit. Never throws; fails closed (see above). */
+async function admitHealthProcessing(userId) {
+  return (await healthProcessingVerdict(userId)).admitted;
+}
+
+module.exports = { isCurrentGrant, denialReason, healthProcessingVerdict, admitHealthProcessing };

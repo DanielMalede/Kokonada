@@ -25,7 +25,9 @@ jest.mock('../app/services/privacy/consent', () => ({
 const express = require('express');
 const request = require('supertest');
 const consent = require('../app/services/privacy/consent');
-const { isCurrentGrant, denialReason, admitHealthProcessing } = require('../app/services/privacy/healthConsentGate');
+const {
+  isCurrentGrant, denialReason, admitHealthProcessing, healthProcessingVerdict,
+} = require('../app/services/privacy/healthConsentGate');
 const requireConsent = require('../app/middleware/requireConsent');
 
 beforeEach(() => {
@@ -80,6 +82,41 @@ describe('admitHealthProcessing — the socket form: never throws, fails closed'
     expect(consent.getConsentStatus).toHaveBeenCalledTimes(1);
     expect(consent.getConsentStatus.mock.calls[0][0]).toBe(oid);
     expect(consent.getConsentStatus.mock.calls[0][1]).toBe('health_biometric_processing');
+  });
+});
+
+// HX-1 — the same gate, saying WHY it failed closed. The post-insert re-check must log whether the
+// store answered "not current" or could not be read, and admitHealthProcessing cannot tell them apart.
+describe('healthProcessingVerdict — the socket gate with its reason', () => {
+  it('current → admitted, no reason', async () => {
+    mockGrants.set('u', { granted: true, staleVersion: false });
+    await expect(healthProcessingVerdict('u')).resolves.toEqual({ admitted: true, reason: null });
+  });
+
+  it('withdrawn, never granted or stale → consent_not_current', async () => {
+    for (const row of [{ granted: false, staleVersion: false }, { granted: true, staleVersion: true }]) {
+      mockGrants.set('u', row);
+      await expect(healthProcessingVerdict('u')).resolves.toEqual({ admitted: false, reason: 'consent_not_current' });
+    }
+    await expect(healthProcessingVerdict('nobody')).resolves.toEqual({ admitted: false, reason: 'consent_not_current' });
+  });
+
+  it('a store rejection → consent_read_error, never throws, carries no error text', async () => {
+    mockStoreDown = true;
+    await expect(healthProcessingVerdict('u')).resolves.toEqual({ admitted: false, reason: 'consent_read_error' });
+  });
+
+  it('no userId → consent_not_current without touching the store', async () => {
+    await expect(healthProcessingVerdict(undefined)).resolves.toEqual({ admitted: false, reason: 'consent_not_current' });
+    expect(consent.getConsentStatus).not.toHaveBeenCalled();
+  });
+
+  it('admitHealthProcessing is exactly its admitted bit, for every store state', async () => {
+    for (const [row, down] of [[{ granted: true, staleVersion: false }, false], [{ granted: true, staleVersion: true }, false], [{ granted: false, staleVersion: false }, false], [{ granted: true, staleVersion: false }, true]]) {
+      mockGrants.set('u', row);
+      mockStoreDown = down;
+      expect(await admitHealthProcessing('u')).toBe((await healthProcessingVerdict('u')).admitted);
+    }
   });
 });
 
