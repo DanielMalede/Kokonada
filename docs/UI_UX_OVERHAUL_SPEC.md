@@ -4,6 +4,7 @@
 > **Design language:** *Calm / Premium Wellness × Bioluminescent Depth.*
 > The app is a living instrument that fuses the human nervous system with sound. It does not decorate data — it **breathes with the user, to calm the user.**
 > **Status:** Scheduled design phase. Persisted as the authoritative spec for Wave 2.8; the Master Blueprint references this file.
+> **Superseded in part (2026-09-23)** by `docs/plans/DESIGN_V2_PLAN.md` and ADR-0017 (pending), which supersedes ADR-0009. Where they conflict with this spec, they win. The vision, the regulator ethic (§1), the sacred contracts (§0) and the §7 rulings stand until ADR-0017 says otherwise.
 
 ---
 
@@ -11,7 +12,9 @@
 
 Reviewed against concept mockups and approved. Build the Vision Frame to **this**:
 - **Light "Clinical Premium" is the PRIMARY / default mode** — airy, white-based, frosted, generous whitespace. **Dark "Bioluminescence" is the alternate.**
+> *Superseded (DESIGN_V2_PLAN / ADR-0017 pending):* both faces are equal and follow the OS, dark when the OS reports nothing.
 - **Reactive emotion accent** — the bio-aura, the emotion-wheel tap dots, and the primary CTA all re-tint to the current emotion (from the valence×arousal circumplex): Calm = teal, Joyful = amber/coral, Intense = violet/magenta, Reflective = indigo. Per the regulator ethic, high-arousal negative states stay **soft — never an alarming red.**
+> *Superseded (DESIGN_V2_PLAN / ADR-0017 pending):* the CTA tints only from the user's own placement, never from an inferred state; legal surfaces are never tinted; hues are OKLCH at least 70° apart, never red.
 - **Large floating aura is the signature element** — a big, soft, breathing field (~half the screen) behind the hero and, above all, the **Genesis** moment. It MUST run on the UI thread, be frame-rate-independent and reduced-motion-aware, and degrade under low-power/thermal (per §6).
 - **Genesis = no spinner** — a breathing neural-particle field + one calm status line.
 - **Restraint everywhere else** so the wheel + aura are the stars; WCAG 2.2 AA maintained for all text over the aura/gradients.
@@ -27,6 +30,7 @@ This is the north-star feel the token system (§2) and the screen rollout (§4 /
 **Do NOT start until all are true:**
 - PR #101 (Spotify playback authorization + vector-icon bundling) is fixed, merged, and **device-verified**.
 - Wave 2.6 / D1 tooling (Tamagui / Moti / Lottie / bootsplash / vector-icons) merged.
+> *Superseded (ADR-0017 pending):* Tamagui, Moti and Lottie are out — StyleSheet + v2 tokens (DTCG → Style Dictionary) + own primitives; Skottie where a Lottie file is needed.
 - Defects D-3 (History nomenclature) and D-4 (Pulse display) resolved.
 - Runs **before** Wave 3 (store submission); **merge/coordinate with A12 a11y (Wave 2.3)** so accessibility is done once.
 
@@ -36,6 +40,7 @@ Before any mass rollout, present a **Vision Frame** for sign-off:
 2. 2–3 mockup directions within Calm/Premium × Bioluminescent,
 3. **one fully-built hero screen** (the Generate screen) running on-device.
 After approval → free hand *within* the approved system. No approval-fishing on every screen; no unbounded "overhaul the whole codebase" in one commit.
+> *Superseded (DESIGN_V2_PLAN):* the gate is V0/V1 (`/vision-frame`), then G0–G14 per page (`/page`); approval boards are live HTML, the G12 SHIP is measured, read from the G11 device-evidence report and checked against the captures (Design Lab captures serve only G8 and V1), and the owner approves at G3, G6 and G13.
 
 **Incremental delivery:** PR-per-screen, each with before/after on-device screenshots as closing evidence. Big-bang rewrites are unreviewable and get rejected.
 
@@ -52,12 +57,14 @@ After approval → free hand *within* the approved system. No approval-fishing o
 **Dual state:**
 - **Light — "Clinical Premium":** airy, frosted-glass (glassmorphism) with **solid, contrast-safe fallbacks** (glass must still pass WCAG AA).
 - **Dark — "Bioluminescence":** deep OLED-optimised, luminous accents used as *depth*, not neon chaos. Seamless animated toggle.
+> *Superseded (DESIGN_V2_PLAN):* neither face is primary — both are equal and follow the OS.
 
 ---
 
 ## 2. THE DESIGN SYSTEM (tokens — zero magic numbers)
 
 All styling flows from a centralised Tamagui token architecture; no hardcoded values in components.
+> *Superseded (ADR-0017 pending):* tokens are DTCG → Style Dictionary → StyleSheet, not Tamagui.
 
 - **Color:** semantic matrices — `surface / content / accent / state / emotionAccent`. `emotionAccent` derives from valence×arousal so the palette shifts with mood (reuse the existing circumplex + `deriveAuraUniforms`). Full light + dark maps. **Every pairing verified WCAG 2.2 AA (AAA for body text where feasible), including over glass/gradient.**
 - **Type:** modular scale + full **Dynamic Type** support. One expressive display face + one highly legible text face. No fixed pixel type.
@@ -65,6 +72,7 @@ All styling flows from a centralised Tamagui token architecture; no hardcoded va
 - **Motion tokens:** durations + **easing curves as tokens** (calm = slower, organic spring signatures). **Every motion token ships a `prefers-reduced-motion` variant** and a low-power variant.
 - **Haptics vocabulary:** a curated, semantic set (`selection`, `commit`, `success`, `warning`) — subtle, respect system settings/silent, never spammy.
 - **Earcons:** **OFF by default, opt-in**, subtle, respect silent mode and a11y. (Correcting "earcon on every state change" — that harms accessibility and delight.)
+> *Superseded (DESIGN_V2_PLAN):* no earcons at launch, here and in §3 — ruled out under the Spotify terms.
 
 ---
 
@@ -87,6 +95,7 @@ All styling flows from a centralised Tamagui token architecture; no hardcoded va
 - **Auth:** Sign in with Apple / Google to **exact HIG** dimensions, fonts, and placement.
 - **Generate (HERO — build first for the Vision Frame):** aura + radial wheel + activity chips + prompt + the morphing CTA (Generate ↔ "Listen to your heart" ↔ disabled).
 - **Now Playing:** full-screen, album-art gyro-parallax, fluid transport, mix receipts.
+> *Superseded (DESIGN_V2_PLAN):* no motion on cover art (Spotify terms).
 - **Pulse:** the biometric dashboard — calm gauge fills, friendly status labels, and **honest empty states** ("Not shared by your watch") rather than bare dashes. (Body Battery / Daily Readiness are Garmin-proprietary, absent from Health Connect — present them as such, not as errors.)
 - **History:** friendly titles + Manual/Live source (D-3), list items that feel like manipulable material.
 - **Profile / Integrations — "Privacy Vault" aesthetic:** wrap Health-Connect permissions in a premium, trust-establishing vault UI. **Normalise the integration rows** (consistent Connected/Disconnected status + action — fixes the current YouTube inconsistency) with brand-exact Spotify/YouTube marks.
@@ -156,9 +165,11 @@ This is a **principle, not a per-screen exception**: it applies to error states 
 - **Baselines:** do not regress mobile (51 suites / 455 tests) or backend; add visual-regression snapshots where feasible.
 - **ADR:** record the chosen design language + biometric-regulation philosophy as an ADR (`docs/adr/`).
 - **Model economy:** Vision Frame + token system + hero screen = Opus-class; per-screen restyle drops to Sonnet once the direction and tokens are approved.
+> *Superseded:* every agent runs on Opus (`CLAUDE.md`); there is no per-screen model drop.
 
 ---
 
 ## 9. DEFINITION OF DONE (the overhaul)
 
 Every surface: on the token system with **zero magic numbers**; light + dark; reduced-motion + low-power paths present; **WCAG 2.2 AA** verified; **60fps floor held on the physical Galaxy**; brand identity applied; all sacred contracts and pinned tests intact; **device-verified with before/after screenshots**. Anything short of all of these is not done.
+> *Superseded (DESIGN_V2_PLAN):* done means the measured SHIP (G12) and the G11 evidence pack — release build, Perfetto frame timing, the capture matrix with its manifest.
