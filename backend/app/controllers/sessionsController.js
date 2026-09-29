@@ -3,6 +3,7 @@
 const mongoose = require('mongoose');
 const PlaylistSession = require('../models/PlaylistSession');
 const { sessionLabel } = require('../services/sessionLabels');
+const { providerContentCutoff } = require('../services/privacy/providerContentErasure');
 
 // GET /api/sessions — the persistent playlist-history feed (A11). Keyset pagination
 // over the existing { userId:1, createdAt:-1 } index. Returns an EXPLICIT whitelist
@@ -20,8 +21,13 @@ function clampLimit(raw) {
 
 // The owner-facing shape. contextPrompt is the owner's own words (decrypted by the
 // model getter on a real doc) — intended. heartRate / trackKeys / llmCacheKey are not.
-function toSessionDTO(doc) {
+//
+// HX-2 M4: a session past the provider-content window serves no tracks, even when the daily job
+// has not stripped it yet. This only HIDES — the job is what deletes (sessionTrim.worker).
+function toSessionDTO(doc, cutoff = providerContentCutoff()) {
   const activity = (doc.biometricSnapshot && doc.biometricSnapshot.activity) || null;
+  const created = doc.createdAt ? new Date(doc.createdAt) : null;
+  const withinWindow = !!created && created >= cutoff;
   // Friendly title + Manual/Live source so History never shows a raw moodKey (D-3).
   const { title, source, activityLabel } = sessionLabel(doc.moodKey, activity);
   return {
@@ -36,8 +42,8 @@ function toSessionDTO(doc) {
     contextPrompt: doc.contextPrompt || '',
     isFallback: !!doc.isFallback,
     skipCount: doc.skipCount || 0,
-    trackCount: Array.isArray(doc.trackIds) ? doc.trackIds.length : 0,
-    tracks: Array.isArray(doc.trackSummary)
+    trackCount: withinWindow && Array.isArray(doc.trackIds) ? doc.trackIds.length : 0,
+    tracks: withinWindow && Array.isArray(doc.trackSummary)
       ? doc.trackSummary.map((t) => ({ id: t.id, title: t.title, artist: t.artist }))
       : [],
   };
@@ -76,7 +82,8 @@ exports.listSessions = async (req, res, next) => {
       ? { before: new Date(last.createdAt).toISOString(), beforeId: String(last._id) }
       : null;
 
-    res.json({ items: page.map(toSessionDTO), nextCursor });
+    const cutoff = providerContentCutoff();
+    res.json({ items: page.map((doc) => toSessionDTO(doc, cutoff)), nextCursor });
   } catch (err) {
     next(err);
   }
