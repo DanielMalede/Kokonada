@@ -2,8 +2,9 @@
 
 The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC-<n>.md`. This index is never a gate input (`.claude/commands/page.md`, G2). Prepared 2026-09-29 for Stage 0 step L1, at repo HEAD `b9639c5`.
 
-- **DECIDED, DEC-001 to DEC-038.** DEC-001 to DEC-020 are the rows of the decisions table in `docs/plans/DESIGN_V2_PLAN.md` (section "ההחלטות שלך"); DEC-021 to DEC-034 are its defaults not asked (section "ברירות מחדל שלא נשאלו"); all dated 2026-09-23. DEC-035 to DEC-038 are the owner's answers of 2026-09-29 in the designer's V0 synthesis, §7 (`Kokonada-private/design-v2/v0/synthesis-2026-09-29.md`, outside the repo). The four mood names of plan line 41 are in DEC-013, the row that carries them.
-- **OPEN, DEC-039 to DEC-096.** Every owner question in `cmp-compliance.md` §4, `reg-eu.md` §8, `reg-world-and-dossier.md` PART 4 and `qa-resilience.md` §5, and five of the sentinel's proposals. Where several sources ask the same question, one entry quotes each of them.
+- **DECIDED, DEC-001 to DEC-038.** DEC-001 to DEC-020 are the rows of the decisions table in `docs/plans/DESIGN_V2_PLAN.md` (section "ההחלטות שלך"); DEC-021 to DEC-034 are its defaults not asked (section "ברירות מחדל שלא נשאלו"); all dated 2026-09-23. DEC-035 to DEC-038 are the owner's answers of 2026-09-29, given by selecting an option in the session; each entry quotes his selection, and the designer's V0 synthesis §7 (`Kokonada-private/design-v2/v0/synthesis-2026-09-29.md`, outside the repo) is the designer's record of it. The four mood names of plan line 41 are in DEC-013, the row that carries them.
+- **Opened 2026-09-29, DEC-039 to DEC-096.** Every owner question in `cmp-compliance.md` §4, `reg-eu.md` §8, `reg-world-and-dossier.md` PART 4 and `qa-resilience.md` §5, and five of the sentinel's proposals. Where several sources ask the same question, one entry quotes each of them. The owner ruled DEC-052, DEC-055, DEC-062 and DEC-066 on 2026-09-29 (one ruling covers DEC-055 and DEC-066); the rest are OPEN.
+- **Added after the architect's L1 review (round 1), DEC-097 and DEC-098.** DEC-097 is the HALT closure rule (the review's Fork C), ruled by the owner on 2026-09-29. DEC-098 is the dark re-sample from the V0 synthesis §7 item 5, asked on 2026-09-29 and OPEN.
 - **Titles** are the scribe's English labels. The quoted text in each file is the record.
 - **A ruling** is recorded only from the owner's own message (`.claude/commands/page.md`, owner gates).
 
@@ -43,10 +44,10 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-032](decisions/DEC-032.md) | Default: the home screen reveals itself progressively | DECIDED | 2026-09-23 | `docs/plans/DESIGN_V2_PLAN.md:63` | — |
 | [DEC-033](decisions/DEC-033.md) | Default: StyleSheet with our own tokens and primitives; Tamagui and Moti out; ADR-0017 replaces ADR-0009 | DECIDED | 2026-09-23 | `docs/plans/DESIGN_V2_PLAN.md:64` | — |
 | [DEC-034](decisions/DEC-034.md) | Default: dark when the phone reports no display mode | DECIDED | 2026-09-23 | `docs/plans/DESIGN_V2_PLAN.md:65` | — |
-| [DEC-035](decisions/DEC-035.md) | The plate dot: a bead with a small halo | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:206` | — |
-| [DEC-036](decisions/DEC-036.md) | The rim words: the axis ends | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:207` | — |
-| [DEC-037](decisions/DEC-037.md) | Pebble: kept for the warm look as a whole | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:208` | — |
-| [DEC-038](decisions/DEC-038.md) | Hue set B is out; set A is used everywhere | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:209` | — |
+| [DEC-035](decisions/DEC-035.md) | The plate dot: a bead with a small halo | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:206` (the owner's session answer is quoted in the entry) | — |
+| [DEC-036](decisions/DEC-036.md) | The rim words: the axis ends | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:207` (the owner's session answer is quoted in the entry) | — |
+| [DEC-037](decisions/DEC-037.md) | Pebble: kept for the warm look as a whole | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:208` (the owner's session answer is quoted in the entry) | — |
+| [DEC-038](decisions/DEC-038.md) | Hue set B is out; set A is used everywhere | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:209` (the owner's session answer is quoted in the entry) | — |
 | [DEC-039](decisions/DEC-039.md) | Is the Spotify-derived taste model "building profiles of users"? | OPEN | 2026-09-29 | cmp-compliance.md §4 item 1 | CMP-018 |
 | [DEC-040](decisions/DEC-040.md) | Drop the YouTube → Spotify translation path, or ask Spotify | OPEN | 2026-09-29 | cmp-compliance.md §4 item 2 | CMP-021 |
 | [DEC-041](decisions/DEC-041.md) | The retention window for provider track data | OPEN | 2026-09-29 | cmp-compliance.md §4 item 3 | CMP-024 |
@@ -60,21 +61,21 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-049](decisions/DEC-049.md) | The route through Play's 12-tester closed test given Spotify's 5-user cap | OPEN | 2026-09-29 | cmp-compliance.md §4 item 11 | CMP-092 |
 | [DEC-050](decisions/DEC-050.md) | Minimum age, the age check and the Play target audience | OPEN | 2026-09-29 | cmp-compliance.md §4 item 12; reg-eu.md §8 D-06; reg-world-and-dossier.md PART 4 DEC-W04 | CMP-094, REG-042, REG-043, REG-203, REG-204, REG-224, REG-225, REG-240, REG-241, REG-263 |
 | [DEC-051](decisions/DEC-051.md) | The Google button label in Hebrew and right-to-left | OPEN | 2026-09-29 | cmp-compliance.md §4 item 13 | CMP-103 |
-| [DEC-052](decisions/DEC-052.md) | May Bellefair replace F6's serif voice face? | OPEN | 2026-09-29 | cmp-compliance.md §4 item 14 | CMP-125 |
+| [DEC-052](decisions/DEC-052.md) | May Bellefair replace F6's serif voice face? | DECIDED (ruled 2026-09-29) | 2026-09-29 | cmp-compliance.md §4 item 14 | CMP-125 |
 | [DEC-053](decisions/DEC-053.md) | Translate Spotify's link-back labels, or keep English | OPEN | 2026-09-29 | cmp-compliance.md §4 item 15 | CMP-131 |
 | [DEC-054](decisions/DEC-054.md) | Trademark clearance on "Kokonada" | OPEN | 2026-09-29 | cmp-compliance.md §4 item 16; sentinel-calendar.md C4 and proposed row | CMP-137 |
-| [DEC-055](decisions/DEC-055.md) | Keep the Art. 50 notice on every inferred-state surface under every option | OPEN | 2026-09-29 | reg-eu.md §8 D-01 | REG-005, REG-006, REG-007, REG-008, REG-009, REG-012 |
+| [DEC-055](decisions/DEC-055.md) | Keep the Art. 50 notice on every inferred-state surface under every option | DECIDED (ruled 2026-09-29) | 2026-09-29 | reg-eu.md §8 D-01 | REG-005, REG-006, REG-007, REG-008, REG-009, REG-012 |
 | [DEC-056](decisions/DEC-056.md) | Launch markets, the Play country list and launch languages | OPEN | 2026-09-29 | reg-eu.md §8 D-02; reg-world-and-dossier.md PART 4 DEC-W02; reg-world-and-dossier.md PART 4 DEC-W07; sentinel-calendar.md C3 and proposed row | REG-034, REG-042, REG-047, REG-204, REG-230, REG-231, REG-232, REG-233, REG-234, REG-235, REG-236, REG-237, REG-238, REG-239, REG-240, REG-241, REG-242, REG-243, REG-244, REG-245, REG-246, REG-247, REG-248, REG-250, REG-251, REG-252, REG-261 |
 | [DEC-057](decisions/DEC-057.md) | Hosting regions, the sub-processor set and processor contracts | OPEN | 2026-09-29 | reg-eu.md §8 D-04; reg-eu.md §8 D-05; reg-world-and-dossier.md PART 4 DEC-W03 | REG-061, REG-062, REG-215, REG-217, REG-223, REG-233, REG-257 |
 | [DEC-058](decisions/DEC-058.md) | The Pulse vocabulary | OPEN | 2026-09-29 | reg-eu.md §8 D-07 | REG-076, REG-081, REG-082, REG-083, REG-084 |
 | [DEC-059](decisions/DEC-059.md) | Confidence display: a word on screen, the number only in the receipt | OPEN | 2026-09-29 | reg-eu.md §8 D-08 | REG-071 |
 | [DEC-060](decisions/DEC-060.md) | Whether taxonomy names and explain lines render, and the rewording pattern | OPEN | 2026-09-29 | reg-eu.md §8 D-09 | REG-082, REG-083 |
 | [DEC-061](decisions/DEC-061.md) | The LLM captions: ship them or not, and how they are marked | OPEN | 2026-09-29 | reg-eu.md §8 D-10 | REG-013, REG-062 |
-| [DEC-062](decisions/DEC-062.md) | The "Working" and "Focus" chips | OPEN | 2026-09-29 | reg-eu.md §8 D-11 | REG-015 |
+| [DEC-062](decisions/DEC-062.md) | The "Working" and "Focus" chips | DECIDED (ruled 2026-09-29) | 2026-09-29 | reg-eu.md §8 D-11 | REG-015 |
 | [DEC-063](decisions/DEC-063.md) | No employer, team or education channel, and no marketing to them | OPEN | 2026-09-29 | reg-eu.md §8 D-12 | REG-014 |
 | [DEC-064](decisions/DEC-064.md) | No push at launch, the stored FCM tokens, and no message triggered by an inferred state | OPEN | 2026-09-29 | reg-eu.md §8 D-13; reg-world-and-dossier.md PART 4 DEC-W13 | REG-017, REG-217 |
 | [DEC-065](decisions/DEC-065.md) | The shader-failure report: whether it is sent and what it carries | OPEN | 2026-09-29 | reg-eu.md §8 D-14 | REG-066 |
-| [DEC-066](decisions/DEC-066.md) | A consent-step slot before the first tap on P2 and P10 | OPEN | 2026-09-29 | reg-eu.md §8 D-15 | REG-031 |
+| [DEC-066](decisions/DEC-066.md) | A consent-step slot before the first tap on P2 and P10 | DECIDED (ruled 2026-09-29) | 2026-09-29 | reg-eu.md §8 D-15 | REG-031 |
 | [DEC-067](decisions/DEC-067.md) | P9 export contents and file format | OPEN | 2026-09-29 | reg-eu.md §8 D-16 | REG-051, REG-052 |
 | [DEC-068](decisions/DEC-068.md) | No in-app purchases: the free-forever confirmation | OPEN | 2026-09-29 | reg-eu.md §8 D-17; reg-world-and-dossier.md PART 4 DEC-W10 | REG-072, REG-087, REG-237, REG-261, REG-262 |
 | [DEC-069](decisions/DEC-069.md) | An accessibility statement on P14 even where the law does not require one | OPEN | 2026-09-29 | reg-eu.md §8 D-18; reg-world-and-dossier.md PART 4 DEC-W09 | REG-088, REG-212, REG-229, REG-261 |
@@ -105,6 +106,8 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-094](decisions/DEC-094.md) | Touch-target exemptions | OPEN | 2026-09-29 | qa-resilience.md §5 D15 | QA-028 |
 | [DEC-095](decisions/DEC-095.md) | The React Native version at T1 | OPEN | 2026-09-29 | sentinel-calendar.md B2 and proposed row | — |
 | [DEC-096](decisions/DEC-096.md) | The owner's Spotify Premium renewal date | OPEN | 2026-09-29 | sentinel-calendar.md A4, Unverified 8 and proposed row | — |
+| [DEC-097](decisions/DEC-097.md) | HALT closure: a fix lane now, and a HALT closes on main | DECIDED (ruled 2026-09-29) | 2026-09-29 | architect-review-r1.md §3 Fork C | CMP-008, CMP-021, CMP-022, CMP-023, CMP-026, CMP-043, CMP-045, CMP-046, CMP-066, CMP-081, CMP-086 |
+| [DEC-098](decisions/DEC-098.md) | The dark re-sample: F1, D2 and B8 re-voted in the board's dark mode | OPEN | 2026-09-29 | Kokonada-private/design-v2/v0/synthesis-2026-09-29.md §5 question 5 and §7 item 5 | — |
 
 ## Source numbers and their DEC- entries
 
@@ -184,6 +187,8 @@ The source files number their owner questions themselves. The registry bodies an
 | qa-resilience.md §5 | D15 (cited as `DEC:D15`) | DEC-094 |
 | sentinel-calendar.md | B2 and proposed row | DEC-095 |
 | sentinel-calendar.md | A4, Unverified 8 and proposed row | DEC-096 |
+| architect-review-r1.md §3 | Fork C | DEC-097 |
+| Kokonada-private/design-v2/v0/synthesis-2026-09-29.md | §5 question 5 and §7 item 5 | DEC-098 |
 
 ## Merged questions
 
@@ -195,3 +200,17 @@ The source files number their owner questions themselves. The registry bodies an
 - **DEC-064** (No push at launch, the stored FCM tokens, and no message triggered by an inferred state): reg-eu.md §8 D-13; reg-world-and-dossier.md PART 4 DEC-W13.
 - **DEC-068** (No in-app purchases: the free-forever confirmation): reg-eu.md §8 D-17; reg-world-and-dossier.md PART 4 DEC-W10.
 - **DEC-069** (An accessibility statement on P14 even where the law does not require one): reg-eu.md §8 D-18; reg-world-and-dossier.md PART 4 DEC-W09.
+
+## Rulings recorded
+
+Each was selected by the owner on 2026-09-29, in the session, from the options of a question; the entry quotes the question, the selected option and, where the option carried one, its description.
+
+- **DEC-035** (The plate dot: a bead with a small halo): "חרוז עם הילה קטנה (מומלץ)".
+- **DEC-036** (The rim words: the axis ends): "קצוות הצירים (מומלץ)".
+- **DEC-037** (Pebble: kept for the warm look as a whole): "המראה החם כולו".
+- **DEC-038** (Hue set B is out; set A is used everywhere): "על הצבעים עצמם".
+- **DEC-052** (May Bellefair replace F6's serif voice face?): "כן, Bellefair לקול (מומלץ)".
+- **DEC-055** (Keep the Art. 50 notice on every inferred-state surface under every option): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-066.
+- **DEC-062** (The "Working" and "Focus" chips): "להסיר (מומלץ)".
+- **DEC-066** (A consent-step slot before the first tap on P2 and P10): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-055.
+- **DEC-097** (HALT closure: a fix lane now, and a HALT closes on main): "מסלול תיקון עכשיו (מומלץ)".
