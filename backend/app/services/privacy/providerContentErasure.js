@@ -15,9 +15,9 @@
 const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
 const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
+const { PROVIDER_CONTENT_MAX_DAYS } = require('../../config/retention');
 
 const DAY_MS = 24 * 3600 * 1000;
-const PROVIDER_CONTENT_MAX_DAYS = 29;
 
 // The five PlaylistSession fields that carry provider track data, and their emptied values.
 const PROVIDER_CONTENT_FIELDS = Object.freeze(['trackIds', 'trackKeys', 'trackSummary', 'targetGenres', 'externalPlaylistId']);
