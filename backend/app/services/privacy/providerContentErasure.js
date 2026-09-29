@@ -14,7 +14,6 @@
 
 const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
-const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
 const { PROVIDER_CONTENT_MAX_DAYS, SERVE_EVENT_TTL_SECONDS } = require('../../config/retention');
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -76,22 +75,8 @@ async function expireServeEvents(cutoff) {
   return res?.deletedCount ?? 0;
 }
 
-// A pool row written before `createdAt` existed has no clock at all. Stamp it with its TRUE insert
-// time — the ObjectId's timestamp — never "now", which would grant it a fresh window. The pipeline
-// update is safe here: UnclassifiedTrack has no encrypted field for a setter to miss.
-async function backfillUnclassifiedCreatedAt() {
-  const res = await UnclassifiedTrack.updateMany(
-    { $or: [{ createdAt: { $exists: false } }, { createdAt: null }] },
-    [{ $set: { createdAt: { $toDate: '$_id' } } }],
-    { updatePipeline: true },
-  );
-  return res?.modifiedCount ?? 0;
-}
-
-async function expireUnclassifiedTracks(cutoff) {
-  const res = await UnclassifiedTrack.deleteMany({ createdAt: { $lt: cutoff } });
-  return res?.deletedCount ?? 0;
-}
+// UnclassifiedTrack's clock (createdAt backfill + expiry) lives in repositories/unclassifiedRepo.js:
+// its backfill is a pipeline update, which may not sit in a file importing an encrypted model.
 
 module.exports = {
   PROVIDER_CONTENT_MAX_DAYS,
@@ -103,6 +88,4 @@ module.exports = {
   stripProviderContent,
   purgeProviderData,
   expireServeEvents,
-  backfillUnclassifiedCreatedAt,
-  expireUnclassifiedTracks,
 };

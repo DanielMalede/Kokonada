@@ -5,9 +5,8 @@ const {
   providerContentCutoff,
   stripProviderContent,
   expireServeEvents,
-  backfillUnclassifiedCreatedAt,
-  expireUnclassifiedTracks,
 } = require('../services/privacy/providerContentErasure');
+const unclassifiedRepo = require('../repositories/unclassifiedRepo');
 const { sweepOwedSpotifyErasures } = require('../services/privacy/spotifyErasure');
 
 // The daily retention job. Two clocks run here:
@@ -51,8 +50,8 @@ async function processJob() {
     ['stripped', () => stripProviderContent({ createdAt: { $lt: providerCutoff } })],
     ['serveEvents', () => expireServeEvents(providerCutoff)],
     // Backfill BEFORE expiry, so a row that just got its clock is judged by it in the same run.
-    ['unclassifiedBackfilled', () => backfillUnclassifiedCreatedAt()],
-    ['unclassifiedExpired', () => expireUnclassifiedTracks(providerCutoff)],
+    ['unclassifiedBackfilled', () => unclassifiedRepo.backfillCreatedAt()],
+    ['unclassifiedExpired', () => unclassifiedRepo.expireCreatedBefore(providerCutoff)],
     ['spotifyErasures', () => sweepOwedSpotifyErasures()],
   ];
 
