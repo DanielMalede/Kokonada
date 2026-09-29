@@ -1,6 +1,7 @@
 'use strict';
 
 const MusicProfile = require('../models/MusicProfile');
+const User         = require('../models/User');
 const spotify      = require('./spotify');
 const youtube      = require('./youtube');
 const { inferArtistGenres } = require('./geminiEngine');
@@ -523,6 +524,13 @@ function _mergeRankedLists(lists, cap) {
 
 // ── Profile builder ────────────────────────────────────────────────────────────
 
+// Is the account still linked to Spotify RIGHT NOW? Read from the database, never from the user doc
+// the build was handed (that one is a snapshot from before the build started).
+async function _spotifyStillLinked(userId) {
+  const current = await User.findById(userId).select('spotifyToken').lean();
+  return !!current?.spotifyToken?.blob;
+}
+
 /**
  * Fetches the user's complete musical footprint from all connected providers,
  * analyses it, and upserts the result into the MusicProfile collection.
@@ -671,6 +679,17 @@ async function buildProfile(userId, user, onProgress = () => {}) {
     }
   }
 
+  // HX-2 M7: this build runs in the background after connect, so the user may have disconnected
+  // Spotify while it fetched. Writing now would re-create, by upsert, the profile the disconnect
+  // just deleted. Re-read the link right before the write and write nothing if it is gone — and
+  // re-read once more after the write, because a disconnect can land between the two; then remove
+  // what was written, leaving exactly the state the disconnect leaves.
+  const builtFromSpotify = !!spotifyToken;
+  if (builtFromSpotify && !(await _spotifyStillLinked(userId))) {
+    report(100, 'Spotify disconnected');
+    return null;
+  }
+
   report(95, 'Saving your profile');
   const profile = await MusicProfile.findOneAndUpdate(
     { userId },
@@ -687,6 +706,11 @@ async function buildProfile(userId, user, onProgress = () => {}) {
     },
     { upsert: true, new: true }
   );
+  if (builtFromSpotify && !(await _spotifyStillLinked(userId))) {
+    await MusicProfile.deleteOne({ userId });
+    report(100, 'Spotify disconnected');
+    return null;
+  }
   report(100, 'Profile ready');
 
   // Dark launch: queue audio-feature hydration for the freshly built library.

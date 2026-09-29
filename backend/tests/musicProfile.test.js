@@ -17,6 +17,12 @@ const axios = require('axios');
 jest.mock('../app/models/MusicProfile', () => ({ findOneAndUpdate: jest.fn() }));
 const MusicProfile = require('../app/models/MusicProfile');
 
+// ── User mock: the build re-reads the Spotify link before and after its write (HX-2 M7, proven on
+// real Mongo in buildProfileDisconnectRace.integration.test.js). These users stay linked throughout.
+jest.mock('../app/models/User', () => ({
+  findById: () => ({ select: () => ({ lean: async () => ({ spotifyToken: { blob: 'linked' } }) }) }),
+}));
+
 // ── geminiEngine mock (LLM genre backfill) ────────────────────────────────────
 jest.mock('../app/services/geminiEngine', () => ({ inferArtistGenres: jest.fn().mockResolvedValue({}) }));
 const geminiEngine = require('../app/services/geminiEngine');
