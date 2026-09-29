@@ -71,7 +71,7 @@ Kokonada uses the following processors. None is an advertiser; none receives raw
 
 | Sub-processor | Role | What it receives | What it NEVER receives |
 | :--- | :--- | :--- | :--- |
-| **Groq** (`api.groq.com`, US-hosted inference) | LLM inference for music-parameter generation, genre enrichment, and audio-feature estimation | Non-identifying, derived tokens only: abstract emotion coordinates, a coarse physiological intensity band, closed-vocabulary derived-intent tags, mood-descriptor genres (generation); genre tags for feature estimation; and — at profile-build only — **non-Spotify (YouTube Music) library artist names** for genre enrichment. Cache key is `md5(prompt)`; the cached value is only derived AI params, never vitals. <!-- verified: backend/app/services/geminiEngine.js:173-179,231-239 (generation prompts); backend/app/services/features/llmEstimatorAdapter.js:54-59 (genre tags only, title/artist/channel withheld); artist-name backfill gated to youtube_music only backend/app/services/musicProfileService.js:570-571 --> | Raw HR/HRV/sleep/resting-HR values; raw user free-text; name/email/userId; and **Spotify Content** (artist names, genres, URIs are gated out of every LLM path). <!-- verified: backend/app/services/geminiEngine.js:255-262; backend/app/utils/spotifyContent.js:25-52; backend/app/services/features/llmEstimatorAdapter.js:47-52 --> |
+| **Groq** (`api.groq.com`, US-hosted inference) | LLM inference for music-parameter generation, genre enrichment, and audio-feature estimation. Model: `openai/gpt-oss-20b`, open-weight, hosted by Groq; its developer receives no prompts. Groq caches prompts for this model in volatile memory, automatically and with no opt-out, for up to about 2 hours; never persisted or shared across organisations. | Non-identifying, derived tokens only: abstract emotion coordinates, a coarse physiological intensity band, closed-vocabulary derived-intent tags, mood-descriptor genres (generation); genre tags for feature estimation; and — at profile-build only — **non-Spotify (YouTube Music) library artist names** for genre enrichment. Cache key is `md5(prompt)`; the cached value is only derived AI params, never vitals. <!-- verified: backend/app/services/geminiEngine.js:173-179,231-239 (generation prompts); backend/app/services/features/llmEstimatorAdapter.js:54-59 (genre tags only, title/artist/channel withheld); artist-name backfill gated to youtube_music only backend/app/services/musicProfileService.js:570-571 --> | Raw HR/HRV/sleep/resting-HR values; raw user free-text; name/email/userId; and **Spotify Content** (artist names, genres, URIs are gated out of every LLM path). <!-- verified: backend/app/services/geminiEngine.js:255-262; backend/app/utils/spotifyContent.js:25-52; backend/app/services/features/llmEstimatorAdapter.js:47-52 --> |
 | **Wearable data sources** — Garmin, Suunto, Apple HealthKit, Android Health Connect | Biometric data providers connected at the user's direction | (These are data **sources**, not recipients.) | — |
 | **Music providers** — Spotify, YouTube Music | Taste import + playback, at the user's direction | OAuth-scoped access to the user's own library/playback | — |
 | **Railway** | Application/API hosting | All application traffic (encrypted in transit) | — |
@@ -86,9 +86,11 @@ Kokonada uses the following processors. None is an advertiser; none receives raw
 > (and, at profile-build, non-Spotify artist names) are transmitted to Groq, a **Data
 > Processing Agreement MUST be executed and Zero-Data-Retention MUST be enabled in the Groq
 > Data Controls console**, and Groq MUST be listed as a sub-processor in the published privacy
-> policy, **before public launch**. Groq offers customer-selectable ZDR and does not train on
-> API data by default, but this is a **business/legal action that is not yet confirmed done** —
+> policy, **before public launch**. Groq offers customer-selectable ZDR and, per Groq Services
+> Agreement §4.2, "Groq is not permitted to use Inputs or Outputs for training or fine-tuning
+> any AI Model Services or other models", but this is a **business/legal action that is not yet confirmed done** —
 > until it is executed, treat this row as UNVERIFIED for launch purposes. <!-- NEEDS VERIFICATION: DPA/ZDR execution is a portal/legal action, not confirmable from code -->
+> ZDR is not documented to disable prompt caching; no copy may say Groq retains nothing.
 
 ## Retention
 
