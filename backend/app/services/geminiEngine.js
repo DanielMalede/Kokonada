@@ -51,10 +51,13 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_
     // Surface the provider's real reason (e.g. a decommissioned model) instead
     // of axios's opaque "Request failed with status code 404".
     const apiMsg = err.response?.data?.error?.message || err.message;
-    // Report LLM outages/timeouts (previously only console-logged) so a provider going
-    // down — which silently degrades every playlist to the static fallback — is visible.
-    captureException(err, { scope: 'llm', model, status: err.response?.status, apiMsg });
-    throw new Error(`LLM request failed (${model}): ${apiMsg}`);
+    const failure = new Error(`LLM request failed (${model}): ${apiMsg}`);
+    // Report LLM outages/timeouts so a provider going down — which silently degrades every
+    // playlist to the static fallback — is visible. SANITIZED: the raw axios error carries
+    // config.headers.Authorization (the key), config.data (the prompt) and request._header;
+    // only the wrapper message, the model and the status leave the process.
+    captureException(failure, { scope: 'llm', model, status: err.response?.status ?? null });
+    throw failure;
   }
 }
 
