@@ -1,15 +1,37 @@
 let Sentry = null;
 
-// Strip request query strings/URLs from every event before it leaves the process.
-// The SDK's express error handler auto-captures the request, so without this an
-// unhandled 500 on the webhook route would ship ?secret= (or an OAuth ?code=/?state=)
-// straight to Sentry. Never throws — telemetry must not break on a malformed event.
+// Request headers that carry a credential the app accepts: the app JWT and the watch `whr_` token
+// (Authorization — middleware/auth.js, integrationsController watch ingest), session cookies, and
+// the webhook credentials (x-garmin-webhook-secret, x-suunto-signature). proxy-authorization and
+// x-api-key are standard credential carriers, stripped even though no route reads them today.
+const CREDENTIAL_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'x-api-key',
+  'x-garmin-webhook-secret',
+  'x-suunto-signature',
+]);
+
+// Strip credentials and query strings from every event before it leaves the process. The SDK's
+// RequestData integration attaches the incoming request to any event captured inside an HTTP
+// request — its headers and parsed cookies INCLUDED, even with sendDefaultPii:false (@sentry/core
+// integrations/requestdata.js; the SDK's own deny-list applies to span attributes only). Without
+// this an error on an authenticated route would ship the caller's Bearer token, and one on the
+// webhook route its ?secret= (or an OAuth ?code=/?state=). Header names are matched
+// case-insensitively. Never throws — telemetry must not break on a malformed event.
 // (compliance C2)
 function scrubEvent(event) {
   if (!event || !event.request) return event;
   const req = event.request;
   if (typeof req.url === 'string') req.url = req.url.split('?')[0];
   if ('query_string' in req) delete req.query_string;
+  if ('cookies' in req) delete req.cookies;
+  if (req.headers && typeof req.headers === 'object') {
+    for (const name of Object.keys(req.headers)) {
+      if (CREDENTIAL_HEADERS.has(name.toLowerCase())) delete req.headers[name];
+    }
+  }
   return event;
 }
 
@@ -23,8 +45,13 @@ function initSentry(app) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-    sendDefaultPii: false,   // never auto-attach cookies/headers/IP (compliance C2)
-    beforeSend: scrubEvent,  // drop ?secret=/?code= from captured request URLs
+    // Withholds the user's IP and request bodies. It does NOT keep request headers or cookies
+    // out of events — scrubEvent strips those (compliance C2).
+    sendDefaultPii: false,
+    // beforeSend sees ERROR events only; sampled transactions reach Sentry through
+    // beforeSendTransaction and carry the same request data, so both hooks scrub.
+    beforeSend: scrubEvent,
+    beforeSendTransaction: scrubEvent,
   });
   // Must be called after all routes are registered
   if (app) Sentry.setupExpressErrorHandler(app);
