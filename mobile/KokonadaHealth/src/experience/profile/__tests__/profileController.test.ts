@@ -139,3 +139,66 @@ describe('currentUser store', () => {
     expect(s.getState().user).toBeNull();
   });
 });
+
+// HX-2 M8: Disconnect Spotify is SERVER-FIRST, like account deletion. The device stops playing and
+// forgets the queue only once the server has confirmed the erasure; a failed call leaves the user
+// connected and playing, because they still are.
+describe('ProfileController.disconnectSpotify (SERVER-FIRST)', () => {
+  it('calls DELETE /api/integrations/spotify/disconnect, THEN clears local playback', async () => {
+    const order: string[] = [];
+    const apiDelete = jest.fn(async (path: string) => { order.push(`server ${path}`); return okRes({ message: 'Spotify disconnected' }); });
+    const clearSpotifyPlayback = jest.fn(async () => { order.push('local'); });
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn(), clearSpotifyPlayback } as any);
+
+    const res = await c.disconnectSpotify();
+
+    expect(res.ok).toBe(true);
+    expect(order).toEqual(['server /api/integrations/spotify/disconnect', 'local']);
+  });
+
+  it('on a failed call: returns the error and leaves local playback alone', async () => {
+    const clearSpotifyPlayback = jest.fn(async () => {});
+    const apiDelete = jest.fn().mockResolvedValue(errRes(500));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn(), clearSpotifyPlayback } as any);
+
+    const res = await c.disconnectSpotify();
+
+    expect(res.ok).toBe(false);
+    expect(clearSpotifyPlayback).not.toHaveBeenCalled();
+  });
+
+  it('never signs the user out (a disconnect is not a logout)', async () => {
+    const clearLocal = jest.fn(async () => {});
+    const apiDelete = jest.fn().mockResolvedValue(okRes({ message: 'Spotify disconnected' }));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal, clearSpotifyPlayback: jest.fn(async () => {}) } as any);
+
+    await c.disconnectSpotify();
+
+    expect(clearLocal).not.toHaveBeenCalled();
+  });
+});
+
+describe('teardownSpotifyPlayback — safe ordering', () => {
+  const { teardownSpotifyPlayback } = require('../spotifyTeardown');
+  function recorders() {
+    const calls: string[] = [];
+    const rec = (name: string) => () => { calls.push(name); };
+    return {
+      calls,
+      deps: { disposePlayer: rec('player'), clearQueue: rec('queue'), resetNowPlaying: rec('now'), markDisconnected: rec('status') },
+    };
+  }
+
+  it('stops the player FIRST (audio and remote), then the queue, Now Playing, and the status last', async () => {
+    const { deps, calls } = recorders();
+    await teardownSpotifyPlayback(deps);
+    expect(calls).toEqual(['player', 'queue', 'now', 'status']);
+  });
+
+  it('a throwing step never blocks the rest (the status still reads disconnected)', async () => {
+    const { deps, calls } = recorders();
+    deps.disposePlayer = () => { throw new Error('remote already gone'); };
+    await teardownSpotifyPlayback(deps);
+    expect(calls).toEqual(['queue', 'now', 'status']);
+  });
+});

@@ -552,3 +552,55 @@ describe('getQueueTracks — read-only snapshot for the Up-Next sheet', () => {
     expect(orch.getQueueTracks().map((t) => t.id)).toEqual(['a', 'b']);
   });
 });
+
+// HX-2 M8: a Spotify disconnect in Profile empties the queue and Now Playing. The queue lives in
+// here, so "clear the queue" is a real method on the conductor, not a store reset beside it.
+describe('clear(): a Spotify disconnect empties the queue and Now Playing', () => {
+  it('drops every queued track and emits an empty, not-playing Now Playing', async () => {
+    const { orch, nowPlaying } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b', 'c'), contextUri: 'spotify:playlist:hidden' });
+
+    orch.clear();
+
+    expect(orch.getQueueTracks()).toEqual([]);
+    expect(orch.getNowPlaying()).toEqual({ track: null, isPlaying: false });
+    expect(nowPlaying[nowPlaying.length - 1]).toEqual({ track: null, isPlaying: false });
+  });
+
+  it('cancels a skip that was still coalescing, so nothing plays after the disconnect', async () => {
+    const { orch, player, sched } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b', 'c') });
+    orch.skipNext();
+    expect(sched.isPending()).toBe(true);
+
+    orch.clear();
+    sched.flush();
+
+    expect(sched.isPending()).toBe(false);
+    expect(player.played).toEqual(['spotify:track:a']); // the pending skip never fired a play
+  });
+
+  it('a late native event for an old track cannot bring it back', async () => {
+    const { orch } = build();
+    await orch.handlePlaylist({ tracks: list('a', 'b') });
+
+    orch.clear();
+    orch.syncToRemote('spotify:track:a', false);
+
+    expect(orch.getNowPlaying()).toEqual({ track: null, isPlaying: false });
+  });
+
+  it('releases a pending generation guard, and the next playlist plays normally', async () => {
+    const { orch, player, socket } = build();
+    await orch.handlePlaylist({ tracks: list('a') });
+    orch.skipNext();                       // ran off the end → one generation in flight
+    expect(socket.generations).toBe(1);
+
+    orch.clear();
+    orch.skipNext();                       // an empty queue asks again: the guard was released
+
+    expect(socket.generations).toBe(2);
+    await orch.handlePlaylist({ tracks: list('z') });
+    expect(player.played[player.played.length - 1]).toBe('spotify:track:z');
+  });
+});

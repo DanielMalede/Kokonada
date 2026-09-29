@@ -34,6 +34,8 @@ export interface ProfileControllerDeps {
   serverLogout: () => Promise<ApiResult<unknown>>;
   // The composed local teardown (wipeLocalSession bound to the real singletons).
   clearLocal: () => Promise<void>;
+  // Disconnect Spotify's local half (teardownSpotifyPlayback bound to the real singletons).
+  clearSpotifyPlayback: () => Promise<void>;
 }
 
 export class ProfileController {
@@ -71,6 +73,17 @@ export class ProfileController {
   // natively playable. Returns the rebuild summary ({ rebuilt, provider, library }).
   async disconnectYouTube(): Promise<ApiResult<{ rebuilt: boolean; provider: string | null; library: number }>> {
     return this.deps.apiDelete('/api/integrations/youtube/disconnect');
+  }
+
+  // Disconnect Spotify (HX-2 M8) — SERVER-FIRST, like account deletion. The server stops using the
+  // account and erases what was derived from it before it answers; only then does the device stop
+  // playing and forget the queue. A failed call changes nothing here: the user is still connected.
+  async disconnectSpotify(): Promise<ApiResult<{ message: string }>> {
+    const res = await this.deps.apiDelete<{ message: string }>('/api/integrations/spotify/disconnect');
+    if (res.ok) {
+      await this.deps.clearSpotifyPlayback();
+    }
+    return res;
   }
 
   // GDPR delete — SERVER-FIRST: only wipe locally once the server confirms erasure.

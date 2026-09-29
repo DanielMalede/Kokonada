@@ -2,12 +2,13 @@ import * as Keychain from 'react-native-keychain';
 import { apiGet, apiPost, apiDelete } from '../../net/apiClient';
 import { ProfileController } from './profileController';
 import { wipeLocalSession } from './sessionTeardown';
+import { teardownSpotifyPlayback } from './spotifyTeardown';
 import { authSession } from '../../auth/session';
 import { currentUserStore } from '../../auth/currentUser';
 import { clearWatchToken } from '../../health/liveHrClient';
 import { healthLane, stopLaneThenClearToken } from '../../health/healthLaneServices';
 import { warmStore } from '../../state/store';
-import { player, kokoSocket } from '../playback/playbackServices';
+import { player, kokoSocket, orchestrator } from '../playback/playbackServices';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { nowPlayingStore } from '../playback/nowPlayingStore';
 import { playbackErrorStore } from '../playback/playbackErrorStore';
@@ -42,8 +43,22 @@ async function clearLocal(): Promise<void> {
   playerStatusStore.getState().set('disconnected');
 }
 
+// Disconnect Spotify's local half (HX-2 M8): the session and the socket stay — only Spotify goes.
+async function clearSpotifyPlayback(): Promise<void> {
+  await teardownSpotifyPlayback({
+    disposePlayer: () => player.dispose(),
+    clearQueue: () => orchestrator.clear(),
+    resetNowPlaying: () => {
+      nowPlayingStore.getState().set({ track: null, isPlaying: false });
+      nowPlayingStore.getState().setCover(null);
+    },
+    markDisconnected: () => playerStatusStore.getState().set('disconnected'),
+  });
+}
+
 export const profileController = new ProfileController({
   apiGet, apiPost, apiDelete,
   serverLogout: () => apiPost('/api/auth/logout'),
   clearLocal,
+  clearSpotifyPlayback,
 });

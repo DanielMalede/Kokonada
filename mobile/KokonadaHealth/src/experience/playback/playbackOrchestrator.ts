@@ -199,6 +199,22 @@ export class PlaybackOrchestrator {
     this.clearGenerationGuard();
   }
 
+  // HX-2: a Spotify disconnect empties everything this conductor holds — the queued tracks (they
+  // are Spotify's), a skip still coalescing, the session-playlist context, a generation in flight —
+  // and tells Now Playing there is nothing playing. A late native event then finds no track of
+  // ours to adopt, so nothing can resurrect the old queue.
+  clear(): void {
+    this.cancelPendingPlay();
+    this.clearGenerationGuard();
+    this.contextUri = null;
+    this.queue.load([]);
+    this.currentTrackId = null;
+    this.isPlaying = false;
+    this.sawActivePlayback = false;
+    this.consecutiveFailures = 0;
+    this.emit();
+  }
+
   private clearGenerationGuard(): void {
     this.generationPending = false;
     if (this.generationTimeoutHandle !== null) {
