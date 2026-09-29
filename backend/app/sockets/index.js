@@ -74,9 +74,16 @@ function createSocketServer(httpServer) {
 
   // Low-level engine failures (failed WebSocket upgrades, transport/handshake errors,
   // reconnect failures) never reach the middleware above — capture them here so a client
-  // that can't stay connected is visible instead of silently dark.
+  // that can't stay connected is visible instead of silently dark. Engine.IO passes a PLAIN
+  // object {req, code, message, context}; handed to Sentry as-is it is serialized with the raw
+  // request (its header list — cookies, Bearer — and the URL with its session id). Only the code,
+  // Engine.IO's fixed message and the context's error name leave the process.
   io.engine.on('connection_error', (err) => {
-    captureException(err, { scope: 'socket.engine', code: err?.code, message: err?.message });
+    captureException(new Error(`engine.io ${err?.code}: ${err?.message}`), {
+      scope: 'socket.engine',
+      code: err?.code,
+      reason: err?.context?.name,
+    });
   });
 
   io.on('connection', (socket) => {
