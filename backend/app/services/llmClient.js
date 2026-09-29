@@ -2,7 +2,7 @@
 
 const axios = require('axios');
 const { withRetry } = require('../utils/retry');
-const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
+const { DEFAULT_LLM_MODEL, reasoningParams } = require('../config/llmProvider');
 
 // Thin OpenAI-compatible (Groq) client for strict-JSON tasks. Mirrors the
 // conventions of geminiEngine._generate (env names, error surfacing) so the
@@ -43,6 +43,7 @@ async function generateJson(prompt, { model = null, timeoutMs = DEFAULT_TIMEOUT_
         messages: [{ role: 'user', content: prompt }],
         temperature,
         response_format: { type: 'json_object' },
+        ...reasoningParams(resolvedModel),
       },
       {
         headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },

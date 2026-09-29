@@ -116,8 +116,12 @@ describe('generation model and request shape', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env.LLM_MODEL;
+    delete process.env.LLM_REASONING_EFFORT;
   });
-  afterAll(() => { delete process.env.LLM_MODEL; });
+  afterAll(() => {
+    delete process.env.LLM_MODEL;
+    delete process.env.LLM_REASONING_EFFORT;
+  });
 
   it('defaults to openai/gpt-oss-20b when LLM_MODEL is not set', async () => {
     axios.post.mockResolvedValue(ok());
@@ -142,10 +146,40 @@ describe('generation model and request shape', () => {
     await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'shape' });
 
     const body = axios.post.mock.calls[0][1];
-    expect(Object.keys(body).sort()).toEqual(['messages', 'model', 'response_format', 'temperature']);
+    expect(Object.keys(body).sort()).toEqual(['messages', 'model', 'reasoning_effort', 'response_format', 'temperature']);
     expect(body.response_format).toEqual({ type: 'json_object' });
     expect(body.temperature).toBeGreaterThan(0);
     expect(body.temperature).toBeLessThanOrEqual(2);
+  });
+
+  // reasoning_effort: gpt-oss accepts low | medium | high (default medium); "Values outside a
+  // model's supported set are rejected with a 400" (https://console.groq.com/docs/api-reference).
+  it('a gpt-oss model gets reasoning_effort "low"', async () => {
+    axios.post.mockResolvedValue(ok());
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'effort-low' });
+
+    expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('low');
+  });
+
+  it('a non-gpt-oss model gets no reasoning_effort at all', async () => {
+    process.env.LLM_MODEL = 'qwen/qwen3.8-27b';
+    axios.post.mockResolvedValue(ok());
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'effort-none' });
+
+    const body = axios.post.mock.calls[0][1];
+    expect(body.model).toBe('qwen/qwen3.8-27b');
+    expect(body).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('LLM_REASONING_EFFORT overrides the effort for gpt-oss models', async () => {
+    process.env.LLM_REASONING_EFFORT = 'high';
+    axios.post.mockResolvedValue(ok());
+
+    await buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: jest.fn().mockResolvedValue([]), seed: 'effort-env' });
+
+    expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('high');
   });
 
   it('parses the final content of a gpt-oss response, ignoring its reasoning field', async () => {

@@ -12,6 +12,19 @@
 // tests/llmModel.decommissionGuard.test.js fails if a default names a retired ID it lists.
 const DEFAULT_LLM_MODEL = 'openai/gpt-oss-20b';
 
+// Reasoning effort for the gpt-oss family ONLY. Groq documents low | medium | high for it
+// (default medium) and rejects "values outside a model's supported set" with a 400
+// (https://console.groq.com/docs/api-reference), so an LLM_MODEL override to another family
+// must not carry the field. Low keeps these small JSON tasks inside their latency budgets and
+// spends fewer tokens of the per-minute quota on reasoning.
+const GPT_OSS = /^openai\/gpt-oss-/;
+
+function reasoningParams(model) {
+  return GPT_OSS.test(String(model ?? ''))
+    ? { reasoning_effort: process.env.LLM_REASONING_EFFORT || 'low' }
+    : {};
+}
+
 function hasVettedProvider() {
   return !!(process.env.LLM_API_KEY || process.env.GROQ_API_KEY);
 }
@@ -25,4 +38,4 @@ function assertVettedLlmProvider() {
   }
 }
 
-module.exports = { DEFAULT_LLM_MODEL, hasVettedProvider, assertVettedLlmProvider };
+module.exports = { DEFAULT_LLM_MODEL, reasoningParams, hasVettedProvider, assertVettedLlmProvider };

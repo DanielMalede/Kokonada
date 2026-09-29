@@ -12,6 +12,7 @@ beforeEach(() => {
   process.env.LLM_API_KEY = 'test-key';
   delete process.env.LLM_BASE_URL;
   delete process.env.LLM_MODEL;
+  delete process.env.LLM_REASONING_EFFORT;
 });
 
 describe('llmClient.isConfigured', () => {
@@ -70,17 +71,51 @@ describe('llmClient.generateJson', () => {
   //  - https://console.groq.com/docs/openai: logprobs, logit_bias, top_logprobs and messages[].name
   //    "will result in a 400 error"; temperature should be "> 0 and <= 2".
   //  - https://console.groq.com/docs/structured-outputs#json-object-mode: json_object is supported
-  //    by "All models". Any new body field must be re-checked against these pages first.
+  //    by "All models".
+  //  - https://console.groq.com/docs/api-reference, reasoning_effort: "openai/gpt-oss-20b and
+  //    openai/gpt-oss-120b support 'low', 'medium', or 'high'. 'medium' is the default value. Values
+  //    outside a model's supported set are rejected with a 400."
+  // Any new body field must be re-checked against these pages first.
   it('sends only the fields checked against the Groq docs, and none the gpt-oss models reject', async () => {
     axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
 
     await generateJson('p', { temperature: 0.3 });
 
     const body = axios.post.mock.calls[0][1];
-    expect(Object.keys(body).sort()).toEqual(['messages', 'model', 'response_format', 'temperature']);
+    expect(Object.keys(body).sort()).toEqual(['messages', 'model', 'reasoning_effort', 'response_format', 'temperature']);
     expect(body.messages).toEqual([{ role: 'user', content: 'p' }]);
     expect(body.temperature).toBeGreaterThan(0);
     expect(body.temperature).toBeLessThanOrEqual(2);
+  });
+
+  it('a gpt-oss model gets reasoning_effort "low" (the documented default is medium)', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
+
+    await generateJson('p');
+    process.env.LLM_MODEL = 'openai/gpt-oss-120b';
+    await generateJson('p');
+
+    expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('low');
+    expect(axios.post.mock.calls[1][1].reasoning_effort).toBe('low');
+  });
+
+  it('a non-gpt-oss model gets no reasoning_effort at all, because Groq 400s on unsupported values', async () => {
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
+
+    await generateJson('p', { model: 'qwen/qwen3.8-27b' });
+
+    const body = axios.post.mock.calls[0][1];
+    expect(body).not.toHaveProperty('reasoning_effort');
+    expect(Object.keys(body).sort()).toEqual(['messages', 'model', 'response_format', 'temperature']);
+  });
+
+  it('LLM_REASONING_EFFORT overrides the effort for gpt-oss models', async () => {
+    process.env.LLM_REASONING_EFFORT = 'medium';
+    axios.post.mockResolvedValue({ data: { choices: [{ message: { content: '{}' } }] } });
+
+    await generateJson('p');
+
+    expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('medium');
   });
 
   // gpt-oss returns its chain of thought in message.reasoning by default and the final answer in

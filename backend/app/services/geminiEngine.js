@@ -6,7 +6,7 @@ const { withRetry }    = require('../utils/retry');
 const { getRedis }     = require('../config/redis');
 const { captureException } = require('../config/sentry');
 const { disabled }     = require('../utils/envFlag');
-const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
+const { DEFAULT_LLM_MODEL, reasoningParams } = require('../config/llmProvider');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, biometricBand, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
@@ -50,6 +50,7 @@ async function _generate(prompt, { model: modelOverride = null, timeoutMs = LLM_
         temperature: 0.7,
         // The prompts already demand strict JSON; json_object mode guarantees it.
         response_format: { type: 'json_object' },
+        ...reasoningParams(model),
       },
       {
         headers: { Authorization: `Bearer ${llmKey}`, 'Content-Type': 'application/json' },
