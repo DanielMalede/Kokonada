@@ -12,9 +12,11 @@
 //   Runbook 3: Redis is reachable (PING) so the three queues can be consumed.
 //   Runbook 5: the ServeEvent TTL is 30 days (HX-2). Mongoose cannot change an existing index's
 //              options on boot, so an older 90-day index stays until a one-off collMod.
+//   Runbook 6: no provider track data older than the 30-day promise (HX-2 E3) — COUNTS only.
 
 const { QUEUES } = require('../app/queues/definitions');
 const { SERVE_EVENT_TTL_SECONDS } = require('../app/config/retention');
+const { HOLDS_PROVIDER_CONTENT } = require('../app/services/privacy/providerContentErasure');
 // Bind the expected dimension to the REAL embedding contract rather than a magic
 // number — if buildVector's DIM ever changes, this verifier follows it and the
 // dedicated test fails loudly instead of silently checking the wrong value.
@@ -149,6 +151,16 @@ function checkTtlIndex(indexes = [], { collection, field, expectedSeconds }) {
   return { status: 'PASS', message: `${collection}.${ix.name} expires after ${expectedSeconds} s` };
 }
 
+// counts: { name: number }. Any provider track data past the promise is a FAIL; the message carries
+// the counts and nothing else.
+function checkProviderRetentionCounts(counts = {}) {
+  const over = Object.entries(counts).filter(([, n]) => n !== 0);
+  const summary = Object.entries(counts).map(([k, n]) => `${k}=${n}`).join(' ');
+  return over.length
+    ? { status: 'FAIL', message: `provider track data older than 30 days survives (${summary}) — check the [sessionTrim] log` }
+    : { status: 'PASS', message: `no provider track data older than 30 days (${summary})` };
+}
+
 // client: the ioredis client from connectRedis() (may be null when unreachable).
 async function checkRedis(client, { queues = Object.values(QUEUES) } = {}) {
   if (!client) {
@@ -209,6 +221,21 @@ async function runTtlIndexCheck(db, spec) {
   return { name: spec.name, ...checkTtlIndex(indexes, spec) };
 }
 
+// Counted against the 30-day PROMISE, not the job's 29-day cutoff, so a row the next run will clear
+// is never read as a broken clock. countDocuments only — no document leaves the database.
+async function runProviderRetentionCountsCheck(db, now = Date.now()) {
+  const promise = new Date(now - 30 * 24 * 3600 * 1000);
+  const counts = {
+    sessionsHoldingProviderDetails: await db.collection(PLAYLIST_COLLECTION)
+      .countDocuments({ createdAt: { $lt: promise }, ...HOLDS_PROVIDER_CONTENT }),
+    serveEvents: await db.collection('serveevents').countDocuments({ servedAt: { $lt: promise } }),
+    unclassifiedWithoutCreatedAt: await db.collection('unclassifiedtracks')
+      .countDocuments({ $or: [{ createdAt: { $exists: false } }, { createdAt: null }] }),
+    unclassified: await db.collection('unclassifiedtracks').countDocuments({ createdAt: { $lt: promise } }),
+  };
+  return { name: 'Runbook 6 — no provider track data older than 30 days', counts, ...checkProviderRetentionCounts(counts) };
+}
+
 async function runRedisCheck(client) {
   const r = await checkRedis(client, { queues: Object.values(QUEUES) });
   return { name: 'Runbook 3 — Redis reachable + queues consumable', ...r };
@@ -233,6 +260,7 @@ async function main() {
     () => runVectorIndexV2Check(db),
     () => runLegacyIndexCheck(db),
     ...TTL_INDEX_RUNBOOKS.map((spec) => () => runTtlIndexCheck(db, spec)),
+    () => runProviderRetentionCountsCheck(db),
   ];
   for (const runner of runners) {
     try {
@@ -281,6 +309,8 @@ module.exports = {
   checkLegacyIndexAbsent,
   checkRedis,
   checkTtlIndex,
+  checkProviderRetentionCounts,
+  runProviderRetentionCountsCheck,
   runVectorIndexCheck,
   runVectorIndexV2Check,
   runLegacyIndexCheck,

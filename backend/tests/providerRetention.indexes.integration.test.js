@@ -102,3 +102,48 @@ describe('checkTtlIndex — pure verdicts', () => {
     expect(spec2.expectedSeconds).toBe(opts.expireAfterSeconds);
   });
 });
+
+// E3 — after the first production run, nothing of provider track data may be older than the 30-day
+// promise. Runbook 6 reads that with COUNTS only (no document is returned, nothing is written), so the
+// owner can run it against production. Counting against 30 days, not the job's 29, means a row the
+// next run will clear is never mistaken for a broken clock.
+describe('Runbook 6 — provider track data older than 30 days (read-only counts)', () => {
+  const { runProviderRetentionCountsCheck, checkProviderRetentionCounts } = require('../scripts/verifyProdRunbooks');
+  const DAY = 24 * 3600 * 1000;
+  const old = new Date(Date.now() - 31 * DAY);
+  const young = new Date(Date.now() - 5 * DAY);
+  const uid = new mongoose.Types.ObjectId();
+
+  it('PASS on a clean database, and every count is reported as a number', async () => {
+    const r = await runProviderRetentionCountsCheck(db);
+    expect(r.status).toBe('PASS');
+    expect(Object.values(r.counts).every((n) => n === 0)).toBe(true);
+  });
+
+  it('FAIL, naming each count, when old provider data survives — and young data never counts', async () => {
+    await db.collection('playlistsessions').insertMany([
+      { userId: uid, createdAt: old, trackIds: ['trk1'], trackKeys: [], trackSummary: [], targetGenres: [], externalPlaylistId: null },
+      { userId: uid, createdAt: old, trackIds: [], trackKeys: [], trackSummary: [], targetGenres: [], externalPlaylistId: null }, // stripped: fine
+      { userId: uid, createdAt: young, trackIds: ['trk2'], trackKeys: [], trackSummary: [], targetGenres: [], externalPlaylistId: null },
+    ]);
+    await db.collection('serveevents').insertMany([{ userId: uid, canonicalKey: 'isrc:A', servedAt: old }, { userId: uid, canonicalKey: 'isrc:B', servedAt: young }]);
+    await db.collection('unclassifiedtracks').insertMany([
+      { userId: uid, track: { id: 'u1' } },                        // no createdAt: no clock at all
+      { userId: uid, track: { id: 'u2' }, createdAt: old },
+      { userId: uid, track: { id: 'u3' }, createdAt: young },
+    ]);
+
+    const r = await runProviderRetentionCountsCheck(db);
+
+    expect(r.status).toBe('FAIL');
+    expect(r.counts).toEqual({
+      sessionsHoldingProviderDetails: 1, serveEvents: 1, unclassifiedWithoutCreatedAt: 1, unclassified: 1,
+    });
+    expect(r.message).not.toMatch(/trk|isrc|u1|u2/); // counts only, never a value
+  });
+
+  it('checkProviderRetentionCounts: any non-zero count is a FAIL', () => {
+    expect(checkProviderRetentionCounts({ a: 0, b: 0 }).status).toBe('PASS');
+    expect(checkProviderRetentionCounts({ a: 0, b: 2 }).status).toBe('FAIL');
+  });
+});
