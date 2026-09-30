@@ -783,6 +783,21 @@ describe('emotion_update handler', () => {
 
     expect(_debounceMap.get(socket.id).lastActivity).toBeNull();
   });
+
+  // HX-7 round 2 (resilience): the door compares a trimmed, lower-cased key, while the mobile drift
+  // test compares the two lists as written. A chip listed on both sides in any other form (for
+  // example 'Yoga') would pass the drift test and be dropped at the door. Each listed chip must pass
+  // the door unchanged.
+  it('admits every offered chip exactly as listed', () => {
+    const { CHIP_ACTIVITY_KEYS } = require('../app/services/chipActivities');
+    expect(CHIP_ACTIVITY_KEYS.length).toBeGreaterThan(0);
+    for (const key of CHIP_ACTIVITY_KEYS) {
+      const socket = makeSocket();
+      registerBiometricHandler(socket);
+      socket._trigger('emotion_update', { taps: [], textPrompt: '', activity: key });
+      expect({ key, held: _debounceMap.get(socket.id).lastActivity }).toEqual({ key, held: key });
+    }
+  });
 });
 
 // ── resolveBiometricContext ───────────────────────────────────────────────────
