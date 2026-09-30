@@ -132,6 +132,18 @@ describe('captionService.captionDiscovery — structured happy path', () => {
 });
 
 describe('captionService.captionDiscovery — budget timeout', () => {
+  // The budget race abandons the call, but it does not cancel it: a 429 retry would keep waiting
+  // out Retry-After and re-sending after the caption is already dropped, spending requests from
+  // the same per-minute / per-day quota generation needs. One attempt, inside the budget.
+  it('asks the LLM client for zero 429 retries, and bounds the HTTP timeout by the budget', async () => {
+    llmClient.generateJson.mockResolvedValue(captionsResponse([{ i: 0, caption: 'Warm and low' }]));
+
+    await captionService.captionDiscovery([disco('youtube:a')], SESSION, { budgetMs: 700 });
+
+    expect(llmClient.generateJson).toHaveBeenCalledTimes(1);
+    expect(llmClient.generateJson.mock.calls[0][1]).toMatchObject({ retries: 0, timeoutMs: 700 });
+  });
+
   it('a Groq call that hangs past the budget returns {} within budget and never throws', async () => {
     llmClient.generateJson.mockReturnValue(new Promise(() => {})); // never resolves
 

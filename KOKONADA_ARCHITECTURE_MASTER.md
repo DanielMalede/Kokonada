@@ -293,7 +293,7 @@ All paths relative to `backend/app/`. Merged PRs: **#35** (Phases 0–1), **#36*
   429-aware retry via `utils/retry.withRetry`, matches responses by href-embedded id,
   never throws (failed batch → `features:null`).
 - `services/llmClient.js`: Groq client (`LLM_API_KEY|GROQ_API_KEY`, `LLM_BASE_URL`,
-  default `llama-3.1-8b-instant`), `generateJson(prompt, {model,timeoutMs,temperature})`,
+  default `openai/gpt-oss-20b` from `config/llmProvider`), `generateJson(prompt, {model,timeoutMs,temperature})`,
   `isConfigured()`.
 - `llmEstimatorAdapter`: **only for tracks the API can never serve** (never for API
   outages — the outage-poisoning fix); genre-anchored few-shot prompt, estimates joined
