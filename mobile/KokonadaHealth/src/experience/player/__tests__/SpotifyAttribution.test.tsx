@@ -57,6 +57,15 @@ describe('SpotifyAttribution — C1 attribution mark', () => {
     expect(texts(tree.toJSON()).join(' ')).toContain('content from Spotify');
   });
 
+  // Designer, HX-4 round 1: at font 2.0 on a narrow phone the logo, the attribution words and the
+  // link-back cannot share one line — the row must WRAP rather than clip or push the control off screen.
+  it('the mark\'s row wraps, so the link-back never overflows at large font sizes or narrow widths', async () => {
+    const tree = await render(<SpotifyAttribution contentUri={TRACK_URI} />);
+    const row = RN.StyleSheet.flatten(byId(tree, 'spotify-attribution').props.style) as any;
+    expect(row.flexDirection).toBe('row');
+    expect(row.flexWrap).toBe('wrap');
+  });
+
   it('uses a theme-appropriate Spotify logo (a different asset on dark vs light)', async () => {
     jest.spyOn(RN, 'useColorScheme').mockReturnValue('dark');
     const dark = await render(<SpotifyAttribution contentUri={TRACK_URI} />);

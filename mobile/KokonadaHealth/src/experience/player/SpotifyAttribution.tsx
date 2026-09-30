@@ -102,7 +102,7 @@ export function SpotifyAttribution({
 }
 
 const styles = StyleSheet.create({
-  container: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  container: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
   logo: { width: LOGO_WIDTH, height: LOGO_HEIGHT },
   attributionText: { fontSize: typography.size.caption, letterSpacing: typography.tracking.caption },
   linkBack: { marginLeft: 'auto', paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill },
