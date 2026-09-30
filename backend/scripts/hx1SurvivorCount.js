@@ -11,7 +11,8 @@
 // Run from backend/, with the ids of the accounts YOU control (comma-separated) in the environment:
 //   HX1_OPERATOR_USER_IDS=<id>[,<id>...] railway run node scripts/hx1SurvivorCount.js
 // Exit 0: counted (see the RESULT line). Exit 2: STOP — an account with a withdrawal is not the
-// operator's, so nothing is counted (the ruling covers the owner's own data only). Exit 1: an error.
+// operator's, so nothing in Q1–Q3 is counted (the ruling covers the owner's own data only). Exit 1:
+// an error.
 //
 // What each question counts (§5.1):
 //   Q0  accounts with any `withdrawn` row for the health purpose, each with its full ordered history.
@@ -22,9 +23,10 @@
 //                           removed every one. The 5 minutes cover the `_id`'s one-second resolution.
 //         after-withdrawal  inserted at or after that point, for accounts whose latest status is
 //                           `withdrawn`: gate bypasses, a different defect. n/a after a re-grant.
-//   Q2  for accounts whose latest status is `withdrawn`: MedicalProfile split into default-only (the
-//       BE-019 artefact) and with-vitals (any encrypted vital field set — read as present/absent,
-//       never decrypted), and MorningState.
+//   Q2  for accounts whose latest status is `withdrawn`: MedicalProfile split into default-only — ones
+//       with no encrypted vital field set; these include the BE-019 artefact but can still hold an
+//       inferred state (`stateVector`) — and with-vitals (any encrypted vital field set). Fields are
+//       read as present/absent, never decrypted. And MorningState.
 //   Q3  PlaylistSession rows holding a heart-rate snapshot:
 //         hr-in-no-grant-interval          created after a withdrawal and before the next grant —
 //                                          heart rate used after withdrawal (pre-#193 behaviour).
@@ -65,7 +67,7 @@ const MEDICAL_PROFILE_VITAL_PATHS = Object.freeze([
 ]);
 
 const HEADER = 'hx1-survivor-count read-only counts-only';
-const STOP = "STOP an account with a withdrawal is not the operator's: nothing was counted and nothing was erased. Take this result to counsel.";
+const STOP = "STOP an account with a withdrawal is not the operator's: nothing in Q1–Q3 was counted and nothing was erased. Take this result to counsel.";
 
 class UsageError extends Error {}
 

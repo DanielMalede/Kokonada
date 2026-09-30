@@ -129,7 +129,7 @@ const CLOSED_LINES = [
   /^Q2 account-\d+ (?:medicalprofiles default-only=\d+ with-vitals=\d+ morningstates=\d+|medicalprofiles=n\/a morningstates=n\/a)$/,
   /^Q3 account-\d+ playlistsessions hr-in-no-grant-interval=\d+ hr-before-withdrawal-within-30d=\d+$/,
   /^RESULT (?:all-zero|non-zero)$/,
-  /^STOP an account with a withdrawal is not the operator's: nothing was counted and nothing was erased\. Take this result to counsel\.$/,
+  /^STOP an account with a withdrawal is not the operator's: nothing in Q1–Q3 was counted and nothing was erased\. Take this result to counsel\.$/,
   /^ERROR [A-Za-z0-9_ ,:()./-]+$/,
 ];
 
@@ -187,7 +187,7 @@ describe('Q0–Q3 counts on a seeded history (real Mongo)', () => {
 });
 
 describe('STOP — an account with a withdrawal that is not the operator\'s', () => {
-  it('prints STOP after Q0, counts nothing, erases nothing, and exits non-zero', async () => {
+  it('prints STOP after Q0, counts nothing in Q1–Q3, erases nothing, and exits non-zero', async () => {
     await seedHistory();
     const before = await snapshot();
     const r = runProcess({ MONGO_URI: uri, [survivorCount.OPERATOR_ENV]: String(A) });
@@ -198,7 +198,7 @@ describe('STOP — an account with a withdrawal that is not the operator\'s', ()
       'Q0 account-1 operator=yes',
       'Q0 account-2 operator=no',
       'Q0 account-3 operator=no',
-      "STOP an account with a withdrawal is not the operator's: nothing was counted and nothing was erased. Take this result to counsel.",
+      "STOP an account with a withdrawal is not the operator's: nothing in Q1–Q3 was counted and nothing was erased. Take this result to counsel.",
     ]);
     assertCountsOnly(stdoutLines(r), [A, B, C, D].map(String));
     expect(await snapshot()).toBe(before);
