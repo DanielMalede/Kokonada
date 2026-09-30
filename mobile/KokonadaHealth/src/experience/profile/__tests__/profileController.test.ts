@@ -141,8 +141,8 @@ describe('currentUser store', () => {
 });
 
 // HX-2 M8: Disconnect Spotify is SERVER-FIRST, like account deletion. The device stops playing and
-// forgets the queue only once the server has confirmed the erasure; a failed call leaves the user
-// connected and playing, because they still are.
+// forgets the queue once the server has confirmed the erasure. A failed call is followed by a re-read
+// of the link: the device stops too if the server already dropped it, and changes nothing otherwise.
 describe('ProfileController.disconnectSpotify (SERVER-FIRST)', () => {
   it('calls DELETE /api/integrations/spotify/disconnect, THEN clears local playback', async () => {
     const order: string[] = [];
