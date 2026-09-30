@@ -105,6 +105,8 @@ const styles = StyleSheet.create({
   container: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
   logo: { width: LOGO_WIDTH, height: LOGO_HEIGHT },
   attributionText: { fontSize: typography.size.caption, letterSpacing: typography.tracking.caption },
-  linkBack: { marginLeft: 'auto', paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill },
+  // A 48 dp touch target (space['3xl']), the floor every other text control keeps. hitSlop is not
+  // enough: TalkBack explore-by-touch, Accessibility Scanner and uiautomator read the node's bounds.
+  linkBack: { marginLeft: 'auto', minHeight: space['3xl'], justifyContent: 'center', paddingVertical: space.xs, paddingHorizontal: space.sm, borderRadius: radius.pill },
   linkBackText: { fontSize: typography.size.caption, fontWeight: typography.weight.semibold, letterSpacing: typography.tracking.caption },
 });

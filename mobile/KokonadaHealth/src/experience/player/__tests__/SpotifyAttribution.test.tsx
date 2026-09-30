@@ -128,6 +128,13 @@ describe('SpotifyAttribution — C2 link-back label reflects install state', () 
     const tree = await render(<SpotifyAttribution contentUri={TRACK_URI} />);
     expect(byId(tree, 'spotify-attribution-linkback').props.accessibilityRole).toBe('button');
   });
+
+  // Designer, HX-4 round 2: a 48 dp touch target from its own bounds, not from hitSlop.
+  it('the link-back is at least 48 dp tall, whatever size its caption label is', async () => {
+    const tree = await render(<SpotifyAttribution contentUri={TRACK_URI} />);
+    const style = RN.StyleSheet.flatten(byId(tree, 'spotify-attribution-linkback').props.style) as any;
+    expect(style.minHeight).toBeGreaterThanOrEqual(48);
+  });
 });
 
 describe('SpotifyAttribution — C2 link-back action opens the exact item', () => {
