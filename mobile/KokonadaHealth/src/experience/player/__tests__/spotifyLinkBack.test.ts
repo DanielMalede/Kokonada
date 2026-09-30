@@ -90,6 +90,26 @@ describe('spotifyLinkBack — foregroundSpotify opens the exact item in the Spot
     await expect(foregroundSpotify(TRACK_URI)).resolves.toBeUndefined();
   });
 
+  // HX-4 round 1 (resilience LOW): the install probe runs once per mount, so Spotify can be
+  // uninstalled while OPEN SPOTIFY is still on screen. The app URI then has no handler — fall back to
+  // the SAME item's open.spotify.com page instead of leaving a dead control.
+  it('when the app URI has no handler (Spotify uninstalled mid-session), opens the same item\'s web page', async () => {
+    openURL.mockRejectedValueOnce(new Error('No Activity found to handle Intent'));
+    await foregroundSpotify(TRACK_URI);
+    expect(openURL.mock.calls).toEqual([[TRACK_URI], [`https://open.spotify.com/track/${TRACK_ID}`]]);
+  });
+
+  it('never throws into the UI when the web fallback rejects too', async () => {
+    openURL.mockRejectedValueOnce(new Error('no handler')).mockRejectedValueOnce(new Error('no browser'));
+    await expect(foregroundSpotify(TRACK_URI)).resolves.toBeUndefined();
+    expect(openURL).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens the web page ONLY on failure: a successful app open is the single call', async () => {
+    await foregroundSpotify(TRACK_URI);
+    expect(openURL.mock.calls).toEqual([[TRACK_URI]]);
+  });
+
   it('never throws into the UI when the wake connect rejects', async () => {
     connect.mockRejectedValueOnce(new Error('remote severed'));
     await expect(foregroundSpotify(TRACK_URI)).resolves.toBeUndefined();

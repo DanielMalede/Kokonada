@@ -27,7 +27,13 @@ export async function foregroundSpotify(uri: string | null): Promise<void> {
   try {
     await Linking.openURL(link.uri);
   } catch {
-    /* link-back is best-effort — never throw into the UI */
+    // No handler for the app URI: Spotify was uninstalled after the mount-time install probe. Open
+    // the same item's web page rather than leave OPEN SPOTIFY a dead control.
+    try {
+      await Linking.openURL(link.webUrl);
+    } catch {
+      /* link-back is best-effort — never throw into the UI */
+    }
   }
   // Keep waking the App Remote for playback continuity (its own guard — connect already swallows).
   try {
