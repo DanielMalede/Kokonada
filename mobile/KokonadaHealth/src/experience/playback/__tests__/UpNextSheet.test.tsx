@@ -18,6 +18,9 @@ jest.mock('../../player/SpotifyAttribution', () => {
 });
 // The commit haptic — spy it so "haptics.selection on jump commit" is observable without native.
 jest.mock('../../../design/haptics', () => ({ fireHaptic: jest.fn() }));
+// DEC-099: the sheet is gated off until P3. This suite pins the sheet's P3 behaviour, so it forces
+// the gate on; the shipped (off) gate is pinned, unmocked, in UpNextSheet.gate.test.tsx.
+jest.mock('../upNextGate', () => ({ UP_NEXT_ENABLED: true }));
 
 import { UpNextSheet } from '../UpNextSheet';
 import { fireHaptic } from '../../../design/haptics';

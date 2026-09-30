@@ -5,6 +5,7 @@ import { orchestrator } from './playbackServices';
 import type { NowPlaying } from './playbackOrchestrator';
 import type { QueueTrack } from './playbackQueue';
 import { UpNextSheet } from './UpNextSheet';
+import { UP_NEXT_ENABLED } from './upNextGate';
 import { SpotifyAttribution } from '../player/SpotifyAttribution';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { store } from '../../state/store';
@@ -326,28 +327,33 @@ export function NowPlayingScreen() {
       </View>
 
       {/* Low-emphasis "Up next" affordance (SCREENS §7): tap to open the queue sheet over Now
-          Playing. Sits beneath the transport without disturbing the art→meta→transport hierarchy. */}
-      <Pressable
-        onPress={() => setUpNextVisible(true)}
-        accessibilityRole="button"
-        accessibilityLabel="Up next"
-        hitSlop={space.md}
-        style={styles.upNext}
-      >
-        <Text style={{ fontSize: typography.size.heading, color: c.content.secondary }}>⌃</Text>
-        <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>Up next</Text>
-      </Pressable>
+          Playing. Sits beneath the transport without disturbing the art→meta→transport hierarchy.
+          Hidden until P3 (DEC-099, see upNextGate): no entry, no sheet, no reserved space. */}
+      {UP_NEXT_ENABLED ? (
+        <>
+          <Pressable
+            onPress={() => setUpNextVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Up next"
+            hitSlop={space.md}
+            style={styles.upNext}
+          >
+            <Text style={{ fontSize: typography.size.heading, color: c.content.secondary }}>⌃</Text>
+            <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>Up next</Text>
+          </Pressable>
 
-      <UpNextSheet
-        visible={upNextVisible}
-        onClose={() => setUpNextVisible(false)}
-        tracks={queueTracks}
-        currentTrackId={track?.id ?? null}
-        isPlaying={isPlaying}
-        quadrant={quadrant}
-        connection={connection}
-        onJump={onJump}
-      />
+          <UpNextSheet
+            visible={upNextVisible}
+            onClose={() => setUpNextVisible(false)}
+            tracks={queueTracks}
+            currentTrackId={track?.id ?? null}
+            isPlaying={isPlaying}
+            quadrant={quadrant}
+            connection={connection}
+            onJump={onJump}
+          />
+        </>
+      ) : null}
     </View>
   );
 }

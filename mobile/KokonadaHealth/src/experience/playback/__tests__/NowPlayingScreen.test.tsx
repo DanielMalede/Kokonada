@@ -33,6 +33,19 @@ jest.mock('../../player/SpotifyAttribution', () => {
   };
 });
 
+// DEC-099: Up Next is gated off until P3. This file reads the REAL shipped gate by default; only the
+// blocks that pin Up Next's P3 behaviour force it on (mockUpNextOverride), so re-enabling stays a
+// one-line change with those pins intact. The shipped (off) state is pinned in 'hidden until P3'.
+let mockUpNextOverride: boolean | undefined;
+jest.mock('../upNextGate', () => {
+  const actual = jest.requireActual('../upNextGate');
+  return { get UP_NEXT_ENABLED() { return mockUpNextOverride ?? actual.UP_NEXT_ENABLED; } };
+});
+const forceUpNextOnForP3 = () => {
+  beforeEach(() => { mockUpNextOverride = true; });
+  afterEach(() => { mockUpNextOverride = undefined; });
+};
+
 import { NowPlayingScreen } from '../NowPlayingScreen';
 import { orchestrator } from '../playbackServices';
 import { nowPlayingStore } from '../nowPlayingStore';
@@ -397,8 +410,38 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  // ── DEC-099 (owner ruling; HX-4 M4): Up Next is hidden until P3 — no entry is drawn and the sheet
+  // can never open. These run against the REAL shipped gate.
+  describe('Up Next is hidden until P3 (DEC-099)', () => {
+    it.each([
+      ['with a track playing', TRACK],
+      ['with nothing playing', null],
+    ])('draws no Up next entry %s — no button, no label, no chevron', async (_label, track) => {
+      nowPlayingStore.getState().set({ track, isPlaying: !!track });
+      const tree = await render();
+      expect(byLabel(tree, 'Up next')).toBeUndefined();
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).not.toContain('Up next');
+      expect(all).not.toContain('⌃');
+    });
+
+    it('the sheet never opens: firing every control on the screen leaves no sheet, and the queue is never read', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      const tree = await render();
+      const pressables = tree.root.findAll((n) => typeof n.props.onPress === 'function');
+      expect(pressables.length).toBeGreaterThan(0); // the transport is there to press — not a vacuous sweep
+      for (const p of pressables) await ReactTestRenderer.act(async () => { p.props.onPress(); });
+      await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+      expect(tree.root.findAll((n) => n.props.testID === 'upnext-sheet')).toHaveLength(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'upnext-scrim')).toHaveLength(0);
+      expect(orchestrator.getQueueTracks as jest.Mock).not.toHaveBeenCalled();
+    });
+  });
+
   // ── §2.a tail: the low-emphasis "Up next" trigger opening the Up-Next sheet ──
+  // P3 behaviour, pinned with the gate forced on (DEC-099 hides it in the shipped build).
   describe('Up next sheet trigger (§2.a tail — shipped hierarchy preserved)', () => {
+    forceUpNextOnForP3();
     it('renders a low-emphasis "Up next" button beneath the transport with a ≥44pt tap target', async () => {
       nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
       const tree = await render();
@@ -837,7 +880,9 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
   });
 
   // ── L2: the connection subscribe effect must re-read live status on mount ──
+  // Observed through the Up Next sheet, so pinned with the gate forced on (P3 behaviour; DEC-099).
   describe('L2: live connection status is re-synced on mount', () => {
+    forceUpNextOnForP3();
     it('re-reads playerStatusStore on effect-commit so a transition after the initial render is not dropped', async () => {
       // getState() is disconnected for the useState initializer, then connected by effect-commit time —
       // the mount re-read must catch up. Old code (subscribe-only) would strand on disconnected.

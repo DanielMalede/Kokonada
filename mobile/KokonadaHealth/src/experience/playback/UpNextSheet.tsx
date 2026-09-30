@@ -6,11 +6,13 @@ import type { EmotionQuadrant } from '../../design/tokens';
 import { SpotifyAttribution } from '../player/SpotifyAttribution';
 import { fireHaptic } from '../../design/haptics';
 import { UpNextRow } from './UpNextRow';
+import { UP_NEXT_ENABLED } from './upNextGate';
 import type { QueueTrack } from './playbackQueue';
 
 // Up-Next queue sheet (SCREENS §7, finally built). A modal over Now Playing that lists the generated
 // set with the live cursor — pure typography + accent, NO per-track cover art (compliant + a 60fps
 // decision). Tap a row → playback jumps there through the orchestrator (the #130 self-heal path).
+// Gated off until P3 (DEC-099, see upNextGate): while off it renders nothing, whoever mounts it.
 
 const SHEET_MAX_HEIGHT = '88%';
 
@@ -34,7 +36,14 @@ export interface UpNextSheetProps {
   onJump: (track: QueueTrack) => void;
 }
 
-export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlaying, quadrant, connection, onJump }: UpNextSheetProps) {
+// DEC-099: the gate sits in front of every hook, so a gated-off sheet mounts no state, no animation
+// and no hardware-Back listener — it is unreachable by any path, not just unlinked from one screen.
+export function UpNextSheet(props: UpNextSheetProps) {
+  if (!UP_NEXT_ENABLED) return null;
+  return <UpNextSheetView {...props} />;
+}
+
+function UpNextSheetView({ visible, onClose, tracks, currentTrackId, isPlaying, quadrant, connection, onJump }: UpNextSheetProps) {
   const { c } = useTheme();
   const { reduced } = useMotion();
   const { height: windowHeight } = useWindowDimensions();
