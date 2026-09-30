@@ -64,14 +64,15 @@ export function NowPlayingScreen() {
   // landscape, split-screen and small phones all stay legible — capped at the design maximum on
   // roomy screens. flexShrink on the art (below) is the final guarantee if space is still tight.
   const artSize = Math.min(width - space.xl * 2, height * ART_VIEWPORT_FRACTION, ART_SIZE);
-  const [state, setState] = useState<NowPlaying & { coverUri: string | null }>({
+  const [state, setState] = useState<NowPlaying & { coverUri: string | null; coverTrackUri: string | null }>({
     track: nowPlayingStore.getState().track,
     isPlaying: nowPlayingStore.getState().isPlaying,
     coverUri: nowPlayingStore.getState().coverUri,
+    coverTrackUri: nowPlayingStore.getState().coverTrackUri,
   });
 
   useEffect(() => {
-    const sync = (s: any) => setState({ track: s.track, isPlaying: s.isPlaying, coverUri: s.coverUri });
+    const sync = (s: any) => setState({ track: s.track, isPlaying: s.isPlaying, coverUri: s.coverUri, coverTrackUri: s.coverTrackUri });
     sync(nowPlayingStore.getState());
     return nowPlayingStore.subscribe(sync); // cleanup returns the unsubscribe (S10-1)
   }, []);
@@ -96,7 +97,7 @@ export function NowPlayingScreen() {
   const queueTracks = useMemo(() => (upNextVisible ? orchestrator.getQueueTracks() : NO_TRACKS), [upNextVisible]);
   const onJump = useCallback((t: QueueTrack) => orchestrator.jumpToId(t.id), []);
 
-  const { track, isPlaying, coverUri } = state;
+  const { track, isPlaying, coverUri, coverTrackUri } = state;
 
   // Graceful degradation (L2): a non-null but broken/undecodable cover file must still fall
   // back to the ♪ token placeholder — never a blank panel. The flag is keyed to the current
@@ -107,7 +108,10 @@ export function NowPlayingScreen() {
   // resolver), decoupled from the track, so coverUri!=null && track==null is reachable
   // (foreign playback at boot with an empty queue). The cover's a11y label reads
   // track.title, so a cover with no track would null-deref — show the placeholder instead.
-  const showCover = !!coverUri && !coverFailed && !!track;
+  // HX-4 M3: the cover sits beside the link-back to track.uri, so it must be THAT item's
+  // cover — shown only while App Remote's track URI for it equals track.uri (a track with no
+  // URI never matches, so an unpaired cover can't slip through as null === null).
+  const showCover = !!coverUri && !coverFailed && !!track?.uri && coverTrackUri === track.uri;
 
   // The session discovery accent (static per session — the quadrant is chosen ONCE, above).
   const accent = c.emotionAccent[quadrant];
