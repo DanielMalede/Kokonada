@@ -56,9 +56,10 @@ export function SignInScreen() {
   // Sign in with Apple. It uses Apple's OFFICIAL button (ASAuthorizationAppleIDButton via
   // AppleButton) — never a hand-drawn look-alike. Not shown on Android or pre-iOS-13.
   const showApple = Platform.OS === 'ios' && appleAuth.isSupported;
-  // Apple HIG: a light button on dark backgrounds, a dark button on light. The app is
-  // dark-default ("abyss"), where a BLACK button would be nearly invisible.
-  const appleButtonStyle = name === 'dark' ? AppleButton.Style.WHITE : AppleButton.Style.BLACK;
+  // Apple HIG: White on dark backgrounds (the app is dark-default, "abyss", where a BLACK button
+  // would be nearly invisible). On the light face, White with outline — HIG: "Use this style on
+  // white or light-color backgrounds" — pairs with Google's white pill beside it (designer, HX-6).
+  const appleButtonStyle = name === 'dark' ? AppleButton.Style.WHITE : AppleButton.Style.WHITE_OUTLINE;
 
   return (
     <View style={[styles.screen, { backgroundColor: c.surface.base }]}>
@@ -85,6 +86,10 @@ export function SignInScreen() {
             testID="apple-signin-button"
             buttonStyle={appleButtonStyle}
             buttonType={AppleButton.Type.SIGN_IN}
+            // Half the shared height: a pill, matching Google's (HIG: "Adjust the corner radius to
+            // match the appearance of other buttons in your app"). Not radius.pill — the native
+            // button takes a real radius, and 20 is exactly half of SIGN_IN_BUTTON_HEIGHT.
+            cornerRadius={SIGN_IN_BUTTON_HEIGHT / 2}
             onPress={onApple}
             style={styles.appleButton}
           />
@@ -106,6 +111,7 @@ const styles = StyleSheet.create({
   actions: { width: '100%', alignItems: 'center' },
   // The official Apple button draws its own fill/label; we only own its measure. It is exactly the
   // Google image's rendered size — one height constant, one width — so neither button is smaller
-  // or more prominent than the other (Apple HIG; Google's equal-prominence rule). One gap below.
+  // than the other (Apple HIG: no smaller than other sign-in buttons; Google: "approximately the
+  // same size"). This equalises SIZE only; visual weight is not asserted here. One gap below.
   appleButton: { width: GOOGLE_SIGN_IN_WIDTH, height: SIGN_IN_BUTTON_HEIGHT, marginTop: space.md },
 });

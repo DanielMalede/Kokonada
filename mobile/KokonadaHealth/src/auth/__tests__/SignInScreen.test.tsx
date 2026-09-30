@@ -132,12 +132,25 @@ describe('SignInScreen — Sign in with Apple (App Store Guideline 4.8, iOS)', (
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('uses the BLACK Apple button on the light theme (Apple HIG: dark button on light bg)', async () => {
+  // REVERSED in HX-6 round 1 (designer REVISE, relayed by the coordinator): this pinned BLACK on the
+  // light face. Beside Google's white pill, Apple's White-with-outline style is the matching pair —
+  // Apple HIG: "White with outline: Use this style on white or light-color backgrounds".
+  it('uses the WHITE_OUTLINE Apple button on the light theme (pairs with Google\'s white pill)', async () => {
     (Platform as any).OS = 'ios';
     jest.spyOn(theme, 'useTheme').mockReturnValue({ name: 'light', c: theme.resolveScheme('light') });
     const tree = await render();
     const btn = tree.root.findAll((n) => n.props.testID === 'apple-signin-button')[0];
-    expect(btn.props.buttonStyle).toBe(AppleButton.Style.BLACK);
+    expect(btn.props.buttonStyle).toBe(AppleButton.Style.WHITE_OUTLINE);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it.each(['light', 'dark'] as const)('rounds Apple\'s corners to half the shared height (a pill like Google\'s) on the %s face', async (face) => {
+    (Platform as any).OS = 'ios';
+    jest.spyOn(theme, 'useTheme').mockReturnValue({ name: face, c: theme.resolveScheme(face) });
+    const tree = await render();
+    const btn = tree.root.findAll((n) => n.props.testID === 'apple-signin-button')[0];
+    expect(btn.props.cornerRadius).toBe(SIGN_IN_BUTTON_HEIGHT / 2);
+    expect(btn.props.cornerRadius).toBe(20);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
@@ -200,6 +213,24 @@ describe('SignInScreen — the official Google button (HX-6)', () => {
     expect(dimmed).toEqual([]);
     await ReactTestRenderer.act(async () => { resolve({ id: 'u1', displayName: 'Dan', email: 'd@x.io' }); });
     expect(host(tree, 'google-signin-busy')).toBeUndefined(); // the flow settles, the spinner goes
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // Resilience, HX-6 round 1: a fast double-tap on Google must start ONE sign-in, and the button must
+  // be disabled for the whole flight (the re-entry latch and the disabled prop are both pinned).
+  it('a double-tap on Google while the first sign-in is pending calls signInWithGoogle once, and the button is disabled', async () => {
+    let resolve!: (u: any) => void;
+    signIn.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const tree = await render();
+    const pressable = () =>
+      tree.root.findAll((n) => n.props.testID === 'google-signin-button' && typeof n.props.onPress === 'function')[0];
+    expect(pressable().props.disabled).toBe(false);
+    await ReactTestRenderer.act(async () => { pressable().props.onPress(); }); // first tap — in flight
+    expect(pressable().props.disabled).toBe(true);
+    await ReactTestRenderer.act(async () => { pressable().props.onPress(); }); // second tap — must be ignored
+    expect(signIn).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { resolve({ id: 'u1', displayName: 'Dan', email: 'd@x.io' }); });
+    expect(pressable().props.disabled).toBe(false); // released once the flight settles
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
