@@ -530,7 +530,7 @@ describe('buildEmotionPlaylist (Spotify provider)', () => {
     axios.post.mockRejectedValueOnce(new Error('Gemini API quota exceeded'));
     await expect(
       buildEmotionPlaylist({ musicProfile: MUSIC_PROFILE, emotionTaps, fetchTracks: spotifyFetch })
-    ).rejects.toThrow('Gemini API quota exceeded');
+    ).rejects.toThrow('LLM request failed (openai/gpt-oss-20b): status=- code=Error'); // code, never the raw text
   });
 
   it('throws a clear error when the model returns prose instead of JSON', async () => {
@@ -670,7 +670,7 @@ describe('adjustBiometricPlaylist (Spotify provider)', () => {
     axios.post.mockRejectedValueOnce(new Error('network timeout'));
     await expect(
       adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch })
-    ).rejects.toThrow('network timeout');
+    ).rejects.toThrow('LLM request failed (openai/gpt-oss-20b): status=- code=Error'); // code, never the raw text
   });
 
   it('throws when the model response is missing required fields', async () => {
