@@ -65,8 +65,8 @@ function isServable(seed) {
 
 // --- streaming ------------------------------------------------------------
 
-// Built-in zstd landed in node:zlib at Node 22.15 — this repo's dev env is Node 24. Older Node
-// (e.g. CI's Node 20) lacks it, so we gate on the function's presence and give a clear error rather
+// Built-in zstd landed in node:zlib at Node 22.15 — the backend runs Node 24 (image and CI). Older
+// Node (e.g. Node 20) lacks it, so we gate on the function's presence and give a clear error rather
 // than a cryptic "createZstdDecompress is not a function".
 const hasBuiltinZstd = () => typeof zlib.createZstdDecompress === 'function';
 

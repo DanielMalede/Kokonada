@@ -6,7 +6,7 @@
 // boot without a vetted provider so special-category signals can never reach an unvetted
 // endpoint.
 
-const { assertVettedLlmProvider, hasVettedProvider } = require('../app/config/llmProvider');
+const { assertVettedLlmProvider, hasVettedProvider, reasoningParams } = require('../app/config/llmProvider');
 
 function withEnv(overrides, fn) {
   const saved = {};
@@ -55,6 +55,34 @@ describe('hasVettedProvider', () => {
     });
     withEnv({ LLM_API_KEY: 'x', GROQ_API_KEY: undefined }, () => {
       expect(hasVettedProvider()).toBe(true);
+    });
+  });
+});
+
+// A bad LLM_REASONING_EFFORT must not reach Groq: "Values outside a model's supported set are rejected
+// with a 400" (https://console.groq.com/docs/api-reference), so one typo on Railway would fail EVERY
+// gpt-oss call. gpt-oss accepts low | medium | high; anything else falls back to low.
+describe('reasoningParams', () => {
+  const GPT_OSS = 'openai/gpt-oss-20b';
+
+  it.each([
+    ['max', 'low'],
+    ['', 'low'],
+    ['x', 'low'],
+    [' LOW ', 'low'],
+    ['high', 'high'],
+    ['Medium', 'medium'],
+    [undefined, 'low'],
+  ])('LLM_REASONING_EFFORT=%p gives %p for a gpt-oss model', (value, expected) => {
+    withEnv({ LLM_REASONING_EFFORT: value }, () => {
+      expect(reasoningParams(GPT_OSS)).toEqual({ reasoning_effort: expected });
+    });
+  });
+
+  it('gives no field at all for a non-gpt-oss model, whatever the env says', () => {
+    withEnv({ LLM_REASONING_EFFORT: 'high' }, () => {
+      expect(reasoningParams('qwen/qwen3.8-27b')).toEqual({});
+      expect(reasoningParams(undefined)).toEqual({});
     });
   });
 });
