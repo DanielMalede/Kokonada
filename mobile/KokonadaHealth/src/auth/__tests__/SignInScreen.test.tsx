@@ -132,7 +132,7 @@ describe('SignInScreen — Sign in with Apple (App Store Guideline 4.8, iOS)', (
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  // REVERSED in HX-6 round 1 (designer REVISE; signed by the owner 2026-09-30, DEC-106): this pinned BLACK on the
+  // REVERSED in HX-6 round 1 (designer review; signed by the owner 2026-09-30, DEC-106): this pinned BLACK on the
   // light face. Beside Google's white pill, Apple's White-with-outline style is the matching pair —
   // Apple HIG, "White with outline": "Use this style on white or light-color backgrounds that don't
   // provide sufficient contrast with the white button fill." The light canvas (surface.base) is
