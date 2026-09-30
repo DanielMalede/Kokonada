@@ -349,6 +349,26 @@ describe('extractIntent (deterministic, zero-LLM)', () => {
   it('the music-mood keyword "focus" is kept (a mood label, not a context)', () => {
     expect(extractIntent('focus music please').keywords).toContain('focus');
   });
+
+  // The owner's ruling on free-text focus (HX-7 round 1, "remove it too"): a note saying "focus" or
+  // "focusing" derives no activity context either. "focus" / "focused" stay music-mood keywords.
+  it('free-text "focus" and "focusing" derive no activity or tempo, and "focus" still adds the vibe keyword', () => {
+    for (const note of ['focus', 'focusing', 'need to focus', 'focusing tonight', 'deep focus']) {
+      const out = extractIntent(note);
+      expect({ note, activity: out.activity, tempo: out.tempoCategory }).toEqual({ note, activity: null, tempo: null });
+    }
+    expect(extractIntent('focus').keywords).toEqual(['focus']);
+    expect(extractIntent('feeling focused').keywords).toEqual(['focus']);
+  });
+
+  // Resilience round 1 (INFO): "working" left the lexicon, which also lost "working out". It is an
+  // exercise phrase, so it maps to the workout activity like "work out" does.
+  it('"working out" is an exercise phrase: the workout activity at peak tempo', () => {
+    for (const note of ['working out', 'working out tonight', "I'm working out at the gym later"]) {
+      expect(extractIntent(note)).toMatchObject({ activity: 'workout', tempoCategory: 'peak' });
+    }
+    expect(extractIntent('working on code').activity).toBeNull();
+  });
 });
 
 // ── normalizeActivity — client activity → preset enum (Wave-0 hardening H1) ────

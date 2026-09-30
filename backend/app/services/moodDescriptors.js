@@ -359,14 +359,14 @@ function normalizeActivity(activity) {
 // Deterministic, zero-LLM, CLOSED-VOCABULARY extraction. Only canonical tags already
 // in our lexicon are emitted, so arbitrary user text (or PII) can never leak through.
 
+// HX-7: no work, study or focus context is derived from free text (DEC-062, DEC-103 and the owner's
+// ruling on free-text focus). "focus" and "focused" remain music-mood keywords in _VIBE_LEXICON.
 const _ACTIVITY_LEXICON = [
   { words: ['run', 'running', 'jog', 'jogging', 'sprint', 'cardio', '5k', '10k', 'marathon'], phrases: [],                             activity: 'running',  tempo: 'peak' },
-  { words: ['gym', 'workout', 'lifting', 'weights', 'hiit', 'training'],                       phrases: ['work out'],                    activity: 'workout',  tempo: 'peak' },
+  { words: ['gym', 'workout', 'lifting', 'weights', 'hiit', 'training'],                       phrases: ['work out', 'working out'],     activity: 'workout',  tempo: 'peak' },
   { words: ['dance', 'dancing', 'party', 'clubbing'],                                          phrases: [],                             activity: 'party',    tempo: 'peak' },
   { words: ['walk', 'walking', 'stroll', 'hike', 'hiking'],                                    phrases: [],                             activity: 'walking',  tempo: 'active' },
   { words: ['commute', 'commuting', 'driving', 'drive'],                                       phrases: ['on the train'],                activity: 'commute',  tempo: 'active' },
-  // HX-7 (DEC-062): work and study words were removed, so no work or study context is derived.
-  { words: ['focus', 'focusing'],                                                              phrases: [],                             activity: 'focus',    tempo: 'active' },
   { words: ['sleep', 'sleeping', 'bedtime', 'bed'],                                            phrases: ['wind down', 'winding down', 'before bed'], activity: 'sleep', tempo: 'resting' },
   { words: ['meditate', 'meditating', 'meditation', 'yoga', 'breathe', 'breathing', 'relax', 'relaxing', 'unwind'], phrases: [],         activity: 'relaxing', tempo: 'resting' },
 ];
