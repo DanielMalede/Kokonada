@@ -1869,6 +1869,19 @@ function _admitFeedback(state, nowMs) {
   return admitted.allowed;
 }
 
+// HX-7 (DEC-062): the door admits only the chips the app offers (chipActivities.js). The retired
+// Working and Focus chips, which an installed older build still sends, are therefore dropped, as is any
+// other string and anything that is not a string (an array or object here made the session write fail).
+// Zero-width characters are stripped before comparing; an offered chip is kept as its canonical key.
+const { CHIP_ACTIVITY_KEYS } = require('../services/chipActivities');
+const OFFERED_CHIPS = new Set(CHIP_ACTIVITY_KEYS);
+const ZERO_WIDTH = /[​-‍⁠﻿]/g;
+function _admitChipActivity(activity) {
+  if (typeof activity !== 'string') return null;
+  const key = activity.replace(ZERO_WIDTH, '').trim().toLowerCase();
+  return OFFERED_CHIPS.has(key) ? key : null;
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
@@ -1904,7 +1917,7 @@ function registerBiometricHandler(socket) {
     const state = getState(socketId);
     state.lastEmotionTaps = taps;
     state.lastTextPrompt  = textPrompt;
-    state.lastActivity    = activity || null;
+    state.lastActivity    = _admitChipActivity(activity);
     if (mode) state.lastMode = mode;
     log(`[emotion_update] taps=${taps.length} activity=${state.lastActivity ?? 'none'} mode=${state.lastMode}`);
   });

@@ -21,6 +21,15 @@ const BAND_TITLES = { resting: 'Resting', active: 'Active', peak: 'Peak Energy' 
 const titleCase = (s) =>
   String(s).replace(/[_:]+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase());
 
+// HX-7(c), DEC-062: the Working chip is retired, but rows saved with it keep their stored activity (no
+// stored-data change). Installed builds render title and activityLabel verbatim, so the label is
+// relabelled here. The word must equal the app's RETIRED_ACTIVITY_LABEL (historyFormat.ts); a mobile
+// drift test runs this file to hold them together.
+const RETIRED_ACTIVITY_LABEL = 'General';
+const RELABELLED_ACTIVITIES = new Set(['working']);
+const activityLabelOf = (s) =>
+  (RELABELLED_ACTIVITIES.has(String(s).trim().toLowerCase()) ? RETIRED_ACTIVITY_LABEL : titleCase(s));
+
 /**
  * @param {string|null} moodKey
  * @param {string|null} activity  the persisted activity (the chosen chip for manual,
@@ -29,12 +38,12 @@ const titleCase = (s) =>
  */
 function sessionLabel(moodKey, activity) {
   const key = String(moodKey ?? '').trim();
-  const chosen = activity ? titleCase(activity) : null;
+  const chosen = activity ? activityLabelOf(activity) : null;
 
   if (key.startsWith('bio:')) {
     const [, band = '', act = ''] = key.split(':');
     const title = BAND_TITLES[band] || (band ? titleCase(band) : 'Live');
-    const bioActivity = act && act !== 'unknown' ? titleCase(act) : chosen;
+    const bioActivity = act && act !== 'unknown' ? activityLabelOf(act) : chosen;
     return { title, source: 'live', activityLabel: bioActivity };
   }
 
@@ -47,4 +56,4 @@ function sessionLabel(moodKey, activity) {
   return { title, source: 'manual', activityLabel: chosen };
 }
 
-module.exports = { sessionLabel, PRESET_TITLES, BAND_TITLES };
+module.exports = { sessionLabel, PRESET_TITLES, BAND_TITLES, RETIRED_ACTIVITY_LABEL };

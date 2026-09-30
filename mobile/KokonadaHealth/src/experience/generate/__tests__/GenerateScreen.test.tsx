@@ -137,14 +137,14 @@ describe('GenerateScreen — undo / clear controls (§5) preserve activity + pro
     await ReactTestRenderer.act(async () => {
       store.dispatch(addTap({ x: 0.5, y: 0.5 }));
       store.dispatch(addTap({ x: -0.3, y: 0.4 }));
-      store.dispatch(setActivity('focus'));
+      store.dispatch(setActivity('running'));
       store.dispatch(setTextPrompt('deep work'));
     });
     await ReactTestRenderer.act(async () => { byId(tree, 'generate-undo').props.onPress(); });
     expect(store.getState().emotion.taps).toEqual([{ x: 0.5, y: 0.5 }]);
     await ReactTestRenderer.act(async () => { byId(tree, 'generate-clear').props.onPress(); });
     expect(store.getState().emotion.taps).toEqual([]);
-    expect(store.getState().emotion.activity).toBe('focus');
+    expect(store.getState().emotion.activity).toBe('running');
     expect(store.getState().emotion.textPrompt).toBe('deep work');
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });

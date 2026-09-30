@@ -42,7 +42,7 @@ describe('emotionSlice — committed intent', () => {
 
   it('resetEmotion clears everything (logout)', () => {
     let s = reducer(initial, addTap({ x: 1, y: 1 }));
-    s = reducer(s, setActivity('working'));
+    s = reducer(s, setActivity('running'));
     s = reducer(s, setTextPrompt('focus'));
     expect(reducer(s, resetEmotion())).toEqual(initial);
   });
@@ -83,10 +83,10 @@ describe('emotionSlice — undoTap / clearTaps (§5 quiet, forgiving remove — 
   it('clearTaps empties ONLY the taps, preserving activity and prompt (≠ resetEmotion)', () => {
     let s = initial;
     for (const x of [0.1, 0.2, 0.3]) s = reducer(s, addTap({ x, y: 0 }));
-    s = reducer(s, setActivity('focus'));
+    s = reducer(s, setActivity('running'));
     s = reducer(s, setTextPrompt('deep work'));
     const cleared = reducer(s, clearTaps());
-    expect(cleared).toEqual({ taps: [], activity: 'focus', textPrompt: 'deep work' });
+    expect(cleared).toEqual({ taps: [], activity: 'running', textPrompt: 'deep work' });
     // and it is distinct from resetEmotion, which wipes activity + prompt too (logout/rehydrate)
     expect(reducer(s, resetEmotion())).toEqual({ taps: [], activity: null, textPrompt: '' });
   });

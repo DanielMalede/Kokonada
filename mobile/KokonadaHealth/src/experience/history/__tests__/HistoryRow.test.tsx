@@ -5,7 +5,7 @@ import ReactTestRenderer from 'react-test-renderer';
 jest.mock('../../../design/theme', () => ({ useTheme: jest.fn(), useMotion: jest.fn() }));
 
 import { HistoryRow, PRESS_SCALE } from '../HistoryRow';
-import { rowA11yLabel } from '../historyFormat';
+import { rowA11yLabel, RETIRED_ACTIVITY_LABEL } from '../historyFormat';
 import { useTheme, useMotion } from '../../../design/theme';
 import { colors, motion, space } from '../../../design/tokens';
 import type { SessionItem } from '../sessionsApi';
@@ -53,14 +53,31 @@ describe('HistoryRow — one calm material moment', () => {
     expect(PRESS_SCALE).toBe(0.985);
   });
 
-  it('is exactly ONE accessible button with the composed spoken label + replay hint', async () => {
+  // RETIRED 2026-09-30 by the owner's ruling on HX-7 (reversal of the hint pin signed): the row carried
+  // "Opens this moment to replay its soundtrack.", but nothing wires onOpenSession, so a tap does
+  // nothing. The row promises no action it cannot take; it is found by its testID instead.
+  it('is exactly ONE accessible button with the composed spoken label, and no hint promising a replay', async () => {
     const it0 = item();
     const tree = await render(<HistoryRow item={it0} now={NOW} onPress={() => {}} />);
     const btns = button(tree);
     expect(btns).toHaveLength(1); // the whole card is the single tap target; children are not focusable
+    expect(btns[0].props.testID).toBe('history-row');
     expect(btns[0].props.accessibilityLabel).toBe(rowA11yLabel(it0, NOW));
     expect(btns[0].props.accessibilityLabel).toContain('Peak Energy'); // friendly, never the raw moodKey
-    expect(btns[0].props.accessibilityHint).toBe('Opens this moment to replay its soundtrack.');
+    expect(btns[0].props.accessibilityHint).toBeUndefined();
+    const everything = tree.root.findAll(() => true).map((n) => `${n.props?.accessibilityHint ?? ''} ${n.props?.accessibilityLabel ?? ''}`);
+    expect(everything.join(' ')).not.toMatch(/replay|opens this moment/i);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('an old Working row (HX-7c) never shows or speaks "Working": it reads the neutral label', async () => {
+    const old = item({ moodKey: null, title: 'Working', source: 'manual', activity: 'working', activityLabel: 'Working' });
+    const tree = await render(<HistoryRow item={old} now={NOW} onPress={() => {}} />);
+    const spoken = tree.root.findAll((n) => typeof n.props?.accessibilityLabel === 'string').map((n) => n.props.accessibilityLabel);
+    expect(allText(tree)).not.toMatch(/working/i);
+    expect(spoken.join(' | ')).not.toMatch(/working/i);
+    expect(allText(tree)).toContain('A moment');
+    expect(allText(tree)).toContain(`Manual · ${RETIRED_ACTIVITY_LABEL}`);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

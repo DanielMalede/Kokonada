@@ -30,10 +30,12 @@ const flatStyle = (node: any): Record<string, unknown> => {
 const readAnim = (v: unknown): unknown => (v && typeof (v as any).__getValue === 'function' ? (v as any).__getValue() : v);
 const byLabel = (t: ReactTestRenderer.ReactTestRenderer, label: string) =>
   t.root.findAll((n) => n.props?.accessibilityLabel === label && n.parent?.props?.accessibilityLabel !== label);
+// Rows are found by their stable testID + role (the owner's HX-7 ruling retired the replay hint this
+// selector used to key on), outermost wrapper only, as before.
 const rowButtons = (t: ReactTestRenderer.ReactTestRenderer) =>
-  t.root.findAll((n) => n.props?.accessibilityRole === 'button'
-    && n.props?.accessibilityHint === 'Opens this moment to replay its soundtrack.'
-    && n.parent?.props?.accessibilityRole !== 'button');
+  t.root.findAll((n) => n.props?.testID === 'history-row'
+    && n.props?.accessibilityRole === 'button'
+    && n.parent?.props?.testID !== 'history-row');
 const list = (t: ReactTestRenderer.ReactTestRenderer) =>
   t.root.findAll((n) => n.props?.testID === 'history-list' && typeof n.props?.onEndReached === 'function')[0];
 const usedColors = (t: ReactTestRenderer.ReactTestRenderer): Set<string> => {

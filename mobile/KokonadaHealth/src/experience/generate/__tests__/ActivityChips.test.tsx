@@ -35,6 +35,15 @@ describe('ActivityChips — tokenised, single-select, ≥44dp', () => {
     for (const a of ACTIVITIES) expect(chip(light, a.key)).toBeTruthy();
   });
 
+  it('six chips remain: the retired work and study contexts (working, focus) are not offered (DEC-062)', () => {
+    expect(ACTIVITIES.map((a) => a.key)).toEqual(['running', 'resting', 'walking', 'commuting', 'workout', 'winding down']);
+    const tree = renderWith('dark', makeStore());
+    const ids = new Set(tree.root.findAll((n) => typeof n.props?.testID === 'string' && n.props.testID.startsWith('activity-chip-')).map((n) => n.props.testID));
+    expect(ids.size).toBe(6);
+    expect(chip(tree, 'working')).toBeUndefined();
+    expect(chip(tree, 'focus')).toBeUndefined();
+  });
+
   it('every chip target is at least a 44dp (space.3xl = 48) minHeight', () => {
     const tree = renderWith('dark', makeStore());
     for (const a of ACTIVITIES) expect(flat(chip(tree, a.key)).minHeight).toBeGreaterThanOrEqual(44);
@@ -53,12 +62,12 @@ describe('ActivityChips — tokenised, single-select, ≥44dp', () => {
 
   it('the active chip is distinguished beyond colour (accessibilityState.selected + accent border)', () => {
     const store = makeStore();
-    store.dispatch(setActivity('focus'));
+    store.dispatch(setActivity('running'));
     const tree = renderWith('dark', store);
-    const active = chip(tree, 'focus');
+    const active = chip(tree, 'running');
     expect(active.props.accessibilityState.selected).toBe(true);
     expect(flat(active).borderColor).toBe(colors.dark.accent.glow); // accent outline on active
-    const idle = chip(tree, 'running');
+    const idle = chip(tree, 'walking');
     expect(idle.props.accessibilityState.selected).toBe(false);
     expect(flat(idle).borderColor).toBe(colors.dark.surface.hairline); // quiet hairline when idle
   });
