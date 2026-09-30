@@ -116,8 +116,9 @@ describe('spotifyLinkBack — foregroundSpotify opens the exact item in the Spot
   });
 });
 
-// HX-4 M2: not installed ("GET SPOTIFY FREE") → the SAME item's open.spotify.com page, never the
-// download page (the pin that stood here asserted the download URL; brief M2 reverses it).
+// REVERSED, signed by the owner 2026-09-30 (DEC-112; not in DEC-091): this pinned the download page
+// ("getSpotifyApp fallback opens the download URL"). HX-4 M2: not installed ("GET SPOTIFY FREE") →
+// the SAME item's open.spotify.com page, never the download page; brief M2 reverses it.
 describe('spotifyLinkBack — openSpotifyWebPage opens the same item on open.spotify.com', () => {
   it.each([
     [TRACK_URI, `https://open.spotify.com/track/${TRACK_ID}`],
