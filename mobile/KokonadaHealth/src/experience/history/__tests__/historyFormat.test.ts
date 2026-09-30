@@ -131,8 +131,8 @@ describe('an old Working row is relabelled at display only', () => {
   const working = (over: Partial<SessionItem> = {}) =>
     item({ moodKey: 'energize', source: 'manual', activity: 'working', activityLabel: 'Working', ...over });
 
-  it('the neutral label names no work or study context', () => {
-    expect(RETIRED_ACTIVITY_LABEL.trim()).not.toBe('');
+  it('the neutral label is the designer\'s word, "General", and names no work or study context', () => {
+    expect(RETIRED_ACTIVITY_LABEL).toBe('General');
     expect(RETIRED_ACTIVITY_LABEL).not.toMatch(/work|study|focus|cod|read|office|job/i);
   });
   it('meta line: the raw activity or the server label "Working" reads as the neutral label', () => {

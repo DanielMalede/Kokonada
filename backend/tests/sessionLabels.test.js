@@ -44,8 +44,8 @@ describe('sessionLabel (defect D-3 — History nomenclature)', () => {
 // HX-7(c), DEC-062: the Working chip is retired, but rows saved with it keep their stored activity.
 // Installed builds render the server's title and activityLabel verbatim, so the server relabels them.
 describe('sessionLabel relabels a retired Working activity (display only)', () => {
-  it('the neutral label is set and names no work or study context', () => {
-    expect(typeof RETIRED_ACTIVITY_LABEL).toBe('string');
+  it('the neutral label is the designer\'s word, "General", and names no work or study context', () => {
+    expect(RETIRED_ACTIVITY_LABEL).toBe('General');
     expect(RETIRED_ACTIVITY_LABEL.trim()).not.toBe('');
     expect(RETIRED_ACTIVITY_LABEL).not.toMatch(/work|study|focus|cod|read|office|job/i);
   });

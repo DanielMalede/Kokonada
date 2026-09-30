@@ -25,7 +25,7 @@ const titleCase = (s) =>
 // stored-data change). Installed builds render title and activityLabel verbatim, so the label is
 // relabelled here. The word must equal the app's RETIRED_ACTIVITY_LABEL (historyFormat.ts); a mobile
 // drift test runs this file to hold them together.
-const RETIRED_ACTIVITY_LABEL = 'Everyday';
+const RETIRED_ACTIVITY_LABEL = 'General';
 const RELABELLED_ACTIVITIES = new Set(['working']);
 const activityLabelOf = (s) =>
   (RELABELLED_ACTIVITIES.has(String(s).trim().toLowerCase()) ? RETIRED_ACTIVITY_LABEL : titleCase(s));

@@ -40,7 +40,7 @@ export const SERVER_TITLES: ReadonlySet<string> = new Set([
 
 // HX-7(c), DEC-062: the Working chip is retired, but a row saved with it keeps its stored activity (no
 // stored-data change). The display relabels it with this neutral word; the word is design's to set.
-export const RETIRED_ACTIVITY_LABEL = 'Everyday';
+export const RETIRED_ACTIVITY_LABEL = 'General';
 const RELABELLED_ACTIVITIES: readonly string[] = ['working'];
 const isRelabelled = (s: string | null | undefined): boolean =>
   typeof s === 'string' && RELABELLED_ACTIVITIES.includes(s.trim().toLowerCase());
