@@ -53,11 +53,18 @@ async function purgeUserKeysStrict(userId) {
 // owed-erasure record (and drops the session playlist ID a pre-HX-2 disconnect left behind); a
 // user who reconnected in the meantime is not touched by that write. Logs are COUNTS only (M10):
 // no title, artist, ID, URI, or user reference.
-async function purgeSpotifyData(userId) {
+// `profile`: 'whole' (the in-app Disconnect — the copy and the declarations say the profile goes,
+// YouTube entries included) or 'spotify-derived' (the daily sweep — a profile the user has since
+// built from YouTube alone holds nothing of Spotify's and is kept; M2). A profile counts as
+// Spotify-derived while it has a Spotify library row or Spotify artist IDs.
+const SPOTIFY_DERIVED_PROFILE = Object.freeze({ $or: [{ 'library.provider': 'spotify' }, { 'knownArtistIds.0': { $exists: true } }] });
+
+async function purgeSpotifyData(userId, { profile = 'whole' } = {}) {
+  const profileFilter = profile === 'spotify-derived' ? { userId, ...SPOTIFY_DERIVED_PROFILE } : { userId };
   const steps = [
     ['sessions', () => purgeProviderData(userId, 'spotify')],
     ['serveEvents', async () => (await ServeEvent.deleteMany({ userId }))?.deletedCount ?? 0],
-    ['profiles', async () => (await MusicProfile.deleteOne({ userId }))?.deletedCount ?? 0],
+    ['profiles', async () => (await MusicProfile.deleteOne(profileFilter))?.deletedCount ?? 0],
     ['unclassified', async () => (await UnclassifiedTrack.deleteMany({ userId, 'track.provider': 'spotify' }))?.deletedCount ?? 0],
     ['redisKeys', () => purgeUserKeysStrict(userId)],
   ];
@@ -114,7 +121,7 @@ async function sweepOwedSpotifyErasures() {
       continue;
     }
     try {
-      await purgeSpotifyData(id);
+      await purgeSpotifyData(id, { profile: 'spotify-derived' });
       erased += 1;
     } catch {
       failed += 1; // purgeSpotifyData already logged which steps failed, by name

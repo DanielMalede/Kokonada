@@ -330,3 +330,51 @@ describe('a disconnect whose purge fails is completed within 5 days with no user
     expect(lines.find((l) => l.startsWith('[sessionTrim]'))).toMatch(/spotifyErasures=1 failures=1$/);
   });
 });
+
+// HX-2 round 1 (M2, resilience): the DAILY SWEEP must not delete a profile that holds no Spotify
+// data. A user who disconnected Spotify long ago (so the sweep still finds their old Spotify
+// sessions) may since have built a YouTube-only profile — deleting it is over-erasure. The in-app
+// Disconnect itself still deletes the whole profile, as its copy and the declarations say.
+describe('the sweep deletes only a profile that still holds Spotify data (M2)', () => {
+  const { process: runDailyJob } = require('../app/workers/sessionTrim.worker');
+  const quiet = () => { for (const m of ['log', 'info', 'warn', 'error']) jest.spyOn(console, m).mockImplementation(() => {}); };
+
+  async function unlinkedWithOldSpotifySessions(tag) {
+    const user = await User.create({ ssoProvider: 'google', ssoId: `sso-${tag}`, email: `${tag}@example.test` });
+    await sessionFor(user._id, 'spotify', 3 * DAY);   // left by a pre-HX-2 disconnect
+    return user._id;
+  }
+
+  it('a YouTube-only profile survives the sweep; the Spotify sessions are still stripped', async () => {
+    const userId = await unlinkedWithOldSpotifySessions('yt');
+    await MusicProfile.create({ userId, knownArtistIds: [], library: [{ id: 'yt-1', provider: 'youtube_music', name: 'Video B' }] });
+    quiet();
+
+    await runDailyJob();
+
+    expect(await MusicProfile.countDocuments({ userId })).toBe(1);
+    expect(await PlaylistSession.countDocuments({ userId, musicProvider: 'spotify', ...HOLDS })).toBe(0);
+  });
+
+  it.each([
+    ['a Spotify library row', { library: [{ id: 'trk1', provider: 'spotify' }], knownArtistIds: [] }],
+    ['Spotify artist IDs only', { library: [{ id: 'yt-1', provider: 'youtube_music' }], knownArtistIds: ['art-1'] }],
+  ])('a profile with %s is deleted by the sweep', async (_label, fields) => {
+    const userId = await unlinkedWithOldSpotifySessions(`sp-${_label.length}`);
+    await MusicProfile.create({ userId, ...fields });
+    quiet();
+
+    await runDailyJob();
+
+    expect(await MusicProfile.countDocuments({ userId })).toBe(0);
+  });
+
+  it('control: the in-app Disconnect still deletes the WHOLE profile, YouTube entries included', async () => {
+    const userId = await seedConnectedUser('whole');
+    await MusicProfile.updateOne({ userId }, { $push: { library: { id: 'yt-9', provider: 'youtube_music' } } });
+
+    await spotifyDisconnect({ user: await authUser(userId) }, makeRes(), jest.fn());
+
+    expect(await MusicProfile.countDocuments({ userId })).toBe(0);
+  });
+});
