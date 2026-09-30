@@ -365,7 +365,8 @@ const _ACTIVITY_LEXICON = [
   { words: ['dance', 'dancing', 'party', 'clubbing'],                                          phrases: [],                             activity: 'party',    tempo: 'peak' },
   { words: ['walk', 'walking', 'stroll', 'hike', 'hiking'],                                    phrases: [],                             activity: 'walking',  tempo: 'active' },
   { words: ['commute', 'commuting', 'driving', 'drive'],                                       phrases: ['on the train'],                activity: 'commute',  tempo: 'active' },
-  { words: ['study', 'studying', 'focus', 'focusing', 'work', 'working', 'coding', 'reading'], phrases: ['deep work'],                   activity: 'focus',    tempo: 'active' },
+  // HX-7 (DEC-062): work and study words were removed, so no work or study context is derived.
+  { words: ['focus', 'focusing'],                                                              phrases: [],                             activity: 'focus',    tempo: 'active' },
   { words: ['sleep', 'sleeping', 'bedtime', 'bed'],                                            phrases: ['wind down', 'winding down', 'before bed'], activity: 'sleep', tempo: 'resting' },
   { words: ['meditate', 'meditating', 'meditation', 'yoga', 'breathe', 'breathing', 'relax', 'relaxing', 'unwind'], phrases: [],         activity: 'relaxing', tempo: 'resting' },
 ];

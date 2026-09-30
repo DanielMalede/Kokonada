@@ -335,6 +335,20 @@ describe('extractIntent (deterministic, zero-LLM)', () => {
   it('is deterministic for a given input', () => {
     expect(extractIntent('calm focus work')).toEqual(extractIntent('calm focus work'));
   });
+
+  // HX-7 (DEC-062, owner ruling O2): a note about work or study yields no activity, so no work or
+  // study context reaches the prompt. The music-mood word "focus" (the vibe lexicon) is kept.
+  it('work and study words yield no activity: "working on code" and each removed word', () => {
+    expect(extractIntent('working on code')).toEqual({ keywords: [], activity: null, tempoCategory: null });
+    for (const note of ['work', 'working', 'study', 'studying', 'coding', 'reading', 'deep work', 'some deep work tonight']) {
+      const out = extractIntent(note);
+      expect({ note, activity: out.activity, tempo: out.tempoCategory }).toEqual({ note, activity: null, tempo: null });
+    }
+  });
+
+  it('the music-mood keyword "focus" is kept (a mood label, not a context)', () => {
+    expect(extractIntent('focus music please').keywords).toContain('focus');
+  });
 });
 
 // ── normalizeActivity — client activity → preset enum (Wave-0 hardening H1) ────
