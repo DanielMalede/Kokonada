@@ -765,7 +765,7 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
 // ── emotion_update handler — activity capture ─────────────────────────────────
 
 describe('emotion_update handler', () => {
-  // REVERSAL PENDING THE OWNER'S SIGNATURE (HX-7 resilience round 1, not in DEC-091): this pinned an
+  // REVERSED, signed by the owner 2026-09-30 (DEC-107; HX-7 resilience round 1, not in DEC-091): this pinned an
   // arbitrary 'Cooking' being cached. The door now admits only offered chips, so the sample is a chip;
   // a non-chip string is pinned as dropped in emotionUpdateRetiredActivity.integration.test.js.
   it('caches the selected activity on socket state', () => {
