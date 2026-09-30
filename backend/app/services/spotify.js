@@ -152,10 +152,18 @@ const notConnected = () => Object.assign(new Error('Spotify not connected'), { s
 async function persistRefreshedToken(user, priorBlob, refreshed) {
   if (!priorBlob) throw notConnected();
   user.setToken('spotifyToken', refreshed);
-  const res = await User.updateOne(
-    { _id: user._id, 'spotifyToken.blob': priorBlob },
-    { $set: { spotifyToken: { blob: user.spotifyToken.blob } } },
-  );
+  let res;
+  try {
+    res = await User.updateOne(
+      { _id: user._id, 'spotifyToken.blob': priorBlob },
+      { $set: { spotifyToken: { blob: user.spotifyToken.blob } } },
+    );
+  } catch (err) {
+    // The write failed: put the doc back as it was read, so a later save cannot store this token.
+    user.spotifyToken = { blob: priorBlob };
+    user.unmarkModified?.('spotifyToken');
+    throw err;
+  }
   if (res?.matchedCount === 1) {
     user.unmarkModified?.('spotifyToken');
     return refreshed.accessToken;

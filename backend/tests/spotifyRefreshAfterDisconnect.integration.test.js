@@ -184,4 +184,18 @@ describe('a Spotify token refresh held across a disconnect never writes the toke
     await doc.save();
     expect((await User.findById(userId).lean()).spotifyToken).toBeNull();
   });
+
+  it('a compare-and-set write that throws leaves the doc as it was read, so a later save cannot store the token', async () => {
+    const userId = await connectedUser({ expired: true });
+    const doc = await User.findById(userId);
+    axios.post.mockResolvedValueOnce(tokenAnswer);
+    jest.spyOn(User, 'updateOne').mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'MongoNetworkError' }));
+
+    await expect(spotify.getValidToken(doc)).rejects.toMatchObject({ name: 'MongoNetworkError' });
+    await disconnect(userId);
+    doc.displayName = 'renamed';
+    await doc.save();
+
+    expect((await User.findById(userId).lean()).spotifyToken).toBeNull();
+  });
 });
