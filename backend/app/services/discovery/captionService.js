@@ -121,7 +121,9 @@ function _parseCaptions(rawText, tracks) {
 }
 
 // Hard budget: race the LLM call against a timer that resolves to null. Promise.race does
-// not cancel the loser — the abandoned request settles later, harmlessly (timer unref'd).
+// not cancel the loser — the abandoned request settles later (timer unref'd). That is only
+// harmless because the call makes ONE attempt (retries: 0 below): a 429 retry would wait out
+// Retry-After and re-send after the caption was already dropped, spending shared quota.
 function _withBudget(promise, ms) {
   let timer;
   const budget = new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); timer.unref?.(); });
@@ -141,7 +143,7 @@ async function captionDiscovery(discoveryTracks, sessionContext = {}, { budgetMs
 
   try {
     const raw = await _withBudget(
-      llmClient.generateJson(prompt, { model: MODEL(), timeoutMs: ms, temperature: 0.8 }),
+      llmClient.generateJson(prompt, { model: MODEL(), timeoutMs: ms, temperature: 0.8, retries: 0 }),
       ms,
     );
     if (raw == null) return new Map(); // budget timeout — no captions this generation
