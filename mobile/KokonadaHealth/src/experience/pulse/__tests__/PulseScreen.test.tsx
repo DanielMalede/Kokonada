@@ -246,6 +246,24 @@ describe('PulseScreen — dashboard values, gauges and state headline', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  // HX-7 design + compliance: the socket chip reports the server connection, not the body read, so it
+  // never says "Live" (a Health Connect read is synced, not live). Connecting/Offline are unchanged.
+  it.each([
+    ['connected', 'Connected'],
+    ['connecting', 'Connecting…'],
+    ['disconnected', 'Offline'],
+  ] as const)('the socket chip for %s reads %j, and no chip says "Live"', async (status, text) => {
+    await ReactTestRenderer.act(async () => {
+      warmStore.getState().setConnection(status);
+      pulseStateStore.setState(withData() as any);
+    });
+    const tree = await render();
+    expect(byLabel(tree, text).length).toBeGreaterThan(0);
+    expect(byLabel(tree, 'Live')).toHaveLength(0);
+    expect(texts(tree.toJSON())).not.toContain('Live');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('no live HR → an honest hushed reading, never a dash', async () => {
     await ReactTestRenderer.act(async () => { pulseStateStore.setState(withData() as any); });
     const tree = await render();

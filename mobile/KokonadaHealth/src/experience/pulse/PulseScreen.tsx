@@ -77,7 +77,7 @@ function gaugeValue(key: GaugeKey, data: PulseState | null): number | null {
 }
 
 function socketChip(connection: ConnectionStatus, c: ColorScheme): { text: string; dot: string; pulsing?: boolean } {
-  if (connection === 'connected') return { text: 'Live', dot: c.state.success };
+  if (connection === 'connected') return { text: 'Connected', dot: c.state.success };
   if (connection === 'connecting') return { text: 'Connecting…', dot: c.accent.glow, pulsing: true };
   return { text: 'Offline', dot: c.content.secondary }; // static, non-alarm — never state.danger
 }
