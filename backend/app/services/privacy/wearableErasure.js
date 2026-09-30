@@ -40,11 +40,15 @@ const { affectKey: _affectKey } = require('../biosonic/affectCache');
 // purgeWearableData takes, so the aggregates survive the erasure; once the compensation removes
 // the reading it re-applies THIS rule, so the two can never disagree about what erasure leaves.
 // It deletes no sample and touches no Redis key. A store failure propagates to the caller.
+//
+// Both counts are pinned to the PRIMARY, like ConsentRecord.latestFor: they must see the delete that
+// runs just before them (the erasure's own, or the compensation's), and a lagging secondary would
+// still count that row and keep the aggregates. Proven in tests/consentPrimaryRead.integration.test.js.
 async function purgeOrphanedAggregates(userId) {
   let medicalProfiles = 0;
   let morningStates = 0;
-  const remaining = await BiometricLog.countDocuments({ userId })
-    + await VitalSample.countDocuments({ userId });
+  const remaining = await BiometricLog.countDocuments({ userId }).read('primary')
+    + await VitalSample.countDocuments({ userId }).read('primary');
   if (remaining === 0) {
     const med = await MedicalProfile.deleteMany({ userId });
     medicalProfiles = med?.deletedCount ?? 0;

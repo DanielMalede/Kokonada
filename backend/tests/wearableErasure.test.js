@@ -6,13 +6,22 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 // Per-provider wearable erasure (T3.2): remove exactly one provider's biometric/medical
 // footprint + credentials — and NOTHING belonging to another still-connected wearable.
 
+// countDocuments returns a Mongoose Query, and the aggregate rule chains `.read('primary')` on it
+// (HX-1). The fake keeps that shape: a promise of the count that also answers `.read()`. Where the
+// read is really routed is proven on a replica set in consentPrimaryRead.integration.test.js.
+function mockCountQuery(n) {
+  const q = Promise.resolve(n);
+  q.read = () => q;
+  return q;
+}
+
 jest.mock('../app/models/BiometricLog', () => ({
   deleteMany:     jest.fn().mockResolvedValue({ deletedCount: 5 }),
-  countDocuments: jest.fn().mockResolvedValue(0),
+  countDocuments: jest.fn(() => mockCountQuery(0)),
 }));
 jest.mock('../app/models/VitalSample', () => ({
   deleteMany:     jest.fn().mockResolvedValue({ deletedCount: 3 }),
-  countDocuments: jest.fn().mockResolvedValue(0),
+  countDocuments: jest.fn(() => mockCountQuery(0)),
 }));
 jest.mock('../app/models/MedicalProfile', () => ({
   deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
@@ -59,9 +68,9 @@ const USER = '507f1f77bcf86cd799439011';
 beforeEach(() => {
   jest.clearAllMocks();
   BiometricLog.deleteMany.mockResolvedValue({ deletedCount: 5 });
-  BiometricLog.countDocuments.mockResolvedValue(0);
+  BiometricLog.countDocuments.mockImplementation(() => mockCountQuery(0));
   VitalSample.deleteMany.mockResolvedValue({ deletedCount: 3 });
-  VitalSample.countDocuments.mockResolvedValue(0);
+  VitalSample.countDocuments.mockImplementation(() => mockCountQuery(0));
   MedicalProfile.deleteMany.mockResolvedValue({ deletedCount: 1 });
   MorningState.deleteMany.mockResolvedValue({ deletedCount: 2 });
   getRedis.mockReturnValue(fakeRedis);
@@ -86,8 +95,8 @@ describe('purgeWearableData', () => {
   });
 
   it('KEEPS the MedicalProfile (and MorningState) when only VITAL samples remain (HR history exhausted)', async () => {
-    BiometricLog.countDocuments.mockResolvedValue(0);  // no HR rows left...
-    VitalSample.countDocuments.mockResolvedValue(4);   // ...but another provider's vitals are
+    BiometricLog.countDocuments.mockImplementation(() => mockCountQuery(0));  // no HR rows left...
+    VitalSample.countDocuments.mockImplementation(() => mockCountQuery(4));   // ...but another provider's vitals are
     const res = await purgeWearableData(USER, 'garmin');
     expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
     expect(MorningState.deleteMany).not.toHaveBeenCalled();
@@ -98,7 +107,7 @@ describe('purgeWearableData', () => {
   // W4-012 / S5: MorningState is the same category of derived aggregate as MedicalProfile — it
   // rides the identical all-or-nothing rule.
   it('deletes the aggregated MedicalProfile AND MorningState only when NO biometric samples remain (orphaned)', async () => {
-    BiometricLog.countDocuments.mockResolvedValue(0); // nothing left → profile derived solely from this provider
+    BiometricLog.countDocuments.mockImplementation(() => mockCountQuery(0)); // nothing left → profile derived solely from this provider
     const res = await purgeWearableData(USER, 'garmin');
     expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId: USER });
     expect(MorningState.deleteMany).toHaveBeenCalledWith({ userId: USER });
@@ -107,7 +116,7 @@ describe('purgeWearableData', () => {
   });
 
   it('KEEPS the MedicalProfile and MorningState when another provider still has samples (removes nothing else)', async () => {
-    BiometricLog.countDocuments.mockResolvedValue(12); // apple_health logs remain
+    BiometricLog.countDocuments.mockImplementation(() => mockCountQuery(12)); // apple_health logs remain
     const res = await purgeWearableData(USER, 'garmin');
     expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
     expect(MorningState.deleteMany).not.toHaveBeenCalled();
@@ -243,7 +252,7 @@ describe('purgeOrphanedAggregates — the rule purgeWearableData applies after i
   });
 
   it.each([['an HR sample', BiometricLog], ['a vital sample', VitalSample]])('keeps both while %s remains', async (_label, Model) => {
-    Model.countDocuments.mockResolvedValue(1);
+    Model.countDocuments.mockImplementation(() => mockCountQuery(1));
     await expect(purgeOrphanedAggregates(USER)).resolves.toEqual({ medicalProfiles: 0, morningStates: 0 });
     expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
     expect(MorningState.deleteMany).not.toHaveBeenCalled();
