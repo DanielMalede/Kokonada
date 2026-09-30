@@ -307,3 +307,60 @@ describe('SpotifyPlayerController — listeners survive dispose() + reconnect (M
     expect(w.remote.listeners.get('remoteDisconnected')).toHaveLength(1);
   });
 });
+
+// HX-2 round 2 (B1 residual): the native module does not cancel a pending connect on disconnect().
+describe('SpotifyPlayerController — nothing finishes or starts across dispose() (B1 residual)', () => {
+  it('a connect in flight across dispose() lands closed: no command, no listeners, not connected', async () => {
+    const remote = new FakeRemote();
+    let land!: () => void;
+    remote.connect = jest.fn(async () => {
+      remote.connectAttempts += 1;
+      await new Promise<void>((r) => { land = r; });
+      remote.connected = true;
+    });
+    const disconnectSpy = jest.spyOn(remote, 'disconnect');
+    const onStateChange = jest.fn();
+    const controller = new SpotifyPlayerController({
+      remote, getToken: async () => 'spotify-token', onStateChange, onRemoteState: jest.fn(), maxReconnects: 2,
+    });
+
+    const play = controller.play('spotify:track:late');
+    await new Promise((r) => setTimeout(r, 0));
+    await controller.dispose();
+    land();
+
+    await expect(play).resolves.toEqual({ ok: false, reason: 'disconnected' });
+    expect(remote.played).toEqual([]);
+    expect(controller.getState()).toBe('disconnected');
+    expect(onStateChange).not.toHaveBeenCalledWith('connected');
+    expect(remote.listeners.size).toBe(0);
+    expect(disconnectSpy).toHaveBeenCalledTimes(2);
+    expect(remote.connected).toBe(false);
+  });
+
+  it('a command sent while dispose() awaits the native pause is refused', async () => {
+    const w = build();
+    await w.controller.connect();
+    let releasePause!: () => void;
+    jest.spyOn(w.remote, 'pause').mockImplementation(() => new Promise<void>((r) => { releasePause = r; }));
+
+    const disposing = w.controller.dispose();
+    const late = await w.controller.play('spotify:track:late');
+    releasePause();
+    await disposing;
+
+    expect(late).toEqual({ ok: false, reason: 'disconnected' });
+    expect(w.remote.played).toEqual([]);
+  });
+
+  it('a command issued in the same tick before dispose() is refused', async () => {
+    const w = build();
+    await w.controller.connect();
+
+    const late = w.controller.play('spotify:track:late');
+    await w.controller.dispose();
+
+    await expect(late).resolves.toEqual({ ok: false, reason: 'disconnected' });
+    expect(w.remote.played).toEqual([]);
+  });
+});
