@@ -180,7 +180,8 @@ export function UpNextSheet({ visible, onClose, tracks, currentTrackId, isPlayin
               {n} tracks · <Text testID="upnext-newcount" style={{ color: accent.ink, fontWeight: typography.weight.semibold }}>{newCount} new</Text> for you
             </Text>
             <View style={styles.attribution}>
-              <SpotifyAttribution />
+              {/* The header sits over a list, not one item: it attributes but links nothing. */}
+              <SpotifyAttribution contentUri={null} />
             </View>
           </View>
 

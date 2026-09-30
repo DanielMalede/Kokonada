@@ -17,15 +17,19 @@ jest.mock('../playbackServices', () => ({
 
 // SpotifyAttribution pulls the native link-back graph — stub it to a marker (with a link-back node)
 // so the NP-ATTR placement can be asserted here; the real mark is covered in SpotifyAttribution.test.
+// The stub records the props it receives, so what Now Playing asks it to link to is observable.
+const mockAttributionProps: Array<{ contentUri: string | null }> = [];
 jest.mock('../../player/SpotifyAttribution', () => {
   const React2 = require('react');
   const { View, Text } = require('react-native');
   return {
-    SpotifyAttribution: () =>
-      React2.createElement(View, { testID: 'spotify-attribution' },
+    SpotifyAttribution: (props: { contentUri: string | null }) => {
+      mockAttributionProps.push(props);
+      return React2.createElement(View, { testID: 'spotify-attribution' },
         React2.createElement(Text, {
           testID: 'spotify-attribution-linkback', accessibilityRole: 'button', accessibilityLabel: 'GET SPOTIFY FREE',
-        }, 'GET SPOTIFY FREE')),
+        }, 'GET SPOTIFY FREE'));
+    },
   };
 });
 
@@ -440,6 +444,24 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(receipt.findAll((n) => n.props.testID === 'now-playing-attribution')).toHaveLength(0);
       expect(tree.root.findAll((n) => n.props.testID === 'now-playing-art').length).toBeGreaterThan(0);
       await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    // HX-4 (CMP-008, Policy II.4): the link-back targets the EXACT track on screen.
+    it('hands the attribution the playing track\'s own URI (track.uri) as its contentUri', async () => {
+      mockAttributionProps.length = 0;
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      await render();
+      expect(mockAttributionProps.length).toBeGreaterThan(0);
+      expect(mockAttributionProps[mockAttributionProps.length - 1].contentUri).toBe(TRACK.uri);
+    });
+
+    it('re-targets the link-back when the track changes — never the previous track\'s URI', async () => {
+      mockAttributionProps.length = 0;
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      await render();
+      const NEXT = { ...TRACK, id: 't2', uri: 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh', title: 'Second Light' };
+      await ReactTestRenderer.act(async () => { nowPlayingStore.getState().set({ track: NEXT, isPlaying: true }); });
+      expect(mockAttributionProps[mockAttributionProps.length - 1].contentUri).toBe(NEXT.uri);
     });
   });
 

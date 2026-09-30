@@ -197,10 +197,11 @@ export function NowPlayingScreen() {
         {/* NP-ATTR (compliance C1/C2): the reusable Spotify attribution + link-back for the live
             Spotify content on this surface. Ordered (Daniel) BETWEEN the metadata and the receipt —
             its own element, hairline-separated and visually distinct — so nothing here can imply
-            Spotify authored the pick or bleed into the "why this track" receipt copy below. */}
+            Spotify authored the pick or bleed into the "why this track" receipt copy below. The
+            link-back targets this exact track (HX-4, Policy II.4). */}
         {track ? (
           <View testID="now-playing-attribution" style={[styles.attribution, { borderTopColor: c.surface.hairline }]}>
-            <SpotifyAttribution />
+            <SpotifyAttribution contentUri={track.uri} />
           </View>
         ) : null}
 

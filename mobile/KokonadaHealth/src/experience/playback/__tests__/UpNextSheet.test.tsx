@@ -4,10 +4,17 @@ import { AccessibilityInfo, Animated, StyleSheet, BackHandler } from 'react-nati
 
 // SpotifyAttribution pulls the native playback graph for its default wiring — stub it to a marker so
 // this suite stays focused on the sheet (the real mark is covered in SpotifyAttribution.test.tsx).
+// The stub records its props, so what the sheet asks the mark to link to is observable.
+const mockAttributionProps: Array<{ contentUri: string | null }> = [];
 jest.mock('../../player/SpotifyAttribution', () => {
   const React2 = require('react');
   const { View } = require('react-native');
-  return { SpotifyAttribution: () => React2.createElement(View, { testID: 'spotify-attribution' }) };
+  return {
+    SpotifyAttribution: (props: { contentUri: string | null }) => {
+      mockAttributionProps.push(props);
+      return React2.createElement(View, { testID: 'spotify-attribution' });
+    },
+  };
 });
 // The commit haptic — spy it so "haptics.selection on jump commit" is observable without native.
 jest.mock('../../../design/haptics', () => ({ fireHaptic: jest.fn() }));
@@ -127,6 +134,15 @@ describe('UpNextSheet — honest header summary (discovery = recordingKey != nul
   it('places the Spotify attribution mark on the sheet surface (C1/C2)', async () => {
     const tree = await render(<UpNextSheet {...base} />);
     expect(byId(tree.root, 'spotify-attribution')).toBeTruthy();
+  });
+
+  // HX-4: the header mark sits over a LIST, not one item, so it links nothing (contentUri null → the
+  // mark draws no control). Per-row link-backs are the re-enable condition for this sheet (CMP-008).
+  it('the header mark links no item: contentUri is explicitly null', async () => {
+    mockAttributionProps.length = 0;
+    await render(<UpNextSheet {...base} />);
+    expect(mockAttributionProps.length).toBeGreaterThan(0);
+    expect(mockAttributionProps.every((p) => p.contentUri === null)).toBe(true);
   });
 });
 

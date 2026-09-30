@@ -1,12 +1,12 @@
 import { Linking } from 'react-native';
 import { SpotifyRemote } from '@kokonada/spotify-remote';
 import { player } from '../playback/playbackServices';
+import { parseSpotifyContentUri } from './spotifyContentLink';
 
-// The link-back wiring behind SpotifyAttribution (compliance C2). Every function is defensive —
-// a failure here is a cosmetic link-back miss, never a crash into the UI.
-
-// Where a user without Spotify is sent ("GET SPOTIFY FREE").
-const SPOTIFY_DOWNLOAD_URL = 'https://www.spotify.com/download';
+// The link-back wiring behind SpotifyAttribution (compliance C2; HX-4). Both actions take the URI
+// of the exact item on screen and open that item — or nothing at all when the URI is not a linkable
+// track, album or playlist. Every function is defensive: a failure here is a cosmetic link-back
+// miss, never a crash into the UI.
 
 // Reuses the EXISTING native install probe (the same one getSpotifyReadiness gates connect on).
 export async function isSpotifyInstalled(): Promise<boolean> {
@@ -17,14 +17,15 @@ export async function isSpotifyInstalled(): Promise<boolean> {
   }
 }
 
-// Bring the Spotify app to the foreground ("OPEN SPOTIFY"). On device the App Remote is ALREADY
-// connected at boot, so player.connect() no-ops and never foregrounds the app — the URL-scheme launch
-// is what actually surfaces Spotify. Both steps are defensive: a link-back miss is cosmetic, never a
-// crash into the UI.
-export async function foregroundSpotify(): Promise<void> {
-  // The foregrounding action — launch/foreground the Spotify app via its URL scheme.
+// "OPEN SPOTIFY": open the item in the Spotify app. On device the App Remote is ALREADY connected at
+// boot, so player.connect() no-ops and never foregrounds the app — the URI launch is what surfaces
+// Spotify, on the item itself. An unlinkable URI opens nothing and wakes nothing: without a
+// destination there is no trip to Spotify for the wake to follow.
+export async function foregroundSpotify(uri: string | null): Promise<void> {
+  const link = parseSpotifyContentUri(uri);
+  if (!link) return;
   try {
-    await Linking.openURL('spotify:');
+    await Linking.openURL(link.uri);
   } catch {
     /* link-back is best-effort — never throw into the UI */
   }
@@ -36,10 +37,13 @@ export async function foregroundSpotify(): Promise<void> {
   }
 }
 
-// Not-installed fallback: open the Spotify download page so the user can get it.
-export async function getSpotifyApp(): Promise<void> {
+// "GET SPOTIFY FREE": Spotify is not installed, so open the same item's open.spotify.com page —
+// Spotify's documented web fallback, which shows the item and offers the app.
+export async function openSpotifyWebPage(uri: string | null): Promise<void> {
+  const link = parseSpotifyContentUri(uri);
+  if (!link) return;
   try {
-    await Linking.openURL(SPOTIFY_DOWNLOAD_URL);
+    await Linking.openURL(link.webUrl);
   } catch {
     /* best-effort — never throw into the UI */
   }

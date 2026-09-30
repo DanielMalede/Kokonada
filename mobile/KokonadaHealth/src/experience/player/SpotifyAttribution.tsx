@@ -5,14 +5,17 @@ import { space, radius, type as typography } from '../../design/tokens';
 import {
   isSpotifyInstalled as defaultIsSpotifyInstalled,
   foregroundSpotify as defaultForegroundSpotify,
-  getSpotifyApp as defaultGetSpotifyApp,
+  openSpotifyWebPage as defaultOpenSpotifyWebPage,
 } from './spotifyLinkBack';
+import { parseSpotifyContentUri } from './spotifyContentLink';
 
 // Compliance C1 + C2 attribution + link-back mark, reusable across the Up-Next sheet and Now Playing.
 // The official Spotify Full logo (theme-aware) + "content from Spotify" (attribution) and a link-back
-// that OPENs an installed Spotify (foregrounded via the App Remote wake path) or sends the user to GET
-// SPOTIFY FREE otherwise. Kept visually self-contained so it never sits inside recommendation copy —
-// nothing here may imply Spotify authored the pick.
+// to the EXACT item on screen (HX-4): OPEN SPOTIFY opens contentUri in the installed app; GET SPOTIFY
+// FREE opens the same item's open.spotify.com page. With no linkable contentUri there is no control
+// at all — never a dead button — and the logo and attribution words stay. Kept visually
+// self-contained so it never sits inside recommendation copy — nothing here may imply Spotify
+// authored the pick.
 
 // The official Spotify brand assets. White reads on the dark theme; Black reads on light porcelain.
 const SPOTIFY_FULL_LOGO = {
@@ -26,16 +29,20 @@ const LOGO_HEIGHT = space.xl;
 const LOGO_WIDTH = Math.round(LOGO_HEIGHT * LOGO_ASPECT);
 
 export interface SpotifyAttributionProps {
+  // The Spotify URI of the exact item whose metadata and cover sit beside this mark. Required, so
+  // every caller decides what it links to; null (or anything unlinkable) draws no link-back control.
+  contentUri: string | null;
   // All overridable so the mark is reusable/testable; each defaults to the real link-back wiring.
   isSpotifyInstalled?: () => Promise<boolean>;
-  onOpenSpotify?: () => void | Promise<unknown>; // installed → foreground via App Remote
-  onGetSpotify?: () => void | Promise<unknown>;  // not installed → open the store
+  onOpenSpotify?: (uri: string) => void | Promise<unknown>; // installed → open the item in Spotify
+  onGetSpotify?: (uri: string) => void | Promise<unknown>;  // not installed → the item's web page
 }
 
 export function SpotifyAttribution({
+  contentUri,
   isSpotifyInstalled = defaultIsSpotifyInstalled,
   onOpenSpotify = defaultForegroundSpotify,
-  onGetSpotify = defaultGetSpotifyApp,
+  onGetSpotify = defaultOpenSpotifyWebPage,
 }: SpotifyAttributionProps) {
   const { name, c } = useTheme();
   // Default to the not-installed label until the async probe answers (safe, non-blocking).
@@ -53,12 +60,15 @@ export function SpotifyAttribution({
   }, []);
 
   const label = installed ? 'OPEN SPOTIFY' : 'GET SPOTIFY FREE';
+  // The same gate the actions apply: only a track, album or playlist URI earns a control.
+  const link = parseSpotifyContentUri(contentUri);
 
   // Fire the link-back action WITHOUT ever throwing into the UI: swallow a sync throw and any
   // rejection from an async action (the wiring already guards, this is defence in depth).
   const onPress = () => {
+    if (!link) return;
     try {
-      Promise.resolve(installed ? onOpenSpotify() : onGetSpotify()).catch(() => {});
+      Promise.resolve(installed ? onOpenSpotify(link.uri) : onGetSpotify(link.uri)).catch(() => {});
     } catch {
       /* never surface a link-back failure */
     }
@@ -75,16 +85,18 @@ export function SpotifyAttribution({
         style={styles.logo}
       />
       <Text style={[styles.attributionText, { color: c.content.tertiary }]}>content from Spotify</Text>
-      <Pressable
-        testID="spotify-attribution-linkback"
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={label}
-        hitSlop={space.sm}
-        style={styles.linkBack}
-      >
-        <Text style={[styles.linkBackText, { color: c.content.secondary }]}>{label}</Text>
-      </Pressable>
+      {link ? (
+        <Pressable
+          testID="spotify-attribution-linkback"
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={label}
+          hitSlop={space.sm}
+          style={styles.linkBack}
+        >
+          <Text style={[styles.linkBackText, { color: c.content.secondary }]}>{label}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
