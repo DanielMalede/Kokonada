@@ -17,7 +17,7 @@ ruleTester.run('no-color-literals', rule, {
     { code: 'const bg = colors.dark.accent.glow;', options },
     // Strings that merely contain letters a-f are not colours.
     { code: "const s = 'deadbeef';", options },
-    { code: "const s = 'GeneralSans-Semibold';", options },
+    { code: "const s = 'SampleFace-Semibold';", options },
     // A '#' that is not a colour: too few digits, too many, or non-hex characters.
     { code: "const s = '#ab';", options },
     { code: "const s = '#abcde';", options },

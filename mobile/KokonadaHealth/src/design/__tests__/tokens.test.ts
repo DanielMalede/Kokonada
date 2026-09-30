@@ -193,9 +193,11 @@ describe('scales are coherent (no magic numbers leak — ascending, deduped)', (
     const sizes = order.map((k) => type.size[k]);
     expect(sizes).toEqual([...sizes].sort((a, b) => b - a));
   });
-  it('display face is the bundled General Sans, not the System placeholder', () => {
-    expect(type.family.display).toBe('GeneralSans-Semibold');
-    expect(type.family.display).not.toBe('System');
+  // RETIRED under DEC-091 (HX-8): this pinned the bundled display face, whose licence forbids
+  // shipping the font file. No display font ships until one carries its OFL text beside it
+  // (fontLicence.test.ts); the wordmarks read this token, so they follow it with no screen change.
+  it('display face is the platform System face: no display font is bundled', () => {
+    expect(type.family.display).toBe('System');
   });
 });
 

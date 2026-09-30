@@ -295,13 +295,12 @@ def sweep_axes(decl, themes=('light', 'dark'), overrides=None):
 def stage(board):
     """Copy the board next to a copy of the real support.js, with the probe injected.
 
-    The board loads ./support.js and ./tokens.css relatively, and tokens.css @font-face's
-    the display cut by a relative url, so all three have to land in the same directory or
-    the probe measures a board rendered in the fallback face. docs/canvas is tracked and
-    must not be written into, hence a staged copy rather than an in-place edit.
+    The board loads ./support.js and ./tokens.css relatively, so both have to land in the
+    same directory. docs/canvas is tracked and must not be written into, hence a staged
+    copy rather than an in-place edit.
     """
     os.makedirs(STAGE, exist_ok=True)
-    for asset in ('support.js', 'tokens.css', 'GeneralSans-Semibold.otf'):
+    for asset in ('support.js', 'tokens.css'):
         a = os.path.join(CANVAS, asset)
         if os.path.exists(a):
             shutil.copy(a, os.path.join(STAGE, asset))
