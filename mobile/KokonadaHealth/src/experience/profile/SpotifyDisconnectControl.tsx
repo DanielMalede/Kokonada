@@ -66,7 +66,7 @@ export function SpotifyDisconnectControl({ busy, showNoReconnectLine, onConfirm,
       <Text style={[styles.body, { color: c.content.secondary }]}>{copy.removeAccess}</Text>
       {showNoReconnectLine ? <Text style={[styles.body, { color: c.content.secondary }]}>{copy.noReconnect}</Text> : null}
 
-      {/* Equal-weight stacked pair (the same geometry as the Profile's other confirms). */}
+      {/* Equal-weight stacked pair, full width, so "Disconnect" stays on one line at font 2.0 (designer R2). */}
       <View style={styles.bar}>
         <Pressable
           onPress={() => setConfirming(false)}

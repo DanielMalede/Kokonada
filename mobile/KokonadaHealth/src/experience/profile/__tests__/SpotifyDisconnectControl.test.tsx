@@ -203,7 +203,7 @@ describe('SpotifyDisconnectControl — font scale 2.0 and accessibility', () => 
     }
   });
 
-  it('every control is a button with a human name and a ≥44dp target; the title is a header', () => {
+  it('every control is a button with a human name and a ≥48dp target; the title is a header', () => {
     const { tree } = render();
     const trigger = byTestId(tree, 'disconnect-spotify')[0];
     expect(trigger.props.accessibilityRole).toBe('button');
