@@ -11,4 +11,19 @@ const SERVE_EVENT_TTL_SECONDS = SERVE_EVENT_TTL_DAYS * 24 * 3600; // 2592000
 
 const UNCLASSIFIED_TTL_SECONDS = PROVIDER_CONTENT_MAX_DAYS * 24 * 3600; // 2505600
 
-module.exports = { PROVIDER_CONTENT_MAX_DAYS, SERVE_EVENT_TTL_DAYS, SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS };
+// A PlaylistSession still holding ANY of the five provider fields. Kept HERE, beside the windows and
+// free of any model import, because the read-only production verifier needs it: requiring a model
+// registers it, and a connected Mongoose then builds its indexes on the production database (M1).
+const HOLDS_PROVIDER_CONTENT = Object.freeze({
+  $or: [
+    { 'trackIds.0': { $exists: true } },
+    { 'trackKeys.0': { $exists: true } },
+    { 'trackSummary.0': { $exists: true } },
+    { 'targetGenres.0': { $exists: true } },
+    { externalPlaylistId: { $ne: null } },
+  ],
+});
+
+module.exports = {
+  PROVIDER_CONTENT_MAX_DAYS, SERVE_EVENT_TTL_DAYS, SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS, HOLDS_PROVIDER_CONTENT,
+};

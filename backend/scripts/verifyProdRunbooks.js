@@ -15,8 +15,9 @@
 //   Runbook 6: no provider track data older than the 30-day promise (HX-2 E3) — COUNTS only.
 
 const { QUEUES } = require('../app/queues/definitions');
-const { SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS } = require('../app/config/retention');
-const { HOLDS_PROVIDER_CONTENT } = require('../app/services/privacy/providerContentErasure');
+// Model-free imports only: requiring a model would make the connected verifier build its indexes on
+// production (M1). Pinned by tests/verifyProdRunbooks.readOnly.test.js.
+const { SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS, HOLDS_PROVIDER_CONTENT } = require('../app/config/retention');
 // Bind the expected dimension to the REAL embedding contract rather than a magic
 // number — if buildVector's DIM ever changes, this verifier follows it and the
 // dedicated test fails loudly instead of silently checking the wrong value.

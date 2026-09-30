@@ -14,7 +14,9 @@
 
 const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
-const { PROVIDER_CONTENT_MAX_DAYS, SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS } = require('../../config/retention');
+const {
+  PROVIDER_CONTENT_MAX_DAYS, SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS, HOLDS_PROVIDER_CONTENT,
+} = require('../../config/retention');
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -22,17 +24,7 @@ const DAY_MS = 24 * 3600 * 1000;
 const PROVIDER_CONTENT_FIELDS = Object.freeze(['trackIds', 'trackKeys', 'trackSummary', 'targetGenres', 'externalPlaylistId']);
 const STRIPPED = Object.freeze({ trackIds: [], trackKeys: [], trackSummary: [], targetGenres: [], externalPlaylistId: null });
 
-// A row still holding ANY of the five. This is the strip's own filter — the T3.1 sensitive trim
-// matches only rows still carrying contextPrompt/heartRate, which a provider-only row may not.
-const HOLDS_PROVIDER_CONTENT = Object.freeze({
-  $or: [
-    { 'trackIds.0': { $exists: true } },
-    { 'trackKeys.0': { $exists: true } },
-    { 'trackSummary.0': { $exists: true } },
-    { 'targetGenres.0': { $exists: true } },
-    { externalPlaylistId: { $ne: null } },
-  ],
-});
+// The "still holds provider content" filter lives in config/retention.js (model-free, M1).
 
 // Every collection that can hold provider track data, and the clock that bounds it. A model that
 // gains such a field without an entry here (or a named exception) fails
