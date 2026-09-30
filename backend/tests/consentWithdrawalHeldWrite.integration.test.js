@@ -27,7 +27,9 @@ jest.mock('../app/config/redis', () => ({ getRedis: () => null, connectRedis: je
 // BiometricLog write waits for `releaseInsert()`, then runs the REAL insert. `returnGate`, when a
 // test sets one, holds the caller AFTER the row has landed — the row is in Mongo, the persist path
 // does not know yet (A2 needs the row present for the erasure's counts, not yet compensated).
-const mockHeld = { armed: false, holding: false, landed: false, inserted: null, releaseInsert: null, returnGate: null };
+// `throwAfterLanding`, when set, is thrown AFTER the real insert has landed: the server applied the
+// write and the caller still gets an error (a write-concern or network failure on the reply).
+const mockHeld = { armed: false, holding: false, landed: false, inserted: null, releaseInsert: null, returnGate: null, throwAfterLanding: null };
 jest.mock('../app/services/wearable/insertAccounted', () => {
   const real = jest.requireActual('../app/services/wearable/insertAccounted');
   return {
@@ -40,6 +42,7 @@ jest.mock('../app/services/wearable/insertAccounted', () => {
       mockHeld.inserted = out.inserted;
       mockHeld.landed = true;
       if (mockHeld.returnGate) await mockHeld.returnGate;
+      if (mockHeld.throwAfterLanding) throw mockHeld.throwAfterLanding;
       return out;
     },
   };
@@ -157,7 +160,7 @@ afterAll(async () => {
 let logged;
 beforeEach(async () => {
   mockLive.length = 0;
-  Object.assign(mockHeld, { armed: false, holding: false, landed: false, inserted: null, releaseInsert: null, returnGate: null });
+  Object.assign(mockHeld, { armed: false, holding: false, landed: false, inserted: null, releaseInsert: null, returnGate: null, throwAfterLanding: null });
   captureException.mockClear();
   await Promise.all([
     User.deleteMany({}), BiometricLog.deleteMany({}), ConsentRecord.deleteMany({}),
@@ -399,6 +402,50 @@ describe('HX-1 A3 — a consent-read error after the insert fails closed (real M
     }).toEqual({ heldKey: 0, biometricLogs: 2, medicalProfiles: 1 });
     expect(logged.map((l) => l.line).join('\n')).not.toContain('127.0.0.1');
     expect(captureException).not.toHaveBeenCalled();
+  });
+});
+
+describe('HX-1 — an insert that throws after the server applied it is still re-checked (real Mongo)', () => {
+  const appliedThenFailed = () => Object.assign(new Error('waiting for replication timed out'), { name: 'MongoWriteConcernError' });
+
+  it('withdrawn: the row the failed insert left behind is removed, and the failure is still reported as itself', async () => {
+    const user = await consentingListener('throws-withdrawn');
+    const socket = appSocket(user);
+    mockHeld.throwAfterLanding = appliedThenFailed();
+    mockHeld.armed = true;
+    await socket._trigger('biometric_push', { source: 'garmin', raw: garminRaw(131) });
+    await until(() => mockHeld.holding, 'the held live write');
+    await withdraw(user);
+
+    await releaseHeldWrite(); // the row is in Mongo; the persist path receives an error
+    const remaining = await eventually(() => countFor(BiometricLog, user), (n) => n === 0);
+    expect(remaining).toBe(0);
+    expect(await eventually(compensatingLines, (l) => l.length > 0)).toEqual([
+      `[biometricHandler] compensating-delete user=${user._id} lane=socket reason=consent_not_current outcome=deleted1`,
+    ]);
+    expect(logged.some((l) => l.line.includes('live persistence failed'))).toBe(true);
+    expect(captureException).not.toHaveBeenCalled();
+  });
+
+  it('control — the grant is current: the catch re-checks, is admitted, and the row stays', async () => {
+    const user = await consentingListener('throws-current');
+    const socket = appSocket(user);
+    const latestFor = jest.spyOn(ConsentRecord, 'latestFor'); // pass-through: only observes the reads
+    mockHeld.throwAfterLanding = appliedThenFailed();
+    mockHeld.armed = true;
+    await socket._trigger('biometric_push', { source: 'garmin', raw: garminRaw(131) });
+    await until(() => mockHeld.holding, 'the held live write');
+    const readsBeforeLanding = latestFor.mock.calls.length; // the push gate's own read
+    const deletes = jest.spyOn(BiometricLog, 'deleteMany');
+
+    await releaseHeldWrite();
+    await until(() => latestFor.mock.calls.length > readsBeforeLanding, 'the consent re-check on the failed insert');
+    await Promise.all(latestFor.mock.results.slice(readsBeforeLanding).map((r) => r.value));
+    await new Promise((r) => setImmediate(r));
+
+    expect(await countFor(BiometricLog, user)).toBe(1);
+    expect(deletes).not.toHaveBeenCalled();
+    expect(compensatingLines()).toEqual([]);
   });
 });
 

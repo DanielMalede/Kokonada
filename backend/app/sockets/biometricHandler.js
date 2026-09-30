@@ -1547,11 +1547,16 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
   if (state.lastPersistedAtMs !== null && nowMs - state.lastPersistedAtMs < LIVE_PERSIST_MIN_INTERVAL_MS) return;
   state.lastPersistedAtMs = nowMs;
 
+  const recordedAt = normalized.recordedAt;
+  const key = { userId, source: normalized.source, recordedAt };
+  // Set once the insert has been SENT. An insert that throws may still have been applied (a
+  // write-concern or network error on the reply), so the catch re-checks too; the compensating
+  // delete is idempotent, and it runs only if consent is no longer current.
+  let attempted = false;
   try {
-    const recordedAt = normalized.recordedAt;
-    const key = { userId, source: normalized.source, recordedAt };
     const exists = await BiometricLog.exists(key);
     if (exists) return;
+    attempted = true;
     const { inserted } = await insertManyAccounted(BiometricLog, [{
       userId,
       heartRate:  normalized.heartRate,
@@ -1565,6 +1570,7 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
     if (inserted > 0) await _compensateIfConsentLapsed(userId, key, lane);
   } catch (e) {
     console.error('[biometricHandler] live persistence failed:', e.message);
+    if (attempted) await _compensateIfConsentLapsed(userId, key, lane);
   }
 }
 
