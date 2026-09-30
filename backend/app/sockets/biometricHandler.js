@@ -1814,15 +1814,17 @@ function _admitFeedback(state, nowMs) {
   return admitted.allowed;
 }
 
-// HX-7 (DEC-062): the Working and Focus chips are retired, but an installed older build still sends
-// them. Dropped at the door, so they never reach the prompt, the captions or PlaylistSession.
-// Anything that is not a string is dropped too: an array or object here made the session write fail.
-const RETIRED_CHIP_ACTIVITIES = new Set(['working', 'focus']);
+// HX-7 (DEC-062): the door admits only the chips the app offers (chipActivities.js). The retired
+// Working and Focus chips, which an installed older build still sends, are therefore dropped, as is any
+// other string and anything that is not a string (an array or object here made the session write fail).
+// Zero-width characters are stripped before comparing; an offered chip is kept as its canonical key.
+const { CHIP_ACTIVITY_KEYS } = require('../services/chipActivities');
+const OFFERED_CHIPS = new Set(CHIP_ACTIVITY_KEYS);
 const ZERO_WIDTH = /[​-‍⁠﻿]/g;
 function _admitChipActivity(activity) {
   if (typeof activity !== 'string') return null;
-  if (RETIRED_CHIP_ACTIVITIES.has(activity.replace(ZERO_WIDTH, '').trim().toLowerCase())) return null;
-  return activity || null;
+  const key = activity.replace(ZERO_WIDTH, '').trim().toLowerCase();
+  return OFFERED_CHIPS.has(key) ? key : null;
 }
 
 // ── Socket event registration ──────────────────────────────────────────────────

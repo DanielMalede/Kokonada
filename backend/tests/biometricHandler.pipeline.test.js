@@ -765,12 +765,15 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
 // ── emotion_update handler — activity capture ─────────────────────────────────
 
 describe('emotion_update handler', () => {
+  // REVERSAL PENDING THE OWNER'S SIGNATURE (HX-7 resilience round 1, not in DEC-091): this pinned an
+  // arbitrary 'Cooking' being cached. The door now admits only offered chips, so the sample is a chip;
+  // a non-chip string is pinned as dropped in emotionUpdateRetiredActivity.integration.test.js.
   it('caches the selected activity on socket state', () => {
     const socket = makeSocket();
     registerBiometricHandler(socket);
-    socket._trigger('emotion_update', { taps: [{ x: 0.5, y: 0.5 }], textPrompt: 'x', activity: 'Cooking' });
+    socket._trigger('emotion_update', { taps: [{ x: 0.5, y: 0.5 }], textPrompt: 'x', activity: 'running' });
 
-    expect(_debounceMap.get(socket.id).lastActivity).toBe('Cooking');
+    expect(_debounceMap.get(socket.id).lastActivity).toBe('running');
   });
 
   it('normalizes a missing activity to null', () => {

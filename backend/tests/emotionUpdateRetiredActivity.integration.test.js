@@ -212,6 +212,31 @@ describe('emotion_update drops the retired work and study chips from any client 
     expect(session.biometricSnapshot.activity).toBe('running');
   });
 
+  // Resilience round 1: the door admits only the chips the app offers (chipActivities.js, held equal to
+  // the app's list by a mobile drift test). Anything else is dropped; an offered chip is stored as its
+  // canonical key, whatever case, padding or zero-width characters it arrived with.
+  it.each([
+    ['Cooking', 'free-text-cooking'],
+    ['sleeping', 'not-a-chip'],
+    ['', 'empty'],
+  ])('%j is not an offered chip: held, prompted and stored as null', async (activity, tag) => {
+    const { held, session, prompt } = await moodGenerationWith(activity, tag);
+    expect(held).toBeNull();
+    expect(prompt.activity).toBeNull();
+    expect(session.biometricSnapshot.activity).toBeNull();
+  });
+
+  it.each([
+    [' Running ', 'running'],
+    ['running​', 'running'],
+    ['WINDING DOWN', 'winding down'],
+  ])('%j is an offered chip: held, prompted and stored as %j', async (activity, key) => {
+    const { held, session, prompt } = await moodGenerationWith(activity, `canonical-${key}-${activity.length}`);
+    expect(held).toBe(key);
+    expect(prompt.activity).toBe(key);
+    expect(session.biometricSnapshot.activity).toBe(key);
+  });
+
   it('control: a multi-word chip still offered is held, prompted and stored as sent', async () => {
     const { held, session, prompt } = await moodGenerationWith('winding down', 'current-winding');
     expect(held).toBe('winding down');
