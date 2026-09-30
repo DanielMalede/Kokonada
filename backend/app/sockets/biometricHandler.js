@@ -1816,9 +1816,12 @@ function _admitFeedback(state, nowMs) {
 
 // HX-7 (DEC-062): the Working and Focus chips are retired, but an installed older build still sends
 // them. Dropped at the door, so they never reach the prompt, the captions or PlaylistSession.
+// Anything that is not a string is dropped too: an array or object here made the session write fail.
 const RETIRED_CHIP_ACTIVITIES = new Set(['working', 'focus']);
+const ZERO_WIDTH = /[​-‍⁠﻿]/g;
 function _admitChipActivity(activity) {
-  if (typeof activity === 'string' && RETIRED_CHIP_ACTIVITIES.has(activity.trim().toLowerCase())) return null;
+  if (typeof activity !== 'string') return null;
+  if (RETIRED_CHIP_ACTIVITIES.has(activity.replace(ZERO_WIDTH, '').trim().toLowerCase())) return null;
   return activity || null;
 }
 

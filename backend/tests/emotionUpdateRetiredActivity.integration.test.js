@@ -163,4 +163,29 @@ describe('emotion_update drops the retired work and study chips from any client 
     expect(prompt.activity).toBe('running');
     expect(session.biometricSnapshot.activity).toBe('running');
   });
+
+  // Resilience round 1 (MEDIUM): the door compared only plain strings, so a retired chip wrapped in an
+  // array or carrying an invisible character walked through. Zero-width characters are stripped before
+  // comparing, and anything that is not a string is dropped.
+  it.each([
+    [['working'], 'array-working'],
+    ['working​', 'zwsp-working'],
+    ['wor‍king', 'zwj-working'],
+    ['⁠focus﻿', 'wj-bom-focus'],
+    [42, 'number'],
+    [{ key: 'working' }, 'object'],
+    [true, 'boolean'],
+  ])('%j is held, prompted and stored as null', async (activity, tag) => {
+    const { held, session, prompt } = await moodGenerationWith(activity, tag);
+    expect(held).toBeNull();
+    expect(prompt.activity).toBeNull();
+    expect(session.biometricSnapshot.activity).toBeNull();
+  });
+
+  it('control: a multi-word chip still offered is held, prompted and stored as sent', async () => {
+    const { held, session, prompt } = await moodGenerationWith('winding down', 'current-winding');
+    expect(held).toBe('winding down');
+    expect(prompt.activity).toBe('winding down');
+    expect(session.biometricSnapshot.activity).toBe('winding down');
+  });
 });
