@@ -104,7 +104,9 @@ export function NowPlayingScreen() {
   // back to the ♪ token placeholder — never a blank panel. The flag is keyed to the current
   // coverUri (resolved from the live App Remote state), so a new track re-attempts its art.
   const [coverFailed, setCoverFailed] = useState(false);
-  useEffect(() => { setCoverFailed(false); }, [coverUri]);
+  // Re-armed on a new file OR a new pairing: the next track on the same album reuses the file,
+  // which the resolver has just re-fetched (native may have re-cached it), so it earns a retry.
+  useEffect(() => { setCoverFailed(false); }, [coverUri, coverTrackUri]);
   // B1: gate the cover on TRACK metadata too. coverUri is set on its own channel (the
   // resolver), decoupled from the track, so coverUri!=null && track==null is reachable
   // (foreign playback at boot with an empty queue). The cover's a11y label reads

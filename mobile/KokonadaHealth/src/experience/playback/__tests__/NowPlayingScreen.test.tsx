@@ -257,6 +257,20 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(coverIds(tree)[0].props.source).toEqual({ uri: 'file:///cover/second.jpg' });
     });
 
+    it('a failed cover gets a fresh attempt when the SAME file is re-paired with the next track (same album)', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/album.jpg', TRACK.uri);
+      const tree = await render();
+      await ReactTestRenderer.act(async () => { coverIds(tree)[0].props.onError(); });
+      expect(coverIds(tree)).toHaveLength(0); // degraded to the placeholder for track 1
+      const NEXT = { ...TRACK, id: 't2', uri: 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh', title: 'Second Light' };
+      await ReactTestRenderer.act(async () => {
+        nowPlayingStore.getState().set({ track: NEXT, isPlaying: true });
+        nowPlayingStore.getState().setCover('file:///cover/album.jpg', NEXT.uri); // same file, new pairing
+      });
+      expect(coverIds(tree)[0]?.props.source).toEqual({ uri: 'file:///cover/album.jpg' }); // re-attempted
+    });
+
     it('a track with no URI never matches a cover paired with no track (null never equals null here)', async () => {
       nowPlayingStore.getState().set({ track: { ...TRACK, uri: null }, isPlaying: true });
       nowPlayingStore.getState().setCover('file:///cover/unpaired.jpg', null);
