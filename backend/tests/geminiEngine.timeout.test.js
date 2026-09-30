@@ -27,7 +27,7 @@ describe('LLM request timeout', () => {
         emotionTaps: [{ x: 0.5, y: 0.5 }],
         fetchTracks: async () => [],
       })
-    ).rejects.toThrow(/timeout/i);
+    ).rejects.toThrow(/status=- code=ECONNABORTED/); // axios's timeout code, not its message text
     // The outbound call carried a bounded per-request timeout.
     expect(axios.post.mock.calls[0][2]).toEqual(expect.objectContaining({ timeout: expect.any(Number) }));
   });
