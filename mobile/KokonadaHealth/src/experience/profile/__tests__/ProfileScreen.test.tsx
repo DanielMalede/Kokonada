@@ -573,6 +573,42 @@ describe('ProfileScreen', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  it('HX-2 r1: two confirm taps in the same instant send ONE disconnect (in-flight latch)', async () => {
+    loadProfile.mockResolvedValue(connectedSnapshot);
+    let release!: () => void;
+    disconnectSpotify().mockImplementationOnce(() => new Promise((r) => { release = () => r({ ok: true, data: { message: 'Spotify disconnected' } }); }));
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { byTestId(tree, 'disconnect-spotify').props.onPress(); });
+    const confirm = byTestId(tree, 'disconnect-spotify-confirm');
+
+    await ReactTestRenderer.act(async () => { confirm.props.onPress(); confirm.props.onPress(); }); // before any re-render
+    await ReactTestRenderer.act(async () => { release(); });
+    await flush();
+
+    expect(disconnectSpotify()).toHaveBeenCalledTimes(1);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('HX-2 r1: after a failed disconnect the screen re-reads the link, and shows what the server now says', async () => {
+    loadProfile.mockResolvedValue(connectedSnapshot);
+    disconnectSpotify().mockResolvedValueOnce({ ok: false, status: 500, error: 'request failed (500)' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { byTestId(tree, 'disconnect-spotify').props.onPress(); });
+    const loadsBefore = loadProfile.mock.calls.length;
+    loadProfile.mockResolvedValue(disconnectedSnapshot); // the token went before the purge failed
+
+    await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-spotify-confirm').props.onPress(); });
+    await flush();
+
+    expect(alertSpy).toHaveBeenCalledWith('Could not disconnect Spotify', 'Please try again in a moment.');
+    expect(loadProfile.mock.calls.length).toBeGreaterThan(loadsBefore);
+    expect(texts(tree.toJSON()).join(' ')).toContain('Unavailable');
+    expect(tree.root.findAll((n) => n.props.testID === 'disconnect-spotify')).toHaveLength(0);
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('HX-2: "You can\'t reconnect Spotify in this version." shows only while SPOTIFY_BETA_CONNECT is off', async () => {
     loadProfile.mockResolvedValue(connectedSnapshot);
     const line3 = "You can't reconnect Spotify in this version.";

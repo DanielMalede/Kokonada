@@ -126,19 +126,22 @@ export function ProfileScreen() {
   };
 
   // HX-2 M8: server-first. On success the controller has already stopped the player and emptied the
-  // queue and Now Playing; the fresh snapshot then shows the row as it now is. On failure nothing
-  // changed — the account is still connected — and the confirm stays open to retry or cancel.
+  // queue and Now Playing. On failure the server may still have dropped the link (its token goes
+  // before the purge), so the controller followed the server's truth and the screen re-reads it
+  // too: the row shows what the server now says, and the confirm stays only while still connected.
+  // The ref latch stops a second tap from sending a second DELETE before the busy state renders.
+  const spInFlight = useRef(false);
   const onDisconnectSpotify = async () => {
+    if (spInFlight.current) return;
+    spInFlight.current = true;
     setSpBusy(true);
     try {
       const res = await profileController.disconnectSpotify();
-      if (res.ok) {
-        const s = await profileController.loadProfile();
-        if (mountedRef.current) setSnap(s);
-      } else {
-        Alert.alert(SPOTIFY_DISCONNECT_COPY.failureTitle, SPOTIFY_DISCONNECT_COPY.failureBody);
-      }
+      if (!res.ok) Alert.alert(SPOTIFY_DISCONNECT_COPY.failureTitle, SPOTIFY_DISCONNECT_COPY.failureBody);
+      const s = await profileController.loadProfile();
+      if (mountedRef.current) setSnap(s);
     } finally {
+      spInFlight.current = false;
       if (mountedRef.current) setSpBusy(false);
     }
   };

@@ -88,14 +88,27 @@ export class ProfileController {
 
   // Disconnect Spotify (HX-2 M8) — SERVER-FIRST, like account deletion. The server stops using the
   // account and erases what was derived from it before it answers; only then does the device stop
-  // playing and forget the queue. A failed call changes nothing here: the user is still connected.
+  // playing and forget the queue.
+  //
+  // An error response does NOT mean "still connected": the server deletes the token BEFORE its
+  // purge, so a purge that failed leaves the account already unlinked (the daily job finishes the
+  // erasure). On an error the device therefore re-reads the link and follows the server: unlinked →
+  // it stops Spotify too; still linked or unreadable → nothing changes here. The error is returned
+  // either way, so the screen can say the disconnect did not complete.
   async disconnectSpotify(): Promise<ApiResult<{ message: string }>> {
     const res = await this.deps.apiDelete<{ message: string }>('/api/integrations/spotify/disconnect');
     if (res.ok) {
-      this.spotifyEpoch += 1;
-      await this.deps.clearSpotifyPlayback();
+      await this.stopSpotifyOnDevice();
+      return res;
     }
+    const status = await this.deps.apiGet<IntegrationsStatus>('/api/integrations/status');
+    if (status.ok && status.data?.spotifyConnected === false) await this.stopSpotifyOnDevice();
     return res;
+  }
+
+  private async stopSpotifyOnDevice(): Promise<void> {
+    this.spotifyEpoch += 1;
+    await this.deps.clearSpotifyPlayback();
   }
 
   // GDPR delete — SERVER-FIRST: only wipe locally once the server confirms erasure.
