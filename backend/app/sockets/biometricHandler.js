@@ -1586,7 +1586,7 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
 // the erasure took, so MedicalProfile and MorningState survived it; the erasure's own rule, run
 // again now, drops them when no sample remains. Only that rule — never purgeWearableData itself,
 // which deletes the provider's WHOLE history: on a consent-read error the grant may well be current.
-// Never throws, and never reaches Sentry: its only report is one closed-token line of its own.
+// Never throws and never calls captureException; its only report is one closed-token line, which Sentry's console breadcrumbs can still carry.
 async function _compensateIfConsentLapsed(userId, key, lane) {
   const { admitted, reason } = await healthProcessingVerdict(userId);
   if (admitted) return;
@@ -1601,8 +1601,10 @@ async function _compensateIfConsentLapsed(userId, key, lane) {
   // One line, closed tokens only — the reading's value, time, activity, offset and source never
   // appear, nor any error text (Mongoose messages quote values; the TYPE is enough to act on). The
   // user reference is the withdrawal line's own (`consent.js`), so the two join. `deleted1` means
-  // the reading is gone, `deleted0` that nothing was left to delete, `failed` that it may remain:
-  // the finding a second erasure pass looks for, never folded into "live persistence failed".
+  // the reading is gone; `deleted0` that nothing was left to delete (the erasure, or another
+  // compensation for the same key — /watch/hr feeds every socket in the user's room — removed it);
+  // `failed` that the reading, or MedicalProfile and MorningState, may remain: the finding a second
+  // erasure pass looks for, never folded into "live persistence failed".
   const line = `[biometricHandler] compensating-delete user=${userId} lane=${lane} reason=${reason} outcome=${outcome}`;
   if (outcome.startsWith('failed')) console.error(line);
   else console.warn(line);
