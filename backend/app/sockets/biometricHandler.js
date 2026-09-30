@@ -1579,7 +1579,7 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
 // the insert is still in flight, and an insert landing after the erasure's delete outlives it. So
 // consent is read AGAIN once the row is in. withdrawConsent writes the withdrawal row BEFORE it
 // erases, so any insert that lands after one of the erasure's deletes is followed by a read that
-// sees the withdrawal (a primary read — the driver's default; the app sets no read preference).
+// sees the withdrawal (a primary read, pinned in ConsentRecord.latestFor).
 // Not current, or unreadable (fail closed): the reading is removed — by its
 // full key with a multi-delete, so a same-key row a batch lane wrote concurrently goes too (F3).
 // Then the state the erasure would have left is restored (F1): the reading was seen by every count
