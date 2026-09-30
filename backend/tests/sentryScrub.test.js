@@ -155,6 +155,31 @@ describe('sentry scrubber — request credentials (headers and cookies)', () => 
     expect(() => scrubEvent({ request: { url: 'https://x/y' } })).not.toThrow();
   });
 
+  // Strict mode is what makes "fails closed" true. In a sloppy-mode module `delete` on a
+  // non-configurable property returns false SILENTLY, so the event would ship with the body still
+  // on it; in strict mode it throws, and the catch drops the event.
+  it('fails closed on a property scrubbing cannot delete (non-configurable request.data)', () => {
+    const event = { request: { url: 'https://x/y' } };
+    Object.defineProperty(event.request, 'data', { value: '{"password":"CANARY-PW"}', enumerable: true, configurable: false });
+
+    expect(scrubEvent(event)).toBeNull();
+  });
+
+  // The drop is logged, but only as the error's NAME — the message could quote the event.
+  it('logs only the error name when it drops an event, never the event or the message', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const hostile = { request: { url: 'https://x/y?secret=CANARY' } };
+      Object.defineProperty(hostile.request, 'headers', { enumerable: true, get() { throw new TypeError('CANARY-IN-MESSAGE'); } });
+
+      expect(scrubEvent(hostile)).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]).toEqual(['[sentry] scrubEvent failed (TypeError); event dropped']);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   // A credential scrubber must fail CLOSED: if scrubbing throws halfway, returning the event would
   // ship it half-scrubbed. beforeSend returning null drops the event instead.
   it('fails closed: an event that makes scrubbing throw is dropped (null), never sent half-scrubbed', () => {
@@ -340,5 +365,92 @@ describe('initSentry wires the scrubber for both error and transaction events', 
 
     expect(httpIntegration).toHaveBeenCalledWith({ maxIncomingRequestBodySize: 'none' });
     expect(init.mock.calls[0][0].integrations).toEqual([{ name: 'Http', options: { maxIncomingRequestBodySize: 'none' } }]);
+  });
+});
+
+// Console breadcrumbs. The default Console integration turns every console line into a breadcrumb.
+// The app logs personal signals (biometricHandler: the last emotion tap and HR-derived tempo
+// targets; user ids in biometricHandler and integrationsController). Socket packets run outside any
+// request scope, so those breadcrumbs pile up on the shared isolation scope, and every incoming
+// request CLONES it (@sentry/core integrations/http/server-subscription.js:43) — one user's lines
+// ride on other users' events. beforeBreadcrumb drops the whole `console` category.
+describe('console lines never become breadcrumbs', () => {
+  afterEach(() => {
+    jest.resetModules();
+    jest.dontMock('@sentry/node');
+    delete process.env.SENTRY_DSN;
+  });
+
+  it('initSentry wires dropConsoleBreadcrumb as beforeBreadcrumb', () => {
+    jest.resetModules();
+    const init = jest.fn();
+    jest.doMock('@sentry/node', () => ({
+      init, httpIntegration: jest.fn(() => ({ name: 'Http' })), setupExpressErrorHandler: jest.fn(), captureException: jest.fn(),
+    }));
+    process.env.SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0';
+
+    const sentry = require('../app/config/sentry');
+    sentry.initSentry(null);
+
+    expect(typeof sentry.dropConsoleBreadcrumb).toBe('function');
+    expect(init.mock.calls[0][0].beforeBreadcrumb).toBe(sentry.dropConsoleBreadcrumb);
+  });
+
+  it('dropConsoleBreadcrumb drops console breadcrumbs and keeps every other kind', () => {
+    const { dropConsoleBreadcrumb } = require('../app/config/sentry');
+    const http = { category: 'http', data: { url: 'https://api.spotify.com/v1/me' } };
+
+    expect(dropConsoleBreadcrumb({ category: 'console', level: 'log', message: 'user=u1' })).toBeNull();
+    expect(dropConsoleBreadcrumb(http)).toBe(http);
+  });
+
+  // The real client and the real Console integration: a console line, then a captured error. The
+  // control run (no hook) proves the SDK really attaches the line; the second run proves the line
+  // really went through the SDK and REACHED the app's hook, which dropped it. One console spy spans
+  // both runs: the SDK instruments console once per process, wrapping whatever console.log is at
+  // that moment — restoring the spy between runs would silently unhook it and make run 2 vacuous.
+  it('with the real client and Console integration, a logged line never reaches an event', async () => {
+    const appHook = require('../app/config/sentry').dropConsoleBreadcrumb;
+    expect(typeof appHook).toBe('function');
+    const run = async (beforeBreadcrumb) => {
+      const sent = [];
+      const client = new SentryNode.NodeClient({
+        dsn: 'https://public@o0.ingest.sentry.io/0',
+        integrations: [SentryNode.consoleIntegration()],
+        transport: () => ({ send: async (envelope) => { sent.push(envelope); return {}; }, flush: async () => true }),
+        stackParser: SentryNode.defaultStackParser,
+        sendDefaultPii: false,
+        beforeBreadcrumb,
+      });
+      try {
+        SentryNode.getIsolationScope().clearBreadcrumbs();
+        SentryNode.getCurrentScope().clearBreadcrumbs();
+        SentryNode.getCurrentScope().setClient(client);
+        client.init();
+        console.log('[gen] CANARY-CONSOLE-LINE user=CANARY-USER taps=[{"x":0.4,"y":-0.2}]');
+        SentryNode.captureException(new Error('boom'));
+        await client.flush(2000);
+      } finally {
+        await client.close(100);
+        SentryNode.getCurrentScope().setClient(undefined);
+      }
+      return JSON.stringify(sent);
+    };
+
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const control = await run(undefined);
+      expect(control).toContain('"category":"console"');
+      expect(control).toContain('CANARY-CONSOLE-LINE');
+
+      const reachedHook = [];
+      const withAppHook = await run((breadcrumb, hint) => { reachedHook.push(breadcrumb.category); return appHook(breadcrumb, hint); });
+      expect(reachedHook).toContain('console');                 // the line really went through the SDK…
+      expect(withAppHook).toContain('boom');                     // …the error event itself shipped…
+      expect(withAppHook).not.toContain('"category":"console"');
+      expect(withAppHook).not.toMatch(/CANARY/);                 // …with no console line on it
+    } finally {
+      log.mockRestore();
+    }
   });
 });

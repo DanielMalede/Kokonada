@@ -1,3 +1,9 @@
+'use strict';
+
+// Strict mode is load-bearing here: in sloppy mode `delete` on a non-configurable property
+// returns false SILENTLY, and scrubEvent would ship the event with the credential still on it.
+// In strict mode it throws, and scrubEvent's catch drops the event instead (fail closed).
+
 const { types: { isNativeError } } = require('util');
 
 let Sentry = null;
@@ -81,9 +87,22 @@ function scrubEvent(event) {
     if (Array.isArray(event.spans)) for (const span of event.spans) _scrubAttributes(span?.data);
     if (Array.isArray(event.breadcrumbs)) for (const crumb of event.breadcrumbs) _scrubAttributes(crumb?.data);
     return event;
-  } catch {
+  } catch (err) {
+    // The error's NAME only — its message, like the event, could quote what was being scrubbed.
+    const name = typeof err?.name === 'string' ? err.name.slice(0, 64) : 'unknown';
+    console.warn(`[sentry] scrubEvent failed (${name}); event dropped`);
     return null;
   }
+}
+
+// Console lines never become breadcrumbs. The default Console integration records every console
+// call; the app logs personal signals (biometricHandler: the last emotion tap and HR-derived tempo
+// targets; user ids in biometricHandler and integrationsController). Socket packets run outside any
+// request scope, so those breadcrumbs collect on the shared isolation scope, and every incoming
+// request clones it (@sentry/core integrations/http/server-subscription.js:43) — one user's lines
+// would ride on other users' events. Every other breadcrumb category is kept.
+function dropConsoleBreadcrumb(breadcrumb) {
+  return breadcrumb?.category === 'console' ? null : breadcrumb;
 }
 
 function initSentry(app) {
@@ -110,6 +129,7 @@ function initSentry(app) {
     // beforeSendTransaction and carry the same request data, so both hooks scrub.
     beforeSend: scrubEvent,
     beforeSendTransaction: scrubEvent,
+    beforeBreadcrumb: dropConsoleBreadcrumb,
   });
   // Must be called after all routes are registered
   if (app) Sentry.setupExpressErrorHandler(app);
@@ -167,4 +187,4 @@ function captureException(err, context) {
   }
 }
 
-module.exports = { initSentry, getSentry, captureException, scrubEvent };
+module.exports = { initSentry, getSentry, captureException, scrubEvent, dropConsoleBreadcrumb };
