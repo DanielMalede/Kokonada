@@ -1,12 +1,13 @@
 import React, { useRef, useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator, StyleSheet, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { appleAuth, AppleButton } from '@invertase/react-native-apple-authentication';
 import { signInWithGoogle, signInWithApple, type KokonadaUser } from './auth';
 import { currentUserStore } from './currentUser';
 import { onSignedIn } from '../prodBootstrap';
 import { useTheme, useMotion } from '../design/theme';
-import { space, radius, type as typography, elevation } from '../design/tokens';
+import { space, type as typography } from '../design/tokens';
 import { BreathingGlow } from '../experience/aura/BreathingGlow';
+import { GoogleSignInButton, SIGN_IN_BUTTON_HEIGHT, GOOGLE_SIGN_IN_WIDTH } from './GoogleSignInButton';
 
 // The auth gate's signed-out face — Wave 2.8 "Bioluminescence" first impression.
 // SACRED CONTRACT: the sign-in LOGIC is unchanged (signInWithGoogle → setUser →
@@ -75,27 +76,10 @@ export function SignInScreen() {
       </View>
 
       <View style={styles.actions}>
-        <Pressable
-          onPress={onGoogle}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel="Continue with Google"
-          accessibilityState={{ disabled: busy, busy }}
-          style={[
-            styles.button,
-            elevation.e1,
-            { backgroundColor: c.surface.raised, borderColor: c.surface.hairline, opacity: busy ? 0.6 : 1 },
-          ]}
-        >
-          {busy ? (
-            <ActivityIndicator color={c.content.primary} />
-          ) : (
-            <Text style={{ color: c.content.primary, fontWeight: typography.weight.semibold, fontSize: typography.size.body }}>
-              Continue with Google
-            </Text>
-          )}
-        </Pressable>
+        {/* HX-6: Google's pre-approved button image, exactly as downloaded (never drawn in code). */}
+        <GoogleSignInButton busy={busy} onPress={onGoogle} />
 
+        {/* On Android nothing Apple renders: no placeholder, no disabled or look-alike button. */}
         {showApple ? (
           <AppleButton
             testID="apple-signin-button"
@@ -120,8 +104,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.xl, paddingTop: 96, paddingBottom: 56 },
   hero: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   actions: { width: '100%', alignItems: 'center' },
-  button: { width: '100%', maxWidth: 360, paddingVertical: space.lg, alignItems: 'center', borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth },
-  // The official Apple button draws its own fill/label; we only own its measure. It matches
-  // the Google button's width and sits one gap below it.
-  appleButton: { width: '100%', maxWidth: 360, height: 52, marginTop: space.md },
+  // The official Apple button draws its own fill/label; we only own its measure. It is exactly the
+  // Google image's rendered size — one height constant, one width — so neither button is smaller
+  // or more prominent than the other (Apple HIG; Google's equal-prominence rule). One gap below.
+  appleButton: { width: GOOGLE_SIGN_IN_WIDTH, height: SIGN_IN_BUTTON_HEIGHT, marginTop: space.md },
 });
