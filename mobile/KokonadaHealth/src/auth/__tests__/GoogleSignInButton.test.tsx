@@ -121,6 +121,20 @@ describe('GoogleSignInButton — busy never alters the image', () => {
     expect(flat(busy)).toEqual(flat(idle));
   });
 
+  // Resilience, HX-6 round 1: the spinner sits on the image's TRAILING side in either direction, so
+  // it is positioned with logical start/marginStart — never physical left/right, which would put it
+  // on the wrong side (over the "G" end) under RTL. The image itself is still never mirrored.
+  it('the spinner is placed with logical start/marginStart (trailing side in LTR and RTL), never left/right', async () => {
+    const tree = await render(<GoogleSignInButton busy onPress={() => {}} />);
+    const spinner = tree.root.findAll((n) => n.props.testID === 'google-signin-busy')[0];
+    let slot: any = spinner.parent;
+    while (slot && flat(slot).position !== 'absolute') slot = slot.parent;
+    const s = flat(slot);
+    expect(s.start).toBe('100%');
+    expect(s.marginStart).toBeGreaterThan(0);
+    for (const physical of ['left', 'right', 'marginLeft', 'marginRight']) expect(s[physical]).toBeUndefined();
+  });
+
   it('while idle there is no spinner', async () => {
     const tree = await render(<GoogleSignInButton busy={false} onPress={() => {}} />);
     expect(byId(tree, 'google-signin-busy')).toBeUndefined();

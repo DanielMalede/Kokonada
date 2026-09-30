@@ -72,5 +72,6 @@ const styles = StyleSheet.create({
   target: { minHeight: space['3xl'], alignItems: 'center', justifyContent: 'center' },
   frame: { width: GOOGLE_SIGN_IN_WIDTH, height: SIGN_IN_BUTTON_HEIGHT },
   image: { width: GOOGLE_SIGN_IN_WIDTH, height: SIGN_IN_BUTTON_HEIGHT },
-  spinnerSlot: { position: 'absolute', top: 0, bottom: 0, left: '100%', marginLeft: space.sm, justifyContent: 'center' },
+  // Logical start/marginStart: the spinner sits past the image's TRAILING edge in LTR and RTL alike.
+  spinnerSlot: { position: 'absolute', top: 0, bottom: 0, start: '100%', marginStart: space.sm, justifyContent: 'center' },
 });
