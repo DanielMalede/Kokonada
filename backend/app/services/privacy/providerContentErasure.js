@@ -14,7 +14,7 @@
 
 const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
-const { PROVIDER_CONTENT_MAX_DAYS, SERVE_EVENT_TTL_SECONDS } = require('../../config/retention');
+const { PROVIDER_CONTENT_MAX_DAYS, SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS } = require('../../config/retention');
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -41,10 +41,7 @@ const HOLDS_PROVIDER_CONTENT = Object.freeze({
 const PROVIDER_CONTENT_CLOCKS = Object.freeze({
   PlaylistSession: Object.freeze({ mechanism: 'field-trim', field: 'createdAt', fields: PROVIDER_CONTENT_FIELDS, jobCount: 'stripped' }),
   ServeEvent: Object.freeze({ mechanism: 'delete', field: 'servedAt', jobCount: 'serveEvents', ttlSeconds: SERVE_EVENT_TTL_SECONDS }),
-  // No TTL index yet: a new TTL-indexed user collection must be registered in the Retention table
-  // of docs/PRIVACY_DECLARATIONS.md in the same change (wave4.retentionDocs.test.js), and that doc
-  // is edited with the M11 declarations. Until then the daily job is the clock.
-  UnclassifiedTrack: Object.freeze({ mechanism: 'delete', field: 'createdAt', jobCount: 'unclassifiedExpired' }),
+  UnclassifiedTrack: Object.freeze({ mechanism: 'delete', field: 'createdAt', jobCount: 'unclassifiedExpired', ttlSeconds: UNCLASSIFIED_TTL_SECONDS }),
 });
 
 function providerContentRetentionDays() {

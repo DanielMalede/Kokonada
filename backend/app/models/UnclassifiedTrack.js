@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { UNCLASSIFIED_TTL_SECONDS } = require('../config/retention');
 
 // Tracks awaiting a music/non-music verdict because Groq was unavailable when they were
 // classified (safety floor, §D4). A periodic worker (reclassify.worker) re-evaluates due
@@ -18,5 +19,8 @@ const unclassifiedTrackSchema = new mongoose.Schema({
 
 unclassifiedTrackSchema.index({ userId: 1, 'track.id': 1 }, { unique: true });
 unclassifiedTrackSchema.index({ nextAttemptAt: 1 });
+// HX-2 M3: provider track payloads never outlive 29 days waiting for a verdict. The daily sessionTrim
+// job deletes them first and backfills createdAt on legacy rows; this TTL is the backstop.
+unclassifiedTrackSchema.index({ createdAt: 1 }, { expireAfterSeconds: UNCLASSIFIED_TTL_SECONDS });
 
 module.exports = mongoose.model('UnclassifiedTrack', unclassifiedTrackSchema);

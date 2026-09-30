@@ -73,6 +73,19 @@ describe('ServeEvent TTL on a real server (getIndexes)', () => {
   });
 });
 
+describe('UnclassifiedTrack TTL on a real server (getIndexes)', () => {
+  it('a fresh collection gets createdAt_1 with expireAfterSeconds 2505600 (29 days), and Runbook 5b reads PASS', async () => {
+    const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
+    await UnclassifiedTrack.createIndexes();
+
+    const ix = (await db.collection('unclassifiedtracks').indexes())
+      .find((i) => i.key && i.key.createdAt === 1 && Object.keys(i.key).length === 1);
+    expect(ix.expireAfterSeconds).toBe(2505600);
+    const spec = TTL_INDEX_RUNBOOKS.find((r) => r.collection === 'unclassifiedtracks');
+    expect((await runTtlIndexCheck(db, spec)).status).toBe('PASS');
+  });
+});
+
 describe('checkTtlIndex — pure verdicts', () => {
   const spec = { collection: 'serveevents', field: 'servedAt', expectedSeconds: 2592000 };
 

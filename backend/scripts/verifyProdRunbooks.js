@@ -15,7 +15,7 @@
 //   Runbook 6: no provider track data older than the 30-day promise (HX-2 E3) — COUNTS only.
 
 const { QUEUES } = require('../app/queues/definitions');
-const { SERVE_EVENT_TTL_SECONDS } = require('../app/config/retention');
+const { SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS } = require('../app/config/retention');
 const { HOLDS_PROVIDER_CONTENT } = require('../app/services/privacy/providerContentErasure');
 // Bind the expected dimension to the REAL embedding contract rather than a magic
 // number — if buildVector's DIM ever changes, this verifier follows it and the
@@ -128,6 +128,12 @@ const TTL_INDEX_RUNBOOKS = Object.freeze([
     collection: 'serveevents',
     field: 'servedAt',
     expectedSeconds: SERVE_EVENT_TTL_SECONDS,
+  }),
+  Object.freeze({
+    name: 'Runbook 5b — UnclassifiedTrack TTL is 29 days',
+    collection: 'unclassifiedtracks',
+    field: 'createdAt',
+    expectedSeconds: UNCLASSIFIED_TTL_SECONDS,
   }),
 ]);
 
