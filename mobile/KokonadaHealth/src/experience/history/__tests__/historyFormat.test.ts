@@ -72,6 +72,9 @@ describe('friendlyTitle — never a raw moodKey', () => {
     ]);
     expect([...SERVER_TITLES].sort()).toEqual([...produced].sort());
     expect(SERVER_TITLES.size).toBe(9);
+    // Installed builds show the server's relabel verbatim; this build shows its own. One word for both.
+    expect(backend.RETIRED_ACTIVITY_LABEL).toBe(RETIRED_ACTIVITY_LABEL);
+    expect(backend.sessionLabel('energize', 'working').activityLabel).toBe(RETIRED_ACTIVITY_LABEL);
   });
   it('ignores a blank title and maps a preset moodKey to a friendly word', () => {
     expect(friendlyTitle(item({ title: '   ', moodKey: 'focus' }))).toBe('Focus');
