@@ -44,4 +44,6 @@ The images are in English only, until F7 (DEC-051).
 
 The Dark file is Google's own Dark theme, unmodified; rule 2 governs a G you build yourself.
 
+Rules 1 and 2, the Color table and the Do and Don't lists sit under the page's heading "Create a custom Sign in with Google Button", which opens: "If you, however, need to adapt the button to match your app design, adhere to the following guidelines." Rule 3 sits under "Sign in with Google Branding Best Practices".
+
 Do not edit, crop, re-pad, recolour, tint, dim, mirror or re-export these files. Replace only with a newer download from the same archive and update this file. Google and the Google "G" logo are trademarks of Google LLC.
