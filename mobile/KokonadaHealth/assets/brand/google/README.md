@@ -35,4 +35,13 @@ The images are in English only, until F7 (DEC-051).
 2. "Regardless of the text, you can't change the size or color of the Google "G" logo. It must be the standard color version (the standard color gradient super G logo) and appear on a white background."
 3. "The Sign in with Google button should be displayed at least as prominently as other third party sign-in options. For example, buttons should be approximately the same size and have similar visual weight."
 
+**Colour modes, quoted from the same page (Last updated 2026-07-07 UTC):**
+
+- Color: "The button must always include the standard color for the Google "G"." The page's table defines the Dark theme as "Fill: #131314", "Stroke: #8E918F | 1px | inside".
+- Do: "Use the Google brand color for Google icon for dark, light, and neutral modes."
+- Do: "Choose the button in the right color mode for accessibility and equal prominence."
+- Don't: "Put the standard color Google "G" icon on a colored background other than light, dark, or neutral."
+
+The Dark file is Google's own Dark theme, unmodified; rule 2 governs a G you build yourself.
+
 Do not edit, crop, re-pad, recolour, tint, dim, mirror or re-export these files. Replace only with a newer download from the same archive and update this file. Google and the Google "G" logo are trademarks of Google LLC.
