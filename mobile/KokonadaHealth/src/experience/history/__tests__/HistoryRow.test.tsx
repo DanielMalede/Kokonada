@@ -5,7 +5,7 @@ import ReactTestRenderer from 'react-test-renderer';
 jest.mock('../../../design/theme', () => ({ useTheme: jest.fn(), useMotion: jest.fn() }));
 
 import { HistoryRow, PRESS_SCALE } from '../HistoryRow';
-import { rowA11yLabel } from '../historyFormat';
+import { rowA11yLabel, RETIRED_ACTIVITY_LABEL } from '../historyFormat';
 import { useTheme, useMotion } from '../../../design/theme';
 import { colors, motion, space } from '../../../design/tokens';
 import type { SessionItem } from '../sessionsApi';
@@ -61,6 +61,17 @@ describe('HistoryRow — one calm material moment', () => {
     expect(btns[0].props.accessibilityLabel).toBe(rowA11yLabel(it0, NOW));
     expect(btns[0].props.accessibilityLabel).toContain('Peak Energy'); // friendly, never the raw moodKey
     expect(btns[0].props.accessibilityHint).toBe('Opens this moment to replay its soundtrack.');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('an old Working row (HX-7c) never shows or speaks "Working": it reads the neutral label', async () => {
+    const old = item({ moodKey: null, title: 'Working', source: 'manual', activity: 'working', activityLabel: 'Working' });
+    const tree = await render(<HistoryRow item={old} now={NOW} onPress={() => {}} />);
+    const spoken = tree.root.findAll((n) => typeof n.props?.accessibilityLabel === 'string').map((n) => n.props.accessibilityLabel);
+    expect(allText(tree)).not.toMatch(/working/i);
+    expect(spoken.join(' | ')).not.toMatch(/working/i);
+    expect(allText(tree)).toContain('A moment');
+    expect(allText(tree)).toContain(`Manual · ${RETIRED_ACTIVITY_LABEL}`);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
