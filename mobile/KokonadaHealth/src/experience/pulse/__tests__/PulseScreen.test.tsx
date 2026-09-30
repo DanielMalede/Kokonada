@@ -264,6 +264,25 @@ describe('PulseScreen — dashboard values, gauges and state headline', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  // HX-7 round 2 (design): "Connected" is longer than "Live". At a large font the source and socket
+  // chips no longer fit one line, so their row wraps rather than running past the screen edge. The
+  // device capture at font 2.0 proves the render; this pins the style that allows it.
+  it('the source and socket chips sit in a row that wraps', async () => {
+    await ReactTestRenderer.act(async () => {
+      warmStore.getState().setBiometricSource('health-connect');
+      warmStore.getState().setConnection('connected');
+      pulseStateStore.setState(withData() as any);
+    });
+    const tree = await render();
+    const isHostView = (n: { type: unknown }) => n.type === 'View';
+    const connected = tree.root.findAll((n) => isHostView(n) && n.props.accessibilityLabel === 'Connected')[0];
+    let row = connected.parent;
+    while (row && !isHostView(row)) row = row.parent;
+    expect(row!.findAll((n) => isHostView(n) && n.props.accessibilityLabel === 'Health Connect')).toHaveLength(1);
+    expect((RN.StyleSheet.flatten(row!.props.style) as any).flexWrap).toBe('wrap');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('no live HR → an honest hushed reading, never a dash', async () => {
     await ReactTestRenderer.act(async () => { pulseStateStore.setState(withData() as any); });
     const tree = await render();

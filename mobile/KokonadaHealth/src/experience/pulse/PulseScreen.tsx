@@ -402,7 +402,7 @@ const styles = StyleSheet.create({
   heroUnit: { marginTop: space.xs, fontSize: typography.size.callout },
   heroHushed: { fontSize: typography.size.callout },
 
-  metaRow: { flexDirection: 'row', justifyContent: 'center', gap: space.sm },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.sm },
   chip: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingVertical: space.xs, paddingHorizontal: space.md, borderRadius: radius.pill },
   chipDot: { width: space.sm, height: space.sm, borderRadius: radius.pill },
   chipText: { fontSize: typography.size.footnote },
