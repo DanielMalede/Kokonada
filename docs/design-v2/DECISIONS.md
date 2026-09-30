@@ -7,7 +7,8 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 - **Added after the architect's L1 review (round 1), DEC-097 and DEC-098.** DEC-097 is the HALT closure rule (the review's Fork C), ruled by the owner on 2026-09-29. DEC-098 is the dark re-sample from the V0 synthesis §7 item 5, asked on 2026-09-29 and OPEN.
 - **From the architect's Track HX plan, DEC-099 to DEC-101** (its DT-4, DT-8 and DT-9), asked and ruled by the owner on 2026-09-30. DEC-101 is read together with DEC-097: it says what "verified on device" means for a fix with no device path.
 - **From the HX pre-build briefs, DEC-102 to DEC-104** (`briefs-wave1.md`, a session scratch file: the HX-1 production count, HX-7(b) and the HX-6 label), asked and ruled by the owner on 2026-09-30. Each entry also quotes the orchestrator's record of the ruling from the same file.
-- **The private primary record** of the rulings made by option selection is `Kokonada-private/design-v2/rulings/owner-rulings-session-3181c7f6.md`, outside the repo: a verbatim excerpt of the session's question rounds, each with its questions, its options and the answer. It holds every round through the one answered at 2026-09-29T21:35:39Z, including the five rounds of 2026-09-23 (twenty questions) behind the plan's decisions table. Its timestamps are UTC, and the entries carry the date at UTC+3, so a round answered after 21:00 UTC is dated the next day. The round behind DEC-102 to DEC-104, answered at 2026-09-29T22:06:50Z, came after the excerpt was written; those entries quote the session transcript.
+- **From the Track HX builds and reviews, DEC-105 to DEC-114** (the HX plan, the review files, the handoff and the PR drafts, all session scratch files outside the repo), asked and ruled by the owner on 2026-09-30: free-text "focus", the Apple button, the chip door, production Sentry, the History relabel and replay hint, the withdrawal erasure, the Spotify link-back, the review check after round 2 and the Spotify notification question. DEC-106, DEC-107, DEC-109, DEC-110 and DEC-112 sign pin reversals that DEC-091 did not pre-approve. In DEC-108 the owner chose the option not marked recommended. DEC-114 rules the preparation only; whether to notify Spotify stays open. Where a PR draft or the handoff records a ruling, the entry quotes that record too.
+- **The private primary record** of the rulings made by option selection is two verbatim excerpts outside the repo, each holding one session's question rounds, with their questions, their options and the answers: `Kokonada-private/design-v2/rulings/owner-rulings-session-3181c7f6.md` and `Kokonada-private/design-v2/rulings/owner-rulings-session-5c0b8fe9.md`. The first holds the five rounds of 2026-09-23 (twenty questions) behind the plan's decisions table. When DEC-102 to DEC-104 were recorded it stopped at the round answered at 2026-09-29T21:35:39Z, so those entries quote the session transcript for their round, answered at 2026-09-29T22:06:50Z. It was completed on 2026-09-30 and now holds every round of that session through the one answered at 2026-09-30T13:32:01Z (DEC-105), DEC-108 to DEC-111 included. The second holds the rounds of the next session, behind DEC-106, DEC-107 and DEC-112 to DEC-114, and quotes DEC-105's round as well. The timestamps are UTC, and the entries carry the date at UTC+3, so a round answered after 21:00 UTC is dated the next day.
 - **Titles** are the scribe's English labels. The quoted text in each file is the record.
 - **A ruling** is recorded only from the owner's own message (`.claude/commands/page.md`, owner gates).
 
@@ -117,6 +118,16 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-102](decisions/DEC-102.md) | When the HX-1 production survivor count runs (HX-1, A8) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-1 A8 | — |
 | [DEC-103](decisions/DEC-103.md) | Work and study words in free text, and the retired chip keys old builds still send (HX-7(b)) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-7 7b | — |
 | [DEC-104](decisions/DEC-104.md) | The Google button's accessible name: the words drawn on the official asset (HX-6, M2) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-6 M2 | — |
+| [DEC-105](decisions/DEC-105.md) | Free-text "focus" derives no activity (HX-7) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HX_PLAN.md §1 HX-7, Also; hx78-review-designer.md HX-7 regulatory, round 1 | — |
+| [DEC-106](decisions/DEC-106.md) | Apple's sign-in button on the light face is White with outline (HX-6) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HANDOFF.md §9, HX-6 | — |
+| [DEC-107](decisions/DEC-107.md) | The emotion_update door admits only the six chips the app offers (HX-7) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HANDOFF.md §9, HX-7 | — |
+| [DEC-108](decisions/DEC-108.md) | Production Sentry stays as it is until the scrub fix merges | DECIDED (ruled 2026-09-30) | 2026-09-30 | TASKS.md BE-020 (update 2026-09-30); pr-sentry.md | — |
+| [DEC-109](decisions/DEC-109.md) | The server relabels old "Working" rows in every app version (HX-7) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-7 7c | — |
+| [DEC-110](decisions/DEC-110.md) | The dead History replay hint is removed (HX-7) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-7 SHOULD | — |
+| [DEC-111](decisions/DEC-111.md) | Withdrawal also erases each session's heart-rate snapshot and the values derived from it (BE-016) | DECIDED (ruled 2026-09-30) | 2026-09-30 | hx2-review-reg-compliance.md For TASKS (Regulatory) | — |
+| [DEC-112](decisions/DEC-112.md) | GET SPOTIFY FREE opens the item's page, not the download page (HX-4) | DECIDED (ruled 2026-09-30) | 2026-09-30 | hx4-r2-compliance.md B2 | — |
+| [DEC-113](decisions/DEC-113.md) | After round 2, a short verification check by each reviewer that required a blocking fix | DECIDED (ruled 2026-09-30) | 2026-09-30 | HANDOFF.md §2 Review protocol | — |
+| [DEC-114](decisions/DEC-114.md) | Spotify Developer Terms Appendix A §4.e: the notification question is prepared for counsel | DECIDED for the preparation (ruled 2026-09-30); whether to notify is not ruled | 2026-09-30 | hx2-r2-compliance.md NF-6 | — |
 
 ## Source numbers and their DEC- entries
 
@@ -204,6 +215,13 @@ The source files number their owner questions themselves. The registry bodies an
 | briefs-wave1.md | HX-1 A8 | DEC-102 |
 | briefs-wave1.md | HX-7 7b | DEC-103 |
 | briefs-wave1.md | HX-6 M2 | DEC-104 |
+| HX_PLAN.md | §1 HX-7, Also | DEC-105 |
+| hx78-review-designer.md | HX-7 regulatory, round 1, required edit 1 | DEC-105 |
+| HANDOFF.md | §9, HX-6 (owner signature needed) | DEC-106 |
+| HANDOFF.md | §9, HX-7 (owner signature needed) | DEC-107 |
+| hx2-review-reg-compliance.md | For TASKS, Regulatory: the consent-copy conflict | DEC-111 |
+| hx4-r2-compliance.md | B2 | DEC-112 |
+| hx2-r2-compliance.md | NF-6 | DEC-114 |
 
 ## Merged questions
 
@@ -240,3 +258,13 @@ Each was selected by the owner in the session, on the date shown, from the optio
 - **DEC-102** (2026-09-30; When the HX-1 production survivor count runs (HX-1, A8)): "לספור אחרי התיקון (מומלץ)".
 - **DEC-103** (2026-09-30; Work and study words in free text, and the retired chip keys old builds still send (HX-7(b))): "להסיר ולחסום בשרת (מומלץ)".
 - **DEC-104** (2026-09-30; The Google button's accessible name: the words drawn on the official asset (HX-6, M2)): "כן, לפי הכתוב על הכפתור (מומלץ)".
+- **DEC-105** (2026-09-30; Free-text "focus" derives no activity (HX-7)): "להסיר גם אותה (מומלץ)".
+- **DEC-106** (2026-09-30; Apple's sign-in button on the light face is White with outline (HX-6)): "לבן עם מסגרת (מומלץ)".
+- **DEC-107** (2026-09-30; The emotion_update door admits only the six chips the app offers (HX-7)): "רשימה סגורה של שש (מומלץ)".
+- **DEC-108** (2026-09-30; Production Sentry stays as it is until the scrub fix merges): "להשאיר כמו שהוא"; not the option marked recommended.
+- **DEC-109** (2026-09-30; The server relabels old "Working" rows in every app version (HX-7)): "כן, להפוך (מומלץ)".
+- **DEC-110** (2026-09-30; The dead History replay hint is removed (HX-7)): "כן, להסיר (מומלץ)".
+- **DEC-111** (2026-09-30; Withdrawal also erases each session's heart-rate snapshot and the values derived from it (BE-016)): "שהביטול ימחק גם אותם (מומלץ)".
+- **DEC-112** (2026-09-30; GET SPOTIFY FREE opens the item's page, not the download page (HX-4)): "לחתום (מומלץ)".
+- **DEC-113** (2026-09-30; After round 2, a short verification check by each reviewer that required a blocking fix): "בדיקת אימות קצרה (מומלץ)".
+- **DEC-114** (2026-09-30; Spotify Developer Terms Appendix A §4.e: the notification question is prepared for counsel): "להכין לעורך הדין (מומלץ)"; it rules the preparation only.
