@@ -103,7 +103,7 @@ describe('PlaybackQueue — skip unplayable tracks', () => {
       q.load([T('a'), T('ep', 'spotify:episode:x'), T('b')]);
       expect(q.size()).toBe(3);
       expect(q.playableIndex()).toBe(0);
-      q.next();
+      expect(q.next()?.id).toBe('b'); // the episode is stepped over, never current
       expect(q.playableIndex()).toBe(1); // the episode does not count as a playlist row
     });
   });
