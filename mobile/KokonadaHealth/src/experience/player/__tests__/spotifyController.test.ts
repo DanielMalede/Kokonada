@@ -262,3 +262,48 @@ describe('SpotifyPlayerController — dispose (logout teardown, defect D-2)', ()
     expect(controller.getState()).toBe('disconnected');
   });
 });
+
+// HX-2 round 1 (M3): dispose() removes every native listener, but they used to be attached only in
+// the constructor — so after a logout or a Spotify disconnect, a later connect in the same process
+// ran deaf: a native severance never flipped the badge, and auto-advance never reached the queue.
+describe('SpotifyPlayerController — listeners survive dispose() + reconnect (M3)', () => {
+  function buildWithState() {
+    const remote = new FakeRemote();
+    const onStateChange = jest.fn();
+    const onRemoteState = jest.fn();
+    const controller = new SpotifyPlayerController({
+      remote, getToken: async () => 'spotify-token', onStateChange, onRemoteState, maxReconnects: 2,
+    });
+    const emit = (event: string, ...a: any[]) => (remote.listeners.get(event) ?? []).forEach((cb) => cb(...a));
+    return { remote, controller, onStateChange, onRemoteState, emit };
+  }
+
+  it('after dispose() and a new connect, the native severance and PlayerState stream are heard again', async () => {
+    const w = buildWithState();
+    await w.controller.connect();
+    await w.controller.dispose();
+    expect(w.remote.listeners.size).toBe(0); // control: dispose really detached them
+
+    await w.controller.connect();
+    w.onStateChange.mockClear();
+    w.emit('playerStateChanged', { trackUri: 'spotify:track:n', isPaused: false });
+    w.remote.sever();
+
+    expect(w.onRemoteState).toHaveBeenCalledWith(expect.objectContaining({ uri: 'spotify:track:n', isPaused: false }));
+    expect(w.controller.getState()).toBe('disconnected');
+    expect(w.onStateChange).toHaveBeenCalledWith('disconnected');
+  });
+
+  it('never double-attaches: repeated connects deliver each native event exactly once', async () => {
+    const w = buildWithState();
+    await w.controller.connect();
+    w.remote.sever();
+    await w.controller.connect();
+    await w.controller.connect();
+
+    w.emit('playerStateChanged', { trackUri: 'spotify:track:x', isPaused: true });
+
+    expect(w.onRemoteState).toHaveBeenCalledTimes(1);
+    expect(w.remote.listeners.get('remoteDisconnected')).toHaveLength(1);
+  });
+});

@@ -50,8 +50,18 @@ export class SpotifyPlayerController {
   // The single in-flight connect promise (null when idle). Overlapping callers reuse it.
   private connectInFlight: Promise<boolean> | null = null;
 
+  // Whether the native listeners are attached. dispose() removes them all, so a later connect in the
+  // same process must attach them again or it runs deaf (HX-2 M3).
+  private listening = false;
+
   constructor(private readonly deps: SpotifyControllerDeps) {
     this.reconnectBudget = deps.maxReconnects ?? DEFAULT_MAX_RECONNECTS;
+    this.attachListeners();
+  }
+
+  private attachListeners(): void {
+    if (this.listening) return;
+    this.listening = true;
     // The native side can sever the link at any moment; treat it like any failure.
     this.deps.remote.addListener('remoteDisconnected', () => this.markDisconnected());
     // D-1: surface the native PlayerState stream (normalized to { uri, isPaused }).
@@ -117,6 +127,7 @@ export class SpotifyPlayerController {
       await this.deps.remote.connect(token);
       console.log('[koko] AppRemote.connect SUCCEEDED');
       this.reconnectBudget = this.deps.maxReconnects ?? DEFAULT_MAX_RECONNECTS; // reset on success
+      this.attachListeners(); // after a dispose(): hear the native severance + PlayerState again (M3)
       this.setState('connected');
       return true;
     } catch (err) {
@@ -213,6 +224,9 @@ export class SpotifyPlayerController {
 
   async dispose(): Promise<void> {
     this.deps.remote.removeAllListeners?.();
+    this.listening = false; // re-attached by the next successful connect
+    // The reconnect budget is deliberately NOT zeroed here: a disconnect is not a ban on playing.
+    // What stops a late playlist from reconnecting is the orchestrator's suspension (HX-2 B1).
     // Stop audio before severing the link. App Remote's disconnect only drops the
     // CONTROL channel — the Spotify app keeps playing whatever was last commanded —
     // so logout leaked playback until this pause was added. Pause must precede
