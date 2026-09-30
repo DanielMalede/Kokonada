@@ -156,7 +156,7 @@ async function start() {
   // (POST /api/integrations/garmin/webhook → garminIngest); real-time HR comes from
   // the sideloaded watch app. (The legacy 30s OAuth1 dailies poller was removed.)
   httpServer.listen(PORT, () =>
-    console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}] routes:ok`)
+    console.log(`Kokonada backend on port ${PORT} [${process.env.NODE_ENV}] node=${process.version} routes:ok`)
   );
 
   // FREE-TIER: with RUN_WORKERS_IN_PROCESS=true, drain the BullMQ queues in THIS

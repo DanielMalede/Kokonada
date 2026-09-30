@@ -15,7 +15,7 @@ const { getRedis } = require('../config/redis');
 // miss — register its builder here and erasure (plus the GDPR export audit) covers it.
 //
 // Deliberately ABSENT — GLOBAL, cross-user caches carrying no userId (ADR 0008): the
-// AudioFeature cache (`af:<recordingKey>`), the LLM cache (`gemini:<hash>`) and the
+// AudioFeature cache (`af:<recordingKey>`), the LLM cache (`gemini:<model>:<hash>`) and the
 // token denylist (`revoked:jti:<jti>`, self-expiring revocation records). Purging any
 // of these on a single user's erasure would evict every other user's rows.
 const USER_KEY_NAMESPACES = Object.freeze([
