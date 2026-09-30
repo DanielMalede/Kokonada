@@ -5,6 +5,7 @@ import { orchestrator } from './playbackServices';
 import type { NowPlaying } from './playbackOrchestrator';
 import type { QueueTrack } from './playbackQueue';
 import { UpNextSheet } from './UpNextSheet';
+import { UP_NEXT_ENABLED } from './upNextGate';
 import { SpotifyAttribution } from '../player/SpotifyAttribution';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { store } from '../../state/store';
@@ -64,14 +65,15 @@ export function NowPlayingScreen() {
   // landscape, split-screen and small phones all stay legible — capped at the design maximum on
   // roomy screens. flexShrink on the art (below) is the final guarantee if space is still tight.
   const artSize = Math.min(width - space.xl * 2, height * ART_VIEWPORT_FRACTION, ART_SIZE);
-  const [state, setState] = useState<NowPlaying & { coverUri: string | null }>({
+  const [state, setState] = useState<NowPlaying & { coverUri: string | null; coverTrackUri: string | null }>({
     track: nowPlayingStore.getState().track,
     isPlaying: nowPlayingStore.getState().isPlaying,
     coverUri: nowPlayingStore.getState().coverUri,
+    coverTrackUri: nowPlayingStore.getState().coverTrackUri,
   });
 
   useEffect(() => {
-    const sync = (s: any) => setState({ track: s.track, isPlaying: s.isPlaying, coverUri: s.coverUri });
+    const sync = (s: any) => setState({ track: s.track, isPlaying: s.isPlaying, coverUri: s.coverUri, coverTrackUri: s.coverTrackUri });
     sync(nowPlayingStore.getState());
     return nowPlayingStore.subscribe(sync); // cleanup returns the unsubscribe (S10-1)
   }, []);
@@ -96,18 +98,23 @@ export function NowPlayingScreen() {
   const queueTracks = useMemo(() => (upNextVisible ? orchestrator.getQueueTracks() : NO_TRACKS), [upNextVisible]);
   const onJump = useCallback((t: QueueTrack) => orchestrator.jumpToId(t.id), []);
 
-  const { track, isPlaying, coverUri } = state;
+  const { track, isPlaying, coverUri, coverTrackUri } = state;
 
   // Graceful degradation (L2): a non-null but broken/undecodable cover file must still fall
   // back to the ♪ token placeholder — never a blank panel. The flag is keyed to the current
   // coverUri (resolved from the live App Remote state), so a new track re-attempts its art.
   const [coverFailed, setCoverFailed] = useState(false);
-  useEffect(() => { setCoverFailed(false); }, [coverUri]);
+  // Re-armed on a new file OR a new pairing: the next track on the same album reuses the file,
+  // which the resolver has just re-fetched (native may have re-cached it), so it earns a retry.
+  useEffect(() => { setCoverFailed(false); }, [coverUri, coverTrackUri]);
   // B1: gate the cover on TRACK metadata too. coverUri is set on its own channel (the
   // resolver), decoupled from the track, so coverUri!=null && track==null is reachable
   // (foreign playback at boot with an empty queue). The cover's a11y label reads
   // track.title, so a cover with no track would null-deref — show the placeholder instead.
-  const showCover = !!coverUri && !coverFailed && !!track;
+  // HX-4 M3: the cover sits beside the link-back to track.uri, so it must be THAT item's
+  // cover — shown only while App Remote's track URI for it equals track.uri (a track with no
+  // URI never matches, so an unpaired cover can't slip through as null === null).
+  const showCover = !!coverUri && !coverFailed && !!track?.uri && coverTrackUri === track.uri;
 
   // The session discovery accent (static per session — the quadrant is chosen ONCE, above).
   const accent = c.emotionAccent[quadrant];
@@ -197,10 +204,11 @@ export function NowPlayingScreen() {
         {/* NP-ATTR (compliance C1/C2): the reusable Spotify attribution + link-back for the live
             Spotify content on this surface. Ordered (Daniel) BETWEEN the metadata and the receipt —
             its own element, hairline-separated and visually distinct — so nothing here can imply
-            Spotify authored the pick or bleed into the "why this track" receipt copy below. */}
+            Spotify authored the pick or bleed into the "why this track" receipt copy below. The
+            link-back targets this exact track (HX-4, Policy II.4). */}
         {track ? (
           <View testID="now-playing-attribution" style={[styles.attribution, { borderTopColor: c.surface.hairline }]}>
-            <SpotifyAttribution />
+            <SpotifyAttribution contentUri={track.uri} />
           </View>
         ) : null}
 
@@ -321,28 +329,33 @@ export function NowPlayingScreen() {
       </View>
 
       {/* Low-emphasis "Up next" affordance (SCREENS §7): tap to open the queue sheet over Now
-          Playing. Sits beneath the transport without disturbing the art→meta→transport hierarchy. */}
-      <Pressable
-        onPress={() => setUpNextVisible(true)}
-        accessibilityRole="button"
-        accessibilityLabel="Up next"
-        hitSlop={space.md}
-        style={styles.upNext}
-      >
-        <Text style={{ fontSize: typography.size.heading, color: c.content.secondary }}>⌃</Text>
-        <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>Up next</Text>
-      </Pressable>
+          Playing. Sits beneath the transport without disturbing the art→meta→transport hierarchy.
+          Hidden until P3 (DEC-099, see upNextGate): no entry, no sheet, no reserved space. */}
+      {UP_NEXT_ENABLED ? (
+        <>
+          <Pressable
+            onPress={() => setUpNextVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Up next"
+            hitSlop={space.md}
+            style={styles.upNext}
+          >
+            <Text style={{ fontSize: typography.size.heading, color: c.content.secondary }}>⌃</Text>
+            <Text style={{ fontSize: typography.size.subheading, color: c.content.secondary }}>Up next</Text>
+          </Pressable>
 
-      <UpNextSheet
-        visible={upNextVisible}
-        onClose={() => setUpNextVisible(false)}
-        tracks={queueTracks}
-        currentTrackId={track?.id ?? null}
-        isPlaying={isPlaying}
-        quadrant={quadrant}
-        connection={connection}
-        onJump={onJump}
-      />
+          <UpNextSheet
+            visible={upNextVisible}
+            onClose={() => setUpNextVisible(false)}
+            tracks={queueTracks}
+            currentTrackId={track?.id ?? null}
+            isPlaying={isPlaying}
+            quadrant={quadrant}
+            connection={connection}
+            onJump={onJump}
+          />
+        </>
+      ) : null}
     </View>
   );
 }

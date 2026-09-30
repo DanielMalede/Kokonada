@@ -25,10 +25,11 @@ export { authSession };
 
 // The Now Playing cover comes from the LIVE App Remote player state (authoritative for
 // what is audible), resolved client-side to a local file — NOT from the queue and NOT via
-// the Web API (which 403s in Dev Mode). Fire-and-forget, deduped by imageUri.
+// the Web API (which 403s in Dev Mode). Fire-and-forget, deduped per (image, track), and
+// stored with the track URI it was reported with (HX-4 M3).
 const coverResolver = new CoverArtResolver({
   getTrackImage: (imageUri) => spotifyRemoteAdapter.getTrackImage!(imageUri),
-  setCover: (coverUri) => nowPlayingStore.getState().setCover(coverUri),
+  setCover: (coverUri, trackUri) => nowPlayingStore.getState().setCover(coverUri, trackUri),
 });
 
 export const player = new SpotifyPlayerController({
@@ -47,8 +48,9 @@ export const player = new SpotifyPlayerController({
   // `orchestrator` is declared below — the closure resolves at event time, well after init.
   onRemoteState: (s) => {
     orchestrator.syncToRemote(s.uri, s.isPaused, s.positionMs, s.durationMs);
-    // Resolve the current track's cover off the playback path (deduped per track change).
-    coverResolver.onImageUri(s.imageUri ?? null);
+    // Resolve the current track's cover off the playback path (deduped per track change),
+    // paired with the track URI from this same PlayerState.
+    coverResolver.onImageUri(s.imageUri ?? null, s.uri);
   },
 });
 

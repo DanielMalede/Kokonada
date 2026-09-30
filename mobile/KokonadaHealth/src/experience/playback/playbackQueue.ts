@@ -1,3 +1,5 @@
+import { parseSpotifyContentUri } from '../player/spotifyContentLink';
+
 // Holds a generated playlist and a cursor over its PLAYABLE tracks. YouTube-only
 // tracks (no Spotify URI) are data, not playable, so navigation skips them. The
 // cursor never runs off either edge.
@@ -26,8 +28,11 @@ export interface QueueTrack {
   recordingKey: string | null;
 }
 
+// Only a Spotify TRACK URI that the link-back can open is playable (HX-4, Policy II.4): anything else
+// — an episode, a local file, a `?si=` share link, a YouTube id — would put its title and artist on
+// Now Playing with no link-back to the item. Such an entry stays in the queue as data, like uri:null.
 function isPlayable(t: QueueTrack): boolean {
-  return typeof t.uri === 'string' && t.uri.length > 0;
+  return parseSpotifyContentUri(t.uri)?.type === 'track';
 }
 
 // Defensive: a legacy payload (pre-Wave-2.8) carries no receipt, and a malformed value
