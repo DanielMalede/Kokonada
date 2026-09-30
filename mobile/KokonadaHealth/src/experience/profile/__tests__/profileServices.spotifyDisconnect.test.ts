@@ -22,7 +22,7 @@ const mockEvents: string[] = [];
 jest.mock('../../playback/playbackServices', () => ({
   player: { dispose: jest.fn(async () => { mockEvents.push('player-disposed'); }) },
   kokoSocket: { disconnect: jest.fn(() => { mockEvents.push('socket-severed'); }) },
-  orchestrator: { clear: jest.fn(() => { mockEvents.push('queue-cleared'); }) },
+  orchestrator: { clear: jest.fn(() => { mockEvents.push('queue-cleared'); }), resume: jest.fn(() => { mockEvents.push('playback-resumed'); }) },
 }));
 jest.mock('react-native-health-connect', () => ({
   initialize: jest.fn(async () => true),
@@ -37,6 +37,7 @@ jest.mock('react-native-keychain', () => ({
 }));
 
 let backendStatus = 200;
+let serverLinked = true; // what GET /api/integrations/status answers
 function installFakeBackend(): void {
   (global as any).fetch = jest.fn(async (url: string, init: { method?: string } = {}) => {
     const method = init.method ?? 'GET';
@@ -46,6 +47,11 @@ function installFakeBackend(): void {
       mockEvents.push('server-disconnect');
       return json(backendStatus, backendStatus < 400 ? { message: 'Spotify disconnected' } : { error: 'failed' });
     }
+    if (method === 'GET' && path === '/api/integrations/status') {
+      mockEvents.push('server-status');
+      return json(200, { spotifyConnected: serverLinked });
+    }
+    if (method === 'GET' && path === '/api/auth/me') return json(200, { id: 'account-a', displayName: 'A', email: 'a@x.io' });
     return json(404, {});
   });
 }
@@ -69,6 +75,7 @@ function load() {
 
 beforeEach(() => {
   backendStatus = 200;
+  serverLinked = true;
   mockEvents.length = 0;
   installFakeBackend();
 });
@@ -103,16 +110,40 @@ describe('Disconnect Spotify — the success path', () => {
 });
 
 describe('Disconnect Spotify — the failure path', () => {
-  it('a server error changes nothing on the device: still playing, still connected', async () => {
+  it('a server error while the server still holds the link changes nothing on the device', async () => {
     backendStatus = 500;
     const w = load();
 
     const res = await w.profileController.disconnectSpotify();
 
     expect(res.ok).toBe(false);
-    expect(mockEvents).toEqual(['server-disconnect']);
+    expect(mockEvents).toEqual(['server-disconnect', 'server-status']);
     expect(w.nowPlayingStore.getState()).toMatchObject({ isPlaying: true, coverUri: 'file:///cache/cover-trk1.jpg' });
     expect(w.nowPlayingStore.getState().track?.id).toBe('trk1');
     expect(w.playerStatusStore.getState().status).toBe('connected');
+  });
+});
+
+describe('Disconnect Spotify — the server truth after an error, and the resume binding', () => {
+  it('a server error after the server already dropped the link stops Spotify on the device too', async () => {
+    backendStatus = 500;
+    serverLinked = false;
+    const w = load();
+    const res = await w.profileController.disconnectSpotify();
+    expect(res.ok).toBe(false);
+    expect(mockEvents).toEqual(['server-disconnect', 'server-status', 'player-disposed', 'queue-cleared']);
+    expect(w.nowPlayingStore.getState()).toMatchObject({ track: null, isPlaying: false, coverUri: null });
+    expect(w.playerStatusStore.getState().status).toBe('disconnected');
+  });
+
+  it('a Profile reload that reads spotifyConnected: true resumes the real orchestrator; false does not', async () => {
+    let w = load();
+    await w.profileController.loadProfile();
+    expect(mockEvents).toContain('playback-resumed');
+    mockEvents.length = 0;
+    serverLinked = false;
+    w = load();
+    await w.profileController.loadProfile();
+    expect(mockEvents).not.toContain('playback-resumed');
   });
 });
