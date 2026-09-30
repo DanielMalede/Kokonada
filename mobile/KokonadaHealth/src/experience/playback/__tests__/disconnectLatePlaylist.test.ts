@@ -15,12 +15,16 @@ import { SpotifyPlayerController, type SpotifyRemoteLike } from '../../player/sp
 const T = (id: string): QueueTrack => ({ id, uri: `spotify:track:${id}`, title: id, artist: 'x', receipt: null, recordingKey: null });
 
 function fakeRemote() {
-  const calls = { connect: 0, playUri: 0, resume: 0, pause: 0, disconnect: 0 };
+  const calls = { connect: 0, playUri: 0, playContext: 0, skipToIndex: 0, resume: 0, pause: 0, disconnect: 0 };
   const remote: SpotifyRemoteLike = {
     connect: async () => { calls.connect += 1; },
     disconnect: async () => { calls.disconnect += 1; },
     isConnectedAsync: async () => true,
     playUri: async () => { calls.playUri += 1; },
+    // Context playback, as the production adapter has it (D-1). Without it a `spotify:playlist:`
+    // payload returns before connect, and "0 connect" below would hold on the base as well.
+    playContext: async () => { calls.playContext += 1; },
+    skipToIndex: async () => { calls.skipToIndex += 1; },
     pause: async () => { calls.pause += 1; },
     resume: async () => { calls.resume += 1; },
     addListener: () => {},
@@ -55,7 +59,7 @@ describe('after Disconnect Spotify, nothing reaches Spotify again (B1)', () => {
 
     await w.orchestrator.handlePlaylist({ tracks: [T('late1'), T('late2')], contextUri: 'spotify:playlist:hidden' });
 
-    expect(w.calls).toMatchObject({ connect: 0, playUri: 0, resume: 0 });
+    expect(w.calls).toMatchObject({ connect: 0, playUri: 0, playContext: 0, skipToIndex: 0, resume: 0 });
     expect(w.nowPlaying[w.nowPlaying.length - 1].track).toBeNull();
     expect(w.orchestrator.getNowPlaying()).toEqual({ track: null, isPlaying: false });
     expect(w.player.getState()).toBe('disconnected');
