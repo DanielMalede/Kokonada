@@ -38,6 +38,16 @@ beforeAll(async () => {
   });
   primary = (await mongoose.connection.db.admin().command({ hello: 1 })).primary;
   await ConsentRecord.init();
+  // Until the driver has discovered the secondary, `secondaryPreferred` falls back to the primary —
+  // and every assertion below would pass vacuously. Wait until an unpinned read really goes elsewhere.
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    finds.length = 0;
+    await ConsentRecord.find({}).exec();
+    if (finds.length && finds[finds.length - 1].address !== primary) break;
+    if (Date.now() > deadline) throw new Error('the secondary never became selectable');
+    await new Promise((r) => setTimeout(r, 100));
+  }
 });
 afterAll(async () => {
   await mongoose.disconnect();
