@@ -53,12 +53,12 @@ describe('ActivityChips — tokenised, single-select, ≥44dp', () => {
 
   it('the active chip is distinguished beyond colour (accessibilityState.selected + accent border)', () => {
     const store = makeStore();
-    store.dispatch(setActivity('focus'));
+    store.dispatch(setActivity('running'));
     const tree = renderWith('dark', store);
-    const active = chip(tree, 'focus');
+    const active = chip(tree, 'running');
     expect(active.props.accessibilityState.selected).toBe(true);
     expect(flat(active).borderColor).toBe(colors.dark.accent.glow); // accent outline on active
-    const idle = chip(tree, 'running');
+    const idle = chip(tree, 'walking');
     expect(idle.props.accessibilityState.selected).toBe(false);
     expect(flat(idle).borderColor).toBe(colors.dark.surface.hairline); // quiet hairline when idle
   });

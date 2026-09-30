@@ -201,7 +201,7 @@ describe('Q4 — KokonadaSocket reqId gating + auth storm (DEFENDED)', () => {
     const sock = new FakeSock();
     const s = new KokonadaSocket({
       createSocket: () => sock, getAccessToken: () => 'tok', refreshToken: async () => 'tok2',
-      getEmotionIntent: () => ({ taps: [{ x: 0.1, y: 0.2 }], textPrompt: 'v', activity: 'focus' }),
+      getEmotionIntent: () => ({ taps: [{ x: 0.1, y: 0.2 }], textPrompt: 'v', activity: 'running' }),
       onPlaylist: jest.fn(), onLoggedOut: jest.fn(),
     });
     s.connect();

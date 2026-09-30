@@ -116,7 +116,7 @@ describe('Q3 — persist allowlist under a poisoned-blob corpus (never throws, a
 describe('Q3 — no token / secret ever reaches the persisted cold blob', () => {
   it('serializeForPersist projects ONLY taps/activity/textPrompt', () => {
     const stateWithJunk: any = {
-      taps: [{ x: 0.5, y: 0.5 }], activity: 'focus', textPrompt: 'go',
+      taps: [{ x: 0.5, y: 0.5 }], activity: 'running', textPrompt: 'go',
       accessToken: 'secret', refresh: 'krt', liveHr: 88,
     };
     const parsed = JSON.parse(serializeForPersist(stateWithJunk));
