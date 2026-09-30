@@ -134,7 +134,9 @@ describe('SignInScreen — Sign in with Apple (App Store Guideline 4.8, iOS)', (
 
   // REVERSED in HX-6 round 1 (designer REVISE; signed by the owner 2026-09-30, DEC-106): this pinned BLACK on the
   // light face. Beside Google's white pill, Apple's White-with-outline style is the matching pair —
-  // Apple HIG: "White with outline: Use this style on white or light-color backgrounds".
+  // Apple HIG, "White with outline": "Use this style on white or light-color backgrounds that don't
+  // provide sufficient contrast with the white button fill." The light canvas (surface.base) is
+  // near-white, so the condition holds.
   it('uses the WHITE_OUTLINE Apple button on the light theme (pairs with Google\'s white pill)', async () => {
     (Platform as any).OS = 'ios';
     jest.spyOn(theme, 'useTheme').mockReturnValue({ name: 'light', c: theme.resolveScheme('light') });
@@ -234,7 +236,7 @@ describe('SignInScreen — the official Google button (HX-6)', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
-  it('iOS: Apple\'s button renders at exactly Google\'s height and width (Apple no smaller, Google as prominent)', async () => {
+  it('iOS: Apple\'s button renders at exactly Google\'s height and width (Apple no smaller; Google the same size)', async () => {
     (Platform as any).OS = 'ios';
     const tree = await render();
     const apple = tree.root.findAll((n) => n.props.testID === 'apple-signin-button')[0];

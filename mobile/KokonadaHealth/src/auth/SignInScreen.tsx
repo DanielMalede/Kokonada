@@ -58,7 +58,9 @@ export function SignInScreen() {
   const showApple = Platform.OS === 'ios' && appleAuth.isSupported;
   // Apple HIG: White on dark backgrounds (the app is dark-default, "abyss", where a BLACK button
   // would be nearly invisible). On the light face, White with outline — HIG: "Use this style on
-  // white or light-color backgrounds" — pairs with Google's white pill beside it (designer, HX-6).
+  // white or light-color backgrounds that don't provide sufficient contrast with the white button
+  // fill." The light canvas (surface.base) is near-white, so it applies; it also pairs with
+  // Google's white pill beside it (designer, HX-6; owner, DEC-106).
   const appleButtonStyle = name === 'dark' ? AppleButton.Style.WHITE : AppleButton.Style.WHITE_OUTLINE;
 
   return (

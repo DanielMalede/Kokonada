@@ -5,8 +5,10 @@ import { space } from '../design/tokens';
 
 // HX-6 (CMP-099, MB-036): the Google sign-in button IS Google's pre-approved image, shown exactly
 // as downloaded (assets/brand/google/README.md records the source and a SHA-256 per file). Nothing
-// here draws the button, the words or the "G": Google Sans is not licensed to us, and a hand-drawn
-// look-alike is not the pre-approved asset. The image is never tinted, dimmed, cropped, re-padded,
+// here draws the button, the words or the "G": a button drawn in code is a custom button, bound by
+// every rule of Google's "Create a custom Sign in with Google Button" section (Google Sans Medium,
+// the colour table, the padding), and a hand-drawn look-alike is not the pre-approved asset. The
+// image is never tinted, dimmed, cropped, re-padded,
 // stretched or mirrored; theme tokens are not applied to it.
 
 // One file per face (Metro picks the @2x/@3x variant for the device density).
