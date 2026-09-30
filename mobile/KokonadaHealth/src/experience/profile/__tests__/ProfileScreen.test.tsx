@@ -542,6 +542,7 @@ describe('ProfileScreen', () => {
     const shown = texts(tree.toJSON()).join(' ');
     expect(shown).toContain('Disconnect Spotify?');
     expect(shown).toContain('Kokonada will stop using your Spotify account and delete your Spotify connection, the music profile built from it, and the Spotify tracks listed in History. Your moments stay.');
+    expect(shown).toContain('Kokonada doesn\'t delete the "Kokonada Session" playlist it may have made in your Spotify account. You can delete it in Spotify.');
     expect(shown).toContain('To remove Kokonada from your Spotify account as well, go to spotify.com/account/apps and choose Remove access.');
 
     const loadsBefore = loadProfile.mock.calls.length;

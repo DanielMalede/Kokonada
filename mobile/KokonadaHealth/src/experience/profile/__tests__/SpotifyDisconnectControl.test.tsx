@@ -2,7 +2,7 @@ import React from 'react';
 import * as RN from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
 import { SpotifyDisconnectControl, SPOTIFY_DISCONNECT_COPY } from '../SpotifyDisconnectControl';
-import { colors, type ThemeName } from '../../../design/tokens';
+import { colors, space, type ThemeName } from '../../../design/tokens';
 import { contrastRatio, AA_NORMAL } from '../../../design/contrast';
 
 // Cold-require headroom (same rationale as VaultConsentPanel.test.tsx): the first render in a cold
@@ -16,6 +16,8 @@ jest.setTimeout(20000);
 const EXACT = {
   title: 'Disconnect Spotify?',
   line1: 'Kokonada will stop using your Spotify account and delete your Spotify connection, the music profile built from it, and the Spotify tracks listed in History. Your moments stay.',
+  // Compliance N1 (round 1): always shown, right after line 1.
+  sessionPlaylist: 'Kokonada doesn\'t delete the "Kokonada Session" playlist it may have made in your Spotify account. You can delete it in Spotify.',
   line2: 'To remove Kokonada from your Spotify account as well, go to spotify.com/account/apps and choose Remove access.',
   line3: "You can't reconnect Spotify in this version.",
   confirm: 'Disconnect',
@@ -108,13 +110,23 @@ describe('SpotifyDisconnectControl — two taps', () => {
 });
 
 describe('SpotifyDisconnectControl — the confirm copy is exact (M9)', () => {
-  it('title, the two body lines, and the two buttons, word for word and in this order', () => {
+  it('title, the body lines, and the two buttons, word for word and in this order', () => {
     const { tree } = render();
     press(tree, 'disconnect-spotify');
     const lines = allText(tree);
-    const order = [EXACT.title, EXACT.line1, EXACT.line2, EXACT.line3, EXACT.cancel, EXACT.confirm].map((l) => lines.indexOf(l));
+    const order = [EXACT.title, EXACT.line1, EXACT.sessionPlaylist, EXACT.line2, EXACT.line3, EXACT.cancel, EXACT.confirm].map((l) => lines.indexOf(l));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it('the "Kokonada Session" playlist line (N1) is always shown, right after line 1, whatever the beta flag', () => {
+    for (const showNoReconnectLine of [true, false]) {
+      const { tree } = render({ showNoReconnectLine });
+      press(tree, 'disconnect-spotify');
+      const lines = allText(tree);
+      expect(lines).toContain(EXACT.sessionPlaylist);
+      expect(lines.indexOf(EXACT.sessionPlaylist)).toBe(lines.indexOf(EXACT.line1) + 1);
+    }
   });
 
   it('line 3 ("You can\'t reconnect…") appears only while SPOTIFY_BETA_CONNECT is off', () => {
@@ -129,7 +141,7 @@ describe('SpotifyDisconnectControl — the confirm copy is exact (M9)', () => {
 
   it('exports the copy the screen uses for the failure alert, exactly', () => {
     expect(SPOTIFY_DISCONNECT_COPY).toEqual(expect.objectContaining({
-      title: EXACT.title, body: EXACT.line1, removeAccess: EXACT.line2, noReconnect: EXACT.line3,
+      title: EXACT.title, body: EXACT.line1, sessionPlaylist: EXACT.sessionPlaylist, removeAccess: EXACT.line2, noReconnect: EXACT.line3,
       confirm: EXACT.confirm, cancel: EXACT.cancel, failureTitle: EXACT.failureTitle, failureBody: EXACT.failureBody,
     }));
   });
@@ -202,10 +214,29 @@ describe('SpotifyDisconnectControl — font scale 2.0 and accessibility', () => 
       const b = byTestId(tree, id)[0];
       expect(b.props.accessibilityRole).toBe('button');
       expect(typeof b.props.accessibilityLabel).toBe('string');
-      expect(flattenStyle(b).paddingVertical).toBeGreaterThanOrEqual(12);
+      expect(flattenStyle(b).paddingVertical).toBeGreaterThanOrEqual(16);
     }
     const title = hostTexts(tree).find((t) => textOf(t) === EXACT.title);
     expect(title?.props.accessibilityRole).toBe('header');
+  });
+
+  // Designer R1/R2 (round 1): the trigger sits at the row's trailing edge like Reconnect; the two
+  // confirm buttons stack full-width so each label fits on one line at font 2.0.
+  it('layout: a trailing trigger, and a stacked, full-width pair of confirm buttons', () => {
+    const { tree } = render();
+    expect(flattenStyle(byTestId(tree, 'disconnect-spotify')[0])).toMatchObject({ alignSelf: 'flex-end', paddingHorizontal: space.sm });
+    press(tree, 'disconnect-spotify');
+    const views = tree.root.findAll((n: any) => n.type === 'View');
+    const bar = views.find((v: any) => v.findAll((n: any) => n.props.testID === 'disconnect-spotify-cancel').length > 0
+      && v.findAll((n: any) => n.props.testID === 'disconnect-spotify-confirm').length > 0
+      && v.findAll((n: any) => n.type === 'Text' && textOf(n) === EXACT.title).length === 0);
+    expect(bar).toBeDefined();
+    expect(flattenStyle(bar).flexDirection).not.toBe('row');
+    for (const id of ['disconnect-spotify-cancel', 'disconnect-spotify-confirm']) {
+      const s = flattenStyle(byTestId(tree, id)[0]);
+      expect(s.flex).toBeUndefined();
+      expect(s).toMatchObject({ paddingVertical: space.lg, paddingHorizontal: space.md });
+    }
   });
 
   it('no colour literal: every colour on screen comes from this face\'s palette', () => {

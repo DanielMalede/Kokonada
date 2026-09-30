@@ -17,6 +17,9 @@ export const SPOTIFY_DISCONNECT_COPY = Object.freeze({
   trigger: 'Disconnect',
   title: 'Disconnect Spotify?',
   body: 'Kokonada will stop using your Spotify account and delete your Spotify connection, the music profile built from it, and the Spotify tracks listed in History. Your moments stay.',
+  // Compliance N1: the hidden session playlist lives in the user's own Spotify account and is not
+  // deleted by the disconnect. Always shown.
+  sessionPlaylist: 'Kokonada doesn\'t delete the "Kokonada Session" playlist it may have made in your Spotify account. You can delete it in Spotify.',
   removeAccess: 'To remove Kokonada from your Spotify account as well, go to spotify.com/account/apps and choose Remove access.',
   noReconnect: "You can't reconnect Spotify in this version.",
   confirm: 'Disconnect',
@@ -59,10 +62,11 @@ export function SpotifyDisconnectControl({ busy, showNoReconnectLine, onConfirm,
     <View style={styles.confirm}>
       <Text accessibilityRole="header" style={[styles.title, { color: c.content.primary }]}>{copy.title}</Text>
       <Text style={[styles.body, { color: c.content.secondary }]}>{copy.body}</Text>
+      <Text style={[styles.body, { color: c.content.secondary }]}>{copy.sessionPlaylist}</Text>
       <Text style={[styles.body, { color: c.content.secondary }]}>{copy.removeAccess}</Text>
       {showNoReconnectLine ? <Text style={[styles.body, { color: c.content.secondary }]}>{copy.noReconnect}</Text> : null}
 
-      {/* Equal-weight bar (the same geometry as the Profile's other confirms). */}
+      {/* Equal-weight stacked pair (the same geometry as the Profile's other confirms). */}
       <View style={styles.bar}>
         <Pressable
           onPress={() => setConfirming(false)}
@@ -91,14 +95,14 @@ export function SpotifyDisconnectControl({ busy, showNoReconnectLine, onConfirm,
 }
 
 const styles = StyleSheet.create({
-  // Borderless text action like the row's own actions; ≥44dp through padding + hitSlop.
-  trigger: { alignSelf: 'flex-start', paddingVertical: space.md },
+  // Borderless text action like the row's own actions; ≥48dp through padding + hitSlop.
+  trigger: { alignSelf: 'flex-end', paddingVertical: space.md, paddingHorizontal: space.sm },
   triggerLabel: { fontSize: typography.size.footnote, fontWeight: typography.weight.semibold },
   confirm: { gap: space.md, paddingVertical: space.md },
   title: { fontSize: typography.size.callout, fontWeight: typography.weight.semibold },
   body: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },
-  bar: { flexDirection: 'row', gap: space.md, paddingTop: space.xs },
-  barBtn: { flex: 1, paddingVertical: space.md, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
+  bar: { gap: space.md, paddingTop: space.xs },
+  barBtn: { paddingVertical: space.lg, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: stroke.control, alignItems: 'center', justifyContent: 'center' },
   barBtnText: { fontSize: typography.size.body, fontWeight: typography.weight.semibold, textAlign: 'center' },
   // While the call runs: dimmed and disabled, never relabelled (no copy beyond the cleared set).
   dimmed: { opacity: 0.6 },
