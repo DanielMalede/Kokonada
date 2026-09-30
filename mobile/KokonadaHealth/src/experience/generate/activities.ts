@@ -9,11 +9,17 @@ export interface Activity {
 
 export const ACTIVITIES: Activity[] = [
   { key: 'running', label: 'Running', emoji: '🏃' },
-  { key: 'working', label: 'Working', emoji: '💼' },
   { key: 'resting', label: 'Resting', emoji: '🛋️' },
   { key: 'walking', label: 'Walking', emoji: '🚶' },
   { key: 'commuting', label: 'Commuting', emoji: '🚆' },
   { key: 'workout', label: 'Workout', emoji: '🏋️' },
-  { key: 'focus', label: 'Focus', emoji: '🎯' },
   { key: 'winding down', label: 'Winding down', emoji: '🌙' },
 ];
+
+// DEC-062: the work and study contexts are no longer offered. An older build stored and sent these
+// keys, so every place a choice enters the cold lane (setActivity, rehydrate) clears them to null.
+export const RETIRED_ACTIVITY_KEYS: readonly string[] = ['working', 'focus'];
+
+export function isRetiredActivity(key: unknown): boolean {
+  return typeof key === 'string' && RETIRED_ACTIVITY_KEYS.includes(key.trim().toLowerCase());
+}
