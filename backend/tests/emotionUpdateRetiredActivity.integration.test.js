@@ -76,7 +76,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const User = require('../app/models/User');
 const PlaylistSession = require('../app/models/PlaylistSession');
-const { buildEmotionPlaylist } = require('../app/services/geminiEngine');
+const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../app/services/geminiEngine');
 const { registerBiometricHandler, _resetDebounceState, _debounceMap } = require('../app/sockets/biometricHandler');
 
 jest.setTimeout(120000);
@@ -180,6 +180,36 @@ describe('emotion_update drops the retired work and study chips from any client 
     expect(held).toBeNull();
     expect(prompt.activity).toBeNull();
     expect(session.biometricSnapshot.activity).toBeNull();
+  });
+
+  // Resilience round 1 (LOW): the mood branch is chosen by ANY intent: taps, text OR a chip
+  // (biometricHandler.js generateAndEmitPlaylist, the useEmotion test). With the retired chip dropped at
+  // the door, an older build that sends only that chip now has no mood intent and takes the heart-rate
+  // branch. Pinned, so the routing change is deliberate and visible.
+  it.each(['working', 'focus'])('a request with only the retired %j chip takes the heart-rate branch', async (activity) => {
+    const user = await listener(`chip-only-${activity}`);
+    const socket = openSocket(user);
+    socket._trigger('emotion_update', { taps: [], textPrompt: '', activity, mode: 'manual' });
+    socket._trigger('request_playlist', { mode: 'manual', reqId: 8 });
+    await until(() => socket.emit.mock.calls.find(([e]) => e === 'playlist_ready'), 'playlist_ready');
+    const session = await until(() => PlaylistSession.findOne({ userId: user._id }), 'the PlaylistSession write');
+    expect(buildEmotionPlaylist).not.toHaveBeenCalled();
+    expect(adjustBiometricPlaylist).toHaveBeenCalledTimes(1);
+    expect(session.emotionTaps.map(({ x, y }) => ({ x, y }))).toEqual([{ x: 0, y: 0 }]); // the no-mood placeholder
+    expect(session.biometricSnapshot.activity).toBeNull();
+  });
+
+  it('control: a request with only a current chip still takes the mood branch', async () => {
+    const user = await listener('chip-only-running');
+    const socket = openSocket(user);
+    socket._trigger('emotion_update', { taps: [], textPrompt: '', activity: 'running', mode: 'manual' });
+    socket._trigger('request_playlist', { mode: 'manual', reqId: 9 });
+    await until(() => socket.emit.mock.calls.find(([e]) => e === 'playlist_ready'), 'playlist_ready');
+    const session = await until(() => PlaylistSession.findOne({ userId: user._id }), 'the PlaylistSession write');
+    expect(buildEmotionPlaylist).toHaveBeenCalledTimes(1);
+    expect(buildEmotionPlaylist.mock.calls[0][0].activity).toBe('running');
+    expect(adjustBiometricPlaylist).not.toHaveBeenCalled();
+    expect(session.biometricSnapshot.activity).toBe('running');
   });
 
   it('control: a multi-word chip still offered is held, prompted and stored as sent', async () => {
