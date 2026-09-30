@@ -139,7 +139,10 @@ export function ProfileScreen() {
       const res = await profileController.disconnectSpotify();
       if (!res.ok) Alert.alert(SPOTIFY_DISCONNECT_COPY.failureTitle, SPOTIFY_DISCONNECT_COPY.failureBody);
       const s = await profileController.loadProfile();
-      if (mountedRef.current) setSnap(s);
+      // A failed disconnect changes the screen only through a complete re-read. Offline the re-read
+      // is empty: the Profile must not turn into the load-error view or a false "Unavailable", and
+      // the confirm stays open to retry or cancel (HX-2 round 2).
+      if (mountedRef.current && (res.ok || (!!s.me && !!s.integrations))) setSnap(s);
     } finally {
       spInFlight.current = false;
       if (mountedRef.current) setSpBusy(false);

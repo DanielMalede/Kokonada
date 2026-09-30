@@ -610,6 +610,30 @@ describe('ProfileScreen', () => {
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  it.each([
+    ['offline: the re-read reaches nothing', { me: null, integrations: null }],
+    ['only the status read fails', { me: connectedSnapshot.me, integrations: null }],
+  ])('HX-2 r2: a failed disconnect whose re-read is incomplete (%s) keeps the Profile and the open confirm', async (_case, reread) => {
+    await ReactTestRenderer.act(async () => { playerStatusStore.getState().set('disconnected'); });
+    loadProfile.mockResolvedValue(connectedSnapshot);
+    disconnectSpotify().mockResolvedValueOnce({ ok: false, error: 'network error' });
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { byTestId(tree, 'disconnect-spotify').props.onPress(); });
+    loadProfile.mockResolvedValue(reread);
+
+    await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-spotify-confirm').props.onPress(); });
+    await flush();
+
+    expect(alertSpy).toHaveBeenCalledWith('Could not disconnect Spotify', 'Please try again in a moment.');
+    const shown = texts(tree.toJSON()).join(' ');
+    expect(shown).not.toContain('Couldn’t load your profile');
+    expect(shown).not.toContain('Unavailable');
+    expect(byTestId(tree, 'disconnect-spotify-confirm')).toBeTruthy();
+    alertSpy.mockRestore();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
   it('HX-2: "You can\'t reconnect Spotify in this version." shows only while SPOTIFY_BETA_CONNECT is off', async () => {
     loadProfile.mockResolvedValue(connectedSnapshot);
     const line3 = "You can't reconnect Spotify in this version.";
