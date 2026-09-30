@@ -51,6 +51,7 @@ describe('withFreshToken', () => {
 
     expect(fn).toHaveBeenNthCalledWith(1, 'stale');
     expect(fn).toHaveBeenNthCalledWith(2, 'fresh');
+    expect(axios.post).toHaveBeenCalledTimes(1); // one refresh, not one per attempt
     expect(user.setToken).toHaveBeenCalled();
     // Persisted over the token the refresh started from (HX-2 H1), not by saving a possibly stale doc.
     expect(User.updateOne).toHaveBeenCalledWith(
