@@ -68,19 +68,30 @@ describe('parseSpotifyContentUri — every URI the queue accepts as playable is 
     'a', 'b', '1', '9', 't1', 'b1', 'cur', 'xyz', 'FOREIGN', 'foreign', // fixture ids across the suite
   ];
 
-  it('walks the whole playable queue and every current().uri parses', () => {
+  // URIs the queue must NEVER play: each would put metadata on screen with no link-back to it
+  // (Policy II.4). The queue accepted any non-empty string before HX-4 round 1.
+  const UNLINKABLE_IN_PAYLOAD = [
+    'spotify:episode:x',
+    'spotify:track:11dFghVXANMlKmJXsNCbNl?si=1',
+    'spotify:local:a:b:c:1',
+    'youtube:x',
+  ];
+
+  it('walks the whole playable queue: every current().uri is a linkable TRACK, and no other URI is ever yielded', () => {
     const q = new PlaybackQueue();
     q.load([
       { id: 'data-only', uri: null, title: 'YouTube-only', artist: 'x' }, // never playable, skipped
+      ...UNLINKABLE_IN_PAYLOAD.map((uri, i) => ({ id: `bad${i}`, uri, title: `bad${i}`, artist: 'x' })),
       ...IDS.map((id) => ({ id, uri: `spotify:track:${id}`, title: id, artist: 'x' })),
     ]);
     const seen: string[] = [];
     let t = q.current();
     while (t) {
       seen.push(t.uri as string);
-      expect(parseSpotifyContentUri(t.uri)).not.toBeNull();
+      expect(parseSpotifyContentUri(t.uri)?.type).toBe('track');
       t = q.hasNext() ? q.next() : null;
     }
     expect(seen).toHaveLength(IDS.length); // the walk covered every playable track, not a vacuous zero
+    for (const bad of UNLINKABLE_IN_PAYLOAD) expect(seen).not.toContain(bad);
   });
 });
