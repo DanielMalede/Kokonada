@@ -3,9 +3,11 @@
 The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC-<n>.md`. This index is never a gate input (`.claude/commands/page.md`, G2). Prepared 2026-09-29 for Stage 0 step L1, at repo HEAD `b9639c5`.
 
 - **DECIDED, DEC-001 to DEC-038.** DEC-001 to DEC-020 are the rows of the decisions table in `docs/plans/DESIGN_V2_PLAN.md` (section "ההחלטות שלך"); DEC-021 to DEC-034 are its defaults not asked (section "ברירות מחדל שלא נשאלו"); all dated 2026-09-23. DEC-035 to DEC-038 are the owner's answers of 2026-09-29, given by selecting an option in the session; each entry quotes his selection, and the designer's V0 synthesis §7 (`Kokonada-private/design-v2/v0/synthesis-2026-09-29.md`, outside the repo) is the designer's record of it. The four mood names of plan line 41 are in DEC-013, the row that carries them.
-- **Opened 2026-09-29, DEC-039 to DEC-096.** Every owner question in `cmp-compliance.md` §4, `reg-eu.md` §8, `reg-world-and-dossier.md` PART 4 and `qa-resilience.md` §5, and five of the sentinel's proposals. Where several sources ask the same question, one entry quotes each of them. The owner ruled DEC-052, DEC-055, DEC-062 and DEC-066 on 2026-09-29 (one ruling covers DEC-055 and DEC-066), and DEC-040, DEC-041, DEC-043, DEC-051 and DEC-091 on 2026-09-30; the rest are OPEN.
+- **Opened 2026-09-29, DEC-039 to DEC-096.** Every owner question in `cmp-compliance.md` §4, `reg-eu.md` §8, `reg-world-and-dossier.md` PART 4 and `qa-resilience.md` §5, and five of the sentinel's proposals. Where several sources ask the same question, one entry quotes each of them. The owner ruled DEC-052, DEC-055, DEC-062 and DEC-066 on 2026-09-29 (one ruling covers DEC-055 and DEC-066, and rules DEC-066 for P2 only), and DEC-040, DEC-041, DEC-043, DEC-051 and DEC-091 on 2026-09-30; the rest are OPEN.
 - **Added after the architect's L1 review (round 1), DEC-097 and DEC-098.** DEC-097 is the HALT closure rule (the review's Fork C), ruled by the owner on 2026-09-29. DEC-098 is the dark re-sample from the V0 synthesis §7 item 5, asked on 2026-09-29 and OPEN.
 - **From the architect's Track HX plan, DEC-099 to DEC-101** (its DT-4, DT-8 and DT-9), asked and ruled by the owner on 2026-09-30. DEC-101 is read together with DEC-097: it says what "verified on device" means for a fix with no device path.
+- **From the HX pre-build briefs, DEC-102 to DEC-104** (`briefs-wave1.md`, a session scratch file: the HX-1 production count, HX-7(b) and the HX-6 label), asked and ruled by the owner on 2026-09-30. Each entry also quotes the orchestrator's record of the ruling from the same file.
+- **The private primary record** of the rulings made by option selection is `Kokonada-private/design-v2/rulings/owner-rulings-session-3181c7f6.md`, outside the repo: a verbatim excerpt of the session's question rounds, each with its questions, its options and the answer. It holds every round through the one answered at 2026-09-29T21:35:39Z, including the five rounds of 2026-09-23 (twenty questions) behind the plan's decisions table. Its timestamps are UTC, and the entries carry the date at UTC+3, so a round answered after 21:00 UTC is dated the next day. The round behind DEC-102 to DEC-104, answered at 2026-09-29T22:06:50Z, came after the excerpt was written; those entries quote the session transcript.
 - **Titles** are the scribe's English labels. The quoted text in each file is the record.
 - **A ruling** is recorded only from the owner's own message (`.claude/commands/page.md`, owner gates).
 
@@ -76,7 +78,7 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-063](decisions/DEC-063.md) | No employer, team or education channel, and no marketing to them | OPEN | 2026-09-29 | reg-eu.md §8 D-12 | REG-014 |
 | [DEC-064](decisions/DEC-064.md) | No push at launch, the stored FCM tokens, and no message triggered by an inferred state | OPEN | 2026-09-29 | reg-eu.md §8 D-13; reg-world-and-dossier.md PART 4 DEC-W13 | REG-017, REG-217 |
 | [DEC-065](decisions/DEC-065.md) | The shader-failure report: whether it is sent and what it carries | OPEN | 2026-09-29 | reg-eu.md §8 D-14 | REG-066 |
-| [DEC-066](decisions/DEC-066.md) | A consent-step slot before the first tap on P2 and P10 | DECIDED (ruled 2026-09-29) | 2026-09-29 | reg-eu.md §8 D-15 | REG-031 |
+| [DEC-066](decisions/DEC-066.md) | A consent-step slot before the first tap on P2 and P10 | DECIDED for P2 (ruled 2026-09-29); P10 not ruled | 2026-09-29 | reg-eu.md §8 D-15 | REG-031 |
 | [DEC-067](decisions/DEC-067.md) | P9 export contents and file format | OPEN | 2026-09-29 | reg-eu.md §8 D-16 | REG-051, REG-052 |
 | [DEC-068](decisions/DEC-068.md) | No in-app purchases: the free-forever confirmation | OPEN | 2026-09-29 | reg-eu.md §8 D-17; reg-world-and-dossier.md PART 4 DEC-W10 | REG-072, REG-087, REG-237, REG-261, REG-262 |
 | [DEC-069](decisions/DEC-069.md) | An accessibility statement on P14 even where the law does not require one | OPEN | 2026-09-29 | reg-eu.md §8 D-18; reg-world-and-dossier.md PART 4 DEC-W09 | REG-088, REG-212, REG-229, REG-261 |
@@ -112,6 +114,9 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-099](decisions/DEC-099.md) | Up Next until P3, whose Spotify rows carry no link to each track (DT-4) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HX_PLAN.md DT-4 | — |
 | [DEC-100](decisions/DEC-100.md) | The Spotify disconnect in the current app (DT-8) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HX_PLAN.md DT-8 | — |
 | [DEC-101](decisions/DEC-101.md) | What 'verified on device' means for a fix with no device path (DT-9) | DECIDED (ruled 2026-09-30) | 2026-09-30 | HX_PLAN.md DT-9 | — |
+| [DEC-102](decisions/DEC-102.md) | When the HX-1 production survivor count runs (HX-1, A8) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-1 A8 | — |
+| [DEC-103](decisions/DEC-103.md) | Work and study words in free text, and the retired chip keys old builds still send (HX-7(b)) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-7 7b | — |
+| [DEC-104](decisions/DEC-104.md) | The Google button's accessible name: the words drawn on the official asset (HX-6, M2) | DECIDED (ruled 2026-09-30) | 2026-09-30 | briefs-wave1.md HX-6 M2 | — |
 
 ## Source numbers and their DEC- entries
 
@@ -196,6 +201,9 @@ The source files number their owner questions themselves. The registry bodies an
 | HX_PLAN.md | DT-4 | DEC-099 |
 | HX_PLAN.md | DT-8 | DEC-100 |
 | HX_PLAN.md | DT-9 | DEC-101 |
+| briefs-wave1.md | HX-1 A8 | DEC-102 |
+| briefs-wave1.md | HX-7 7b | DEC-103 |
+| briefs-wave1.md | HX-6 M2 | DEC-104 |
 
 ## Merged questions
 
@@ -219,7 +227,7 @@ Each was selected by the owner in the session, on the date shown, from the optio
 - **DEC-052** (2026-09-29; May Bellefair replace F6's serif voice face?): "כן, Bellefair לקול (מומלץ)".
 - **DEC-055** (2026-09-29; Keep the Art. 50 notice on every inferred-state surface under every option): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-066.
 - **DEC-062** (2026-09-29; The "Working" and "Focus" chips): "להסיר (מומלץ)".
-- **DEC-066** (2026-09-29; A consent-step slot before the first tap on P2 and P10): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-055.
+- **DEC-066** (2026-09-29; A consent-step slot before the first tap on P2 and P10): "גילוי קבוע ומקום שמור (מומלץ)"; the same ruling as DEC-055. The question named only the Session screen, so P10 is not ruled.
 - **DEC-097** (2026-09-29; HALT closure: a fix lane now, and a HALT closes on main): "מסלול תיקון עכשיו (מומלץ)".
 - **DEC-040** (2026-09-30; Drop the YouTube → Spotify translation path, or ask Spotify): "לכבות (מומלץ)".
 - **DEC-041** (2026-09-30; The retention window for provider track data): "30 יום (מומלץ)".
@@ -229,3 +237,6 @@ Each was selected by the owner in the session, on the date shown, from the optio
 - **DEC-099** (2026-09-30; Up Next until P3, whose Spotify rows carry no link to each track (DT-4)): "להסתיר עד P3 (מומלץ)".
 - **DEC-100** (2026-09-30; The Spotify disconnect in the current app (DT-8)): "כפתור ניתוק בפרופיל (מומלץ)".
 - **DEC-101** (2026-09-30; What 'verified on device' means for a fix with no device path (DT-9)): "מכשיר או בדיקה בייצור (מומלץ)".
+- **DEC-102** (2026-09-30; When the HX-1 production survivor count runs (HX-1, A8)): "לספור אחרי התיקון (מומלץ)".
+- **DEC-103** (2026-09-30; Work and study words in free text, and the retired chip keys old builds still send (HX-7(b))): "להסיר ולחסום בשרת (מומלץ)".
+- **DEC-104** (2026-09-30; The Google button's accessible name: the words drawn on the official asset (HX-6, M2)): "כן, לפי הכתוב על הכפתור (מומלץ)".
