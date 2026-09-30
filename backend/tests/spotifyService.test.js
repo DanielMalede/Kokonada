@@ -2,14 +2,24 @@ process.env.SPOTIFY_CLIENT_ID     = 'cid';
 process.env.SPOTIFY_CLIENT_SECRET = 'csec';
 
 jest.mock('axios');
+// HX-2 H1: a refreshed token is stored by a compare-and-set on the prior blob, never user.save()
+// (proven on real Mongo, disconnect race included, in spotifyRefreshAfterDisconnect.integration.test.js).
+jest.mock('../app/models/User', () => ({
+  updateOne: jest.fn().mockResolvedValue({ matchedCount: 1 }),
+  findById: jest.fn(),
+}));
 const axios   = require('axios');
+const User    = require('../app/models/User');
 const spotify = require('../app/services/spotify');
 
 function makeUser(token) {
   return {
+    _id: 'u1',
     _tok: token,
+    spotifyToken: { blob: 'blob-0' },
     getToken: jest.fn(function () { return this._tok; }),
-    setToken: jest.fn(function (_k, v) { this._tok = v; }),
+    setToken: jest.fn(function (_k, v) { this._tok = v; this.spotifyToken = { blob: `blob-${v.accessToken}` }; }),
+    unmarkModified: jest.fn(),
     save:     jest.fn().mockResolvedValue(true),
   };
 }
@@ -42,7 +52,12 @@ describe('withFreshToken', () => {
     expect(fn).toHaveBeenNthCalledWith(1, 'stale');
     expect(fn).toHaveBeenNthCalledWith(2, 'fresh');
     expect(user.setToken).toHaveBeenCalled();
-    expect(user.save).toHaveBeenCalled();
+    // Persisted over the token the refresh started from (HX-2 H1), not by saving a possibly stale doc.
+    expect(User.updateOne).toHaveBeenCalledWith(
+      { _id: 'u1', 'spotifyToken.blob': 'blob-0' },
+      { $set: { spotifyToken: { blob: 'blob-fresh' } } },
+    );
+    expect(user.save).not.toHaveBeenCalled();
     expect(result).toBe('ok-after-refresh');
   });
 
