@@ -1814,6 +1814,14 @@ function _admitFeedback(state, nowMs) {
   return admitted.allowed;
 }
 
+// HX-7 (DEC-062): the Working and Focus chips are retired, but an installed older build still sends
+// them. Dropped at the door, so they never reach the prompt, the captions or PlaylistSession.
+const RETIRED_CHIP_ACTIVITIES = new Set(['working', 'focus']);
+function _admitChipActivity(activity) {
+  if (typeof activity === 'string' && RETIRED_CHIP_ACTIVITIES.has(activity.trim().toLowerCase())) return null;
+  return activity || null;
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
@@ -1849,7 +1857,7 @@ function registerBiometricHandler(socket) {
     const state = getState(socketId);
     state.lastEmotionTaps = taps;
     state.lastTextPrompt  = textPrompt;
-    state.lastActivity    = activity || null;
+    state.lastActivity    = _admitChipActivity(activity);
     if (mode) state.lastMode = mode;
     log(`[emotion_update] taps=${taps.length} activity=${state.lastActivity ?? 'none'} mode=${state.lastMode}`);
   });
