@@ -80,6 +80,18 @@ describe('GET /api/sessions — DTO whitelist', () => {
     expect(blob).not.toMatch(/llmCacheKey|cache:secret/);
     expect(item).not.toHaveProperty('biometricSnapshot');
   });
+
+  it('HX-7(c): an old Working row is relabelled for display while its stored activity is returned unchanged', async () => {
+    const { RETIRED_ACTIVITY_LABEL } = require('../app/services/sessionLabels');
+    mockFind([sessionDoc({ moodKey: null })]);
+    const res = buildRes();
+    await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
+
+    const item = res.body.items[0];
+    expect(item.title).toBe(RETIRED_ACTIVITY_LABEL);
+    expect(item.activityLabel).toBe(RETIRED_ACTIVITY_LABEL);
+    expect(item.activity).toBe('working'); // display only: the stored value is not rewritten
+  });
 });
 
 describe('GET /api/sessions — pagination cursor', () => {

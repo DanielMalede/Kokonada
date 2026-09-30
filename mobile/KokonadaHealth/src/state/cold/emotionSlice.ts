@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import { sanitizePrompt, sanitizeActivity } from '../../experience/generate/promptSanitizer';
+import { isRetiredActivity } from '../../experience/generate/activities';
 
 // COLD LANE — committed user intent. The only lane that survives an app restart.
 // Shape is the sealed backend contract: taps ({x,y} circumplex), activity key,
@@ -40,7 +41,8 @@ const emotionSlice = createSlice({
       state.taps = [];
     },
     setActivity(state, action: PayloadAction<string | null>) {
-      state.activity = action.payload;
+      // A retired chip (DEC-062) is never committed: it would persist and reach the wire.
+      state.activity = isRetiredActivity(action.payload) ? null : action.payload;
     },
     setTextPrompt(state, action: PayloadAction<string>) {
       // Sanitize in the reducer: state AND the persisted MMKV blob are the store's

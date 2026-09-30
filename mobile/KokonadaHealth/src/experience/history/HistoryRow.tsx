@@ -47,10 +47,10 @@ function HistoryRowBase({ item, now, onPress }: HistoryRowProps) {
 
   return (
     <AnimatedPressable
+      testID="history-row"
       accessible
       accessibilityRole="button"
       accessibilityLabel={rowA11yLabel(item, now)}
-      accessibilityHint="Opens this moment to replay its soundtrack."
       onPress={() => onPress(item)}
       onPressIn={onPressIn}
       onPressOut={onPressOut}

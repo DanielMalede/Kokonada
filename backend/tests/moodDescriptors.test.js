@@ -335,6 +335,40 @@ describe('extractIntent (deterministic, zero-LLM)', () => {
   it('is deterministic for a given input', () => {
     expect(extractIntent('calm focus work')).toEqual(extractIntent('calm focus work'));
   });
+
+  // HX-7 (DEC-062, owner ruling O2): a note about work or study yields no activity, so no work or
+  // study context reaches the prompt. The music-mood word "focus" (the vibe lexicon) is kept.
+  it('work and study words yield no activity: "working on code" and each removed word', () => {
+    expect(extractIntent('working on code')).toEqual({ keywords: [], activity: null, tempoCategory: null });
+    for (const note of ['work', 'working', 'study', 'studying', 'coding', 'reading', 'deep work', 'some deep work tonight']) {
+      const out = extractIntent(note);
+      expect({ note, activity: out.activity, tempo: out.tempoCategory }).toEqual({ note, activity: null, tempo: null });
+    }
+  });
+
+  it('the music-mood keyword "focus" is kept (a mood label, not a context)', () => {
+    expect(extractIntent('focus music please').keywords).toContain('focus');
+  });
+
+  // The owner's ruling on free-text focus (HX-7 round 1, "remove it too"): a note saying "focus" or
+  // "focusing" derives no activity context either. "focus" / "focused" stay music-mood keywords.
+  it('free-text "focus" and "focusing" derive no activity or tempo, and "focus" still adds the vibe keyword', () => {
+    for (const note of ['focus', 'focusing', 'need to focus', 'focusing tonight', 'deep focus']) {
+      const out = extractIntent(note);
+      expect({ note, activity: out.activity, tempo: out.tempoCategory }).toEqual({ note, activity: null, tempo: null });
+    }
+    expect(extractIntent('focus').keywords).toEqual(['focus']);
+    expect(extractIntent('feeling focused').keywords).toEqual(['focus']);
+  });
+
+  // Resilience round 1 (INFO): "working" left the lexicon, which also lost "working out". It is an
+  // exercise phrase, so it maps to the workout activity like "work out" does.
+  it('"working out" is an exercise phrase: the workout activity at peak tempo', () => {
+    for (const note of ['working out', 'working out tonight', "I'm working out at the gym later"]) {
+      expect(extractIntent(note)).toMatchObject({ activity: 'workout', tempoCategory: 'peak' });
+    }
+    expect(extractIntent('working on code').activity).toBeNull();
+  });
 });
 
 // ── normalizeActivity — client activity → preset enum (Wave-0 hardening H1) ────

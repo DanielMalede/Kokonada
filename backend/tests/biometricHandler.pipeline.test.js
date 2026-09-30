@@ -765,12 +765,15 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
 // ── emotion_update handler — activity capture ─────────────────────────────────
 
 describe('emotion_update handler', () => {
+  // REVERSED, signed by the owner 2026-09-30 (DEC-107; HX-7 resilience round 1, not in DEC-091): this pinned an
+  // arbitrary 'Cooking' being cached. The door now admits only offered chips, so the sample is a chip;
+  // a non-chip string is pinned as dropped in emotionUpdateRetiredActivity.integration.test.js.
   it('caches the selected activity on socket state', () => {
     const socket = makeSocket();
     registerBiometricHandler(socket);
-    socket._trigger('emotion_update', { taps: [{ x: 0.5, y: 0.5 }], textPrompt: 'x', activity: 'Cooking' });
+    socket._trigger('emotion_update', { taps: [{ x: 0.5, y: 0.5 }], textPrompt: 'x', activity: 'running' });
 
-    expect(_debounceMap.get(socket.id).lastActivity).toBe('Cooking');
+    expect(_debounceMap.get(socket.id).lastActivity).toBe('running');
   });
 
   it('normalizes a missing activity to null', () => {
@@ -779,6 +782,21 @@ describe('emotion_update handler', () => {
     socket._trigger('emotion_update', { taps: [], textPrompt: '' });
 
     expect(_debounceMap.get(socket.id).lastActivity).toBeNull();
+  });
+
+  // HX-7 round 2 (resilience): the door compares a trimmed, lower-cased key, while the mobile drift
+  // test compares the two lists as written. A chip listed on both sides in any other form (for
+  // example 'Yoga') would pass the drift test and be dropped at the door. Each listed chip must pass
+  // the door unchanged.
+  it('admits every offered chip exactly as listed', () => {
+    const { CHIP_ACTIVITY_KEYS } = require('../app/services/chipActivities');
+    expect(CHIP_ACTIVITY_KEYS.length).toBeGreaterThan(0);
+    for (const key of CHIP_ACTIVITY_KEYS) {
+      const socket = makeSocket();
+      registerBiometricHandler(socket);
+      socket._trigger('emotion_update', { taps: [], textPrompt: '', activity: key });
+      expect({ key, held: _debounceMap.get(socket.id).lastActivity }).toEqual({ key, held: key });
+    }
   });
 });
 

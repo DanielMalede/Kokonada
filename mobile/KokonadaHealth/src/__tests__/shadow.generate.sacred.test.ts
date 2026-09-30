@@ -97,7 +97,7 @@ describe('SACRED — undo/clear/re-tap never perturb the emotion→socket payloa
   it('resetEmotion still wipes all three lanes (logout semantics unchanged by the new reducers)', () => {
     const store = makeStore();
     store.dispatch(addTap({ x: 0.4, y: 0.4 }));
-    store.dispatch(setActivity('focus'));
+    store.dispatch(setActivity('running'));
     store.dispatch(setTextPrompt('deep'));
     store.dispatch(resetEmotion());
     expect(store.getState().emotion).toEqual({ taps: [], activity: null, textPrompt: '' });
@@ -106,9 +106,9 @@ describe('SACRED — undo/clear/re-tap never perturb the emotion→socket payloa
   it('clearTaps is NOT resetEmotion — it preserves activity + prompt (distinct semantics)', () => {
     const store = makeStore();
     store.dispatch(addTap({ x: 0.4, y: 0.4 }));
-    store.dispatch(setActivity('focus'));
+    store.dispatch(setActivity('running'));
     store.dispatch(setTextPrompt('deep'));
     store.dispatch(clearTaps());
-    expect(store.getState().emotion).toEqual({ taps: [], activity: 'focus', textPrompt: 'deep' });
+    expect(store.getState().emotion).toEqual({ taps: [], activity: 'running', textPrompt: 'deep' });
   });
 });

@@ -9,6 +9,9 @@ jest.mock('../../player/SpotifyAttribution', () => {
   return { SpotifyAttribution: () => React2.createElement(View, { testID: 'spotify-attribution' }) };
 });
 jest.mock('../../../design/haptics', () => ({ fireHaptic: jest.fn() }));
+// DEC-099: the sheet is gated off until P3. This suite pins the sheet's P3 re-render hygiene, so it
+// forces the gate on; the shipped (off) gate is pinned, unmocked, in UpNextSheet.gate.test.tsx.
+jest.mock('../upNextGate', () => ({ UP_NEXT_ENABLED: true }));
 
 // A memoized SPY row: it counts how many times a row actually (re-)renders. Because the real UpNextRow
 // is React.memo, a cursor-change re-render of the sheet must re-invoke ONLY the two rows whose cursor

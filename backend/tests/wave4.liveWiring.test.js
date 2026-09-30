@@ -18,6 +18,15 @@ jest.mock('../app/models/BiometricLog', () => ({
   exists:     (...a) => mockExists(...a),
   insertMany: (...a) => mockInsertMany(...a),
 }));
+// HX-1: the live persist path reads consent again after every insert. This suite isolates the
+// persistence mechanics with BiometricLog mocked, so it answers that read as well (a current grant,
+// as the other handler suites do). Left unanswered, it reached a real ConsentRecord query with no
+// database connected, which Mongoose buffers behind a 10-second timer: one open handle per insert
+// for the W4-D06 guard, and a read that never completes.
+jest.mock('../app/services/privacy/consent', () => ({
+  getConsentStatus:       jest.fn().mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false }),
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
+}));
 
 const {
   handleBiometricReading, _debounceMap, _resetDebounceState,

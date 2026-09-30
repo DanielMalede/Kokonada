@@ -30,12 +30,28 @@ const BIO_BAND_TITLES: Record<string, string> = {
 };
 const GENERIC_TITLE = 'A moment';
 
+// The server's own title words (backend sessionLabels.js: six preset titles, three band titles, and the
+// bare 'Live' of a bio key with no band). The server also titles a row by its activity ("Running",
+// "Working") or by a title-cased raw key, so a server title is shown only from this closed set;
+// anything else falls to the local map, then the warm generic. A drift test runs the real labeller.
+export const SERVER_TITLES: ReadonlySet<string> = new Set([
+  'Focus', 'Peak Energy', 'Calm', 'Unwind', 'Uplift', 'Intense', 'Resting', 'Active', 'Live',
+]);
+
+// HX-7(c), DEC-062: the Working chip is retired, but a row saved with it keeps its stored activity (no
+// stored-data change). The display relabels it with this neutral word; the word is design's to set.
+export const RETIRED_ACTIVITY_LABEL = 'General';
+const RELABELLED_ACTIVITIES: readonly string[] = ['working'];
+const isRelabelled = (s: string | null | undefined): boolean =>
+  typeof s === 'string' && RELABELLED_ACTIVITIES.includes(s.trim().toLowerCase());
+
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** Title order: backend friendly title → deterministic moodKey map → warm generic. NEVER the raw key. */
+/** Title order: a server title from its closed set → deterministic moodKey map → warm generic. NEVER the raw key. */
 export function friendlyTitle(item: Pick<SessionItem, 'title' | 'moodKey'>): string {
-  if (item.title && item.title.trim()) return item.title;
+  const server = item.title?.trim();
+  if (server && SERVER_TITLES.has(server)) return server;
   const key = item.moodKey ?? '';
   if (key.startsWith('bio:')) return BIO_BAND_TITLES[key.split(':')[1] ?? ''] ?? GENERIC_TITLE;
   return MOOD_TITLES[key] ?? GENERIC_TITLE;
@@ -56,8 +72,9 @@ function humanizeActivity(raw: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
 }
 
-/** Friendly activity: chosen label → humanized raw activity → null (so the "· …" token drops). */
+/** Friendly activity: a retired context's neutral label → chosen label → humanized raw activity → null. */
 export function activityText(item: Pick<SessionItem, 'activityLabel' | 'activity'>): string | null {
+  if (isRelabelled(item.activity) || isRelabelled(item.activityLabel)) return RETIRED_ACTIVITY_LABEL;
   if (item.activityLabel && item.activityLabel.trim()) return item.activityLabel;
   if (item.activity && item.activity.trim()) return humanizeActivity(item.activity);
   return null;

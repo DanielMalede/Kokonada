@@ -73,10 +73,17 @@ const sameWriter = (a, b) => {
 // insertion order and discarding it made a re-grant read as a withdrawal (W4-D29); a tie spanning
 // writers is genuinely unordered, so it fails CLOSED and prefers 'withdrawn' — a same-millisecond
 // race must never read as consented when a withdrawal also landed.
+//
+// Both reads are pinned to the PRIMARY (HX-1). The live lane re-checks consent right after an insert
+// and deletes the row if the grant is gone; that is only sound if the read sees the withdrawal row
+// written before it. The driver default is primary, but a `readPreference` in MONGO_URI would change
+// it for every read, and a lagging secondary answers "still granted". Proven on a real replica set in
+// tests/consentPrimaryRead.integration.test.js.
 consentRecordSchema.statics.latestFor = async function (userId, purpose) {
   const rows = await this.find({ userId, purpose })
     .sort({ createdAt: -1, _id: -1 })
     .limit(TIE_SCAN_LIMIT)
+    .read('primary')
     .exec();
   if (!rows.length) return null;
 
@@ -87,7 +94,7 @@ consentRecordSchema.statics.latestFor = async function (userId, purpose) {
 
   if (tied.length === TIE_SCAN_LIMIT) {
     // The window is full, so it proves neither "one writer" nor "no withdrawal" — ask directly.
-    const withdrawn = await this.findOne({ userId, purpose, createdAt: newest.createdAt, status: 'withdrawn' }).exec();
+    const withdrawn = await this.findOne({ userId, purpose, createdAt: newest.createdAt, status: 'withdrawn' }).read('primary').exec();
     return withdrawn || newest;
   }
   // One writer: the sort already put that process's last-generated row first.

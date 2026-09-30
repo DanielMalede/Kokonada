@@ -1,3 +1,5 @@
+import { isRetiredActivity } from './activities';
+
 // The emotional prompt travels verbatim into the backend's Groq prompt with no
 // server-side cap, so the client is the enforcement point. Cap the length, strip
 // null/control bytes, collapse whitespace to a single line, and never throw — a
@@ -35,9 +37,10 @@ export function finalizePrompt(raw: unknown): string {
 }
 
 // Bounded activity: a non-string yields null (cleared); anything else is stripped,
-// collapsed, capped, trimmed, and an emptied result normalizes back to null.
+// collapsed, capped, trimmed, and an emptied result normalizes back to null. A retired
+// chip key (DEC-062) persisted by an older build is cleared to null as well.
 export function sanitizeActivity(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const cleaned = stripAndCollapse(raw).slice(0, MAX_ACTIVITY_LENGTH).trim();
-  return cleaned.length ? cleaned : null;
+  return cleaned.length && !isRetiredActivity(cleaned) ? cleaned : null;
 }

@@ -54,9 +54,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>GeneralSans-Semibold.otf</string>
-	</array>
 </dict>
 </plist>

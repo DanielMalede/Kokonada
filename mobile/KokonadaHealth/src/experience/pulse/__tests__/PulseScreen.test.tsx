@@ -187,8 +187,9 @@ describe('PulseScreen — dashboard values, gauges and state headline', () => {
     expect(t).toContain('Peak Athletic Performance');
     expect(t).toContain('48'); // HRV
     expect(t).toContain('90'); // deep sleep
-    expect(t).toContain('90%'); // confidence
-    expect(t).toContain('read confidence');
+    // RETIRED under DEC-091 (HX-7, CMP-086): this pinned "90% read confidence". A percentage on an
+    // inferred state is a precision claim the read cannot back, so nothing takes its place.
+    expect(t).not.toMatch(/%|confidence|accura/i);
     expect(texts(tree.toJSON()).some((s) => s === '—')).toBe(false);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
@@ -221,6 +222,64 @@ describe('PulseScreen — dashboard values, gauges and state headline', () => {
     expect(hero.length).toBeGreaterThan(0);
     // updates too often to be a live region — must not spam a screen reader.
     expect(hero.every((n) => n.props.accessibilityLiveRegion == null || n.props.accessibilityLiveRegion === 'none')).toBe(true);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('a Health Connect reading is spoken as "from Health Connect", never "live" (it is a synced read)', async () => {
+    await ReactTestRenderer.act(async () => {
+      warmStore.getState().setBiometricSource('health-connect');
+      warmStore.getState().setLiveHr(62);
+    });
+    const tree = await render();
+    expect(byLabel(tree, 'Heart rate, 62 beats per minute, from Health Connect').length).toBeGreaterThan(0);
+    expect(byLabel(tree, 'Heart rate, 62 beats per minute, live')).toHaveLength(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  it('a heart-rate sensor reading stays "live"', async () => {
+    await ReactTestRenderer.act(async () => {
+      warmStore.getState().setBiometricSource('ble');
+      warmStore.getState().setLiveHr(62);
+    });
+    const tree = await render();
+    expect(byLabel(tree, 'Heart rate, 62 beats per minute, live').length).toBeGreaterThan(0);
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // HX-7 design + compliance: the socket chip reports the server connection, not the body read, so it
+  // never says "Live" (a Health Connect read is synced, not live). Connecting/Offline are unchanged.
+  it.each([
+    ['connected', 'Connected'],
+    ['connecting', 'Connecting…'],
+    ['disconnected', 'Offline'],
+  ] as const)('the socket chip for %s reads %j, and no chip says "Live"', async (status, text) => {
+    await ReactTestRenderer.act(async () => {
+      warmStore.getState().setConnection(status);
+      pulseStateStore.setState(withData() as any);
+    });
+    const tree = await render();
+    expect(byLabel(tree, text).length).toBeGreaterThan(0);
+    expect(byLabel(tree, 'Live')).toHaveLength(0);
+    expect(texts(tree.toJSON())).not.toContain('Live');
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // HX-7 round 2 (design): "Connected" is longer than "Live". At a large font the source and socket
+  // chips no longer fit one line, so their row wraps rather than running past the screen edge. The
+  // device capture at font 2.0 proves the render; this pins the style that allows it.
+  it('the source and socket chips sit in a row that wraps', async () => {
+    await ReactTestRenderer.act(async () => {
+      warmStore.getState().setBiometricSource('health-connect');
+      warmStore.getState().setConnection('connected');
+      pulseStateStore.setState(withData() as any);
+    });
+    const tree = await render();
+    const isHostView = (n: { type: unknown }) => n.type === 'View';
+    const connected = tree.root.findAll((n) => isHostView(n) && n.props.accessibilityLabel === 'Connected')[0];
+    let row = connected.parent;
+    while (row && !isHostView(row)) row = row.parent;
+    expect(row!.findAll((n) => isHostView(n) && n.props.accessibilityLabel === 'Health Connect')).toHaveLength(1);
+    expect((RN.StyleSheet.flatten(row!.props.style) as any).flexWrap).toBe('wrap');
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
@@ -358,14 +417,40 @@ describe('PulseScreen — no clinical label, the AI notice and the medical discl
     expect(allText(tree)).not.toContain('Some Future Rule Label');
   });
 
-  it('loaded with a state: AI notice, disclaimer, then the consult reminder, straight after the headline and confidence in tree order', async () => {
+  // RE-PINNED under DEC-091 (HX-7): the order was [headline, '90% read confidence', …]. The
+  // confidence line is gone and nothing replaces it, so the AI notice follows the headline directly.
+  it('loaded with a state: AI notice, disclaimer, then the consult reminder, straight after the headline in tree order', async () => {
     await withStatus('Peak Athletic Performance', 0.9);
     const tree = await open();
     expectLegalBand(tree);
     const t = hostTexts(tree);
     const iHead = t.indexOf(header(tree)[0]);
     const tail = t.slice(iHead).map((n) => texts(n.props.children).join(''));
-    expect(tail).toStrictEqual(['Peak Athletic Performance', '90% read confidence', AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
+    expect(tail).toStrictEqual(['Peak Athletic Performance', AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER]);
+  });
+
+  // CMP-086: no number, %, "confidence" or "accuracy" on the read, in any state, on screen or spoken.
+  // Low confidence is included: it used to add "connect a wearable for a fuller read".
+  it.each([
+    ['loaded, high confidence', () => withStatus('Peak Athletic Performance', 0.9)],
+    ['loaded, low confidence', () => withStatus('Resting / Meditative', 0.2)],
+    ['loaded, no state label', () => withStatus(null, null)],
+    ['live Health Connect heart rate', async () => {
+      await withStatus('Peak Athletic Performance', 0.9);
+      await ReactTestRenderer.act(async () => {
+        warmStore.getState().setBiometricSource('health-connect');
+        warmStore.getState().setLiveHr(62);
+      });
+    }],
+    ['syncing', () => ReactTestRenderer.act(async () => { pulseStateStore.setState({ data: null, loading: true } as any); })],
+    ['empty', async () => {}],
+  ] as [string, () => Promise<unknown>][])('no %, "confidence", "accuracy" or "fuller read" anywhere: %s', async (_state, arrange) => {
+    await arrange();
+    const tree = await open();
+    const spoken = tree.root.findAll((n) => typeof n.props.accessibilityLabel === 'string').map((n) => n.props.accessibilityLabel);
+    const shown = hostTexts(tree).map((n) => texts(n.props.children).join(''));
+    expect(shown.length).toBeGreaterThan(0);
+    for (const s of [...shown, ...spoken]) expect(s).not.toMatch(/%|confidence|accura|fuller read/i);
   });
 
   it('sits OUTSIDE the StateCard (never on the inferred-state wash), right after it at a tighter md gap', async () => {

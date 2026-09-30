@@ -55,8 +55,6 @@ import {
 
 // The hero glow field ≈ 2× the numeral — a restrained halo (the aura's star turns are Generate).
 const HERO_AURA_SIZE = space['4xl'] * AURA_HERO_SCALE;
-// Below a full read the confidence line invites a fuller read.
-const LOW_CONFIDENCE = 0.4;
 // Above this OS font scale the 2-col grid stacks to 1-col so tiles never crush their sentences.
 const ACCESSIBILITY_FONT_SCALE = 1.3;
 // Connect §4 is a one-way onboarding gate (connectStore, no unresolve surface), unreachable once
@@ -79,7 +77,7 @@ function gaugeValue(key: GaugeKey, data: PulseState | null): number | null {
 }
 
 function socketChip(connection: ConnectionStatus, c: ColorScheme): { text: string; dot: string; pulsing?: boolean } {
-  if (connection === 'connected') return { text: 'Live', dot: c.state.success };
+  if (connection === 'connected') return { text: 'Connected', dot: c.state.success };
   if (connection === 'connecting') return { text: 'Connecting…', dot: c.accent.glow, pulsing: true };
   return { text: 'Offline', dot: c.content.secondary }; // static, non-alarm — never state.danger
 }
@@ -183,8 +181,8 @@ function GaugeTile({ def, value, counts, source, reduced, loading, basis, c }: {
 // The payoff: the displayStatus headline over the body's decorative wash (the ONE reactive accent on
 // Pulse; the wash still reads the raw key).
 // Text stays content.primary for AA over the wash — never accent ink at body size; violet never red.
-function StateCard({ loading, status, confidence, quadrant, reduced, onConnect, c }: {
-  loading: boolean; status: string | null; confidence: number | null; quadrant: EmotionQuadrant; reduced: boolean; onConnect: () => void; c: ColorScheme;
+function StateCard({ loading, status, quadrant, reduced, onConnect, c }: {
+  loading: boolean; status: string | null; quadrant: EmotionQuadrant; reduced: boolean; onConnect: () => void; c: ColorScheme;
 }) {
   const entry = useRef(new Animated.Value(reduced ? 1 : 0)).current;
   useEffect(() => {
@@ -202,15 +200,7 @@ function StateCard({ loading, status, confidence, quadrant, reduced, onConnect, 
       {loading ? (
         <Skeleton variant="line" onSurface="raised" width="70%" />
       ) : status ? (
-        <>
-          <Text accessibilityRole="header" allowFontScaling style={[styles.stateHeadline, { color: c.content.primary }]}>{status}</Text>
-          {confidence != null ? (
-            <Text allowFontScaling style={[styles.stateConfidence, { color: c.content.secondary }]}>
-              {`${Math.round(confidence * 100)}% read confidence`}
-              {confidence < LOW_CONFIDENCE ? ' · connect a wearable for a fuller read.' : ''}
-            </Text>
-          ) : null}
-        </>
+        <Text accessibilityRole="header" allowFontScaling style={[styles.stateHeadline, { color: c.content.primary }]}>{status}</Text>
       ) : (
         <>
           <Text allowFontScaling style={[styles.statePlaceholder, { color: c.content.primary }]}>Your state will appear once your body&apos;s being read</Text>
@@ -273,7 +263,6 @@ export function PulseScreen() {
   const data = pulse.data;
   const sv = data?.stateVector;
   const status = displayStatus(sv?.status);
-  const confidence = sv?.confidence ?? null;
   const quadrant = statusQuadrant(sv?.status);
   const anyVital = data
     ? [data.vitals.hrv, data.vitals.restingHeartRate, data.vitals.bodyBattery, data.vitals.dailyReadiness, data.sleep.lastNight.deep, data.sleep.lastNight.rem].some((v) => v != null)
@@ -292,7 +281,9 @@ export function PulseScreen() {
   );
 
   // ── The dashboard body, shared by the syncing skeleton and the live states. ──
-  const heroA11y = w.liveHr != null ? `Heart rate, ${w.liveHr} beats per minute, live` : 'Heart rate, no live reading';
+  // A Health Connect reading is a synced read, not a live stream, so it is never spoken as "live".
+  const heroWhen = w.biometricSource === 'health-connect' ? 'from Health Connect' : 'live';
+  const heroA11y = w.liveHr != null ? `Heart rate, ${w.liveHr} beats per minute, ${heroWhen}` : 'Heart rate, no live reading';
   const sourceText = w.biometricSource === 'ble' ? 'Heart-rate sensor' : w.biometricSource === 'health-connect' ? 'Health Connect' : 'No live source';
   const sourceDot = w.biometricSource === 'none' ? c.content.secondary : c.accent.glow;
   const socket = socketChip(w.connection, c);
@@ -348,13 +339,13 @@ export function PulseScreen() {
         </View>
       ))}
 
-      <StateCard loading={loading} status={status} confidence={confidence} quadrant={quadrant} reduced={reduced} onConnect={goConnect} c={c} />
+      <StateCard loading={loading} status={status} quadrant={quadrant} reduced={reduced} onConnect={goConnect} c={c} />
     </View>
   );
 
   // The legal band: the last child of every state. A sibling AFTER the body (so after the StateCard,
   // never on its inferred-state wash) and outside the skeleton's busy region and the empty state's
-  // live region + fade — static, and next in the tree after the headline and confidence (the spoken
+  // live region + fade — static, and next in the tree after the headline (the spoken
   // TalkBack order is device capture P7).
   const legalBand = (style: ViewStyle) => (
     <View style={style}>
@@ -411,7 +402,7 @@ const styles = StyleSheet.create({
   heroUnit: { marginTop: space.xs, fontSize: typography.size.callout },
   heroHushed: { fontSize: typography.size.callout },
 
-  metaRow: { flexDirection: 'row', justifyContent: 'center', gap: space.sm },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: space.sm },
   chip: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingVertical: space.xs, paddingHorizontal: space.md, borderRadius: radius.pill },
   chipDot: { width: space.sm, height: space.sm, borderRadius: radius.pill },
   chipText: { fontSize: typography.size.footnote },
@@ -437,7 +428,6 @@ const styles = StyleSheet.create({
   stateCard: { borderRadius: radius.xl, padding: space.xl, overflow: 'hidden' },
   stateWash: { borderRadius: radius.xl },
   stateHeadline: { fontSize: typography.size.subheading, fontWeight: typography.weight.semibold },
-  stateConfidence: { marginTop: space.xs, fontSize: typography.size.footnote },
   statePlaceholder: { fontSize: typography.size.callout, lineHeight: typography.size.callout * typography.leading.normal },
   stateLink: { marginTop: space.sm, alignSelf: 'flex-start' },
   stateLinkText: { fontSize: typography.size.footnote, fontWeight: typography.weight.semibold, textDecorationLine: 'underline' },

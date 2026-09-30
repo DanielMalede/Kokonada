@@ -17,17 +17,34 @@ jest.mock('../playbackServices', () => ({
 
 // SpotifyAttribution pulls the native link-back graph — stub it to a marker (with a link-back node)
 // so the NP-ATTR placement can be asserted here; the real mark is covered in SpotifyAttribution.test.
+// The stub records the props it receives, so what Now Playing asks it to link to is observable.
+const mockAttributionProps: Array<{ contentUri: string | null }> = [];
 jest.mock('../../player/SpotifyAttribution', () => {
   const React2 = require('react');
   const { View, Text } = require('react-native');
   return {
-    SpotifyAttribution: () =>
-      React2.createElement(View, { testID: 'spotify-attribution' },
+    SpotifyAttribution: (props: { contentUri: string | null }) => {
+      mockAttributionProps.push(props);
+      return React2.createElement(View, { testID: 'spotify-attribution' },
         React2.createElement(Text, {
           testID: 'spotify-attribution-linkback', accessibilityRole: 'button', accessibilityLabel: 'GET SPOTIFY FREE',
-        }, 'GET SPOTIFY FREE')),
+        }, 'GET SPOTIFY FREE'));
+    },
   };
 });
+
+// DEC-099: Up Next is gated off until P3. This file reads the REAL shipped gate by default; only the
+// blocks that pin Up Next's P3 behaviour force it on (mockUpNextOverride), so re-enabling stays a
+// one-line change with those pins intact. The shipped (off) state is pinned in 'hidden until P3'.
+let mockUpNextOverride: boolean | undefined;
+jest.mock('../upNextGate', () => {
+  const actual = jest.requireActual('../upNextGate');
+  return { get UP_NEXT_ENABLED() { return mockUpNextOverride ?? actual.UP_NEXT_ENABLED; } };
+});
+const forceUpNextOnForP3 = () => {
+  beforeEach(() => { mockUpNextOverride = true; });
+  afterEach(() => { mockUpNextOverride = undefined; });
+};
 
 import { NowPlayingScreen } from '../NowPlayingScreen';
 import { orchestrator } from '../playbackServices';
@@ -100,11 +117,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(false);
   nowPlayingStore.getState().set({ track: null, isPlaying: false });
-  nowPlayingStore.getState().setCover(null); // cover is decoupled from the track — reset it too
+  nowPlayingStore.getState().setCover(null, null); // cover is decoupled from the track — reset it too
 });
 afterEach(() => {
   nowPlayingStore.getState().set({ track: null, isPlaying: false });
-  nowPlayingStore.getState().setCover(null);
+  nowPlayingStore.getState().setCover(null, null);
 });
 
 describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', () => {
@@ -148,7 +165,7 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
 
   it('renders the REAL album cover Image from the resolved coverUri (App Remote SDK, not the queue)', async () => {
     nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
-    nowPlayingStore.getState().setCover('file:///cover/live.jpg');
+    nowPlayingStore.getState().setCover('file:///cover/live.jpg', TRACK.uri); // paired with the track on screen
     const tree = await render();
     const img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
     expect(img).toBeTruthy();
@@ -158,7 +175,7 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
 
   it('L2: falls back to the ♪ placeholder when the cover Image fails to load, then re-attempts on a new coverUri', async () => {
     nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
-    nowPlayingStore.getState().setCover('file:///cover/broken.jpg');
+    nowPlayingStore.getState().setCover('file:///cover/broken.jpg', TRACK.uri);
     const tree = await render();
     let img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
     expect(img).toBeTruthy();
@@ -171,7 +188,7 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     // A NEW track resolves a fresh cover → the failed flag resets and the Image re-attempts.
     await ReactTestRenderer.act(async () => {
       nowPlayingStore.getState().set({ track: { ...TRACK, id: 't2' }, isPlaying: true });
-      nowPlayingStore.getState().setCover('file:///cover/fresh.jpg');
+      nowPlayingStore.getState().setCover('file:///cover/fresh.jpg', TRACK.uri);
     });
     img = tree.root.findAll((n) => n.props.testID === 'now-playing-cover')[0];
     expect(img).toBeTruthy();
@@ -185,7 +202,7 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     // at boot with an empty queue. The cover's a11y label reads track.title, so rendering
     // the <Image> here would null-deref. Gate the cover on track metadata.
     nowPlayingStore.getState().set({ track: null, isPlaying: false });
-    nowPlayingStore.getState().setCover('file:///cover/foreign.jpg');
+    nowPlayingStore.getState().setCover('file:///cover/foreign.jpg', 'spotify:track:FOREIGN');
     const tree = await render();
     expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
     const all = texts(tree.toJSON()).join(' ');
@@ -196,11 +213,70 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
 
   it('falls back to the token placeholder (no Image) when coverUri is null', async () => {
     nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
-    nowPlayingStore.getState().setCover(null);
+    nowPlayingStore.getState().setCover(null, null);
     const tree = await render();
     expect(tree.root.findAll((n) => n.props.testID === 'now-playing-cover')).toHaveLength(0);
     expect(texts(tree.toJSON()).join(' ')).toContain('♪'); // placeholder glyph still shown
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // HX-4 M3 (Policy II.4): the cover sits beside a link-back to track.uri, so it must be THAT
+  // item's cover. App Remote's image is decoupled from our track; it is shown only while the track
+  // URI it was reported with equals track.uri — otherwise the placeholder.
+  describe('the cover belongs to the linked item (HX-4 M3)', () => {
+    const coverIds = (tree: ReactTestRenderer.ReactTestRenderer) =>
+      tree.root.findAll((n) => n.props.testID === 'now-playing-cover');
+
+    it('hides the cover when App Remote reports a DIFFERENT track (a song played inside Spotify)', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: false });
+      nowPlayingStore.getState().setCover('file:///cover/foreign.jpg', 'spotify:track:FOREIGN');
+      const tree = await render();
+      expect(coverIds(tree)).toHaveLength(0);
+      expect(texts(tree.toJSON()).join(' ')).toContain('♪');
+      expect(texts(tree.toJSON()).join(' ')).toContain('Deep Current'); // our metadata stays, with no foreign art
+    });
+
+    it('shows the cover again once App Remote reports the track on screen', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/foreign.jpg', 'spotify:track:FOREIGN');
+      const tree = await render();
+      expect(coverIds(tree)).toHaveLength(0);
+      await ReactTestRenderer.act(async () => { nowPlayingStore.getState().setCover('file:///cover/ours.jpg', TRACK.uri); });
+      expect(coverIds(tree)[0].props.source).toEqual({ uri: 'file:///cover/ours.jpg' });
+    });
+
+    it('a move to the next track hides the previous track\'s cover until the new track\'s own cover arrives', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/first.jpg', TRACK.uri);
+      const tree = await render();
+      expect(coverIds(tree).length).toBeGreaterThan(0);
+      const NEXT = { ...TRACK, id: 't2', uri: 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh', title: 'Second Light' };
+      await ReactTestRenderer.act(async () => { nowPlayingStore.getState().set({ track: NEXT, isPlaying: true }); });
+      expect(coverIds(tree)).toHaveLength(0); // the first track's art never sits beside the second's link
+      await ReactTestRenderer.act(async () => { nowPlayingStore.getState().setCover('file:///cover/second.jpg', NEXT.uri); });
+      expect(coverIds(tree)[0].props.source).toEqual({ uri: 'file:///cover/second.jpg' });
+    });
+
+    it('a failed cover gets a fresh attempt when the SAME file is re-paired with the next track (same album)', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/album.jpg', TRACK.uri);
+      const tree = await render();
+      await ReactTestRenderer.act(async () => { coverIds(tree)[0].props.onError(); });
+      expect(coverIds(tree)).toHaveLength(0); // degraded to the placeholder for track 1
+      const NEXT = { ...TRACK, id: 't2', uri: 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh', title: 'Second Light' };
+      await ReactTestRenderer.act(async () => {
+        nowPlayingStore.getState().set({ track: NEXT, isPlaying: true });
+        nowPlayingStore.getState().setCover('file:///cover/album.jpg', NEXT.uri); // same file, new pairing
+      });
+      expect(coverIds(tree)[0]?.props.source).toEqual({ uri: 'file:///cover/album.jpg' }); // re-attempted
+    });
+
+    it('a track with no URI never matches a cover paired with no track (null never equals null here)', async () => {
+      nowPlayingStore.getState().set({ track: { ...TRACK, uri: null }, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/unpaired.jpg', null);
+      const tree = await render();
+      expect(coverIds(tree)).toHaveLength(0);
+    });
   });
 
   it('renders the mix-receipt (label + detail) when the track carries one', async () => {
@@ -348,8 +424,38 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  // ── DEC-099 (owner ruling; HX-4 M4): Up Next is hidden until P3 — no entry is drawn and the sheet
+  // can never open. These run against the REAL shipped gate.
+  describe('Up Next is hidden until P3 (DEC-099)', () => {
+    it.each([
+      ['with a track playing', TRACK],
+      ['with nothing playing', null],
+    ])('draws no Up next entry %s — no button, no label, no chevron', async (_label, track) => {
+      nowPlayingStore.getState().set({ track, isPlaying: !!track });
+      const tree = await render();
+      expect(byLabel(tree, 'Up next')).toBeUndefined();
+      const all = texts(tree.toJSON()).join(' ');
+      expect(all).not.toContain('Up next');
+      expect(all).not.toContain('⌃');
+    });
+
+    it('the sheet never opens: firing every control on the screen leaves no sheet, and the queue is never read', async () => {
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      const tree = await render();
+      const pressables = tree.root.findAll((n) => typeof n.props.onPress === 'function');
+      expect(pressables.length).toBeGreaterThan(0); // the transport is there to press — not a vacuous sweep
+      for (const p of pressables) await ReactTestRenderer.act(async () => { p.props.onPress(); });
+      await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+      expect(tree.root.findAll((n) => n.props.testID === 'upnext-sheet')).toHaveLength(0);
+      expect(tree.root.findAll((n) => n.props.testID === 'upnext-scrim')).toHaveLength(0);
+      expect(orchestrator.getQueueTracks as jest.Mock).not.toHaveBeenCalled();
+    });
+  });
+
   // ── §2.a tail: the low-emphasis "Up next" trigger opening the Up-Next sheet ──
+  // P3 behaviour, pinned with the gate forced on (DEC-099 hides it in the shipped build).
   describe('Up next sheet trigger (§2.a tail — shipped hierarchy preserved)', () => {
+    forceUpNextOnForP3();
     it('renders a low-emphasis "Up next" button beneath the transport with a ≥44pt tap target', async () => {
       nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
       const tree = await render();
@@ -440,6 +546,24 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       expect(receipt.findAll((n) => n.props.testID === 'now-playing-attribution')).toHaveLength(0);
       expect(tree.root.findAll((n) => n.props.testID === 'now-playing-art').length).toBeGreaterThan(0);
       await ReactTestRenderer.act(async () => { tree.unmount(); });
+    });
+
+    // HX-4 (CMP-008, Policy II.4): the link-back targets the EXACT track on screen.
+    it('hands the attribution the playing track\'s own URI (track.uri) as its contentUri', async () => {
+      mockAttributionProps.length = 0;
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      await render();
+      expect(mockAttributionProps.length).toBeGreaterThan(0);
+      expect(mockAttributionProps[mockAttributionProps.length - 1].contentUri).toBe(TRACK.uri);
+    });
+
+    it('re-targets the link-back when the track changes — never the previous track\'s URI', async () => {
+      mockAttributionProps.length = 0;
+      nowPlayingStore.getState().set({ track: TRACK, isPlaying: true });
+      await render();
+      const NEXT = { ...TRACK, id: 't2', uri: 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh', title: 'Second Light' };
+      await ReactTestRenderer.act(async () => { nowPlayingStore.getState().set({ track: NEXT, isPlaying: true }); });
+      expect(mockAttributionProps[mockAttributionProps.length - 1].contentUri).toBe(NEXT.uri);
     });
   });
 
@@ -770,7 +894,9 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
   });
 
   // ── L2: the connection subscribe effect must re-read live status on mount ──
+  // Observed through the Up Next sheet, so pinned with the gate forced on (P3 behaviour; DEC-099).
   describe('L2: live connection status is re-synced on mount', () => {
+    forceUpNextOnForP3();
     it('re-reads playerStatusStore on effect-commit so a transition after the initial render is not dropped', async () => {
       // getState() is disconnected for the useState initializer, then connected by effect-commit time —
       // the mount re-read must catch up. Old code (subscribe-only) would strand on disconnected.

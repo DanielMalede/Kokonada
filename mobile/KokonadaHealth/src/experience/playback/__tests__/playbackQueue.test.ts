@@ -74,6 +74,39 @@ describe('PlaybackQueue — skip unplayable tracks', () => {
     q.load([T('a'), T('b', null)]);
     expect(q.hasNext()).toBe(false); // only unplayable ahead
   });
+
+  // HX-4 round 1 (compliance, Policy II.4): only a Spotify TRACK URI is playable. Anything else would
+  // put its title and artist on Now Playing with no link-back to the item, so it stays data-only.
+  describe('only a linkable Spotify track URI is playable', () => {
+    const NOT_A_TRACK = ['spotify:episode:x', 'spotify:track:abc?si=1', 'spotify:local:a:b:c:1', 'youtube:x'];
+
+    it.each(NOT_A_TRACK)('%s is never current, never reached by next/prev, and never a seek target', (uri) => {
+      const q = new PlaybackQueue();
+      q.load([T('bad', uri), T('a'), T('bad2', uri), T('b')]);
+      expect(q.current()?.id).toBe('a'); // the leading non-track is skipped
+      expect(q.next()?.id).toBe('b');    // the middle non-track is skipped
+      expect(q.prev()?.id).toBe('a');
+      expect(q.seekToUri(uri)).toBeNull();
+      expect(q.seekToId('bad')).toBeNull();
+      expect(q.current()?.id).toBe('a'); // a refused seek leaves the cursor untouched
+    });
+
+    it('a playlist of only non-track URIs has no current track and nothing ahead', () => {
+      const q = new PlaybackQueue();
+      q.load(NOT_A_TRACK.map((uri, i) => T(`n${i}`, uri)));
+      expect(q.current()).toBeNull();
+      expect(q.hasNext()).toBe(false);
+    });
+
+    it('the non-track entries stay in the queue as data (size and order unchanged)', () => {
+      const q = new PlaybackQueue();
+      q.load([T('a'), T('ep', 'spotify:episode:x'), T('b')]);
+      expect(q.size()).toBe(3);
+      expect(q.playableIndex()).toBe(0);
+      expect(q.next()?.id).toBe('b'); // the episode is stepped over, never current
+      expect(q.playableIndex()).toBe(1); // the episode does not count as a playlist row
+    });
+  });
 });
 
 describe('PlaybackQueue — receipt payload (Wave 2.8; cover now comes from the SDK, not the queue)', () => {

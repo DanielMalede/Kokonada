@@ -23,6 +23,41 @@ const _baselineKey = (userId) => `bio:baseline:${userId}`;
 // the silent leak S5 exists to prevent.
 const { affectKey: _affectKey } = require('../biosonic/affectCache');
 
+// MedicalProfile is a single per-user AGGREGATE with no per-source attribution; it is derived
+// from BiometricLog. Delete it ONLY when no biometric samples remain (i.e. it was derived solely
+// from what has been purged). Otherwise it still reflects another connected wearable — leave it
+// and let baselines recompute. "No samples remain" means no HR samples AND no vital samples —
+// counting only BiometricLog would delete a profile still backed by another wearable's
+// VitalSample rows.
+//
+// MorningState (W4-012, S5) is the SAME category of derived aggregate — a nightly consolidation
+// of exactly the vitals MedicalProfile/BiometricLog/VitalSample carry, with no per-source
+// attribution of its own — so it rides the identical all-or-nothing rule rather than a fourth,
+// disagreeing scoping scheme.
+//
+// Its own export (HX-1, F1) because it has a second caller: the live lane's compensating delete
+// (sockets/biometricHandler.js). A live reading that lands mid-erasure is seen by every count
+// purgeWearableData takes, so the aggregates survive the erasure; once the compensation removes
+// the reading it re-applies THIS rule, so the two can never disagree about what erasure leaves.
+// It deletes no sample and touches no Redis key. A store failure propagates to the caller.
+//
+// Both counts are pinned to the PRIMARY, like ConsentRecord.latestFor: they must see the delete that
+// runs just before them (the erasure's own, or the compensation's), and a lagging secondary would
+// still count that row and keep the aggregates. Proven in tests/consentPrimaryRead.integration.test.js.
+async function purgeOrphanedAggregates(userId) {
+  let medicalProfiles = 0;
+  let morningStates = 0;
+  const remaining = await BiometricLog.countDocuments({ userId }).read('primary')
+    + await VitalSample.countDocuments({ userId }).read('primary');
+  if (remaining === 0) {
+    const med = await MedicalProfile.deleteMany({ userId });
+    medicalProfiles = med?.deletedCount ?? 0;
+    const morning = await MorningState.deleteMany({ userId });
+    morningStates = morning?.deletedCount ?? 0;
+  }
+  return { medicalProfiles, morningStates };
+}
+
 // Remove a provider's DATA footprint (biometric samples + derived health profile), scoped
 // so nothing belonging to another still-connected wearable is touched.
 async function purgeWearableData(userId, provider) {
@@ -36,28 +71,8 @@ async function purgeWearableData(userId, provider) {
   //     from per-provider erasure is a silent GDPR leak that nothing would surface.
   const vitals = await VitalSample.deleteMany({ userId, source: provider });
 
-  // 2. MedicalProfile is a single per-user AGGREGATE with no per-source attribution; it is
-  //    derived from BiometricLog. Delete it ONLY when no biometric samples remain (i.e. it
-  //    was derived solely from the purged provider). Otherwise it still reflects another
-  //    connected wearable — leave it and let baselines recompute.
-  //    "Derived solely from the purged provider" now means no HR samples AND no vital samples
-  //    remain — counting only BiometricLog would delete a profile still backed by another
-  //    wearable's VitalSample rows.
-  //
-  //    MorningState (W4-012, S5) is the SAME category of derived aggregate — a nightly
-  //    consolidation of exactly the vitals MedicalProfile/BiometricLog/VitalSample carry, with
-  //    no per-source attribution of its own — so it rides the identical all-or-nothing rule
-  //    rather than a fourth, disagreeing scoping scheme.
-  let medicalProfiles = 0;
-  let morningStates = 0;
-  const remaining = await BiometricLog.countDocuments({ userId })
-    + await VitalSample.countDocuments({ userId });
-  if (remaining === 0) {
-    const med = await MedicalProfile.deleteMany({ userId });
-    medicalProfiles = med?.deletedCount ?? 0;
-    const morning = await MorningState.deleteMany({ userId });
-    morningStates = morning?.deletedCount ?? 0;
-  }
+  // 2. The derived aggregates (MedicalProfile, MorningState) — see purgeOrphanedAggregates.
+  const { medicalProfiles, morningStates } = await purgeOrphanedAggregates(userId);
 
   // 2b. RewardEvent (W4-011, ADR-0012 Track A, S5) is registered here as a DELIBERATE
   //     EXCLUSION, and the reasoning is the point rather than the omission. It looks like the
@@ -173,6 +188,7 @@ async function eraseWearableProvider(user, provider) {
 module.exports = {
   WEARABLE_PROVIDERS,
   purgeWearableData,
+  purgeOrphanedAggregates,
   clearWearableCredentials,
   eraseWearableProvider,
 };

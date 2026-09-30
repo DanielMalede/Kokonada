@@ -38,7 +38,9 @@ const { peekBaselines } = require('../services/biosonic/baselines');
 const { readNightHistory } = require('../repositories/sleepHistoryRepo');
 // Art.9 consent gate (audit H-9 follow-up; H3a) for every socket event that accepts a biometric —
 // the ONE shared definition of a current grant, fail-closed and never throwing.
-const { admitHealthProcessing } = require('../services/privacy/healthConsentGate');
+const { admitHealthProcessing, healthProcessingVerdict } = require('../services/privacy/healthConsentGate');
+// HX-1 (F1): the erasure's own derived-aggregate rule, re-applied by the live lane's compensation.
+const { purgeOrphanedAggregates } = require('../services/privacy/wearableErasure');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -1540,16 +1542,22 @@ function _filterHeartRate(state, normalized, now) {
 // per socket and deduped on the batch lane's own `source@recordedAt` convention so a
 // reconnect replaying the same reading cannot double-write. Fire-and-forget: a persistence
 // failure must never block the trigger/generation pipeline it is downstream of.
-async function _maybePersistLiveReading(userId, normalized, filtered, state, nowMs) {
+async function _maybePersistLiveReading(userId, normalized, filtered, state, nowMs, lane) {
   if (filtered.passthrough || !filtered.accepted) return;
   if (state.lastPersistedAtMs !== null && nowMs - state.lastPersistedAtMs < LIVE_PERSIST_MIN_INTERVAL_MS) return;
   state.lastPersistedAtMs = nowMs;
 
+  const recordedAt = normalized.recordedAt;
+  const key = { userId, source: normalized.source, recordedAt };
+  // Set once the insert has been SENT. An insert that throws may still have been applied (a
+  // write-concern or network error on the reply), so the catch re-checks too; the compensating
+  // delete is idempotent, and it runs only if consent is no longer current.
+  let attempted = false;
   try {
-    const recordedAt = normalized.recordedAt;
-    const exists = await BiometricLog.exists({ userId, source: normalized.source, recordedAt });
+    const exists = await BiometricLog.exists(key);
     if (exists) return;
-    await insertManyAccounted(BiometricLog, [{
+    attempted = true;
+    const { inserted } = await insertManyAccounted(BiometricLog, [{
       userId,
       heartRate:  normalized.heartRate,
       activity:   normalized.activity ?? 'unknown',
@@ -1559,9 +1567,53 @@ async function _maybePersistLiveReading(userId, normalized, filtered, state, now
       // for every client shipped today. Mobile emission is an on-device checklist item.
       tzOffsetMinutes: normalized.tzOffsetMinutes ?? null,
     }], { label: 'BiometricLog.live' });
+    if (inserted > 0) await _compensateIfConsentLapsed(userId, key, lane);
   } catch (e) {
     console.error('[biometricHandler] live persistence failed:', e.message);
+    if (attempted) await _compensateIfConsentLapsed(userId, key, lane);
   }
+}
+
+// HX-1 — the withdrawal race (R2). The gate admitted this reading while the grant was current, but
+// the write above is fire-and-forget: a withdrawal can write its row and run its whole erasure while
+// the insert is still in flight, and an insert landing after the erasure's delete outlives it. So
+// consent is read AGAIN once the row is in. withdrawConsent writes the withdrawal row BEFORE it
+// erases, so any insert that lands after one of the erasure's deletes is followed by a read that
+// sees the withdrawal (a primary read, pinned in ConsentRecord.latestFor).
+// Not current, or unreadable (fail closed): the reading is removed — by its
+// full key with a multi-delete, so a same-key row a batch lane wrote concurrently goes too (F3).
+// Then the state the erasure would have left is restored (F1): the reading was seen by every count
+// the erasure took, so MedicalProfile and MorningState survived it; the erasure's own rule, run
+// again now, drops them when no sample remains. Only that rule — never purgeWearableData itself,
+// which deletes the provider's WHOLE history: on a consent-read error the grant may well be current.
+// Never throws and never calls captureException; its only report is one closed-token line, which Sentry's console breadcrumbs can still carry.
+async function _compensateIfConsentLapsed(userId, key, lane) {
+  const { admitted, reason } = await healthProcessingVerdict(userId);
+  if (admitted) return;
+  let outcome;
+  try {
+    const res = await BiometricLog.deleteMany(key);
+    await purgeOrphanedAggregates(userId);
+    outcome = (res?.deletedCount ?? 0) > 0 ? 'deleted1' : 'deleted0';
+  } catch (e) {
+    outcome = `failed error=${_errorType(e)}`;
+  }
+  // One line, closed tokens only — the reading's value, time, activity, offset and source never
+  // appear, nor any error text (Mongoose messages quote values; the TYPE is enough to act on). The
+  // user reference is the withdrawal line's own (`consent.js`), so the two join. `deleted1` means
+  // the reading is gone; `deleted0` that nothing was left to delete (the erasure, or another
+  // compensation for the same key — /watch/hr feeds every socket in the user's room — removed it);
+  // `failed` that the reading, or MedicalProfile and MorningState, may remain: the finding a second
+  // erasure pass looks for, never folded into "live persistence failed".
+  const line = `[biometricHandler] compensating-delete user=${userId} lane=${lane} reason=${reason} outcome=${outcome}`;
+  if (outcome.startsWith('failed')) console.error(line);
+  else console.warn(line);
+}
+
+// An error's class name, or 'Error' — never its message.
+function _errorType(e) {
+  const name = e?.name;
+  return typeof name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(name) ? name : 'Error';
 }
 
 // The CONFIRMED-transition trigger (D11). Recalibration serves a shadow buffer keyed
@@ -1632,8 +1684,11 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
   // there is nothing to seed a confirmed HR from, so the payload is acked (it was well-
   // formed) and otherwise ignored rather than fabricating a baseline from bad data.
   const filtered = _filterHeartRate(state, normalized, now);
+  // The lane, for the HX-1 compensating line only. `immediate` is the /watch/hr ingest's own mode:
+  // this function has exactly two callers, biometric_push and watchHrIngest (pinned by
+  // art9GateClass.structural.test.js), and only the second passes it.
   _maybePersistLiveReading(
-    socket.data.user._id.toString(), normalized, filtered, state, now,
+    socket.data.user._id.toString(), normalized, filtered, state, now, opts.immediate ? 'watch' : 'socket',
   ).catch(() => {}); // logged inside; never blocks the trigger pipeline
   if (filtered.level === null) return;
   const effectiveHR = filtered.level;
@@ -1814,6 +1869,19 @@ function _admitFeedback(state, nowMs) {
   return admitted.allowed;
 }
 
+// HX-7 (DEC-062): the door admits only the chips the app offers (chipActivities.js). The retired
+// Working and Focus chips, which an installed older build still sends, are therefore dropped, as is any
+// other string and anything that is not a string (an array or object here made the session write fail).
+// Zero-width characters are stripped before comparing; an offered chip is kept as its canonical key.
+const { CHIP_ACTIVITY_KEYS } = require('../services/chipActivities');
+const OFFERED_CHIPS = new Set(CHIP_ACTIVITY_KEYS);
+const ZERO_WIDTH = /[​-‍⁠﻿]/g;
+function _admitChipActivity(activity) {
+  if (typeof activity !== 'string') return null;
+  const key = activity.replace(ZERO_WIDTH, '').trim().toLowerCase();
+  return OFFERED_CHIPS.has(key) ? key : null;
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
@@ -1849,7 +1917,7 @@ function registerBiometricHandler(socket) {
     const state = getState(socketId);
     state.lastEmotionTaps = taps;
     state.lastTextPrompt  = textPrompt;
-    state.lastActivity    = activity || null;
+    state.lastActivity    = _admitChipActivity(activity);
     if (mode) state.lastMode = mode;
     log(`[emotion_update] taps=${taps.length} activity=${state.lastActivity ?? 'none'} mode=${state.lastMode}`);
   });
