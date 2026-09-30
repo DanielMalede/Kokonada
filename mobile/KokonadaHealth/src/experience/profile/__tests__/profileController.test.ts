@@ -202,3 +202,49 @@ describe('teardownSpotifyPlayback — safe ordering', () => {
     expect(calls).toEqual(['queue', 'now', 'status']);
   });
 });
+
+// HX-2 round 1 (B1): the Profile reload is where the app learns that the account is linked to
+// Spotify again (after an OAuth reconnect). That lifts the playback suspension Disconnect set.
+describe('ProfileController.loadProfile — lifts the Spotify-disconnect suspension (B1)', () => {
+  const deps = (over: Record<string, unknown> = {}) => ({
+    apiGet: jest.fn(), apiPost: jest.fn(), apiDelete: jest.fn(), serverLogout: jest.fn(), clearLocal: jest.fn(),
+    clearSpotifyPlayback: jest.fn(async () => {}), onSpotifyLinked: jest.fn(), ...over,
+  });
+  const statusGet = (spotifyConnected: boolean | undefined, ok = true) => jest.fn(async (path: string) => (
+    path === '/api/auth/me' ? okRes({ id: 'u1' }) : ok ? okRes({ spotifyConnected }) : errRes(500)));
+
+  it('the server reports Spotify linked → onSpotifyLinked, once', async () => {
+    const d = deps({ apiGet: statusGet(true) });
+    await new ProfileController(d as any).loadProfile();
+    expect(d.onSpotifyLinked).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([[false], [undefined]])('spotifyConnected=%p → no resume', async (v) => {
+    const d = deps({ apiGet: statusGet(v as any) });
+    await new ProfileController(d as any).loadProfile();
+    expect(d.onSpotifyLinked).not.toHaveBeenCalled();
+  });
+
+  it('a failed status read → no resume (fail closed)', async () => {
+    const d = deps({ apiGet: statusGet(true, false) });
+    await new ProfileController(d as any).loadProfile();
+    expect(d.onSpotifyLinked).not.toHaveBeenCalled();
+  });
+
+  it('a reload that STARTED before a successful disconnect cannot resume after it (stale status)', async () => {
+    let releaseStatus!: () => void;
+    const apiGet = jest.fn((path: string) => (path === '/api/auth/me'
+      ? Promise.resolve(okRes({ id: 'u1' }))
+      : new Promise((r) => { releaseStatus = () => r(okRes({ spotifyConnected: true })); })));
+    const apiDelete = jest.fn(async () => okRes({ message: 'Spotify disconnected' }));
+    const d = deps({ apiGet, apiDelete });
+    const c = new ProfileController(d as any);
+
+    const staleReload = c.loadProfile();      // status read in flight: the server still says linked
+    await c.disconnectSpotify();              // …the disconnect completes first
+    releaseStatus();
+    await staleReload;
+
+    expect(d.onSpotifyLinked).not.toHaveBeenCalled();
+  });
+});

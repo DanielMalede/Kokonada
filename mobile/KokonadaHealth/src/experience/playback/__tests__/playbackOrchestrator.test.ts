@@ -590,7 +590,9 @@ describe('clear(): a Spotify disconnect empties the queue and Now Playing', () =
     expect(orch.getNowPlaying()).toEqual({ track: null, isPlaying: false });
   });
 
-  it('releases a pending generation guard, and the next playlist plays normally', async () => {
+  // Revised in HX-2 round 1 (B1): a playlist after clear() is DROPPED until resume(), because it is
+  // a generation requested before the disconnect. The guard is still released either way.
+  it('releases a pending generation guard; a late playlist is dropped, and after resume() one plays normally', async () => {
     const { orch, player, socket } = build();
     await orch.handlePlaylist({ tracks: list('a') });
     orch.skipNext();                       // ran off the end → one generation in flight
@@ -598,8 +600,12 @@ describe('clear(): a Spotify disconnect empties the queue and Now Playing', () =
 
     orch.clear();
     orch.skipNext();                       // an empty queue asks again: the guard was released
-
     expect(socket.generations).toBe(2);
+
+    await orch.handlePlaylist({ tracks: list('late') });
+    expect(player.played).toEqual(['spotify:track:a']); // dropped: nothing new reached the player
+
+    orch.resume();
     await orch.handlePlaylist({ tracks: list('z') });
     expect(player.played[player.played.length - 1]).toBe('spotify:track:z');
   });

@@ -61,4 +61,5 @@ export const profileController = new ProfileController({
   serverLogout: () => apiPost('/api/auth/logout'),
   clearLocal,
   clearSpotifyPlayback,
+  onSpotifyLinked: () => orchestrator.resume(),
 });

@@ -36,16 +36,27 @@ export interface ProfileControllerDeps {
   clearLocal: () => Promise<void>;
   // Disconnect Spotify's local half (teardownSpotifyPlayback bound to the real singletons).
   clearSpotifyPlayback: () => Promise<void>;
+  // The server reports the account linked to Spotify: lift the playback suspension Disconnect set
+  // (orchestrator.resume — HX-2 B1). Optional so older compositions keep working.
+  onSpotifyLinked?: () => void;
 }
 
 export class ProfileController {
+  // Bumped by every successful Spotify disconnect. A status read that started before one cannot
+  // resume playback after it: it describes a link that no longer exists.
+  private spotifyEpoch = 0;
+
   constructor(private readonly deps: ProfileControllerDeps) {}
 
   async loadProfile(): Promise<ProfileSnapshot> {
+    const epoch = this.spotifyEpoch;
     const [me, integrations] = await Promise.all([
       this.deps.apiGet<ProfileMe>('/api/auth/me'),
       this.deps.apiGet<IntegrationsStatus>('/api/integrations/status'),
     ]);
+    if (integrations.ok && integrations.data?.spotifyConnected === true && epoch === this.spotifyEpoch) {
+      this.deps.onSpotifyLinked?.();
+    }
     return {
       me: me.ok ? me.data : null,
       integrations: integrations.ok ? integrations.data : null,
@@ -81,6 +92,7 @@ export class ProfileController {
   async disconnectSpotify(): Promise<ApiResult<{ message: string }>> {
     const res = await this.deps.apiDelete<{ message: string }>('/api/integrations/spotify/disconnect');
     if (res.ok) {
+      this.spotifyEpoch += 1;
       await this.deps.clearSpotifyPlayback();
     }
     return res;
