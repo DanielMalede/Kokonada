@@ -41,6 +41,9 @@ const { readNightHistory } = require('../repositories/sleepHistoryRepo');
 const { admitHealthProcessing, healthProcessingVerdict } = require('../services/privacy/healthConsentGate');
 // HX-1 (F1): the erasure's own derived-aggregate rule, re-applied by the live lane's compensation.
 const { purgeOrphanedAggregates } = require('../services/privacy/wearableErasure');
+// BE-016 (R-A): a generation's writes that land after a withdrawal undo themselves.
+const { undoRunWrites } = require('../services/privacy/sessionHealthErasure');
+const { Types: { ObjectId } } = require('mongoose');
 
 // A heart rate must be physiologically plausible before it can drive a playlist.
 // The biometric_push content is attacker-controlled and a watch can momentarily
@@ -878,6 +881,11 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // exit of this run tells the receipt the same thing. False on the heart branch with no usable
     // HR — a heart request without a current Art.9 grant, or a mood-only listener's skip_loop.
     const hrDriven = !useEmotion && isPhysiologicalHR(state.stableHR);
+    // BE-016 (R-A): was this run shaped by health data? A heart rate held when it began (its stored
+    // activity is then not provably a chip), or the stored health profile shaping the targets (set
+    // below, on the mood branch). recordServeSideEffects also checks what the rows themselves carry.
+    const hrAtStart = state.stableHR != null;
+    let profileShaped = false;
     // W4-D34: the other half of the duplicate-serve latch. A generation that actually delivers
     // a playlist under a synthetic bio key IS that key's buffer starting to play (it warms the
     // buffer on the way out), so a policy-only taxonomy transition arriving straight afterwards
@@ -987,25 +995,35 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         };
         state.playWindow = openWindow(state.playWindow, context, Date.now());
       }
+      // BE-016 (R-A): what this run writes, read ONCE so the writes and the check below agree. The
+      // session id and the serve time are chosen here, not by the stores, so this run's rows can be
+      // found again even when a write errors after the server applied it (the HX-1 lesson).
+      const snapshotHR = state.stableHR;
+      const serveBand = bandFromHeartRate(snapshotHR);
+      const watchActivity = state.latestActivity ?? null;
+      const sessionDocId = new ObjectId();
+      const servedAtMs = Date.now();
+      const writes = [];
       // Warm the live-biometric buffer (Part 3): an HR-driven generation is cached under its bio-mood
       // key so a Live-mode toggle plays instantly. Storing records NO serves (§3.5). Emotion → skip.
-      if (!useEmotion && isPhysiologicalHR(state.stableHR)) {
-        shadowBufferRepo.setBuffer(userId, moodKey, {
+      if (!useEmotion && isPhysiologicalHR(snapshotHR)) {
+        writes.push(shadowBufferRepo.setBuffer(userId, moodKey, {
           tracks:    clientTracks,
           familiar:  builtPlaylist.familiar.length,
           discovery: builtPlaylist.discovery.length,
           targets:   builtPlaylist.targets,
           builtAt:   Date.now(),
-        }).catch(() => {});
+        }).catch(() => {}));
       }
       // Session-history honesty: only record the emotion taps / prompt when the emotion pipeline
       // actually drove this generation. A heart/biometric mix must not be labelled with stale mood.
-      PlaylistSession.create({
+      writes.push(PlaylistSession.create({
+        _id:               sessionDocId,
         userId,
         emotionTaps:       useEmotion && state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
         contextPrompt:     useEmotion ? (state.lastTextPrompt || '') : '',
         moodKey,
-        biometricSnapshot: { heartRate: state.stableHR, activity: effectiveActivity },
+        biometricSnapshot: { heartRate: snapshotHR, activity: effectiveActivity },
         targetBpm:         params.target_bpm,
         targetGenres:      params.seed_genres || [],
         targetValence:     params.target_valence,
@@ -1020,19 +1038,34 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         console.error('[PlaylistSession] save failed:', e.message);
         // A dropped session write silently breaks anti-repetition — report it rather than swallow.
         captureException(e, { scope: 'playlistSession.save', userId: String(userId) });
-      });
+      }));
       // Dark launch: queue audio-feature hydration for anything just served the store hasn't seen.
       featureService.enqueueHydration(builtPlaylist.merged).catch(() => {});
       // Serve ledger (write path): record every served track under this generation's mood context.
-      serveLedger.recordServes({
+      writes.push(serveLedger.recordServes({
         userId,
         sessionId: String(reqId ?? ''),
         entries: builtPlaylist.merged.map(t => ({
           canonicalKey: t.canonicalKey ?? canonicalKey(t),
           moodKey,
-          bioState: { tempoBand: bandFromHeartRate(state.stableHR), activity: state.latestActivity ?? null },
+          bioState: { tempoBand: serveBand, activity: watchActivity },
         })),
-      }).catch(e => console.error('[serveLedger] record failed:', e.message));
+      }, servedAtMs).catch(e => console.error('[serveLedger] record failed:', e.message)));
+      // BE-016 (R-A): once every write of this serve has settled, a health-shaped run reads consent
+      // again and, if it is no longer current, undoes exactly these writes. A mood-only run never
+      // reads it.
+      const healthShaped = hrAtStart || profileShaped || snapshotHR != null || serveBand != null
+        || watchActivity != null || _isBioKey(moodKey);
+      if (healthShaped) {
+        Promise.allSettled(writes).then(() => _stripIfConsentLapsed({
+          userId,
+          lane: 'generate',
+          sessionId: sessionDocId,
+          servedAt: new Date(servedAtMs),
+          moodKey,
+          stripActivity: hrAtStart || snapshotHR != null,
+        })).catch(() => {});
+      }
     };
 
     // ── Deterministic emotion-fallback (§5 Fork 4B) ───────────────────────────────
@@ -1166,6 +1199,8 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         // 24h health snapshot (sleep/HRV/body battery/readiness + current HR) so the
         // LLM weighs physical state against the chosen mood + activity. Best-effort.
         const biometricContext = await resolveBiometricContext(userId, state.stableHR);
+        // BE-016 (R-A): stored vitals now pull this run's targets toward a physiological band.
+        profileShaped = !!biometricContext;
         aiResult = await withTimeout(buildEmotionPlaylist({
           musicProfile,
           emotionTaps:  state.lastEmotionTaps,
@@ -1467,15 +1502,25 @@ async function _serveForBand(socket, state, userId, bioMoodKey, claim = null) {
   // Serve-on-play (§3.5): the buffer is now PLAYED, so its tracks enter the ledger here —
   // and ONLY here. A store/precompile never records serves (that would pollute the
   // exposure ledger with never-heard tracks and re-trigger the saturation Part 1 fixed).
+  const servedAtMs = Date.now();
+  const serveBand = bandFromHeartRate(state.stableHR);
+  const watchActivity = state.latestActivity ?? null;
   serveLedger.recordServes({
     userId,
     sessionId: String(reqId ?? ''),
     entries: tracks.map((t) => ({
       canonicalKey: t.canonicalKey ?? canonicalKey(t),
       moodKey: bioMoodKey,
-      bioState: { tempoBand: bandFromHeartRate(state.stableHR), activity: state.latestActivity ?? null },
+      bioState: { tempoBand: serveBand, activity: watchActivity },
     })),
-  }).catch((e) => console.error('[serveLedger] buffer-serve record failed:', e.message));
+  }, servedAtMs)
+    .catch((e) => console.error('[serveLedger] buffer-serve record failed:', e.message))
+    // BE-016 (R-A): a buffer serve is keyed by its band, so it is always health-shaped. Once the batch
+    // has settled, consent is read again; a withdrawal that ran meanwhile undoes this batch and keys.
+    .then(() => _stripIfConsentLapsed({
+      userId, lane: 'buffer-serve', sessionId: null, servedAt: new Date(servedAtMs), moodKey: bioMoodKey, stripActivity: false,
+    }))
+    .catch(() => {});
 }
 
 // ── Shared biometric reading handler ──────────────────────────────────────────
@@ -1609,6 +1654,33 @@ async function _compensateIfConsentLapsed(userId, key, lane) {
   if (outcome.startsWith('failed')) console.error(line);
   else console.warn(line);
 }
+
+// BE-016 (R-A) — the same race on a GENERATION's writes. A withdrawal writes its row first and then
+// erases the session health data before it answers, but a generation that was already running writes
+// its session, its serve batch and its buffer without waiting. A write that lands after the erasure is
+// followed by this read, which sees the withdrawal row (a primary read) and undoes exactly that run's
+// writes: its session by `_id`, its serve batch by `servedAt`, and its band-named cache keys. Not
+// current, stale, never granted or unreadable (fail closed) all undo; never user-wide, because on a
+// read error or a stale grant the grant behind the user's other rows may well stand.
+// Never throws and never calls captureException; its only report is one closed-token line, with the
+// withdrawal line's own user reference (`consent.js`). `stripped`: something of this run was removed;
+// `nothing`: the erasure had already reached it all; `failed`: some of it may remain, for the sweep.
+async function _stripIfConsentLapsed({ userId, lane, sessionId, servedAt, moodKey, stripActivity }) {
+  const { admitted, reason } = await healthProcessingVerdict(userId);
+  if (admitted) return;
+  let outcome;
+  try {
+    const { changed } = await undoRunWrites({ userId, sessionId, servedAt, moodKey, stripActivity });
+    outcome = changed > 0 ? 'stripped' : 'nothing';
+  } catch (e) {
+    outcome = `failed error=${_errorType(e)}`;
+  }
+  const line = `[sessionHealth] compensating-strip user=${userId} lane=${lane} reason=${reason} outcome=${outcome}`;
+  if (outcome.startsWith('failed')) console.error(line);
+  else console.warn(line);
+}
+
+const _isBioKey = (key) => typeof key === 'string' && key.startsWith('bio:');
 
 // An error's class name, or 'Error' — never its message.
 function _errorType(e) {
