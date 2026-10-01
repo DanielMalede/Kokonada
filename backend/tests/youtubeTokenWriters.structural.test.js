@@ -335,6 +335,120 @@ function checkAst(sources) {
   return { writerFindings, entryFindings, guardedWriters, guardedEntries };
 }
 
+// ── (e) whole-document writes to users (resilience N3) ────────────────────────
+//
+// A write that never names the field — a replaced or bulk-inserted user document, an aggregation
+// `$merge`/`$out` into users, a raw driver write — is invisible to (a)–(c). None exists today in
+// backend/app or backend/scripts; this keeps it so:
+//   • the User model is never asked to replace or bulk-write (replaceOne, findOneAndReplace,
+//     findByIdAndReplace, insertMany, bulkWrite), never handed its raw driver collection
+//     (`User.collection`, `User.db`), and never escapes its binding (passed on, aliased, put in a
+//     list) — so `insertManyAccounted(User, docs)` and the like are caught too;
+//   • the model is never fetched by name (`mongoose.model('User')`) outside its own file;
+//   • no write method is called on a raw driver collection at all (`x.collection(…)`, a model's
+//     `.collection`, a variable holding one, or a helper returning one);
+//   • no aggregation stage `$merge`/`$out` targets users, or a target that cannot be read statically.
+
+const USER_MODEL = path.join(BACKEND, 'app/models/User.js');
+const USER_FORBIDDEN_METHODS = new Set(['replaceOne', 'findOneAndReplace', 'findByIdAndReplace', 'insertMany', 'bulkWrite']);
+const USER_RAW_HANDLES = new Set(['collection', 'db']);
+const RAW_WRITE_METHODS = new Set([
+  'insertOne', 'insertMany', 'replaceOne', 'findOneAndReplace', 'bulkWrite', 'updateOne', 'updateMany',
+  'findOneAndUpdate', 'deleteOne', 'deleteMany', 'findOneAndDelete', 'drop', 'rename',
+]);
+
+function resolvesTo(node, file, target) {
+  if (node?.type !== 'CallExpression' || node.callee.type !== 'Identifier' || node.callee.name !== 'require') return false;
+  const spec = literalName(node.arguments[0]);
+  if (!spec || !spec.startsWith('.')) return false;
+  const resolved = path.resolve(path.dirname(path.join(BACKEND, file)), spec);
+  return resolved === target || `${resolved}.js` === target;
+}
+
+/** Is `node` an expression that yields a raw driver collection? */
+function isRawCollection(node, rawNames, rawHelpers) {
+  if (!node) return false;
+  if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression' && propertyName(node.callee) === 'collection') return true;
+  if (node.type === 'MemberExpression' && !node.computed && node.property.name === 'collection') return true;
+  if (node.type === 'Identifier' && rawNames.has(node.name)) return true;
+  if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && rawHelpers.has(node.callee.name)) return true;
+  return false;
+}
+
+function stageTargetsUsers(value) {
+  const literal = literalName(value);
+  if (literal !== null) return literal === 'users' ? 'users' : null;
+  if (value?.type === 'ObjectExpression') {
+    const into = value.properties.find((p) => p.type === 'Property' && propertyName({ computed: p.computed, property: p.key }) === 'into');
+    if (!into) return 'unreadable';
+    const intoLiteral = literalName(into.value);
+    if (intoLiteral !== null) return intoLiteral === 'users' ? 'users' : null;
+    if (into.value.type === 'ObjectExpression') {
+      const coll = into.value.properties.find((p) => p.type === 'Property' && propertyName({ computed: p.computed, property: p.key }) === 'coll');
+      const collLiteral = literalName(coll?.value);
+      if (collLiteral !== null) return collLiteral === 'users' ? 'users' : null;
+    }
+  }
+  return 'unreadable';
+}
+
+function checkUserDocumentWrites(sources) {
+  const findings = [];
+  const seen = { userBindingFiles: [], rawHelpers: [] };
+  for (const [file, src] of Object.entries(sources)) {
+    const ast = parseSource(src);
+    const isUserModel = path.join(BACKEND, file) === USER_MODEL;
+    const userNames = new Set();
+    const rawNames = new Set();
+    const rawHelpers = new Set();
+    walkAst(ast, (node) => {
+      if (node.type !== 'VariableDeclarator' || node.id.type !== 'Identifier') return;
+      if (resolvesTo(node.init, file, USER_MODEL)) userNames.add(node.id.name);
+      if (isRawCollection(node.init, rawNames, rawHelpers)) rawNames.add(node.id.name);
+      const fn = node.init;
+      if (fn && FUNCTION_TYPES.has(fn.type) && fn.body.type !== 'BlockStatement' && isRawCollection(fn.body, rawNames, rawHelpers)) rawHelpers.add(node.id.name);
+    });
+    if (userNames.size) seen.userBindingFiles.push(file);
+    for (const h of rawHelpers) seen.rawHelpers.push(`${file}:${h}`);
+
+    walkAst(ast, (node, ancestors) => {
+      const parent = ancestors[ancestors.length - 1];
+      const at = { file, line: node.loc.start.line };
+
+      if (!isUserModel && node.type === 'CallExpression' && node.callee.type === 'MemberExpression'
+        && propertyName(node.callee) === 'model' && node.arguments.length === 1 && literalName(node.arguments[0]) === 'User') {
+        findings.push({ ...at, kind: 'User model fetched by name' });
+      }
+      if (node.type === 'VariableDeclarator' && node.id.type === 'ObjectPattern' && resolvesTo(node.init, file, USER_MODEL)) {
+        findings.push({ ...at, kind: 'User model destructured' });
+      }
+      if (node.type === 'Identifier' && userNames.has(node.name)) {
+        if (parent?.type === 'VariableDeclarator' && parent.id === node) return;
+        if (parent?.type === 'MemberExpression' && parent.property === node && !parent.computed) return;
+        if (parent?.type === 'Property' && parent.key === node && !parent.shorthand) return;
+        if (parent?.type === 'NewExpression' && parent.callee === node) return;
+        if (parent?.type === 'MemberExpression' && parent.object === node) {
+          const name = propertyName(parent);
+          if (name === null) findings.push({ ...at, kind: 'computed access on the User model' });
+          else if (USER_FORBIDDEN_METHODS.has(name)) findings.push({ ...at, kind: `User.${name}` });
+          else if (USER_RAW_HANDLES.has(name)) findings.push({ ...at, kind: `User.${name} (raw driver access)` });
+          return;
+        }
+        findings.push({ ...at, kind: 'User model escapes its binding' });
+      }
+      if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression'
+        && RAW_WRITE_METHODS.has(propertyName(node.callee)) && isRawCollection(node.callee.object, rawNames, rawHelpers)) {
+        findings.push({ ...at, kind: `raw driver ${propertyName(node.callee)}` });
+      }
+      if (node.type === 'Property' && ['$merge', '$out'].includes(propertyName({ computed: node.computed, property: node.key }))) {
+        const target = stageTargetsUsers(node.value);
+        if (target) findings.push({ ...at, kind: `${propertyName({ computed: node.computed, property: node.key })} into ${target}` });
+      }
+    });
+  }
+  return { findings, ...seen };
+}
+
 // ── The pins ──────────────────────────────────────────────────────────────────
 
 describe('YouTube token writers — only the two sealed writers can store a youtubeMusicToken (HX-3 T2)', () => {
@@ -558,6 +672,63 @@ describe('YouTube token writers, by syntax tree — the seal guards every write 
         'module.exports = { exchangeCode, relink };',
       ].join('\n');
       expect(run({ 'app/services/youtube.js': svc }).entryFindings).toEqual([{ file: 'app/services/youtube.js', line: 2, kind: 'used inside youtube.js', name: 'exchangeCode' }]);
+    });
+  });
+});
+
+describe('no whole-document write can reach the users collection (resilience N3)', () => {
+  const real = checkUserDocumentWrites(scannedSources());
+
+  it('(e) there is none in backend/app or backend/scripts: no replace or bulk write on User, no raw users collection, no raw driver write, no $merge/$out into users', () => {
+    expect(real.findings).toEqual([]);
+  });
+
+  it('(e) sees what it guards (the rule is not vacuous): the User bindings and the raw-collection helpers in the scripts', () => {
+    expect(real.userBindingFiles.length).toBeGreaterThan(10);
+    expect(real.userBindingFiles).toEqual(expect.arrayContaining([CONTROLLER, 'app/middleware/auth.js', 'scripts/gdpr-delete.js']));
+    expect(real.rawHelpers).toEqual(expect.arrayContaining(['scripts/hx1SurvivorCount.js:col', 'scripts/sessionHealthCount.js:col']));
+  });
+
+  describe('each part of (e) catches what it is for (planted violations)', () => {
+    const HEAD = [
+      "const mongoose = require('mongoose');",
+      "const User = require('../app/models/User');",
+      "const { insertManyAccounted } = require('../app/services/wearable/insertAccounted');",
+      'const db = mongoose.connection.db;',
+    ].join('\n');
+    const kinds = (body) => checkUserDocumentWrites({ 'scripts/x.js': `${HEAD}\n${body}` }).findings.map((f) => f.kind);
+
+    it('field-level and read-only uses are clean', () => {
+      expect(kinds([
+        'async function ok(id, docs) {',
+        '  await User.findById(id);',
+        "  await User.updateOne({ _id: id }, { $set: { musicProvider: 'spotify' } });",
+        "  const u = new User({ email: 'a@b.c' }); await u.save();",
+        "  await db.collection('users').countDocuments({});",
+        "  await User.aggregate([{ $match: {} }, { $merge: { into: 'reports' } }]);",
+        '}',
+      ].join('\n'))).toEqual([]);
+    });
+
+    it.each([
+      ['User.replaceOne with a copied document', 'User.replaceOne({ _id: old._id }, old);', 'User.replaceOne'],
+      ['User.findOneAndReplace', 'User.findOneAndReplace({ _id: id }, doc);', 'User.findOneAndReplace'],
+      ['User.insertMany from a backup', 'User.insertMany(backup);', 'User.insertMany'],
+      ['User.bulkWrite', 'User.bulkWrite([{ insertOne: { document: doc } }]);', 'User.bulkWrite'],
+      ['the raw collection off the model', 'User.collection.insertOne(doc);', 'User.collection (raw driver access)'],
+      ['the model handed to a bulk helper', 'insertManyAccounted(User, docs);', 'User model escapes its binding'],
+      ['the model aliased', 'const U = User; U.insertMany(docs);', 'User model escapes its binding'],
+      ['a computed method on the model', "User['replace' + 'One']({ _id }, doc);", 'computed access on the User model'],
+      ['the model fetched by name', "mongoose.model('User').insertMany(docs);", 'User model fetched by name'],
+      ['a raw users write', "db.collection('users').replaceOne({ _id }, doc);", 'raw driver replaceOne'],
+      ['a raw write through a variable', "const users = db.collection('users'); users.insertMany(docs);", 'raw driver insertMany'],
+      ['a raw write through a helper', "const col = (name) => db.collection(name); col('users').updateMany({}, { $set: s });", 'raw driver updateMany'],
+      ['$merge into users', "User.aggregate([{ $merge: 'users' }]);", '$merge into users'],
+      ['$merge { into: users }', "Other.aggregate([{ $merge: { into: 'users', whenMatched: 'replace' } }]);", '$merge into users'],
+      ['$out to users', "Other.aggregate([{ $out: 'users' }]);", '$out into users'],
+      ['$merge to an unreadable target', 'Other.aggregate([{ $merge: { into: target } }]);', '$merge into unreadable'],
+    ])('%s is caught', (_label, body, kind) => {
+      expect(kinds(body)).toContain(kind);
     });
   });
 });
