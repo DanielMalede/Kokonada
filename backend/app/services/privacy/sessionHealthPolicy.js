@@ -119,7 +119,8 @@ function latestIsWithdrawn(history) {
  *     granted is never erased here (DAN-016 and counsel decide those rows).
  *   • heart-rate data: every row created before `heartRateBefore`, which is `now` while the latest
  *     status is withdrawn, or the first grant after the latest withdrawal once the user re-granted.
- *   • targets (P1): every row created before the latest withdrawal.
+ *   • targets (P1), and the activity on a session past the trim (DT-1b′ O1): every row created before
+ *     the latest withdrawal.
  * Both cutoffs are strict and never later than `now` (the moment the history was read), so a grant
  * that lands during an erasure can never lose a lawful row.
  */
@@ -171,7 +172,7 @@ function erasureSteps(userId, { heartRateBefore, targetsBefore }) {
       name: 'trimmedActivities', model: 'PlaylistSession', count: 'sessions',
       filter: {
         userId,
-        createdAt: beforeHr,
+        createdAt: { $lt: targetsBefore }, // only sessions made before the latest withdrawal: after it the server holds no watch activity (_withholdBiometrics)
         moodKey: { $not: BIO_KEY_WITH_BAND },
         'biometricSnapshot.heartRate': null,
         contextPrompt: null,

@@ -152,6 +152,24 @@ describe('the sweep finishes the backlog with the withdrawal\'s own windows (K1)
     expect(historyReads).not.toHaveBeenCalled();
   });
 
+  it('B1 (round 1): a chip on a mood session made AFTER the withdrawal survives the trim and every later sweep', async () => {
+    // After a withdrawal the server holds no watch activity (_withholdBiometrics), so the activity on a
+    // later mood session is the listener's own chip, even a word a watch could also write.
+    const u = await listener('b1');
+    await consentAt(u, 'granted', ago(60 * DAY));
+    await consentAt(u, 'withdrawn', ago(40 * DAY));
+    const later = await moodSession(u, ago(35 * DAY), { contextPrompt: null, biometricSnapshot: { heartRate: null, activity: 'running' } });
+    const { countSessionHealth } = require('../scripts/sessionHealthCount');
+    const count = async () => (await countSessionHealth(mongoose.connection.db, { operatorIds: [String(u._id)], now: new Date(), redis: null })).lines;
+
+    expect((await count()).pop()).toBe('RESULT all-zero');
+    expect(await sweepOwedHealthErasures()).toEqual({ count: 0, failed: 0 });
+    expect(await sweepOwedHealthErasures()).toEqual({ count: 0, failed: 0 });
+
+    expect((await raw(later)).biometricSnapshot.activity).toBe('running');
+    expect((await count()).pop()).toBe('RESULT all-zero');
+  });
+
   it('is idempotent: the second run finds nothing owed', async () => {
     const u = await listener('e');
     await consentAt(u, 'granted', ago(20 * DAY));

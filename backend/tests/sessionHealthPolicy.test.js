@@ -247,8 +247,10 @@ describe('erasureSteps — what each step clears, in order', () => {
       const clock = s.model === 'ServeEvent' ? s.filter.servedAt : s.filter.createdAt;
       expect(Object.keys(clock)).toEqual(['$lt']);
     }
-    expect(byName.targets.filter.createdAt.$lt).toBe(w.targetsBefore);
-    for (const name of ['heartSessions', 'heartRates', 'trimmedActivities']) expect(byName[name].filter.createdAt.$lt).toBe(w.heartRateBefore);
+    // The targets and the trimmed sessions' activities are bounded by the latest withdrawal (B1, round 1):
+    // after it the server holds no watch activity, so an activity on a later session is the listener's chip.
+    for (const name of ['targets', 'trimmedActivities']) expect(byName[name].filter.createdAt.$lt).toBe(w.targetsBefore);
+    for (const name of ['heartSessions', 'heartRates']) expect(byName[name].filter.createdAt.$lt).toBe(w.heartRateBefore);
     for (const name of ['serveBioKeys', 'serveBands']) expect(byName[name].filter.servedAt.$lt).toBe(w.heartRateBefore);
   });
 
