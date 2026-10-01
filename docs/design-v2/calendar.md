@@ -16,6 +16,10 @@ amendments:
     replaced: '`YOUTUBE_CLIENT_ID` is not set in production, so its clock is moot.'
     with: 'Not dormant by configuration: `youtube.js` falls back to `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (set in production), and `YOUTUBE_REDIRECT_URI` was present until 2026-10-01, so the backend treated YouTube as configured. Sealed in code by DEC-122 (HX-3); production counts all zero at 2026-10-01T14:05Z (DAN-046).'
     source: 'HX-3 re-scope verdicts, compliance-auditor, 2026-10-01 (§6, the "dormant" premise; TASKS OPS-091)'
+  - field: 'Orchestrator''s production check (2026-09-29)'
+    replaced: '`YOUTUBE_CLIENT_ID` is not set.'
+    with: '`YOUTUBE_CLIENT_ID` is not set (the `GOOGLE_*` fallback made this moot; see C1).'
+    source: 'HX-3 round-1 review, compliance-auditor, 2026-10-01 (§3, the optional annotation of calendar.md:30)'
 ---
 
 # External-dates calendar (plan step L1), 2026-09-29
@@ -27,7 +31,7 @@ amendments:
 - `LLM_API_KEY` is a Groq key (`gsk_`).
 - `TEMPO_CRITIC_MODEL` is not set.
 - `DISCOVERY_CAPTION_LLM` is `true`.
-- `YOUTUBE_CLIENT_ID` is not set.
+- `YOUTUBE_CLIENT_ID` is not set (the `GOOGLE_*` fallback made this moot; see C1).
 
 The logs of the current deployment start 2026-09-29 12:00 and contain no LLM calls. Older logs cannot be retrieved. Groq's deprecation page recommends `openai/gpt-oss-20b` as the replacement. Whether this project is affected depends on the owner's Groq tier.
 
