@@ -87,7 +87,7 @@ afterEach(async () => {
   if (t) await ReactTestRenderer.act(async () => { t.unmount(); });
 });
 
-describe('Profile — a grant from "Sync now" carries the build and the language it was given in', () => {
+describe('Profile — a grant from "Sync now" carries the build and the device’s language setting', () => {
   it('the grant body has appVersion and the device locale as a language tag, and the OS sheet follows', async () => {
     jest.spyOn(I18nManager, 'getConstants').mockReturnValue({ isRTL: false, doLeftAndRightSwapInRTL: true, localeIdentifier: 'en_GB' });
     await ReactTestRenderer.act(async () => {
@@ -101,7 +101,7 @@ describe('Profile — a grant from "Sync now" carries the build and the language
     await flush();
     const grants = mockServer.posts.filter((p) => p.route === '/api/consent');
     expect(grants).toHaveLength(1);
-    expect(grants[0].body).toEqual(expect.objectContaining({ appVersion: APP_VERSION, locale: 'en-GB', clientVersion: 1 }));
+    expect(grants[0].body).toEqual(expect.objectContaining({ appVersion: APP_VERSION, locale: 'en', clientVersion: 1 }));
     expect(requestHealthPermissions).toHaveBeenCalledTimes(1);
   });
 });

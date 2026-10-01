@@ -94,14 +94,15 @@ export async function fetchConsentStatus(): Promise<ApiResult<ConsentStatus>> {
 // POST /api/consent — records a granted consent at the current version. Sends the exact
 // dataCategories the ConsentSheet displayed. The 201 echoes the fresh canonical status, so the
 // caller confirms the new state in ONE round trip (no follow-up GET needed).
-// `provenance` (MB-062, REG-034) is the build and language the grant was given in, read on the
+// `provenance` (MB-062, REG-034) is the build and the device's language setting, read on the
 // device by the screen offering the grant (grantProvenance()); the server stores both on the record.
+// It is spread first, so it can never override the consent fields it travels with.
 export async function grantConsent(provenance?: GrantProvenance): Promise<ApiResult<ConsentStatus>> {
   return guardShape(await apiPost<ConsentStatus>('/api/consent', {
+    ...provenance,
     purpose: CONSENT_PURPOSE,
     dataCategories: [...CONSENT_DATA_CATEGORIES],
     clientVersion: CONSENT_SCREEN_VERSION,
-    ...provenance,
   }));
 }
 

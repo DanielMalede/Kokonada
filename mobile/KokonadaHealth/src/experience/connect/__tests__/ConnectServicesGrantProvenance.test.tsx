@@ -85,12 +85,12 @@ async function grantThroughConnect() {
   return mockServer.posts.filter((p) => p.route === '/api/consent');
 }
 
-describe('Connect — a grant carries the build and the language it was given in', () => {
+describe('Connect — a grant carries the build and the device’s language setting', () => {
   it('the grant body has appVersion and the device locale as a language tag, and the flow completes', async () => {
     jest.spyOn(I18nManager, 'getConstants').mockReturnValue({ isRTL: false, doLeftAndRightSwapInRTL: true, localeIdentifier: 'he_IL' });
     const grants = await grantThroughConnect();
     expect(grants).toHaveLength(1);
-    expect(grants[0].body).toEqual(expect.objectContaining({ appVersion: APP_VERSION, locale: 'he-IL', clientVersion: 1 }));
+    expect(grants[0].body).toEqual(expect.objectContaining({ appVersion: APP_VERSION, locale: 'he', clientVersion: 1 }));
     expect(requestHealthPermissions).toHaveBeenCalledTimes(1); // the OS sheet follows the acked grant, as before
   });
 
