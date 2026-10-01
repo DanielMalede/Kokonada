@@ -11,10 +11,10 @@
 // (legalSingleSource.test.ts, DEC-117).
 
 // DEC-116: the owner's final address. A static https address with no query, fragment or user, so
-// opening it tells the host nothing but the reader's IP address.
+// the app adds nothing to the request; the host still receives what any browser sends (GitHub Pages logs the visitor's IP address).
 export const PRIVACY_POLICY_URL = 'https://kokonada.github.io/privacy/';
 
-// The owner's term. The hosted page carries the same title.
+// The owner's term. The hosted page must carry the same title (DAN-015).
 export const PRIVACY_POLICY_LABEL = 'Privacy policy';
 
 // The screen-reader hint: the link leaves the app.
@@ -24,7 +24,7 @@ export const PRIVACY_POLICY_HINT = 'Opens in your browser';
 // link is never a dead end.
 export const PRIVACY_POLICY_OPEN_FAILED = 'We couldn’t open a browser. It’s at:';
 
-// DEC-117: the consent sheet shows its link only once the policy page is hosted (DAN-015). Sign-in
-// and the Vault show theirs now. Turning this on changes the rendered consent screen; the tripwire
-// in legalLinks.test.ts lists what must come with it.
+// DEC-117: the consent sheet shows its link only from the build that turns this on, which must carry
+// everything the tripwire in legalLinks.test.ts lists (the hosted page is one item of several). Sign-in
+// and the Vault show theirs now. Keep this a build-time constant: the record names the sheet by build.
 export const PRIVACY_POLICY_HOSTED: boolean = false;

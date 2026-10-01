@@ -8,6 +8,7 @@ import {
   PRIVACY_POLICY_OPEN_FAILED,
   PRIVACY_POLICY_HOSTED,
 } from '../legalLinks';
+import { APP_VERSION_CODE } from '../../appVersion';
 
 // HX DT-7 (HX-5): the privacy-policy address has ONE value, spelled in exactly two files: the TS
 // constant the app's links import, and the Android string resource the Health Connect rationale
@@ -116,15 +117,28 @@ describe('one name for the policy on every surface', () => {
   });
 });
 
-// TRIPWIRE (DEC-117, the regulatory brief's O2 conditions). The consent sheet renders its link only
-// when this flag says the policy page is hosted. It stays false until DAN-015 hosts the page. Turning
-// it on changes the rendered consent screen, so the same change must bring, and this test must be
-// edited to name: the hosted page answering 200 at the address; a build identity (APP_VERSION) that
-// no earlier build carried, so the consent record shows which grants saw the link (MB-062); the
-// REG-034 archive entry for that build's rendered sheet, per language and theme, at font 1.0 and
-// 2.0; and the owner's DEC.
+// TRIPWIRE (DEC-117, the regulatory brief's O2 conditions, §3 item 13). The consent sheet renders its
+// link only when this flag is true. Keep it a build-time constant: the consent record names the
+// rendered sheet only through the build (APP_VERSION), so no build may both show and hide the link
+// (no runtime probe, no remote config). Turning it on changes the rendered consent screen, so the same
+// change must bring, and this test must be edited to name:
+//   - the hosted page answering 200 at the address (DAN-015), titled PRIVACY_POLICY_LABEL, and
+//     reviewed against the sheet's own statements so the two do not conflict (WP260 para 35);
+//   - an APP_VERSION_CODE above every code any flag-off build has carried, with a test that the flag
+//     is on exactly from that code, so the record shows which grants saw the link (MB-062);
+//   - REG-034 archive entries for the last flag-off sheet and the first flag-on sheet, per language,
+//     layout direction and theme, at font 1.0 and 2.0, the failed-open state included;
+//   - a dated history of the policy page, so a grant's time names the policy then live (Reading C,
+//     counsel's CQ5);
+//   - DEC-117 on main, naming the readings the flip closes (B(i) and D).
 describe('the consent-sheet link waits for the hosted page', () => {
   it('PRIVACY_POLICY_HOSTED is false until DAN-015 hosts the page', () => {
     expect(PRIVACY_POLICY_HOSTED).toBe(false);
+  });
+
+  // Owner's ruling: versionCode rises at the flip and only then. The highest code any flag-off build carried; it only rises.
+  const LAST_FLAG_OFF_VERSION_CODE = 1;
+  it('the sheet link ships exactly when versionCode is above every flag-off build', () => {
+    expect(APP_VERSION_CODE > LAST_FLAG_OFF_VERSION_CODE).toBe(PRIVACY_POLICY_HOSTED);
   });
 });
