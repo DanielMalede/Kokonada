@@ -191,6 +191,36 @@ describe('rewardIngest.worker — the write side', () => {
     expect(rewardRepo.recordBucketReward).not.toHaveBeenCalled();
   });
 
+  // J1 (BE-074). BullMQ keeps a failed job's reason in the queue's events stream even after the job
+  // itself is deleted (moveToFinished-14.lua XADDs it), and a driver message can quote the user and
+  // the bucket: the unique key the upserts write under is {userId, bucket.*}. So what the worker
+  // throws names the error's type and nothing else.
+  test('a failed write is rethrown with the error type only: no user id, no band, no driver text', async () => {
+    const driver = Object.assign(
+      new Error('E11000 duplicate key error collection: kokonada.rewardevents index: userId_1_bucket.stateDomain_1 dup key: { userId: ObjectId(\'aaaaaaaaaaaaaaaaaaaaaaaa\'), bucket.stateDomain: "stress", bucket.targetBand: "resting", bucket.hourBin: 3 }'),
+      { name: 'MongoServerError', code: 11000 },
+    );
+    rewardRepo.recordBucketReward.mockRejectedValueOnce(driver);
+
+    const err = await rewardIngestWorker.process(job({
+      v: 1, userId: 'aaaaaaaaaaaaaaaaaaaaaaaa', bucket: { stateDomain: 'stress', targetBand: 'resting', hourBin: 3 }, reward: 0.42, at: AT,
+    })).then(() => null, (e) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe('reward-ingest write failed (MongoServerError)');
+    expect(err.cause).toBeUndefined();
+    const everything = [String(err), err.stack, JSON.stringify(err), ...Object.getOwnPropertyNames(err).map((k) => String(err[k]))].join('\n');
+    for (const leak of ['aaaaaaaaaaaaaaaaaaaaaaaa', 'resting', 'stress', 'E11000', 'dup key']) expect(everything).not.toContain(leak);
+  });
+
+  test('an error whose name is not a plain class name is reported as Error', async () => {
+    rewardRepo.recordTrackOutcome.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'Mongo aaaaaaaaaaaaaaaaaaaaaaaa' }));
+
+    await expect(rewardIngestWorker.process(job({
+      v: 1, userId: 'u1', bucket: null, reward: 0, posterior: { recordingKey: 'mbid:9f4a', alpha: 1, beta: 0 }, at: AT,
+    }))).rejects.toThrow(/^reward-ingest write failed \(Error\)$/);
+  });
+
   test('an empty or malformed job writes nothing rather than throwing', async () => {
     const nothing = { bucket: false, posterior: false, novelty: false, weights: false };
     await expect(rewardIngestWorker.process(undefined)).resolves.toEqual(nothing);

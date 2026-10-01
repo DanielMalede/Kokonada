@@ -157,6 +157,25 @@ describeRealRedis('J1 — the job queue keeps no job that has run', (url) => {
     expect(await redis.zcard(`${R}completed`)).toBe(0);
   });
 
+  // T3. Deleting the failed job does not delete its reason: BullMQ XADDs it to the events stream in the
+  // same script (moveToFinished-14.lua), and that stream keeps about 10,000 entries.
+  it('(T3) a failed reward job leaves no user id, band or driver text in the events stream', async () => {
+    repo.failure = e11000();
+    const worker = startRewardWorker();
+    const failed = once(worker, 'failed');
+
+    await dispatchReward({ userId: USER_A, play: goodPlay(), atMs: AT });
+    await failed;
+
+    const entries = await redis.xrange(`${R}events`, '-', '+');
+    const field = (fields, name) => fields[fields.indexOf(name) + 1];
+    const failures = entries.filter(([, fields]) => field(fields, 'event') === 'failed');
+    expect(failures).toHaveLength(1);
+    expect(field(failures[0][1], 'failedReason')).toBe('reward-ingest write failed (MongoServerError)');
+    const stream = JSON.stringify(entries);
+    for (const leak of [USER_A, 'resting', 'stress', 'E11000', 'dup key']) expect(stream).not.toContain(leak);
+  });
+
   // Every other queue: a job a producer adds carries the queue's defaults, so it is deleted even by a
   // worker that sets nothing (here a bare BullMQ worker, so only the job's own options can act).
   it.each([

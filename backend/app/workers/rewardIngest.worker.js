@@ -3,6 +3,9 @@
 const rewardRepo = require('../repositories/rewardRepo');
 const personalWeightsRepo = require('../repositories/personalWeightsRepo');
 
+// An error's class name, or 'Error': never its message (the house rule, as in services/privacy/consent.js).
+const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
+
 /**
  * W4-011 · the write side of the feedback loop.
  *
@@ -28,6 +31,18 @@ async function process(job) {
   const when = typeof at === 'number' && Number.isFinite(at) ? new Date(at) : null;
   if (!when || Number.isNaN(when.valueOf())) return { bucket: false, posterior: false, novelty: false, weights: false };
 
+  try {
+    return await write({ userId, bucket, reward, posterior, novelty, weightStep, when });
+  } catch (err) {
+    // J1 (BE-074). What a job throws becomes its failure reason, and BullMQ keeps that reason in the
+    // queue's events stream after the job itself is deleted (moveToFinished-14.lua). A driver message
+    // can quote the user and the bucket (the upserts write under a unique key on {userId, bucket.*}),
+    // so only the error's type crosses: no message, and no `cause` for anything to serialise.
+    throw new Error(`reward-ingest write failed (${errorType(err)})`);
+  }
+}
+
+async function write({ userId, bucket, reward, posterior, novelty, weightStep, when }) {
   const bucketWritten = bucket
     ? await rewardRepo.recordBucketReward({ userId, bucket, reward, at: when })
     : false;
