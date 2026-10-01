@@ -20,6 +20,10 @@ amendments:
     replaced: '`YOUTUBE_CLIENT_ID` is not set.'
     with: '`YOUTUBE_CLIENT_ID` is not set (the `GOOGLE_*` fallback made this moot; see C1).'
     source: 'HX-3 round-1 review, compliance-auditor, 2026-10-01 (§3, the optional annotation of calendar.md:30)'
+  - field: 'C1, Note'
+    replaced: 'Not dormant by configuration: `youtube.js` falls back to `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (set in production), and `YOUTUBE_REDIRECT_URI` was present until 2026-10-01, so the backend treated YouTube as configured. Sealed in code by DEC-122 (HX-3); production counts all zero at 2026-10-01T14:05Z (DAN-046).'
+    with: 'Not dormant by configuration: `youtube.js` falls back to `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, and `GOOGLE_CLIENT_SECRET` and `YOUTUBE_REDIRECT_URI` were both set in production until 2026-10-01 (deleted at about 17:10Z, DAN-046), so the backend treated YouTube as configured until then. Sealed in code by DEC-122 (HX-3); the five DAN-046 P0 counts were zero at 2026-10-01T14:05Z.'
+    source: 'HX-3 DEC-113 verification pass, compliance-auditor, 2026-10-01'
 ---
 
 # External-dates calendar (plan step L1), 2026-09-29
@@ -197,7 +201,7 @@ The logs of the current deployment start 2026-09-29 12:00 and contain no LLM cal
 ## C. Clocks triggered by a Kokonada event
 
 **C1.** Google OAuth clocks. In "Testing" status, refresh tokens expire after 7 days. An unused client is deleted after 6 months.
-- **Note:** Not dormant by configuration: `youtube.js` falls back to `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (set in production), and `YOUTUBE_REDIRECT_URI` was present until 2026-10-01, so the backend treated YouTube as configured. Sealed in code by DEC-122 (HX-3); production counts all zero at 2026-10-01T14:05Z (DAN-046).
+- **Note:** Not dormant by configuration: `youtube.js` falls back to `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, and `GOOGLE_CLIENT_SECRET` and `YOUTUBE_REDIRECT_URI` were both set in production until 2026-10-01 (deleted at about 17:10Z, DAN-046), so the backend treated YouTube as configured until then. Sealed in code by DEC-122 (HX-3); the five DAN-046 P0 counts were zero at 2026-10-01T14:05Z.
 - **Action:** check the publishing status, and make sure someone reads the Cloud contact email.
 - **Severity:** LOW–MEDIUM.
 - **Calendar:** NO.
