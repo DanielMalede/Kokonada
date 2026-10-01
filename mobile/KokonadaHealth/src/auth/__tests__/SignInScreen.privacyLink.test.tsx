@@ -122,7 +122,7 @@ describe('SignInScreen — the privacy-policy link', () => {
   it('frames nothing as agreed to: no "agree", "accept" or "By continuing" anywhere on sign-in', async () => {
     (Platform as any).OS = 'android';
     const tree = await render();
-    const words = tree.root.findAll((n) => n.type === 'Text').map((t) => String(t.props.children)).join(' ');
+    const words = tree.root.findAll((n) => (n.type as unknown) === 'Text').map((t) => String(t.props.children)).join(' ');
     expect(words).not.toMatch(/agree|accept|by continuing/i);
   });
 });

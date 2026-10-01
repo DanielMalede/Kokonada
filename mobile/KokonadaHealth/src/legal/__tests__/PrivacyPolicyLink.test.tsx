@@ -45,7 +45,7 @@ async function render(el: React.ReactElement = <PrivacyPolicyLink />) {
 const byTestId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
   tree.root.findAll((n) => n.props.testID === id && n.parent?.props?.testID !== id);
 const link = (tree: ReactTestRenderer.ReactTestRenderer) => byTestId(tree, 'privacy-policy-link')[0];
-const hostTexts = (node: ReactTestRenderer.ReactTestInstance) => node.findAll((n) => n.type === 'Text');
+const hostTexts = (node: ReactTestRenderer.ReactTestInstance) => node.findAll((n) => (n.type as unknown) === 'Text');
 const flat = (style: unknown) => (StyleSheet.flatten(style as any) ?? {}) as Record<string, any>;
 const press = async (tree: ReactTestRenderer.ReactTestRenderer) => {
   await ReactTestRenderer.act(async () => { link(tree).props.onPress(); });
@@ -68,7 +68,7 @@ describe('PrivacyPolicyLink — what assistive technology and the reader are tol
   it('is never a button, carries no image, no brand word and no "agree" framing', async () => {
     const tree = await render();
     expect(tree.root.findAll((n) => n.props.accessibilityRole === 'button')).toHaveLength(0);
-    expect(tree.root.findAll((n) => n.type === 'Image')).toHaveLength(0);
+    expect(tree.root.findAll((n) => (n.type as unknown) === 'Image')).toHaveLength(0);
     expect(texts(tree)).not.toMatch(/google|agree|accept|consent/i);
   });
 });

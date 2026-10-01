@@ -22,12 +22,13 @@ import { PRIVACY_POLICY_HOSTED } from '../../../legal/legalLinks';
 // style and word, in both faces and all four wall states — because a grant is evidence of what the
 // grantor was shown (GDPR Art. 7(1); EDPB 05/2020 para 108; REG-034).
 //
-// The reference is __fixtures__/consentSheetMain.json, recorded from ConsentSheet.tsx as it is on
+// The reference is __tests__/fixtures/consentSheetMain.json (app root), recorded from ConsentSheet.tsx as it is on
 // main (fd68094) before HX-5 touched it. Re-record it ONLY together with a recorded decision that
 // changes the consent screen (a consent-version bump, UI-012; or the flag flip, DEC-117):
 //   KOKONADA_RECORD_CONSENT_SHEET=1 ./node_modules/.bin/jest src/experience/profile/__tests__/ConsentSheet.privacyLink.test.tsx
 
-const FIXTURE = path.join(__dirname, '__fixtures__', 'consentSheetMain.json');
+// Outside src/: the design-system gate admits only lintable source there.
+const FIXTURE = path.resolve(__dirname, '../../../../__tests__/fixtures/consentSheetMain.json');
 const RECORD = process.env.KOKONADA_RECORD_CONSENT_SHEET === '1';
 const FACES: ThemeName[] = ['light', 'dark'];
 const WALL_STATES = ['consent_required', 'consent_stale', 'submitting_grant', 'submit_error'] as const;

@@ -25,7 +25,8 @@ import { PRIVACY_POLICY_HOSTED, PRIVACY_POLICY_URL } from '../../../legal/legalL
 // and leaves the flow where it was (Play User Data policy: navigation away is not consent). Apart
 // from the link and the designer's scroll-cue padding, the sheet is node for node main's.
 
-const FIXTURE = path.join(__dirname, '__fixtures__', 'consentSheetMain.json');
+// Outside src/: the design-system gate admits only lintable source there.
+const FIXTURE = path.resolve(__dirname, '../../../../__tests__/fixtures/consentSheetMain.json');
 const MAIN: Record<string, Record<string, any>> = JSON.parse(fs.readFileSync(FIXTURE, 'utf8')).faces;
 const FACES: ThemeName[] = ['light', 'dark'];
 const WALL_STATES = ['consent_required', 'consent_stale', 'submitting_grant', 'submit_error'] as const;
