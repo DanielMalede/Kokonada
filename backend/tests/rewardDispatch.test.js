@@ -26,7 +26,9 @@ const { enqueue } = require('../app/queues/queue');
 const rewardRepo = require('../app/repositories/rewardRepo');
 const { QUEUES } = require('../app/queues/definitions');
 const { DEFAULT_PROCESSORS } = require('../app/workers/index');
-const { dispatchReward, FEEDBACK_FLAG, REWARD_JOB_KEYS } = require('../app/services/learning/rewardDispatch');
+const {
+  dispatchReward, FEEDBACK_FLAG, REWARD_JOB_KEYS, REWARD_JOB_OPTIONS,
+} = require('../app/services/learning/rewardDispatch');
 const rewardIngestWorker = require('../app/workers/rewardIngest.worker');
 
 const AT = 1_700_000_000_000;
@@ -81,6 +83,17 @@ describe('rewardDispatch — the queue lane', () => {
     // judgement, not a measurement — pinned in range so it can never become a rate again.
     expect(payload.reward).toBeGreaterThanOrEqual(-1);
     expect(payload.reward).toBeLessThanOrEqual(1);
+  });
+
+  // J1 (BE-074). The payload is health-derived (a reward that can come from the heart-rate slope,
+  // and the band the music targeted), so the job itself asks to be deleted once it has run,
+  // success or failure, whatever the queue's own defaults later become.
+  test('the job asks to be deleted once it has run, whether its write succeeded or failed', async () => {
+    await dispatchReward({ userId: 'u1', play: goodPlay(), atMs: AT });
+
+    expect(enqueue.mock.calls[0][2]).toEqual({ removeOnComplete: true, removeOnFail: true });
+    expect(enqueue.mock.calls[0][2]).toBe(REWARD_JOB_OPTIONS);
+    expect(Object.isFrozen(REWARD_JOB_OPTIONS)).toBe(true);
   });
 
   test('a Track-B-only play (no bucket) still dispatches — the two stores are independent', async () => {

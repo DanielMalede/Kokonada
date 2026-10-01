@@ -54,6 +54,13 @@ const REWARD_JOB_KEYS = Object.freeze(['v', 'userId', 'bucket', 'reward', 'poste
 const REWARD_JOB_VERSION = FEEDBACK_LOOP_VERSION;
 
 /**
+ * J1 (BE-074). The job is deleted once it has run, whether its write succeeded or failed: its payload
+ * is health-derived, and nothing reads a finished job. Pinned on the job itself so it holds whatever
+ * the queue's defaults later become (a job's own options win over the queue's and the worker's).
+ */
+const REWARD_JOB_OPTIONS = Object.freeze({ removeOnComplete: true, removeOnFail: true });
+
+/**
  * Judge one finished play and hand the verdict to the write lane.
  *
  * NEVER THROWS and never rejects. This hangs off a socket event; a learning failure has no
@@ -127,7 +134,7 @@ async function dispatchReward({ userId, play, atMs } = {}) {
       // payload already carries, which is the bar §0.2.2 sets for anything crossing Redis.
       weightStep,
       at: atMs,
-    });
+    }, REWARD_JOB_OPTIONS);
 
     return { dispatched: result?.queued === true, reason: result?.reason ?? null, verdict };
   } catch (e) {
@@ -136,4 +143,6 @@ async function dispatchReward({ userId, play, atMs } = {}) {
   }
 }
 
-module.exports = { dispatchReward, feedbackDisabled, FEEDBACK_FLAG, REWARD_JOB_KEYS, REWARD_JOB_VERSION };
+module.exports = {
+  dispatchReward, feedbackDisabled, FEEDBACK_FLAG, REWARD_JOB_KEYS, REWARD_JOB_VERSION, REWARD_JOB_OPTIONS,
+};

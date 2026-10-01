@@ -9,6 +9,12 @@ const { createConnection } = require('../config/redis');
 // name -> { queue, connection }
 const queues = new Map();
 
+// J1 (BE-074): every job is deleted once it has run, whether it succeeded or failed. Nothing in the
+// app reads a finished job, and a kept one is a copy of its payload in an unencrypted Redis blob
+// (state-vector jobs name the user; reward jobs carry health-derived values). A producer may still
+// pass its own options; the worker side covers a job queued without any (workers/index.js).
+const DEFAULT_JOB_OPTIONS = Object.freeze({ removeOnComplete: true, removeOnFail: true });
+
 function assertKnown(queueName) {
   if (!QUEUE_NAMES.has(queueName)) {
     throw new Error(`unknown queue "${queueName}"`);
@@ -22,7 +28,7 @@ function getQueue(queueName) {
     // Redis is down instead of buffering commands (and their pending promises)
     // unboundedly until reconnect. Workers keep the resilient default.
     const connection = createConnection({ enableOfflineQueue: false });
-    entry = { queue: new Queue(queueName, { connection }), connection };
+    entry = { queue: new Queue(queueName, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }), connection };
     queues.set(queueName, entry);
   }
   return entry.queue;

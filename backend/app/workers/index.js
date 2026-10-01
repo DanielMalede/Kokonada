@@ -20,6 +20,16 @@ const DEFAULT_PROCESSORS = {
   [QUEUES.REWARD_INGEST]: require('./rewardIngest.worker').process,
 };
 
+// J1 (BE-074): a finished job that set no removal option of its own (one queued before J1, while a
+// deploy rolls) is deleted too. `{count: 0}`, NOT `true`: BullMQ passes a worker's value to its
+// finish script unchanged and the script reads `keepJobs.count` from it, so `true` there breaks
+// every finish (moveToFinished-14.lua; proven on real Redis in rewardJobRetention.redis.test.js).
+// A job's own options still win (queues/queue.js sets `true` on every job, the right form there).
+const WORKER_REMOVAL = Object.freeze({
+  removeOnComplete: Object.freeze({ count: 0 }),
+  removeOnFail: Object.freeze({ count: 0 }),
+});
+
 function startWorkers(processors = DEFAULT_PROCESSORS) {
   for (const queueName of Object.keys(processors)) {
     if (!QUEUE_NAMES.has(queueName)) {
@@ -29,7 +39,7 @@ function startWorkers(processors = DEFAULT_PROCESSORS) {
   if (!process.env.REDIS_URL) return [];
   return Object.entries(processors).map(
     ([queueName, processor]) =>
-      new Worker(queueName, processor, { connection: createConnection() })
+      new Worker(queueName, processor, { connection: createConnection(), ...WORKER_REMOVAL })
   );
 }
 
