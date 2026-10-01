@@ -28,7 +28,9 @@ const BIO_BAND_TITLES: Record<string, string> = {
   active: 'Active',
   peak: 'Peak Energy',
 };
-const GENERIC_TITLE = 'A moment';
+// The archive's word for a moment whose state it does not hold. The server titles an erased heart session
+// with the same word (backend sessionLabels.js GENERAL_SESSION_TITLE, BE-016); the drift test holds them equal.
+export const GENERIC_TITLE = 'A moment';
 
 // The server's own title words (backend sessionLabels.js: six preset titles, three band titles, and the
 // bare 'Live' of a bio key with no band). The server also titles a row by its activity ("Running",
