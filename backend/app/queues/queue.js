@@ -6,6 +6,7 @@ const { createConnection } = require('../config/redis');
 
 // Queues activate only when REDIS_URL is explicitly set; without it every
 // enqueue is a graceful no-op so dev/test environments run without Redis.
+// name -> { queue, connection }
 const queues = new Map();
 
 function assertKnown(queueName) {
@@ -15,15 +16,32 @@ function assertKnown(queueName) {
 }
 
 function getQueue(queueName) {
-  let queue = queues.get(queueName);
-  if (!queue) {
+  let entry = queues.get(queueName);
+  if (!entry) {
     // Producers fail fast: without an offline queue, add() rejects immediately when
     // Redis is down instead of buffering commands (and their pending promises)
     // unboundedly until reconnect. Workers keep the resilient default.
-    queue = new Queue(queueName, { connection: createConnection({ enableOfflineQueue: false }) });
-    queues.set(queueName, queue);
+    const connection = createConnection({ enableOfflineQueue: false });
+    entry = { queue: new Queue(queueName, { connection }), connection };
+    queues.set(queueName, entry);
   }
-  return queue;
+  return entry.queue;
+}
+
+// Closes every producer queue this process opened, AND its connection: BullMQ treats a connection
+// it is handed as shared and never closes it, so closing the queue alone leaves the socket open.
+// For a script's exit and a test's teardown; a later enqueue opens a fresh queue.
+async function closeQueues() {
+  const open = [...queues.values()];
+  queues.clear();
+  await Promise.all(open.map(async ({ queue, connection }) => {
+    try {
+      await queue.close();
+    } catch {
+      /* the connection is closed below either way */
+    }
+    connection.disconnect();
+  }));
 }
 
 async function enqueue(queueName, payload, opts = {}) {
@@ -50,4 +68,4 @@ async function scheduleRepeatable(queueName, cronExpr, payload) {
   }
 }
 
-module.exports = { enqueue, scheduleRepeatable };
+module.exports = { enqueue, scheduleRepeatable, closeQueues };
