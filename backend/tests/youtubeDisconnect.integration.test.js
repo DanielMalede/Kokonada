@@ -71,8 +71,11 @@ let mem;
 beforeAll(async () => {
   mem = await MongoMemoryServer.create();
   await mongoose.connect(mem.getUri(), { dbName: 'kokonada_youtube_disconnect_it' });
-  // Build the indexes now, so no index work can land inside the window the assertions watch.
-  await Promise.all([User.init(), MusicProfile.init()]);
+  // Build the indexes now, so no index work can land inside the window the assertions watch. EVERY
+  // model the app registered, not only the two this file reads: mongoose builds all of them at once
+  // after connect, one index at a time per model, and the audiofeatures chain finishing after the
+  // users chain put an `audiofeatures.createIndex` inside the first request's window on a loaded run.
+  await Promise.all(mongoose.modelNames().map((name) => mongoose.model(name).init()));
 });
 afterAll(async () => {
   mongoose.set('debug', false);
