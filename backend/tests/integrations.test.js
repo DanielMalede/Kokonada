@@ -486,15 +486,32 @@ describe('YouTube OAuth flow', () => {
     expect(user.save).toHaveBeenCalled();
   });
 
-  it('youtubeDisconnect re-loads the full user, nulls token, and saves', async () => {
-    // auth() strips token blobs, so the handler re-loads via User.findById.
+  // HX-3 T3 — REVERSED under the owner's signature (DEC-123 item 2): "a YouTube disconnect no longer
+  // clears a stored YouTube link. It keeps it and answers 409 youtube_link_present. Its success message
+  // becomes 'YouTube disconnected', not 'YouTube Music disconnected'." Dropping a stored grant without
+  // revoking it at Google is the defect BE-022 names, so a present link is kept for the DEC-122
+  // contingency rather than cleared. Still re-loads the full user: auth() strips the token blobs.
+  it('REVERSED: youtubeDisconnect re-loads the full user and KEEPS a stored link — 409 youtube_link_present, no save', async () => {
     const user = buildUser({ youtubeMusicToken: { blob: 'enc' } });
+    User.findById.mockResolvedValue(user);
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = buildRes();
+    await ctrl.youtubeDisconnect({ user: { _id: user._id } }, res, jest.fn());
+    expect(User.findById).toHaveBeenCalledWith(user._id);
+    expect(user.youtubeMusicToken).toEqual({ blob: 'enc' });
+    expect(user.save).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: 'youtube_link_present' });
+    err.mockRestore();
+  });
+
+  it("REVERSED: youtubeDisconnect's success message is 'YouTube disconnected', not 'YouTube Music disconnected'", async () => {
+    const user = buildUser();
     User.findById.mockResolvedValue(user);
     const res = buildRes();
     await ctrl.youtubeDisconnect({ user: { _id: user._id } }, res, jest.fn());
-    expect(user.youtubeMusicToken).toBeNull();
-    expect(user.save).toHaveBeenCalled();
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'YouTube Music disconnected' }));
+    expect(res.json).toHaveBeenCalledWith({ message: 'YouTube disconnected' });
+    expect(user.save).not.toHaveBeenCalled();
   });
 });
 

@@ -18,7 +18,6 @@ const suunto      = require('../services/wearable/suunto');
 const User        = require('../models/User');
 const MusicProfile = require('../models/MusicProfile');
 const { buildProfile } = require('../services/musicProfileService');
-const { invalidateUserPools } = require('../services/selection/candidatePool');
 const featureService = require('../services/features/featureService');
 const { sanitizeSpotifyTrackUris } = require('../utils/spotifyUri');
 const { resolveMusicProvider, resolvePlaybackProvider, resolveDataProviders } = require('../utils/providerSelect');
@@ -398,44 +397,25 @@ exports.youtubeCallback = async (req, res) => {
 };
 
 // DELETE /api/integrations/youtube/disconnect
-// Cleanly removes YouTube as a data source and leaves the user with a provider-consistent
-// profile: (1) clear the YT token, (2) purge the YouTube-tainted candidate-pool cache,
-// (3) deterministically rebuild the profile from the REMAINING source. Because the YT
-// token is gone, buildProfile now yields a Spotify-only, natively-playable library — no
-// more YouTube tracks dropped by the Spotify provider filter (the empty-playlist bug).
+// DEC-122 (HX-3 T3): a sealed no-op. Connecting YouTube is sealed in code, so no account can come
+// to hold a link, and a stored one may never be dropped without revoking it at Google (YouTube
+// Developer Policies III.D.2.3.1; BE-022) — no revoke is built while the seal stands. So:
+//   • no link → 200 and nothing changes;
+//   • a link  → 409 youtube_link_present, and the link is KEPT for the DEC-122 contingency's
+//               revoke-and-purge. One fixed line is logged: no user id, no token, no body.
+// Neither branch writes to Mongo or Redis, rebuilds the profile or touches musicProvider. This
+// replaced a handler that dropped the grant unrevoked, and that let any signed-in user empty their
+// own library (no Spotify) or force a synchronous Spotify rebuild (with Spotify).
 exports.youtubeDisconnect = async (req, res, next) => {
   try {
-    const userId = req.user._id.toString();
-    // auth() strips token blobs from req.user — re-load the FULL doc so getToken() can
-    // see the Spotify token the rebuild needs (otherwise it builds an empty profile).
+    // auth() strips the token blobs from req.user, so "linked" is read from the full document —
+    // by the same definition GET /integrations/status reports to the app.
     const user = await loadUserWithTokens(req);
-
-    // 1. Clear the YouTube link. Fall back the effective provider to Spotify if it is
-    //    still connected, else null.
-    user.youtubeMusicToken = null;
-    const hasSpotify = !!user.getToken?.('spotifyToken')?.accessToken;
-    user.musicProvider = hasSpotify ? 'spotify' : null;
-    await user.save();
-
-    // 2. Purge every cached candidate pool for this user so generation can't serve
-    //    stale YouTube tracks before the rebuild's lastAnalyzed stamp invalidates them.
-    await invalidateUserPools(userId);
-
-    // 3. Deterministic rebuild from the remaining source. With no source left, wipe the
-    //    library so stale YouTube tracks don't linger in the profile.
-    let library = 0;
-    if (hasSpotify) {
-      const profile = await buildProfile(userId, user);
-      library = profile?.library?.length ?? 0;
-    } else {
-      await MusicProfile.findOneAndUpdate(
-        { userId },
-        { $set: { library: [], topGenres: [], topArtists: [], genreSet: [], knownArtistIds: [], lastAnalyzed: new Date() } },
-        { upsert: true },
-      );
+    if (resolveDataProviders(user).includes('youtube')) {
+      console.error('[youtube] disconnect refused: link present (sealed)');
+      return res.status(409).json({ error: 'youtube_link_present' });
     }
-
-    res.json({ message: 'YouTube Music disconnected', rebuilt: hasSpotify, provider: user.musicProvider, library });
+    res.json({ message: 'YouTube disconnected' });
   } catch (err) {
     next(err);
   }
