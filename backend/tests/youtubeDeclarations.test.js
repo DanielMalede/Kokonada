@@ -2,7 +2,7 @@
 
 // HX-3 T9 (DEC-122, DEC-040; CMP-038, CMP-046) — docs/PRIVACY_DECLARATIONS.md says what the code does
 // with YouTube now: nothing. Connecting it is sealed in code, no account holds a token, no YouTube
-// data is imported or held, and none goes to Groq or any other service. The store-facing document is
+// data is imported, and none goes to Groq or any other service. The store-facing document is
 // what the compliance gate reads, so its YouTube statements are pinned against the code here
 // (compliance verdicts §4, "T9 test amendment"):
 //   • no "YouTube Music", "non-Spotify" or "library artist names" anywhere in the document;
@@ -66,7 +66,8 @@ describe('the privacy declarations say YouTube is sealed, and nothing more (HX-3
     expect(row).toBeTruthy();
     expect(row).not.toMatch(/38 days/);
     expect(row).not.toMatch(/7-day grace/);
-    expect(row).toMatch(/No YouTube data is imported or held in this version/);
+    expect(row).toMatch(/No YouTube data is imported in this version \(connecting YouTube is sealed in code, DEC-122\)\./);
+    expect(visible(row)).not.toMatch(/\bheld\b/);
   });
 
   it("the Groq row's NEVER cell names **YouTube data**, and its RECEIVES cell names no YouTube data", () => {
