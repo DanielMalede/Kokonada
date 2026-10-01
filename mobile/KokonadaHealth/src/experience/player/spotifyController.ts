@@ -50,8 +50,25 @@ export class SpotifyPlayerController {
   // The single in-flight connect promise (null when idle). Overlapping callers reuse it.
   private connectInFlight: Promise<boolean> | null = null;
 
+  // Whether the native listeners are attached. dispose() removes them all, so a later connect in the
+  // same process must attach them again or it runs deaf (HX-2 M3).
+  private listening = false;
+
+  // Bumped by dispose(): a connect or command that began before a dispose may not finish after it.
+  // The native module does not cancel a pending connect on disconnect(), so without this a connect
+  // still in flight at Disconnect Spotify or logout reopens App Remote, re-attaches the listeners and
+  // plays. `disposing` refuses any command or connect while the link is being severed.
+  private generation = 0;
+  private disposing = 0;
+
   constructor(private readonly deps: SpotifyControllerDeps) {
     this.reconnectBudget = deps.maxReconnects ?? DEFAULT_MAX_RECONNECTS;
+    this.attachListeners();
+  }
+
+  private attachListeners(): void {
+    if (this.listening) return;
+    this.listening = true;
     // The native side can sever the link at any moment; treat it like any failure.
     this.deps.remote.addListener('remoteDisconnected', () => this.markDisconnected());
     // D-1: surface the native PlayerState stream (normalized to { uri, isPaused }).
@@ -84,6 +101,7 @@ export class SpotifyPlayerController {
   }
 
   async connect(): Promise<boolean> {
+    if (this.disposing > 0) return false; // never open a link while dispose() is severing it
     // Coalesce overlapping connects: a burst of plays/skips during the (slow, native)
     // handshake must await the SAME connect — never spawn concurrent native connects or
     // drain the reconnect budget. Mirrors the native module's single in-flight connect.
@@ -97,6 +115,7 @@ export class SpotifyPlayerController {
   }
 
   private async connectOnce(): Promise<boolean> {
+    const generation = this.generation;
     this.setState('connecting');
     let token: string | null;
     try {
@@ -113,10 +132,19 @@ export class SpotifyPlayerController {
       this.markDisconnected();
       return false;
     }
+    if (generation !== this.generation) { this.markDisconnected(); return false; } // disposed meanwhile
     try {
       await this.deps.remote.connect(token);
+      if (generation !== this.generation) {
+        // dispose() ran while this native connect was in flight: close the link it opened.
+        console.warn('[koko] AppRemote.connect landed after dispose — closing it');
+        try { await this.deps.remote.disconnect(); } catch { /* best-effort */ }
+        this.markDisconnected();
+        return false;
+      }
       console.log('[koko] AppRemote.connect SUCCEEDED');
       this.reconnectBudget = this.deps.maxReconnects ?? DEFAULT_MAX_RECONNECTS; // reset on success
+      this.attachListeners(); // after a dispose(): hear the native severance + PlayerState again (M3)
       this.setState('connected');
       return true;
     } catch (err) {
@@ -129,6 +157,7 @@ export class SpotifyPlayerController {
   // Ensure a live connection, spending from the capped reconnect budget so a
   // permanently-dead remote can't spin forever.
   private async ensureConnected(): Promise<boolean> {
+    if (this.disposing > 0) return false; // the link is being severed: nothing may use or reopen it
     if (this.state === 'connected') return true;
     // A connect is already in flight (e.g. the first playlist's play) — await it instead of
     // starting a second native connect and burning another unit of the reconnect budget.
@@ -139,10 +168,12 @@ export class SpotifyPlayerController {
   }
 
   private async run(action: (r: SpotifyRemoteLike) => Promise<void>): Promise<CommandResult> {
+    const generation = this.generation;
     const connected = await this.ensureConnected();
     console.log('[koko] AppRemote.run ensureConnected=', connected, 'state=', this.state, 'budget=', this.reconnectBudget);
-    // No live connection — the command never ran. This is a SEVERANCE, not a track failure.
-    if (!connected) return { ok: false, reason: 'disconnected' };
+    // No live connection, or a dispose() began while it was being made — the command never ran.
+    // This is a SEVERANCE, not a track failure.
+    if (!connected || generation !== this.generation) return { ok: false, reason: 'disconnected' };
     try {
       await action(this.deps.remote);
       console.log('[koko] AppRemote command OK');
@@ -212,20 +243,29 @@ export class SpotifyPlayerController {
   }
 
   async dispose(): Promise<void> {
-    this.deps.remote.removeAllListeners?.();
-    // Stop audio before severing the link. App Remote's disconnect only drops the
-    // CONTROL channel — the Spotify app keeps playing whatever was last commanded —
-    // so logout leaked playback until this pause was added. Pause must precede
-    // disconnect (native pause needs the live connection) and is guarded on its own
-    // so a failing pause never prevents the disconnect. (defect D-2)
-    if (this.state === 'connected') {
-      try { await this.deps.remote.pause(); } catch { /* best-effort; still disconnect below */ }
-    }
+    this.generation += 1; // a connect or command already in flight may not finish after this
+    this.disposing += 1;  // and none may start while the link is severed (released below)
     try {
-      await this.deps.remote.disconnect();
-    } catch {
-      /* best-effort teardown */
+      this.deps.remote.removeAllListeners?.();
+      this.listening = false; // re-attached by the next successful connect
+      // The reconnect budget is deliberately NOT zeroed here: a disconnect is not a ban on playing.
+      // What stops a late playlist from reconnecting is the orchestrator's suspension (HX-2 B1).
+      // Stop audio before severing the link. App Remote's disconnect only drops the
+      // CONTROL channel — the Spotify app keeps playing whatever was last commanded —
+      // so logout leaked playback until this pause was added. Pause must precede
+      // disconnect (native pause needs the live connection) and is guarded on its own
+      // so a failing pause never prevents the disconnect. (defect D-2)
+      if (this.state === 'connected') {
+        try { await this.deps.remote.pause(); } catch { /* best-effort; still disconnect below */ }
+      }
+      try {
+        await this.deps.remote.disconnect();
+      } catch {
+        /* best-effort teardown */
+      }
+      this.setState('disconnected');
+    } finally {
+      this.disposing -= 1;
     }
-    this.setState('disconnected');
   }
 }

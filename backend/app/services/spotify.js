@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { URLSearchParams } = require('url');
 const { withRetry } = require('../utils/retry');
+const User = require('../models/User');
 
 const BASE_AUTH = 'https://accounts.spotify.com';
 const BASE_API  = 'https://api.spotify.com/v1';
@@ -138,20 +139,56 @@ async function refreshAccessToken(refreshToken) {
   };
 }
 
+const notConnected = () => Object.assign(new Error('Spotify not connected'), { statusCode: 400, code: 'spotify_not_connected' });
+
+// HX-2 H1/N3 — store a refreshed token ONLY over the token the refresh started from. The user doc
+// a caller holds may have been read before a disconnect (a generation in flight); saving it would
+// write the token back after the disconnect deleted it, and the daily sweep would then take the
+// account for reconnected and drop the erasure it still owes. So the write is a compare-and-set on
+// the prior blob, never `user.save()`. On a miss the stored token is re-read:
+//   • gone  → the account was disconnected: nothing is written, spotify_not_connected;
+//   • there → another refresh (or a reconnect) won the race: use what is stored, write nothing.
+// The in-memory doc is left clean either way, so a later save for another reason cannot rewrite it.
+async function persistRefreshedToken(user, priorBlob, refreshed) {
+  if (!priorBlob) throw notConnected();
+  user.setToken('spotifyToken', refreshed);
+  let res;
+  try {
+    res = await User.updateOne(
+      { _id: user._id, 'spotifyToken.blob': priorBlob },
+      { $set: { spotifyToken: { blob: user.spotifyToken.blob } } },
+    );
+  } catch (err) {
+    // The write failed: put the doc back as it was read, so a later save cannot store this token.
+    user.spotifyToken = { blob: priorBlob };
+    user.unmarkModified?.('spotifyToken');
+    throw err;
+  }
+  if (res?.matchedCount === 1) {
+    user.unmarkModified?.('spotifyToken');
+    return refreshed.accessToken;
+  }
+  const current = await User.findById(user._id).select('spotifyToken').lean();
+  user.spotifyToken = current?.spotifyToken?.blob ? { blob: current.spotifyToken.blob } : null;
+  user.unmarkModified?.('spotifyToken');
+  const adopted = user.spotifyToken ? user.getToken('spotifyToken') : null;
+  if (!adopted) throw notConnected();
+  return adopted.accessToken;
+}
+
 // Get a valid access token — refreshes automatically if within 5 min of expiry
 async function getValidToken(user) {
   const stored = user.getToken('spotifyToken');
-  if (!stored) throw Object.assign(new Error('Spotify not connected'), { statusCode: 400, code: 'spotify_not_connected' });
+  if (!stored) throw notConnected();
 
   const bufferMs = 5 * 60 * 1000;
   if (Date.now() < stored.expiresAt - bufferMs) {
     return stored.accessToken;
   }
 
+  const priorBlob = user.spotifyToken?.blob;
   const refreshed = await refreshAccessToken(stored.refreshToken);
-  user.setToken('spotifyToken', refreshed);
-  await user.save();
-  return refreshed.accessToken;
+  return persistRefreshedToken(user, priorBlob, refreshed);
 }
 
 // Run a Spotify API call with the user's valid token. On a 401 (Spotify rejected
@@ -168,10 +205,10 @@ async function withFreshToken(user, fn) {
     const status = err.response?.status;
     if (status === 401) {
       const stored = user.getToken('spotifyToken');
+      if (!stored) throw notConnected();
+      const priorBlob = user.spotifyToken?.blob;
       const refreshed = await refreshAccessToken(stored.refreshToken);
-      user.setToken('spotifyToken', refreshed);
-      await user.save();
-      return await fn(refreshed.accessToken);
+      return await fn(await persistRefreshedToken(user, priorBlob, refreshed));
     }
     if (status === 403) {
       // Preserve Spotify's OWN reason — a generic "permission missing" made a real 403 (e.g.
