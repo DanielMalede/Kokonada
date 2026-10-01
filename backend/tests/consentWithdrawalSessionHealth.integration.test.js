@@ -13,6 +13,9 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET = 'test-jwt-secret-for-tests-only';
 delete process.env.REDIS_URL;
 
+// consentController withholds the user's open sockets after the erasure; there are none here.
+jest.mock('../app/sockets/index', () => ({ getIo: () => null }));
+
 jest.mock('../app/config/redis', () => {
   const store = new Map();
   const glob = (pattern) => new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
@@ -35,6 +38,8 @@ jest.mock('../app/config/redis', () => {
   return { getRedis: () => fake, connectRedis: jest.fn(), createConnection: jest.fn(), __fake: fake };
 });
 
+const express = require('express');
+const request = require('supertest');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const User = require('../app/models/User');
@@ -45,6 +50,14 @@ const { __fake: redis } = require('../app/config/redis');
 const {
   eraseSessionHealth, eraseSessionHealthOnWithdrawal, undoRunWrites,
 } = require('../app/services/privacy/sessionHealthErasure');
+const { signToken } = require('../app/utils/jwt');
+const { withdrawConsent } = require('../app/services/privacy/consent');
+const consentController = require('../app/controllers/consentController');
+const consentRouter = require('../app/routes/consent');
+
+const app = express();
+app.use(express.json());
+app.use('/api/consent', consentRouter);
 
 jest.setTimeout(120000);
 
@@ -420,6 +433,19 @@ describe('undoRunWrites — exactly this run\'s writes, never the user\'s histor
     await undoRunWrites({ userId: a._id, sessionId: run, servedAt: null, moodKey: 'calm', stripActivity: true });
 
     expect((await raw(run)).biometricSnapshot.activity).toBeNull();
+  });
+
+  it('a run whose session holds nothing to strip changes nothing, and says so (changed=0)', async () => {
+    const a = await listener('a');
+    const run = await session(a, ago(1 * MIN), {
+      moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: null }, targetBpm: null, targetEnergy: null, targetValence: null,
+    });
+    const before = await raw(run);
+
+    const out = await undoRunWrites({ userId: a._id, sessionId: run, servedAt: null, moodKey: 'calm', stripActivity: true });
+
+    expect(out).toEqual({ changed: 0 });
+    expect(await raw(run)).toEqual(before); // not even updatedAt moves
   });
 
   it('with no valid session id and no serve time it issues no Mongo write at all', async () => {

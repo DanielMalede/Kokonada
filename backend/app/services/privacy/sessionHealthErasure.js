@@ -163,7 +163,11 @@ async function undoRunWrites({ userId, sessionId = null, servedAt = null, moodKe
     const mine = { _id: sid, userId: id };
     const heart = await PlaylistSession.updateOne({ ...mine, moodKey: BIO_KEY_WITH_BAND }, { $set: fresh(HEART_SESSION_SET) });
     const withHr = await PlaylistSession.updateOne({ ...mine, 'biometricSnapshot.heartRate': { $ne: null } }, { $set: fresh(HEART_RATE_SET) });
-    const rest = await PlaylistSession.updateOne(mine, {
+    // Matched only while something is left to clear: the schema stamps updatedAt on every matched
+    // row, so an unconditional match would report a change that removed nothing.
+    const left = [{ targetBpm: { $ne: null } }, { targetEnergy: { $ne: null } }, { targetValence: { $ne: null } }];
+    if (stripActivity) left.push({ 'biometricSnapshot.activity': { $ne: null } });
+    const rest = await PlaylistSession.updateOne({ ...mine, $or: left }, {
       $set: { ...fresh(TARGETS_CLEARED), ...(stripActivity ? { 'biometricSnapshot.activity': null } : {}) },
     });
     if ((heart?.modifiedCount ?? 0) + (withHr?.modifiedCount ?? 0) + (rest?.modifiedCount ?? 0) > 0) changed += 1;
