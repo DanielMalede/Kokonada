@@ -274,7 +274,7 @@ describe('the sessionTrim line carries healthErasures= (the production check tha
     expect(result.healthErasures).toBe(1);
     const trim = lines.filter((l) => l.includes('[sessionTrim]'));
     expect(trim).toHaveLength(1);
-    expect(trim[0]).toMatch(/ spotifyErasures=\d+ healthErasures=1 failures=0$/);
+    expect(trim[0]).toMatch(/ healthErasures=1 spotifyErasures=\d+ failures=0$/);
     expect(lines.join('\n')).not.toContain(String(u._id));
   });
 

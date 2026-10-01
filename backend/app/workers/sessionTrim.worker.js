@@ -57,8 +57,10 @@ async function processJob() {
     // Backfill BEFORE expiry, so a row that just got its clock is judged by it in the same run.
     ['unclassifiedBackfilled', () => unclassifiedRepo.backfillCreatedAt()],
     ['unclassifiedExpired', () => unclassifiedRepo.expireCreatedBefore(providerCutoff)],
-    ['spotifyErasures', () => sweepOwedSpotifyErasures()],
+    // After the 30-day trim (see the BE-016 note above). Before the Spotify sweep, which it does not
+    // depend on, so the line still ends `spotifyErasures=N failures=N`.
     ['healthErasures', () => sweepOwedHealthErasures()],
+    ['spotifyErasures', () => sweepOwedSpotifyErasures()],
   ];
 
   const result = {};
