@@ -540,7 +540,7 @@ function withdrawOverHttp(user) {
 }
 
 // The ONE accountability line: the BE-015 tokens, then BE-016's. Closed tokens and counts only.
-const WITHDRAWAL_LINE = /^\[consent-withdrawal\] user=[0-9a-f]{24} purpose=health_biometric_processing providerErasureFailures=\d+ learning=(?:purged|skipped|failed) rewardEvents=\d+ personalWeights=\d+ sessionHealth=(?:purged|skipped|failed) sessions=\d+ sessionTargets=\d+ serveEvents=\d+ redisKeys=\d+ sessionHealthFailed=(?:none|[a-zA-Z]+:[A-Za-z][A-Za-z0-9]*(?:,[a-zA-Z]+:[A-Za-z][A-Za-z0-9]*)*)$/;
+const WITHDRAWAL_LINE = /^\[consent-withdrawal\] user=[0-9a-f]{24} purpose=health_biometric_processing providerErasureFailures=\d+ learningJobs=(?:\d+|skipped|failed) learning=(?:purged|skipped|failed) rewardEvents=\d+ personalWeights=\d+ sessionHealth=(?:purged|skipped|failed) sessions=\d+ sessionTargets=\d+ serveEvents=\d+ redisKeys=\d+ sessionHealthFailed=(?:none|[a-zA-Z]+:[A-Za-z][A-Za-z0-9]*(?:,[a-zA-Z]+:[A-Za-z][A-Za-z0-9]*)*)$/;
 
 let lines;
 function captureLogs() {
@@ -584,7 +584,7 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
 
     // bio:baseline and bio:affect go first, in the wearable erasure; the strict purge takes the other four.
     expect(withdrawalLines()).toEqual([
-      `[consent-withdrawal] user=${a._id} purpose=${PURPOSE} providerErasureFailures=0 learning=purged rewardEvents=0 personalWeights=0 sessionHealth=purged sessions=4 sessionTargets=3 serveEvents=2 redisKeys=4 sessionHealthFailed=none`,
+      `[consent-withdrawal] user=${a._id} purpose=${PURPOSE} providerErasureFailures=0 learningJobs=0 learning=purged rewardEvents=0 personalWeights=0 sessionHealth=purged sessions=4 sessionTargets=3 serveEvents=2 redisKeys=4 sessionHealthFailed=none`,
     ]);
   });
 
