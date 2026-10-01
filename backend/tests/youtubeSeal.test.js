@@ -94,4 +94,38 @@ describe('youtubeSeal — both YouTube switches are sealed false in code (DEC-12
   it('carries the DT-B1 header verbatim: the conditions for lifting each seal', () => {
     expect(source()).toContain(DT_B1_HEADER);
   });
+
+  // Resilience N4: "false at test time" is not "a literal false". `false || require('./flags').on`,
+  // with flags reading an env name outside PLAUSIBLE_LEVERS, passes every check above. So the export
+  // block is pinned as text, the whole program is pinned as a syntax tree, and the file may load
+  // nothing.
+  it('pins the exact export block: two literal false values, frozen', () => {
+    expect(source()).toContain([
+      'module.exports = Object.freeze({',
+      '  YOUTUBE_CONNECT_ENABLED: false,',
+      '  YOUTUBE_EGRESS_ENABLED: false,',
+      '});',
+    ].join('\n'));
+  });
+
+  it("is, as a program, exactly 'use strict' and that export — no other statement, every value the literal false", () => {
+    const ast = require('espree').parse(source(), { ecmaVersion: 'latest', sourceType: 'script' });
+    expect(ast.body).toHaveLength(2);
+    const [directive, exported] = ast.body;
+    expect(directive.directive).toBe('use strict');
+    const { left, right } = exported.expression;
+    expect([left.object.name, left.property.name]).toEqual(['module', 'exports']);
+    expect([right.callee.object.name, right.callee.property.name]).toEqual(['Object', 'freeze']);
+    expect(right.arguments).toHaveLength(1);
+    expect(right.arguments[0].properties.map((p) => [p.key.name, p.value.type, p.value.value, p.computed, p.shorthand]))
+      .toEqual([
+        ['YOUTUBE_CONNECT_ENABLED', 'Literal', false, false, false],
+        ['YOUTUBE_EGRESS_ENABLED', 'Literal', false, false, false],
+      ]);
+  });
+
+  it('loads nothing: no require( anywhere in the file', () => {
+    expect(source()).not.toMatch(/\brequire\s*\(/);
+    expect(source()).not.toMatch(/\bimport\b/);
+  });
 });
