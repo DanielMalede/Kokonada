@@ -25,6 +25,14 @@ const { disabled } = require('../../utils/envFlag');
  * only — a Beta delta of ones and zeros. `REWARD_JOB_KEYS` is pinned closed by test because a
  * field added carelessly later is exactly how a vital would get back in.
  *
+ * ── WHAT REDIS KEEPS (J1, BE-074) ───────────────────────────────────────────────────────────
+ *
+ * The verdict is still health-derived (the reward can come from the heart-rate slope, and the bucket
+ * names the band the music targeted), so the job asks to be deleted once it has run, success or
+ * failure (`REWARD_JOB_OPTIONS`), and the worker's failure reason names only the error type. Account
+ * deletion and a withdrawal of health-data consent remove the user's waiting jobs
+ * (queues/userJobPurge.js). docs/PRIVACY_DECLARATIONS.md declares all of it, in its own row.
+ *
  * ── WHAT HAPPENS WITHOUT REDIS ──────────────────────────────────────────────────────────────
  *
  * `enqueue` is a graceful no-op when `REDIS_URL` is unset, so a deployment without Redis simply

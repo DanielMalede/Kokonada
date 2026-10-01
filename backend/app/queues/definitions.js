@@ -25,6 +25,9 @@ const QUEUES = Object.freeze({
   // W4-011: writes the two ADR-0012 learned artifacts from a finished play. The JUDGEMENT is not
   // done here - the job payload carries a bucket address, a bounded reward and a CC0-only Beta
   // delta, never heart-rate samples (a BullMQ payload is an unencrypted Redis blob; S0.2.2).
+  // J1 (BE-074): the payload is still health-derived, so a job is deleted once it has run, and
+  // account deletion and a health-consent withdrawal remove the user's waiting jobs
+  // (queues/userJobPurge.js, which registers this queue).
   REWARD_INGEST: 'reward-ingest',
 });
 
