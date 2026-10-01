@@ -62,7 +62,10 @@ const ACTIVITY_SET = Object.freeze({ 'biometricSnapshot.activity': null });
 const SERVE_BIO_SET = Object.freeze({ moodKey: null, 'bioState.tempoBand': null, 'bioState.activity': null });
 const SERVE_BAND_SET = Object.freeze({ 'bioState.tempoBand': null, 'bioState.activity': null });
 
-const HAS_TARGET = Object.freeze({
+// Fresh objects on every call: Mongoose casts a filter (and an update) in place, so a shared object
+// would be mutated by one query and read by the next.
+const fresh = (set) => Object.fromEntries(Object.entries(set).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v]));
+const hasTarget = () => ({
   $or: [{ targetBpm: { $ne: null } }, { targetEnergy: { $ne: null } }, { targetValence: { $ne: null } }],
 });
 
@@ -154,12 +157,12 @@ function erasureSteps(userId, { heartRateBefore, targetsBefore }) {
     {
       name: 'heartSessions', model: 'PlaylistSession', count: 'sessions',
       filter: { userId, createdAt: beforeHr, moodKey: BIO_KEY_WITH_BAND },
-      set: HEART_SESSION_SET,
+      set: fresh(HEART_SESSION_SET),
     },
     {
       name: 'heartRates', model: 'PlaylistSession', count: 'sessions',
       filter: { userId, createdAt: beforeHr, moodKey: { $not: BIO_KEY_WITH_BAND }, 'biometricSnapshot.heartRate': { $ne: null } },
-      set: HEART_RATE_SET,
+      set: fresh(HEART_RATE_SET),
     },
     {
       // DT-1b′ O1: a mood session the trim has reached. `contextPrompt: null` is the trim's own
@@ -172,20 +175,20 @@ function erasureSteps(userId, { heartRateBefore, targetsBefore }) {
         moodKey: { $not: BIO_KEY_WITH_BAND },
         'biometricSnapshot.heartRate': null,
         contextPrompt: null,
-        'biometricSnapshot.activity': { $ne: null, $nin: CHIP_ONLY_ACTIVITIES },
+        'biometricSnapshot.activity': { $ne: null, $nin: [...CHIP_ONLY_ACTIVITIES] },
       },
-      set: ACTIVITY_SET,
+      set: fresh(ACTIVITY_SET),
     },
     {
       // P1: where a target came from is not stored, so every target made before the withdrawal goes.
       name: 'targets', model: 'PlaylistSession', count: 'sessionTargets',
-      filter: { userId, createdAt: { $lt: targetsBefore }, ...HAS_TARGET },
-      set: TARGETS_CLEARED,
+      filter: { userId, createdAt: { $lt: targetsBefore }, ...hasTarget() },
+      set: fresh(TARGETS_CLEARED),
     },
     {
       name: 'serveBioKeys', model: 'ServeEvent', count: 'serveEvents',
       filter: { userId, servedAt: { $lt: heartRateBefore }, moodKey: SERVE_BIO_KEY },
-      set: SERVE_BIO_SET,
+      set: fresh(SERVE_BIO_SET),
     },
     {
       name: 'serveBands', model: 'ServeEvent', count: 'serveEvents',
@@ -194,7 +197,7 @@ function erasureSteps(userId, { heartRateBefore, targetsBefore }) {
         servedAt: { $lt: heartRateBefore },
         $or: [{ 'bioState.tempoBand': { $ne: null } }, { 'bioState.activity': { $ne: null } }],
       },
-      set: SERVE_BAND_SET,
+      set: fresh(SERVE_BAND_SET),
     },
   ];
 }
@@ -225,4 +228,5 @@ module.exports = {
   windowsFor,
   erasureSteps,
   erasedFields,
+  fresh,
 };

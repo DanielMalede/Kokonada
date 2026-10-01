@@ -1,0 +1,439 @@
+'use strict';
+
+// BE-016 (DEC-111, DEC-118) — withdrawing health-data consent erases the session heart-rate snapshot
+// and the values derived from it, on REAL MongoDB. Every assertion reads the stored rows back: the
+// History DTO's own override (A3) is display and is never counted as erasure here.
+//
+// Real: the session-health erasure module and its models, the encrypted-field plugin, the consent
+// history. Faked: Redis, by a small STATEFUL store that answers SCAN/DEL/SET/GET over real keys, so a
+// key the purge misses is still there to be found.
+
+process.env.NODE_ENV = 'test';
+process.env.ENCRYPTION_KEY = 'a'.repeat(64);
+process.env.JWT_SECRET = 'test-jwt-secret-for-tests-only';
+delete process.env.REDIS_URL;
+
+jest.mock('../app/config/redis', () => {
+  const store = new Map();
+  const glob = (pattern) => new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  const fake = {
+    store,
+    failNext: null, // name of a method that throws once, for the strict-purge failure tests
+    calls: [],
+    _maybeFail(method) {
+      if (fake.failNext === method) {
+        fake.failNext = null;
+        throw Object.assign(new Error('READONLY You can\'t write against a read only replica (pool:abc)'), { name: 'ReplyError' });
+      }
+    },
+    async scan(cursor, _match, pattern) { fake.calls.push('scan'); fake._maybeFail('scan'); const re = glob(pattern); return ['0', [...store.keys()].filter((k) => re.test(k))]; },
+    async del(...keys) { fake.calls.push('del'); fake._maybeFail('del'); return keys.flat().reduce((n, k) => n + (store.delete(k) ? 1 : 0), 0); },
+    async set(key, value) { store.set(key, value); return 'OK'; },
+    async get(key) { return store.has(key) ? store.get(key) : null; },
+    async exists(key) { return store.has(key) ? 1 : 0; },
+  };
+  return { getRedis: () => fake, connectRedis: jest.fn(), createConnection: jest.fn(), __fake: fake };
+});
+
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const mongoose = require('mongoose');
+const User = require('../app/models/User');
+const ConsentRecord = require('../app/models/ConsentRecord');
+const PlaylistSession = require('../app/models/PlaylistSession');
+const ServeEvent = require('../app/models/ServeEvent');
+const { __fake: redis } = require('../app/config/redis');
+const {
+  eraseSessionHealth, eraseSessionHealthOnWithdrawal, undoRunWrites,
+} = require('../app/services/privacy/sessionHealthErasure');
+
+jest.setTimeout(120000);
+
+const DAY = 24 * 3600_000;
+const MIN = 60_000;
+const PURPOSE = 'health_biometric_processing';
+
+let mem;
+beforeAll(async () => {
+  mem = await MongoMemoryServer.create();
+  await mongoose.connect(mem.getUri(), { dbName: 'kokonada_session_health_it' });
+});
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mem.stop();
+});
+beforeEach(async () => {
+  await Promise.all([User.deleteMany({}), ConsentRecord.deleteMany({}), PlaylistSession.deleteMany({}), ServeEvent.deleteMany({})]);
+  redis.store.clear();
+  redis.failNext = null;
+  redis.calls.length = 0;
+});
+afterEach(() => { jest.restoreAllMocks(); });
+
+const ago = (ms) => new Date(Date.now() - ms);
+
+async function listener(tag) {
+  return User.create({ ssoProvider: 'google', ssoId: `sso-${tag}`, email: `${tag}@example.com` });
+}
+// A consent row at an exact time (the history the erasure reads), written straight to the collection.
+async function consentAt(user, status, at) {
+  await ConsentRecord.collection.insertOne({
+    _id: new mongoose.Types.ObjectId(), userId: user._id, purpose: PURPOSE, consentVersion: 1, status,
+    ...(status === 'granted' ? { grantedAt: at } : { withdrawnAt: at }), createdAt: at, updatedAt: at,
+  });
+}
+
+// A generated session as biometricHandler writes one, then back-dated on the raw collection.
+async function session(user, createdAt, over = {}) {
+  const doc = await PlaylistSession.create({
+    userId: user._id,
+    emotionTaps: [{ x: 0.3, y: 0.4 }],
+    contextPrompt: '',
+    moodKey: 'calm',
+    biometricSnapshot: { heartRate: null, activity: null },
+    targetBpm: 96, targetEnergy: 0.4, targetValence: 0.55,
+    targetGenres: ['ambient'],
+    musicProvider: 'spotify',
+    externalPlaylistId: 'hidden-1',
+    trackIds: ['t1', 't2'], trackKeys: ['isrc:A', 'isrc:B'],
+    trackSummary: [{ id: 't1', title: 'Song A', artist: 'Artist A' }],
+    skipCount: 1,
+    ...over,
+  });
+  await PlaylistSession.collection.updateOne({ _id: doc._id }, { $set: { createdAt } });
+  return doc._id;
+}
+const raw = (id) => PlaylistSession.collection.findOne({ _id: id });
+const serve = (user, servedAt, over = {}) => ServeEvent.create({
+  userId: user._id, canonicalKey: 'isrc:A', moodKey: 'calm', bioState: { tempoBand: null, activity: null }, sessionId: '7', servedAt, ...over,
+}).then((d) => d._id);
+const rawServe = (id) => ServeEvent.collection.findOne({ _id: id });
+
+// What the strip must never change on any session row (its own record and its tracks).
+const KEPT = ['emotionTaps', 'contextPrompt', 'musicProvider', 'externalPlaylistId', 'trackIds', 'trackKeys', 'trackSummary', 'skipCount', 'createdAt', 'userId'];
+const pick = (doc, fields) => Object.fromEntries(fields.map((f) => [f, doc[f]]));
+
+async function snapshotAll() {
+  const out = {};
+  for (const [name, c] of [['sessions', PlaylistSession.collection], ['serves', ServeEvent.collection], ['users', User.collection]]) {
+    out[name] = await c.find({}).sort({ _id: 1 }).toArray();
+  }
+  out.redis = [...redis.store.keys()].sort();
+  return JSON.stringify(out);
+}
+
+// User A: granted 10 days ago, withdrew 2 days ago. Every kind of row §1 names.
+async function seedWithdrawer(user) {
+  const W = ago(2 * DAY);
+  await consentAt(user, 'granted', ago(10 * DAY));
+  await consentAt(user, 'withdrawn', W);
+  const rows = {
+    heart: await session(user, ago(5 * DAY), {
+      moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' },
+      targetBpm: 150, targetEnergy: 0.9, targetValence: 0.62, targetGenres: ['edm', 'drum and bass'], emotionTaps: [{ x: 0, y: 0 }],
+    }),
+    moodWithHr: await session(user, ago(4 * DAY), { moodKey: 'calm', biometricSnapshot: { heartRate: 88, activity: 'running' } }),
+    moodNoHr: await session(user, ago(3 * DAY), { moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: 'running' } }),
+    textWithHr: await session(user, ago(3 * DAY), { moodKey: null, contextPrompt: 'long day at work', biometricSnapshot: { heartRate: 77, activity: null } }),
+    // older than the trim: sessionTrim already removed the heart rate and the note (DT-1b′)
+    trimmedShared: await session(user, ago(40 * DAY), { moodKey: 'uplift', contextPrompt: null, biometricSnapshot: { heartRate: null, activity: 'running' } }),
+    trimmedChip: await session(user, ago(41 * DAY), { moodKey: 'calm', contextPrompt: null, biometricSnapshot: { heartRate: null, activity: 'winding down' } }),
+    // after the withdrawal, mood only: lawful targets
+    afterWithdrawal: await session(user, ago(1 * DAY), { moodKey: 'unwind', biometricSnapshot: { heartRate: null, activity: 'workout' } }),
+  };
+  const serves = {
+    bio: await serve(user, ago(5 * DAY), { moodKey: 'bio:peak:running', bioState: { tempoBand: 'peak', activity: 'running' } }),
+    moodBand: await serve(user, ago(4 * DAY), { moodKey: 'calm', bioState: { tempoBand: 'active', activity: 'running' } }),
+    moodActivityOnly: await serve(user, ago(4 * DAY), { moodKey: 'calm', bioState: { tempoBand: null, activity: 'resting' } }),
+    plain: await serve(user, ago(3 * DAY), { moodKey: 'calm' }),
+  };
+  const id = String(user._id);
+  for (const key of [`ledger:${id}:served`, `ledger:${id}:mood:bio:peak:running`, `ledger:${id}:mood:calm`, `pool:${id}:bio:peak:running`,
+    `pool:${id}:calm`, `buffer:${id}:bio:peak:running`, `bio:baseline:${id}`, `bio:affect:${id}`]) {
+    redis.store.set(key, 'x');
+  }
+  return { W, rows, serves };
+}
+
+// User B: a consenting listener who withdraws nothing. Must be untouched by A's erasure.
+async function seedBystander(user) {
+  await consentAt(user, 'granted', ago(10 * DAY));
+  await session(user, ago(5 * DAY), { moodKey: 'bio:active:walking', biometricSnapshot: { heartRate: 101, activity: 'walking' } });
+  await session(user, ago(4 * DAY), { moodKey: 'calm', biometricSnapshot: { heartRate: 70, activity: 'running' } });
+  await serve(user, ago(5 * DAY), { moodKey: 'bio:active:walking', bioState: { tempoBand: 'active', activity: 'walking' } });
+  const id = String(user._id);
+  for (const key of [`ledger:${id}:served`, `buffer:${id}:bio:active:walking`, `bio:baseline:${id}`]) redis.store.set(key, 'x');
+}
+const bystanderState = async (user) => JSON.stringify({
+  sessions: await PlaylistSession.collection.find({ userId: user._id }).sort({ _id: 1 }).toArray(),
+  serves: await ServeEvent.collection.find({ userId: user._id }).sort({ _id: 1 }).toArray(),
+  keys: [...redis.store.keys()].filter((k) => k.includes(String(user._id))).sort(),
+});
+const GLOBAL_KEYS = ['gemini:openai/gpt-oss-20b:abc', 'af:isrc:A', 'revoked:jti:xyz'];
+
+describe('the erasure module on real Mongo (T4) — the operation list', () => {
+  it('removes exactly the §1 fields from each kind of row, for this user only', async () => {
+    const a = await listener('a');
+    const b = await listener('b');
+    const { W, rows, serves } = await seedWithdrawer(a);
+    await seedBystander(b);
+    for (const k of GLOBAL_KEYS) redis.store.set(k, 'x');
+    const before = {};
+    for (const [name, id] of Object.entries(rows)) before[name] = await raw(id);
+    const bBefore = await bystanderState(b);
+
+    const counts = await eraseSessionHealth(a._id, { heartRateBefore: new Date(), targetsBefore: W }, { purgeRedis: true });
+
+    const after = {};
+    for (const [name, id] of Object.entries(rows)) after[name] = await raw(id);
+    // A heart session: the Live mark, no heart rate, no activity, no targets, no band genres. Tracks stay (T1).
+    expect(after.heart).toMatchObject({
+      moodKey: 'bio:', biometricSnapshot: { heartRate: null, activity: null },
+      targetBpm: null, targetEnergy: null, targetValence: null, targetGenres: [],
+    });
+    // A mood session that carried a heart rate: its activity goes with it (A2); its mood and genres stay.
+    expect(after.moodWithHr).toMatchObject({
+      moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: null },
+      targetBpm: null, targetEnergy: null, targetValence: null, targetGenres: ['ambient'],
+    });
+    // A young mood session with no heart rate: the chip stays; the targets go (P1).
+    expect(after.moodNoHr).toMatchObject({
+      moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: 'running' }, targetBpm: null, targetEnergy: null, targetValence: null,
+    });
+    // A text-only session with a heart rate: the free text stays (C1).
+    expect(after.textWithHr).toMatchObject({ moodKey: null, biometricSnapshot: { heartRate: null, activity: null }, targetBpm: null });
+    expect(after.textWithHr.contextPrompt).toBe(before.textWithHr.contextPrompt);
+    // DT-1b′ O1: older than the trim, "running" may be the watch's → removed; "winding down" is only a chip → kept.
+    expect(after.trimmedShared.biometricSnapshot.activity).toBeNull();
+    expect(after.trimmedChip.biometricSnapshot.activity).toBe('winding down');
+    expect(after.trimmedShared.targetValence).toBeNull();
+    expect(after.trimmedChip.targetValence).toBeNull();
+    // After the withdrawal, mood only: nothing to remove — its targets were never shaped by the heart rate.
+    expect(after.afterWithdrawal).toEqual(before.afterWithdrawal);
+    // Every session keeps its own record and its tracks.
+    for (const name of Object.keys(rows)) expect(pick(after[name], KEPT)).toEqual(pick(before[name], KEPT));
+
+    // Serve rows: band and activity gone everywhere; a bio key gone; track, time and session kept.
+    expect(await rawServe(serves.bio)).toMatchObject({ moodKey: null, bioState: { tempoBand: null, activity: null }, canonicalKey: 'isrc:A', sessionId: '7' });
+    expect(await rawServe(serves.moodBand)).toMatchObject({ moodKey: 'calm', bioState: { tempoBand: null, activity: null } });
+    expect(await rawServe(serves.moodActivityOnly)).toMatchObject({ moodKey: 'calm', bioState: { tempoBand: null, activity: null } });
+
+    // Redis: A's whole registry is gone; B's keys and the global caches stay.
+    expect([...redis.store.keys()].filter((k) => k.includes(String(a._id)))).toEqual([]);
+    for (const k of GLOBAL_KEYS) expect(redis.store.has(k)).toBe(true);
+
+    expect(counts).toEqual({ sessions: 4, sessionTargets: 3, serveEvents: 3, redisKeys: 8 });
+    expect(await PlaylistSession.countDocuments({ userId: a._id })).toBe(7); // no session is deleted
+    expect(await bystanderState(b)).toBe(bBefore);
+  });
+
+  it('is idempotent: a second run changes nothing and counts nothing', async () => {
+    const a = await listener('a');
+    const { W } = await seedWithdrawer(a);
+    const windows = { heartRateBefore: new Date(), targetsBefore: W };
+    await eraseSessionHealth(a._id, windows, { purgeRedis: true });
+    const once = await snapshotAll();
+
+    const counts = await eraseSessionHealth(a._id, windows, { purgeRedis: true });
+
+    expect(counts).toEqual({ sessions: 0, sessionTargets: 0, serveEvents: 0, redisKeys: 0 });
+    expect(await snapshotAll()).toBe(once);
+  });
+
+  it('the cutoffs are strict: a row made exactly at a cutoff keeps its values', async () => {
+    const a = await listener('a');
+    const hb = ago(1 * DAY);
+    const tb = ago(2 * DAY);
+    const atHb = await session(a, hb, { moodKey: 'bio:active:walking', biometricSnapshot: { heartRate: 101, activity: 'walking' } });
+    const atTb = await session(a, tb, { moodKey: 'calm' });
+    const serveAtHb = await serve(a, hb, { moodKey: 'bio:active:walking', bioState: { tempoBand: 'active', activity: 'walking' } });
+
+    await eraseSessionHealth(a._id, { heartRateBefore: hb, targetsBefore: tb });
+
+    expect(await raw(atHb)).toMatchObject({ moodKey: 'bio:active:walking', biometricSnapshot: { heartRate: expect.anything(), activity: 'walking' } });
+    expect((await raw(atTb)).targetBpm).toBe(96);
+    expect(await rawServe(serveAtHb)).toMatchObject({ moodKey: 'bio:active:walking', bioState: { tempoBand: 'active' } });
+  });
+
+  it('a re-granted account keeps every row made after the re-grant (lawful), and loses the rest', async () => {
+    const a = await listener('a');
+    const W = ago(6 * DAY);
+    const G2 = ago(4 * DAY);
+    const beforeW = await session(a, ago(8 * DAY), { moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 140, activity: 'running' } });
+    const between = await session(a, ago(5 * DAY), { moodKey: 'calm', biometricSnapshot: { heartRate: 92, activity: 'running' } });
+    const afterG2 = await session(a, ago(1 * DAY), { moodKey: 'bio:active:walking', biometricSnapshot: { heartRate: 101, activity: 'walking' } });
+    const lawful = await raw(afterG2);
+
+    await eraseSessionHealth(a._id, { heartRateBefore: G2, targetsBefore: W });
+
+    expect(await raw(beforeW)).toMatchObject({ moodKey: 'bio:', targetBpm: null });
+    // Made between the withdrawal and the re-grant: its heart rate went (no grant covered it); its
+    // targets were made after the withdrawal and fall outside P1's window only if it had no heart rate.
+    expect(await raw(between)).toMatchObject({ biometricSnapshot: { heartRate: null, activity: null }, targetBpm: null });
+    expect(await raw(afterG2)).toEqual(lawful);
+  });
+});
+
+describe('eraseSessionHealthOnWithdrawal — the withdrawal entry point (T4)', () => {
+  it('a user who never granted is untouched, and no erasure is recorded as owed', async () => {
+    const a = await listener('a');
+    await consentAt(a, 'withdrawn', ago(1 * MIN));
+    await session(a, ago(3 * DAY), { moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' } });
+    redis.store.set(`buffer:${a._id}:bio:peak:running`, 'x');
+    const before = await snapshotAll();
+
+    const out = await eraseSessionHealthOnWithdrawal(a._id);
+
+    expect(out.status).toBe('skipped');
+    expect(await snapshotAll()).toBe(before);
+  });
+
+  it('reads the history itself: granted then withdrawn erases, and the pending record is set while it runs and cleared after', async () => {
+    const a = await listener('a');
+    await consentAt(a, 'granted', ago(10 * DAY));
+    await consentAt(a, 'withdrawn', ago(1 * MIN));
+    const heart = await session(a, ago(3 * DAY), { moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' } });
+    const seenPending = [];
+    const realUpdateMany = ServeEvent.updateMany.bind(ServeEvent);
+    jest.spyOn(ServeEvent, 'updateMany').mockImplementation(async (...args) => {
+      seenPending.push((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt);
+      return realUpdateMany(...args);
+    });
+
+    const out = await eraseSessionHealthOnWithdrawal(a._id);
+
+    expect(out).toEqual({ status: 'purged', counts: { sessions: 1, sessionTargets: 0, serveEvents: 0, redisKeys: 0 } });
+    expect((await raw(heart)).moodKey).toBe('bio:');
+    expect(seenPending.length).toBeGreaterThan(0);
+    for (const v of seenPending) expect(v).toBeInstanceOf(Date);
+    expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toBeNull();
+  });
+
+  it('a failing step: every other step still runs, the pending record stays, and the error names the step and its type only', async () => {
+    const a = await listener('a');
+    const { rows, serves } = await seedWithdrawer(a);
+    const realUpdateMany = ServeEvent.updateMany.bind(ServeEvent);
+    let failed = false;
+    jest.spyOn(ServeEvent, 'updateMany').mockImplementation(async (filter, ...rest) => {
+      if (!failed && filter?.moodKey) {
+        failed = true;
+        throw Object.assign(new Error('connection 3 to 10.0.0.7:27017 closed (heartRate=131)'), { name: 'MongoNetworkError' });
+      }
+      return realUpdateMany(filter, ...rest);
+    });
+
+    const err = await eraseSessionHealthOnWithdrawal(a._id).then(() => null, (e) => e);
+
+    expect(err).not.toBeNull();
+    expect(err.failedSteps).toEqual(['serveBioKeys:MongoNetworkError']);
+    expect(err.message).not.toMatch(/10\.0\.0\.7|131/);
+    // the band step still ran over all three banded rows, the bio one included
+    expect(err.counts).toEqual({ sessions: 4, sessionTargets: 3, serveEvents: 3, redisKeys: 8 });
+    expect((await raw(rows.heart)).moodKey).toBe('bio:');
+    expect((await rawServe(serves.moodBand)).bioState.tempoBand).toBeNull(); // the next serve step ran
+    expect((await rawServe(serves.bio)).moodKey).toBe('bio:peak:running'); // the failed one did not
+    expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toBeInstanceOf(Date);
+  });
+
+  it('a strict Redis failure is a failed step: the Mongo steps ran, the pending record stays', async () => {
+    const a = await listener('a');
+    const { rows } = await seedWithdrawer(a);
+    redis.failNext = 'scan';
+
+    const err = await eraseSessionHealthOnWithdrawal(a._id).then(() => null, (e) => e);
+
+    expect(err.failedSteps).toEqual(['redisKeys:ReplyError']);
+    expect((await raw(rows.heart)).moodKey).toBe('bio:');
+    expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toBeInstanceOf(Date);
+  });
+
+  it('compare-and-set: a newer pending record written while this run works survives its success', async () => {
+    const a = await listener('a');
+    await seedWithdrawer(a);
+    const newer = new Date(Date.now() + 60_000);
+    const realUpdateMany = PlaylistSession.updateMany.bind(PlaylistSession);
+    let once = false;
+    jest.spyOn(PlaylistSession, 'updateMany').mockImplementation(async (...args) => {
+      if (!once) { once = true; await User.collection.updateOne({ _id: a._id }, { $set: { healthErasurePendingAt: newer } }); }
+      return realUpdateMany(...args);
+    });
+
+    await eraseSessionHealthOnWithdrawal(a._id);
+
+    expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toEqual(newer);
+  });
+});
+
+describe('a missing user id never widens a filter (mass-erasure guard, real Mongo)', () => {
+  it.each([undefined, null, '', 'not-an-id', 'aaaaaaaaaaaa'])('%p changes nothing for anyone', async (bad) => {
+    const a = await listener('a');
+    const b = await listener('b');
+    await seedWithdrawer(a);
+    await seedBystander(b);
+    const before = await snapshotAll();
+
+    await expect(eraseSessionHealthOnWithdrawal(bad)).resolves.toMatchObject({ status: 'skipped' });
+    await expect(eraseSessionHealth(bad, { heartRateBefore: new Date(), targetsBefore: new Date() }, { purgeRedis: true }))
+      .resolves.toEqual({ sessions: 0, sessionTargets: 0, serveEvents: 0, redisKeys: 0 });
+    await expect(undoRunWrites({ userId: bad, sessionId: undefined, servedAt: undefined, moodKey: 'bio:peak:running', stripActivity: true }))
+      .resolves.toEqual({ changed: 0 });
+
+    expect(await snapshotAll()).toBe(before);
+  });
+});
+
+describe('undoRunWrites — exactly this run\'s writes, never the user\'s history (R-A)', () => {
+  it('strips this run\'s session by id, scrubs this run\'s serve batch by time, and deletes this run\'s band keys', async () => {
+    const a = await listener('a');
+    const id = String(a._id);
+    const older = await session(a, ago(2 * DAY), { moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 133, activity: 'running' } });
+    const olderBefore = await raw(older);
+    const run = await session(a, ago(1 * MIN), { moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' }, targetGenres: ['edm'] });
+    const servedAt = ago(1 * MIN);
+    const runServe = await serve(a, servedAt, { moodKey: 'bio:peak:running', bioState: { tempoBand: 'peak', activity: 'running' } });
+    const otherServe = await serve(a, ago(2 * DAY), { moodKey: 'bio:peak:running', bioState: { tempoBand: 'peak', activity: 'running' } });
+    for (const k of [`buffer:${id}:bio:peak:running`, `pool:${id}:bio:peak:running`, `ledger:${id}:mood:bio:peak:running`,
+      `ledger:${id}:served`, `pool:${id}:calm`, `buffer:${id}:bio:active:walking`, `bio:baseline:${id}`]) redis.store.set(k, 'x');
+
+    const out = await undoRunWrites({ userId: a._id, sessionId: run, servedAt, moodKey: 'bio:peak:running', stripActivity: true });
+
+    expect(out.changed).toBeGreaterThan(0);
+    expect(await raw(run)).toMatchObject({ moodKey: 'bio:', biometricSnapshot: { heartRate: null, activity: null }, targetBpm: null, targetGenres: [] });
+    expect(await raw(older)).toEqual(olderBefore);
+    expect(await rawServe(runServe)).toMatchObject({ moodKey: null, bioState: { tempoBand: null, activity: null } });
+    expect(await rawServe(otherServe)).toMatchObject({ moodKey: 'bio:peak:running', bioState: { tempoBand: 'peak', activity: 'running' } });
+    expect([...redis.store.keys()].sort()).toEqual([`bio:baseline:${id}`, `buffer:${id}:bio:active:walking`, `ledger:${id}:served`, `pool:${id}:calm`].sort());
+  });
+
+  it('a mood run shaped by the stored health profile loses its targets; with no heart rate its chip stays', async () => {
+    const a = await listener('a');
+    const run = await session(a, ago(1 * MIN), { moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: 'running' } });
+
+    await undoRunWrites({ userId: a._id, sessionId: run, servedAt: null, moodKey: 'calm', stripActivity: false });
+
+    expect(await raw(run)).toMatchObject({ moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: 'running' }, targetBpm: null, targetEnergy: null, targetValence: null, targetGenres: ['ambient'] });
+  });
+
+  it('a run that started with a heart rate loses its activity even when the row was written without one', async () => {
+    const a = await listener('a');
+    const run = await session(a, ago(1 * MIN), { moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: 'resting' } });
+
+    await undoRunWrites({ userId: a._id, sessionId: run, servedAt: null, moodKey: 'calm', stripActivity: true });
+
+    expect((await raw(run)).biometricSnapshot.activity).toBeNull();
+  });
+
+  it('with no valid session id and no serve time it issues no Mongo write at all', async () => {
+    const a = await listener('a');
+    await session(a, ago(1 * MIN), { moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' } });
+    await serve(a, ago(1 * MIN), { moodKey: 'bio:peak:running', bioState: { tempoBand: 'peak', activity: 'running' } });
+    const before = await snapshotAll();
+    const sessionWrites = jest.spyOn(PlaylistSession, 'updateOne');
+    const serveWrites = jest.spyOn(ServeEvent, 'updateMany');
+
+    await undoRunWrites({ userId: a._id, sessionId: 'nope', servedAt: 'yesterday', moodKey: 'calm', stripActivity: true });
+
+    expect(sessionWrites).not.toHaveBeenCalled();
+    expect(serveWrites).not.toHaveBeenCalled();
+    expect(await snapshotAll()).toBe(before);
+  });
+});
