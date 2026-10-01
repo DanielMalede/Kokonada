@@ -1,0 +1,5447 @@
+{
+ "note": "ConsentSheet as rendered on main before HX-5 (fd68094), per face and wall state, reduced motion. Re-record only with a recorded decision that changes the consent screen (UI-012 bump, DEC-117 flip).",
+ "faces": {
+  "light": {
+   "consent_required": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#FAFAFF",
+      "opacity": 0
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#6A6589"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#241B45"
+          }
+         ]
+        },
+        "children": [
+         "Your health data, only with your say-so"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#3F3A61"
+          }
+         ]
+        },
+        "children": [
+         "Review what we read and why, then choose. You can decline and keep using Kokonada in mood-only mode."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#6A6589"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#6A6589",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#241B45"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#14163A",
+           "borderColor": "#14163A",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#FAFAFF"
+            }
+           ]
+          },
+          "children": [
+           "Agree"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "consent_stale": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#FAFAFF",
+      "opacity": 0
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#6A6589"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#241B45"
+          }
+         ]
+        },
+        "children": [
+         "Your consent terms were updated"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#3F3A61"
+          }
+         ]
+        },
+        "children": [
+         "Please review the updated notice and re-confirm to continue."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#6A6589"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#6A6589",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#241B45"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#14163A",
+           "borderColor": "#14163A",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#FAFAFF"
+            }
+           ]
+          },
+          "children": [
+           "Agree"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "submitting_grant": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#FAFAFF",
+      "opacity": 1
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#6A6589"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#241B45"
+          }
+         ]
+        },
+        "children": [
+         "Your health data, only with your say-so"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#3F3A61"
+          }
+         ]
+        },
+        "children": [
+         "Review what we read and why, then choose. You can decline and keep using Kokonada in mood-only mode."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#6A6589"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": true
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#6A6589",
+           "opacity": 0.5
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#241B45"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": true
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#14163A",
+           "borderColor": "#14163A",
+           "opacity": 0.6
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#FAFAFF"
+            }
+           ]
+          },
+          "children": [
+           "Recording…"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "submit_error": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#FAFAFF",
+      "opacity": 1
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#8B6FE8"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#6A6589"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#241B45"
+          }
+         ]
+        },
+        "children": [
+         "Your health data, only with your say-so"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#3F3A61"
+          }
+         ]
+        },
+        "children": [
+         "Review what we read and why, then choose. You can decline and keep using Kokonada in mood-only mode."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#FFFFFF",
+             "borderColor": "#D8DEEA",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#241B45"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#3F3A61"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#6A6589"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-error",
+       "style": [
+        {
+         "fontSize": 15,
+         "textAlign": "center",
+         "paddingBottom": 8
+        },
+        {
+         "color": "#B87A18"
+        }
+       ]
+      },
+      "children": [
+       "We couldn’t record your consent. Check your connection and try again."
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#6A6589",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#241B45"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#14163A",
+           "borderColor": "#14163A",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#FAFAFF"
+            }
+           ]
+          },
+          "children": [
+           "Try again"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "dark": {
+   "consent_required": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#0E1030",
+      "opacity": 0
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#A7A6D0"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#EEF0FF"
+          }
+         ]
+        },
+        "children": [
+         "Your health data, only with your say-so"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#CFD0EC"
+          }
+         ]
+        },
+        "children": [
+         "Review what we read and why, then choose. You can decline and keep using Kokonada in mood-only mode."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#A7A6D0"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#A7A6D0",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#EEF0FF"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#EEF1FC",
+           "borderColor": "#EEF1FC",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#0B0D26"
+            }
+           ]
+          },
+          "children": [
+           "Agree"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "consent_stale": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#0E1030",
+      "opacity": 0
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#A7A6D0"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#EEF0FF"
+          }
+         ]
+        },
+        "children": [
+         "Your consent terms were updated"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#CFD0EC"
+          }
+         ]
+        },
+        "children": [
+         "Please review the updated notice and re-confirm to continue."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#A7A6D0"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#A7A6D0",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#EEF0FF"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#EEF1FC",
+           "borderColor": "#EEF1FC",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#0B0D26"
+            }
+           ]
+          },
+          "children": [
+           "Agree"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "submitting_grant": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#0E1030",
+      "opacity": 1
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#A7A6D0"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#EEF0FF"
+          }
+         ]
+        },
+        "children": [
+         "Your health data, only with your say-so"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#CFD0EC"
+          }
+         ]
+        },
+        "children": [
+         "Review what we read and why, then choose. You can decline and keep using Kokonada in mood-only mode."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#A7A6D0"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": true
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#A7A6D0",
+           "opacity": 0.5
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#EEF0FF"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": true
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#EEF1FC",
+           "borderColor": "#EEF1FC",
+           "opacity": 0.6
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#0B0D26"
+            }
+           ]
+          },
+          "children": [
+           "Recording…"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "submit_error": {
+    "type": "View",
+    "props": {
+     "testID": "consent-sheet",
+     "style": {
+      "flex": 1,
+      "paddingHorizontal": 24,
+      "paddingTop": 48,
+      "paddingBottom": 24,
+      "backgroundColor": "#0E1030",
+      "opacity": 1
+     },
+     "collapsable": false
+    },
+    "children": [
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "alignItems": "flex-start",
+        "gap": 8,
+        "marginBottom": 16
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "accessibilityElementsHidden": true,
+         "importantForAccessibility": "no-hide-descendants",
+         "style": {
+          "width": 32,
+          "height": 32,
+          "alignItems": "center",
+          "justifyContent": "flex-end",
+          "paddingBottom": 4
+         }
+        },
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 16,
+             "height": 12,
+             "borderWidth": 2.5,
+             "borderBottomWidth": 0,
+             "borderTopLeftRadius": 999,
+             "borderTopRightRadius": 999
+            },
+            {
+             "borderColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "width": 24,
+             "height": 16,
+             "borderRadius": 6,
+             "marginTop": -1
+            },
+            {
+             "backgroundColor": "#9B7BF0"
+            }
+           ]
+          },
+          "children": null
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 11,
+           "fontWeight": "600",
+           "letterSpacing": 0.3
+          },
+          {
+           "color": "#A7A6D0"
+          }
+         ]
+        },
+        "children": [
+         "KOKONADA"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "testID": "consent-title",
+         "accessibilityRole": "header",
+         "style": [
+          {
+           "fontSize": 28,
+           "fontWeight": "700"
+          },
+          {
+           "color": "#EEF0FF"
+          }
+         ]
+        },
+        "children": [
+         "Your health data, only with your say-so"
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "style": [
+          {
+           "fontSize": 15,
+           "lineHeight": 21.599999999999998
+          },
+          {
+           "color": "#CFD0EC"
+          }
+         ]
+        },
+        "children": [
+         "Review what we read and why, then choose. You can decline and keep using Kokonada in mood-only mode."
+        ]
+       }
+      ]
+     },
+     {
+      "type": "RCTScrollView",
+      "props": {
+       "testID": "consent-document",
+       "style": {
+        "flex": 1
+       },
+       "contentContainerStyle": {
+        "gap": 12,
+        "paddingBottom": 12
+       },
+       "showsVerticalScrollIndicator": true
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {},
+        "children": [
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Why we ask"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Kokonada turns how your body is doing into music tuned to you. To do that we need your explicit permission to read health and biometric data from your wearable. This is special-category data under GDPR Article 9, so we ask you here — clearly and up front — before anything is read."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "What we read"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "• Heart rate\n• Heart-rate variability (HRV)\n• Sleep sessions\n• Resting heart rate\n• Historical readings (up to ~6 months back)\n• Blood oxygen (SpO₂) — from a connected Garmin device\n• Respiration rate — from a connected Garmin device\n• Body Battery — from a connected Garmin device\n• Training Readiness — from a connected Garmin device"
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How it is used"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "These readings personalise your session in the moment and are summarised into a private profile that shapes future recommendations. They are never sold, and never used for advertising."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "How long we keep it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "We keep only what personalisation needs and no longer. Raw samples are minimised over time; withdrawing your consent erases the health data held across your connected wearables."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Who else processes it"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Music intelligence is generated with Groq (our AI provider), and your readings originate from your wearable/health provider. These sub-processors act only on our instructions to deliver the service."
+            ]
+           }
+          ]
+         },
+         {
+          "type": "View",
+          "props": {
+           "style": [
+            {
+             "borderRadius": 20,
+             "padding": 16,
+             "gap": 8
+            },
+            {
+             "shadowColor": "#000",
+             "shadowOpacity": 0.1,
+             "shadowRadius": 12,
+             "shadowOffset": {
+              "width": 0,
+              "height": 4
+             },
+             "elevation": 2
+            },
+            {
+             "backgroundColor": "#161A3C",
+             "borderColor": "#2A2E55",
+             "borderTopWidth": 0.5
+            }
+           ]
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "accessibilityRole": "header",
+             "style": [
+              {
+               "fontSize": 18,
+               "fontWeight": "600"
+              },
+              {
+               "color": "#EEF0FF"
+              }
+             ]
+            },
+            "children": [
+             "Your controls"
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "selectable": true,
+             "style": [
+              {
+               "fontSize": 15,
+               "lineHeight": 21.599999999999998
+              },
+              {
+               "color": "#CFD0EC"
+              }
+             ]
+            },
+            "children": [
+             "Consent is optional — the app works in mood-only mode without it. You can withdraw at any time from your Profile, which stops biometric personalisation and erases the health data held for you."
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-scroll-cue",
+       "style": [
+        {
+         "fontSize": 13,
+         "textAlign": "center",
+         "paddingVertical": 8
+        },
+        {
+         "color": "#A7A6D0"
+        }
+       ]
+      },
+      "children": [
+       "Scroll to review the full notice"
+      ]
+     },
+     {
+      "type": "Text",
+      "props": {
+       "testID": "consent-error",
+       "style": [
+        {
+         "fontSize": 15,
+         "textAlign": "center",
+         "paddingBottom": 8
+        },
+        {
+         "color": "#E7B75B"
+        }
+       ]
+      },
+      "children": [
+       "We couldn’t record your consent. Check your connection and try again."
+      ]
+     },
+     {
+      "type": "View",
+      "props": {
+       "style": {
+        "flexDirection": "row",
+        "gap": 12,
+        "paddingTop": 8
+       }
+      },
+      "children": [
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-decline",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Decline health-data processing",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "borderColor": "#A7A6D0",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#EEF0FF"
+            }
+           ]
+          },
+          "children": [
+           "Decline"
+          ]
+         }
+        ]
+       },
+       {
+        "type": "View",
+        "props": {
+         "testID": "consent-agree",
+         "accessibilityRole": "button",
+         "accessibilityLabel": "Agree and continue to health permissions",
+         "accessible": true,
+         "accessibilityState": {
+          "disabled": false
+         },
+         "focusable": true,
+         "accessibilityValue": {},
+         "style": [
+          {
+           "flex": 1,
+           "paddingVertical": 16,
+           "borderRadius": 999,
+           "borderWidth": 1.5,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          {
+           "backgroundColor": "#EEF1FC",
+           "borderColor": "#EEF1FC",
+           "opacity": 1
+          }
+         ],
+         "collapsable": false
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "style": [
+            {
+             "fontSize": 16,
+             "fontWeight": "600"
+            },
+            {
+             "color": "#0B0D26"
+            }
+           ]
+          },
+          "children": [
+           "Try again"
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}
