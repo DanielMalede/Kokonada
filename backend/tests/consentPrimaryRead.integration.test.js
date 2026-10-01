@@ -89,6 +89,22 @@ describe('the consent read goes to the primary even when the connection prefers 
     expect(consentFinds().map((f) => f.address)).toEqual(consentFinds().map(() => primary));
   });
 
+  // BE-016 N3 (round 1): the session-health erasure reads the whole history to decide whom it erases.
+  // A lagging secondary could miss the withdrawal row just written, return no windows, and report
+  // `sessionHealth=skipped` with no owed record for the sweep to finish.
+  it('the session-health erasure reads the consent history from the primary', async () => {
+    const { readHistory } = require('../app/services/privacy/sessionHealthErasure');
+    const userId = new mongoose.Types.ObjectId();
+    await ConsentRecord.create({ userId, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: 1, status: 'granted', grantedAt: new Date() });
+    finds.length = 0;
+
+    const history = await readHistory(userId);
+
+    expect(history).toHaveLength(1);
+    expect(consentFinds()).toHaveLength(1);
+    expect(consentFinds()[0].address).toBe(primary);
+  });
+
   it('the tie read (a full window of rows in one millisecond) reads the primary too', async () => {
     const userId = new mongoose.Types.ObjectId();
     const at = new Date();

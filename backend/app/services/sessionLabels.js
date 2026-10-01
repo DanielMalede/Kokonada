@@ -26,6 +26,11 @@ const titleCase = (s) =>
 // relabelled here. The word must equal the app's RETIRED_ACTIVITY_LABEL (historyFormat.ts); a mobile
 // drift test runs this file to hold them together.
 const RETIRED_ACTIVITY_LABEL = 'General';
+
+// BE-016 (DEC-111, DEC-118 H1; the designer's A1): the archive's general title, its word for a moment
+// whose state it does not hold. It must equal the app's GENERIC_TITLE (historyFormat.ts); the mobile
+// drift test runs this file to hold them together, so this file stays free of imports.
+const GENERAL_SESSION_TITLE = 'A moment';
 const RELABELLED_ACTIVITIES = new Set(['working']);
 const activityLabelOf = (s) =>
   (RELABELLED_ACTIVITIES.has(String(s).trim().toLowerCase()) ? RETIRED_ACTIVITY_LABEL : titleCase(s));
@@ -51,9 +56,10 @@ function sessionLabel(moodKey, activity) {
     return { title: PRESET_TITLES[key], source: 'manual', activityLabel: chosen };
   }
 
-  // Unknown/empty key — never surface a raw string. Prefer the activity, else a neutral title.
-  const title = key ? titleCase(key) : (chosen || 'Session');
+  // Unknown/empty key — never surface a raw string. Prefer the activity, else the general title
+  // (BE-016 A2: a withdrawal leaves text-only sessions here, and History never says "Session").
+  const title = key ? titleCase(key) : (chosen || GENERAL_SESSION_TITLE);
   return { title, source: 'manual', activityLabel: chosen };
 }
 
-module.exports = { sessionLabel, PRESET_TITLES, BAND_TITLES, RETIRED_ACTIVITY_LABEL };
+module.exports = { sessionLabel, PRESET_TITLES, BAND_TITLES, RETIRED_ACTIVITY_LABEL, GENERAL_SESSION_TITLE };

@@ -1,6 +1,6 @@
 'use strict';
 
-const { sessionLabel, RETIRED_ACTIVITY_LABEL } = require('../app/services/sessionLabels');
+const { sessionLabel, RETIRED_ACTIVITY_LABEL, GENERAL_SESSION_TITLE } = require('../app/services/sessionLabels');
 
 describe('sessionLabel (defect D-3 — History nomenclature)', () => {
   // RETIRED 2026-09-30 by the owner's ruling on HX-7 (reversal of this pin signed): the fixture was
@@ -37,7 +37,21 @@ describe('sessionLabel (defect D-3 — History nomenclature)', () => {
     expect(sessionLabel(null, 'running')).toEqual({
       title: 'Running', source: 'manual', activityLabel: 'Running',
     });
-    expect(sessionLabel(null, null).title).toBe('Session');
+    // REVERSED under DEC-119 (the owner's signature; the designer's A2 for BE-016): a row with no key
+    // and no activity is titled with the app's general word, GENERAL_SESSION_TITLE ("A moment"), not
+    // "Session". BE-016 pushes text-only rows onto this path, and History's own spec bans "Session".
+    // It was `expect(sessionLabel(null, null).title).toBe('Session')`.
+    expect(sessionLabel(null, null)).toEqual({ title: GENERAL_SESSION_TITLE, source: 'manual', activityLabel: null });
+    expect(sessionLabel('', null).title).toBe(GENERAL_SESSION_TITLE);
+  });
+});
+
+// BE-016 (DEC-111, DEC-118 H1; the designer's A1): the archive's general word, held equal to the app's
+// own GENERIC_TITLE by the mobile drift test (historyFormat.test.ts), which runs this file.
+describe('GENERAL_SESSION_TITLE', () => {
+  it('is "A moment", and the bare Live key still titles "Live" (the mobile closed set is unchanged)', () => {
+    expect(GENERAL_SESSION_TITLE).toBe('A moment');
+    expect(sessionLabel('bio:', null)).toEqual({ title: 'Live', source: 'live', activityLabel: null });
   });
 });
 

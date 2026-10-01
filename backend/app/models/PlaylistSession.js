@@ -22,9 +22,12 @@ const playlistSessionSchema = new mongoose.Schema({
     activity:  { type: String, default: null },
   },
 
-  // Resolved mood preset for this generation (focus/calm/intense/…), null on the HR
-  // branch. Drives the per-mood "Affinity Trap Breaker": detecting a repeated mood and
-  // blacklisting tracks already served under that same mood. Indexed below.
+  // The mood this generation was keyed by: a preset (focus/calm/intense/…) resolved from the
+  // emotion taps, or on the heart-rate branch the synthetic `bio:<band>:<activity>`
+  // (moodDescriptors.syntheticBioMoodKey), which names the heart-rate band; null when neither
+  // applies. Withdrawing health-data consent reduces a bio key to the mark `bio:`, which only says
+  // the session was Live (BE-016, sessionHealthPolicy.js). Read by the History DTO; not indexed
+  // (the serve ledger owns the per-mood reads).
   moodKey: { type: String, default: null },
 
   // AI-derived music parameters

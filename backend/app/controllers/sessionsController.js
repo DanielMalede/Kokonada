@@ -2,8 +2,9 @@
 
 const mongoose = require('mongoose');
 const PlaylistSession = require('../models/PlaylistSession');
-const { sessionLabel } = require('../services/sessionLabels');
+const { sessionLabel, GENERAL_SESSION_TITLE } = require('../services/sessionLabels');
 const { providerContentCutoff } = require('../services/privacy/providerContentErasure');
+const { ERASED_LIVE_MARK } = require('../services/privacy/sessionHealthPolicy');
 
 // GET /api/sessions — the persistent playlist-history feed (A11). Keyset pagination
 // over the existing { userId:1, createdAt:-1 } index. Returns an EXPLICIT whitelist
@@ -24,16 +25,24 @@ function clampLimit(raw) {
 //
 // HX-2 M4: a session past the provider-content window serves no tracks, even when the daily job
 // has not stripped it yet. This only HIDES — the job is what deletes (sessionTrim.worker).
+//
+// BE-016 (DEC-118 H1; the designer's A3): a heart-rate session whose health data a withdrawal erased is
+// stored with the mark `bio:`. It reads "A moment" / Live, and all five fields are FORCED, whatever
+// else survived in storage, so a watch activity can never sit beside "A moment". This only DISPLAYS:
+// the erasure is the stored strip (services/privacy/sessionHealthErasure.js), never this override.
 function toSessionDTO(doc, cutoff = providerContentCutoff()) {
-  const activity = (doc.biometricSnapshot && doc.biometricSnapshot.activity) || null;
+  const erasedLive = doc.moodKey === ERASED_LIVE_MARK;
+  const activity = erasedLive ? null : ((doc.biometricSnapshot && doc.biometricSnapshot.activity) || null);
   const created = doc.createdAt ? new Date(doc.createdAt) : null;
   const withinWindow = !!created && created >= cutoff;
   // Friendly title + Manual/Live source so History never shows a raw moodKey (D-3).
-  const { title, source, activityLabel } = sessionLabel(doc.moodKey, activity);
+  const { title, source, activityLabel } = erasedLive
+    ? { title: GENERAL_SESSION_TITLE, source: 'live', activityLabel: null }
+    : sessionLabel(doc.moodKey, activity);
   return {
     id: String(doc._id),
     createdAt: doc.createdAt,
-    moodKey: doc.moodKey ?? null,
+    moodKey: erasedLive ? null : (doc.moodKey ?? null),
     title,
     source,
     provider: doc.musicProvider,

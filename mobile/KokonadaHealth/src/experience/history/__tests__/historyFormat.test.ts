@@ -18,6 +18,7 @@ import {
   WEEKDAY_WINDOW_DAYS,
   SERVER_TITLES,
   RETIRED_ACTIVITY_LABEL,
+  GENERIC_TITLE,
 } from '../historyFormat';
 import type { SessionItem } from '../sessionsApi';
 
@@ -75,6 +76,11 @@ describe('friendlyTitle — never a raw moodKey', () => {
     // Installed builds show the server's relabel verbatim; this build shows its own. One word for both.
     expect(backend.RETIRED_ACTIVITY_LABEL).toBe(RETIRED_ACTIVITY_LABEL);
     expect(backend.sessionLabel('energize', 'working').activityLabel).toBe(RETIRED_ACTIVITY_LABEL);
+    // BE-016 (the designer's A1): the server titles an erased heart session, and a row with no key or
+    // activity, with its general word; installed builds show it verbatim, this build falls back to its
+    // own GENERIC_TITLE. One word for both.
+    expect(backend.GENERAL_SESSION_TITLE).toBe(GENERIC_TITLE);
+    expect(GENERIC_TITLE).toBe('A moment');
   });
   it('ignores a blank title and maps a preset moodKey to a friendly word', () => {
     expect(friendlyTitle(item({ title: '   ', moodKey: 'focus' }))).toBe('Focus');
@@ -201,6 +207,13 @@ describe('rowA11yLabel — one composed spoken sentence (friendly title, never t
     const NOW = new Date(2026, 6, 15, 14, 0, 0);
     const it0 = item({ moodKey: 'bio:peak:running', activity: 'running', createdAt: new Date(NOW.getTime() - 5 * MINUTE_MS).toISOString() });
     expect(rowA11yLabel(it0, NOW)).toBe('Peak Energy, live session, Running, 5m ago');
+  });
+  it('BE-016: the erased heart-session DTO reads "A moment" over "Live" and speaks it', () => {
+    const NOW = new Date(2026, 6, 15, 14, 0, 0);
+    const erased = item({ title: 'A moment', source: 'live', moodKey: null, activity: null, activityLabel: null, createdAt: new Date(NOW.getTime() - 5 * MINUTE_MS).toISOString() });
+    expect(friendlyTitle(erased)).toBe(GENERIC_TITLE);
+    expect(metaLine(erased)).toBe('Live');
+    expect(rowA11yLabel(erased, NOW)).toBe('A moment, live session, 5m ago');
   });
 });
 

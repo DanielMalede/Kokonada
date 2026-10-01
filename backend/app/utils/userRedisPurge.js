@@ -2,10 +2,12 @@
 
 // GDPR erasure for user-scoped Redis state. Mongo deletion is the durable part
 // of the cascade; these keys would self-expire anyway (ledger 8d, pool 12h,
-// buffer 30m, baseline 6h) but right-to-erasure means the encrypted baseline blob,
+// buffer 30m, baseline 24h — baselines.js CACHE_TTL_S; its 6h is only the freshness
+// window — affect 2h) but right-to-erasure means the encrypted baseline blob,
 // the precompiled live buffers and the behavioral ledger windows go NOW, not at TTL.
-// Best-effort by design: a Redis outage must not block the Mongo erasure, and TTLs
-// guarantee eventual cleanup.
+// purgeUserKeys is best-effort by design: a Redis outage must not block the Mongo
+// erasure, and TTLs guarantee eventual cleanup. purgeUserKeysStrict is the variant for
+// an erasure that must report whether it finished.
 
 const { getRedis } = require('../config/redis');
 
@@ -54,4 +56,34 @@ async function purgeUserKeys(userId) {
   return deleted;
 }
 
-module.exports = { purgeUserKeys, patternsFor, USER_KEY_NAMESPACES };
+// The same registry, deleted STRICTLY (HX-2 M6; shared since BE-016). purgeUserKeys swallows errors,
+// which would let an erasure report itself finished while an 8-day ledger window outlived its promise.
+// A Redis that is configured but unusable is a failed step; a deployment with no Redis has nothing to
+// purge. Callers: spotifyErasure.purgeSpotifyData and sessionHealthErasure.
+async function purgeUserKeysStrict(userId) {
+  const id = String(userId || '').trim();
+  if (!id) throw new Error('refusing a Redis purge without a user id');
+  const redis = getRedis();
+  if (!redis) {
+    if (process.env.REDIS_URL) throw new Error('Redis is configured but unavailable');
+    return 0;
+  }
+  let deleted = 0;
+  for (const pattern of patternsFor(id)) {
+    // An exact key name (bio:baseline:<id>, bio:affect:<id>) is deleted by name: a SCAN walks the whole
+    // keyspace, and this runs inside the withdrawal request (BE-016 round 1, N7).
+    if (!pattern.includes('*')) {
+      deleted += await redis.del(pattern);
+      continue;
+    }
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+      cursor = nextCursor;
+      if (keys.length) deleted += await redis.del(...keys);
+    } while (cursor !== '0');
+  }
+  return deleted;
+}
+
+module.exports = { purgeUserKeys, purgeUserKeysStrict, patternsFor, USER_KEY_NAMESPACES };

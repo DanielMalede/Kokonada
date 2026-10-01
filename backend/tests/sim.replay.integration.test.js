@@ -120,9 +120,26 @@ async function grantConsent(uid, status = 'granted') {
   });
 }
 
+// BE-016 N10 (round 1): every warm-buffer serve now reads consent again and, without a current grant,
+// undoes that serve and logs a `[sessionHealth] compensating-strip` line. A listener whose buffer is
+// served holds a grant, so no test here may leave one. Lines are kept with the test that printed them
+// and still reach the console; the last test of the file asserts there are none.
+const sessionHealthLines = [];
+function captureSessionHealthLines() {
+  for (const level of ['warn', 'error']) {
+    const original = console[level].bind(console);
+    jest.spyOn(console, level).mockImplementation((...args) => {
+      const line = args.map(String).join(' ');
+      if (line.startsWith('[sessionHealth]')) sessionHealthLines.push(`${expect.getState().currentTestName} :: ${line}`);
+      original(...args);
+    });
+  }
+}
+
 beforeAll(async () => {
   mem = await MongoMemoryServer.create();
   await mongoose.connect(mem.getUri(), { dbName: 'kokonada_wave4_sim_replay' });
+  captureSessionHealthLines();
 });
 
 afterAll(async () => {
@@ -131,10 +148,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // ConsentRecord is NOT cleared (BE-016 N10, round 1): a Live serve's consent re-check is
+  // fire-and-forget and can resolve after this hook, so clearing would make the previous test's own
+  // grant vanish under it. Every test has a fresh userId, so an earlier grant never reaches it.
   await Promise.all([
     BiometricLog.deleteMany({}),
     MedicalProfile.deleteMany({}),
-    ConsentRecord.deleteMany({}),
   ]);
   userId = new mongoose.Types.ObjectId();
   jest.clearAllMocks();
@@ -395,6 +414,8 @@ describe('replay — the watch (immediate) lane and Live mode', () => {
   });
 
   test('Live mode serves the warm buffer on real band transitions, and only on those', async () => {
+    // BE-016 N10: a Live serve re-reads consent; this lane skips the listener, not the grant a listener holds.
+    await grantConsent(userId);
     const persona = { ...PERSONAS.athlete, id: 'simAthleteSteadyLabel', stillness: STILL, dailyLife: NO_BUMPS };
     const run = generate({
       persona, seed: 2026, startAt: T0, days: 1, sampleIntervalSec: 300, artifacts: false,
@@ -418,6 +439,8 @@ describe('replay — the watch (immediate) lane and Live mode', () => {
   });
 
   test('MEASURED: an ambient activity-label flip re-serves immediately — no dwell, no latch', async () => {
+    // BE-016 N10: a Live serve re-reads consent; this lane skips the listener, not the grant a listener holds.
+    await grantConsent(userId);
     // Not a judgement, a measurement. The buffer key really does change when the watch
     // relabels a still body from 'resting' to 'unknown', so the serve is not the
     // identical-key waste D11 was about. What this records is that the ACTIVITY axis has
@@ -451,6 +474,8 @@ describe('replay — the watch (immediate) lane and Live mode', () => {
   });
 
   test('the served-band latch holds through a resting oscillation across the 90 cut', async () => {
+    // BE-016 N10: a Live serve re-reads consent; this lane skips the listener, not the grant a listener holds.
+    await grantConsent(userId);
     // W4-D05's defect in situ: a persona whose quiet HR sits right on a band cut used to
     // re-serve on every ping. Driven through the REAL handler, not the pure predicate.
     const oscillating = {
@@ -487,6 +512,8 @@ describe('replay — the watch (immediate) lane and Live mode', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('replay — virtual time drives the streaming debounce', () => {
   test('advancing the clock matures a pending recalibration, and leaves no armed timer', async () => {
+    // BE-016 N10: a Live serve re-reads consent; this lane skips the listener, not the grant a listener holds.
+    await grantConsent(userId);
     // `direct` skips the consent listener (and therefore Mongo) so fake timers cannot
     // deadlock a driver round-trip. It is the same entry point server-side pollers use.
     const run = generate({
@@ -518,6 +545,8 @@ describe('replay — virtual time drives the streaming debounce', () => {
   });
 
   test('without a clock the harness says so instead of silently under-reporting', async () => {
+    // BE-016 N10: a Live serve re-reads consent; this lane skips the listener, not the grant a listener holds.
+    await grantConsent(userId);
     const run = generate({
       persona: 'athlete', seed: 7, startAt: T0, days: 1,
       sampleIntervalSec: 300, artifacts: false,
@@ -565,5 +594,14 @@ describe('replay — harness contract', () => {
     const run = watchRun('athlete', { artifacts: false });
     const socket = createReplaySocket({ userId });
     await expect(replaySocketLane({ run, socket, lane: 'nope' })).rejects.toThrow(/lane/i);
+  });
+});
+
+// Runs last in this file (BE-016 N10, round 1): no buffer served anywhere above was undone for a
+// missing grant. The undo's consent read is fire-and-forget, so let the last ones settle first.
+describe('replay — the fixture serves only listeners who hold a grant', () => {
+  test('no test in this file printed a compensating-strip line', async () => {
+    await new Promise((r) => setTimeout(r, 500));
+    expect(sessionHealthLines).toEqual([]);
   });
 });

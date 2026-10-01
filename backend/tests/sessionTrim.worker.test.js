@@ -278,7 +278,12 @@ describe('sessionTrim — the [sessionTrim] line is the production check, and ca
     spies.forEach((s) => s.mockRestore());
     const trim = lines.filter((l) => l.includes('[sessionTrim]'));
     expect(trim).toHaveLength(1);
-    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ spotifyErasures=\d+ failures=\d+$/);
+    // REVERSED under DEC-119 (the owner's signature, BE-016): the line gains `healthErasures=\d+`, the
+    // daily sweep that finishes a withdrawal's session-health erasure (DEC-111, DEC-118 K1). It was
+    // `... unclassifiedExpired=\d+ spotifyErasures=\d+ failures=\d+$`. The new token sits before
+    // `spotifyErasures=`, so the line still ends `spotifyErasures=N failures=N`, which
+    // spotifyDisconnectErasure.integration.test.js pins and DEC-119 does not reverse. Still counts only.
+    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ healthErasures=\d+ spotifyErasures=\d+ failures=\d+$/);
     const all = lines.join('\n');
     for (const secret of ['Song A', 'Artist A', 'trk1', 'isrc:', 'hidden-playlist-1', String(userId)]) {
       expect(all).not.toContain(secret);
