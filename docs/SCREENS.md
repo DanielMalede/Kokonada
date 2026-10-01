@@ -152,6 +152,8 @@
 - **Data:** `GET /api/sessions` (title + source DTO); Manual vs Live inferred from `moodKey`.
 - **Design notes:** material-like rows; friendly names, never raw `bio:resting:resting`; calm density.
 
+  **Erased heart details (BE-016, DEC-111).** When health-data consent is withdrawn, a Live session keeps its place, time and Live mark, and loses its band title and activity. It reads **A moment · Live** on every build: the archive's word for a moment whose state it no longer holds. No tombstone, no "removed" note, never a state colour.
+
 ## 10. Profile / Integrations — the "Privacy Vault"
 - **Purpose:** identity, integrations, health-data control, logout, and GDPR delete — wrapped in a premium, trust-establishing aesthetic.
 - **Layout:** header (name/email) → **CONNECTIONS** (Spotify · YouTube · Wearable & Health — consistent status + action) → **YOUR DATA** (Export everything · Health data & account · Log out) → **THE FIELD** ("Living background" toggle) → **HOW ADVENTUROUS** (slider). **Delete account** and the retention/withdrawal detail live behind the *Health data & account* row, on the Vault surface — not on this screen.
