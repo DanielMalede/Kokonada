@@ -149,7 +149,7 @@
 - **Components:** `HistoryScreen`, session rows.
 - **States:** populated · empty ("your moments will live here") · loading (skeleton rows) · offline (cached).
 - **Interactions:** tap row → replay/detail; scroll (virtualized).
-- **Data:** `GET /api/sessions` (title + source DTO); Manual vs Live inferred from `moodKey`.
+- **Data:** `GET /api/sessions` (title + source DTO); Manual vs Live from the DTO's `source`, and from `moodKey` only when `source` is missing. An erased heart session sends `source: 'live'` with `moodKey: null`.
 - **Design notes:** material-like rows; friendly names, never raw `bio:resting:resting`; calm density.
 
   **Erased heart details (BE-016, DEC-111).** When health-data consent is withdrawn, a Live session keeps its place, time and Live mark, and loses its band title and activity. It reads **A moment · Live** on every build: the archive's word for a moment whose state it no longer holds. No tombstone, no "removed" note, never a state colour.
