@@ -177,6 +177,10 @@ describe('round 1: G3, the activity rule after B1, the in-flight pool and the jo
 
   it('account deletion is never said to erase the job queue\'s learning jobs', () => {
     expect(doc()).not.toContain('Deleting the account erases all of it');
+    // Round 1 follow-up (regulatory, MUST NOT 3): naming the job queue as the only exception would imply
+    // that deletion also reaches the values derived from health data in logs and backups.
+    const healthLine = doc().split('\n').find((l) => l.includes('Deleting the account erases it'));
+    expect(healthLine).toContain('application logs and any database backups follow their own retention');
     const deletionLine = doc().split('\n').find((l) => l.includes('Users can request data deletion'));
     expect(deletionLine).toContain('completed learning jobs (`bull:reward-ingest:`)');
   });

@@ -172,7 +172,7 @@ function erasureSteps(userId, { heartRateBefore, targetsBefore }) {
       name: 'trimmedActivities', model: 'PlaylistSession', count: 'sessions',
       filter: {
         userId,
-        createdAt: { $lt: targetsBefore }, // only sessions made before the latest withdrawal: after it the server holds no watch activity (_withholdBiometrics)
+        createdAt: { $lt: targetsBefore }, // only sessions made before the latest withdrawal: after it the server holds no new watch activity (_withholdBiometrics), except the residual BE-016 declares (a run that stops before its re-check)
         moodKey: { $not: BIO_KEY_WITH_BAND },
         'biometricSnapshot.heartRate': null,
         contextPrompt: null,
