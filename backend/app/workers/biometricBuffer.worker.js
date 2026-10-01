@@ -3,6 +3,7 @@
 const orchestrator = require('../services/generation/orchestrator');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const MusicProfile = require('../models/MusicProfile');
+const { withoutYoutube } = require('../services/musicProfileService');
 
 // Part 3 shadow worker: precompiles a live-biometric playlist buffer for a (user, band)
 // on a confirmed HR transition, so flipping to Live mode plays instantly. Reuses generateV2
@@ -14,7 +15,8 @@ async function process(job) {
   const { userId, bioMoodKey, moodKey = null, provider = null, heartRate = null, activity = null } = job?.data ?? {};
   if (!userId || !bioMoodKey) return { skipped: 'missing-key' };
 
-  const profile = await MusicProfile.findOne({ userId }).lean();
+  // DEC-122 / DEC-040: the same YouTube-free view generation reads (musicProfileService.withoutYoutube).
+  const profile = withoutYoutube(await MusicProfile.findOne({ userId }).lean());
 
   const playlist = await orchestrator.generateV2({
     userId,
