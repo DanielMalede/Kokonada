@@ -20,6 +20,9 @@
 process.env.NODE_ENV = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET = 'test-jwt-secret-for-tests-only';
+// J1 (BE-074): a withdrawal with a grant on file purges the job queue when REDIS_URL is set. This suite
+// has no Redis (config/redis is mocked below), so it runs without one even if the shell exports it.
+delete process.env.REDIS_URL;
 
 jest.mock('../app/config/redis', () => ({ getRedis: () => null, connectRedis: jest.fn(), createConnection: jest.fn() }));
 
