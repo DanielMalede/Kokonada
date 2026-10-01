@@ -31,6 +31,10 @@ const userSchema = new mongoose.Schema({
   // purge has fully run. A non-null value is a purge still owed; the daily sessionTrim job finishes
   // it. It is the only way to find a stranded ServeEvent set — a serve row names no provider.
   spotifyErasurePendingAt: { type: Date, default: null },
+  // BE-016 (F1): set when a withdrawal's session-health erasure starts, cleared (compare-and-set) once
+  // every step has run. A non-null value is an erasure still owed; the daily sessionTrim job finishes
+  // it, including the user-scoped Redis purge, whose failure leaves no other trace.
+  healthErasurePendingAt: { type: Date, default: null },
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'health_connect', 'suunto', null], default: null },
   wearableToken:     { type: encryptedTokenSchema, default: null },

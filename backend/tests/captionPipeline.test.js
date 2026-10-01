@@ -82,6 +82,14 @@ jest.mock('../app/services/generation/targetsBuilder', () => ({
 jest.mock('../app/services/llmClient', () => ({
   generateJson: jest.fn(), isConfigured: jest.fn().mockReturnValue(true),
 }));
+// BE-016 (R-A): a generation shaped by a heart rate (this suite's state holds one) reads consent
+// again once its writes settle. A fixture, as in biometricHandler.pipeline.test.js: granted, so the
+// re-check admits the run, and the real (Mongoose) consent service stays out of this Mongo-free
+// suite — reached for real, its read buffers for 10 s and answers after the test has ended.
+jest.mock('../app/services/privacy/consent', () => ({
+  getConsentStatus:       jest.fn().mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false }),
+  HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
+}));
 
 const User            = require('../app/models/User');
 const MusicProfile    = require('../app/models/MusicProfile');

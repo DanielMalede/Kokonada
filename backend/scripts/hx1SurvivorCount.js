@@ -31,9 +31,13 @@
 //         hr-in-no-grant-interval          created after a withdrawal and before the next grant —
 //                                          heart rate used after withdrawal (pre-#193 behaviour).
 //         hr-before-withdrawal-within-30d  created before the latest withdrawal, outside any
-//                                          no-grant interval, and less than 30 days ago: kept by the
-//                                          declared 30-day retention (BE-016). Reported separately
-//                                          and left out of RESULT.
+//                                          no-grant interval, and less than 30 days ago: held on the
+//                                          30-day clock until BE-016, a retention no merged
+//                                          declaration stated before HX-2 (#206). BE-016's withdrawal
+//                                          erasure and its daily sweep (`healthErasures=`) remove
+//                                          these heart rates and the no-grant-interval ones, so run
+//                                          this count BEFORE that sweep's first run (DAN-037).
+//                                          Reported separately and left out of RESULT.
 //   RESULT  non-zero if any Q1, Q2 or hr-in-no-grant-interval count is above zero.
 //
 // Ordering follows ConsentRecord.latestFor: by createdAt, then _id. On a same-millisecond tie at the
@@ -71,14 +75,17 @@ const STOP = "STOP an account with a withdrawal is not the operator's: nothing i
 
 class UsageError extends Error {}
 
-/** The operator's own account ids, from the owner-set variable. Never echoes what it was given. */
-function parseOperatorIds(raw) {
+/**
+ * The operator's own account ids, from the owner-set variable. Never echoes what it was given.
+ * `envName` is the variable the messages name (scripts/sessionHealthCount.js reads its own).
+ */
+function parseOperatorIds(raw, envName = OPERATOR_ENV) {
   const ids = String(raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (ids.length === 0) {
-    throw new UsageError(`${OPERATOR_ENV} is not set: pass the ids of the accounts you control, comma-separated`);
+    throw new UsageError(`${envName} is not set: pass the ids of the accounts you control, comma-separated`);
   }
   if (!ids.every((id) => /^[0-9a-f]{24}$/i.test(id))) {
-    throw new UsageError(`${OPERATOR_ENV} must hold 24-character hex user ids, comma-separated`);
+    throw new UsageError(`${envName} must hold 24-character hex user ids, comma-separated`);
   }
   return ids.map((id) => id.toLowerCase());
 }
@@ -239,5 +246,5 @@ if (require.main === module) {
 
 module.exports = {
   OPERATOR_ENV, COLLECTIONS, MEDICAL_PROFILE_VITAL_PATHS, SLACK_MS,
-  parseOperatorIds, readHistory, countSurvivors, main,
+  UsageError, errorType, parseOperatorIds, readHistory, countSurvivors, main,
 };

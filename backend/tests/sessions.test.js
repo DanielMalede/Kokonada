@@ -94,6 +94,66 @@ describe('GET /api/sessions — DTO whitelist', () => {
   });
 });
 
+// BE-016 (DEC-111, DEC-118 H1; the designer's A2 and A3). After a withdrawal, a heart-rate session is
+// stored with the mark `bio:`. History shows it as "A moment" / Live, and the DTO FORCES the five fields
+// whatever else survived in storage — display only: the stored strip is proven on real Mongo in
+// consentWithdrawalSessionHealth.integration.test.js and is never counted from this override.
+describe('GET /api/sessions — a session whose health data was erased (BE-016)', () => {
+  const erased = (over = {}) => sessionDoc({
+    moodKey: 'bio:', biometricSnapshot: { heartRate: null, activity: null }, contextPrompt: '', ...over,
+  });
+
+  it('an erased heart-rate session reads "A moment", Live, with no mood key and no activity', async () => {
+    mockFind([erased()]);
+    const res = buildRes();
+    await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
+
+    expect(res.body.items[0]).toMatchObject({ title: 'A moment', source: 'live', moodKey: null, activity: null, activityLabel: null });
+  });
+
+  it('A3: the five fields are forced even if an activity survived in storage — never a watch word beside "A moment"', async () => {
+    mockFind([erased({ biometricSnapshot: { heartRate: null, activity: 'running' } })]);
+    const res = buildRes();
+    await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
+
+    const item = res.body.items[0];
+    expect(item).toMatchObject({ title: 'A moment', source: 'live', moodKey: null, activity: null, activityLabel: null });
+    expect(JSON.stringify(item)).not.toMatch(/bio:|running|Running/);
+  });
+
+  it('the rest of the row is unchanged: time, provider, note, skips, tracks', async () => {
+    mockFind([erased({ contextPrompt: '' })]);
+    const res = buildRes();
+    await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
+
+    expect(res.body.items[0]).toMatchObject({ provider: 'spotify', skipCount: 2, trackCount: 3, isFallback: false, contextPrompt: '' });
+  });
+
+  it('a mood session keeps the listener\'s own word (R1): "Calm" / Manual, with its activity gone', async () => {
+    mockFind([sessionDoc({ moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: null } })]);
+    const res = buildRes();
+    await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
+
+    expect(res.body.items[0]).toMatchObject({ title: 'Calm', source: 'manual', moodKey: 'calm', activity: null, activityLabel: null });
+  });
+
+  it('a text-only session left with no key and no activity reads "A moment" / Manual (A2), never "Session"', async () => {
+    mockFind([sessionDoc({ moodKey: null, biometricSnapshot: { heartRate: null, activity: null } })]);
+    const res = buildRes();
+    await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
+
+    expect(res.body.items[0]).toMatchObject({ title: 'A moment', source: 'manual', moodKey: null });
+  });
+
+  it('a heart-rate session not yet erased keeps its band title (the override is keyed on the mark only)', async () => {
+    mockFind([sessionDoc({ moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' } })]);
+    const res = buildRes();
+    await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
+
+    expect(res.body.items[0]).toMatchObject({ title: 'Peak Energy', source: 'live', moodKey: 'bio:peak:running' });
+  });
+});
+
 describe('GET /api/sessions — pagination cursor', () => {
   it('returns a nextCursor when a full page + 1 is available, and stable keyset order', async () => {
     const docs = Array.from({ length: 3 }, (_, i) => sessionDoc({
