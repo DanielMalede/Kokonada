@@ -19,7 +19,7 @@ const User = require('../../models/User');
 const ConsentRecord = require('../../models/ConsentRecord');
 const { disabled } = require('../../utils/envFlag');
 const { windowsFor } = require('./sessionHealthPolicy');
-const { eraseSessionHealth, readHistory } = require('./sessionHealthErasure');
+const { eraseSessionHealth, readHistory, errorType } = require('./sessionHealthErasure');
 
 const KILL_SWITCH = 'HEALTH_ERASURE_SWEEP_DISABLED';
 const DEFAULT_BATCH = 200;
@@ -73,8 +73,11 @@ async function sweepOwedHealthErasures({ now = new Date() } = {}) {
       const counts = await eraseSessionHealth(id, windows, { purgeRedis: !!owedSince });
       if (owedSince) await _clearOwed(id, owedSince);
       if (owedSince || changedAnything(counts)) erased += 1;
-    } catch {
-      failed += 1; // the steps that failed are named on the error; the owed record stays
+    } catch (err) {
+      failed += 1; // the owed record stays for the next run
+      // One closed line per failed account (round 1, N6): the module's step:Type tokens, never a message.
+      const steps = Array.isArray(err?.failedSteps) && err.failedSteps.length ? err.failedSteps.join(',') : `unknown:${errorType(err)}`;
+      console.error(`[sessionHealth] sweep failed user=${id} steps=${steps}`);
     }
   }
   return { count: erased, failed };

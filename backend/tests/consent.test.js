@@ -303,6 +303,7 @@ describe('withdrawConsent — session health (BE-016)', () => {
     User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
     eraseSessionHealthOnWithdrawal.mockRejectedValueOnce(Object.assign(new Error('incomplete'), {
       counts: { sessions: 2, sessionTargets: 1, serveEvents: 0, redisKeys: 0 },
+      failedSteps: ['serveBands:MongoServerError', 'redisKeys:ReplyError'],
     }));
     const info = jest.spyOn(console, 'info').mockImplementation(() => {});
 
@@ -311,7 +312,22 @@ describe('withdrawConsent — session health (BE-016)', () => {
     expect(result.erasureFailures).toEqual(['session-health']);
     const line = withdrawalLine(info);
     expect(line).toContain('providerErasureFailures=0');
-    expect(line).toMatch(/ sessionHealth=failed sessions=2 sessionTargets=1 serveEvents=0 redisKeys=0$/);
+    // N6 (round 1): the failed steps reach the line, as closed step:Type tokens.
+    expect(line).toMatch(/ sessionHealth=failed sessions=2 sessionTargets=1 serveEvents=0 redisKeys=0 sessionHealthFailed=serveBands:MongoServerError,redisKeys:ReplyError$/);
+    info.mockRestore();
+  });
+
+  it('a failure that names no step is still reported, closed: unknown and the error type', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: consent.CURRENT_CONSENT_VERSION });
+    User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
+    eraseSessionHealthOnWithdrawal.mockRejectedValueOnce(Object.assign(new TypeError('boom at 10.0.0.1'), {}));
+    const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    const line = withdrawalLine(info);
+    expect(line).toMatch(/ sessionHealth=failed sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=unknown:TypeError$/);
+    expect(line).not.toContain('10.0.0.1');
     info.mockRestore();
   });
 
@@ -322,7 +338,7 @@ describe('withdrawConsent — session health (BE-016)', () => {
 
     await consent.withdrawConsent(USER, PURPOSE);
 
-    expect(withdrawalLine(info)).toMatch(/ learning=skipped rewardEvents=0 personalWeights=0 sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0$/);
+    expect(withdrawalLine(info)).toMatch(/ learning=skipped rewardEvents=0 personalWeights=0 sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=none$/);
     info.mockRestore();
   });
 });

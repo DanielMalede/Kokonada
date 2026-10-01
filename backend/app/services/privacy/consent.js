@@ -70,6 +70,9 @@ async function recordConsent(userId, { purpose, dataCategories, appVersion, loca
 //
 // It ALSO erases the learned personalization (BE-015 / ADR-0015) and the heart-rate snapshot and
 // the values derived from it on every session and serve event (BE-016, DEC-111) — see the blocks below.
+// An error's class name, or 'Error': never its message.
+const closedErrorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
+
 async function withdrawConsent(userId, purpose) {
   // Read the grant state BEFORE the withdrawal row is written. ORDER IS LOAD-BEARING: after the
   // create() below, `latestFor` IS the withdrawal we just wrote, so this would read 'withdrawn'
@@ -158,6 +161,9 @@ async function withdrawConsent(userId, purpose) {
   // itself still succeeds (Art.7(3)).
   let sessionHealth = 'skipped';
   let sessionCounts = { sessions: 0, sessionTargets: 0, serveEvents: 0, redisKeys: 0 };
+  // Which steps failed, as the module's closed `step:Type` tokens, so an operator can tell a Redis
+  // failure from a Mongo one (BE-016 round 1, N6). Never an error message: a driver message can quote values.
+  let sessionHealthFailed = 'none';
   if (purpose === HEALTH_CONSENT_PURPOSE) {
     try {
       const erased = await eraseSessionHealthOnWithdrawal(userId);
@@ -166,6 +172,9 @@ async function withdrawConsent(userId, purpose) {
     } catch (err) {
       sessionHealth = 'failed';
       if (err?.counts) sessionCounts = err.counts;
+      sessionHealthFailed = Array.isArray(err?.failedSteps) && err.failedSteps.length
+        ? err.failedSteps.join(',')
+        : `unknown:${closedErrorType(err)}`;
       erasureFailures.push('session-health');
     }
   }
@@ -181,7 +190,7 @@ async function withdrawConsent(userId, purpose) {
     + `providerErasureFailures=${providerErasureFailures} learning=${learning} `
     + `rewardEvents=${learningPurged.rewardEvents} personalWeights=${learningPurged.personalWeights} `
     + `sessionHealth=${sessionHealth} sessions=${sessionCounts.sessions} sessionTargets=${sessionCounts.sessionTargets} `
-    + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys}`,
+    + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys} sessionHealthFailed=${sessionHealthFailed}`,
   );
 
   // Explicit shape (not a spread of the Mongoose document — `create()` returns a real Document

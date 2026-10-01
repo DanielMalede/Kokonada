@@ -230,13 +230,18 @@ describe('the owed record (F1): a withdrawal whose erasure did not finish', () =
     }
     const realUpdateMany = ServeEvent.updateMany.bind(ServeEvent);
     jest.spyOn(ServeEvent, 'updateMany').mockImplementation(async (filter, ...rest) => {
-      if (String(filter?.userId) === String(bad._id)) throw Object.assign(new Error('x'), { name: 'MongoServerError' });
+      if (String(filter?.userId) === String(bad._id)) throw Object.assign(new Error('heartRate=131 at 10.0.0.5'), { name: 'MongoServerError' });
       return realUpdateMany(filter, ...rest);
     });
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     expect(await sweepOwedHealthErasures()).toEqual({ count: 1, failed: 1 });
     expect(await pendingOf(bad)).toBeInstanceOf(Date);
     expect(await pendingOf(good)).toBeNull();
+    // N6 (round 1): one closed line per failed account names the steps and their types, never a message.
+    expect(errors.mock.calls.map((c) => c.map(String).join(' '))).toEqual([
+      `[sessionHealth] sweep failed user=${bad._id} steps=serveBioKeys:MongoServerError,serveBands:MongoServerError`,
+    ]);
   });
 });
 

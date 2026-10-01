@@ -502,7 +502,7 @@ function withdrawOverHttp(user) {
 }
 
 // The ONE accountability line: the BE-015 tokens, then BE-016's. Closed tokens and counts only.
-const WITHDRAWAL_LINE = /^\[consent-withdrawal\] user=[0-9a-f]{24} purpose=health_biometric_processing providerErasureFailures=\d+ learning=(?:purged|skipped|failed) rewardEvents=\d+ personalWeights=\d+ sessionHealth=(?:purged|skipped|failed) sessions=\d+ sessionTargets=\d+ serveEvents=\d+ redisKeys=\d+$/;
+const WITHDRAWAL_LINE = /^\[consent-withdrawal\] user=[0-9a-f]{24} purpose=health_biometric_processing providerErasureFailures=\d+ learning=(?:purged|skipped|failed) rewardEvents=\d+ personalWeights=\d+ sessionHealth=(?:purged|skipped|failed) sessions=\d+ sessionTargets=\d+ serveEvents=\d+ redisKeys=\d+ sessionHealthFailed=(?:none|[a-zA-Z]+:[A-Za-z][A-Za-z0-9]*(?:,[a-zA-Z]+:[A-Za-z][A-Za-z0-9]*)*)$/;
 
 let lines;
 function captureLogs() {
@@ -546,7 +546,7 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
 
     // bio:baseline and bio:affect go first, in the wearable erasure; the strict purge takes the other four.
     expect(withdrawalLines()).toEqual([
-      `[consent-withdrawal] user=${a._id} purpose=${PURPOSE} providerErasureFailures=0 learning=purged rewardEvents=0 personalWeights=0 sessionHealth=purged sessions=4 sessionTargets=3 serveEvents=2 redisKeys=4`,
+      `[consent-withdrawal] user=${a._id} purpose=${PURPOSE} providerErasureFailures=0 learning=purged rewardEvents=0 personalWeights=0 sessionHealth=purged sessions=4 sessionTargets=3 serveEvents=2 redisKeys=4 sessionHealthFailed=none`,
     ]);
   });
 
@@ -594,7 +594,7 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
     expect(after.sessions).toEqual(before.sessions);
     expect(after.serves).toEqual(before.serves);
     expect(after.redis).toEqual(before.redis);
-    expect(withdrawalLines()[0]).toMatch(/learning=skipped .* sessionHealth=purged sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0$/);
+    expect(withdrawalLines()[0]).toMatch(/learning=skipped .* sessionHealth=purged sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=none$/);
   });
 
   it('a user who never granted is untouched (G3) and the line says sessionHealth=skipped', async () => {
@@ -608,7 +608,7 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
     const after = JSON.parse(await snapshotAll());
     expect(after.sessions).toEqual(before.sessions);
     expect(after.serves).toEqual(before.serves);
-    expect(withdrawalLines()[0]).toMatch(/learning=skipped .* sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0$/);
+    expect(withdrawalLines()[0]).toMatch(/learning=skipped .* sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=none$/);
   });
 
   it('a withdrawal made before this change is finished by a repeat withdrawal (the retry path); learning stays skipped', async () => {
@@ -643,6 +643,7 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
     expect(line).toMatch(WITHDRAWAL_LINE);
     expect(line).toContain('providerErasureFailures=0');
     expect(line).toContain('sessionHealth=failed');
+    expect(line).toMatch(/ sessionHealthFailed=serveBioKeys:MongoServerError$/); // N6: the step and its type, never the message
     expect(lines.join('\n')).not.toMatch(/10\.1\.1\.1|heartRate=131/);
   });
 
@@ -666,6 +667,7 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
 
     expect(res.status).toBe(200);
     expect(withdrawalLines()[0]).toContain('sessionHealth=failed');
+    expect(withdrawalLines()[0]).toMatch(/ sessionHealthFailed=redisKeys:ReplyError$/); // N6: a Redis failure, told apart from a Mongo one
     expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toBeInstanceOf(Date);
   });
 
