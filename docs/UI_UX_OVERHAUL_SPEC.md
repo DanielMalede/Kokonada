@@ -99,6 +99,7 @@ All styling flows from a centralised Tamagui token architecture; no hardcoded va
 - **Pulse:** the biometric dashboard — calm gauge fills, friendly status labels, and **honest empty states** ("Not shared by your watch") rather than bare dashes. (Body Battery / Daily Readiness are Garmin-proprietary, absent from Health Connect — present them as such, not as errors.)
 - **History:** friendly titles + Manual/Live source (D-3), list items that feel like manipulable material.
 - **Profile / Integrations — "Privacy Vault" aesthetic:** wrap Health-Connect permissions in a premium, trust-establishing vault UI. **Normalise the integration rows** (consistent Connected/Disconnected status + action — fixes the current YouTube inconsistency) with brand-exact Spotify/YouTube marks.
+> *Superseded (DEC-122 and DEC-043, 2026-10-01):* no YouTube mark. YouTube is deferred and connecting it is sealed in code, so the YouTube row shows no YouTube logo, icon or image: only the neutral "Y" letter in a neutral circle, treated exactly like the other provider rows, as the `compliance-auditor` cleared it for HX-3. The YouTube half of "brand-exact Spotify/YouTube marks" is withdrawn.
 - **Tab bar:** real, calm iconography (the current tofu boxes are a font-bundling bug fixed in PR #101 — the redesign owns the final icon language).
 - **System states everywhere:** stunning offline/degraded, ghosted premium empty states, and seamless skeletons. Never trap the user.
 
