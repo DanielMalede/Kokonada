@@ -5,6 +5,9 @@ import { space, radius, stroke, type as typography, elevation, motion, type Hapt
 import { fireHaptic } from '../../design/haptics';
 import { CONSENT_DATA_CATEGORIES } from '../../health/consentApi';
 import type { ConsentFlowStore, ConsentFlowState } from '../../health/consentStore';
+// DEC-117: these two legal/ modules and no other (legalSingleSource.test.ts).
+import { PRIVACY_POLICY_HOSTED } from '../../legal/legalLinks';
+import { PrivacyPolicyLink } from '../../legal/PrivacyPolicyLink';
 
 // SCREENS §11 — the GDPR Art.9 consent wall (audit H-9). A STATIC surface (no bio-aura, no hero):
 // brand mark + title on top, a REAL scrollable consent document in the middle, and a PERSISTENT
@@ -210,7 +213,16 @@ export function ConsentSheet({ store, onProceed, onDecline, triggerHaptic = fire
         ))}
       </ScrollView>
 
-      <Text testID="consent-scroll-cue" style={[styles.scrollCue, { color: c.content.tertiary }]}>Scroll to review the full notice</Text>
+      <Text testID="consent-scroll-cue" style={[PRIVACY_POLICY_HOSTED ? styles.scrollCueAbovePolicy : styles.scrollCue, { color: c.content.tertiary }]}>Scroll to review the full notice</Text>
+
+      {/* DEC-117: the privacy policy, in the chrome below the cue and outside the consent document,
+          only once the page is hosted (PRIVACY_POLICY_HOSTED); until then this sheet is main's, node
+          for node. Inert while a grant is being recorded, so leaving can never interrupt one. */}
+      {PRIVACY_POLICY_HOSTED ? (
+        <View style={styles.privacyPolicy}>
+          <PrivacyPolicyLink disabled={submitting} />
+        </View>
+      ) : null}
 
       {errored ? (
         <Text testID="consent-error" style={[styles.errorText, { color: c.state.warning }]}>
@@ -264,6 +276,9 @@ const styles = StyleSheet.create({
   cardHeading: { fontSize: typography.size.subheading, fontWeight: typography.weight.semibold },
   cardBody: { fontSize: typography.size.callout, lineHeight: typography.size.callout * typography.leading.normal },
   scrollCue: { fontSize: typography.size.footnote, textAlign: 'center', paddingVertical: space.sm },
+  // With the policy link below it, the cue tightens so the two read as one reading zone (designer).
+  scrollCueAbovePolicy: { fontSize: typography.size.footnote, textAlign: 'center', paddingTop: space.sm, paddingBottom: space.none },
+  privacyPolicy: { alignItems: 'center' },
   errorText: { fontSize: typography.size.callout, textAlign: 'center', paddingBottom: space.sm },
   actionBar: { flexDirection: 'row', gap: space.md, paddingTop: space.sm },
   // Equal-weight buttons: identical geometry (flex, padding, radius, border box). Only the FILL
