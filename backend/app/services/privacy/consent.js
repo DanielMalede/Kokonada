@@ -52,10 +52,30 @@ async function recordConsent(userId, { purpose, dataCategories, appVersion, loca
     dataCategories: Array.isArray(dataCategories) ? dataCategories : [],
     status: 'granted',
     grantedAt: new Date(),
-    appVersion,
-    locale,
+    ...grantProvenance({ appVersion, locale }),
   });
   return { ok: true, record };
+}
+
+// MB-062 (REG-034): the build and the language a grant was given in, so the record shows which
+// rendered consent screen the grantor saw. Both arrive from the client, so each is kept only when it
+// is a short, plain value of the expected shape: a build label such as "1.0 (1)", and a BCP 47
+// language tag such as "he-IL". Anything else is dropped and the grant still stands: it is the
+// user's act, and both fields are optional for older clients. A drop is logged by field name, never
+// by value, so a client bug that strips every grant's provenance cannot go unseen.
+const APP_VERSION_SHAPE = /^[0-9A-Za-z][0-9A-Za-z .()+_-]{0,31}$/;
+const LOCALE_SHAPE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/;
+
+function grantProvenance({ appVersion, locale }) {
+  const kept = {};
+  const dropped = [];
+  for (const [field, value, shape] of [['appVersion', appVersion, APP_VERSION_SHAPE], ['locale', locale, LOCALE_SHAPE]]) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' && shape.test(value)) kept[field] = value;
+    else dropped.push(field);
+  }
+  if (dropped.length) console.warn(`[consent] grant provenance dropped fields=${dropped.join(',')}`);
+  return kept;
 }
 
 // Records a withdrawal AND erases the wearable footprint. JUDGMENT CALL: a consent "purpose"
