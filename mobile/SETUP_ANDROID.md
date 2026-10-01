@@ -84,16 +84,19 @@ in `onCreate` — **without this the permission dialog never returns a result**)
 
 ### 4c. Privacy-policy rationale screen
 Create `android/app/src/main/java/com/kokonadahealth/PermissionsRationaleActivity.kt`
-from `native-snippets/PermissionsRationaleActivity.kt` (a WebView showing your privacy policy;
-Health Connect deep-links to it).
+from `native-snippets/PermissionsRationaleActivity.kt`. Health Connect opens it from its
+privacy-policy link. It shows only the privacy policy at `R.string.privacy_policy_url`, sends any
+other link to the browser, and falls back to the address as text when the page cannot load. Add
+the four `privacy_policy_*` strings from `KokonadaHealth/android/app/src/main/res/values/strings.xml`
+to `res/values/strings.xml`; the address must equal `src/legal/legalLinks.ts` `PRIVACY_POLICY_URL`.
 
 ### 4d. `AndroidManifest.xml`
 Merge `native-snippets/AndroidManifest.additions.xml` into
 `android/app/src/main/AndroidManifest.xml` — it adds the health `<uses-permission>` entries
 (the scope-minimized set: HR / HRV / sleep / resting HR, plus **`READ_HEALTH_DATA_HISTORY`**
 for >30-day reads; **no** SpO2/respiratory/background scopes — they have no reader),
-the rationale `intent-filter` on `MainActivity`, the `PermissionsRationaleActivity`, and the
-Android-14 `activity-alias`.
+the `PermissionsRationaleActivity` with the only rationale `intent-filter`, and the Android-14
+`activity-alias` that targets it. `MainActivity` gets no Health Connect intent-filter.
 
 ### 4e. Google Sign-In (OAuth clients)
 Google Sign-In on Android needs **two** OAuth clients in Google Cloud Console

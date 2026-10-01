@@ -29,16 +29,12 @@
 <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
 
-<!-- ② Inside the EXISTING <activity android:name=".MainActivity"> add this intent-filter
-        (alongside the MAIN/LAUNCHER one): -->
-<intent-filter>
-  <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
-</intent-filter>
+<!-- ② Add these as siblings of <activity .MainActivity>, still inside <application>. MainActivity
+        itself gets NO Health Connect intent-filter: both entry points land on the rationale
+        activity, which shows the privacy policy (native-snippets/PermissionsRationaleActivity.kt). -->
 
-
-<!-- ③ Add these as siblings of <activity .MainActivity>, still inside <application>: -->
-
-<!-- Android ≤13: rationale shown when the user taps the privacy-policy link -->
+<!-- Android ≤13: Health Connect sends this action when the user taps its privacy-policy link.
+     Declared here and nowhere else. -->
 <activity
     android:name=".PermissionsRationaleActivity"
     android:exported="true">
@@ -47,11 +43,12 @@
   </intent-filter>
 </activity>
 
-<!-- Android 14+: activity-alias variant of the same rationale entry point -->
+<!-- Android 14+: the system opens this alias. It targets the same rationale activity and must
+     come after it. -->
 <activity-alias
     android:name="ViewPermissionUsageActivity"
     android:exported="true"
-    android:targetActivity=".MainActivity"
+    android:targetActivity=".PermissionsRationaleActivity"
     android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
   <intent-filter>
     <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />

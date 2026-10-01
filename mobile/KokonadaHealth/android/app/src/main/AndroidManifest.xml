@@ -71,13 +71,10 @@
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="kokonada" android:host="integrations" />
         </intent-filter>
-        <!-- Android <=13: Health Connect rationale shown when the privacy-policy link is tapped -->
-        <intent-filter>
-            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
-        </intent-filter>
       </activity>
 
-      <!-- Android <=13: rationale screen (privacy-policy WebView) -->
+      <!-- The privacy policy, as Health Connect opens it from its privacy-policy link (HX-5).
+           Android <=13: Health Connect sends this action, declared here and nowhere else. -->
       <activity
           android:name=".PermissionsRationaleActivity"
           android:exported="true">
@@ -86,11 +83,12 @@
         </intent-filter>
       </activity>
 
-      <!-- Android 14+: activity-alias variant of the rationale entry point -->
+      <!-- Android 14+: the system opens this alias; it targets the same rationale activity and
+           must stay after it. -->
       <activity-alias
           android:name="ViewPermissionUsageActivity"
           android:exported="true"
-          android:targetActivity=".MainActivity"
+          android:targetActivity=".PermissionsRationaleActivity"
           android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
         <intent-filter>
           <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
