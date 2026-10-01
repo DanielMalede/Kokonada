@@ -29,31 +29,41 @@ const SCAN_ROOTS = ['app', 'scripts'];
 
 const TOKEN = 'youtubeMusicToken';
 
-// (c) — every line that may name the field, and why. A read, an exclusion projection, the schema,
-// or a comment; the two writes are the ones (a) pins.
+// (c) — every line that may name the field, by its EXACT trimmed text (resilience N2: a per-file count
+// let a read be swapped for a write the forbidden list misses — a shorthand `{ youtubeMusicToken }`, a
+// computed key, `Reflect.set` — with the count unchanged). A read, an exclusion projection, the
+// schema, or a comment; the two writes are the ones (a) and (a2) pin. Any edit to one of these lines,
+// or any new line, fails until it is reviewed and copied here.
 const ALLOWED_LINES = {
-  // the auth-strip comment; youtubeCallback's sealed setToken; youtubeStatus's presence read
-  'app/controllers/integrationsController.js': 3,
-  // `.select('-spotifyToken -youtubeMusicToken -wearableToken')` keeps the blob off req.user
-  'app/middleware/auth.js': 1,
+  'app/controllers/integrationsController.js': [
+    "// (`.select('-spotifyToken -youtubeMusicToken -wearableToken')`) so they never", // auth-strip comment
+    "user.setToken('youtubeMusicToken', tokens);", // the sealed callback's write (a, a2)
+    'const connected = !!req.user.youtubeMusicToken?.blob;', // youtubeStatus's presence read
+  ],
+  // the auth middleware's exclusion projection keeps the blob off req.user
+  'app/middleware/auth.js': ["'-spotifyToken -youtubeMusicToken -wearableToken'"],
   // the schema field itself
-  'app/models/User.js': 1,
-  // getToken read (skips YouTube when null)
-  'app/scripts/classifyAndHydrate.js': 1,
-  // getToken read in buildProfile (skips YouTube when null)
-  'app/services/musicProfileService.js': 1,
+  'app/models/User.js': ['youtubeMusicToken: { type: encryptedTokenSchema, default: null },'],
+  // getToken reads (each skips YouTube when null)
+  'app/scripts/classifyAndHydrate.js': ["youtubeToken = user?.getToken?.('youtubeMusicToken')?.accessToken ?? null;"],
+  'app/services/musicProfileService.js': ["const youtubeToken = user.getToken?.('youtubeMusicToken')?.accessToken ?? null;"],
   // comment: credentials are excluded from the export
-  'app/services/privacy/userDataExport.js': 1,
-  // getValidToken: the getToken read and the refresh's setToken
-  'app/services/youtube.js': 2,
+  'app/services/privacy/userDataExport.js': ['// (spotifyToken/youtubeMusicToken/wearableToken), device push-token secrets, the watchToken'],
+  // getValidToken: the read and the refresh's write (a, a2)
+  'app/services/youtube.js': [
+    "const stored = user.getToken('youtubeMusicToken');",
+    "user.setToken('youtubeMusicToken', refreshed);",
+  ],
   // the socket auth's exclusion projection
-  'app/sockets/index.js': 1,
+  'app/sockets/index.js': ["'-spotifyToken -youtubeMusicToken -wearableToken'"],
   // the JSDoc shape and two presence reads
-  'app/utils/providerSelect.js': 3,
-  // getToken read (skips YouTube when null)
-  'app/workers/reclassify.worker.js': 1,
-  // presence read
-  'app/workers/youtubeRetention.worker.js': 1,
+  'app/utils/providerSelect.js': [
+    '*   youtubeMusicToken?: { blob?: string }|null,',
+    'const hasYoutube = !!user.youtubeMusicToken?.blob;',
+    "if (user.youtubeMusicToken?.blob) providers.push('youtube');",
+  ],
+  'app/workers/reclassify.worker.js': ["return user?.getToken?.('youtubeMusicToken')?.accessToken ?? null;"],
+  'app/workers/youtubeRetention.worker.js': ['const connected = !!user?.youtubeMusicToken?.blob;'],
 };
 
 // The two writers (a) allows, named by the declaration that encloses each call.
@@ -115,7 +125,7 @@ const SCHEMA_LINE = { file: 'app/models/User.js', re: new RegExp(String.raw`^\s*
 function checkSources(sources) {
   const writers = [];
   const setTokenMisuse = [];
-  const lineCounts = {};
+  const lineTexts = {};
   const forbidden = [];
 
   for (const [file, src] of Object.entries(sources)) {
@@ -131,7 +141,7 @@ function checkSources(sources) {
     }
     src.split('\n').forEach((text, i) => {
       if (!text.includes(TOKEN)) return;
-      lineCounts[file] = (lineCounts[file] || 0) + 1;
+      (lineTexts[file] ||= []).push(text.trim());
       for (const { kind, re, allowFn } of FORBIDDEN_WRITES) {
         const hit = text.match(re);
         if (!hit) continue;
@@ -141,7 +151,7 @@ function checkSources(sources) {
       }
     });
   }
-  return { writers, setTokenMisuse, lineCounts, forbidden };
+  return { writers, setTokenMisuse, lineTexts, forbidden };
 }
 
 // ── The AST layer (resilience N1) ─────────────────────────────────────────────
@@ -351,8 +361,8 @@ describe('YouTube token writers — only the two sealed writers can store a yout
     expect(result.setTokenMisuse).toEqual([]);
   });
 
-  it('(c) every line naming youtubeMusicToken is allowlisted by file and count — a new one fails until reviewed', () => {
-    expect(result.lineCounts).toEqual(ALLOWED_LINES);
+  it('(c) every line naming youtubeMusicToken is allowlisted by file and EXACT text — a new or edited one fails until reviewed', () => {
+    expect(result.lineTexts).toEqual(ALLOWED_LINES);
   });
 
   it('(c) no line writes youtubeMusicToken outside (a): no assignment, delete, update/create key or .set()', () => {
@@ -397,10 +407,28 @@ describe('YouTube token writers — only the two sealed writers can store a yout
       expect(r[bucket].length).toBeGreaterThan(0);
     });
 
-    it('a planted extra line naming the field breaks the allowlist count', () => {
+    it('a planted extra line naming the field breaks the allowlist', () => {
       const r = planted('app/services/x.js', '  const linked = !!user.youtubeMusicToken?.blob;');
-      expect(r.lineCounts['app/services/x.js']).toBe(1);
-      expect(r.forbidden).toEqual([]); // a read is not a write — the count is what makes it reviewed
+      expect(r.lineTexts['app/services/x.js']).toEqual(['const linked = !!user.youtubeMusicToken?.blob;']);
+      expect(r.forbidden).toEqual([]); // a read is not a write — the allowlist is what makes it reviewed
+    });
+
+    // N2: an allowlisted line swapped for a write the forbidden list misses keeps the per-file count;
+    // only the exact text tells them apart.
+    it.each([
+      ['a shorthand property', 'app/workers/youtubeRetention.worker.js', 'Object.assign(user, { youtubeMusicToken });'],
+      ['a computed key', 'app/workers/youtubeRetention.worker.js', "await User.updateOne({ _id }, { $set: { ['youtubeMusicToken']: t } });"],
+      ['Reflect.set', 'app/utils/providerSelect.js', "const hasYoutube = Reflect.set(user, 'youtubeMusicToken', t);"],
+      ['Object.defineProperty', 'app/utils/providerSelect.js', "Object.defineProperty(user, 'youtubeMusicToken', { value: t });"],
+    ])('%s swapped in for an allowlisted line, count unchanged, is caught', (_label, file, swapped) => {
+      const real = fs.readFileSync(path.join(BACKEND, file), 'utf8');
+      const target = ALLOWED_LINES[file].find((l) => l.startsWith('const '));
+      const src = real.replace(target, swapped);
+      expect(src).not.toBe(real);
+      const r = checkSources({ [file]: src });
+      expect(r.lineTexts[file]).toHaveLength(ALLOWED_LINES[file].length); // the old count rule would pass
+      expect(r.forbidden).toEqual([]);                                      // and so would the forbidden list
+      expect(r.lineTexts[file]).not.toEqual(ALLOWED_LINES[file]);           // the exact text does not
     });
 
     it('a getToken read is not a write', () => {
