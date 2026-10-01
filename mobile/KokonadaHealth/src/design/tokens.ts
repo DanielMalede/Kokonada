@@ -253,6 +253,11 @@ export const type = {
   tracking: { display: -0.4, heading: -0.2, body: 0, caption: 0.3 },
 } as const;
 
+// ── Accessibility — large-text reflow ─────────────────────────────────────────
+// Above this OS font scale a layout reflows for large text (a status moves under its name, a
+// two-column grid stacks to one). At it and below, the everyday layout. One value for every surface.
+export const a11y = { reflowFontScale: 1.3 } as const;
+
 // ── Elevation — soft, diffuse, wellness-grade (not harsh Material drops) ──────
 export const elevation = {
   e0: { shadowColor: '#000', shadowOpacity: 0, shadowRadius: 0, shadowOffset: { width: 0, height: 0 }, elevation: 0 },

@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { useTheme } from '../../design/theme';
-import { space, radius, stroke, type as typography } from '../../design/tokens';
+import { space, radius, stroke, a11y, type as typography } from '../../design/tokens';
 import { ProviderGlyph } from './ProviderGlyph';
 import type { Provider } from './providers';
 
@@ -14,6 +14,11 @@ import type { Provider } from './providers';
 // Contrast contract (§0.4): inside a raised card, meaningful text is content.primary/secondary only
 // (content.tertiary and bare state.* are NOT card-safe). So the "Connected" WORD is content.primary
 // (AA on raised) and the success color rides on the decorative, a11y-hidden check glyph instead.
+//
+// Large text (HX-3): above a11y.reflowFontScale the status-only row stacks — the status cluster
+// moves into the column between the name and the reason, and the row aligns to the top — so the
+// trailing word never squeezes the column until a name breaks mid-word. The visual order is then
+// the composed label's reading order. The row with an action keeps its layout (UI-053).
 
 type DisplayState = 'connected' | 'enabled' | 'deferred' | 'halted';
 
@@ -32,6 +37,7 @@ export interface ProviderRowProps {
 
 export function ProviderRow({ provider, connected = false, onConnect }: ProviderRowProps) {
   const { c } = useTheme();
+  const { fontScale } = useWindowDimensions();
   const state: DisplayState = connected ? 'connected' : (provider.state as DisplayState);
   const reason = state === 'connected' ? CONNECTED_REASON : provider.why;
 
@@ -61,6 +67,16 @@ export function ProviderRow({ provider, connected = false, onConnect }: Provider
 
   const statusWord = STATUS_WORD[state];
   const composedLabel = `${provider.label}. ${statusWord}. ${reason}`;
+  const stacked = fontScale > a11y.reflowFontScale;
+
+  const status = (
+    <View style={styles.trailing} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {state === 'connected' ? (
+        <Text style={[styles.checkGlyph, { color: c.state.success }]}>✓</Text>
+      ) : null}
+      <Text style={[styles.statusWord, { color: c.content.secondary }]}>{statusWord}</Text>
+    </View>
+  );
 
   return (
     <View
@@ -68,27 +84,24 @@ export function ProviderRow({ provider, connected = false, onConnect }: Provider
       accessible
       accessibilityLabel={composedLabel}
       accessibilityState={{ disabled: state !== 'connected' }}
-      style={styles.row}
+      style={[styles.row, stacked && styles.rowStacked]}
     >
       <ProviderGlyph label={provider.label} />
       <View style={styles.body}>
         <Text style={[styles.name, { color: state === 'connected' ? c.content.primary : c.content.secondary }]}>
           {provider.label}
         </Text>
+        {stacked ? status : null}
         <Text style={[styles.reason, { color: c.content.secondary }]}>{reason}</Text>
       </View>
-      <View style={styles.trailing} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {state === 'connected' ? (
-          <Text style={[styles.checkGlyph, { color: c.state.success }]}>✓</Text>
-        ) : null}
-        <Text style={[styles.statusWord, { color: c.content.secondary }]}>{statusWord}</Text>
-      </View>
+      {stacked ? null : status}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md },
+  rowStacked: { alignItems: 'flex-start' },
   body: { flex: 1, gap: space.xs },
   name: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   reason: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },

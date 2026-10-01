@@ -103,15 +103,20 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(row.props.accessibilityLabel).toBe("Spotify. Unavailable. Connecting Spotify isn't available in Kokonada right now.");
   });
 
-  it('the YouTube Music row is DEFERRED — "Not yet available" + Google-review reason, no connect action', async () => {
+  // HX-3. RETIRED under DEC-091: the "YouTube Music" label (a plain toContain('YouTube') would also
+  // pass on the old label, so its absence is asserted). REVERSED under DEC-123, item 4: the reason
+  // line 'Coming once our Google review is complete.' became the compliance-cleared line.
+  it('the YouTube row is DEFERRED — "Not yet available" + the cleared reason line, no connect action', async () => {
     const { tree } = await render();
     const t = allText(tree);
-    expect(t).toContain('YouTube Music');
+    expect(t).toContain('YouTube');
+    expect(t).not.toContain('YouTube Music');
     expect(t).toContain('Not yet available');
-    expect(t).toContain('Coming once our Google review is complete.');
+    expect(t).toContain("Connecting YouTube isn't available in Kokonada yet.");
     expect(byLabel(tree, 'connect-youtube')).toHaveLength(0);
     const row = byTestId(tree, 'provider-row-youtube')[0];
     expect(row.props.accessibilityState).toEqual({ disabled: true });
+    expect(row.props.accessibilityLabel).toBe("YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.");
   });
 
   it('a pre-existing Spotify connection (from /api/integrations/status) shows "Connected" honestly', async () => {
@@ -120,6 +125,42 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(row.props.accessibilityLabel).toContain('Connected');
     // Still no NEW connect action offered for a halted provider.
     expect(byLabel(tree, 'connect-spotify')).toHaveLength(0);
+  });
+
+  // HX-3 (compliance MUST NOT; designer §1.3): no YouTube logo or icon — the row's only mark is our
+  // neutral initial, never an <Image>. The detector is proven on a real <Image> first, so a zero means none.
+  it('the YouTube row renders no <Image> (its only mark is the neutral initial)', async () => {
+    const images = (node: ReactTestRenderer.ReactTestInstance) =>
+      node.findAllByType(RN.Image).length + node.findAll((n) => (n.type as unknown) === 'Image').length;
+    let control!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => { control = ReactTestRenderer.create(<RN.Image source={{ uri: 'control' }} />); });
+    mounted.push(control);
+    expect(images(control.root)).toBe(2); // the composite and its host node
+
+    const { tree } = await render();
+    const row = byTestId(tree, 'provider-row-youtube')[0];
+    // Everything the row holds (sorted: the order depends on the font scale and is pinned in ProviderRow.test.tsx).
+    expect(row.findAll((n) => (n.type as unknown) === 'Text').map((n) => texts(n.props.children).join('')).sort()).toEqual(
+      ["Connecting YouTube isn't available in Kokonada yet.", 'Not yet available', 'Y', 'YouTube'].sort(),
+    );
+    expect(images(row)).toBe(0);
+  });
+
+  // HX-3, A1 (designer; compliance verdicts §3, item 3): a stored YouTube link must never turn the
+  // Connect row into "Connected · Playing your library." — Kokonada plays nothing through YouTube in
+  // any state (CMP-040). The row stays deferred whatever /api/integrations/status says.
+  it('A1: with youtubeConnected true the YouTube row still renders as deferred — never Connected, never "Playing your library."', async () => {
+    const { tree } = await render({ loadIntegrations: async () => ({ spotifyConnected: true, youtubeConnected: true }) });
+    // The status did reach the screen: the Spotify row turned Connected from the same payload.
+    expect(byTestId(tree, 'provider-row-spotify')[0].props.accessibilityLabel).toContain('Connected');
+    const row = byTestId(tree, 'provider-row-youtube')[0];
+    expect(row.props.accessibilityLabel).toBe("YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.");
+    expect(row.props.accessibilityState).toEqual({ disabled: true });
+    const shown = row.findAll((n) => (n.type as unknown) === 'Text').map((n) => texts(n.props.children).join('')).join(' ');
+    expect(shown).toContain('Not yet available');
+    expect(shown).not.toContain('Connected');
+    expect(shown).not.toContain('Playing your library.');
+    expect(shown).not.toContain('✓');
   });
 
   it('the Wearable & Health card presents the one live "Connect a wearable" CTA', async () => {
@@ -190,6 +231,25 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     // Collapsed by default — the reason bodies are not read until asked for.
     expect(musicWhy[0].props.accessibilityState).toEqual({ expanded: false });
     expect(allText(tree)).not.toContain('never post, never your social graph');
+  });
+
+  // HX-3 (compliance verdicts §3, item 5; NR-5): the card listed YouTube under "Where your soundtrack
+  // plays." and its why-text opened "Music streaming is where Kokonada plays your set." — but
+  // Kokonada plays nothing on YouTube (CMP-040). Both now name where it does play. Only the first
+  // sentence of the why-text changes; "Why connect music?" stays (a question is not a claim).
+  it('the Music card says Kokonada plays music through Spotify, in its caption and in its why-text', async () => {
+    const { tree } = await render();
+    const before = allText(tree);
+    expect(before).toContain('Music Kokonada plays music through Spotify.'); // the caption, right under the card title
+    expect(before).not.toContain('Where your soundtrack plays.');
+    const why = tree.root.findAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Why connect music?');
+    expect(why.length).toBeGreaterThan(0);
+    await ReactTestRenderer.act(async () => { why[0].props.onPress(); });
+    const open = allText(tree);
+    expect(open).toContain(
+      "Kokonada plays your set through Spotify. We'd only ever read what's needed to build and play a playlist — never post, never your social graph.",
+    );
+    expect(open).not.toContain('Music streaming is where Kokonada plays your set.');
   });
 
   it('color is never the sole signal — every provider state carries a status word', async () => {
