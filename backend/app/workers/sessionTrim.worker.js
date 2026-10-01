@@ -8,6 +8,7 @@ const {
 } = require('../services/privacy/providerContentErasure');
 const unclassifiedRepo = require('../repositories/unclassifiedRepo');
 const { sweepOwedSpotifyErasures } = require('../services/privacy/spotifyErasure');
+const { sweepOwedHealthErasures } = require('../services/privacy/sessionHealthSweep');
 
 // The daily retention job. Two clocks run here:
 //   • T3.1 — the encrypted, re-identifying context (the free-text contextPrompt and the HR
@@ -18,6 +19,10 @@ const { sweepOwedSpotifyErasures } = require('../services/privacy/spotifyErasure
 //     and never deleted; its moodKey, emotion taps, activity and skip count stay for History.
 //   • HX-2 M6 — a Spotify disconnect whose purge did not finish is finished here, so every
 //     disconnect is fully erased within days with no user action.
+//   • BE-016 (DEC-111) — a withdrawal of health-data consent whose session-health erasure did not
+//     finish, and withdrawals made before that erasure existed, are finished here (`healthErasures=`;
+//     services/privacy/sessionHealthSweep.js). It runs after the 30-day trim, so a session the trim
+//     reaches in this run is judged as trimmed in this run. HEALTH_ERASURE_SWEEP_DISABLED stops it.
 // Each step runs even if another fails; the run then fails loudly so the worker logs it.
 // The `[sessionTrim]` line (counts only) is the production check that the job ran.
 
@@ -53,6 +58,7 @@ async function processJob() {
     ['unclassifiedBackfilled', () => unclassifiedRepo.backfillCreatedAt()],
     ['unclassifiedExpired', () => unclassifiedRepo.expireCreatedBefore(providerCutoff)],
     ['spotifyErasures', () => sweepOwedSpotifyErasures()],
+    ['healthErasures', () => sweepOwedHealthErasures()],
   ];
 
   const result = {};
