@@ -5,7 +5,7 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 
 // MB-062 (REG-034; DEC-117, the regulatory brief's O2 condition): a consent grant records the build
-// and the language it was given in, so the record can show which rendered consent screen each
+// and the device's language setting, so the record can show which rendered consent screen each
 // grantor saw (GDPR Art. 7(1); EDPB 05/2020 para 108). Proven end to end over HTTP: the REAL
 // assembled app and middleware chain (supertest), the REAL consent controller and service, and the
 // stored ConsentRecord read back from a REAL Mongo (mongodb-memory-server). Nothing about consent is
@@ -69,10 +69,10 @@ const grant = (user, body) => request(app).post('/api/consent').set('Authorizati
 });
 const rowsOf = (user) => ConsentRecord.find({ userId: user._id }).lean();
 
-describe('POST /api/consent — the grant records the build and the language it was given in', () => {
+describe('POST /api/consent — the grant records the build and the device’s language setting', () => {
   it('stores the appVersion and locale the client sent on the granted ConsentRecord', async () => {
     const user = await newUser('build-locale');
-    const res = await grant(user, { appVersion: '1.0 (1)', locale: 'he-IL' });
+    const res = await grant(user, { appVersion: '1.0 (1)', locale: 'he' });
     expect(res.status).toBe(201);
     expect(res.body).toEqual({ granted: true, currentVersion: CURRENT_CONSENT_VERSION, staleVersion: false });
     const rows = await rowsOf(user);
@@ -81,7 +81,7 @@ describe('POST /api/consent — the grant records the build and the language it 
       status: 'granted',
       consentVersion: CURRENT_CONSENT_VERSION,
       appVersion: '1.0 (1)',
-      locale: 'he-IL',
+      locale: 'he',
     }));
   });
 
@@ -97,9 +97,21 @@ describe('POST /api/consent — the grant records the build and the language it 
 
   it('a stale client is still refused (409) and nothing is stored, provenance or not', async () => {
     const user = await newUser('stale-client');
-    const res = await grant(user, { clientVersion: CURRENT_CONSENT_VERSION + 1, appVersion: '1.0 (1)', locale: 'en-US' });
+    const res = await grant(user, { clientVersion: CURRENT_CONSENT_VERSION + 1, appVersion: '1.0 (1)', locale: 'en' });
     expect(res.status).toBe(409);
     expect(await rowsOf(user)).toHaveLength(0);
+  });
+
+  // Regulatory R4: the server accepts only what this client sends, "<versionName> (<versionCode>)".
+  it('a build label in any other form is dropped, and a well-formed language is still kept', async () => {
+    const user = await newUser('other-build-form');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await grant(user, { appVersion: 'debug-build_2', locale: 'he' });
+    warn.mockRestore();
+    expect(res.status).toBe(201);
+    const [row] = await rowsOf(user);
+    expect(row).not.toHaveProperty('appVersion');
+    expect(row.locale).toBe('he');
   });
 
   it.each([
@@ -111,6 +123,7 @@ describe('POST /api/consent — the grant records the build and the language it 
     ['markup and control characters', { appVersion: '1.0<script>', locale: 'en-US\n' }],
     ['empty strings', { appVersion: '', locale: '' }],
     ['a locale that is not a language tag', { appVersion: '1.0 (1)', locale: 'english please' }],
+    ['a language-and-region tag (an earlier HX-5 build)', { appVersion: '1.0 (1)', locale: 'he-IL' }],
   ])('malformed provenance (%s) is dropped; the grant itself is recorded', async (_label, body) => {
     const user = await newUser(`bad-${crypto.randomUUID()}`);
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -121,7 +134,7 @@ describe('POST /api/consent — the grant records the build and the language it 
     // Never a silent drop (a client bug would otherwise strip every grant's provenance unseen), and
     // never the dropped value itself in the log.
     expect(logged.some((line) => /\[consent\] grant provenance dropped/.test(line) && line.includes('locale'))).toBe(true);
-    for (const line of logged) expect(line).not.toMatch(/script|eeee|1111|english/);
+    for (const line of logged) expect(line).not.toMatch(/script|eeee|1111|english|he-IL/);
     const rows = await rowsOf(user);
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('granted');

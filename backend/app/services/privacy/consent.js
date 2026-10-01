@@ -57,14 +57,15 @@ async function recordConsent(userId, { purpose, dataCategories, appVersion, loca
   return { ok: true, record };
 }
 
-// MB-062 (REG-034): the build and the language a grant was given in, so the record shows which
-// rendered consent screen the grantor saw. Both arrive from the client, so each is kept only when it
-// is a short, plain value of the expected shape: a build label such as "1.0 (1)", and a BCP 47
-// language tag such as "he-IL". Anything else is dropped and the grant still stands: it is the
+// MB-062 (REG-034): the build a grant was given in, which names the rendered consent screen, and the
+// device's language setting at that moment (not the screen's language: the consent text
+// has no translation yet). Both arrive from the client, so each is kept only when it
+// is a short, plain value of the expected shape: a build label such as "1.0 (1)", and a lower-case ISO 639
+// language code such as "he" (never a region). Anything else is dropped and the grant still stands: it is the
 // user's act, and both fields are optional for older clients. A drop is logged by field name, never
 // by value, so a client bug that strips every grant's provenance cannot go unseen.
-const APP_VERSION_SHAPE = /^[0-9A-Za-z][0-9A-Za-z .()+_-]{0,31}$/;
-const LOCALE_SHAPE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$/;
+const APP_VERSION_SHAPE = /^[0-9]{1,4}(\.[0-9]{1,4}){0,3} \([0-9]{1,9}\)$/;
+const LOCALE_SHAPE = /^[a-z]{2,3}$/;
 
 function grantProvenance({ appVersion, locale }) {
   const kept = {};

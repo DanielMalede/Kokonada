@@ -32,8 +32,9 @@ async function withholdLiveSockets(userId) {
 // clientVersion (resilience-audit finding) is the contract version the CALLER's consent copy/
 // categories were built against; optional for back-compat, but a mismatch is rejected (409)
 // before anything is recorded — see services/privacy/consent.recordConsent.
-// appVersion and locale (MB-062, REG-034) are the build and language the grant was given in, so the
-// record shows which rendered consent screen the grantor saw; optional for back-compat.
+// appVersion and locale (MB-062, REG-034): the build the grant was given in, which names the rendered
+// consent screen, and the device's language setting (not the screen's language: the
+// consent text has no translation yet). Optional for back-compat.
 exports.grantConsent = async (req, res, next) => {
   try {
     const { purpose, dataCategories, clientVersion, appVersion, locale } = req.body || {};
