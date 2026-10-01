@@ -127,6 +127,23 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(byLabel(tree, 'connect-spotify')).toHaveLength(0);
   });
 
+  // HX-3, A1 (designer; compliance verdicts §3, item 3): a stored YouTube link must never turn the
+  // Connect row into "Connected · Playing your library." — Kokonada plays nothing through YouTube in
+  // any state (CMP-040). The row stays deferred whatever /api/integrations/status says.
+  it('A1: with youtubeConnected true the YouTube row still renders as deferred — never Connected, never "Playing your library."', async () => {
+    const { tree } = await render({ loadIntegrations: async () => ({ spotifyConnected: true, youtubeConnected: true }) });
+    // The status did reach the screen: the Spotify row turned Connected from the same payload.
+    expect(byTestId(tree, 'provider-row-spotify')[0].props.accessibilityLabel).toContain('Connected');
+    const row = byTestId(tree, 'provider-row-youtube')[0];
+    expect(row.props.accessibilityLabel).toBe("YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.");
+    expect(row.props.accessibilityState).toEqual({ disabled: true });
+    const shown = row.findAll((n) => (n.type as unknown) === 'Text').map((n) => texts(n.props.children).join('')).join(' ');
+    expect(shown).toContain('Not yet available');
+    expect(shown).not.toContain('Connected');
+    expect(shown).not.toContain('Playing your library.');
+    expect(shown).not.toContain('✓');
+  });
+
   it('the Wearable & Health card presents the one live "Connect a wearable" CTA', async () => {
     const { tree } = await render();
     expect(allText(tree)).toContain('Wearable & Health');

@@ -135,9 +135,9 @@ export function ConnectServicesScreen({
   }, [loadIntegrations]);
 
   const musicProviders = providersByKind('music');
-  const connectedFor = (id: string): boolean =>
-    (id === 'spotify' && !!integrations?.spotifyConnected) ||
-    (id === 'youtube' && !!integrations?.youtubeConnected);
+  // Only Spotify can read as connected here. A stored YouTube link never does (HX-3, A1): its row
+  // would say "Playing your library.", and Kokonada plays nothing through YouTube (CMP-040).
+  const connectedFor = (id: string): boolean => id === 'spotify' && !!integrations?.spotifyConnected;
 
   const onMoodOnly = () => { triggerHaptic('commit'); connect.getState().setMoodOnly(); };
 
