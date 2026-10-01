@@ -9,6 +9,7 @@ import { apiGet } from '../../net/apiClient';
 import type { IntegrationsStatus } from '../profile/profileController';
 import { checkAvailability, requestHealthPermissions, openHealthConnectInStore, openHealthConnectSettings } from '../../health/healthConnect';
 import { fetchConsentStatus, grantConsent } from '../../health/consentApi';
+import { grantProvenance } from '../../health/grantProvenance';
 import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
 import { syncMedicalProfile } from '../../health/healthSync';
 import { onWearableLinked } from '../../health/healthLaneServices';
@@ -88,7 +89,8 @@ function defaultController(connect: ConnectStore): ConnectController {
   return createConnectController({
     checkAvailability,
     fetchConsentStatus,
-    grantConsent,
+    // MB-062: each grant carries the build and the device's language setting.
+    grantConsent: () => grantConsent(grantProvenance()),
     requestHealthPermissions,
     syncMedicalProfile: (d) => syncMedicalProfile(d),
     createConsentFlow,

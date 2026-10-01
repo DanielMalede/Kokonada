@@ -5,6 +5,7 @@ import { space, radius, stroke, type as typography, elevation, type HapticKey } 
 import { fireHaptic } from '../../design/haptics';
 import { HEALTH_CONNECT_DATA_CATEGORIES } from '../../health/consentApi';
 import { WhyAccordion } from '../connect/WhyAccordion';
+import { PrivacyPolicyLink } from '../../legal/PrivacyPolicyLink';
 
 // §10 Health-data VAULT panel. Three jobs on one calm surface: (1) a trust summary, (2) the
 // "what we read, and why" disclosure — its list mirrors the ON-DEVICE Health Connect read set
@@ -47,7 +48,14 @@ export function VaultConsentPanel({ consentGranted, syncing, withdrawing, onSync
       <Text accessibilityRole="header" style={[styles.title, { color: c.content.primary }]}>Health data</Text>
       <Text style={[styles.caption, { color: c.content.secondary }]}>Your body, read only with your say-so.</Text>
 
-      <WhyAccordion title="What we read, and why" body={WHAT_WE_READ_BODY} />
+      {/* HX-5: the privacy policy is information, so it sits with the disclosure, in both consent
+          states, and never between Sync and the withdrawal right below it. */}
+      <View style={styles.disclosure}>
+        <WhyAccordion title="What we read, and why" body={WHAT_WE_READ_BODY} />
+        <View style={styles.privacyPolicy}>
+          <PrivacyPolicyLink />
+        </View>
+      </View>
 
       {/* Permission status — a WORD carries the meaning; the ✓ is decorative. Not-granted is a
           neutral note, never red (there is nothing wrong with mood-only). */}
@@ -135,6 +143,8 @@ const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, padding: space.lg, gap: space.md },
   title: { fontSize: typography.size.subheading, fontWeight: typography.weight.semibold },
   caption: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },
+  disclosure: { gap: space.xs },
+  privacyPolicy: { alignItems: 'flex-start' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   check: { fontSize: typography.size.caption, fontWeight: typography.weight.bold },
   statusWord: { flex: 1, fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },
