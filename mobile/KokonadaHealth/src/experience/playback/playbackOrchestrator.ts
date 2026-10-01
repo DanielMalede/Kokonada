@@ -86,6 +86,10 @@ export class PlaybackOrchestrator {
   // Per-current-track latch: has the native player reported this track actively
   // PLAYING yet? Distinguishes "position 0 at track-end" from "position 0 at start".
   private sawActivePlayback = false;
+  // HX-2 B1: set by clear() (Spotify disconnected), cleared by resume() (Spotify linked again).
+  // While set, nothing this conductor does may reach the player — a late playlist would otherwise
+  // reconnect App Remote through play() → ensureConnected().
+  private suspended = false;
 
   constructor(deps: PlaybackOrchestratorDeps) {
     this.player = deps.player;
@@ -186,6 +190,9 @@ export class PlaybackOrchestrator {
       'first=', payload?.tracks?.[0]?.uri, 'context=', payload?.contextUri ?? '(none)');
     this.cancelPendingPlay();
     this.clearGenerationGuard(); // the requested generation arrived
+    // A generation requested before Disconnect Spotify still answers. Drop it: the guard is released
+    // above, but no track is loaded and nothing is played.
+    if (this.suspended) return;
     this.contextUri = typeof payload?.contextUri === 'string' && payload.contextUri.length > 0
       ? payload.contextUri
       : null;
@@ -197,6 +204,30 @@ export class PlaybackOrchestrator {
   // guard instead of wedging it permanently.
   onGenerationError(): void {
     this.clearGenerationGuard();
+  }
+
+  // HX-2: a Spotify disconnect empties everything this conductor holds — the queued tracks (they
+  // are Spotify's), a skip still coalescing, the session-playlist context, a generation in flight —
+  // and tells Now Playing there is nothing playing. A late native event then finds no track of
+  // ours to adopt, so nothing can resurrect the old queue. It also SUSPENDS the conductor until
+  // resume(): a late playlist or a play/pause tap can no longer reconnect Spotify (B1).
+  clear(): void {
+    this.suspended = true;
+    this.cancelPendingPlay();
+    this.clearGenerationGuard();
+    this.contextUri = null;
+    this.queue.load([]);
+    this.currentTrackId = null;
+    this.isPlaying = false;
+    this.sawActivePlayback = false;
+    this.consecutiveFailures = 0;
+    this.emit();
+  }
+
+  // The account is linked to Spotify again (a fresh sign-in, or the server reporting the link):
+  // playlists may play from here on.
+  resume(): void {
+    this.suspended = false;
   }
 
   private clearGenerationGuard(): void {
@@ -271,6 +302,7 @@ export class PlaybackOrchestrator {
   }
 
   async togglePlayPause(): Promise<void> {
+    if (this.suspended) return; // Spotify is disconnected: a resume here would reconnect it (B1)
     if (this.isPlaying) {
       await this.player.pause();
       this.isPlaying = false;

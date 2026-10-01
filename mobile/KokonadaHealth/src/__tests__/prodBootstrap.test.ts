@@ -25,6 +25,7 @@ jest.mock('react-native', () => ({
 jest.mock('../experience/playback/playbackServices', () => ({
   player: { connect: jest.fn(async () => true) },
   playbackSocket: { ensureConnected: jest.fn() },
+  orchestrator: { resume: jest.fn() },
 }));
 let mockSecure: unknown = null;
 jest.mock('../storage/secureStoreFactory', () => ({
@@ -138,7 +139,7 @@ function load(opts: { signedIn: boolean }) {
     return true;
   });
   const prod = require('../prodBootstrap');
-  const { player } = require('../experience/playback/playbackServices');
+  const { player, orchestrator } = require('../experience/playback/playbackServices');
   const { syncMedicalProfile } = require('../health/healthSync');
   const { requestMultiple } = require('react-native').PermissionsAndroid;
   const services = require('../health/healthLaneServices');
@@ -153,7 +154,7 @@ function load(opts: { signedIn: boolean }) {
     await prod.onSignedIn();
   };
   const watchReads = () => Keychain.getGenericPassword.mock.calls.filter(([o]: any[]) => o?.service === WATCH_SLOT).length;
-  return { prod, player, syncMedicalProfile, requestMultiple, healthLane: services.healthLane, services, currentUserStore, authSession, signIn, hc, watchReads };
+  return { prod, player, orchestrator, syncMedicalProfile, requestMultiple, healthLane: services.healthLane, services, currentUserStore, authSession, signIn, hc, watchReads };
 }
 
 beforeEach(() => {
@@ -196,6 +197,17 @@ describe('prodBootstrap — the Spotify player at boot (H2)', () => {
     backend.spotifyConnected = false;
     await prod.startApp();
     await settle();
+    expect(player.connect).not.toHaveBeenCalled();
+  });
+
+  // HX-2 B1: Disconnect Spotify suspends the playback conductor so a late playlist cannot reconnect
+  // Spotify. A fresh sign-in (a new session, maybe a new account) lifts that — without connecting.
+  it('onSignedIn lifts a Spotify-disconnect suspension (resume), and still does not connect', async () => {
+    const { prod, player, orchestrator, signIn } = load({ signedIn: false });
+    await prod.startApp();
+    await signIn('u1');
+    await settle();
+    expect(orchestrator.resume).toHaveBeenCalledTimes(1);
     expect(player.connect).not.toHaveBeenCalled();
   });
 

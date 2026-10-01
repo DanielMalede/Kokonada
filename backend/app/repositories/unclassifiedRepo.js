@@ -3,7 +3,8 @@
 const UnclassifiedTrack = require('../models/UnclassifiedTrack');
 
 // The unclassified pool: tracks that could not be adjudicated (Groq outage) and wait for the
-// periodic reclassify worker. Never deleted here without a verdict; never placed in `library`.
+// periodic reclassify worker. Never deleted here without a verdict — except by the provider-content
+// clock (expireCreatedBefore, HX-2) — and never placed in `library`.
 
 // Idempotently pool tracks — one row per (userId, track.id). An existing row is left untouched
 // so its backoff schedule survives a re-pool. Returns the number of tracks written.
@@ -44,4 +45,24 @@ function reschedule(_id, attempts, nextAttemptAt) {
   );
 }
 
-module.exports = { addMany, dueBatch, remove, reschedule };
+// HX-2 retention. A row written before `createdAt` existed has no clock at all. Stamp it with its
+// TRUE insert time — the ObjectId's timestamp — never "now", which would grant it a fresh window.
+// The pipeline update is safe here and ONLY here: UnclassifiedTrack has no encrypted field for a
+// setter to miss, and this file imports no encrypted model (wave4.aadUpdateBinding W4-D76).
+async function backfillCreatedAt() {
+  const res = await UnclassifiedTrack.updateMany(
+    { $or: [{ createdAt: { $exists: false } }, { createdAt: null }] },
+    [{ $set: { createdAt: { $toDate: '$_id' } } }],
+    { updatePipeline: true },
+  );
+  return res?.modifiedCount ?? 0;
+}
+
+// Pooled rows older than the provider-content cutoff are deleted, verdict or not: the row carries
+// a provider's track payload, which may not outlive its window waiting for a classifier.
+async function expireCreatedBefore(cutoff) {
+  const res = await UnclassifiedTrack.deleteMany({ createdAt: { $lt: cutoff } });
+  return res?.deletedCount ?? 0;
+}
+
+module.exports = { addMany, dueBatch, remove, reschedule, backfillCreatedAt, expireCreatedBefore };
