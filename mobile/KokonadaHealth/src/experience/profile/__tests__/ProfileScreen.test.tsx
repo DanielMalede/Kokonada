@@ -16,7 +16,7 @@ jest.mock('../profileServices', () => ({
     loadProfile: jest.fn(),
     logout: jest.fn().mockResolvedValue(undefined),
     deleteAccount: jest.fn().mockResolvedValue({ ok: true, data: {} }),
-    disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } }),
+    disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { message: 'YouTube disconnected' } }),
     disconnectSpotify: jest.fn().mockResolvedValue({ ok: true, data: { message: 'Spotify disconnected' } }),
     getSpotifyConnectToken: jest.fn(),
   },
@@ -272,7 +272,8 @@ describe('ProfileScreen', () => {
 
   it('HX-3: a successful YouTube disconnect shows exactly the cleared pair — no track count, no rebuilt library', async () => {
     await withYoutubeLinked(async (tree, alertSpy) => {
-      // The pre-seal server body still carries a library count; the alert must never read it.
+      // A server deployed before the seal answers with a library count (mobile and backend ship
+      // separately); the alert must never read it. The sealed answer is { message } (DEC-124).
       await pressDisconnectYouTube(tree, { ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } });
       expect(alertSpy.mock.calls).toEqual([['YouTube disconnected', 'Kokonada no longer uses your YouTube account.']]);
     });
