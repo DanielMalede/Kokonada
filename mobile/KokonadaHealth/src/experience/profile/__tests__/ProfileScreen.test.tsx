@@ -80,7 +80,7 @@ jest.mock('../../../health/healthLaneServices', () => ({
   onLiveHrDisconnected: jest.fn(async () => {}),
 }));
 
-import { Linking, Alert, AccessibilityInfo } from 'react-native';
+import { Linking, Alert, AccessibilityInfo, Image } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ProfileScreen } from '../ProfileScreen';
 import { profileController } from '../profileServices';
@@ -288,6 +288,41 @@ describe('ProfileScreen', () => {
       expect(alertSpy.mock.calls).toEqual([['Could not disconnect YouTube', 'Please try again in a moment.']]);
       expect(byTestId(tree, 'disconnect-youtube')).toBeTruthy();
     });
+  });
+
+  // HX-3 (compliance MUST NOT; designer §1.3): no YouTube logo or icon on Profile either — neither
+  // the deferred row nor a linked one renders an <Image>. The avatar IS an <Image>, so the screen
+  // count proves the detector sees one; the YouTube rows still count zero.
+  it('HX-3: neither YouTube row renders an <Image> (the avatar proves the detector works)', async () => {
+    const images = (node: ReactTestRenderer.ReactTestInstance) =>
+      node.findAllByType(Image).length + node.findAll((n) => (n.type as unknown) === 'Image').length;
+    const rowTexts = (node: ReactTestRenderer.ReactTestInstance) =>
+      node.findAll((n) => (n.type as unknown) === 'Text').map((n) => texts(n.props.children).join(''));
+    const me = { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null, avatarUrl: 'https://example.invalid/a.png' };
+
+    loadProfile.mockResolvedValue({ me, integrations: { spotifyConnected: false } });
+    const deferred = await render();
+    try {
+      expect(images(deferred.root)).toBe(2); // the avatar: its composite and its host node
+      const label = "YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.";
+      const row = deferred.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityLabel === label)[0];
+      expect(rowTexts(row)).toContain('YouTube');
+      expect(images(row)).toBe(0);
+    } finally { await ReactTestRenderer.act(async () => { deferred.unmount(); }); }
+
+    loadProfile.mockResolvedValue({ me, integrations: { spotifyConnected: false, youtubeConnected: true } });
+    const linked = await render();
+    try {
+      expect(images(linked.root)).toBe(2);
+      // The linked row: the innermost host View holding both the YouTube name and its Disconnect.
+      const holders = linked.root.findAll((n) => (n.type as unknown) === 'View'
+        && n.findAll((m) => m.props.testID === 'disconnect-youtube').length > 0
+        && rowTexts(n).includes('YouTube'));
+      const row = holders[holders.length - 1];
+      expect(rowTexts(row)).toEqual(expect.arrayContaining(['YouTube', "Kokonada doesn't use it in this version.", 'Disconnect']));
+      expect(rowTexts(row)).not.toContain('Spotify');
+      expect(images(row)).toBe(0);
+    } finally { await ReactTestRenderer.act(async () => { linked.unmount(); }); }
   });
 
   // HX-3: the title always claimed the row still renders; now it is checked. DEC-122 keeps the row

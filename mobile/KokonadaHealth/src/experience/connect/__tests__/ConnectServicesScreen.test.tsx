@@ -127,6 +127,25 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(byLabel(tree, 'connect-spotify')).toHaveLength(0);
   });
 
+  // HX-3 (compliance MUST NOT; designer §1.3): no YouTube logo or icon — the row's only mark is our
+  // neutral initial, never an <Image>. The detector is proven on a real <Image> first, so a zero means none.
+  it('the YouTube row renders no <Image> (its only mark is the neutral initial)', async () => {
+    const images = (node: ReactTestRenderer.ReactTestInstance) =>
+      node.findAllByType(RN.Image).length + node.findAll((n) => (n.type as unknown) === 'Image').length;
+    let control!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => { control = ReactTestRenderer.create(<RN.Image source={{ uri: 'control' }} />); });
+    mounted.push(control);
+    expect(images(control.root)).toBe(2); // the composite and its host node
+
+    const { tree } = await render();
+    const row = byTestId(tree, 'provider-row-youtube')[0];
+    // Everything the row holds (sorted: the order depends on the font scale and is pinned in ProviderRow.test.tsx).
+    expect(row.findAll((n) => (n.type as unknown) === 'Text').map((n) => texts(n.props.children).join('')).sort()).toEqual(
+      ["Connecting YouTube isn't available in Kokonada yet.", 'Not yet available', 'Y', 'YouTube'].sort(),
+    );
+    expect(images(row)).toBe(0);
+  });
+
   // HX-3, A1 (designer; compliance verdicts §3, item 3): a stored YouTube link must never turn the
   // Connect row into "Connected · Playing your library." — Kokonada plays nothing through YouTube in
   // any state (CMP-040). The row stays deferred whatever /api/integrations/status says.
