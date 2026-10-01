@@ -54,10 +54,12 @@ const { signToken } = require('../app/utils/jwt');
 const { withdrawConsent } = require('../app/services/privacy/consent');
 const consentController = require('../app/controllers/consentController');
 const consentRouter = require('../app/routes/consent');
+const sessionsRouter = require('../app/routes/sessions');
 
 const app = express();
 app.use(express.json());
 app.use('/api/consent', consentRouter);
+app.use('/api/sessions', sessionsRouter);
 
 jest.setTimeout(120000);
 
@@ -678,5 +680,29 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
     const all = lines.join('\n');
     for (const secret of ['131', '88', '77', 'running', 'peak', 'winding down', 'long day', 'edm', 'isrc:']) expect(all).not.toContain(secret);
     expect(all).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+});
+
+// ── T8: what History shows for the real rows after a withdrawal (H1 with the designer's A2/A3) ────────
+describe('GET /api/sessions over the real rows after a withdrawal (T8, DEC-118 H1)', () => {
+  beforeEach(captureLogs);
+
+  it('the heart session reads "A moment" / Live; mood rows keep their own word; a text-only row reads "A moment"', async () => {
+    const a = await listener('a');
+    const { rows } = await seedConsentingListener(a);
+    await withdrawOverHttp(a);
+
+    const res = await request(app)
+      .get('/api/sessions?limit=50')
+      .set('Authorization', `Bearer ${signToken({ userId: String(a._id) })}`);
+
+    expect(res.status).toBe(200);
+    const byId = Object.fromEntries(res.body.items.map((i) => [i.id, i]));
+    expect(res.body.items).toHaveLength(6); // no row disappears from History
+    expect(byId[String(rows.heart)]).toMatchObject({ title: 'A moment', source: 'live', moodKey: null, activity: null, activityLabel: null });
+    expect(byId[String(rows.moodWithHr)]).toMatchObject({ title: 'Calm', source: 'manual', moodKey: 'calm', activity: null, activityLabel: null });
+    expect(byId[String(rows.moodNoHr)]).toMatchObject({ title: 'Calm', source: 'manual', activity: 'walking' });
+    expect(byId[String(rows.textWithHr)]).toMatchObject({ title: 'A moment', source: 'manual', contextPrompt: 'long day at work' });
+    expect(JSON.stringify(res.body)).not.toMatch(/Peak Energy|bio:|heartRate/);
   });
 });
