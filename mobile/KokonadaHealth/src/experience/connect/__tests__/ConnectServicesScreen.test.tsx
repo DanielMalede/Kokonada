@@ -214,6 +214,25 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(allText(tree)).not.toContain('never post, never your social graph');
   });
 
+  // HX-3 (compliance verdicts §3, item 5; NR-5): the card listed YouTube under "Where your soundtrack
+  // plays." and its why-text opened "Music streaming is where Kokonada plays your set." — but
+  // Kokonada plays nothing on YouTube (CMP-040). Both now name where it does play. Only the first
+  // sentence of the why-text changes; "Why connect music?" stays (a question is not a claim).
+  it('the Music card says Kokonada plays music through Spotify, in its caption and in its why-text', async () => {
+    const { tree } = await render();
+    const before = allText(tree);
+    expect(before).toContain('Music Kokonada plays music through Spotify.'); // the caption, right under the card title
+    expect(before).not.toContain('Where your soundtrack plays.');
+    const why = tree.root.findAll((n) => n.props.accessibilityRole === 'button' && n.props.accessibilityLabel === 'Why connect music?');
+    expect(why.length).toBeGreaterThan(0);
+    await ReactTestRenderer.act(async () => { why[0].props.onPress(); });
+    const open = allText(tree);
+    expect(open).toContain(
+      "Kokonada plays your set through Spotify. We'd only ever read what's needed to build and play a playlist — never post, never your social graph.",
+    );
+    expect(open).not.toContain('Music streaming is where Kokonada plays your set.');
+  });
+
   it('color is never the sole signal — every provider state carries a status word', async () => {
     const { tree } = await render();
     const t = allText(tree);
