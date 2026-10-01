@@ -11,6 +11,7 @@ const featureService = require('./features/featureService');
 const corpusIngest = require('./discovery/corpusIngest');
 const musicClassifier = require('./musicClassifier');
 const unclassifiedRepo = require('../repositories/unclassifiedRepo');
+const { isYoutubeContent } = require('../utils/youtubeContent');
 
 const LIBRARY_CAP = 10_000; // max tracks stored per user to stay within 16 MB doc limit
 
@@ -786,9 +787,29 @@ function recomputeFootprint(library) {
   };
 }
 
+// DEC-122 / DEC-040 (HX-3 T6): the YouTube-free view of a taste profile — what generation reads.
+//
+// YouTube data has no permitted use while YouTube is sealed: it may not steer a Spotify request
+// (Spotify Developer Policy III.5) or reach an LLM (YouTube Developer Policies III.E.3.b), and the app
+// tells the user Kokonada does not use it. So every library row the ONE shared predicate calls YouTube
+// Content is dropped, and the footprint is re-derived from what remains with recomputeFootprint (the
+// call youtubeRetention._purge makes), so no YouTube-derived genre or artist survives in the ranked
+// lists. Applied at the profile load in sockets/biometricHandler.js, for every provider.
+//
+// Unconditional on purpose: it does not read YOUTUBE_EGRESS_ENABLED, which must stay false anyway, so
+// there is no branch in which YouTube rows pass. When nothing is YouTube Content — every profile in
+// production — it returns the SAME object at zero cost. It never mutates its input.
+function withoutYoutube(profile) {
+  const library = profile?.library;
+  if (!Array.isArray(library) || !library.some(isYoutubeContent)) return profile;
+  const kept = library.filter((t) => !isYoutubeContent(t));
+  return { ...profile, library: kept, ...recomputeFootprint(kept) };
+}
+
 module.exports = {
   buildProfile,
   recomputeFootprint,
+  withoutYoutube,
   SOURCE_WEIGHTS,
   // Exported for unit testing
   _analyzeSpotifyProfile,
