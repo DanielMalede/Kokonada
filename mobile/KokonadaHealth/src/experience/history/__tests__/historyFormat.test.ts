@@ -208,6 +208,13 @@ describe('rowA11yLabel — one composed spoken sentence (friendly title, never t
     const it0 = item({ moodKey: 'bio:peak:running', activity: 'running', createdAt: new Date(NOW.getTime() - 5 * MINUTE_MS).toISOString() });
     expect(rowA11yLabel(it0, NOW)).toBe('Peak Energy, live session, Running, 5m ago');
   });
+  it('BE-016: the erased heart-session DTO reads "A moment" over "Live" and speaks it', () => {
+    const NOW = new Date(2026, 6, 15, 14, 0, 0);
+    const erased = item({ title: 'A moment', source: 'live', moodKey: null, activity: null, activityLabel: null, createdAt: new Date(NOW.getTime() - 5 * MINUTE_MS).toISOString() });
+    expect(friendlyTitle(erased)).toBe(GENERIC_TITLE);
+    expect(metaLine(erased)).toBe('Live');
+    expect(rowA11yLabel(erased, NOW)).toBe('A moment, live session, 5m ago');
+  });
 });
 
 // The body-state decision, pinned PURE so the flagship empty-flash guard can never silently regress
