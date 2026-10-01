@@ -47,6 +47,27 @@ const YOUTUBE_LINES = [
   '| Music profile & taste (`MusicProfile`)',
 ];
 
+// Resilience v1 (C3): the FULL text of each allowed line, as N2 pins the token lines. A new claim in any
+// cell of an allowed row, or any edit to one, fails until it is reviewed and copied here.
+const YOUTUBE_ROWS = {
+  "| 3rd-party OAuth tokens (Spotify, wearable)":
+    "| 3rd-party OAuth tokens (Spotify, wearable) | `User.spotifyToken` / `wearableToken` | Music sourcing + biometrics ingest | **AES-256-GCM encrypted at rest**; excluded from data export as credentials. YouTube is not connected in this version: connecting it is sealed in code (DEC-122), and no account holds a YouTube token (the `User.youtubeMusicToken` field stays empty). <!-- verified: backend/app/services/privacy/userDataExport.js:38-40; seal backend/app/config/youtubeSeal.js (YOUTUBE_CONNECT_ENABLED = false); zero holders: DAN-046 P0, 2026-10-01T14:05Z, before the deploy; P1 after the deploy owed --> |",
+  "| Music profile & listening-derived taste":
+    "| Music profile & listening-derived taste | `MusicProfile` | Personalised generation | Derived from the user's own Spotify history. YouTube is not connected in this version, so nothing from YouTube is imported. Kept until Spotify is disconnected, or the account is deleted (see **Retention**). |",
+  "| **Groq** (`api.groq.com`, US-hosted inference)":
+    "| **Groq** (`api.groq.com`, US-hosted inference) | LLM inference for music-parameter generation, genre enrichment, and audio-feature estimation. Model: `openai/gpt-oss-20b`, open-weight, hosted by Groq; its developer receives no prompts. Groq caches prompts for this model in volatile memory, automatically and with no opt-out; a cached prompt expires 2 hours after its last use and is never persisted or shared across organisations. | Non-identifying, derived tokens only: abstract emotion coordinates, a coarse physiological intensity band, closed-vocabulary derived-intent tags, mood-descriptor genres (generation); genre tags for feature estimation; and, for genre enrichment of the shared discovery catalogue only, artist names from the open AcousticBrainz data (CC0), which come from no Kokonada user's library, sent only while the catalogue ingest is switched on (GLOBAL_SEED_INGEST_ENABLED). Cache key is `gemini:<model>:md5(prompt)` (`gemini:` is a legacy key name, not a provider); the prompt enters it only as its md5, and the key carries no user identifier; the cached value is only derived AI params, never vitals. <!-- verified: backend/app/services/geminiEngine.js _buildEmotionPrompt, _buildBiometricPrompt (generation prompts) and _callLlm (cache key); backend/app/services/features/llmEstimatorAdapter.js _buildPrompt (genre tags only, title/artist/channel withheld); catalogue enrichment: backend/app/services/discovery/globalIngest.js _inferGenresDefault → geminiEngine.js inferArtistGenres; runOnce's only caller is backend/app/workers/globalSeedIngest.worker.js (reads GLOBAL_AB_DUMP_PATH, built by backend/scripts/prepare-wave1-dump.js from the AcousticBrainz dumps; dark unless GLOBAL_SEED_INGEST_ENABLED=true; production value unrecorded); the library artist-name backfill is off: backend/app/services/musicProfileService.js buildProfile (LLM_BACKFILL_PROVIDERS empty while YOUTUBE_EGRESS_ENABLED is false, backend/app/config/youtubeSeal.js) --> | Raw HR/HRV/sleep/resting-HR values; raw user free-text; name/email/userId; **Spotify Content** (artist names, genres, URIs are gated out of every LLM path); and **YouTube data**. <!-- verified: backend/app/services/geminiEngine.js _buildEmotionPrompt (mood-descriptor genres and extractIntent tags only), _buildBiometricPrompt (intensity band, never HR); backend/app/utils/spotifyContent.js isSpotifyContent, isSpotifyKey; backend/app/services/features/llmEstimatorAdapter.js isSpotifyRecording; YouTube: backend/app/services/features/featureService.js _dropRestricted (before the estimator), musicProfileService.js LLM_BACKFILL_PROVIDERS, biometricHandler.js withoutYoutube; shared caches hold no youtube:-keyed rows: DAN-046 P1 /health/youtube-leak (owed) — the caption prompt (services/discovery/captionService.js) carries the features of discovery tracks drawn from them --> |",
+  "| **YouTube** (music provider)":
+    "| **YouTube** (music provider) | Not connected in this version: connecting it is sealed in code (DEC-122) | Nothing: Kokonada sends YouTube no requests, imports no YouTube data, and sends YouTube data to no other service <!-- verified: no request, no import: backend/app/config/youtubeSeal.js (YOUTUBE_CONNECT_ENABLED = false); integrationsController.js youtubeConnect/youtubeCallback refuse before any Google call; every YouTube API call needs a stored token whose only writers are the sealed callback and the refresh (backend/tests/youtubeTokenWriters.structural.test.js). Sent to no other service: crossPlatform.js translateToSpotify (T5), biometricHandler.js withoutYoutube (T6), musicProfileService.js LLM_BACKFILL_PROVIDERS (T7), featureService.js _dropRestricted. Stored state is evidence, not code: DAN-046 P0 2026-10-01T14:05Z (five user-scoped counts 0); shared caches TrackCatalog/TrackEmbedding/AudioFeature: DAN-046 P1 /health/youtube-leak (owed); 2026-08-27 to the deploy: DAN-046 P0b (owed). Publish no \"holds no YouTube data\" sentence before P1 and P0b are recorded. --> | — |",
+  "| Music profile & taste (`MusicProfile`)":
+    "| Music profile & taste (`MusicProfile`) | Until Spotify is **disconnected**, or the account is deleted | On **Disconnect Spotify** the whole profile is deleted; there is **no Spotify refresh clock yet** <!-- CMP-138 -->. No YouTube data is imported in this version (connecting YouTube is sealed in code, DEC-122). |",
+};
+
+/** Keys of the allowed lines whose full text no longer matches its pin (a missing line counts). */
+function rowMismatches(markdown) {
+  const byKey = new Map(markdown.split('\n').filter((l) => /youtube/i.test(l)).map((l) => [youtubeLines(l)[0], l]));
+  return Object.keys(YOUTUBE_ROWS).filter((k) => byKey.get(k) !== YOUTUBE_ROWS[k]);
+}
+
 /** A table row's cells, split on the column pipes (no cell here contains a bare pipe). */
 const cells = (row) => row.split(' | ').map((c) => c.replace(/^\|\s*|\s*\|$/g, '').trim());
 
@@ -118,6 +139,21 @@ describe('the privacy declarations say YouTube is sealed, and nothing more (HX-3
   // in any case, is allowlisted, by the line's first cell (a table row) or its opening words.
   it('only the allowlisted lines name YouTube (compliance NF-B4)', () => {
     expect(youtubeLines(doc())).toEqual(YOUTUBE_LINES);
+  });
+
+  it('each allowed YouTube line is pinned by its FULL text, not only its first cell (resilience v1)', () => {
+    expect(Object.keys(YOUTUBE_ROWS)).toEqual(YOUTUBE_LINES);
+    expect(rowMismatches(doc())).toEqual([]);
+  });
+
+  it('an extra claim slipped into a later cell of an allowed row is caught (resilience v1, planted)', () => {
+    const d = doc();
+    const row = YOUTUBE_ROWS['| Music profile & listening-derived taste'];
+    const planted = row.replace('so nothing from YouTube is imported.', 'so nothing from YouTube is imported. Your YouTube likes still shape the mix.');
+    expect(planted).not.toBe(row);
+    const regressed = d.replace(row, planted);
+    expect(youtubeLines(regressed)).toEqual(YOUTUBE_LINES); // the first-cell allowlist alone would pass
+    expect(rowMismatches(regressed)).toEqual(['| Music profile & listening-derived taste']);
   });
 
   it('"(Spotify/YouTube/Garmin)" put back into the Play sharing answer is caught (NF-B4, planted)', () => {
