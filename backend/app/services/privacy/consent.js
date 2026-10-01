@@ -8,6 +8,7 @@ const ConsentRecord = require('../../models/ConsentRecord');
 const User = require('../../models/User');
 const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('./wearableErasure');
 const { purgeLearnedPersonalization } = require('./learningErasure');
+const { eraseSessionHealthOnWithdrawal } = require('./sessionHealthErasure');
 
 // CROSS-PACKAGE CONTRACT: the mobile client reads this to decide whether an on-file grant is
 // still current (a bump re-prompts before the OS health sheet). Bump this — and update the
@@ -67,7 +68,8 @@ async function recordConsent(userId, { purpose, dataCategories, appVersion, loca
 // rare, user-initiated action. We reuse the existing per-provider primitive (no new erasure
 // machinery); MedicalProfile drops once the last provider's samples are gone.
 //
-// It ALSO erases the learned personalization (BE-015 / ADR-0015) — see the block below.
+// It ALSO erases the learned personalization (BE-015 / ADR-0015) and the heart-rate snapshot and
+// the values derived from it on every session and serve event (BE-016, DEC-111) — see the blocks below.
 async function withdrawConsent(userId, purpose) {
   // Read the grant state BEFORE the withdrawal row is written. ORDER IS LOAD-BEARING: after the
   // create() below, `latestFor` IS the withdrawal we just wrote, so this would read 'withdrawn'
@@ -145,6 +147,29 @@ async function withdrawConsent(userId, purpose) {
     }
   }
 
+  // The session heart-rate snapshot and the values derived from it (BE-016, DEC-111; the scope is
+  // DEC-118, in sessionHealthPolicy.js). AFTER the withdrawal row, on purpose: a generation write that
+  // lands after this erasure re-reads consent, sees that row and undoes itself (sockets/
+  // biometricHandler.js, R-A). Its own try/catch and its own failure token, like the learning block.
+  // NOT gated on hadGrantOnFile: the module reads the whole consent history and erases for anyone who
+  // granted before this withdrawal, so a repeat withdrawal is the retry for one that failed or that
+  // was made before this code existed. A user who never granted is not erased (sessionHealth=skipped).
+  // A partial failure leaves an owed-erasure record that the daily sweep finishes; the withdrawal
+  // itself still succeeds (Art.7(3)).
+  let sessionHealth = 'skipped';
+  let sessionCounts = { sessions: 0, sessionTargets: 0, serveEvents: 0, redisKeys: 0 };
+  if (purpose === HEALTH_CONSENT_PURPOSE) {
+    try {
+      const erased = await eraseSessionHealthOnWithdrawal(userId);
+      sessionHealth = erased.status;
+      sessionCounts = erased.counts;
+    } catch (err) {
+      sessionHealth = 'failed';
+      if (err?.counts) sessionCounts = err.counts;
+      erasureFailures.push('session-health');
+    }
+  }
+
   // GDPR Art.5(2) accountability: the controller must be able to DEMONSTRATE the erasure ran.
   // consentController.withdraw discards this function's return value, so without this line the
   // `erasureFailures` list an operator is meant to act on reaches nobody, and there is no record
@@ -154,7 +179,9 @@ async function withdrawConsent(userId, purpose) {
   console.info(
     `[consent-withdrawal] user=${userId} purpose=${purpose} `
     + `providerErasureFailures=${providerErasureFailures} learning=${learning} `
-    + `rewardEvents=${learningPurged.rewardEvents} personalWeights=${learningPurged.personalWeights}`,
+    + `rewardEvents=${learningPurged.rewardEvents} personalWeights=${learningPurged.personalWeights} `
+    + `sessionHealth=${sessionHealth} sessions=${sessionCounts.sessions} sessionTargets=${sessionCounts.sessionTargets} `
+    + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys}`,
   );
 
   // Explicit shape (not a spread of the Mongoose document — `create()` returns a real Document

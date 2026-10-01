@@ -463,3 +463,220 @@ describe('undoRunWrites — exactly this run\'s writes, never the user\'s histor
     expect(await snapshotAll()).toBe(before);
   });
 });
+
+// ── T5: the withdrawal itself, through the real consent router and the real withdrawConsent ─────────
+
+// The same kinds of row as seedWithdrawer, for a user whose grant is CURRENT: the HTTP call writes
+// the withdrawal.
+async function seedConsentingListener(user) {
+  await consentAt(user, 'granted', ago(10 * DAY));
+  const rows = {
+    heart: await session(user, ago(5 * DAY), {
+      moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' },
+      targetBpm: 150, targetEnergy: 0.9, targetValence: 0.62, targetGenres: ['edm'], emotionTaps: [{ x: 0, y: 0 }],
+    }),
+    moodWithHr: await session(user, ago(4 * DAY), { moodKey: 'calm', biometricSnapshot: { heartRate: 88, activity: 'running' } }),
+    moodNoHr: await session(user, ago(3 * DAY), { moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: 'walking' } }),
+    textWithHr: await session(user, ago(3 * DAY), { moodKey: null, contextPrompt: 'long day at work', biometricSnapshot: { heartRate: 77, activity: null } }),
+    trimmedShared: await session(user, ago(40 * DAY), { moodKey: 'uplift', contextPrompt: null, biometricSnapshot: { heartRate: null, activity: 'running' } }),
+    trimmedChip: await session(user, ago(41 * DAY), { moodKey: 'calm', contextPrompt: null, biometricSnapshot: { heartRate: null, activity: 'winding down' } }),
+  };
+  const serves = {
+    bio: await serve(user, ago(5 * DAY), { moodKey: 'bio:peak:running', bioState: { tempoBand: 'peak', activity: 'running' } }),
+    moodBand: await serve(user, ago(4 * DAY), { moodKey: 'calm', bioState: { tempoBand: 'active', activity: 'running' } }),
+    plain: await serve(user, ago(3 * DAY), { moodKey: 'calm' }),
+  };
+  const id = String(user._id);
+  for (const key of [`ledger:${id}:served`, `ledger:${id}:mood:bio:peak:running`, `pool:${id}:bio:peak:running`,
+    `buffer:${id}:bio:peak:running`, `bio:baseline:${id}`, `bio:affect:${id}`]) redis.store.set(key, 'x');
+  return { rows, serves };
+}
+
+function withdrawOverHttp(user) {
+  return request(app)
+    .post('/api/consent/withdraw')
+    .set('Authorization', `Bearer ${signToken({ userId: String(user._id) })}`)
+    .send({ purpose: PURPOSE });
+}
+
+// The ONE accountability line: the BE-015 tokens, then BE-016's. Closed tokens and counts only.
+const WITHDRAWAL_LINE = /^\[consent-withdrawal\] user=[0-9a-f]{24} purpose=health_biometric_processing providerErasureFailures=\d+ learning=(?:purged|skipped|failed) rewardEvents=\d+ personalWeights=\d+ sessionHealth=(?:purged|skipped|failed) sessions=\d+ sessionTargets=\d+ serveEvents=\d+ redisKeys=\d+$/;
+
+let lines;
+function captureLogs() {
+  lines = [];
+  for (const level of ['log', 'info', 'warn', 'error']) {
+    jest.spyOn(console, level).mockImplementation((...args) => { lines.push(args.map(String).join(' ')); });
+  }
+}
+const withdrawalLines = () => lines.filter((l) => l.startsWith('[consent-withdrawal]'));
+
+describe('POST /api/consent/withdraw erases the session health data (T5, real router, real Mongo)', () => {
+  beforeEach(captureLogs);
+
+  it('before it answers: every §1 field is gone for A, B keeps everything, the session count holds, one counts-only line', async () => {
+    const a = await listener('a');
+    const b = await listener('b');
+    const { rows, serves } = await seedConsentingListener(a);
+    await seedBystander(b);
+    const bBefore = await bystanderState(b);
+    const textBefore = (await raw(rows.textWithHr)).contextPrompt;
+
+    const res = await withdrawOverHttp(a);
+
+    // Read straight after the response, with no wait: the erasure ran before it was written.
+    expect(res.status).toBe(200);
+    expect(res.body.granted).toBe(false);
+    expect(await raw(rows.heart)).toMatchObject({ moodKey: 'bio:', biometricSnapshot: { heartRate: null, activity: null }, targetBpm: null, targetEnergy: null, targetValence: null, targetGenres: [] });
+    expect((await raw(rows.heart)).trackIds).toEqual(['t1', 't2']);
+    expect(await raw(rows.moodWithHr)).toMatchObject({ moodKey: 'calm', biometricSnapshot: { heartRate: null, activity: null }, targetValence: null, targetGenres: ['ambient'] });
+    expect(await raw(rows.moodNoHr)).toMatchObject({ biometricSnapshot: { heartRate: null, activity: 'walking' }, targetBpm: null });
+    expect(await raw(rows.textWithHr)).toMatchObject({ moodKey: null, biometricSnapshot: { heartRate: null, activity: null } });
+    expect((await raw(rows.textWithHr)).contextPrompt).toBe(textBefore);
+    expect((await raw(rows.trimmedShared)).biometricSnapshot.activity).toBeNull();
+    expect((await raw(rows.trimmedChip)).biometricSnapshot.activity).toBe('winding down');
+    expect(await rawServe(serves.bio)).toMatchObject({ moodKey: null, bioState: { tempoBand: null, activity: null }, canonicalKey: 'isrc:A' });
+    expect(await rawServe(serves.moodBand)).toMatchObject({ moodKey: 'calm', bioState: { tempoBand: null, activity: null } });
+    expect([...redis.store.keys()].filter((k) => k.includes(String(a._id)))).toEqual([]);
+    expect(await PlaylistSession.countDocuments({ userId: a._id })).toBe(6);
+    expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toBeNull();
+    expect(await bystanderState(b)).toBe(bBefore);
+
+    // bio:baseline and bio:affect go first, in the wearable erasure; the strict purge takes the other four.
+    expect(withdrawalLines()).toEqual([
+      `[consent-withdrawal] user=${a._id} purpose=${PURPOSE} providerErasureFailures=0 learning=purged rewardEvents=0 personalWeights=0 sessionHealth=purged sessions=4 sessionTargets=3 serveEvents=2 redisKeys=4`,
+    ]);
+  });
+
+  it('every erasure step completes BEFORE the response is written', async () => {
+    const a = await listener('a');
+    await seedConsentingListener(a);
+    const events = [];
+    const realSessions = PlaylistSession.updateMany.bind(PlaylistSession);
+    const realServes = ServeEvent.updateMany.bind(ServeEvent);
+    jest.spyOn(PlaylistSession, 'updateMany').mockImplementation(async (...args) => { const out = await realSessions(...args); events.push('sessions'); return out; });
+    jest.spyOn(ServeEvent, 'updateMany').mockImplementation(async (...args) => {
+      await new Promise((r) => setTimeout(r, 50)); // slow, so a fire-and-forget erasure would lose the race
+      const out = await realServes(...args);
+      events.push('serves');
+      return out;
+    });
+    const realScan = redis.scan;
+    jest.spyOn(redis, 'scan').mockImplementation(async (...args) => { const out = await realScan(...args); events.push('redis'); return out; });
+    const res = {
+      statusCode: 200,
+      status: jest.fn(function status(c) { this.statusCode = c; return this; }),
+      json: jest.fn(function json() { events.push('response'); return this; }),
+    };
+
+    await consentController.withdraw({ user: { _id: a._id }, body: { purpose: PURPOSE } }, res, jest.fn());
+
+    expect(events.filter((e) => e === 'sessions')).toHaveLength(4);
+    expect(events.filter((e) => e === 'serves')).toHaveLength(2);
+    expect(events).toContain('redis');
+    expect(events[events.length - 1]).toBe('response');
+    expect(events.indexOf('redis')).toBeGreaterThan(events.lastIndexOf('serves')); // Redis after Mongo (RD1)
+  });
+
+  it('a repeat withdrawal changes nothing and counts nothing (idempotent)', async () => {
+    const a = await listener('a');
+    await seedConsentingListener(a);
+    await withdrawOverHttp(a);
+    const before = JSON.parse(await snapshotAll());
+    lines.length = 0;
+
+    const res = await withdrawOverHttp(a);
+
+    expect(res.status).toBe(200);
+    const after = JSON.parse(await snapshotAll());
+    expect(after.sessions).toEqual(before.sessions);
+    expect(after.serves).toEqual(before.serves);
+    expect(after.redis).toEqual(before.redis);
+    expect(withdrawalLines()[0]).toMatch(/learning=skipped .* sessionHealth=purged sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0$/);
+  });
+
+  it('a user who never granted is untouched (G3) and the line says sessionHealth=skipped', async () => {
+    const a = await listener('a');
+    await session(a, ago(3 * DAY), { moodKey: 'bio:peak:running', biometricSnapshot: { heartRate: 131, activity: 'running' } });
+    await serve(a, ago(3 * DAY), { moodKey: 'bio:peak:running', bioState: { tempoBand: 'peak', activity: 'running' } });
+    const before = JSON.parse(await snapshotAll());
+
+    expect((await withdrawOverHttp(a)).status).toBe(200);
+
+    const after = JSON.parse(await snapshotAll());
+    expect(after.sessions).toEqual(before.sessions);
+    expect(after.serves).toEqual(before.serves);
+    expect(withdrawalLines()[0]).toMatch(/learning=skipped .* sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0$/);
+  });
+
+  it('a withdrawal made before this change is finished by a repeat withdrawal (the retry path); learning stays skipped', async () => {
+    const a = await listener('a');
+    const { rows } = await seedConsentingListener(a);
+    await consentAt(a, 'withdrawn', ago(1 * DAY)); // withdrawn yesterday, under the old code: nothing erased
+
+    expect((await withdrawOverHttp(a)).status).toBe(200);
+
+    expect((await raw(rows.heart)).moodKey).toBe('bio:');
+    expect((await raw(rows.moodWithHr)).biometricSnapshot.heartRate).toBeNull();
+    expect(withdrawalLines()[0]).toMatch(/learning=skipped .* sessionHealth=purged sessions=4 /);
+  });
+
+  it('a ServeEvent step that fails once: the withdrawal still answers 200, session-health is recorded, the owed record stays', async () => {
+    const a = await listener('a');
+    const { rows } = await seedConsentingListener(a);
+    const realServes = ServeEvent.updateMany.bind(ServeEvent);
+    let failed = false;
+    jest.spyOn(ServeEvent, 'updateMany').mockImplementation(async (filter, ...rest) => {
+      if (!failed) { failed = true; throw Object.assign(new Error('heartRate=131 at 10.1.1.1'), { name: 'MongoServerError' }); }
+      return realServes(filter, ...rest);
+    });
+
+    const res = await withdrawOverHttp(a);
+
+    expect(res.status).toBe(200);
+    expect(res.body.granted).toBe(false);
+    expect((await raw(rows.heart)).moodKey).toBe('bio:'); // the steps that could run, ran
+    expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toBeInstanceOf(Date);
+    const [line] = withdrawalLines();
+    expect(line).toMatch(WITHDRAWAL_LINE);
+    expect(line).toContain('providerErasureFailures=0');
+    expect(line).toContain('sessionHealth=failed');
+    expect(lines.join('\n')).not.toMatch(/10\.1\.1\.1|heartRate=131/);
+  });
+
+  it('withdrawConsent reports the failure as session-health, never as a provider or learning', async () => {
+    const a = await listener('a');
+    await seedConsentingListener(a);
+    jest.spyOn(ServeEvent, 'updateMany').mockRejectedValueOnce(Object.assign(new Error('boom'), { name: 'MongoServerError' }));
+
+    const out = await withdrawConsent(a._id, PURPOSE);
+
+    expect(out.erasureFailures).toEqual(['session-health']);
+    expect(out.record.status).toBe('withdrawn');
+  });
+
+  it('a strict Redis failure: still 200, sessionHealth=failed, the owed record stays for the daily sweep', async () => {
+    const a = await listener('a');
+    await seedConsentingListener(a);
+    redis.failNext = 'scan';
+
+    const res = await withdrawOverHttp(a);
+
+    expect(res.status).toBe(200);
+    expect(withdrawalLines()[0]).toContain('sessionHealth=failed');
+    expect((await User.collection.findOne({ _id: a._id })).healthErasurePendingAt).toBeInstanceOf(Date);
+  });
+
+  it('the line is closed tokens and counts only: no heart rate, band, activity, time or note', async () => {
+    const a = await listener('a');
+    await seedConsentingListener(a);
+
+    await withdrawOverHttp(a);
+
+    const [line] = withdrawalLines();
+    expect(line).toMatch(WITHDRAWAL_LINE);
+    const all = lines.join('\n');
+    for (const secret of ['131', '88', '77', 'running', 'peak', 'winding down', 'long day', 'edm', 'isrc:']) expect(all).not.toContain(secret);
+    expect(all).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+});

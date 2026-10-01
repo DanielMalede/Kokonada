@@ -26,11 +26,23 @@ jest.mock('../app/services/privacy/wearableErasure', () => ({
 jest.mock('../app/services/privacy/learningErasure', () => ({
   purgeLearnedPersonalization: jest.fn().mockResolvedValue({ rewardEvents: 0, personalWeights: 0 }),
 }));
+// BE-016 (DEC-111): withdrawal ALSO erases the session heart-rate snapshot and the values derived from
+// it. A FIXTURE change, not a pin reversal: mocked on the same footing as the two erasures above,
+// because this suite has no Mongo and the real module would hand the withdrawal unconnected models
+// (the two pins at "a mid-loop erasure failure" and "a learning-erasure failure" then saw an extra
+// 'session-health' entry). The rows are proven gone on real Mongo in
+// tests/consentWithdrawalSessionHealth.integration.test.js.
+jest.mock('../app/services/privacy/sessionHealthErasure', () => ({
+  eraseSessionHealthOnWithdrawal: jest.fn().mockResolvedValue({
+    status: 'purged', counts: { sessions: 0, sessionTargets: 0, serveEvents: 0, redisKeys: 0 },
+  }),
+}));
 
 const ConsentRecord = require('../app/models/ConsentRecord');
 const User = require('../app/models/User');
 const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('../app/services/privacy/wearableErasure');
 const { purgeLearnedPersonalization } = require('../app/services/privacy/learningErasure');
+const { eraseSessionHealthOnWithdrawal } = require('../app/services/privacy/sessionHealthErasure');
 const consent = require('../app/services/privacy/consent');
 
 const PURPOSE = 'health_biometric_processing';
@@ -251,6 +263,66 @@ describe('withdrawConsent — learned personalization (ADR-0015)', () => {
     const line = info.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[consent-withdrawal]'));
     expect(line).toContain('learning=failed');
     expect(line).toContain('providerErasureFailures=0'); // the count excludes the learning entry
+    info.mockRestore();
+  });
+});
+
+// BE-016 (DEC-111). The wiring of the session-health erasure; the rows are proven gone in
+// tests/consentWithdrawalSessionHealth.integration.test.js.
+describe('withdrawConsent — session health (BE-016)', () => {
+  const withdrawalLine = (info) => info.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[consent-withdrawal]'));
+
+  it('runs once, for the user, AFTER the withdrawal row is written (a racing write then sees the withdrawal)', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: consent.CURRENT_CONSENT_VERSION });
+    User.findById.mockResolvedValue(null);
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(eraseSessionHealthOnWithdrawal).toHaveBeenCalledTimes(1);
+    expect(eraseSessionHealthOnWithdrawal).toHaveBeenCalledWith(USER);
+    expect(ConsentRecord.create.mock.invocationCallOrder[0]).toBeLessThan(eraseSessionHealthOnWithdrawal.mock.invocationCallOrder[0]);
+  });
+
+  it('is NOT gated on a current grant: a repeat withdrawal re-runs it (the module reads the whole history)', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'withdrawn', consentVersion: consent.CURRENT_CONSENT_VERSION });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(eraseSessionHealthOnWithdrawal).toHaveBeenCalledTimes(1);
+    expect(purgeLearnedPersonalization).not.toHaveBeenCalled(); // the learning gate is unchanged
+  });
+
+  it('runs for the health purpose only', async () => {
+    await consent.withdrawConsent(USER, 'some_future_purpose');
+
+    expect(eraseSessionHealthOnWithdrawal).not.toHaveBeenCalled();
+  });
+
+  it('a failure is attributed to session-health, never thrown, and the line carries the counts it reached', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: consent.CURRENT_CONSENT_VERSION });
+    User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
+    eraseSessionHealthOnWithdrawal.mockRejectedValueOnce(Object.assign(new Error('incomplete'), {
+      counts: { sessions: 2, sessionTargets: 1, serveEvents: 0, redisKeys: 0 },
+    }));
+    const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    const result = await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(result.erasureFailures).toEqual(['session-health']);
+    const line = withdrawalLine(info);
+    expect(line).toContain('providerErasureFailures=0');
+    expect(line).toMatch(/ sessionHealth=failed sessions=2 sessionTargets=1 serveEvents=0 redisKeys=0$/);
+    info.mockRestore();
+  });
+
+  it('the line reports what the module returned', async () => {
+    ConsentRecord.latestFor.mockResolvedValue(null);
+    eraseSessionHealthOnWithdrawal.mockResolvedValueOnce({ status: 'skipped', counts: { sessions: 0, sessionTargets: 0, serveEvents: 0, redisKeys: 0 } });
+    const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(withdrawalLine(info)).toMatch(/ learning=skipped rewardEvents=0 personalWeights=0 sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0$/);
     info.mockRestore();
   });
 });
