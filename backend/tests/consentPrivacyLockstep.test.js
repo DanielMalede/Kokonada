@@ -8,6 +8,9 @@
 // delete/find semantics.
 process.env.NODE_ENV = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
+// J1 (BE-074): this suite reaches account deletion, which purges the job queue when REDIS_URL is set.
+// It is not about Redis, so it runs without one (a shell that exports REDIS_URL would dial it).
+delete process.env.REDIS_URL;
 
 jest.mock('../app/utils/userRedisPurge', () => ({ purgeUserKeys: jest.fn().mockResolvedValue(0) }));
 jest.mock('../app/utils/biometricAudit', () => ({ logBiometricAccess: jest.fn(), auditedDecrypt: jest.fn() }));

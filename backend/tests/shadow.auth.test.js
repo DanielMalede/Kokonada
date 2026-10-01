@@ -13,6 +13,9 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.JWT_SECRET     = 'test-jwt-secret-for-tests-only';
 process.env.NODE_ENV       = 'test';
 process.env.GOOGLE_CLIENT_ID = 'google-client-id';
+// J1 (BE-074): this suite reaches account deletion, which purges the job queue when REDIS_URL is set.
+// It is not about Redis, so it runs without one (a shell that exports REDIS_URL would dial it).
+delete process.env.REDIS_URL;
 
 const http = require('http');
 const jwt = require('jsonwebtoken');

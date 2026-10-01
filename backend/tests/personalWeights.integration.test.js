@@ -16,6 +16,9 @@
 
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.NODE_ENV = 'test';
+// J1 (BE-074): this suite reaches account deletion, which purges the job queue when REDIS_URL is set.
+// It is not about Redis, so it runs without one (a shell that exports REDIS_URL would dial it).
+delete process.env.REDIS_URL;
 
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
