@@ -16,6 +16,14 @@ process.env.SUUNTO_WEBHOOK_SECRET = 'suunto_secret';
 process.env.MOBILE_DEEP_LINK      = 'kokonada://';
 process.env.GARMIN_WEBHOOK_SECRET = 'garmin_webhook_secret';
 
+// ── DT-B3 fixture (HX-3, DEC-122): the YouTube connect/callback path is DORMANT ───
+// Production seals it (config/youtubeSeal.js: YOUTUBE_CONNECT_ENABLED = false), and that sealed
+// behaviour is pinned with the REAL module in youtubeSeal.integration.test.js. The connect/callback
+// tests in this file cover the dormant code behind the seal, so they run against a fixture that opens
+// ONLY the connect seal; egress stays false, and nothing here tests the disconnect through it. This
+// fixture, the tests that need it and the dormant path are deleted at D (P3, ARCH-012).
+jest.mock('../app/config/youtubeSeal', () => ({ YOUTUBE_CONNECT_ENABLED: true, YOUTUBE_EGRESS_ENABLED: false }));
+
 // ── Service mocks (factory form — never loads the real modules, avoids mongoose) ─
 jest.mock('../app/services/musicProfileService', () => ({
   buildProfile: jest.fn().mockResolvedValue({ topGenres: [], library: [] }),

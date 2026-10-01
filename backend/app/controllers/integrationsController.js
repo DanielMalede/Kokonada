@@ -34,6 +34,7 @@ const { isCurrentGrant, denialReason } = require('../services/privacy/healthCons
 const { eraseWearableProvider } = require('../services/privacy/wearableErasure');
 const { purgeSpotifyData } = require('../services/privacy/spotifyErasure');
 const { getRedis } = require('../config/redis');
+const { YOUTUBE_CONNECT_ENABLED } = require('../config/youtubeSeal');
 
 // BE-001 — THERE IS NO WEB DESTINATION ANY MORE. Every OAuth callback lands in the app.
 //
@@ -333,10 +334,22 @@ exports.getSpotifyTracksSaved = async (req, res, next) => {
   }
 };
 
-// ── YouTube Music ─────────────────────────────────────────────────────────────
+// ── YouTube ───────────────────────────────────────────────────────────────────
+//
+// DEC-122: connecting YouTube is sealed in code (config/youtubeSeal.js). While the seal stands,
+// connect and callback answer `youtube_unavailable` whatever the deploy's variables say — the
+// service falls back to the GOOGLE_* sign-in credentials, so configuration alone never kept it
+// closed. The code behind the seal is dormant and goes at P3 (ARCH-012).
+const YOUTUBE_SEALED_QUERY = 'error=youtube_unavailable';
+const logYoutubeSealed = () => console.warn('[youtube] connect refused: sealed');
 
 // GET /api/integrations/youtube/connect  (auth required)
 exports.youtubeConnect = (req, res) => {
+  // Before isConfigured(): a refusal must not depend on what the deploy happens to carry.
+  if (!YOUTUBE_CONNECT_ENABLED) {
+    logYoutubeSealed();
+    return res.redirect(appDeepLink(YOUTUBE_SEALED_QUERY));
+  }
   if (!youtube.isConfigured()) {
     console.error('[youtube] connect blocked: set YOUTUBE_REDIRECT_URI and a YOUTUBE_/GOOGLE_ client id+secret');
     // No state exists yet, so read the return target straight off the raw query param.
@@ -359,6 +372,12 @@ exports.youtubeCallback = async (req, res) => {
   // Learn the return target (native app vs website) from the signed state so BOTH success and
   // every failure land back where the user started. An unreadable state has no destination (BE-001).
   const target = _returnTarget(state);
+  // DEC-122: refused once the return target is known and before anything else — no state lookup,
+  // no code exchange, no token. An unreadable state still gets BE-001's logged 400 through failTo.
+  if (!YOUTUBE_CONNECT_ENABLED) {
+    logYoutubeSealed();
+    return failTo(res, target, 'youtube_unavailable');
+  }
   try {
     if (error) return failTo(res, target, `youtube_${error}`);
 

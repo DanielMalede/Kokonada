@@ -11,6 +11,14 @@ process.env.YOUTUBE_CLIENT_SECRET  = 'yt_client_secret';
 process.env.YOUTUBE_REDIRECT_URI   = 'http://localhost:5000/api/integrations/youtube/callback';
 process.env.MOBILE_DEEP_LINK       = 'kokonada://';
 
+// ── DT-B3 fixture (HX-3, DEC-122): the YouTube connect/callback path is DORMANT ───
+// Production seals it (config/youtubeSeal.js: YOUTUBE_CONNECT_ENABLED = false), and that sealed
+// behaviour is pinned with the REAL module in youtubeSeal.integration.test.js. The youtubeCallback
+// tests in this file cover the dormant code behind the seal, so they run against a fixture that opens
+// ONLY the connect seal; egress stays false, and the disconnect tests do not depend on it. This
+// fixture, the tests that need it and the dormant path are deleted at D (P3, ARCH-012).
+jest.mock('../app/config/youtubeSeal', () => ({ YOUTUBE_CONNECT_ENABLED: true, YOUTUBE_EGRESS_ENABLED: false }));
+
 // ── Mock all external dependencies ────────────────────────────────────────────
 jest.mock('../app/services/spotify', () => ({
   getAuthUrl:             jest.fn(),
