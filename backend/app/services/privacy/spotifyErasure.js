@@ -17,36 +17,10 @@ const PlaylistSession = require('../../models/PlaylistSession');
 const ServeEvent = require('../../models/ServeEvent');
 const MusicProfile = require('../../models/MusicProfile');
 const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
-const { getRedis } = require('../../config/redis');
-const { patternsFor } = require('../../utils/userRedisPurge');
+const { purgeUserKeysStrict } = require('../../utils/userRedisPurge');
 const { purgeProviderData, HOLDS_PROVIDER_CONTENT } = require('./providerContentErasure');
 
 const SWEEP_BATCH = () => Number(process.env.SPOTIFY_ERASURE_SWEEP_BATCH) || 200;
-
-// The user-scoped Redis keys (ledger windows, candidate pools, live buffers — the namespaces
-// registered in userRedisPurge), deleted STRICTLY. The shared purgeUserKeys is best-effort by
-// design and swallows errors, which here would report a finished erasure while an 8-day ledger
-// window of track keys outlived the 5-day promise. A Redis that is configured but unusable is a
-// failed step; a deployment with no Redis has nothing to purge.
-async function purgeUserKeysStrict(userId) {
-  const id = String(userId || '').trim();
-  if (!id) throw new Error('refusing a Redis purge without a user id');
-  const redis = getRedis();
-  if (!redis) {
-    if (process.env.REDIS_URL) throw new Error('Redis is configured but unavailable');
-    return 0;
-  }
-  let deleted = 0;
-  for (const pattern of patternsFor(id)) {
-    let cursor = '0';
-    do {
-      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
-      cursor = nextCursor;
-      if (keys.length) deleted += await redis.del(...keys);
-    } while (cursor !== '0');
-  }
-  return deleted;
-}
 
 // Run every step even when one fails — a partial purge still removes what it can — then fail
 // loudly so the caller never reports success over stranded data. Only a FULL purge closes the
