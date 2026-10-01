@@ -75,10 +75,10 @@ describe('ProfileIntegrationRow', () => {
 
   it('a busy action shows its busy label and is disabled', () => {
     const tree = render(
-      <ProfileIntegrationRow label="YouTube Music" reason="Rebuilding your library…" statusWord="Connected" connected
-        action={{ label: 'Disconnect', busyLabel: 'Rebuilding…', testId: 'disconnect-youtube', onPress: jest.fn(), busy: true }} />,
+      <ProfileIntegrationRow label="YouTube" reason="Kokonada doesn't use it in this version." statusWord="Connected" connected
+        action={{ label: 'Disconnect', busyLabel: 'Disconnecting…', testId: 'disconnect-youtube', onPress: jest.fn(), busy: true }} />,
     );
-    expect(allText(tree)).toContain('Rebuilding…');
+    expect(allText(tree)).toContain('Disconnecting…');
     const btn = byTestId(tree, 'disconnect-youtube')[0];
     expect(btn.props.accessibilityState).toEqual({ disabled: true });
   });
