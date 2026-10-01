@@ -10,9 +10,10 @@
 // account's rows from after the re-grant are never touched and a user who never granted is never
 // erased. Every filter matches only rows that still hold a value, so a clean account costs reads only.
 //
-// HEALTH_ERASURE_SWEEP_DISABLED stops it with no deploy. A rollback restores no data, so if the count
-// script (scripts/sessionHealthCount.js, the sweep's dry run) shows rows that are lawful now, this is
-// the switch to pull before the next run.
+// HEALTH_ERASURE_SWEEP_DISABLED stops the backlog with no deploy; an owed erasure still finishes, since
+// its withdrawal already ran the same rule in part. A rollback restores no data, so if the count script
+// (scripts/sessionHealthCount.js, the sweep's dry run) shows rows that are lawful now, this is the
+// switch to pull before the next run.
 
 const User = require('../../models/User');
 const ConsentRecord = require('../../models/ConsentRecord');
@@ -30,11 +31,12 @@ function sweepBatch() {
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_BATCH;
 }
 
-// Accounts with an owed record first, then every account with a withdrawal on file; each once.
-async function _candidates() {
+// Accounts with an owed record first, then every account with a withdrawal on file; each once. With
+// `owedOnly` (the kill switch), only the owed records: the backlog waits.
+async function _candidates({ owedOnly = false } = {}) {
   const purpose = require('./consent').HEALTH_CONSENT_PURPOSE;
   const owed = await User.find({ healthErasurePendingAt: { $ne: null } }).select('_id healthErasurePendingAt').lean();
-  const withdrawn = await ConsentRecord.distinct('userId', { purpose, status: 'withdrawn' });
+  const withdrawn = owedOnly ? [] : await ConsentRecord.distinct('userId', { purpose, status: 'withdrawn' });
   const pending = new Map(owed.map((u) => [String(u._id), u.healthErasurePendingAt]));
   const ids = [...new Set([...owed.map((u) => String(u._id)), ...withdrawn.map(String)])];
   return { ids, pending };
@@ -52,12 +54,10 @@ async function _clearOwed(userId, value) {
  * incomplete (their owed record stays for the next run). One account's failure never stops the rest.
  */
 async function sweepOwedHealthErasures({ now = new Date() } = {}) {
-  if (disabled(process.env[KILL_SWITCH])) {
-    console.warn(`[sessionHealth] sweep disabled by ${KILL_SWITCH}`);
-    return { count: 0, failed: 0 };
-  }
+  const backlogOff = disabled(process.env[KILL_SWITCH]);
+  if (backlogOff) console.warn(`[sessionHealth] sweep disabled by ${KILL_SWITCH} (owed erasures still finish)`);
   const cap = sweepBatch();
-  const { ids, pending } = await _candidates();
+  const { ids, pending } = await _candidates({ owedOnly: backlogOff });
   let erased = 0;
   let failed = 0;
   for (const id of ids) {

@@ -258,15 +258,28 @@ describe('controls: the batch cap and the kill switch', () => {
     expect((await Promise.all(rows.map(raw))).filter((r) => r.moodKey === 'bio:')).toHaveLength(2);
   });
 
-  it('HEALTH_ERASURE_SWEEP_DISABLED stops it: nothing changes, and it says so', async () => {
-    const row = await owed('k');
-    const before = await raw(row);
+  // N1 (round 1, Fix A): the switch stops the BACKLOG only. An owed record exists only for a withdrawal
+  // whose own erasure (the same rule, never switched off) already ran in part, so finishing it adds no
+  // risk, and the declarations' "completed by the daily job" stays true while the switch is on.
+  it('HEALTH_ERASURE_SWEEP_DISABLED stops the backlog only: an owed erasure still finishes, and it says so', async () => {
+    const backlogRow = await owed('k');
+    const backlogBefore = await raw(backlogRow);
+    const due = await listener('due');
+    await consentAt(due, 'granted', ago(20 * DAY));
+    await consentAt(due, 'withdrawn', ago(1 * DAY));
+    await User.collection.updateOne({ _id: due._id }, { $set: { healthErasurePendingAt: ago(1 * DAY) } });
+    const dueRow = await heartSession(due, ago(12 * DAY));
+    redis.store.set(`buffer:${due._id}:bio:peak:running`, 'x');
     process.env.HEALTH_ERASURE_SWEEP_DISABLED = 'true';
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    expect(await sweepOwedHealthErasures()).toEqual({ count: 0, failed: 0 });
-    expect(await raw(row)).toEqual(before);
-    expect(warn.mock.calls.map((c) => String(c[0]))).toContain('[sessionHealth] sweep disabled by HEALTH_ERASURE_SWEEP_DISABLED');
+    expect(await sweepOwedHealthErasures()).toEqual({ count: 1, failed: 0 });
+
+    expect(await raw(backlogRow)).toEqual(backlogBefore);
+    expect((await raw(dueRow)).moodKey).toBe('bio:');
+    expect(await pendingOf(due)).toBeNull();
+    expect(redis.store.has(`buffer:${due._id}:bio:peak:running`)).toBe(false);
+    expect(warn.mock.calls.map((c) => String(c[0]))).toContain('[sessionHealth] sweep disabled by HEALTH_ERASURE_SWEEP_DISABLED (owed erasures still finish)');
   });
 
   it.each(['false', '0', ''])('HEALTH_ERASURE_SWEEP_DISABLED=%p does not stop it', async (value) => {

@@ -22,7 +22,7 @@ const { sweepOwedHealthErasures } = require('../services/privacy/sessionHealthSw
 //   • BE-016 (DEC-111) — a withdrawal of health-data consent whose session-health erasure did not
 //     finish, and withdrawals made before that erasure existed, are finished here (`healthErasures=`;
 //     services/privacy/sessionHealthSweep.js). It runs after the 30-day trim, so a session the trim
-//     reaches in this run is judged as trimmed in this run. HEALTH_ERASURE_SWEEP_DISABLED stops it.
+//     reaches in this run is judged as trimmed in this run. HEALTH_ERASURE_SWEEP_DISABLED stops the backlog; owed erasures still finish.
 // Each step runs even if another fails; the run then fails loudly so the worker logs it.
 // The `[sessionTrim]` line (counts only) is the production check that the job ran.
 
