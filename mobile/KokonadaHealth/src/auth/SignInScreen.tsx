@@ -8,6 +8,7 @@ import { useTheme, useMotion } from '../design/theme';
 import { space, type as typography } from '../design/tokens';
 import { BreathingGlow } from '../experience/aura/BreathingGlow';
 import { GoogleSignInButton, SIGN_IN_BUTTON_HEIGHT, GOOGLE_SIGN_IN_WIDTH } from './GoogleSignInButton';
+import { PrivacyPolicyLink } from '../legal/PrivacyPolicyLink';
 
 // The auth gate's signed-out face — Wave 2.8 "Bioluminescence" first impression.
 // SACRED CONTRACT: the sign-in LOGIC is unchanged (signInWithGoogle → setUser →
@@ -102,6 +103,12 @@ export function SignInScreen() {
             {error}
           </Text>
         ) : null}
+
+        {/* HX-5: the privacy policy, reachable before any sign-in button acts. It closes the block,
+            so an error stays next to the buttons it is about. Never disabled. */}
+        <View style={styles.privacyPolicy}>
+          <PrivacyPolicyLink />
+        </View>
       </View>
     </View>
   );
@@ -116,4 +123,5 @@ const styles = StyleSheet.create({
   // than the other (Apple HIG: no smaller than other sign-in buttons; Google: "approximately the
   // same size"). This equalises SIZE only; visual weight is not asserted here. One gap below.
   appleButton: { width: GOOGLE_SIGN_IN_WIDTH, height: SIGN_IN_BUTTON_HEIGHT, marginTop: space.md },
+  privacyPolicy: { marginTop: space.lg, alignItems: 'center' },
 });

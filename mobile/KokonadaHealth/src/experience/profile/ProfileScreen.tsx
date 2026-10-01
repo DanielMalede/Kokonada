@@ -14,6 +14,7 @@ import { BACKEND_URL } from '../../health/config';
 import { checkAvailability, requestHealthPermissions, openHealthConnectSettings, openHealthConnectInStore } from '../../health/healthConnect';
 import { syncMedicalProfile, type SyncCounts } from '../../health/healthSync';
 import { fetchConsentStatus, grantConsent, withdrawConsent } from '../../health/consentApi';
+import { grantProvenance } from '../../health/grantProvenance';
 import { createConsentFlow, type ConsentFlowStore } from '../../health/consentStore';
 import { createConnectController, type WearableOutcome } from '../connect/connectController';
 import { fetchWatchStatus, revokeWatchPairing } from '../../health/watchPairingClient';
@@ -69,7 +70,8 @@ export function ProfileScreen() {
   const ctrl = useMemo(() => createConnectController({
     checkAvailability,
     fetchConsentStatus,
-    grantConsent,
+    // MB-062: each grant carries the build and the device's language setting.
+    grantConsent: () => grantConsent(grantProvenance()),
     requestHealthPermissions,
     syncMedicalProfile: (d) => syncMedicalProfile(d),
     createConsentFlow,

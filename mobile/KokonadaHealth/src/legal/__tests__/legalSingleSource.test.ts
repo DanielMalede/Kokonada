@@ -83,3 +83,25 @@ describe('the notice ships on exactly the three DT-7 surfaces', () => {
     expect(sheet).not.toMatch(/AI_DISCLOSURE|MEDICAL_DISCLAIMER|LegalNote/);
   });
 });
+
+// DEC-117 (2026-10-01): the consent sheet may import from legal/ exactly two modules — the
+// privacy-policy link and its constants — and nothing that carries notice copy. This list is the
+// recorded decision: a further legal/ import on the sheet needs a new one. (An extension of the
+// guard above, which still forbids legalCopy and LegalNote on the sheet.)
+describe('the consent sheet\u2019s legal/ imports are exactly the ones DEC-117 allows', () => {
+  const SHEET = path.join(SRC, 'experience/profile/ConsentSheet.tsx');
+
+  it('ConsentSheet.tsx imports from legal/ only legal/legalLinks and legal/PrivacyPolicyLink', () => {
+    const fromLegal = [...read(SHEET).matchAll(/from\s+['"]([^'"]+)['"]/g)]
+      .map((m) => m[1])
+      .filter((spec) => spec.startsWith('.'))
+      .map((spec) => path.relative(SRC, path.resolve(path.dirname(SHEET), spec)).split(path.sep).join('/'))
+      .filter((mod) => mod.startsWith('legal/'))
+      .sort();
+    expect(fromLegal).toEqual(['legal/PrivacyPolicyLink', 'legal/legalLinks']);
+  });
+
+  it('and reaches legal/ by no other route (no require() or import() of it)', () => {
+    expect(read(SHEET)).not.toMatch(/(require|import)\(\s*['"][^'"]*legal\/|import\s+['"][^'"]*legal\//);
+  });
+});
