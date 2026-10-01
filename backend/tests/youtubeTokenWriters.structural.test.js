@@ -367,12 +367,35 @@ function resolvesTo(node, file, target) {
 
 /** Is `node` an expression that yields a raw driver collection? */
 function isRawCollection(node, rawNames, rawHelpers) {
+  // (resilience v1, a) `await` and optional chaining do not change what the handle is.
+  while (node && (node.type === 'AwaitExpression' || node.type === 'ChainExpression')) {
+    node = node.type === 'AwaitExpression' ? node.argument : node.expression;
+  }
   if (!node) return false;
   if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression' && propertyName(node.callee) === 'collection') return true;
   if (node.type === 'MemberExpression' && !node.computed && node.property.name === 'collection') return true;
   if (node.type === 'Identifier' && rawNames.has(node.name)) return true;
   if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && rawHelpers.has(node.callee.name)) return true;
   return false;
+}
+
+/** Does this function hand back a raw collection: its expression body, or one of its OWN returns? */
+function returnsRaw(fn, rawNames, rawHelpers) {
+  if (fn.body.type !== 'BlockStatement') return isRawCollection(fn.body, rawNames, rawHelpers);
+  let found = false;
+  const visit = (node) => {
+    if (!node || typeof node.type !== 'string' || found) return;
+    if (node !== fn.body && FUNCTION_TYPES.has(node.type)) return; // a nested function's return is not ours
+    if (node.type === 'ReturnStatement' && isRawCollection(node.argument, rawNames, rawHelpers)) { found = true; return; }
+    for (const key of Object.keys(node)) {
+      if (key === 'loc' || key === 'range' || key === 'parent') continue;
+      const value = node[key];
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value.type === 'string') visit(value);
+    }
+  };
+  visit(fn.body);
+  return found;
 }
 
 function stageTargetsUsers(value) {
@@ -401,13 +424,32 @@ function checkUserDocumentWrites(sources) {
     const userNames = new Set();
     const rawNames = new Set();
     const rawHelpers = new Set();
+    const modelNames = new Set(); // any binding of a module under app/models
     walkAst(ast, (node) => {
       if (node.type !== 'VariableDeclarator' || node.id.type !== 'Identifier') return;
       if (resolvesTo(node.init, file, USER_MODEL)) userNames.add(node.id.name);
-      if (isRawCollection(node.init, rawNames, rawHelpers)) rawNames.add(node.id.name);
-      const fn = node.init;
-      if (fn && FUNCTION_TYPES.has(fn.type) && fn.body.type !== 'BlockStatement' && isRawCollection(fn.body, rawNames, rawHelpers)) rawHelpers.add(node.id.name);
+      const spec = node.init?.type === 'CallExpression' && node.init.callee.name === 'require' ? literalName(node.init.arguments[0]) : null;
+      if (spec?.startsWith('.') && path.resolve(path.dirname(path.join(BACKEND, file)), spec).startsWith(path.join(BACKEND, 'app/models') + path.sep)) modelNames.add(node.id.name);
     });
+    // For (d): a bare `x.collection` is a raw handle only when x is a model (`Model.collection`); a plain
+    // field that happens to be named `collection` (`db.collection(spec.collection)`) is not.
+    const isRawArgument = (arg) => (arg?.type === 'MemberExpression' && !arg.computed && arg.property.name === 'collection'
+      ? arg.object.type === 'Identifier' && modelNames.has(arg.object.name)
+      : isRawCollection(arg, rawNames, rawHelpers));
+    // Raw handles and the helpers that return them, to a fixpoint: a helper may return a variable, and a
+    // variable may come from a helper. (resilience v1: b — block-bodied and declared helpers; c — a
+    // handle assigned to an existing variable.)
+    for (let size = -1; size !== rawNames.size + rawHelpers.size;) {
+      size = rawNames.size + rawHelpers.size;
+      walkAst(ast, (node) => {
+        if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier') {
+          if (isRawCollection(node.init, rawNames, rawHelpers)) rawNames.add(node.id.name);
+          if (node.init && FUNCTION_TYPES.has(node.init.type) && returnsRaw(node.init, rawNames, rawHelpers)) rawHelpers.add(node.id.name);
+        }
+        if (node.type === 'FunctionDeclaration' && node.id && returnsRaw(node, rawNames, rawHelpers)) rawHelpers.add(node.id.name);
+        if (node.type === 'AssignmentExpression' && node.left.type === 'Identifier' && isRawCollection(node.right, rawNames, rawHelpers)) rawNames.add(node.left.name);
+      });
+    }
     if (userNames.size) seen.userBindingFiles.push(file);
     for (const h of rawHelpers) seen.rawHelpers.push(`${file}:${h}`);
 
@@ -418,6 +460,17 @@ function checkUserDocumentWrites(sources) {
       if (!isUserModel && node.type === 'CallExpression' && node.callee.type === 'MemberExpression'
         && propertyName(node.callee) === 'model' && node.arguments.length === 1 && literalName(node.arguments[0]) === 'User') {
         findings.push({ ...at, kind: 'User model fetched by name' });
+      }
+      // (resilience v1, e) `mongoose.models.User`, `connection.models['User']`, `models.User`.
+      if (!isUserModel && node.type === 'MemberExpression' && propertyName(node) === 'User'
+        && ((node.object.type === 'Identifier' && node.object.name === 'models')
+          || (node.object.type === 'MemberExpression' && propertyName(node.object) === 'models'))) {
+        findings.push({ ...at, kind: 'User model fetched by name' });
+      }
+      // (resilience v1, d) a raw handle handed to another function can be written to out of sight.
+      if ((node.type === 'CallExpression' || node.type === 'NewExpression')
+        && node.arguments.some(isRawArgument)) {
+        findings.push({ ...at, kind: 'raw collection escapes' });
       }
       if (node.type === 'VariableDeclarator' && node.id.type === 'ObjectPattern' && resolvesTo(node.init, file, USER_MODEL)) {
         findings.push({ ...at, kind: 'User model destructured' });
@@ -706,6 +759,8 @@ describe('no whole-document write can reach the users collection (resilience N3)
         "  const u = new User({ email: 'a@b.c' }); await u.save();",
         "  await db.collection('users').countDocuments({});",
         "  await User.aggregate([{ $match: {} }, { $merge: { into: 'reports' } }]);",
+        '  await db.collection(spec.collection).indexes();', // a FIELD named collection is not a handle
+        "  const inner = () => { const nested = () => db.collection('x'); return 1; }; inner().insertMany(docs);", // a nested return is not the helper's
         '}',
       ].join('\n'))).toEqual([]);
     });
@@ -727,6 +782,16 @@ describe('no whole-document write can reach the users collection (resilience N3)
       ['$merge { into: users }', "Other.aggregate([{ $merge: { into: 'users', whenMatched: 'replace' } }]);", '$merge into users'],
       ['$out to users', "Other.aggregate([{ $out: 'users' }]);", '$out into users'],
       ['$merge to an unreadable target', 'Other.aggregate([{ $merge: { into: target } }]);', '$merge into unreadable'],
+      // resilience v1 (f): the shapes that slipped past the first version of (e).
+      ['an awaited raw handle in a variable', "async function restore(backup) {\n  const users = await db.collection('users');\n  await users.insertMany(backup);\n}", 'raw driver insertMany'],
+      ['an awaited raw handle written to inline', "async function restore(backup) { await (await db.collection('users')).insertMany(backup); }", 'raw driver insertMany'],
+      ['a declared helper with a block body', "async function getUsers() { return db.collection('users'); }\nasync function restore(doc) { await (await getUsers()).replaceOne({ _id: doc._id }, doc); }", 'raw driver replaceOne'],
+      ['a block-bodied arrow helper', "const getUsers = () => { return db.collection('users'); };\ngetUsers().replaceOne({ _id }, doc);", 'raw driver replaceOne'],
+      ['a handle assigned to an existing variable', "let users;\nusers = db.collection('users');\nusers.insertMany(docs);", 'raw driver insertMany'],
+      ['a raw handle passed as an argument', "restore(db.collection('users'), docs);", 'raw collection escapes'],
+      ["a model's raw collection passed as an argument", "const Session = require('../app/models/PlaylistSession');\nwipe(Session.collection);", 'raw collection escapes'],
+      ['mongoose.models.User', 'mongoose.models.User.insertMany(docs);', 'User model fetched by name'],
+      ["connection.models['User']", "mongoose.connection.models['User'].bulkWrite([]);", 'User model fetched by name'],
     ])('%s is caught', (_label, body, kind) => {
       expect(kinds(body)).toContain(kind);
     });
