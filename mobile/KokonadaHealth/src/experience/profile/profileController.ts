@@ -78,11 +78,11 @@ export class ProfileController {
     return res.ok ? res.data.connectToken : null;
   }
 
-  // Disconnect YouTube as a data source. The server clears the YouTube token, purges the
-  // cached (YouTube-tainted) candidate pool, and deterministically rebuilds the profile
-  // from the remaining Spotify account — so the library becomes provider-consistent and
-  // natively playable. Returns the rebuild summary ({ rebuilt, provider, library }).
-  async disconnectYouTube(): Promise<ApiResult<{ rebuilt: boolean; provider: string | null; library: number }>> {
+  // Disconnect YouTube (DEC-122: connecting YouTube is sealed on the server in code). The sealed
+  // server never rebuilds the library and changes nothing: with no YouTube link it answers 200
+  // { message: 'YouTube disconnected' }; with a stored link it keeps it and answers 409
+  // { error: 'youtube_link_present' }. The answer is returned as is (DEC-124).
+  async disconnectYouTube(): Promise<ApiResult<{ message: string }>> {
     return this.deps.apiDelete('/api/integrations/youtube/disconnect');
   }
 
