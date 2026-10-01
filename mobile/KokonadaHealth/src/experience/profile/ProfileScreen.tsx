@@ -111,8 +111,9 @@ export function ProfileScreen() {
     Linking.openURL(url).catch(() => Alert.alert('Could not open Spotify', 'No browser is available to complete sign-in.'));
   };
 
-  // HX-3 (DEC-122): connecting YouTube is sealed, so a linked row is unreachable; it is kept only so
-  // a stray link could still be removed. The alerts are the compliance-cleared pairs: the success
+  // HX-3 (DEC-122): connecting YouTube is sealed, so a linked row is unreachable. The sealed server
+  // never removes a link: with one present it answers 409 youtube_link_present and keeps it, so the
+  // row stays only to show that state. The alerts are the compliance-cleared pairs: the success
   // body claims only what is true under the seal, and a failure shows the failure pair, nothing else.
   const onDisconnectYouTube = async () => {
     setYtBusy(true);
