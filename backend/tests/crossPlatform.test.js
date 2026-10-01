@@ -90,6 +90,9 @@ describe('translateToSpotify', () => {
     const { tracks } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 60 });
     expect(Date.now() - start).toBeLessThan(600); // did NOT wait on the stuck in-flight searches
     expect(tracks).toEqual([]);                    // best-effort: nothing resolved in time
+    // Resilience N8: the searches really started. Without this, a gate that wrongly dropped catalogue
+    // rows would return [] too, and the deadline would never have been tested.
+    expect(searchFn).toHaveBeenCalled();
   });
 
   it('still translates everything quickly when searches are fast (deadline not hit)', async () => {

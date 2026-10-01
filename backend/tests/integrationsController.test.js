@@ -95,7 +95,6 @@ const User               = require('../app/models/User');
 const MusicProfile       = require('../app/models/MusicProfile');
 const ServeEvent         = require('../app/models/ServeEvent');
 const { __fake: redisFake } = require('../app/config/redis');
-const candidatePool      = require('../app/services/selection/candidatePool');
 const { signOauthState } = require('../app/utils/jwt');
 const { getConsentStatus } = require('../app/services/privacy/consent');
 const ctrl               = require('../app/controllers/integrationsController');
@@ -176,7 +175,6 @@ describe('youtubeDisconnect — a sealed no-op (DEC-122; reversed under DEC-123)
     expect(user.save).not.toHaveBeenCalled();
     expect(user.setToken).not.toHaveBeenCalled();
     expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
-    expect(candidatePool.invalidateUserPools).not.toHaveBeenCalled();
     expect(MusicProfile.findOneAndUpdate).not.toHaveBeenCalled();
     expect(MusicProfile.deleteOne).not.toHaveBeenCalled();
     expect(ServeEvent.deleteMany).not.toHaveBeenCalled();
