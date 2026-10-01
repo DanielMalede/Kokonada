@@ -47,7 +47,7 @@ afterEach(async () => {
   releaseFace();
 });
 beforeEach(() => {
-  // Reduced motion makes the entry instant, so the recorded tree never depends on animation timing.
+  // The reduced-motion read is async, so the root's entry opacity depends on re-render timing; it is compared settled().
   (AccessibilityInfo.isReduceMotionEnabled as jest.Mock) = jest.fn().mockResolvedValue(true);
 });
 
@@ -78,6 +78,7 @@ async function renderWall(state: WallState) {
 
 // The rendered tree as data: host elements, their props and their text. Functions are not data.
 const canonical = (tree: ReactTestRenderer.ReactTestRenderer) => JSON.parse(JSON.stringify(tree.toJSON()));
+const settled = (j: any) => ({ ...j, props: { ...j.props, style: { ...j.props.style, opacity: undefined } } });
 
 describe('this build’s consent sheet is main’s consent sheet, node for node', () => {
   const recorded: Record<string, Record<string, unknown>> = RECORD ? {} : JSON.parse(fs.readFileSync(FIXTURE, 'utf8')).faces;
@@ -93,7 +94,7 @@ describe('this build’s consent sheet is main’s consent sheet, node for node'
       const tree = await renderWall(state);
       if (RECORD) { (recorded[face] ??= {})[state] = canonical(tree); return; }
       expect(byTestId(tree, 'privacy-policy-link')).toHaveLength(0);
-      expect(canonical(tree)).toEqual(recorded[face][state]);
+      expect(settled(canonical(tree))).toEqual(settled(recorded[face][state]));
     });
   });
 

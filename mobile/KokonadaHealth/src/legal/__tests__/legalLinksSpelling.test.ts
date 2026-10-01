@@ -12,7 +12,7 @@ import { PRIVACY_POLICY_URL } from '../legalLinks';
 const MOBILE = path.resolve(__dirname, '../../../..');
 const APP = path.join(MOBILE, 'KokonadaHealth');
 const SKIP_DIRS = new Set(['node_modules', 'build', '.gradle', '.cxx', '.idea', 'Pods', '.bundle']);
-const BINARY = /\.(png|jpe?g|webp|gif|ico|ttf|otf|jar|aar|keystore|jks|so|apk|aab|zip|pdf|bin|class|dex|mp3|wav)$/i;
+const BINARY = /\.(png|jpe?g|webp|gif|ico|ttf|otf|jar|aar|keystore|jks|so|apk|aab|zip|pdf|bin|class|dex|mp3|wav|bundle|hbc)$/i;
 
 const walk = (dir: string, out: string[] = []): string[] => {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -25,7 +25,7 @@ const walk = (dir: string, out: string[] = []): string[] => {
 const FILES = walk(MOBILE);
 const rel = (f: string) => path.relative(MOBILE, f).split(path.sep).join('/');
 const read = (f: string) => fs.readFileSync(f, 'utf8');
-const filesContaining = (needle: string) => FILES.filter((f) => read(f).includes(needle)).map(rel).sort();
+const filesContaining = (needle: string) => FILES.filter((f) => read(f).toLowerCase().includes(needle.toLowerCase())).map(rel).sort();
 
 const SOURCES = ['KokonadaHealth/android/app/src/main/res/values/strings.xml', 'KokonadaHealth/src/legal/legalLinks.ts'];
 const RATIONALE = [

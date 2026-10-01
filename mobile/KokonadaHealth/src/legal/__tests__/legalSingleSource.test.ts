@@ -102,6 +102,6 @@ describe('the consent sheet\u2019s legal/ imports are exactly the ones DEC-117 a
   });
 
   it('and reaches legal/ by no other route (no require() or import() of it)', () => {
-    expect(read(SHEET)).not.toMatch(/(require|import)\(\s*['"][^'"]*legal\//);
+    expect(read(SHEET)).not.toMatch(/(require|import)\(\s*['"][^'"]*legal\/|import\s+['"][^'"]*legal\//);
   });
 });

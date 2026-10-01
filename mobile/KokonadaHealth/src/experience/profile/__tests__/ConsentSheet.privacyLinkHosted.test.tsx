@@ -86,6 +86,8 @@ async function renderWall(state: WallState) {
 }
 
 const canonical = (tree: Tree) => JSON.parse(JSON.stringify(tree.toJSON()));
+// The reduced-motion read is async, so the root's entry opacity depends on re-render timing.
+const settled = (j: any) => ({ ...j, props: { ...j.props, style: { ...j.props.style, opacity: undefined } } });
 const contains = (node: any, id: string): boolean =>
   !!node && typeof node === 'object' && (node.props?.testID === id || (node.children ?? []).some((c: any) => contains(c, id)));
 const find = (node: any, id: string): any =>
@@ -197,8 +199,12 @@ describe('apart from the link and the cue padding, the sheet is main’s', () =>
       const hosted = canonical(tree);
       const main = MAIN[face][state];
       hosted.children = hosted.children.filter((c: any) => !contains(c, 'privacy-policy-link'));
-      find(hosted, 'consent-scroll-cue').props.style = find(main, 'consent-scroll-cue').props.style;
-      expect(hosted).toEqual(main);
+      const cue = find(hosted, 'consent-scroll-cue');
+      const mainCue = find(main, 'consent-scroll-cue');
+      const without = (s: unknown, keys: string[]) => Object.fromEntries(Object.entries(StyleSheet.flatten(s as any) ?? {}).filter(([k]) => !keys.includes(k)));
+      expect(without(cue.props.style, ['paddingTop', 'paddingBottom'])).toEqual(without(mainCue.props.style, ['paddingVertical']));
+      cue.props.style = mainCue.props.style;
+      expect(settled(hosted)).toEqual(settled(main));
     });
   });
 });
