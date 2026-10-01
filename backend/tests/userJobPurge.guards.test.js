@@ -96,6 +96,29 @@ describe('BullMQ is reached only through app/queues/ and the worker registry', (
   });
 });
 
+// Account deletion has two doors that must stay in lockstep (erasure.js says so): the in-app delete and
+// the operator script. Both remove the jobs FIRST, before any collection.
+describe('account deletion: both paths purge the learning jobs first', () => {
+  const ERASURE = read(path.join(APP, 'services/privacy/erasure.js'));
+  const GDPR_DELETE = read(path.join(__dirname, '../scripts/gdpr-delete.js'));
+
+  it('erasure.js calls the purge before the collection deletes', () => {
+    const body = ERASURE.slice(ERASURE.indexOf('async function eraseUserChildData'));
+    expect(body).toMatch(/purgeUserJobs\(userId\)/);
+    expect(body.indexOf('purgeUserJobs(')).toBeLessThan(body.indexOf('.deleteMany('));
+  });
+
+  it('gdpr-delete.js counts them on a dry run, purges them before the collection deletes, audits the count and closes the queues', () => {
+    expect(GDPR_DELETE).toMatch(/countUserJobs\(userId\)/);
+    expect(GDPR_DELETE).toMatch(/purgeUserJobs\(userId\)/);
+    const realRun = GDPR_DELETE.slice(GDPR_DELETE.indexOf('console.log(`GDPR deletion for userId'));
+    expect(realRun.indexOf('purgeUserJobs(')).toBeGreaterThan(-1);
+    expect(realRun.indexOf('purgeUserJobs(')).toBeLessThan(realRun.indexOf('.deleteMany('));
+    expect(GDPR_DELETE).toMatch(/learningJobs/);
+    expect(GDPR_DELETE).toMatch(/closeQueues\(\)/);
+  });
+});
+
 // ADR-0015: a Spotify or wearable disconnect keeps the learned preferences (PRIVACY_DECLARATIONS.md,
 // Disconnect Spotify). Purging the learning jobs there would erase what they are about to write.
 describe('ADR-0015: no disconnect-side module purges learning jobs', () => {

@@ -20,6 +20,10 @@ const RefreshToken = require('../../models/RefreshToken');
 const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
 const ConsentRecord = require('../../models/ConsentRecord');
 const { purgeUserKeys } = require('../../utils/userRedisPurge');
+const { purgeUserJobs } = require('../../queues/userJobPurge');
+
+// An error's class name, or 'Error': never its message (a driver message can quote values).
+const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
 
 // Deliberately NOT erased: AudioFeature (audiofeatures), TrackEmbedding (trackembeddings)
 // and TrackCatalog (trackcatalogs) are GLOBAL, cross-user caches keyed only by recordingKey
@@ -35,6 +39,16 @@ const { purgeUserKeys } = require('../../utils/userRedisPurge');
 // while the (youtube:/mbid:) rows legitimately stay as a shared cache. The corpus write paths
 // (catalog/hydration/embedding) now refuse Spotify Content, so no new spotify: rows accrue.
 async function eraseUserChildData(userId) {
+  // J1 (BE-074): the account's learning jobs waiting in the job queue (`bull:reward-ingest:`) go FIRST,
+  // so a waiting job cannot run after the deletes below and write learned preferences back.
+  // Best-effort, like the Redis purge at the end: a Redis outage must not block the deletion, so a
+  // failure is logged as one fixed line (no id, no message) and the cascade carries on. A job a worker
+  // is already running is deleted by the queue once it has run (queues/userJobPurge.js).
+  try {
+    await purgeUserJobs(userId);
+  } catch (err) {
+    console.error(`[account-deletion] learning-jobs purge failed (${errorType(err)})`);
+  }
   await Promise.all([
     BiometricLog.deleteMany({ userId }),
     // Per-metric physiological samples (W4-004, S5) — special-category, registered in the
