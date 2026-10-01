@@ -241,6 +241,22 @@ describe('the erasure module on real Mongo (T4) — the operation list', () => {
     expect(await bystanderState(b)).toBe(bBefore);
   });
 
+  // N7 (round 1): inside the withdrawal request, the two exact-name keys are deleted by name. A SCAN
+  // walks the whole keyspace, so it is spent only on the namespaces that need a pattern.
+  it('the strict purge deletes bio:baseline: and bio:affect: by name and SCANs only the wildcard namespaces', async () => {
+    const a = await listener('a');
+    await seedWithdrawer(a);
+    const scans = jest.spyOn(redis, 'scan');
+    const dels = jest.spyOn(redis, 'del');
+
+    const counts = await eraseSessionHealth(a._id, { heartRateBefore: new Date(), targetsBefore: new Date() }, { purgeRedis: true });
+
+    expect(counts.redisKeys).toBe(8);
+    expect(scans.mock.calls.map((c) => c[2])).toEqual([`ledger:${a._id}:*`, `pool:${a._id}:*`, `buffer:${a._id}:*`]);
+    expect(dels.mock.calls.flat()).toEqual(expect.arrayContaining([`bio:baseline:${a._id}`, `bio:affect:${a._id}`]));
+    expect([...redis.store.keys()].filter((k) => k.includes(String(a._id)))).toEqual([]);
+  });
+
   it('is idempotent: a second run changes nothing and counts nothing', async () => {
     const a = await listener('a');
     const { W } = await seedWithdrawer(a);

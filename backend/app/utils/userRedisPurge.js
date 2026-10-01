@@ -70,6 +70,12 @@ async function purgeUserKeysStrict(userId) {
   }
   let deleted = 0;
   for (const pattern of patternsFor(id)) {
+    // An exact key name (bio:baseline:<id>, bio:affect:<id>) is deleted by name: a SCAN walks the whole
+    // keyspace, and this runs inside the withdrawal request (BE-016 round 1, N7).
+    if (!pattern.includes('*')) {
+      deleted += await redis.del(pattern);
+      continue;
+    }
     let cursor = '0';
     do {
       const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
