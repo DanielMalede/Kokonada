@@ -103,15 +103,20 @@ describe('ConnectServicesScreen — shell, honest provider rows, screen-level st
     expect(row.props.accessibilityLabel).toBe("Spotify. Unavailable. Connecting Spotify isn't available in Kokonada right now.");
   });
 
-  it('the YouTube Music row is DEFERRED — "Not yet available" + Google-review reason, no connect action', async () => {
+  // HX-3. RETIRED under DEC-091: the "YouTube Music" label (a plain toContain('YouTube') would also
+  // pass on the old label, so its absence is asserted). REVERSED under DEC-123, item 4: the reason
+  // line 'Coming once our Google review is complete.' became the compliance-cleared line.
+  it('the YouTube row is DEFERRED — "Not yet available" + the cleared reason line, no connect action', async () => {
     const { tree } = await render();
     const t = allText(tree);
-    expect(t).toContain('YouTube Music');
+    expect(t).toContain('YouTube');
+    expect(t).not.toContain('YouTube Music');
     expect(t).toContain('Not yet available');
-    expect(t).toContain('Coming once our Google review is complete.');
+    expect(t).toContain("Connecting YouTube isn't available in Kokonada yet.");
     expect(byLabel(tree, 'connect-youtube')).toHaveLength(0);
     const row = byTestId(tree, 'provider-row-youtube')[0];
     expect(row.props.accessibilityState).toEqual({ disabled: true });
+    expect(row.props.accessibilityLabel).toBe("YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.");
   });
 
   it('a pre-existing Spotify connection (from /api/integrations/status) shows "Connected" honestly', async () => {

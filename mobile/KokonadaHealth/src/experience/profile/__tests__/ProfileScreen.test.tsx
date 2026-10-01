@@ -211,15 +211,25 @@ describe('ProfileScreen', () => {
       integrations: { spotifyConnected: true, youtubeConnected: true },
     });
     const tree = await render();
-    expect(texts(tree.toJSON()).join(' ')).toContain('YouTube Music');
+    // RETIRED under DEC-091 (HX-3): this asserted the "YouTube Music" label. The row is "YouTube".
+    const shown = texts(tree.toJSON()).join(' ');
+    expect(shown).toContain('YouTube');
+    expect(shown).not.toContain('YouTube Music');
     await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-youtube').props.onPress(); });
     expect(disconnectYouTube).toHaveBeenCalledTimes(1);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  // HX-3: the title always claimed the row still renders; now it is checked. DEC-122 keeps the row
+  // visible as deferred (DEC-043) until a later hide before iOS — that hide reverses THIS test.
   it('hides the YouTube Disconnect action when YouTube is not connected (the row still renders)', async () => {
     const tree = await render(); // beforeEach integrations has no youtubeConnected
     expect(tree.root.findAll((n) => n.props.testID === 'disconnect-youtube')).toHaveLength(0);
+    const label = "YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.";
+    const row = tree.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityLabel === label);
+    expect(row).toHaveLength(1);
+    expect(row[0].props.accessible).toBe(true);
+    expect(row[0].props.accessibilityState).toEqual({ disabled: true });
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
