@@ -43,6 +43,8 @@ function toObjectId(value) {
   return typeof hex === 'string' && /^[0-9a-fA-F]{24}$/.test(hex) ? new mongoose.Types.ObjectId(hex) : null;
 }
 
+const isFiniteDate = (d) => d instanceof Date && Number.isFinite(d.getTime());
+
 // An error's class name, or 'Error' — never its message: a driver message can quote values.
 function errorType(e) {
   const name = e?.name;
@@ -71,7 +73,9 @@ async function readHistory(userId) {
 async function eraseSessionHealth(userId, windows, { purgeRedis = false } = {}) {
   const counts = zeroCounts();
   const id = toObjectId(userId);
-  if (!id || !windows) return counts;
+  // Both cutoffs must be finite Dates (round 1, N9): Mongoose would cast a date string or a number and
+  // run the erasure on it, and an Invalid Date would fail every step.
+  if (!id || !windows || !isFiniteDate(windows.heartRateBefore) || !isFiniteDate(windows.targetsBefore)) return counts;
   const failedSteps = [];
   for (const step of erasureSteps(id, windows)) {
     try {

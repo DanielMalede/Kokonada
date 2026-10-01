@@ -412,6 +412,28 @@ describe('a missing user id never widens a filter (mass-erasure guard, real Mong
   });
 });
 
+// N9 (round 1): a cutoff that is not a finite Date never reaches a filter. Mongoose would cast a date
+// string and run the erasure, and an Invalid Date would fail every step.
+describe('cutoffs that are not finite Dates erase nothing (defence in depth, real Mongo)', () => {
+  const W = () => ago(2 * DAY);
+  it.each([
+    ['a missing heart-rate cutoff', () => ({ targetsBefore: W() })],
+    ['a missing targets cutoff', () => ({ heartRateBefore: new Date() })],
+    ['an Invalid Date', () => ({ heartRateBefore: new Date(NaN), targetsBefore: W() })],
+    ['a date string', () => ({ heartRateBefore: new Date().toISOString(), targetsBefore: W().toISOString() })],
+    ['a number', () => ({ heartRateBefore: Date.now(), targetsBefore: W().getTime() })],
+  ])('%s: zero counts and every row unchanged', async (_label, windows) => {
+    const a = await listener('a');
+    await seedWithdrawer(a);
+    const before = await snapshotAll();
+
+    await expect(eraseSessionHealth(a._id, windows(), { purgeRedis: true }))
+      .resolves.toEqual({ sessions: 0, sessionTargets: 0, serveEvents: 0, redisKeys: 0 });
+
+    expect(await snapshotAll()).toBe(before);
+  });
+});
+
 describe('undoRunWrites — exactly this run\'s writes, never the user\'s history (R-A)', () => {
   it('strips this run\'s session by id, scrubs this run\'s serve batch by time, and deletes this run\'s band keys', async () => {
     const a = await listener('a');
