@@ -398,6 +398,43 @@ describe('R7 — a mood run shaped by the stored health profile lands after the 
   });
 });
 
+describe('N2 (round 1) — a mood run that began with a heart rate, and lost it to the withdrawal mid-run', () => {
+  // No chip and no stored profile: the session is written with heart rate null, a preset moodKey and
+  // the watch's activity (effectiveActivity, read when the run began). Only "a heart rate was held when
+  // the run began" (hrAtStart) shows it was shaped by health data, and only it strips that activity.
+  it('the watch activity stored without a heart rate is stripped, with exactly one stripped line', async () => {
+    const user = await consentingListener('n2');
+    const socket = appSocket(user);
+    await socket._trigger('biometric_push', {
+      source: 'garmin', raw: { heartRate: 131, activityType: 0, startTimeLocal: new Date(Date.now() - 60_000).toISOString() },
+    });
+    const state = _debounceMap.get(socket.id);
+    expect(state.stableHR).not.toBeNull();
+    expect(state.latestActivity).toBe('resting');
+    expect(await MedicalProfile.countDocuments({ userId: user._id })).toBe(0); // no stored vitals: not profile-shaped
+    const { buildEmotionPlaylist } = require('../app/services/geminiEngine');
+    const gate = { holding: false, release: null };
+    buildEmotionPlaylist.mockImplementationOnce(async () => {
+      await new Promise((resolve) => { gate.release = resolve; gate.holding = true; });
+      return { params: { target_bpm: 96, target_energy: 0.4, target_valence: 0.55, seed_genres: ['ambient'] }, tracks: [] };
+    });
+    socket._trigger('emotion_update', { taps: [{ x: 0.3, y: 0.4 }], textPrompt: '', mode: 'live' }); // no chip
+    socket._trigger('request_playlist', { mode: 'live', reqId: 21 });
+    await until(() => gate.holding, 'the held LLM step');
+
+    await withdraw(user);
+    expect(state.stableHR).toBeNull(); // the withdrawal withheld this socket's heart rate mid-run
+    gate.release();
+
+    const [row] = await eventually(() => sessionsOf(user), (rows) => rows.length === 1 && rows[0].biometricSnapshot.activity === null);
+    expect(row).toMatchObject({ biometricSnapshot: { heartRate: null, activity: null }, targetBpm: null });
+    expect(row.moodKey.startsWith('bio:')).toBe(false);
+    expect(await eventually(stripLines, (l) => l.length > 0)).toEqual([
+      `[sessionHealth] compensating-strip user=${user._id} lane=generate reason=consent_not_current outcome=stripped`,
+    ]);
+  });
+});
+
 describe('R8 — a stale grant at the re-check: a narrow undo, never a user-wide erasure', () => {
   it('this run is undone; an older heart session keeps its values', async () => {
     const user = await consentingListener('r8');
