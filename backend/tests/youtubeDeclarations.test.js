@@ -29,6 +29,24 @@ function section(markdown, title) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+/** The text a reader sees: HTML comments (the verified notes) removed. */
+const visible = (line) => line.replace(/<!--[\s\S]*?-->/g, '');
+
+/** Each line naming YouTube in any case, keyed by its first cell (a table row) or opening words. */
+function youtubeLines(markdown) {
+  return markdown.split('\n')
+    .filter((l) => /youtube/i.test(l))
+    .map((l) => (l.startsWith('| ') ? l.slice(0, l.indexOf(' | ', 2)) : l.slice(0, 60)));
+}
+// HX-3 round 1 (after the regulatory edits E1–E4): the five lines that may name YouTube.
+const YOUTUBE_LINES = [
+  '| 3rd-party OAuth tokens (Spotify, wearable)',
+  '| Music profile & listening-derived taste',
+  '| **Groq** (`api.groq.com`, US-hosted inference)',
+  '| **YouTube** (music provider)',
+  '| Music profile & taste (`MusicProfile`)',
+];
+
 /** A table row's cells, split on the column pipes (no cell here contains a bare pipe). */
 const cells = (row) => row.split(' | ').map((c) => c.replace(/^\|\s*|\s*\|$/g, '').trim());
 
@@ -65,7 +83,49 @@ describe('the privacy declarations say YouTube is sealed, and nothing more (HX-3
     const row = subProcessors.split('\n').find((l) => l.startsWith('| **YouTube**'));
     expect(row).toBeTruthy();
     expect(row).toMatch(/Not connected in this version: connecting it is sealed in code \(DEC-122\)/);
-    expect(row).toMatch(/sends YouTube no requests, holds no YouTube data, and sends YouTube data to no other service/);
+    // HX-3 round 1, regulatory E1 (BLOCK): the row says what the code does — it IMPORTS nothing — not
+    // what is stored, which rests on evidence (DAN-046 P0, P1, P0b) kept in the verified comment.
+    expect(row).toMatch(/sends YouTube no requests, imports no YouTube data, and sends YouTube data to no other service/);
+    expect(visible(row)).not.toMatch(/holds no YouTube data/);
+    expect(row).toContain('Publish no "holds no YouTube data" sentence before P1 and P0b are recorded. -->');
+  });
+
+  it('the OAuth-token row dates its zero-holder evidence (regulatory E2)', () => {
+    const row = doc().split('\n').find((l) => l.startsWith('| 3rd-party OAuth tokens'));
+    expect(row).toContain('zero holders: DAN-046 P0, 2026-10-01T14:05Z, before the deploy; P1 after the deploy owed -->');
+  });
+
+  it('the Groq row names the catalogue flow precisely: no Kokonada user library, only while the ingest is on (regulatory E3)', () => {
+    const row = doc().split('\n').find((l) => l.startsWith('| **Groq**'));
+    const [, , receives] = cells(row);
+    expect(receives).toContain("artist names from the open AcousticBrainz data (CC0), which come from no Kokonada user's library, sent only while the catalogue ingest is switched on (GLOBAL_SEED_INGEST_ENABLED).");
+    expect(row).toContain("runOnce's only caller is backend/app/workers/globalSeedIngest.worker.js (reads GLOBAL_AB_DUMP_PATH, built by backend/scripts/prepare-wave1-dump.js from the AcousticBrainz dumps; dark unless GLOBAL_SEED_INGEST_ENABLED=true; production value unrecorded);");
+    expect(row).toContain('biometricHandler.js withoutYoutube; shared caches hold no youtube:-keyed rows: DAN-046 P1 /health/youtube-leak (owed) — the caption prompt (services/discovery/captionService.js) carries the features of discovery tracks drawn from them -->');
+    // The cited files and switches are real.
+    expect(read('backend/app/workers/globalSeedIngest.worker.js')).toMatch(/process\.env\.GLOBAL_SEED_INGEST_ENABLED === 'true'/);
+    expect(read('backend/app/workers/globalSeedIngest.worker.js')).toMatch(/process\.env\.GLOBAL_AB_DUMP_PATH/);
+    expect(fs.existsSync(path.join(REPO_ROOT, 'backend/scripts/prepare-wave1-dump.js'))).toBe(true);
+    expect(fs.existsSync(path.join(REPO_ROOT, 'backend/app/services/discovery/captionService.js'))).toBe(true);
+  });
+
+  it('the Groq standing condition names the catalogue artist names it transmits (regulatory E4)', () => {
+    expect(doc().split('\n')).toContain('> (and, for catalogue genre enrichment, public catalogue artist names) are transmitted to Groq, a **Data');
+  });
+
+  // Compliance NF-B4: a plain "YouTube" coming back into a statement — "(Spotify/YouTube/Garmin)" in the
+  // Play sharing answer, say — is caught by none of the phrase pins above. So every line naming YouTube,
+  // in any case, is allowlisted, by the line's first cell (a table row) or its opening words.
+  it('only the allowlisted lines name YouTube (compliance NF-B4)', () => {
+    expect(youtubeLines(doc())).toEqual(YOUTUBE_LINES);
+  });
+
+  it('"(Spotify/YouTube/Garmin)" put back into the Play sharing answer is caught (NF-B4, planted)', () => {
+    const d = doc();
+    const now = "(Spotify/Garmin) **at the user's direction**";
+    expect(d).toContain(now);
+    const regressed = d.replace(now, "(Spotify/YouTube/Garmin) **at the user's direction**");
+    expect(youtubeLines(regressed)).not.toEqual(YOUTUBE_LINES);
+    expect(youtubeLines(regressed)).toContain('- **Data collected & shared:** Collected: **yes.** **Shared ');
   });
 
   it('every code symbol the YouTube statements cite as evidence exists where cited', () => {
