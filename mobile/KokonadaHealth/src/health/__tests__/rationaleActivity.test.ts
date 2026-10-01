@@ -65,6 +65,26 @@ describe('PermissionsRationaleActivity — only the policy loads inside it (R13,
     expect(code).toMatch(/\.host\s*==\s*\w+\.host/);
     expect(code).toMatch(/\.path\s*==\s*\w+\.path/);
     expect(code).not.toMatch(/startsWith|endsWith|\.contains\(|Regex|\.matches\(|Pattern\./);
+    // The policy is the only URL the WebView may load; every other URL is consumed (true).
+    expect(route.match(/return\s+false\b/g) ?? []).toHaveLength(1);
+    expect(route).toMatch(/if\s*\(\s*isPolicy\(\s*url\s*,\s*policy\s*\)\s*\)\s*return\s+false/);
+    expect(route).toMatch(/return\s+true\s*\}$/);
+    expect(code.replace(/\s+/g, ' ')).toContain(
+      'private fun isPolicy(url: Uri, policy: Uri): Boolean = url.scheme == "https" && url.host == policy.host && url.port == policy.port && url.path == policy.path private fun openOutside(',
+    );
+  });
+
+  it('only a tapped link leaves, only to a browsable http(s)/mailto handler, and only a finish on the policy counts', () => {
+    const route = body(code, 'shouldOverrideUrlLoading');
+    expect(route).toMatch(/else\s+if\s*\(\s*request\.hasGesture\(\)\s*\)\s*\{?\s*openOutside\(\s*url\s*\)/);
+    expect(route.match(/openOutside\(/g) ?? []).toHaveLength(1);
+    const outside = body(code, 'openOutside');
+    expect(outside).toMatch(/if\s*\(\s*scheme\s+!in\s+OUTSIDE_SCHEMES\s*\)\s*return\b/);
+    expect(outside.indexOf('!in OUTSIDE_SCHEMES')).toBeLessThan(outside.indexOf('startActivity('));
+    expect(outside).toMatch(/\.addCategory\(\s*Intent\.CATEGORY_BROWSABLE\s*\)/);
+    expect(body(code, 'onPageFinished')).toMatch(/if\s*\(\s*url\s*!=\s*null\s*&&\s*isPolicy\(\s*Uri\.parse\(\s*url\s*\)\s*,\s*policy\s*\)\s*\)\s*policyLoaded\s*=\s*true\s+else\s+showFallback\(\)/);
+    expect(code.match(/policyLoaded\s*=\s*true/g) ?? []).toHaveLength(1);
+    expect(body(code, 'showFallback')).toMatch(/^\{\s*if\s*\(\s*fellBack\s*\)\s*return\b/);
   });
 
   it('hands any other web or mail link to another app with ACTION_VIEW, and survives there being none', () => {
@@ -134,7 +154,7 @@ describe('the WebView is hardened, and the exported activity trusts nothing it i
   });
 
   it('never reads the launching Intent', () => {
-    expect(code).not.toMatch(/intent\.data|intent\?\.data|dataString|getStringExtra|extras|getIntent\(/);
+    expect(code).not.toMatch(/\bintent\b|dataString|getStringExtra|extras|getIntent\(/);
   });
 
   it('applies system-bar and cutout insets (edge-to-edge is forced at targetSdk 36)', () => {
@@ -159,6 +179,72 @@ describe('every string the activity reads exists (a missing one fails the Androi
     expect(used).toEqual(['privacy_policy_label', 'privacy_policy_open_in_browser', 'privacy_policy_unavailable', 'privacy_policy_url']);
     const missing = used.filter((name) => !new RegExp(`<string\\s+name="${name}"[^>]*>[^<]+</string>`).test(strings));
     expect(missing).toEqual([]);
+  });
+});
+
+// Round 1 (resilience N1–N4; designer changes 3–6). Static pins only: what they do on screen is in
+// the device list.
+const raw = fs.readFileSync(APP_KT, 'utf8');
+
+describe('round 1: the crash, stall and tap paths (resilience N1–N4)', () => {
+  it('N1: a dead renderer is detached before the fallback shows, and destroyed after', () => {
+    expect(body(code, 'onRenderProcessGone')).toMatch(
+      /^\{\s*val\s+dead\s*=\s*webView\s+webView\s*=\s*null\s+dead\?\.let\s*\{\s*frame\.removeView\(\s*it\s*\)\s*\}\s+showFallback\(\)\s+dead\?\.destroy\(\)\s+return\s+true\s*\}$/,
+    );
+  });
+
+  it('N2: a WebView that cannot be built (a missing or updating provider) falls back instead of crashing', () => {
+    expect(code).toMatch(/val\s+web\s*=\s*try\s*\{\s*WebView\(this\)\s*\}\s*catch\s*\(\s*\w+\s*:\s*RuntimeException\s*\)\s*\{\s*showFallback\(\)\s*;?\s*return\s*\}/);
+  });
+
+  it('N3: a load that neither finishes nor fails falls back after LOAD_TIMEOUT_MS, and the timer dies with the screen', () => {
+    expect(code).toMatch(/private\s+val\s+loadWatchdog\s*=\s*Runnable\s*\{\s*if\s*\(\s*!policyLoaded\s*\)\s*showFallback\(\)\s*\}/);
+    expect(code).toMatch(/\.loadUrl\(policy\.toString\(\)\)\s+frame\.postDelayed\(\s*loadWatchdog\s*,\s*LOAD_TIMEOUT_MS\s*\)/);
+    expect(body(code, 'onDestroy')).toMatch(/^\{\s*if\s*\(\s*::frame\.isInitialized\s*\)\s*frame\.removeCallbacks\(\s*loadWatchdog\s*\)/);
+    expect(code).toMatch(/const\s+val\s+LOAD_TIMEOUT_MS\s*=\s*15_000L/);
+  });
+
+  it('N4: a tap while the policy is still loading is a tap, not a redirect away', () => {
+    expect(body(code, 'shouldOverrideUrlLoading')).toMatch(
+      /if\s*\(\s*request\.isForMainFrame\s*&&\s*\(\s*request\.isRedirect\s*\|\|\s*\(\s*!policyLoaded\s*&&\s*!request\.hasGesture\(\)\s*\)\s*\)\s*\)/,
+    );
+  });
+});
+
+describe('round 1: the fallback screen (designer changes 3–6)', () => {
+  const fallback = body(code, 'fallbackView');
+
+  it('3: the button reads in sentence case (AppCompat would set it in capitals)', () => {
+    expect(fallback).toMatch(/open\.text\s*=\s*getString\(\s*R\.string\.privacy_policy_open_in_browser\s*\)\s+open\.isAllCaps\s*=\s*false/);
+  });
+
+  it('4: light status and navigation bars in Day, dark in Nocturne, set after the content view', () => {
+    const create = body(code, 'onCreate');
+    expect(create).toMatch(/val\s+night\s*=\s*\(\s*resources\.configuration\.uiMode\s+and\s+Configuration\.UI_MODE_NIGHT_MASK\s*\)\s*==\s*Configuration\.UI_MODE_NIGHT_YES/);
+    expect(create).toMatch(/WindowCompat\.getInsetsController\(\s*window\s*,\s*window\.decorView\s*\)\.apply\s*\{\s*isAppearanceLightStatusBars\s*=\s*!night\s+isAppearanceLightNavigationBars\s*=\s*!night\s*\}/);
+    expect(create.indexOf('setContentView(frame)')).toBeGreaterThanOrEqual(0);
+    expect(create.indexOf('setContentView(frame)')).toBeLessThan(create.indexOf('WindowCompat.getInsetsController'));
+  });
+
+  it('5: the three texts align to the layout start edge (one start edge under RTL); the button keeps its centred label', () => {
+    for (const v of ['heading', 'reason', 'address']) {
+      expect(fallback).toMatch(new RegExp(`${v}\\.textAlignment\\s*=\\s*View\\.TEXT_ALIGNMENT_VIEW_START`));
+    }
+    expect(fallback.match(/TEXT_ALIGNMENT_VIEW_START/g) ?? []).toHaveLength(3);
+  });
+
+  it('6: no magic numbers — each size is a named constant naming the token it mirrors', () => {
+    expect(fallback).not.toMatch(/\b[1-9]\d*(\.\d+)?f?\b/);
+    const constants: Array<[string, string, string]> = [
+      ['EDGE_DP', '24', 'space.xl'],
+      ['GAP_DP', '16', 'space.lg'],
+      ['TIGHT_DP', '8', 'space.sm'],
+      ['HEADING_SP', '22f', 'type.size.heading'],
+      ['BODY_SP', '16f', 'type.size.body'],
+    ];
+    for (const [name, value, token] of constants) {
+      expect(raw).toMatch(new RegExp(`const val ${name} = ${value} // ${token.replace(/\./g, '\\.')}`));
+    }
   });
 });
 
