@@ -7,7 +7,7 @@ repo HEAD: b9639c5
 amended: 2026-10-01
 amendments:
   - field: '§1, What it is'
-    added: 'a dated correction note under the playback sentence: Kokonada plays music through Spotify only, and no YouTube player has ever existed (DEC-122)'
+    added: 'a dated correction note under the playback sentence: Kokonada plays music through Spotify only, and no YouTube player exists in the mobile app (DEC-122)'
     source: 'HX-3 round-1 review, regulatory-researcher, 2026-10-01 (NF-R6)'
 ---
 
@@ -21,7 +21,7 @@ This dossier was prepared for counsel and decides nothing. The owner and counsel
 - An Android app, launching Android-first around 2027 with no deadline (ADR-0016:89-115). It is a free app (ADR-0001).
 - The launcher label today is "KokonadaHealth" (`strings.xml:2`).
 - It selects and plays existing music through Spotify or YouTube playback. It does not synthesise audio (VISION §5, §8).
-  - **Correction, 2026-10-01:** "or YouTube playback" is not true. Kokonada plays music through Spotify only; no YouTube player has ever existed in the app. Under the owner's ruling DEC-122 (2026-10-01), YouTube is not connected in this version: connecting it is sealed in code on the server (HX-3, on branch `fix/hx3-youtube` when this note was written). Source: the regulatory-researcher's HX-3 round-1 review (NF-R6). The sentence above is kept as prepared on 2026-09-29.
+  - **Correction, 2026-10-01:** "or YouTube playback" is not true. Kokonada plays music through Spotify only; no YouTube player exists in the mobile app (`docs/design-v2/research/2026-09-23/r_compliance.md:68`, `CMP-042`); whether the retired web client ever had one was not checked. Under the owner's ruling DEC-122 (2026-10-01), YouTube is not connected in this version: connecting it is sealed in code on the server (HX-3, on branch `fix/hx3-youtube` when this note was written). Source: the regulatory-researcher's HX-3 round-1 review (NF-R6). The sentence above is kept as prepared on 2026-09-29.
 
 **Users and markets.**
 - Enrolled users: the owner only, per the 2026-09-29 update to `DAN-021`. Historically there were 5 or fewer.
