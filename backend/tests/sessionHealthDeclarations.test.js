@@ -148,6 +148,40 @@ describe('the user-scoped cache row is the registry, with the windows the code s
   });
 });
 
+// Round 1 (regulatory 1-4, compliance N1, N2 and N4, resilience B1 and N5): each statement says only
+// what the code does.
+describe('round 1: G3, the activity rule after B1, the in-flight pool and the job queue', () => {
+  it('G3: every Retention row that states a removal on withdrawal names the user who had granted it', () => {
+    const removalRows = retentionRows().filter((l) => WITHDRAWAL_REMOVES.test(l));
+    expect(removalRows.length).toBeGreaterThanOrEqual(4); // serve events, the session, the heart rate, the cache
+    for (const row of removalRows) expect(row).toMatch(/(?:for|by) a user who had granted it/);
+    expect(withdrawalBullet()).toContain('for a user who granted health-data consent before the withdrawal');
+  });
+
+  it('B1: the session row removes the activity where the heart rate is still held, and past the trim only before the withdrawal', () => {
+    const row = retentionRows().find((l) => l.startsWith('| The session itself'));
+    expect(row).toContain('the activity of any session that still holds its heart rate');
+    expect(row).toContain('the activity of a session made before the withdrawal whose heart rate and free text the daily job has already removed');
+    expect(row).toContain('any activity on a session made after the withdrawal that holds no heart rate');
+    expect(row).not.toContain('any session that carried a heart rate');
+    expect(withdrawalBullet()).toContain('any activity on a session made after the withdrawal that holds no heart rate');
+    expect(withdrawalBullet()).not.toContain('an activity chip chosen on a session that carried no heart rate;');
+  });
+
+  it('the in-flight candidate pool is named, with its window, in the cache row and the Art. 9 sentence', () => {
+    const cache = retentionRows().find((l) => l.startsWith('| User-scoped cache (Redis)'));
+    expect(cache).toMatch(/fails after the withdrawal can leave its candidate pool \(`pool:`\), which expires within 12 hours/);
+    expect(cache).toMatch(/if that deletion did not finish, by the daily `sessionTrim` job \(`healthErasures=`\)/);
+    expect(withdrawalBullet()).toMatch(/a candidate pool \(`pool:`\) left by a playlist generation already running that then fails \(it expires within 12 hours by default\)/);
+  });
+
+  it('account deletion is never said to erase the job queue\'s learning jobs', () => {
+    expect(doc()).not.toContain('Deleting the account erases all of it');
+    const deletionLine = doc().split('\n').find((l) => l.includes('Users can request data deletion'));
+    expect(deletionLine).toContain('completed learning jobs (`bull:reward-ingest:`)');
+  });
+});
+
 describe('the learning rows and the Art. 9 section', () => {
   it.each(['RewardEvent', 'PersonalWeights'])('the %s row says a withdrawal erases it when a grant was on file', (model) => {
     const row = retentionRows().find((l) => l.includes(`(\`${model}\`)`));
