@@ -3,7 +3,7 @@ import { authSession } from './auth/session';
 import { apiGet } from './net/apiClient';
 import { currentUserStore, getCurrentUserId } from './auth/currentUser';
 import type { KokonadaUser } from './auth/auth';
-import { playbackSocket, player } from './experience/playback/playbackServices';
+import { playbackSocket, player, orchestrator } from './experience/playback/playbackServices';
 import { connectPlayerIfLinked } from './experience/player/playerBootGate';
 import type { IntegrationsStatus } from './experience/profile/profileController';
 import { healthLane } from './health/healthLaneServices';
@@ -109,6 +109,10 @@ export async function startApp(): Promise<void> {
 // persistence for the now-known user). Mirrors bootstrapApp's post-auth steps.
 export async function onSignedIn(): Promise<void> {
   try {
+    // HX-2 B1: a Spotify disconnect suspends the playback conductor (a late playlist must not
+    // reconnect Spotify). A fresh sign-in starts clean; the player still connects only on the
+    // server-confirmed link at boot, or on first play.
+    orchestrator.resume();
     playbackSocket.ensureConnected();
     // H2: a fresh sign-in starts the health lane from nothing. A session can die without a logout (a
     // revoked refresh family only clears the session pair), so the teardown that stops the feed and

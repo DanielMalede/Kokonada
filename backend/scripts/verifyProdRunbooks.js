@@ -10,8 +10,14 @@
 //              path `vectorV2`, numDimensions 135, cosine - SKIPPED while v2 is dark.
 //   Runbook 2: the legacy compound index on `playlistsessions` is DROPPED.
 //   Runbook 3: Redis is reachable (PING) so the three queues can be consumed.
+//   Runbook 5: the ServeEvent TTL is 30 days (HX-2). Mongoose cannot change an existing index's
+//              options on boot, so an older 90-day index stays until a one-off collMod.
+//   Runbook 6: no provider track data older than the 30-day promise (HX-2 E3) — COUNTS only.
 
 const { QUEUES } = require('../app/queues/definitions');
+// Model-free imports only: requiring a model would make the connected verifier build its indexes on
+// production (M1). Pinned by tests/verifyProdRunbooks.readOnly.test.js.
+const { SERVE_EVENT_TTL_SECONDS, UNCLASSIFIED_TTL_SECONDS, HOLDS_PROVIDER_CONTENT } = require('../app/config/retention');
 // Bind the expected dimension to the REAL embedding contract rather than a magic
 // number — if buildVector's DIM ever changes, this verifier follows it and the
 // dedicated test fails loudly instead of silently checking the wrong value.
@@ -116,6 +122,52 @@ function checkLegacyIndexAbsent(indexes = [], { legacyName = LEGACY_PLAYLIST_IND
     : { status: 'PASS', message: `legacy index "${legacyName}" is absent` };
 }
 
+// TTL windows that production must carry. Each is read with getIndexes (collection.indexes()).
+const TTL_INDEX_RUNBOOKS = Object.freeze([
+  Object.freeze({
+    name: 'Runbook 5 — ServeEvent TTL is 30 days',
+    collection: 'serveevents',
+    field: 'servedAt',
+    expectedSeconds: SERVE_EVENT_TTL_SECONDS,
+  }),
+  Object.freeze({
+    name: 'Runbook 5b — UnclassifiedTrack TTL is 29 days',
+    collection: 'unclassifiedtracks',
+    field: 'createdAt',
+    expectedSeconds: UNCLASSIFIED_TTL_SECONDS,
+  }),
+]);
+
+// indexes: the array from collection.indexes(). The TTL index is the SINGLE-field ascending index
+// on `field` — a compound index that merely contains the field is not it.
+function checkTtlIndex(indexes = [], { collection, field, expectedSeconds }) {
+  const collMod = `db.runCommand({ collMod: '${collection}', index: { keyPattern: { ${field}: 1 }, expireAfterSeconds: ${expectedSeconds} } })`;
+  const ix = (indexes || []).find((i) => i && i.key && i.key[field] === 1 && Object.keys(i.key).length === 1);
+  if (!ix) {
+    return {
+      status: 'FAIL',
+      message: `TTL index on ${collection}.${field} is MISSING — db.${collection}.createIndex({ ${field}: 1 }, { expireAfterSeconds: ${expectedSeconds} })`,
+    };
+  }
+  if (ix.expireAfterSeconds !== expectedSeconds) {
+    return {
+      status: 'FAIL',
+      message: `${collection}.${ix.name} has expireAfterSeconds ${ix.expireAfterSeconds ?? '(none)'} (expected ${expectedSeconds}) — run ${collMod}`,
+    };
+  }
+  return { status: 'PASS', message: `${collection}.${ix.name} expires after ${expectedSeconds} s` };
+}
+
+// counts: { name: number }. Any provider track data past the promise is a FAIL; the message carries
+// the counts and nothing else.
+function checkProviderRetentionCounts(counts = {}) {
+  const over = Object.entries(counts).filter(([, n]) => n !== 0);
+  const summary = Object.entries(counts).map(([k, n]) => `${k}=${n}`).join(' ');
+  return over.length
+    ? { status: 'FAIL', message: `provider track data older than 30 days survives (${summary}) — check the [sessionTrim] log` }
+    : { status: 'PASS', message: `no provider track data older than 30 days (${summary})` };
+}
+
 // client: the ioredis client from connectRedis() (may be null when unreachable).
 async function checkRedis(client, { queues = Object.values(QUEUES) } = {}) {
   if (!client) {
@@ -171,6 +223,26 @@ async function runLegacyIndexCheck(db) {
   return { name: `Runbook 2 — legacy index dropped on ${PLAYLIST_COLLECTION}`, ...r };
 }
 
+async function runTtlIndexCheck(db, spec) {
+  const indexes = await db.collection(spec.collection).indexes();
+  return { name: spec.name, ...checkTtlIndex(indexes, spec) };
+}
+
+// Counted against the 30-day PROMISE, not the job's 29-day cutoff, so a row the next run will clear
+// is never read as a broken clock. countDocuments only — no document leaves the database.
+async function runProviderRetentionCountsCheck(db, now = Date.now()) {
+  const promise = new Date(now - 30 * 24 * 3600 * 1000);
+  const counts = {
+    sessionsHoldingProviderDetails: await db.collection(PLAYLIST_COLLECTION)
+      .countDocuments({ createdAt: { $lt: promise }, ...HOLDS_PROVIDER_CONTENT }),
+    serveEvents: await db.collection('serveevents').countDocuments({ servedAt: { $lt: promise } }),
+    unclassifiedWithoutCreatedAt: await db.collection('unclassifiedtracks')
+      .countDocuments({ $or: [{ createdAt: { $exists: false } }, { createdAt: null }] }),
+    unclassified: await db.collection('unclassifiedtracks').countDocuments({ createdAt: { $lt: promise } }),
+  };
+  return { name: 'Runbook 6 — no provider track data older than 30 days', counts, ...checkProviderRetentionCounts(counts) };
+}
+
 async function runRedisCheck(client) {
   const r = await checkRedis(client, { queues: Object.values(QUEUES) });
   return { name: 'Runbook 3 — Redis reachable + queues consumable', ...r };
@@ -190,7 +262,14 @@ async function main() {
   const db = mongoose.connection.db;
 
   // Each runbook is isolated so one failure still reports the others.
-  for (const runner of [() => runVectorIndexCheck(db), () => runVectorIndexV2Check(db), () => runLegacyIndexCheck(db)]) {
+  const runners = [
+    () => runVectorIndexCheck(db),
+    () => runVectorIndexV2Check(db),
+    () => runLegacyIndexCheck(db),
+    ...TTL_INDEX_RUNBOOKS.map((spec) => () => runTtlIndexCheck(db, spec)),
+    () => runProviderRetentionCountsCheck(db),
+  ];
+  for (const runner of runners) {
     try {
       results.push(await runner());
     } catch (err) {
@@ -236,10 +315,15 @@ module.exports = {
   checkVectorIndexV2,
   checkLegacyIndexAbsent,
   checkRedis,
+  checkTtlIndex,
+  checkProviderRetentionCounts,
+  runProviderRetentionCountsCheck,
   runVectorIndexCheck,
   runVectorIndexV2Check,
   runLegacyIndexCheck,
+  runTtlIndexCheck,
   runRedisCheck,
+  TTL_INDEX_RUNBOOKS,
   EXPECTED_DIM,
   EXPECTED_DIM_V2,
   DEFAULT_VECTOR_INDEX,

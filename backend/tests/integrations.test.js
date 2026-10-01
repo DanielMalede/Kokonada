@@ -81,7 +81,15 @@ jest.mock('../app/services/features/featureService', () => ({
 jest.mock('../app/models/BiometricLog', () => ({}));
 jest.mock('../app/models/MusicProfile', () => ({ deleteOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({}), findOne: jest.fn() }));
 jest.mock('../app/models/ServeEvent', () => ({ deleteMany: jest.fn().mockResolvedValue({}) }));
-jest.mock('../app/utils/userRedisPurge', () => ({ purgeUserKeys: jest.fn().mockResolvedValue(0) }));
+// HX-2: the disconnect purge also strips PlaylistSession provider fields and the Spotify pool rows
+// (proven on real Mongo in spotifyDisconnectErasure.integration.test.js); stubbed here like its siblings.
+jest.mock('../app/models/PlaylistSession', () => ({ updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }) }));
+jest.mock('../app/models/UnclassifiedTrack', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }) }));
+// patternsFor stays real: the Spotify disconnect deletes the registered namespaces strictly (HX-2).
+jest.mock('../app/utils/userRedisPurge', () => ({
+  ...jest.requireActual('../app/utils/userRedisPurge'),
+  purgeUserKeys: jest.fn().mockResolvedValue(0),
+}));
 // garminDisconnect now delegates the full GDPR erasure to this module (credentials + data purge +
 // best-effort deregister). Its REAL behaviour is proven against real Mongo in
 // garminDisconnectErasure.integration.test.js; here we only assert the controller delegates.
@@ -92,6 +100,7 @@ jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
   findOne:           jest.fn(),
+  updateOne:         jest.fn().mockResolvedValue({}),
 }));
 // Art.9 consent service — the Garmin webhook + callback backfill now gate on a current grant.
 // Default to granted so the connected-Garmin paths under test are exercised end-to-end.

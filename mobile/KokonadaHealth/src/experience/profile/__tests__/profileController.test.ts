@@ -139,3 +139,150 @@ describe('currentUser store', () => {
     expect(s.getState().user).toBeNull();
   });
 });
+
+// HX-2 M8: Disconnect Spotify is SERVER-FIRST, like account deletion. The device stops playing and
+// forgets the queue once the server has confirmed the erasure. A failed call is followed by a re-read
+// of the link: the device stops too if the server already dropped it, and changes nothing otherwise.
+describe('ProfileController.disconnectSpotify (SERVER-FIRST)', () => {
+  it('calls DELETE /api/integrations/spotify/disconnect, THEN clears local playback', async () => {
+    const order: string[] = [];
+    const apiDelete = jest.fn(async (path: string) => { order.push(`server ${path}`); return okRes({ message: 'Spotify disconnected' }); });
+    const clearSpotifyPlayback = jest.fn(async () => { order.push('local'); });
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn(), clearSpotifyPlayback } as any);
+
+    const res = await c.disconnectSpotify();
+
+    expect(res.ok).toBe(true);
+    expect(order).toEqual(['server /api/integrations/spotify/disconnect', 'local']);
+  });
+
+  it('on a failed call while the server still holds the link: returns the error and leaves local playback alone', async () => {
+    const clearSpotifyPlayback = jest.fn(async () => {});
+    const apiDelete = jest.fn().mockResolvedValue(errRes(500));
+    const apiGet = jest.fn().mockResolvedValue(okRes({ spotifyConnected: true })); // the re-read (round 1)
+    const c = new ProfileController({ apiGet, apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn(), clearSpotifyPlayback } as any);
+
+    const res = await c.disconnectSpotify();
+
+    expect(res.ok).toBe(false);
+    expect(clearSpotifyPlayback).not.toHaveBeenCalled();
+  });
+
+  it('never signs the user out (a disconnect is not a logout)', async () => {
+    const clearLocal = jest.fn(async () => {});
+    const apiDelete = jest.fn().mockResolvedValue(okRes({ message: 'Spotify disconnected' }));
+    const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal, clearSpotifyPlayback: jest.fn(async () => {}) } as any);
+
+    await c.disconnectSpotify();
+
+    expect(clearLocal).not.toHaveBeenCalled();
+  });
+});
+
+describe('teardownSpotifyPlayback — safe ordering', () => {
+  const { teardownSpotifyPlayback } = require('../spotifyTeardown');
+  function recorders() {
+    const calls: string[] = [];
+    const rec = (name: string) => () => { calls.push(name); };
+    return {
+      calls,
+      deps: { disposePlayer: rec('player'), clearQueue: rec('queue'), resetNowPlaying: rec('now'), markDisconnected: rec('status') },
+    };
+  }
+
+  it('stops the player FIRST (audio and remote), then the queue, Now Playing, and the status last', async () => {
+    const { deps, calls } = recorders();
+    await teardownSpotifyPlayback(deps);
+    expect(calls).toEqual(['player', 'queue', 'now', 'status']);
+  });
+
+  it('a throwing step never blocks the rest (the status still reads disconnected)', async () => {
+    const { deps, calls } = recorders();
+    deps.disposePlayer = () => { throw new Error('remote already gone'); };
+    await teardownSpotifyPlayback(deps);
+    expect(calls).toEqual(['queue', 'now', 'status']);
+  });
+});
+
+// HX-2 round 1 (B1): the Profile reload is where the app learns that the account is linked to
+// Spotify again (after an OAuth reconnect). That lifts the playback suspension Disconnect set.
+describe('ProfileController.loadProfile — lifts the Spotify-disconnect suspension (B1)', () => {
+  const deps = (over: Record<string, unknown> = {}) => ({
+    apiGet: jest.fn(), apiPost: jest.fn(), apiDelete: jest.fn(), serverLogout: jest.fn(), clearLocal: jest.fn(),
+    clearSpotifyPlayback: jest.fn(async () => {}), onSpotifyLinked: jest.fn(), ...over,
+  });
+  const statusGet = (spotifyConnected: boolean | undefined, ok = true) => jest.fn(async (path: string) => (
+    path === '/api/auth/me' ? okRes({ id: 'u1' }) : ok ? okRes({ spotifyConnected }) : errRes(500)));
+
+  it('the server reports Spotify linked → onSpotifyLinked, once', async () => {
+    const d = deps({ apiGet: statusGet(true) });
+    await new ProfileController(d as any).loadProfile();
+    expect(d.onSpotifyLinked).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([[false], [undefined]])('spotifyConnected=%p → no resume', async (v) => {
+    const d = deps({ apiGet: statusGet(v as any) });
+    await new ProfileController(d as any).loadProfile();
+    expect(d.onSpotifyLinked).not.toHaveBeenCalled();
+  });
+
+  it('a failed status read → no resume (fail closed)', async () => {
+    const d = deps({ apiGet: statusGet(true, false) });
+    await new ProfileController(d as any).loadProfile();
+    expect(d.onSpotifyLinked).not.toHaveBeenCalled();
+  });
+
+  it('a reload that STARTED before a successful disconnect cannot resume after it (stale status)', async () => {
+    let releaseStatus!: () => void;
+    const apiGet = jest.fn((path: string) => (path === '/api/auth/me'
+      ? Promise.resolve(okRes({ id: 'u1' }))
+      : new Promise((r) => { releaseStatus = () => r(okRes({ spotifyConnected: true })); })));
+    const apiDelete = jest.fn(async () => okRes({ message: 'Spotify disconnected' }));
+    const d = deps({ apiGet, apiDelete });
+    const c = new ProfileController(d as any);
+
+    const staleReload = c.loadProfile();      // status read in flight: the server still says linked
+    await c.disconnectSpotify();              // …the disconnect completes first
+    releaseStatus();
+    await staleReload;
+
+    expect(d.onSpotifyLinked).not.toHaveBeenCalled();
+  });
+});
+
+// HX-2 round 1 (LOW): the server deletes the Spotify token BEFORE its purge, so an error response
+// does not mean "still connected". On an error the device re-reads the link and follows the server.
+describe('ProfileController.disconnectSpotify — an error response follows the server\'s truth', () => {
+  const build = (status: 'unlinked' | 'linked' | 'unreadable') => {
+    const calls: string[] = [];
+    const apiDelete = jest.fn(async () => { calls.push('delete'); return errRes(500); });
+    const apiGet = jest.fn(async (path: string) => {
+      calls.push(`get ${path}`);
+      if (status === 'unreadable') return errRes(503);
+      return okRes({ spotifyConnected: status === 'linked' });
+    });
+    const clearSpotifyPlayback = jest.fn(async () => { calls.push('local'); });
+    const onSpotifyLinked = jest.fn();
+    const c = new ProfileController({ apiGet, apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn(), clearSpotifyPlayback, onSpotifyLinked } as any);
+    return { c, calls, clearSpotifyPlayback, onSpotifyLinked };
+  };
+
+  it('the server already dropped the link → the device stops Spotify too, and the error is still returned', async () => {
+    const w = build('unlinked');
+    const res = await w.c.disconnectSpotify();
+    expect(res.ok).toBe(false);
+    expect(w.calls).toEqual(['delete', 'get /api/integrations/status', 'local']);
+  });
+
+  it('the server still holds the link → nothing changes on the device', async () => {
+    const w = build('linked');
+    await w.c.disconnectSpotify();
+    expect(w.clearSpotifyPlayback).not.toHaveBeenCalled();
+  });
+
+  it('the link cannot be read → nothing changes on the device (no guess)', async () => {
+    const w = build('unreadable');
+    await w.c.disconnectSpotify();
+    expect(w.clearSpotifyPlayback).not.toHaveBeenCalled();
+  });
+});

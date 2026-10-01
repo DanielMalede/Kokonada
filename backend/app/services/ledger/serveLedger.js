@@ -2,20 +2,26 @@
 
 const ServeEvent = require('../../models/ServeEvent');
 const { getRedis } = require('../../config/redis');
+const { SERVE_EVENT_TTL_DAYS } = require('../../config/retention');
 
 // The global serve ledger — single source of truth for track exposure.
 //   Hot path:  per-user Redis ZSETs (member = canonicalKey, score = servedAt ms)
 //              `ledger:{userId}:served` and `ledger:{userId}:mood:{moodKey}`,
 //              pruned on write and TTL'd, lazily rebuilt from Mongo on miss.
-//   Durable:   ServeEvent rows (TTL 90d) — survive Redis flushes and feed the
-//              exposure-decay scorer via getExposure().
+//   Durable:   ServeEvent rows (deleted by the daily job at 29d; TTL 30d backstop) —
+//              survive Redis flushes and feed the exposure-decay scorer via getExposure().
 // Redis failures never lose data (Mongo writes first) and never throw upward.
 
 const HOUR = 3_600_000;
 const HOT_DAYS       = () => parseInt(process.env.LEDGER_HOT_DAYS || '8', 10);
 const GLOBAL_HOURS   = () => parseInt(process.env.LEDGER_GLOBAL_EXCLUDE_HOURS || '8', 10);
 const MOOD_HOURS     = () => parseInt(process.env.LEDGER_MOOD_EXCLUDE_HOURS || '72', 10);
-const EXPOSURE_DAYS  = () => parseInt(process.env.LEDGER_EXPOSURE_DAYS || '30', 10);
+// Bounded by the ServeEvent TTL: a longer window would lean on rows the retention promise says
+// are gone, visible only between TTL sweeps.
+const EXPOSURE_DAYS  = () => {
+  const n = parseInt(process.env.LEDGER_EXPOSURE_DAYS || String(SERVE_EVENT_TTL_DAYS), 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, SERVE_EVENT_TTL_DAYS) : SERVE_EVENT_TTL_DAYS;
+};
 
 const _servedKey = (userId) => `ledger:${userId}:served`;
 const _moodHotKey = (userId, moodKey) => `ledger:${userId}:mood:${moodKey}`;

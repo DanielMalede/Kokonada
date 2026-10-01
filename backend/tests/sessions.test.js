@@ -34,10 +34,15 @@ function mockFind(docs) {
   return calls;
 }
 
+// A session from two hours ago. Age matters to the DTO since HX-2 M4 (past the provider-content
+// window a row serves no tracks — sessions.retentionGuard.integration.test.js), so the default
+// fixture is pinned INSIDE the window rather than on a calendar date that silently ages out of it.
+const RECENT = () => new Date(Date.now() - 2 * 3600 * 1000);
+
 function sessionDoc(overrides = {}) {
   return {
     _id: overrides._id || '650000000000000000000001',
-    createdAt: overrides.createdAt || new Date('2026-07-03T12:00:00Z'),
+    createdAt: overrides.createdAt || RECENT(),
     moodKey: 'focus',
     musicProvider: 'spotify',
     biometricSnapshot: { heartRate: 72, activity: 'working' }, // getter would decrypt HR
