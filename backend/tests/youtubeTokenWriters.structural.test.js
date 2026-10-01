@@ -144,6 +144,187 @@ function checkSources(sources) {
   return { writers, setTokenMisuse, lineCounts, forbidden };
 }
 
+// ── The AST layer (resilience N1) ─────────────────────────────────────────────
+//
+// Rule (a) above finds the two writes by text and names their owner by the nearest declaration
+// ABOVE them, so a write moved into a helper declared below the callback (`const storeYt = …`) is
+// still attributed to youtubeCallback, and an unsealed route that calls the helper never names the
+// field. These rules parse the source instead (espree, the parser eslint uses):
+//   (a2) each `setToken('youtubeMusicToken', …)` call's INNERMOST function is either
+//        `exports.youtubeCallback`, after that function's top-level `if (!YOUTUBE_CONNECT_ENABLED) … return`,
+//        or the top-level `function getValidToken` in services/youtube.js;
+//   (d)  every new token needs `youtube.exchangeCode`, so the service's three connect entry points —
+//        exchangeCode, getAuthUrl, generatePKCE — may be reached only from `exports.youtubeConnect` and
+//        `exports.youtubeCallback`, after their seal guard. A youtube-service binding used any way
+//        other than `binding.<name>` (aliased, passed on, computed) counts as an escape and fails too.
+
+const espree = require('espree');
+
+const YT_SERVICE = path.join(BACKEND, 'app/services/youtube.js');
+const CONTROLLER = 'app/controllers/integrationsController.js';
+const ENTRY_POINTS = new Set(['exchangeCode', 'getAuthUrl', 'generatePKCE']);
+const SEAL_GUARDED = new Set(['youtubeConnect', 'youtubeCallback']);
+const FUNCTION_TYPES = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression']);
+
+function parseSource(src) {
+  return espree.parse(src, { ecmaVersion: 'latest', sourceType: 'script', range: true, loc: true, ecmaFeatures: { globalReturn: true } });
+}
+
+/** Visit every node with its ancestor chain (outermost first). */
+function walkAst(node, visit, ancestors = []) {
+  if (!node || typeof node.type !== 'string') return;
+  visit(node, ancestors);
+  const next = [...ancestors, node];
+  for (const key of Object.keys(node)) {
+    if (key === 'loc' || key === 'range' || key === 'parent') continue;
+    const value = node[key];
+    if (Array.isArray(value)) for (const child of value) walkAst(child, visit, next);
+    else if (value && typeof value.type === 'string') walkAst(value, visit, next);
+  }
+}
+
+const literalName = (n) => (n?.type === 'Literal' && typeof n.value === 'string' ? n.value
+  : n?.type === 'TemplateLiteral' && n.expressions.length === 0 ? n.quasis[0].value.cooked : null);
+const propertyName = (member) => (member.computed ? literalName(member.property) : member.property?.name ?? null);
+
+/** How the innermost enclosing function is known: `exports.<x>`, a declared name, or a variable. */
+function functionName(fn, parent) {
+  if (fn.type === 'FunctionDeclaration') return fn.id?.name ?? null;
+  if (parent?.type === 'AssignmentExpression' && parent.right === fn && parent.left.type === 'MemberExpression') {
+    const obj = parent.left.object;
+    const isExports = (obj.type === 'Identifier' && obj.name === 'exports')
+      || (obj.type === 'MemberExpression' && obj.object.name === 'module' && propertyName(obj) === 'exports');
+    if (isExports) return `exports.${propertyName(parent.left)}`;
+  }
+  if (parent?.type === 'VariableDeclarator' && parent.id.type === 'Identifier') return parent.id.name;
+  if (parent?.type === 'Property') return propertyName({ computed: parent.computed, property: parent.key });
+  return '<anonymous>';
+}
+
+function innermostFunction(ancestors) {
+  for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+    if (FUNCTION_TYPES.has(ancestors[i].type)) return { fn: ancestors[i], parent: ancestors[i - 1], depth: i };
+  }
+  return null;
+}
+
+/** End offset of the function body's top-level `if (!YOUTUBE_CONNECT_ENABLED) { … return }`, or null. */
+function sealGuardEnd(fn) {
+  if (fn.body?.type !== 'BlockStatement') return null;
+  for (const stmt of fn.body.body) {
+    if (stmt.type !== 'IfStatement' || stmt.alternate) continue;
+    const t = stmt.test;
+    if (!(t.type === 'UnaryExpression' && t.operator === '!' && t.argument.type === 'Identifier' && t.argument.name === 'YOUTUBE_CONNECT_ENABLED')) continue;
+    const c = stmt.consequent;
+    const returns = c.type === 'ReturnStatement' || (c.type === 'BlockStatement' && c.body.at(-1)?.type === 'ReturnStatement');
+    if (returns) return stmt.range[1];
+  }
+  return null;
+}
+
+/** Is `node` inside one of the named controller handlers, after that handler's seal guard? */
+function sealedHandler(file, node, ancestors, names) {
+  const inner = innermostFunction(ancestors);
+  if (!inner || file !== CONTROLLER) return null;
+  const name = functionName(inner.fn, inner.parent);
+  if (!name?.startsWith('exports.') || !names.has(name.slice(8))) return null;
+  // The function must be the right side of a TOP-LEVEL `exports.x = …`, not one nested in another.
+  if (inner.depth !== 3 || ancestors[1].type !== 'ExpressionStatement') return null;
+  const guardEnd = sealGuardEnd(inner.fn);
+  return guardEnd !== null && node.range[0] > guardEnd ? name.slice(8) : null;
+}
+
+function isYoutubeServiceRequire(node, file) {
+  if (node?.type !== 'CallExpression' || node.callee.type !== 'Identifier' || node.callee.name !== 'require') return false;
+  const target = literalName(node.arguments[0]);
+  if (!target || !target.startsWith('.')) return false;
+  const resolved = path.resolve(path.dirname(path.join(BACKEND, file)), target);
+  return resolved === YT_SERVICE || `${resolved}.js` === YT_SERVICE;
+}
+
+function checkAst(sources) {
+  const writerFindings = [];   // (a2)
+  const entryFindings = [];    // (d)
+  const guardedWriters = [];
+  const guardedEntries = [];
+  for (const [file, src] of Object.entries(sources)) {
+    // Every file is parsed: a text pre-filter would be one more thing a rename could slip past.
+    const ast = parseSource(src);
+    const isService = path.join(BACKEND, file) === YT_SERVICE;
+
+    // Bindings of the youtube service in this file: `const <name> = require('…/youtube')`.
+    const bindings = new Set();
+    walkAst(ast, (node) => {
+      if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && isYoutubeServiceRequire(node.init, file)) bindings.add(node.id.name);
+    });
+
+    walkAst(ast, (node, ancestors) => {
+      const parent = ancestors[ancestors.length - 1];
+      const at = { file, line: node.loc.start.line };
+
+      // (d) every require names a literal path, so no module can be reached without being named.
+      if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'require'
+        && literalName(node.arguments[0]) === null) {
+        entryFindings.push({ ...at, kind: 'require with a computed path', name: 'require' });
+      }
+
+      // (a2) the token writes.
+      if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression'
+        && propertyName(node.callee) === 'setToken' && literalName(node.arguments[0]) === TOKEN) {
+        const inner = innermostFunction(ancestors);
+        const viaRefresh = isService && inner?.fn.type === 'FunctionDeclaration' && inner.fn.id?.name === 'getValidToken' && inner.depth === 1;
+        const viaCallback = sealedHandler(file, node, ancestors, new Set(['youtubeCallback']));
+        if (viaRefresh || viaCallback) guardedWriters.push({ ...at, writer: viaRefresh ? 'getValidToken' : 'youtubeCallback' });
+        else writerFindings.push({ ...at, owner: inner ? functionName(inner.fn, inner.parent) : '<module>' });
+      }
+
+      // (d) the connect entry points, reached through a binding, an inline require or a destructure.
+      if (isService) {
+        if (node.type === 'Identifier' && ENTRY_POINTS.has(node.name)) {
+          const declares = parent?.type === 'FunctionDeclaration' && parent.id === node;
+          const exported = parent?.type === 'Property' && ancestors.some((a) => a.type === 'AssignmentExpression' && a.left.type === 'MemberExpression' && a.left.object.name === 'module');
+          if (!declares && !exported) entryFindings.push({ ...at, kind: 'used inside youtube.js', name: node.name });
+        }
+        return;
+      }
+      if (node.type === 'VariableDeclarator' && node.id.type === 'ObjectPattern' && isYoutubeServiceRequire(node.init, file)) {
+        for (const p of node.id.properties) {
+          const key = p.type === 'Property' ? propertyName({ computed: p.computed, property: p.key }) : null;
+          if (key === null || ENTRY_POINTS.has(key)) entryFindings.push({ ...at, kind: 'destructured from the service', name: key ?? '...rest' });
+        }
+        return;
+      }
+      if (isYoutubeServiceRequire(node, file)) {
+        const declared = parent?.type === 'VariableDeclarator' && parent.init === node;
+        const member = parent?.type === 'MemberExpression' && parent.object === node;
+        if (!declared && !member) entryFindings.push({ ...at, kind: 'service module escapes', name: 'require' });
+        if (member) {
+          const name = propertyName(parent);
+          if (name === null) entryFindings.push({ ...at, kind: 'computed access on the service', name: '[?]' });
+          else if (ENTRY_POINTS.has(name)) entryFindings.push({ ...at, kind: 'inline require of an entry point', name });
+        }
+        return;
+      }
+      if (node.type === 'Identifier' && bindings.has(node.name)) {
+        if (parent?.type === 'VariableDeclarator' && parent.id === node) return; // the binding itself
+        if (parent?.type === 'MemberExpression' && parent.property === node && !parent.computed) return; // x.youtube
+        if (parent?.type === 'Property' && parent.key === node && !parent.shorthand) return; // { youtube: … }
+        if (!(parent?.type === 'MemberExpression' && parent.object === node)) {
+          entryFindings.push({ ...at, kind: 'service module escapes', name: node.name });
+          return;
+        }
+        const name = propertyName(parent);
+        if (name === null) { entryFindings.push({ ...at, kind: 'computed access on the service', name: '[?]' }); return; }
+        if (!ENTRY_POINTS.has(name)) return;
+        const handler = sealedHandler(file, parent, ancestors, SEAL_GUARDED);
+        if (handler) guardedEntries.push({ ...at, name, handler });
+        else entryFindings.push({ ...at, kind: 'entry point outside the sealed handlers', name });
+      }
+    });
+  }
+  return { writerFindings, entryFindings, guardedWriters, guardedEntries };
+}
+
 // ── The pins ──────────────────────────────────────────────────────────────────
 
 describe('YouTube token writers — only the two sealed writers can store a youtubeMusicToken (HX-3 T2)', () => {
@@ -226,6 +407,129 @@ describe('YouTube token writers — only the two sealed writers can store a yout
       const r = planted('app/services/x.js', "  const t = user.getToken('youtubeMusicToken');");
       expect(r.forbidden).toEqual([]);
       expect(r.setTokenMisuse).toEqual([]);
+    });
+  });
+});
+
+describe('YouTube token writers, by syntax tree — the seal guards every write and every way in (resilience N1)', () => {
+  const ast = checkAst(scannedSources());
+
+  it('the controller takes YOUTUBE_CONNECT_ENABLED from the seal module (the guard below is the real seal)', () => {
+    const src = fs.readFileSync(path.join(BACKEND, CONTROLLER), 'utf8');
+    expect(src).toMatch(/^const \{ YOUTUBE_CONNECT_ENABLED \} = require\('\.\.\/config\/youtubeSeal'\);$/m);
+  });
+
+  it('(a2) both writes sit in an allowed writer: the refresh, and youtubeCallback after its seal return', () => {
+    expect(ast.writerFindings).toEqual([]);
+    expect(ast.guardedWriters.map(({ file, writer }) => ({ file, writer }))).toEqual([
+      { file: CONTROLLER, writer: 'youtubeCallback' },
+      { file: 'app/services/youtube.js', writer: 'getValidToken' },
+    ]);
+  });
+
+  it('(d) exchangeCode, getAuthUrl and generatePKCE are reached only from youtubeConnect and youtubeCallback, after the seal', () => {
+    expect(ast.entryFindings).toEqual([]);
+    expect(ast.guardedEntries.map(({ name, handler }) => `${handler}:${name}`).sort()).toEqual([
+      'youtubeCallback:exchangeCode', 'youtubeConnect:generatePKCE', 'youtubeConnect:getAuthUrl',
+    ]);
+  });
+
+  describe('each AST rule catches what it is for (planted violations)', () => {
+    // A minimal controller shaped like the real one: the seal require, both handlers, each guarded.
+    const controller = (callbackBody, extra = '') => [
+      "const youtube = require('../services/youtube');",
+      "const { YOUTUBE_CONNECT_ENABLED } = require('../config/youtubeSeal');",
+      'exports.youtubeConnect = (req, res) => {',
+      "  if (!YOUTUBE_CONNECT_ENABLED) { return res.redirect('x'); }",
+      '  const { codeVerifier, codeChallenge } = youtube.generatePKCE();',
+      "  res.redirect(youtube.getAuthUrl('s', codeChallenge));",
+      '};',
+      'exports.youtubeCallback = async (req, res) => {',
+      '  const target = 1;',
+      "  if (!YOUTUBE_CONNECT_ENABLED) { return res.redirect('x'); }",
+      ...callbackBody,
+      '};',
+      extra,
+    ].join('\n');
+    const SEALED_WRITE = ['  const tokens = await youtube.exchangeCode(req.query.code);', "  user.setToken('youtubeMusicToken', tokens);"];
+    const run = (sources) => checkAst(sources);
+
+    it('the shape of the real controller is clean', () => {
+      const r = run({ [CONTROLLER]: controller(SEALED_WRITE) });
+      expect(r.writerFindings).toEqual([]);
+      expect(r.entryFindings).toEqual([]);
+      expect(r.guardedWriters).toHaveLength(1);
+      expect(r.guardedEntries).toHaveLength(3);
+    });
+
+    it('the review\'s helper: a write moved into `const storeYt = …` below the callback is caught', () => {
+      const r = run({
+        [CONTROLLER]: controller(
+          ['  const tokens = await youtube.exchangeCode(req.query.code);', '  await storeYt(user, tokens);'],
+          "const storeYt = async (u, t) => { u.setToken('youtubeMusicToken', t); await u.save(); };",
+        ),
+      });
+      expect(r.writerFindings).toEqual([{ file: CONTROLLER, line: 14, owner: 'storeYt' }]);
+    });
+
+    it.each([
+      ['a write BEFORE the seal return', ["  user.setToken('youtubeMusicToken', t);"], 'before'],
+      ['a write in a nested function inside the callback', ["  const later = () => user.setToken('youtubeMusicToken', t);"], 'nested'],
+    ])('%s is caught', (_label, body, where) => {
+      const src = where === 'before'
+        ? controller([]).replace("  const target = 1;", `  const target = 1;\n${body[0]}`)
+        : controller(body);
+      expect(run({ [CONTROLLER]: src }).writerFindings.length).toBe(1);
+    });
+
+    it('a callback with no seal guard at all: its write is caught', () => {
+      const src = controller(SEALED_WRITE).replace("  if (!YOUTUBE_CONNECT_ENABLED) { return res.redirect('x'); }\n  const tokens", '  const tokens');
+      expect(src).not.toMatch(/target = 1;\n {2}if/);
+      const r = run({ [CONTROLLER]: src });
+      expect(r.writerFindings.length).toBe(1);
+      expect(r.entryFindings.map((f) => f.name)).toEqual(['exchangeCode']);
+    });
+
+    it('a guard that does not return (a log only) does not count as the seal', () => {
+      const src = controller(SEALED_WRITE).replace("  if (!YOUTUBE_CONNECT_ENABLED) { return res.redirect('x'); }\n  const tokens", "  if (!YOUTUBE_CONNECT_ENABLED) { console.warn('x'); }\n  const tokens");
+      expect(run({ [CONTROLLER]: src }).writerFindings.length).toBe(1);
+    });
+
+    it('a write in another exported handler is caught', () => {
+      const r = run({ [CONTROLLER]: controller(SEALED_WRITE, "exports.youtubeImport = async (req, res) => { req.user.setToken('youtubeMusicToken', req.body); };") });
+      expect(r.writerFindings).toEqual([{ file: CONTROLLER, line: 14, owner: 'exports.youtubeImport' }]);
+    });
+
+    it('a write in a script is caught', () => {
+      const r = run({ 'scripts/x.js': "async function restore(u, t) { u.setToken('youtubeMusicToken', t); }" });
+      expect(r.writerFindings).toEqual([{ file: 'scripts/x.js', line: 1, owner: 'restore' }]);
+    });
+
+    it.each([
+      ['exchangeCode through a script\'s own binding', 'scripts/x.js', "const yt = require('../app/services/youtube');\nyt.exchangeCode('c');", 'entry point outside the sealed handlers'],
+      ['an entry point destructured from the service', 'app/services/x.js', "const { exchangeCode } = require('./youtube');", 'destructured from the service'],
+      ['the service aliased to another name', 'app/services/x.js', "const youtube = require('./youtube');\nconst y = youtube;\ny.exchangeCode('c');", 'service module escapes'],
+      ['the service passed to a function', 'app/services/x.js', "const youtube = require('./youtube');\nrun(youtube);", 'service module escapes'],
+      ['a computed member on the service', 'app/services/x.js', "const youtube = require('./youtube');\nyoutube['exchange' + 'Code']('c');", 'computed access on the service'],
+      ['an inline require of an entry point', 'app/workers/x.js', "require('../services/youtube').getAuthUrl('s', 'c');", 'inline require of an entry point'],
+      ['a require with a computed path', 'scripts/x.js', "const svc = require(path.join(__dirname, '../app/services', name));", 'require with a computed path'],
+      ['getAuthUrl in an unsealed controller function', CONTROLLER, "const youtube = require('../services/youtube');\nexports.relink = (req, res) => res.redirect(youtube.getAuthUrl('s', 'c'));", 'entry point outside the sealed handlers'],
+    ])('%s is caught', (_label, file, src, kind) => {
+      expect(run({ [file]: src }).entryFindings.map((f) => f.kind)).toContain(kind);
+    });
+
+    it('an entry point used BEFORE the seal return in youtubeConnect is caught', () => {
+      const src = controller(SEALED_WRITE).replace("  if (!YOUTUBE_CONNECT_ENABLED) { return res.redirect('x'); }\n  const { codeVerifier", "  youtube.generatePKCE();\n  if (!YOUTUBE_CONNECT_ENABLED) { return res.redirect('x'); }\n  const { codeVerifier");
+      expect(run({ [CONTROLLER]: src }).entryFindings).toEqual([{ file: CONTROLLER, line: 4, kind: 'entry point outside the sealed handlers', name: 'generatePKCE' }]);
+    });
+
+    it('youtube.js calling its own exchangeCode from another function is caught', () => {
+      const svc = [
+        'async function exchangeCode(code) { return code; }',
+        'async function relink(code) { return exchangeCode(code); }',
+        'module.exports = { exchangeCode, relink };',
+      ].join('\n');
+      expect(run({ 'app/services/youtube.js': svc }).entryFindings).toEqual([{ file: 'app/services/youtube.js', line: 2, kind: 'used inside youtube.js', name: 'exchangeCode' }]);
     });
   });
 });
