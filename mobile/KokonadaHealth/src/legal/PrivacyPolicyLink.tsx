@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text } from 'react-native';
 import { useTheme } from '../design/theme';
 import { space, type as typography } from '../design/tokens';
 import {
@@ -52,15 +52,16 @@ export function PrivacyPolicyLink({ disabled = false }: PrivacyPolicyLinkProps) 
           <Text style={[styles.label, { color: colour(pressed) }]}>{PRIVACY_POLICY_LABEL}</Text>
         )}
       </Pressable>
+      {/* Siblings of the link, with no wrapping View, so they follow the caller's alignment. */}
       {openFailed ? (
-        <View testID="privacy-policy-open-failed" style={styles.fallback}>
-          <Text accessibilityLiveRegion="polite" style={[styles.fallbackText, { color: c.content.secondary }]}>
+        <>
+          <Text testID="privacy-policy-open-failed" accessibilityLiveRegion="polite" style={[styles.fallbackText, { color: c.content.secondary }]}>
             {PRIVACY_POLICY_OPEN_FAILED}
           </Text>
-          <Text testID="privacy-policy-address" selectable style={[styles.fallbackText, { color: c.content.primary }]}>
+          <Text testID="privacy-policy-address" selectable style={[styles.fallbackText, styles.address, { color: c.content.primary }]}>
             {PRIVACY_POLICY_URL}
           </Text>
-        </View>
+        </>
       ) : null}
     </>
   );
@@ -76,6 +77,6 @@ const styles = StyleSheet.create({
     letterSpacing: typography.tracking.body,
     textDecorationLine: 'underline',
   },
-  fallback: { gap: space.xs, paddingBottom: space.xs },
+  address: { marginTop: space.xs, paddingBottom: space.xs },
   fallbackText: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },
 });

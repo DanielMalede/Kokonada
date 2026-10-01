@@ -22,7 +22,7 @@ export const PRIVACY_POLICY_HINT = 'Opens in your browser';
 
 // Shown, with the address beneath it as selectable text, when the browser cannot be opened, so the
 // link is never a dead end.
-export const PRIVACY_POLICY_OPEN_FAILED = 'The privacy policy could not be opened. It is at:';
+export const PRIVACY_POLICY_OPEN_FAILED = 'We couldn’t open a browser. It’s at:';
 
 // DEC-117: the consent sheet shows its link only once the policy page is hosted (DAN-015). Sign-in
 // and the Vault show theirs now. Turning this on changes the rendered consent screen; the tripwire

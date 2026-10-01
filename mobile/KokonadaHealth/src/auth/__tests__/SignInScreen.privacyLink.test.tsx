@@ -76,7 +76,9 @@ describe('SignInScreen — the privacy-policy link', () => {
     expect(last.findAll(isHostWithId('privacy-policy-link')).length).toBeGreaterThan(0);
     const wrapper = ancestors(outermost(tree, 'privacy-policy-link'))
       .find((a) => typeof a.type === 'string' && StyleSheet.flatten(a.props.style)?.marginTop !== undefined);
-    expect(StyleSheet.flatten(wrapper!.props.style).marginTop).toBe(space.lg);
+    // Designer, round 1 (change 7): centred, so the failed-open texts centre under the link and the
+    // link's touch box is not stretched to the message's width.
+    expect(StyleSheet.flatten(wrapper!.props.style)).toEqual({ marginTop: space.lg, alignItems: 'center' });
   });
 
   it('Android: Google first, then the link', async () => {

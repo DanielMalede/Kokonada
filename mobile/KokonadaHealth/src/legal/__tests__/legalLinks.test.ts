@@ -102,7 +102,12 @@ describe('one name for the policy on every surface', () => {
   });
 
   it('a failed open explains itself and leads into the address (never a dead end)', () => {
-    expect(PRIVACY_POLICY_OPEN_FAILED).toBe('The privacy policy could not be opened. It is at:');
+    expect(PRIVACY_POLICY_OPEN_FAILED).toBe('We couldn’t open a browser. It’s at:');
+  });
+
+  it('the rationale fallback gives the reason, and leaves the noun to its heading (designer, round 1)', () => {
+    expect(stringResource('privacy_policy_unavailable')?.value)
+      .toBe('We couldn’t load it because of a connection or server problem. It’s at:');
   });
 
   it('no wording frames the policy as something to agree to', () => {

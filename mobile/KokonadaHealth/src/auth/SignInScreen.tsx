@@ -123,5 +123,5 @@ const styles = StyleSheet.create({
   // than the other (Apple HIG: no smaller than other sign-in buttons; Google: "approximately the
   // same size"). This equalises SIZE only; visual weight is not asserted here. One gap below.
   appleButton: { width: GOOGLE_SIGN_IN_WIDTH, height: SIGN_IN_BUTTON_HEIGHT, marginTop: space.md },
-  privacyPolicy: { marginTop: space.lg },
+  privacyPolicy: { marginTop: space.lg, alignItems: 'center' },
 });

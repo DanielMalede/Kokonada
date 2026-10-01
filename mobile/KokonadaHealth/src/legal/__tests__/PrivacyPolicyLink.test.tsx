@@ -86,11 +86,34 @@ describe('PrivacyPolicyLink — pressing it', () => {
     openURL.mockRejectedValue(new Error('No Activity found to handle Intent'));
     const tree = await render();
     await expect(press(tree)).resolves.toBeUndefined();
-    const failed = byTestId(tree, 'privacy-policy-open-failed');
-    expect(failed).toHaveLength(1);
-    expect(hostTexts(failed[0]).map((t) => t.props.children)).toEqual([PRIVACY_POLICY_OPEN_FAILED, PRIVACY_POLICY_URL]);
-    expect(byTestId(tree, 'privacy-policy-address')[0].props.selectable).toBe(true);
+    const message = byTestId(tree, 'privacy-policy-open-failed');
+    const address = byTestId(tree, 'privacy-policy-address');
+    expect(message).toHaveLength(1);
+    expect(address).toHaveLength(1);
+    expect(hostTexts(message[0]).map((t) => t.props.children)).toEqual([PRIVACY_POLICY_OPEN_FAILED]);
+    expect(hostTexts(address[0]).map((t) => t.props.children)).toEqual([PRIVACY_POLICY_URL]);
+    expect(address[0].props.selectable).toBe(true);
     expect(link(tree)).toBeDefined(); // the link stays, so a second try is one tap away
+  });
+
+  // Designer, round 1 (change 7): the two texts are siblings of the link with no wrapping View, so
+  // they follow the caller's alignment (centred on sign-in and the sheet, start in the Vault).
+  it('the failed-open texts sit directly in the caller’s container, beside the link', async () => {
+    openURL.mockRejectedValue(new Error('no browser'));
+    const tree = await render(<RN.View testID="caller"><PrivacyPolicyLink /></RN.View>);
+    await press(tree);
+    const hostParent = (n: ReactTestRenderer.ReactTestInstance) => {
+      let p = n.parent;
+      while (p && typeof p.type !== 'string') p = p.parent;
+      return p;
+    };
+    const hostOf = (id: string) => tree.root.findAll((n) => n.props.testID === id && typeof n.type === 'string')[0];
+    // Compared by testID: a failing toBe on test instances prints their circular trees.
+    const parentId = (id: string) => hostParent(hostOf(id))?.props.testID;
+    expect(['privacy-policy-link', 'privacy-policy-open-failed', 'privacy-policy-address'].map(parentId))
+      .toEqual(['caller', 'caller', 'caller']);
+    const s = flat(byTestId(tree, 'privacy-policy-address')[0].props.style);
+    expect([s.marginTop, s.paddingBottom]).toEqual([space.xs, space.xs]);
   });
 
   it('an open that throws synchronously is handled the same way', async () => {
