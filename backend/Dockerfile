@@ -10,6 +10,8 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY app/ ./app/
+# The only script shipped (DEC-125, J1 T10), run with railway ssh; tests/dockerImageScripts.structural.test.js.
+COPY scripts/rewardJobs.js ./scripts/rewardJobs.js
 
 # Drop root: run as the image's built-in unprivileged `node` user so a process
 # compromise can't write outside the app or escalate on the host. (audit T2.5)
