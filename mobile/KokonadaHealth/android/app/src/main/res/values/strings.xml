@@ -5,4 +5,7 @@
          legalLinks.test.ts pins them equal. Defined here only: never in a values-* folder. -->
     <string name="privacy_policy_url" translatable="false">https://kokonada.github.io/privacy/</string>
     <string name="privacy_policy_label">Privacy policy</string>
+    <!-- The rationale screen's fallback, shown when the page cannot be loaded. -->
+    <string name="privacy_policy_unavailable">The privacy policy could not be loaded. It is at:</string>
+    <string name="privacy_policy_open_in_browser">Open in browser</string>
 </resources>
