@@ -292,7 +292,7 @@ describe('PulseScreen — dashboard values, gauges and state headline', () => {
     const atFontScale = (s: number) => { fontScaleSpy = jest.spyOn(RN.PixelRatio, 'getFontScale').mockReturnValue(s); };
     afterEach(() => { fontScaleSpy?.mockRestore(); fontScaleSpy = null; threshold?.restore(); threshold = null; });
     const tileBases = (tree: ReactTestRenderer.ReactTestRenderer) =>
-      tree.root.findAll((n) => n.type === 'View' && (RN.StyleSheet.flatten(n.props.style) as any)?.flexBasis !== undefined)
+      tree.root.findAll((n) => (n.type as unknown) === 'View' && (RN.StyleSheet.flatten(n.props.style) as any)?.flexBasis !== undefined)
         .map((n) => (RN.StyleSheet.flatten(n.props.style) as any).flexBasis);
     const gaugeBasesAt = async (s: number) => {
       atFontScale(s);
