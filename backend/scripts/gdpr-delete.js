@@ -26,7 +26,7 @@ const RefreshToken    = require('../app/models/RefreshToken');
 const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
 const ConsentRecord   = require('../app/models/ConsentRecord');
 const User            = require('../app/models/User');
-const { connectRedis } = require('../app/config/redis');
+const { connectRedis, getRedis } = require('../app/config/redis');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
 const { purgeUserJobs, countUserJobs } = require('../app/queues/userJobPurge');
 const { closeQueues } = require('../app/queues/queue');
@@ -247,6 +247,7 @@ async function main() {
     }
   } finally {
     await closeQueues();
+    getRedis()?.disconnect(); // the user-key purge's client is what kept the script alive after "complete"
     await mongoose.disconnect();
   }
 }
