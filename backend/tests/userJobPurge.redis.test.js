@@ -162,7 +162,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
     while (opened.length) opened.pop().disconnect();
   });
   afterAll(() => {
-    redis.disconnect();
+    redis?.disconnect();
     delete process.env.REDIS_URL;
   });
 

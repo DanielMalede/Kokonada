@@ -62,7 +62,7 @@ describeRealRedis('the real Redis lane (smoke)', (url) => {
   let redis;
   beforeAll(async () => { redis = await openTestRedis(url); });
   beforeEach(() => flushTestDb(redis));
-  afterAll(() => redis.disconnect());
+  afterAll(() => redis?.disconnect());
 
   it('a job added through real BullMQ is stored as bull:<queue>:<id> in database 15', async () => {
     const connection = new IORedis(url, { maxRetriesPerRequest: null });

@@ -111,9 +111,9 @@ describeRealRedis('scripts/rewardJobs.js on the backlog the code before J1 left'
     await users.collection('users').insertOne({ _id: new mongoose.Types.ObjectId(USER_A), email: 'a@example.com' }); // B was deleted
   });
   afterAll(async () => {
-    redis.disconnect();
-    await users.close();
-    await mem.stop();
+    redis?.disconnect();
+    await users?.close();
+    await mem?.stop();
   });
   beforeEach(() => flushTestDb(redis));
   afterEach(() => { while (opened.length) opened.pop().disconnect(); });

@@ -54,10 +54,10 @@ describeRealRedis('DELETE /api/auth/account and the job queue', (url) => {
   });
   afterAll(async () => {
     await closeQueues();
-    redis.disconnect();
+    redis?.disconnect();
     delete process.env.REDIS_URL;
     await mongoose.disconnect();
-    await mem.stop();
+    await mem?.stop();
   });
   beforeEach(async () => {
     await flushTestDb(redis);

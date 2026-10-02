@@ -101,7 +101,7 @@ describeRealRedis('J1 — the job queue keeps no job that has run', (url) => {
     while (opened.length) opened.pop().disconnect();
   });
   afterAll(() => {
-    redis.disconnect();
+    redis?.disconnect();
     delete process.env.REDIS_URL;
   });
 
