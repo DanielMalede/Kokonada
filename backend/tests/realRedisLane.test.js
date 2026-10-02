@@ -58,6 +58,22 @@ describe('assertDisposable — checked again on the live client, before any flus
   });
 });
 
+// J1 round 1 (resilience F9): a full-suite paste can look green with every lane suite skipped. The
+// evidence run sets REQUIRE_REAL_REDIS=1, and then a lane that would skip fails instead.
+describe('describeRealRedis — an evidence run fails rather than skips', () => {
+  const saved = { url: process.env.REDIS_TEST_URL, required: process.env.REQUIRE_REAL_REDIS };
+  afterEach(() => {
+    if (saved.url === undefined) delete process.env.REDIS_TEST_URL; else process.env.REDIS_TEST_URL = saved.url;
+    if (saved.required === undefined) delete process.env.REQUIRE_REAL_REDIS; else process.env.REQUIRE_REAL_REDIS = saved.required;
+  });
+
+  it('throws when REQUIRE_REAL_REDIS=1 and REDIS_TEST_URL is not set', () => {
+    delete process.env.REDIS_TEST_URL;
+    process.env.REQUIRE_REAL_REDIS = '1';
+    expect(() => describeRealRedis('an evidence run', () => {})).toThrow('REQUIRE_REAL_REDIS=1 but REDIS_TEST_URL is not set');
+  });
+});
+
 describeRealRedis('the real Redis lane (smoke)', (url) => {
   let redis;
   beforeAll(async () => { redis = await openTestRedis(url); });

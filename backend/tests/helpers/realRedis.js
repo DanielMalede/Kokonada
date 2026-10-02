@@ -56,6 +56,8 @@ function assertDisposable(client) {
 function describeRealRedis(title, body) {
   const url = realRedisUrl();
   if (!url) {
+    // An evidence run (the output pasted into the PR) sets REQUIRE_REAL_REDIS=1, so a lane that would skip fails.
+    if (process.env.REQUIRE_REAL_REDIS === '1') throw new Error('REQUIRE_REAL_REDIS=1 but REDIS_TEST_URL is not set');
     describe.skip(`${title} [real Redis: REDIS_TEST_URL is not set]`, () => body(null));
     return;
   }
