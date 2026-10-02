@@ -327,4 +327,18 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
 
     expect(await redis.llen(`${R}wait`)).toBe(401);
   });
+
+  it('removes the account\'s jobs from a paused queue too', async () => {
+    const queue = new Queue(NAME, { connection: connect() });
+    await queue.pause();
+    const a = (await queue.add(NAME, payload(USER_A))).id;
+    const b = (await queue.add(NAME, payload(USER_B))).id;
+    await queue.close();
+    expect(await redis.lpos(`${R}paused`, a)).not.toBeNull();
+
+    expect(await purgeUserJobs(USER_A)).toEqual({ removed: 1, inFlight: 0 });
+
+    expect(await redis.exists(`${R}${a}`)).toBe(0);
+    expect(await redis.lpos(`${R}paused`, b)).not.toBeNull();
+  });
 });
