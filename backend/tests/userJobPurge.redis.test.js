@@ -104,8 +104,9 @@ describe('when the job queue cannot be reached, the purge fails within 3 s and l
 
     expect(isError(purge.err)).toBe(true);
     expect(isError(count.err)).toBe(true);
-    expect(purge.ms).toBeLessThanOrEqual(3000);
-    expect(count.ms).toBeLessThanOrEqual(3000);
+    // At once, not at the budget: a connection that retried would end only when the 2.5 s budget fired.
+    expect(purge.ms).toBeLessThan(PURGE_BUDGET_MS - 500);
+    expect(count.ms).toBeLessThan(PURGE_BUDGET_MS - 500);
     expect(openSockets()).toBeLessThanOrEqual(before);
   });
 
