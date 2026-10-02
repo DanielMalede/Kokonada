@@ -265,6 +265,7 @@ describeRealRedis('scripts/rewardJobs.js on the backlog the code before J1 left'
     await job('deleted', DAY2);
     await job('withdrawn', DAY1);
     await job('withdrawn', DAY2);
+    await job('withdrawn', DAY2 + 30_000); // a second job on the same day: the D line counts jobs, not accounts
     await job('withdrawnAfter', DAY1);
     await job('withdrawnTwice', DAY2);
     await job('regranted', DAY2);
@@ -314,11 +315,11 @@ describeRealRedis('scripts/rewardJobs.js on the backlog the code before J1 left'
     expect(lines.map((l) => l.split(' ')[0])).toEqual(['reward-jobs', 'K', 'S', 'E', 'D', 'D', 'D', 'A', 'W', 'RESULT']);
     expect(lines.filter((l) => l.startsWith('D '))).toEqual([
       'D day=2026-09-30 jobs=4 without-user=1 withdrawn=2',
-      'D day=2026-10-01 jobs=7 without-user=1 withdrawn=2',
+      'D day=2026-10-01 jobs=8 without-user=1 withdrawn=3',
       'D day=unknown jobs=3 without-user=0 withdrawn=0',
     ]);
     expect(lines).toContain('A accounts=6 without-user=1 withdrawn=3 withdrawn-before-last-job=1');
-    expect(tokens(lines, 'K')['job-hashes']).toBe('14'); // every job hash is on exactly one D line
+    expect(tokens(lines, 'K')['job-hashes']).toBe('15'); // every job hash is on exactly one D line
     for (const line of lines) {
       expect(closed(line)).toBe(true);
       expect(line).not.toMatch(LEAK);
@@ -350,7 +351,7 @@ describeRealRedis('scripts/rewardJobs.js on the backlog the code before J1 left'
 
     expect(lines.filter((l) => l.startsWith('D '))).toEqual([
       'D day=2026-09-30 jobs=4 without-user=n/a withdrawn=n/a',
-      'D day=2026-10-01 jobs=7 without-user=n/a withdrawn=n/a',
+      'D day=2026-10-01 jobs=8 without-user=n/a withdrawn=n/a',
       'D day=unknown jobs=3 without-user=n/a withdrawn=n/a',
     ]);
     expect(lines).toContain('A accounts=n/a without-user=n/a withdrawn=n/a withdrawn-before-last-job=n/a');
