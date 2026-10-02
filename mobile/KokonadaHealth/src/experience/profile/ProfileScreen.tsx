@@ -111,12 +111,16 @@ export function ProfileScreen() {
     Linking.openURL(url).catch(() => Alert.alert('Could not open Spotify', 'No browser is available to complete sign-in.'));
   };
 
+  // HX-3 (DEC-122): connecting YouTube is sealed, so a linked row is unreachable. The sealed server
+  // never removes a link: with one present it answers 409 youtube_link_present and keeps it, so the
+  // row stays only to show that state. The alerts are the compliance-cleared pairs: the success
+  // body claims only what is true under the seal, and a failure shows the failure pair, nothing else.
   const onDisconnectYouTube = async () => {
     setYtBusy(true);
     try {
       const res = await profileController.disconnectYouTube();
       if (res.ok) {
-        Alert.alert('YouTube disconnected', `Rebuilt your Spotify library (${res.data.library} tracks).`);
+        Alert.alert('YouTube disconnected', 'Kokonada no longer uses your YouTube account.');
         const s = await profileController.loadProfile();
         if (mountedRef.current) setSnap(s);
       } else {
@@ -338,10 +342,10 @@ export function ProfileScreen() {
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow
             label={youtubeProvider.label}
-            reason={youtubeConnected ? 'Kokonada plays it natively.' : youtubeProvider.why}
+            reason={youtubeConnected ? "Kokonada doesn't use it in this version." : youtubeProvider.why}
             statusWord={youtubeConnected ? 'Connected' : 'Not yet available'}
             connected={youtubeConnected}
-            action={youtubeConnected ? { label: 'Disconnect', busyLabel: 'Rebuilding…', testId: 'disconnect-youtube', onPress: onDisconnectYouTube, busy: ytBusy } : undefined}
+            action={youtubeConnected ? { label: 'Disconnect', busyLabel: 'Disconnecting…', testId: 'disconnect-youtube', onPress: onDisconnectYouTube, busy: ytBusy } : undefined}
           />
           <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} />
           <ProfileIntegrationRow

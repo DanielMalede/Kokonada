@@ -23,7 +23,7 @@ import { LegalNote } from '../../legal/LegalNote';
 import { PULSE_LEGAL_LINES } from '../../legal/legalCopy';
 import { getLastSyncCounts, subscribeSyncCounts, type SyncCounts } from '../../health/healthSync';
 import { useTheme, useMotion } from '../../design/theme';
-import { space, radius, elevation, motion, type as typography, type ColorScheme, type EmotionQuadrant } from '../../design/tokens';
+import { space, radius, elevation, motion, a11y, type as typography, type ColorScheme, type EmotionQuadrant } from '../../design/tokens';
 import { BreathingGlow } from '../aura/BreathingGlow';
 import { EmptyState, Skeleton, useCalmPulse } from '../../design/system';
 import {
@@ -55,8 +55,6 @@ import {
 
 // The hero glow field ≈ 2× the numeral — a restrained halo (the aura's star turns are Generate).
 const HERO_AURA_SIZE = space['4xl'] * AURA_HERO_SCALE;
-// Above this OS font scale the 2-col grid stacks to 1-col so tiles never crush their sentences.
-const ACCESSIBILITY_FONT_SCALE = 1.3;
 // Connect §4 is a one-way onboarding gate (connectStore, no unresolve surface), unreachable once
 // past. The in-app home of device/wearable connection is the Profile tab — the honest destination.
 const CONNECT_ROUTE = 'Profile';
@@ -271,7 +269,8 @@ export function PulseScreen() {
   const isSyncing = pulse.loading && data == null;
   const isEmpty = w.biometricSource === 'none' && w.liveHr == null && counts == null && !anyVital && !status;
 
-  const oneCol = PixelRatio.getFontScale() > ACCESSIBILITY_FONT_SCALE;
+  // Above the shared large-text threshold the 2-col grid stacks to 1-col so tiles never crush their sentences.
+  const oneCol = PixelRatio.getFontScale() > a11y.reflowFontScale;
   const tileBasis: `${number}%` = oneCol ? '100%' : '48%';
 
   const scrollStyle = { backgroundColor: c.surface.base };

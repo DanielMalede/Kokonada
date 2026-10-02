@@ -18,6 +18,7 @@ const { buildDeterministicFallback } = require('../services/generation/determini
 const { resolveMusicProvider, resolvePlaybackProvider } = require('../utils/providerSelect');
 const { captureException } = require('../config/sentry');
 const { translateToSpotify } = require('../services/crossPlatform');
+const { withoutYoutube } = require('../services/musicProfileService');
 const { canonicalKey } = require('../services/identity/trackIdentity');
 const { logBiometricAccess } = require('../utils/biometricAudit');
 const { disabled } = require('../utils/envFlag');
@@ -833,7 +834,12 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // Hydrated Mongoose subdocuments here get JSON.stringify'd in candidatePool with
     // their parent proxies → 442MB heap OOM on a large library. Plain objects are safe
     // and faster; candidatePool also hardens against non-lean callers as defense in depth.
-    const musicProfile = await MusicProfile.findOne({ userId }).lean();
+    //
+    // DEC-122 / DEC-040 (HX-3 T6): generation reads the YouTube-free view, for EVERY provider, at
+    // the load itself — so no branch below (the LLM pipelines, vector or Spotify discovery and its
+    // seed_genres, the fallback ladder, a YouTube-only account) can see a YouTube row or a genre or
+    // artist ranked from one. The same object comes back when there is nothing to strip.
+    const musicProfile = withoutYoutube(await MusicProfile.findOne({ userId }).lean());
     if (!musicProfile) {
       // Always-on diagnostic (prod's log() is gated): the profile row is missing —
       // the background build hasn't run/finished, or it saved nothing.

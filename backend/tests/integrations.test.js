@@ -16,6 +16,14 @@ process.env.SUUNTO_WEBHOOK_SECRET = 'suunto_secret';
 process.env.MOBILE_DEEP_LINK      = 'kokonada://';
 process.env.GARMIN_WEBHOOK_SECRET = 'garmin_webhook_secret';
 
+// ── DT-B3 fixture (HX-3, DEC-122): the YouTube connect/callback path is DORMANT ───
+// Production seals it (config/youtubeSeal.js: YOUTUBE_CONNECT_ENABLED = false), and that sealed
+// behaviour is pinned with the REAL module in youtubeSeal.integration.test.js. The connect/callback
+// tests in this file cover the dormant code behind the seal, so they run against a fixture that opens
+// ONLY the connect seal; egress stays false, and nothing here tests the disconnect through it. This
+// fixture, the tests that need it and the dormant path are deleted at D (P3, ARCH-012).
+jest.mock('../app/config/youtubeSeal', () => ({ YOUTUBE_CONNECT_ENABLED: true, YOUTUBE_EGRESS_ENABLED: false }));
+
 // ── Service mocks (factory form — never loads the real modules, avoids mongoose) ─
 jest.mock('../app/services/musicProfileService', () => ({
   buildProfile: jest.fn().mockResolvedValue({ topGenres: [], library: [] }),
@@ -486,15 +494,32 @@ describe('YouTube OAuth flow', () => {
     expect(user.save).toHaveBeenCalled();
   });
 
-  it('youtubeDisconnect re-loads the full user, nulls token, and saves', async () => {
-    // auth() strips token blobs, so the handler re-loads via User.findById.
+  // HX-3 T3 — REVERSED under the owner's signature (DEC-123 item 2): "a YouTube disconnect no longer
+  // clears a stored YouTube link. It keeps it and answers 409 youtube_link_present. Its success message
+  // becomes 'YouTube disconnected', not 'YouTube Music disconnected'." Dropping a stored grant without
+  // revoking it at Google is the defect BE-022 names, so a present link is kept for the DEC-122
+  // contingency rather than cleared. Still re-loads the full user: auth() strips the token blobs.
+  it('REVERSED: youtubeDisconnect re-loads the full user and KEEPS a stored link — 409 youtube_link_present, no save', async () => {
     const user = buildUser({ youtubeMusicToken: { blob: 'enc' } });
+    User.findById.mockResolvedValue(user);
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = buildRes();
+    await ctrl.youtubeDisconnect({ user: { _id: user._id } }, res, jest.fn());
+    expect(User.findById).toHaveBeenCalledWith(user._id);
+    expect(user.youtubeMusicToken).toEqual({ blob: 'enc' });
+    expect(user.save).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: 'youtube_link_present' });
+    err.mockRestore();
+  });
+
+  it("REVERSED: youtubeDisconnect's success message is 'YouTube disconnected', not 'YouTube Music disconnected'", async () => {
+    const user = buildUser();
     User.findById.mockResolvedValue(user);
     const res = buildRes();
     await ctrl.youtubeDisconnect({ user: { _id: user._id } }, res, jest.fn());
-    expect(user.youtubeMusicToken).toBeNull();
-    expect(user.save).toHaveBeenCalled();
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: 'YouTube Music disconnected' }));
+    expect(res.json).toHaveBeenCalledWith({ message: 'YouTube disconnected' });
+    expect(user.save).not.toHaveBeenCalled();
   });
 });
 

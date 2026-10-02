@@ -82,6 +82,7 @@
 - **Interactions:** tap Connect → OAuth (Pause & Guide portal where needed); expand "why"; choose mood-only. The wearable/health path routes through **§ 11 (Art.9 consent)** before the OS Health Connect sheet.
 - **Data:** integration/connection status; OAuth scopes (least-privilege).
 - **Design notes:** the Privacy-Vault tone starts here — explain *why* before requesting health access; never force the double gate.
+- **Superseded 2026-10-01 (DEC-122, HX-3):** YouTube cannot be connected. Connecting it is sealed in code on the server, so the Music card's YouTube row is status-only ("YouTube", "Not yet available", "Connecting YouTube isn't available in Kokonada yet."), offers no Connect action and never shows as connected. "Connect music (Spotify/YouTube)" and "tap Connect → OAuth" above no longer describe YouTube. TASKS `ARCH-012` hides the row before the first iOS submission and deletes the code at P3.
 
 ## 5. Generate — THE HERO
 - **Purpose:** capture conscious intent (emotion + activity + words) and fire generation; the heart of the app.
@@ -166,6 +167,7 @@
 - **Interactions:** connect/reconnect (Pause & Guide portals); Sync → native HC permission sheet if missing (routes through **§ 11** first if consent isn't current); logout (full teardown incl. Spotify pause + wipe); delete (server-first cascade + local wipe); "Withdraw health-data consent" → two-step confirm (neutral tone, not the delete-account danger styling) → `POST /api/consent/withdraw`.
 - **Data:** integration status, `AuthSession`, `/api/auth/account` (delete), Health-Connect permissions, `/api/consent/status` + `/api/consent/withdraw`.
 - **Design notes:** the "Vault" tone — impenetrable, premium, trust-first; consistent rows (fixes the current YouTube inconsistency); destructive actions clearly separated. The withdrawal panel echoes **§ 11**'s section headings and body rhythm so the two read as one continuous trust surface.
+- **Superseded 2026-10-01 (DEC-122, HX-3):** the CONNECTIONS card's YouTube row cannot connect. It is status-only, as on Connect ("Not yet available", "Connecting YouTube isn't available in Kokonada yet."), and offers Disconnect only while a stored link exists, which the seal makes impossible; "connect/reconnect" and "consistent status + action" above no longer apply to it. TASKS `ARCH-012` hides the row before the first iOS submission and deletes the code at P3.
 
 ## 11. Health-Data Consent — the Art.9 gate (just-in-time interstitial)
 - **Purpose:** capture explicit, informed, versioned **GDPR Art.9** consent for processing special-category health/biometric data — the lawful basis an OS/OAuth permission grant alone does **not** provide (2026-07-16 compliance audit, finding H-9). Shown **only** the instant a user chooses to connect health/a wearable, **immediately before** the OS Health Connect sheet — never a login wall. Mood-only users never see it. The sanctuary explaining itself honestly, not a permission trap. Reached from **§ 4** and **§ 10**; not a tab. Build queue position **5.5**, alongside § 10 (shared trust surface + withdrawal echo).

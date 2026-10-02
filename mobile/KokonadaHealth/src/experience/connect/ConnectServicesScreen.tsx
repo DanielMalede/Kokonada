@@ -46,9 +46,12 @@ const DEFAULT_SUBTITLE =
 const MOOD_ONLY_SUBTITLE = "You're in mood-only mode — that's a great place to start.";
 const WEARABLE_SUBTITLE = "Your wearable's connected. You're all set.";
 
+// HX-3 (compliance-cleared): the card names where Kokonada plays music. It plays nothing on YouTube,
+// so the caption and the body's first sentence say Spotify (plain text, not a brand mark).
+const MUSIC_CAPTION = 'Kokonada plays music through Spotify.';
 const MUSIC_WHY_TITLE = 'Why connect music?';
 const MUSIC_WHY_BODY =
-  "Music streaming is where Kokonada plays your set. We'd only ever read what's needed to build and " +
+  "Kokonada plays your set through Spotify. We'd only ever read what's needed to build and " +
   'play a playlist — never post, never your social graph.';
 // Echoes the §11 consent wall's heading/body rhythm; mirrors what permissions.ts actually reads.
 const WEARABLE_WHY_TITLE = 'Why we ask for health data';
@@ -135,9 +138,9 @@ export function ConnectServicesScreen({
   }, [loadIntegrations]);
 
   const musicProviders = providersByKind('music');
-  const connectedFor = (id: string): boolean =>
-    (id === 'spotify' && !!integrations?.spotifyConnected) ||
-    (id === 'youtube' && !!integrations?.youtubeConnected);
+  // Only Spotify can read as connected here. A stored YouTube link never does (HX-3, A1): its row
+  // would say "Playing your library.", and Kokonada plays nothing through YouTube (CMP-040).
+  const connectedFor = (id: string): boolean => id === 'spotify' && !!integrations?.spotifyConnected;
 
   const onMoodOnly = () => { triggerHaptic('commit'); connect.getState().setMoodOnly(); };
 
@@ -207,7 +210,7 @@ export function ConnectServicesScreen({
         {/* B — Music card (the quiet, secondary block: states its truth and stops) */}
         <View style={[styles.card, elevation.e1, { backgroundColor: c.surface.raised }]}>
           <Text accessibilityRole="header" style={[styles.cardTitle, { color: c.content.primary }]}>Music</Text>
-          <Text style={[styles.cardCaption, { color: c.content.secondary }]}>Where your soundtrack plays.</Text>
+          <Text style={[styles.cardCaption, { color: c.content.secondary }]}>{MUSIC_CAPTION}</Text>
           {musicProviders.map((p, i) => (
             <View key={p.id}>
               {i > 0 ? <View style={[styles.divider, { backgroundColor: c.surface.hairline }]} /> : null}

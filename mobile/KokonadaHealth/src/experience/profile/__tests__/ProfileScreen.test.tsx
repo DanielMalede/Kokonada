@@ -16,7 +16,7 @@ jest.mock('../profileServices', () => ({
     loadProfile: jest.fn(),
     logout: jest.fn().mockResolvedValue(undefined),
     deleteAccount: jest.fn().mockResolvedValue({ ok: true, data: {} }),
-    disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } }),
+    disconnectYouTube: jest.fn().mockResolvedValue({ ok: true, data: { message: 'YouTube disconnected' } }),
     disconnectSpotify: jest.fn().mockResolvedValue({ ok: true, data: { message: 'Spotify disconnected' } }),
     getSpotifyConnectToken: jest.fn(),
   },
@@ -80,7 +80,7 @@ jest.mock('../../../health/healthLaneServices', () => ({
   onLiveHrDisconnected: jest.fn(async () => {}),
 }));
 
-import { Linking, Alert, AccessibilityInfo } from 'react-native';
+import { Linking, Alert, AccessibilityInfo, Image } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ProfileScreen } from '../ProfileScreen';
 import { profileController } from '../profileServices';
@@ -211,15 +211,131 @@ describe('ProfileScreen', () => {
       integrations: { spotifyConnected: true, youtubeConnected: true },
     });
     const tree = await render();
-    expect(texts(tree.toJSON()).join(' ')).toContain('YouTube Music');
+    // RETIRED under DEC-091 (HX-3): this asserted the "YouTube Music" label. The row is "YouTube".
+    const shown = texts(tree.toJSON()).join(' ');
+    expect(shown).toContain('YouTube');
+    expect(shown).not.toContain('YouTube Music');
     await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-youtube').props.onPress(); });
     expect(disconnectYouTube).toHaveBeenCalledTimes(1);
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 
+  // ── HX-3 (compliance verdicts §3, items 1–3): a LINKED YouTube row ─────────────────────────────
+  // Unreachable under DEC-122's seal (no link can be made, production holds none); kept only so a
+  // stray link could still be removed. Its reason line says Kokonada doesn't use it, the busy label
+  // is "Disconnecting…", and the alerts are the cleared pairs. The "link already gone" alert is
+  // withdrawn: a failure shows the failure pair and nothing else.
+  const youtubeLinked = {
+    me: { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null },
+    integrations: { spotifyConnected: false, youtubeConnected: true },
+  };
+  // Renders a YouTube-linked Profile with Alert spied, and ALWAYS restores the spy and unmounts, so
+  // a failing assertion cannot leak a tree (or a pending disconnect) into the next test. A test
+  // queues its disconnectYouTube result immediately before pressing: clearAllMocks does not drop an
+  // unconsumed once-implementation, and a stranded one would be the next test's answer.
+  const withYoutubeLinked = async (body: (tree: ReactTestRenderer.ReactTestRenderer, alertSpy: jest.SpyInstance) => Promise<void>) => {
+    loadProfile.mockResolvedValue(youtubeLinked);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const tree = await render();
+    try { await body(tree, alertSpy); } finally {
+      alertSpy.mockRestore();
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+    }
+  };
+  const pressDisconnectYouTube = async (tree: ReactTestRenderer.ReactTestRenderer, res: unknown) => {
+    disconnectYouTube.mockResolvedValueOnce(res);
+    await ReactTestRenderer.act(async () => { await byTestId(tree, 'disconnect-youtube').props.onPress(); });
+    await flush();
+  };
+
+  it('HX-3: a linked YouTube row reads "Kokonada doesn\'t use it in this version." and shows "Disconnecting…" while busy', async () => {
+    await withYoutubeLinked(async (tree) => {
+      const shown = texts(tree.toJSON()).join(' ');
+      expect(shown).toContain("Kokonada doesn't use it in this version.");
+      expect(shown).not.toContain('plays it natively');
+      expect(shown).not.toContain('YouTube Music');
+
+      let release: (() => void) | null = null;
+      disconnectYouTube.mockImplementationOnce(() => new Promise((r) => { release = () => r({ ok: true, data: { message: 'YouTube disconnected' } }); }));
+      try {
+        await ReactTestRenderer.act(async () => { byTestId(tree, 'disconnect-youtube').props.onPress(); });
+        const busy = texts(tree.toJSON()).join(' ');
+        expect(busy).toContain('Disconnecting…');
+        expect(busy).not.toContain('Rebuilding');
+        expect(byTestId(tree, 'disconnect-youtube').props.accessibilityState).toEqual({ disabled: true });
+      } finally {
+        await ReactTestRenderer.act(async () => { release?.(); });
+        await flush();
+      }
+    });
+  });
+
+  it('HX-3: a successful YouTube disconnect shows exactly the cleared pair — no track count, no rebuilt library', async () => {
+    await withYoutubeLinked(async (tree, alertSpy) => {
+      // A server deployed before the seal answers with a library count (mobile and backend ship
+      // separately); the alert must never read it. The sealed answer is { message } (DEC-124).
+      await pressDisconnectYouTube(tree, { ok: true, data: { rebuilt: true, provider: 'spotify', library: 240 } });
+      expect(alertSpy.mock.calls).toEqual([['YouTube disconnected', 'Kokonada no longer uses your YouTube account.']]);
+    });
+  });
+
+  it.each([
+    ['a network failure', { ok: false, error: 'network error' }],
+    ['a server error', { ok: false, status: 500, error: 'request failed (500)' }],
+    ['the sealed server keeping a link (409 youtube_link_present)', { ok: false, status: 409, error: 'request failed (409)' }],
+  ])('HX-3: %s shows the failure pair and nothing else, and Disconnect stays', async (_case, res) => {
+    await withYoutubeLinked(async (tree, alertSpy) => {
+      await pressDisconnectYouTube(tree, res);
+      expect(alertSpy.mock.calls).toEqual([['Could not disconnect YouTube', 'Please try again in a moment.']]);
+      expect(byTestId(tree, 'disconnect-youtube')).toBeTruthy();
+    });
+  });
+
+  // HX-3 (compliance MUST NOT; designer §1.3): no YouTube logo or icon on Profile either — neither
+  // the deferred row nor a linked one renders an <Image>. The avatar IS an <Image>, so the screen
+  // count proves the detector sees one; the YouTube rows still count zero.
+  it('HX-3: neither YouTube row renders an <Image> (the avatar proves the detector works)', async () => {
+    const images = (node: ReactTestRenderer.ReactTestInstance) =>
+      node.findAllByType(Image).length + node.findAll((n) => (n.type as unknown) === 'Image').length;
+    const rowTexts = (node: ReactTestRenderer.ReactTestInstance) =>
+      node.findAll((n) => (n.type as unknown) === 'Text').map((n) => texts(n.props.children).join(''));
+    const me = { id: 'u1', displayName: 'Dan', email: 'd@x.io', wearableProvider: null, avatarUrl: 'https://example.invalid/a.png' };
+
+    loadProfile.mockResolvedValue({ me, integrations: { spotifyConnected: false } });
+    const deferred = await render();
+    try {
+      expect(images(deferred.root)).toBe(2); // the avatar: its composite and its host node
+      const label = "YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.";
+      const row = deferred.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityLabel === label)[0];
+      expect(rowTexts(row)).toContain('YouTube');
+      expect(images(row)).toBe(0);
+    } finally { await ReactTestRenderer.act(async () => { deferred.unmount(); }); }
+
+    loadProfile.mockResolvedValue({ me, integrations: { spotifyConnected: false, youtubeConnected: true } });
+    const linked = await render();
+    try {
+      expect(images(linked.root)).toBe(2);
+      // The linked row: the innermost host View holding both the YouTube name and its Disconnect.
+      const holders = linked.root.findAll((n) => (n.type as unknown) === 'View'
+        && n.findAll((m) => m.props.testID === 'disconnect-youtube').length > 0
+        && rowTexts(n).includes('YouTube'));
+      const row = holders[holders.length - 1];
+      expect(rowTexts(row)).toEqual(expect.arrayContaining(['YouTube', "Kokonada doesn't use it in this version.", 'Disconnect']));
+      expect(rowTexts(row)).not.toContain('Spotify');
+      expect(images(row)).toBe(0);
+    } finally { await ReactTestRenderer.act(async () => { linked.unmount(); }); }
+  });
+
+  // HX-3: the title always claimed the row still renders; now it is checked. DEC-122 keeps the row
+  // visible as deferred (DEC-043) until a later hide before iOS — that hide reverses THIS test.
   it('hides the YouTube Disconnect action when YouTube is not connected (the row still renders)', async () => {
     const tree = await render(); // beforeEach integrations has no youtubeConnected
     expect(tree.root.findAll((n) => n.props.testID === 'disconnect-youtube')).toHaveLength(0);
+    const label = "YouTube. Not yet available. Connecting YouTube isn't available in Kokonada yet.";
+    const row = tree.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityLabel === label);
+    expect(row).toHaveLength(1);
+    expect(row[0].props.accessible).toBe(true);
+    expect(row[0].props.accessibilityState).toEqual({ disabled: true });
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

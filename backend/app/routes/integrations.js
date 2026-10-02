@@ -70,7 +70,7 @@ router.get('/spotify/saved-tracks',     getSpotifyTracksSaved);  // ?ids=a,b →
 router.put('/spotify/saved-tracks',     saveSpotifyTracks);      // Like  (Bug 7)
 router.delete('/spotify/saved-tracks',  removeSpotifyTracks);    // Unlike
 
-// YouTube Music (callback registered publicly above)
+// YouTube (callback registered publicly above; connect is sealed in code, DEC-122)
 router.get('/youtube/connect',        youtubeConnect);
 router.delete('/youtube/disconnect',  youtubeDisconnect);
 router.get('/youtube/status',         youtubeStatus);

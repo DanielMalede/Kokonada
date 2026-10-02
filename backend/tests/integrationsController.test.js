@@ -11,6 +11,14 @@ process.env.YOUTUBE_CLIENT_SECRET  = 'yt_client_secret';
 process.env.YOUTUBE_REDIRECT_URI   = 'http://localhost:5000/api/integrations/youtube/callback';
 process.env.MOBILE_DEEP_LINK       = 'kokonada://';
 
+// ── DT-B3 fixture (HX-3, DEC-122): the YouTube connect/callback path is DORMANT ───
+// Production seals it (config/youtubeSeal.js: YOUTUBE_CONNECT_ENABLED = false), and that sealed
+// behaviour is pinned with the REAL module in youtubeSeal.integration.test.js. The youtubeCallback
+// tests in this file cover the dormant code behind the seal, so they run against a fixture that opens
+// ONLY the connect seal; egress stays false, and the disconnect tests do not depend on it. This
+// fixture, the tests that need it and the dormant path are deleted at D (P3, ARCH-012).
+jest.mock('../app/config/youtubeSeal', () => ({ YOUTUBE_CONNECT_ENABLED: true, YOUTUBE_EGRESS_ENABLED: false }));
+
 // ── Mock all external dependencies ────────────────────────────────────────────
 jest.mock('../app/services/spotify', () => ({
   getAuthUrl:             jest.fn(),
@@ -87,7 +95,6 @@ const User               = require('../app/models/User');
 const MusicProfile       = require('../app/models/MusicProfile');
 const ServeEvent         = require('../app/models/ServeEvent');
 const { __fake: redisFake } = require('../app/config/redis');
-const candidatePool      = require('../app/services/selection/candidatePool');
 const { signOauthState } = require('../app/utils/jwt');
 const { getConsentStatus } = require('../app/services/privacy/consent');
 const ctrl               = require('../app/controllers/integrationsController');
@@ -151,10 +158,30 @@ describe('spotifyDisconnect', () => {
   });
 });
 
-describe('youtubeDisconnect — deterministic Spotify-native rebuild', () => {
-  beforeEach(() => jest.clearAllMocks());
+// HX-3 T3 (DEC-122) — the YouTube disconnect is a sealed no-op. REVERSED under the owner's signature
+// (DEC-123 item 3): "a YouTube disconnect no longer rebuilds the profile from Spotify or empties the
+// library. With no link it changes nothing and answers 200." The two tests below that used to pin the
+// rebuild (`rebuilt: true … library: 2`) and the library wipe (`$set: { library: [] }`) now pin that
+// neither happens. With connect sealed no account can hold a link, and a stored one is never dropped
+// without a revoke at Google (BE-022), so a present link answers 409 and is kept. The same behaviour is
+// proven on real MongoDB in youtubeDisconnect.integration.test.js.
+describe('youtubeDisconnect — a sealed no-op (DEC-122; reversed under DEC-123)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    redisFake.__keys.clear();
+  });
 
-  it('clears the YT token, wipes the pool cache, and rebuilds Spotify-only when Spotify remains', async () => {
+  const expectNothingWritten = (user) => {
+    expect(user.save).not.toHaveBeenCalled();
+    expect(user.setToken).not.toHaveBeenCalled();
+    expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
+    expect(MusicProfile.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(MusicProfile.deleteOne).not.toHaveBeenCalled();
+    expect(ServeEvent.deleteMany).not.toHaveBeenCalled();
+    expect(redisFake.__keys.has('pool:user-123:calm')).toBe(true);
+  };
+
+  it('REVERSED: with a YouTube link and Spotify, it no longer clears the link or rebuilds from Spotify — 409, link kept', async () => {
     const user = buildUser({
       youtubeMusicToken: { blob: 'yt' },
       spotifyToken:      { blob: 'sp' },
@@ -162,36 +189,68 @@ describe('youtubeDisconnect — deterministic Spotify-native rebuild', () => {
       getToken: jest.fn((field) => (field === 'spotifyToken' ? { accessToken: 'sp-at' } : null)),
     });
     User.findById.mockResolvedValue(user); // loadUserWithTokens re-loads the full doc
-    musicProfileService.buildProfile.mockResolvedValue({ library: [{ id: 'a' }, { id: 'b' }] });
+    redisFake.__keys.add('pool:user-123:calm');
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
     const res = buildRes();
 
     await ctrl.youtubeDisconnect({ user: { _id: 'user-123' } }, res, jest.fn());
 
-    expect(user.youtubeMusicToken).toBeNull();
-    expect(user.musicProvider).toBe('spotify');
-    expect(candidatePool.invalidateUserPools).toHaveBeenCalledWith('user-123');
-    expect(musicProfileService.buildProfile).toHaveBeenCalledWith('user-123', user);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ rebuilt: true, provider: 'spotify', library: 2 }),
-    );
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: 'youtube_link_present' });
+    expect(user.youtubeMusicToken).toEqual({ blob: 'yt' });
+    expect(user.musicProvider).toBe('youtube');
+    expectNothingWritten(user);
+    expect(err.mock.calls).toEqual([['[youtube] disconnect refused: link present (sealed)']]);
+    err.mockRestore();
   });
 
-  it('does NOT rebuild (clears the library) when no Spotify connection remains', async () => {
+  it('REVERSED: with a YouTube link and no Spotify, it no longer empties the library — 409, link kept', async () => {
     const user = buildUser({ youtubeMusicToken: { blob: 'yt' }, getToken: jest.fn(() => null) });
     User.findById.mockResolvedValue(user);
+    redisFake.__keys.add('pool:user-123:calm');
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
     const res = buildRes();
 
     await ctrl.youtubeDisconnect({ user: { _id: 'user-123' } }, res, jest.fn());
 
-    expect(user.youtubeMusicToken).toBeNull();
-    expect(user.musicProvider).toBeNull();
-    expect(musicProfileService.buildProfile).not.toHaveBeenCalled();
-    expect(MusicProfile.findOneAndUpdate).toHaveBeenCalledWith(
-      { userId: 'user-123' },
-      expect.objectContaining({ $set: expect.objectContaining({ library: [] }) }),
-      expect.any(Object),
-    );
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ rebuilt: false, library: 0 }));
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({ error: 'youtube_link_present' });
+    expect(user.youtubeMusicToken).toEqual({ blob: 'yt' });
+    expect(user.musicProvider).toBeUndefined();
+    expectNothingWritten(user);
+    expect(err).toHaveBeenCalledTimes(1);
+    err.mockRestore();
+  });
+
+  it('with no link and Spotify linked, it changes nothing and answers 200 YouTube disconnected', async () => {
+    const user = buildUser({
+      spotifyToken:  { blob: 'sp' },
+      musicProvider: 'spotify',
+      getToken: jest.fn((field) => (field === 'spotifyToken' ? { accessToken: 'sp-at' } : null)),
+    });
+    User.findById.mockResolvedValue(user);
+    redisFake.__keys.add('pool:user-123:calm');
+    const res = buildRes();
+
+    await ctrl.youtubeDisconnect({ user: { _id: 'user-123' } }, res, jest.fn());
+
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({ message: 'YouTube disconnected' });
+    expect(user.musicProvider).toBe('spotify');
+    expect(user.spotifyToken).toEqual({ blob: 'sp' });
+    expectNothingWritten(user);
+  });
+
+  it('with no link and nothing linked, it changes nothing (the library is not emptied) and answers 200', async () => {
+    const user = buildUser({ getToken: jest.fn(() => null) });
+    User.findById.mockResolvedValue(user);
+    redisFake.__keys.add('pool:user-123:calm');
+    const res = buildRes();
+
+    await ctrl.youtubeDisconnect({ user: { _id: 'user-123' } }, res, jest.fn());
+
+    expect(res.json).toHaveBeenCalledWith({ message: 'YouTube disconnected' });
+    expectNothingWritten(user);
   });
 });
 

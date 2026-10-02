@@ -93,7 +93,7 @@ async function refreshAccessToken(refreshToken) {
 
 async function getValidToken(user) {
   const stored = user.getToken('youtubeMusicToken');
-  if (!stored) throw Object.assign(new Error('YouTube Music not connected'), { statusCode: 400 });
+  if (!stored) throw Object.assign(new Error('YouTube not connected'), { statusCode: 400 });
 
   const bufferMs = 5 * 60 * 1000;
   if (Date.now() < stored.expiresAt - bufferMs) return stored.accessToken;

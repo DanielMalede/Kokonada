@@ -27,10 +27,11 @@ const SWEEP_BATCH = () => Number(process.env.SPOTIFY_ERASURE_SWEEP_BATCH) || 200
 // owed-erasure record (and drops the session playlist ID a pre-HX-2 disconnect left behind); a
 // user who reconnected in the meantime is not touched by that write. Logs are COUNTS only (M10):
 // no title, artist, ID, URI, or user reference.
-// `profile`: 'whole' (the in-app Disconnect — the copy and the declarations say the profile goes,
-// YouTube entries included) or 'spotify-derived' (the daily sweep — a profile the user has since
-// built from YouTube alone holds nothing of Spotify's and is kept; M2). A profile counts as
-// Spotify-derived while it has a Spotify library row or Spotify artist IDs.
+// `profile`: 'whole' (the in-app Disconnect — the copy and the declarations say the whole profile
+// goes; YouTube is sealed in code and imports nothing, DEC-122) or 'spotify-derived' (the daily
+// sweep — a profile the user has since built from YouTube alone holds nothing of Spotify's and is
+// kept; M2). A profile counts as Spotify-derived while it has a Spotify library row or Spotify
+// artist IDs.
 const SPOTIFY_DERIVED_PROFILE = Object.freeze({ $or: [{ 'library.provider': 'spotify' }, { 'knownArtistIds.0': { $exists: true } }] });
 
 async function purgeSpotifyData(userId, { profile = 'whole' } = {}) {

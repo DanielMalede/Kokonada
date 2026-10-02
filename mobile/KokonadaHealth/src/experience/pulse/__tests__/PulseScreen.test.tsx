@@ -43,7 +43,7 @@ import * as RN from 'react-native';
 import { PulseScreen } from '../PulseScreen';
 import { pulseStateStore } from '../pulseStateStore';
 import { warmStore } from '../../../state/store';
-import { colors, space, radius, type ThemeName } from '../../../design/tokens';
+import { colors, space, radius, a11y, type ThemeName } from '../../../design/tokens';
 import { textScrimFill } from '../../../design/auroraSurfaces';
 import { AI_DISCLOSURE_SHORT, MEDICAL_DISCLAIMER, MEDICAL_CONSULT_REMINDER } from '../../../legal/legalCopy';
 import { LegalNote } from '../../../legal/LegalNote';
@@ -281,6 +281,39 @@ describe('PulseScreen — dashboard values, gauges and state headline', () => {
     expect(row!.findAll((n) => isHostView(n) && n.props.accessibilityLabel === 'Health Connect')).toHaveLength(1);
     expect((RN.StyleSheet.flatten(row!.props.style) as any).flexWrap).toBe('wrap');
     await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // HX-3 (designer §1.4): the gauge grid stacks to one column ABOVE a11y.reflowFontScale, the one
+  // threshold the Connect and Profile rows share. Pinned at the boundary and at 2.0, and against a
+  // moved threshold, so a local copy of the number cannot come back.
+  describe('the gauge grid reflows above the shared large-text threshold', () => {
+    let fontScaleSpy: jest.SpyInstance | null = null;
+    let threshold: { restore(): void } | null = null;
+    const atFontScale = (s: number) => { fontScaleSpy = jest.spyOn(RN.PixelRatio, 'getFontScale').mockReturnValue(s); };
+    afterEach(() => { fontScaleSpy?.mockRestore(); fontScaleSpy = null; threshold?.restore(); threshold = null; });
+    const tileBases = (tree: ReactTestRenderer.ReactTestRenderer) =>
+      tree.root.findAll((n) => (n.type as unknown) === 'View' && (RN.StyleSheet.flatten(n.props.style) as any)?.flexBasis !== undefined)
+        .map((n) => (RN.StyleSheet.flatten(n.props.style) as any).flexBasis);
+    const gaugeBasesAt = async (s: number) => {
+      atFontScale(s);
+      await ReactTestRenderer.act(async () => { pulseStateStore.setState(withData() as any); });
+      const tree = await render();
+      const bases = tileBases(tree);
+      await ReactTestRenderer.act(async () => { tree.unmount(); });
+      expect(bases.length).toBeGreaterThan(0); // the scan found the tiles
+      return [...new Set(bases)];
+    };
+
+    it.each([[1.3, '48%'], [2.0, '100%']])('at font scale %s every gauge tile is %s wide', async (s, basis) => {
+      expect(await gaugeBasesAt(s)).toEqual([basis]);
+    });
+
+    it('follows a11y.reflowFontScale, not a local copy of the number', async () => {
+      expect(await gaugeBasesAt(1.5)).toEqual(['100%']); // above the real 1.3
+      fontScaleSpy?.mockRestore();
+      threshold = jest.replaceProperty(a11y as { reflowFontScale: number }, 'reflowFontScale', 1.6);
+      expect(await gaugeBasesAt(1.5)).toEqual(['48%']); // the same scale, under a moved threshold
+    });
   });
 
   it('no live HR → an honest hushed reading, never a dash', async () => {

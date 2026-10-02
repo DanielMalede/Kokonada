@@ -3,8 +3,8 @@
 // visual language and, crucially, whether any connect action is offered at all:
 //
 //   • enabled  — a live connect path (the wearable/health path today).
-//   • deferred — temporarily unavailable, expected back (YouTube: one OAuth-verification
-//                blocker remaining before Google review completes).
+//   • deferred — not connectable in this version, and shown as such (YouTube: connecting it is
+//                sealed on the server in code, DEC-122; the row stays visible as deferred, DEC-043).
 //   • halted   — connecting is not available (Spotify: external constraint, no known fix).
 //
 // A halted/deferred provider offers NO OAuth CTA — the registry deliberately carries no
@@ -34,10 +34,12 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: 'youtube',
-    label: 'YouTube Music',
+    label: 'YouTube',
     kind: 'music',
     state: 'deferred',
-    why: 'Coming once our Google review is complete.',
+    // compliance-auditor cleared copy (HX-3): worded like the Spotify line, differing only in the
+    // time word. No review, no date, no promise. Plain ASCII apostrophe.
+    why: "Connecting YouTube isn't available in Kokonada yet.",
   },
   {
     id: 'wearable',
