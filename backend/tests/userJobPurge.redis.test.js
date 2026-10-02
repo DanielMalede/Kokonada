@@ -258,6 +258,35 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
     expect(await where(job.id)).toEqual({ hash: 0, states: [] });
   });
 
+  // The race the purge must survive: a job it listed as waiting is taken by a worker before it is removed.
+  // BullMQ refuses to remove a locked job (removeJob-2.lua returns 0), and the purge counts it in flight.
+  it('a job a worker takes between the listing and the removal is counted in flight and left to run', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    await enqueue(NAME, payload(USER_A), { removeOnComplete: true, removeOnFail: true });
+    const [jobId] = await redis.lrange(`${R}wait`, 0, -1);
+    const realRemove = Queue.prototype.remove;
+    const spy = jest.spyOn(Queue.prototype, 'remove').mockImplementationOnce(async function takenFirst(...args) {
+      workers = startWorkers({ [NAME]: async () => { await gate; return {}; } });
+      await once(workers[0], 'active');
+      return realRemove.apply(this, args);
+    });
+
+    let out;
+    try {
+      out = await purgeUserJobs(USER_A);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(out).toEqual({ removed: 0, inFlight: 1 });
+    expect(await where(jobId)).toEqual({ hash: 1, states: ['active'] });
+    const completed = once(workers[0], 'completed');
+    release();
+    await completed;
+    expect(await where(jobId)).toEqual({ hash: 0, states: [] });
+  });
+
   it.each([[''], ['   '], [null], [undefined]])('refuses a blank user id (%p) and removes nothing', async (id) => {
     const ids = await seedBacklog();
     const before = (await redis.keys(`${R}*`)).sort();
