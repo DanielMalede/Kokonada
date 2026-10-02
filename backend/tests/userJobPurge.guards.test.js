@@ -144,6 +144,11 @@ describe('account deletion: both paths purge the learning jobs first', () => {
     expect(GDPR_DELETE).toMatch(/learningJobs/);
     expect(GDPR_DELETE).toMatch(/closeQueues\(\)/);
   });
+
+  it('gdpr-delete.js reports a job queue it did not reach, never zero jobs, when REDIS_URL is not set', () => {
+    expect(GDPR_DELETE.match(/if \(!process\.env\.REDIS_URL\)/g)).toHaveLength(2); // dry run and real run
+    expect(GDPR_DELETE).toContain("learningJobs = 'not-reached';");
+  });
 });
 
 // ADR-0015: a Spotify or wearable disconnect keeps the learned preferences (PRIVACY_DECLARATIONS.md,

@@ -96,11 +96,15 @@ async function main() {
       console.log(`[DRY RUN] GDPR deletion for userId: ${userId}`);
 
       // J1 (BE-074): the learning jobs waiting in the job queue, removed first on a real run.
-      try {
-        const jobs = await countUserJobs(userId);
-        console.log(`  ${JOB_QUEUE}: ${jobs.jobs} learning job(s) would be deleted; ${jobs.inFlight} running`);
-      } catch (e) {
-        console.log(`  ${JOB_QUEUE}: learning jobs could not be counted (${errorType(e)})`);
+      if (!process.env.REDIS_URL) {
+        console.log(`  ${JOB_QUEUE}: not reached (REDIS_URL is not set)`);
+      } else {
+        try {
+          const jobs = await countUserJobs(userId);
+          console.log(`  ${JOB_QUEUE}: ${jobs.jobs} learning job(s) would be deleted; ${jobs.inFlight} running`);
+        } catch (e) {
+          console.log(`  ${JOB_QUEUE}: learning jobs could not be counted (${errorType(e)})`);
+        }
       }
 
       const biometricCount    = await BiometricLog.countDocuments({ userId });
@@ -141,13 +145,20 @@ async function main() {
       // the deletes below and write learned preferences back. Best-effort: a failure is reported and
       // audited, and the deletion carries on. A running job is deleted by the queue once it has run.
       let learningJobs;
-      try {
-        const jobs = await purgeUserJobs(userId);
-        learningJobs = jobs.removed;
-        console.log(`  ${JOB_QUEUE}: deleted ${jobs.removed} learning job(s); ${jobs.inFlight} running, deleted by the queue once run`);
-      } catch (e) {
-        learningJobs = 'failed';
-        console.log(`  ${JOB_QUEUE}: learning-jobs purge failed (${errorType(e)})`);
+      if (!process.env.REDIS_URL) {
+        // The purge answers zero without REDIS_URL because the app then enqueues nothing; this script runs
+        // elsewhere, so here it only means the job queue was never looked at.
+        learningJobs = 'not-reached';
+        console.log(`  ${JOB_QUEUE}: not reached (REDIS_URL is not set)`);
+      } else {
+        try {
+          const jobs = await purgeUserJobs(userId);
+          learningJobs = jobs.removed;
+          console.log(`  ${JOB_QUEUE}: deleted ${jobs.removed} learning job(s); ${jobs.inFlight} running, deleted by the queue once run`);
+        } catch (e) {
+          learningJobs = 'failed';
+          console.log(`  ${JOB_QUEUE}: learning-jobs purge failed (${errorType(e)})`);
+        }
       }
 
       const biometricResult = await BiometricLog.deleteMany({ userId });
