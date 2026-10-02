@@ -1,0 +1,54 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The Design Lab (MB-084): merged into the `lab` build type only, never into a build that can
+         be uploaded. The lab is a separate package (com.kokonadahealth + ".lab") that installs beside
+         the real app and holds no account, no network access and no health data, so its evidence
+         captures carry no personal data (OPS-029). scripts/lab/assertManifests.mjs checks the
+         merged result. -->
+
+    <!-- No network: nothing the lab draws can be sent anywhere. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+
+    <!-- No health data. -->
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" tools:node="remove" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" tools:node="remove" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" tools:node="remove" />
+
+    <!-- No Bluetooth heart rate. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+    <!-- rxandroidble (under react-native-ble-plx) declares location for API 23+ as a separate element. -->
+    <uses-permission-sdk-23 android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission-sdk-23 android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+
+    <application>
+      <!-- The real app's entry and its kokonada:// OAuth return: the lab must never catch either. -->
+      <activity android:name=".MainActivity" tools:node="remove" />
+
+      <!-- The Health Connect privacy-policy screen and its Android 14 alias belong to the real app. -->
+      <activity android:name=".PermissionsRationaleActivity" tools:node="remove" />
+      <activity-alias android:name="ViewPermissionUsageActivity" tools:node="remove" />
+
+      <!-- The only way in: an explicit intent with launch arguments (adb or the capture harness).
+           No VIEW / BROWSABLE filter, so no link can open it. -->
+      <activity
+        android:name="com.kokonadahealth.lab.DesignLabActivity"
+        android:label="@string/app_name"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:launchMode="singleTask"
+        android:exported="true"
+        android:theme="@style/AppTheme">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity>
+    </application>
+</manifest>
