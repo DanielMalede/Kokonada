@@ -113,11 +113,13 @@ describe('every job that carries a user id is on a queue the purge erases', () =
 
 describe('BullMQ is reached only through app/queues/ and the worker registry', () => {
   it('no other module in app/ requires bullmq', () => {
+    // An exact list, not a folder: a new file under queues/ could open its own Queue. A subpath, a template
+    // literal or a dynamic import all name `bullmq`, so the word match catches them.
     const users = sourceFiles(APP)
-      .filter((f) => /require\(\s*['"]bullmq['"]\s*\)|from\s+['"]bullmq['"]/.test(read(f)))
-      .map(rel);
-    expect(users.length).toBeGreaterThanOrEqual(2);
-    expect(users.filter((f) => !f.startsWith('queues/') && f !== 'workers/index.js')).toEqual([]);
+      .filter((f) => /\bbullmq\b/.test(stripComments(read(f))))
+      .map(rel)
+      .sort();
+    expect(users).toEqual(['queues/queue.js', 'queues/userJobPurge.js', 'workers/index.js']);
   });
 });
 
