@@ -249,17 +249,30 @@ async function getGrantedConsentVersion(userId, purpose) {
   return latest && latest.status === 'granted' ? latest.consentVersion : 0;
 }
 
-// The read the server gate and the client both consume. staleVersion means the user IS granted
-// but at an older contract version — the client should re-prompt, and the server treats it as
-// not-current (distinct from a first-time "no record" case).
-async function getConsentStatus(userId, purpose) {
-  const latest = await ConsentRecord.latestFor(userId, purpose);
+// The status a latest row stands for. staleVersion means the user IS granted but at an older
+// contract version — the client should re-prompt, and the server treats it as not-current
+// (distinct from a first-time "no record" case).
+function statusOf(latest) {
   const granted = !!latest && latest.status === 'granted';
   return {
     granted,
     currentVersion: CURRENT_CONSENT_VERSION,
     staleVersion: granted && latest.consentVersion < CURRENT_CONSENT_VERSION,
   };
+}
+
+// J2 (BE-087): the same read and the same rule as getConsentStatus, together with the latest row the
+// status was decided from. A caller that asks twice around a write (healthConsentGate.healthWriteFence)
+// compares the rows' _ids: every new row changes it — a withdrawal, a re-grant — even when the status
+// reads the same again.
+async function getConsentState(userId, purpose) {
+  const latest = await ConsentRecord.latestFor(userId, purpose);
+  return { status: statusOf(latest), latest };
+}
+
+// The read the server gate and the client both consume.
+async function getConsentStatus(userId, purpose) {
+  return (await getConsentState(userId, purpose)).status;
 }
 
 module.exports = {
@@ -269,6 +282,7 @@ module.exports = {
   recordConsent,
   withdrawConsent,
   getConsentStatus,
+  getConsentState,
   garminSpecialCategoryAllowed,
   getGrantedConsentVersion,
 };

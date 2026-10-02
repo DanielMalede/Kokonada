@@ -23,7 +23,8 @@ const { MongoMemoryReplSet } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const ConsentRecord = require('../app/models/ConsentRecord');
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
-const { healthProcessingVerdict } = require('../app/services/privacy/healthConsentGate');
+const { healthProcessingVerdict, healthWriteFence } = require('../app/services/privacy/healthConsentGate');
+const User = require('../app/models/User');
 const BiometricLog = require('../app/models/BiometricLog');
 const VitalSample = require('../app/models/VitalSample');
 const { purgeOrphanedAggregates } = require('../app/services/privacy/wearableErasure');
@@ -103,6 +104,26 @@ describe('the consent read goes to the primary even when the connection prefers 
     expect(history).toHaveLength(1);
     expect(consentFinds()).toHaveLength(1);
     expect(consentFinds()[0].address).toBe(primary);
+  });
+
+  // J2 (BE-087, Plan B T1): the state-recompute job asks this gate again right after it has written.
+  // A secondary that has not seen the account's deletion (the User doc goes last) or the withdrawal row
+  // would answer "still there, still granted", and the job would keep what it wrote.
+  it('healthWriteFence reads the account and the consent from the primary', async () => {
+    const user = await User.create({ ssoProvider: 'google', ssoId: 'sso-fence-primary', email: 'fence-primary@example.com' });
+    await ConsentRecord.create({ userId: user._id, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: 1, status: 'granted', grantedAt: new Date() });
+    finds.length = 0;
+    await User.find({}).exec();
+    expect(finds.filter((f) => f.collection === User.collection.collectionName)[0].address).not.toBe(primary); // not vacuous
+    finds.length = 0;
+
+    const out = await healthWriteFence(user._id);
+
+    expect(out.admitted).toBe(true);
+    const userFinds = finds.filter((f) => f.collection === User.collection.collectionName);
+    expect(userFinds).toHaveLength(1);
+    expect(consentFinds().length).toBeGreaterThanOrEqual(1);
+    expect([...userFinds, ...consentFinds()].map((f) => f.address)).toEqual([...userFinds, ...consentFinds()].map(() => primary));
   });
 
   it('the tie read (a full window of rows in one millisecond) reads the primary too', async () => {
