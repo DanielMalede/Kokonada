@@ -62,7 +62,7 @@ function enqueueCalls() {
 
 // Queues whose jobs carry a user id but are NOT erased by the purge, each with its reason.
 const NOT_PURGED = Object.freeze({
-  [QUEUES.STATE_VECTOR_RECOMPUTE]: 'BE-084: the payload is only {userId}, the job is deleted once it has run (baselines.js, metricStore.js), and the job id and return value that reach the events stream are fixed there',
+  [QUEUES.STATE_VECTOR_RECOMPUTE]: 'BE-084 and BE-087 (DEC-126, J2): the payload is only {userId} and the job is deleted once it has run, but a job still delayed (5 s, baselines.js; 60 s, metricStore.js) is not purged by account deletion or withdrawal and, when it runs, re-creates MedicalProfile (upsert, no TTL) and the bio:baseline: (24 h) and bio:affect: (2 h) keys; its job id and return value reach the events stream (BE-084)',
 });
 
 describe('every job that carries a user id is on a queue the purge erases', () => {
