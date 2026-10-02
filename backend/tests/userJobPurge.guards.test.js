@@ -162,4 +162,16 @@ describe('ADR-0015: no disconnect-side module purges learning jobs', () => {
     const src = read(path.join(APP, file));
     expect(src).not.toMatch(/userJobPurge|purgeUserJobs/);
   });
+
+  // The other direction, so a NEW disconnect-side module cannot slip past the list above.
+  it('only account deletion and the health-consent withdrawal import the purge, each from its own controller', () => {
+    const importers = sourceFiles(APP)
+      .filter((f) => /require\(\s*['"](?:\.{1,2}\/)+(?:[\w-]+\/)*userJobPurge['"]\s*\)/.test(stripComments(read(f))))
+      .map(rel)
+      .sort();
+    expect(importers).toEqual(['services/privacy/consent.js', 'services/privacy/erasure.js']);
+    const callers = (name) => sourceFiles(APP).filter((f) => new RegExp(`\\b${name}\\b`).test(stripComments(read(f)))).map(rel).sort();
+    expect(callers('eraseUserChildData')).toEqual(['controllers/authController.js', 'services/privacy/erasure.js']);
+    expect(callers('withdrawConsent')).toEqual(['controllers/consentController.js', 'services/privacy/consent.js']);
+  });
 });
