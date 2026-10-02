@@ -1,4 +1,5 @@
 import { ProfileController } from '../profileController';
+import type { ApiResult } from '../../../net/apiClient';
 import { wipeLocalSession, type SessionTeardownDeps } from '../sessionTeardown';
 import { createCurrentUserStore } from '../../../auth/currentUser';
 
@@ -18,12 +19,26 @@ describe('ProfileController.loadProfile', () => {
 });
 
 describe('ProfileController.disconnectYouTube', () => {
-  it('calls DELETE /youtube/disconnect and returns the rebuild summary', async () => {
-    const apiDelete = jest.fn().mockResolvedValue(okRes({ rebuilt: true, provider: 'spotify', library: 240 }));
+  // REVERSED under DEC-124 (HX-3): this was 'returns the rebuild summary' ({ rebuilt, provider,
+  // library }). Under DEC-122 a YouTube disconnect never rebuilds the library: the sealed server
+  // answers 200 { message: 'YouTube disconnected' } with no link and 409 youtube_link_present with
+  // one. The controller passes the answer through, so the contract lives in its TYPE — the two
+  // compile-time checks below are what tsc holds it to.
+  it("calls DELETE /youtube/disconnect and returns the server's answer as is", async () => {
+    const apiDelete = jest.fn().mockResolvedValue(okRes({ message: 'YouTube disconnected' }));
     const c = new ProfileController({ apiGet: jest.fn(), apiPost: jest.fn(), apiDelete, serverLogout: jest.fn(), clearLocal: jest.fn() } as any);
     const res = await c.disconnectYouTube();
     expect(apiDelete).toHaveBeenCalledWith('/api/integrations/youtube/disconnect');
-    expect(res).toEqual(okRes({ rebuilt: true, provider: 'spotify', library: 240 }));
+    expect(res).toEqual(okRes({ message: 'YouTube disconnected' }));
+
+    // The result is the sealed contract...
+    const sealed: ApiResult<{ message: string }> = res;
+    // ...and nothing more: every key of the success body is listed here, so a key added back
+    // (rebuilt, provider, library) fails to compile.
+    type Body = Extract<Awaited<ReturnType<ProfileController['disconnectYouTube']>>, { ok: true }>['data'];
+    const keys: Record<keyof Body, true> = { message: true };
+    expect(sealed).toBe(res);
+    expect(keys).toEqual({ message: true });
   });
 });
 

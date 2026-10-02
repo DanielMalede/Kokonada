@@ -2,8 +2,9 @@ import { PROVIDERS, providersByKind, type Provider } from '../providers';
 
 // §4 Connect Services provider registry. The registry encodes the HONEST truth of each
 // integration today — Spotify is halted (external 5-user cap, no known fix), YouTube is
-// deferred (one OAuth-verification blocker), a wearable is the one live path. Nothing in
-// the registry may imply a working OAuth connect for a halted/deferred provider.
+// deferred (connecting it is sealed on the server in code, DEC-122, and the row stays visible
+// as deferred, DEC-043), a wearable is the one live path. Nothing in the registry may imply a
+// working OAuth connect for a halted/deferred provider.
 
 describe('connect providers registry', () => {
   const byId = (id: string): Provider | undefined => PROVIDERS.find((p) => p.id === id);
@@ -15,9 +16,13 @@ describe('connect providers registry', () => {
     expect(spotify!.state).toBe('halted');
   });
 
-  it('YouTube Music is a DEFERRED music provider (awaiting Google review)', () => {
+  // RETIRED under DEC-091 (HX-3): the title named the provider "YouTube Music" and the state
+  // "awaiting Google review". Under DEC-122 connecting YouTube is sealed in code; the row is named
+  // "YouTube" and stays visible as deferred (DEC-043).
+  it('YouTube is a DEFERRED music provider named "YouTube" (connecting it is sealed, DEC-122)', () => {
     const youtube = byId('youtube');
     expect(youtube).toBeDefined();
+    expect(youtube!.label).toBe('YouTube');
     expect(youtube!.kind).toBe('music');
     expect(youtube!.state).toBe('deferred');
   });
@@ -46,8 +51,18 @@ describe('connect providers registry', () => {
     expect(spotify.why).not.toMatch(/Spotify has paused/i);
   });
 
-  it('the YouTube reason line states the deferred (Google-review) truth', () => {
-    expect(byId('youtube')!.why).toBe('Coming once our Google review is complete.');
+  // REVERSED under DEC-123, item 4 (HX-3): the reason line was 'Coming once our Google review is
+  // complete.' It is now the compliance-cleared line, worded like the cleared Spotify line so the two
+  // music rows read as a set and differ only in the time word. Plain ASCII apostrophe, as Spotify's.
+  it('the YouTube reason line is the compliance-cleared copy (no review, no promise, no YouTube Music)', () => {
+    const why = byId('youtube')!.why;
+    expect(why).toBe("Connecting YouTube isn't available in Kokonada yet.");
+    expect(why).not.toContain('YouTube Music');
+    expect(why).not.toMatch(/google/i);
+    expect(why).not.toMatch(/review/i);
+    expect(why).not.toMatch(/plays/i);
+    expect(why).not.toMatch(/\d/);
+    expect(why).not.toMatch(/[‘’]/); // never a curly apostrophe
   });
 
   it('NO music provider is connectable today — the registry never implies a live OAuth mint', () => {

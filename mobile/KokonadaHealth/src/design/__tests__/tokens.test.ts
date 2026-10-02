@@ -1,4 +1,4 @@
-import { colors, space, radius, stroke, motion, type, emotionAnchors, glassAlpha, type ColorScheme, type ThemeName } from '../tokens';
+import { colors, space, radius, stroke, motion, type, emotionAnchors, glassAlpha, a11y, type ColorScheme, type ThemeName } from '../tokens';
 import { contrastRatio, passesAA, parseHex, flatten, relativeLuminance, AA_NORMAL, AA_LARGE } from '../contrast';
 import { resolveScheme } from '../theme';
 
@@ -198,6 +198,15 @@ describe('scales are coherent (no magic numbers leak — ascending, deduped)', (
   // (fontLicence.test.ts); the wordmarks read this token, so they follow it with no screen change.
   it('display face is the platform System face: no display font is bundled', () => {
     expect(type.family.display).toBe('System');
+  });
+});
+
+// HX-3 (designer §1.4): ONE named OS font-scale threshold, read by every surface that reflows for
+// large text — the Connect and Profile status-only rows, and Pulse's gauge grid. Above it a layout
+// stacks; at it and below, the layout is the everyday one.
+describe('a11y.reflowFontScale — the one large-text reflow threshold', () => {
+  it('is 1.3: at 1.3 a layout is unchanged, above it the layout reflows', () => {
+    expect(a11y.reflowFontScale).toBe(1.3);
   });
 });
 

@@ -753,19 +753,26 @@ describe('buildProfile', () => {
     }
   });
 
-  it('still backfills genres for NON-Spotify (YouTube) library artists', async () => {
+  // HX-3 T7 — REVERSED (DEC-091; DEC-040, CMP-046): this pinned that a YouTube library artist IS sent
+  // to the LLM genre backfill. YouTube data may not reach an LLM (YouTube Developer Policies III.E.3.b),
+  // so the backfill's allowlist is empty while YOUTUBE_EGRESS_ENABLED is false: the YouTube artist is
+  // not sent, and no genre comes back for it. The mock answers only for the names it is ASKED about,
+  // as the real inferArtistGenres does, so the genreSet assertion cannot pass on a name never sent.
+  // The same claim is proven against the real LLM layer in profileBackfillYoutube.test.js.
+  it('REVERSED: no longer backfills genres for YouTube library artists — the name never reaches the LLM', async () => {
     youtube.paginateLikedVideos.mockResolvedValue([
       { id: 'v1', snippet: { title: 'Song', channelTitle: 'LofiArtist' } },
     ]);
     youtube.fetchVideoTopics.mockResolvedValue([]); // no topic genres → genreSet stays empty
-    geminiEngine.inferArtistGenres.mockResolvedValue({ LofiArtist: ['lo-fi'] });
+    geminiEngine.inferArtistGenres.mockImplementation(async (names = []) =>
+      Object.fromEntries(names.filter((n) => n === 'LofiArtist').map((n) => [n, ['lo-fi']])));
 
     await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
 
-    expect(geminiEngine.inferArtistGenres).toHaveBeenCalled();
     const allNames = geminiEngine.inferArtistGenres.mock.calls.flatMap((c) => c[0] || []);
-    expect(allNames).toContain('LofiArtist');           // YouTube artist IS eligible
-    expect(savedSet().genreSet).toEqual(expect.arrayContaining(['lo-fi']));
+    expect(allNames).not.toContain('LofiArtist');       // YouTube artist is NOT eligible
+    expect(allNames).toEqual([]);
+    expect(savedSet().genreSet).not.toContain('lo-fi');
   });
 
   it('backfill gate is an ALLOWLIST — a provider-less / unknown-provider track is excluded (M3)', async () => {
@@ -787,7 +794,9 @@ describe('buildProfile', () => {
     await buildProfile('user123', makeMockUser({ hasSpotify: false, hasYouTube: true }));
 
     const allNames = geminiEngine.inferArtistGenres.mock.calls.flatMap((c) => c[0] || []);
-    expect(allNames).toContain('YtArtist');        // allowlisted provider
+    // HX-3 T7 — REVERSED under the owner's signature (DEC-123 item 1): "expect(allNames)
+    // .toContain('YtArtist') becomes not.toContain('YtArtist'). No YouTube artist name reaches the LLM."
+    expect(allNames).not.toContain('YtArtist');    // youtube_music is no longer allowlisted (DEC-040)
     expect(allNames).not.toContain('GhostArtist'); // provider-less → excluded (fail-closed)
   });
 

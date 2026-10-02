@@ -1,6 +1,7 @@
 'use strict';
 
-const { cleanYouTubeArtist, parseYouTubeTitle, translateToSpotify } = require('../app/services/crossPlatform');
+const { cleanYouTubeArtist, parseYouTubeTitle, translateToSpotify, _originOf } = require('../app/services/crossPlatform');
+const { YOUTUBE_EGRESS_ENABLED } = require('../app/config/youtubeSeal');
 
 describe('cleanYouTubeArtist', () => {
   it('strips "- Topic", VEVO, and Official Artist Channel', () => {
@@ -27,7 +28,16 @@ describe('parseYouTubeTitle', () => {
 });
 
 describe('translateToSpotify', () => {
-  const yt = (name, artist) => ({ name, artist, uri: null, provider: 'youtube_music' });
+  // A catalogue discovery candidate exactly as discoveryVectorService.find emits it for a no-URI CC0
+  // (mbid:) corpus row: `title` (not `name`), uri:null, isDiscovery:true. HX-3 T5 FIXTURE MOVE: the
+  // cache / order / deadline / one-failure tests below used YouTube rows; under DEC-040's gate a
+  // YouTube row is never searched, so they now run on the rows that still reach the search. Their
+  // assertions are unchanged (DEC-123 item 5, if the resilience-auditor calls these fixtures pins).
+  const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const disc = (title, artist) => ({
+    id: `mbid:${slug(title)}-${slug(artist)}`, recordingKey: `mbid:${slug(title)}-${slug(artist)}`,
+    canonicalKey: `at:${slug(artist)}|${slug(title)}`, uri: null, title, artist, genres: [], isDiscovery: true,
+  });
 
   it('passes through tracks that already have a spotify URI (no search)', async () => {
     const searchFn = jest.fn();
@@ -38,22 +48,24 @@ describe('translateToSpotify', () => {
     expect(searchFn).not.toHaveBeenCalled();
   });
 
-  it('translates a YouTube track to a playable Spotify URI', async () => {
+  // HX-3 T5 — REVERSED (DEC-091; DEC-040): this pinned that a YouTube track IS translated. Spotify
+  // Developer Policy III.5 forbids the YouTube-to-Spotify translation in every state, so the track is
+  // now never searched: it is counted missed and dropped, before its title is even parsed.
+  it('REVERSED: never searches a YouTube track — it is dropped and counted missed (DEC-040)', async () => {
     const searchFn = jest.fn().mockResolvedValue({ id: 's1', uri: 'spotify:track:s1', name: 'Get Lucky', artist: 'Daft Punk' });
-    const { tracks, translated, missed } = await translateToSpotify(
-      [yt('Daft Punk - Get Lucky (Official Video)', 'DaftPunkVEVO')], 'tok', { searchFn },
-    );
-    expect(translated).toBe(1);
-    expect(missed).toBe(0);
-    expect(tracks[0]).toMatchObject({ uri: 'spotify:track:s1', provider: 'spotify', translatedFrom: 'youtube' });
-    expect(searchFn).toHaveBeenCalledWith('tok', { title: 'Get Lucky', artist: 'Daft Punk' });
+    const yt = { name: 'Daft Punk - Get Lucky (Official Video)', artist: 'DaftPunkVEVO', uri: null, provider: 'youtube_music' };
+    const { tracks, translated, missed } = await translateToSpotify([yt], 'tok', { searchFn });
+    expect(translated).toBe(0);
+    expect(missed).toBe(1);
+    expect(tracks).toEqual([]);
+    expect(searchFn).not.toHaveBeenCalled();
   });
 
   it('drops unmatched tracks but keeps the rest, and caches repeat lookups', async () => {
     const searchFn = jest.fn()
       .mockResolvedValueOnce(null)                                                   // miss
       .mockResolvedValue({ id: 's2', uri: 'spotify:track:s2', name: 'A', artist: 'B' });
-    const input = [yt('Unknown Thing', 'Nobody'), yt('A', 'B'), yt('A', 'B')];
+    const input = [disc('Unknown Thing', 'Nobody'), disc('A', 'B'), disc('A', 'B')];
     const { tracks, translated, missed } = await translateToSpotify(input, 'tok', { searchFn });
     expect(missed).toBe(1);
     expect(translated).toBe(2);         // second + third both resolve
@@ -64,7 +76,7 @@ describe('translateToSpotify', () => {
   it('preserves input order in the translated output', async () => {
     const searchFn = jest.fn().mockImplementation((_tok, { title }) =>
       Promise.resolve({ id: title, uri: `spotify:track:${title}`, name: title, artist: 'a' }));
-    const input = [yt('one', 'x'), yt('two', 'y'), yt('three', 'z')];
+    const input = [disc('one', 'x'), disc('two', 'y'), disc('three', 'z')];
     const { tracks } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 8 });
     expect(tracks.map(t => t.name)).toEqual(['one', 'two', 'three']);
   });
@@ -73,32 +85,35 @@ describe('translateToSpotify', () => {
     // A rate-limited Spotify search waits out a large Retry-After and can effectively never
     // return; the whole translation must still resolve at the deadline, not block generation.
     const searchFn = jest.fn().mockImplementation(() => new Promise(() => {})); // never resolves
-    const input = Array.from({ length: 10 }, (_, i) => yt(`Song ${i}`, `A${i}`));
+    const input = Array.from({ length: 10 }, (_, i) => disc(`Song ${i}`, `A${i}`));
     const start = Date.now();
     const { tracks } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 60 });
     expect(Date.now() - start).toBeLessThan(600); // did NOT wait on the stuck in-flight searches
     expect(tracks).toEqual([]);                    // best-effort: nothing resolved in time
+    // Resilience N8: the searches really started. Without this, a gate that wrongly dropped catalogue
+    // rows would return [] too, and the deadline would never have been tested.
+    expect(searchFn).toHaveBeenCalled();
   });
 
   it('still translates everything quickly when searches are fast (deadline not hit)', async () => {
     const searchFn = jest.fn().mockImplementation((_t, { title }) =>
       Promise.resolve({ id: title, uri: `spotify:track:${title}`, name: title, artist: 'a' }));
-    const input = Array.from({ length: 12 }, (_, i) => yt(`Song ${i}`, `A${i}`));
+    const input = Array.from({ length: 12 }, (_, i) => disc(`Song ${i}`, `A${i}`));
     const { translated } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 4, deadlineMs: 9000 });
     expect(translated).toBe(12);
   });
 
-  // Discovery candidates carry `title` (NOT `name`), uri:null, isDiscovery:true — the shape
-  // discoveryVectorService.find emits for a translatable no-URI corpus track.
-  const disc = (title, artist) => ({ title, artist, uri: null, provider: 'youtube_music', isDiscovery: true });
-
-  it('translates a discovery candidate (title, not name) and preserves isDiscovery through the spread', async () => {
-    const searchFn = jest.fn().mockResolvedValue({ id: 'd1', uri: 'spotify:track:d1', name: 'YT Song', artist: 'A' });
-    const { tracks, translated, missed } = await translateToSpotify([disc('YT Song', 'A')], 'tok', { searchFn });
+  // HX-3 T5 — REVERSED (DEC-091; M5, BE-054): the `disc` fixture at this spot was a YouTube row and
+  // the label said `translatedFrom: 'youtube'`. A YouTube row no longer reaches the search, and the
+  // label carries the track's true origin (YouTube Developer Policies III.F.2.b): a catalogue
+  // candidate is `'catalog'`. The fixture is now the catalogue shape defined at the top of this block.
+  it('REVERSED: translates a catalogue discovery candidate (title, not name), labels it catalog, and preserves isDiscovery', async () => {
+    const searchFn = jest.fn().mockResolvedValue({ id: 'd1', uri: 'spotify:track:d1', name: 'Cat Song', artist: 'A' });
+    const { tracks, translated, missed } = await translateToSpotify([disc('Cat Song', 'A')], 'tok', { searchFn });
     expect(translated).toBe(1);
     expect(missed).toBe(0);
-    expect(searchFn).toHaveBeenCalledWith('tok', { title: 'YT Song', artist: 'A' });
-    expect(tracks[0]).toMatchObject({ uri: 'spotify:track:d1', provider: 'spotify', isDiscovery: true, translatedFrom: 'youtube' });
+    expect(searchFn).toHaveBeenCalledWith('tok', { title: 'Cat Song', artist: 'A' });
+    expect(tracks[0]).toMatchObject({ uri: 'spotify:track:d1', provider: 'spotify', isDiscovery: true, translatedFrom: 'catalog' });
   });
 
   it('a search failure for one discovery candidate drops only that one — the sibling and the batch survive, order preserved', async () => {
@@ -114,5 +129,58 @@ describe('translateToSpotify', () => {
     expect(translated).toBe(2);
     expect(tracks.map(t => t.name)).toEqual(['Alpha', 'Zeta']); // Boom dropped; surviving order preserved
     expect(tracks.every(t => t.isDiscovery === true)).toBe(true);
+  });
+});
+
+// HX-3 T5 (DEC-040; compliance M2, M3, M5) — the gate inside translateToSpotify. With the REAL seal
+// (YOUTUBE_EGRESS_ENABLED false), a track is YouTube Content by the ONE shared predicate
+// (utils/youtubeContent.isYoutubeContent): provider youtube_music, or a youtube: uri, recordingKey or
+// canonicalKey, case-insensitively. Such a track is counted missed and skipped BEFORE its title is
+// parsed and before the search, so no YouTube title or channel reaches Spotify. This is also the
+// backstop for a YouTube row carried in from anywhere else (a stale cached pool: NR-2).
+describe('translateToSpotify — the DEC-040 egress gate', () => {
+  const spotifyTrack = { id: 'sp1', uri: 'spotify:track:sp1', name: 'Native', artist: 'S', provider: 'spotify' };
+  const catalogue = { id: 'mbid:m1', recordingKey: 'mbid:m1', canonicalKey: 'at:c|catalogue song', uri: null, title: 'Catalogue Song', artist: 'C', isDiscovery: true };
+  const youtubeShapes = [
+    ['provider youtube_music', { name: 'YT-SENTINEL-1 - Song', artist: 'YT-CHANNEL-1', uri: null, provider: 'youtube_music' }],
+    ['provider in another case', { name: 'YT-SENTINEL-2', artist: 'YT-CHANNEL-2', uri: null, provider: 'YouTube_Music' }],
+    ['a youtube: uri', { title: 'YT-SENTINEL-3', artist: 'YT-CHANNEL-3', uri: 'youtube:vid3' }],
+    ['a youtube: recordingKey', { title: 'YT-SENTINEL-4', artist: 'YT-CHANNEL-4', uri: null, recordingKey: 'youtube:vid4', isDiscovery: true }],
+    ['a YOUTUBE: canonicalKey', { title: 'YT-SENTINEL-5', artist: 'YT-CHANNEL-5', uri: null, canonicalKey: 'YOUTUBE:vid5' }],
+  ];
+  const hit = (_tok, { title, artist }) => Promise.resolve({ id: `s-${title}`, uri: `spotify:track:s-${title}`, name: title, artist });
+
+  it('runs against the real seal', () => {
+    expect(YOUTUBE_EGRESS_ENABLED).toBe(false);
+  });
+
+  it.each(youtubeShapes)('a track with %s is never searched, never parsed into a query, and is dropped as missed', async (_label, yt) => {
+    const searchFn = jest.fn(hit);
+    const { tracks, translated, missed } = await translateToSpotify([yt], 'tok', { searchFn });
+    expect(searchFn).not.toHaveBeenCalled();
+    expect(tracks).toEqual([]);
+    expect(translated).toBe(0);
+    expect(missed).toBe(1);
+  });
+
+  it('a mixed batch: Spotify passes through, the catalogue track is translated and labelled catalog, every YouTube track is dropped — order kept', async () => {
+    const searchFn = jest.fn(hit);
+    const input = [youtubeShapes[0][1], spotifyTrack, youtubeShapes[3][1], catalogue, youtubeShapes[2][1]];
+    const { tracks, translated, missed } = await translateToSpotify(input, 'tok', { searchFn, concurrency: 8 });
+
+    expect(tracks).toHaveLength(2);
+    expect(tracks[0]).toBe(spotifyTrack); // the passthrough is untouched — same object, no search
+    expect(tracks[1]).toMatchObject({ id: 's-Catalogue Song', uri: 'spotify:track:s-Catalogue Song', provider: 'spotify', translatedFrom: 'catalog', isDiscovery: true, recordingKey: 'mbid:m1' });
+    expect(translated).toBe(1);
+    expect(missed).toBe(3);
+    // The ONLY search made is the catalogue track's, and no YouTube string reached any search.
+    expect(searchFn.mock.calls).toEqual([['tok', { title: 'Catalogue Song', artist: 'C' }]]);
+    expect(JSON.stringify(searchFn.mock.calls)).not.toMatch(/YT-SENTINEL|YT-CHANNEL/);
+  });
+
+  it('the label is the true origin: youtube for YouTube Content, catalog for anything else (M5, BE-054)', () => {
+    for (const [, yt] of youtubeShapes) expect(_originOf(yt)).toBe('youtube');
+    expect(_originOf(catalogue)).toBe('catalog');
+    expect(_originOf({ title: 'No identity', artist: 'X', uri: null })).toBe('catalog');
   });
 });

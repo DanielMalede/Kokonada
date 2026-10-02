@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { useTheme } from '../../design/theme';
-import { space, type as typography } from '../../design/tokens';
+import { space, a11y, type as typography } from '../../design/tokens';
 import { ProviderGlyph } from '../connect/ProviderGlyph';
 
 // §10 integration row — the same calm grammar for all four rows (Spotify · YouTube · Wearable ·
@@ -14,6 +14,10 @@ import { ProviderGlyph } from '../connect/ProviderGlyph';
 // composed label. A row WITH an action (Reconnect/Disconnect) keeps the button separately focusable
 // so the row is never one big disabled group — the action is a borderless text button (content
 // .secondary), NOT an underlined link, sized ≥44/48dp via paddingVertical + hitSlop.
+//
+// Large text (HX-3), as on the §4 ProviderRow: above a11y.reflowFontScale the status-only row
+// stacks — the status cluster moves into the column between the name and the reason, and the row
+// aligns to the top. A row with an action keeps its layout (UI-053).
 
 export interface RowAction {
   label: string;
@@ -33,6 +37,7 @@ export interface ProfileIntegrationRowProps {
 
 export function ProfileIntegrationRow({ label, reason, statusWord, connected, action }: ProfileIntegrationRowProps) {
   const { c } = useTheme();
+  const { fontScale } = useWindowDimensions();
 
   const trailing = (
     <View style={styles.trailing} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
@@ -41,11 +46,13 @@ export function ProfileIntegrationRow({ label, reason, statusWord, connected, ac
     </View>
   );
 
-  const glyphAndBody = (
+  // `inColumn` is what sits between the name and the reason: the status cluster, when stacked.
+  const glyphAndBody = (inColumn: React.ReactNode = null) => (
     <>
       <ProviderGlyph label={label} />
       <View style={styles.body}>
         <Text style={[styles.name, { color: connected ? c.content.primary : c.content.secondary }]}>{label}</Text>
+        {inColumn}
         <Text style={[styles.reason, { color: c.content.secondary }]}>{reason}</Text>
       </View>
     </>
@@ -60,7 +67,7 @@ export function ProfileIntegrationRow({ label, reason, statusWord, connected, ac
     const busy = !!action.busy;
     return (
       <View style={styles.row}>
-        {glyphAndBody}
+        {glyphAndBody()}
         {trailing}
         <Pressable
           onPress={action.onPress}
@@ -79,21 +86,23 @@ export function ProfileIntegrationRow({ label, reason, statusWord, connected, ac
   }
 
   // Status-only row: a single accessible group carrying a composed label.
+  const stacked = fontScale > a11y.reflowFontScale;
   return (
     <View
       accessible
       accessibilityLabel={`${label}. ${statusWord}. ${reason}`}
       accessibilityState={{ disabled: !connected }}
-      style={styles.row}
+      style={[styles.row, stacked && styles.rowStacked]}
     >
-      {glyphAndBody}
-      {trailing}
+      {glyphAndBody(stacked ? trailing : null)}
+      {stacked ? null : trailing}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md },
+  rowStacked: { alignItems: 'flex-start' },
   body: { flex: 1, gap: space.xs },
   name: { fontSize: typography.size.body, fontWeight: typography.weight.semibold },
   reason: { fontSize: typography.size.footnote, lineHeight: typography.size.footnote * typography.leading.normal },

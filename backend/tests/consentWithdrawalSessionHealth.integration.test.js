@@ -86,8 +86,8 @@ afterEach(() => { jest.restoreAllMocks(); });
 
 const ago = (ms) => new Date(Date.now() - ms);
 
-async function listener(tag) {
-  return User.create({ ssoProvider: 'google', ssoId: `sso-${tag}`, email: `${tag}@example.com` });
+async function listener(tag, _id) {
+  return User.create({ ...(_id && { _id }), ssoProvider: 'google', ssoId: `sso-${tag}`, email: `${tag}@example.com` });
 }
 // A consent row at an exact time (the history the erasure reads), written straight to the collection.
 async function consentAt(user, status, at) {
@@ -710,14 +710,19 @@ describe('POST /api/consent/withdraw erases the session health data (T5, real ro
   });
 
   it('the line is closed tokens and counts only: no heart rate, band, activity, time or note', async () => {
-    const a = await listener('a');
+    // OPS-092: the line names the user by a random 24-hex ObjectId, which can itself contain "131",
+    // "88" or "77" (the HX-3 merge run failed on user=6abe859a17f0e775a7fbe7e7). This id carries all
+    // three, so the scan below is decided by what the line says, never by the id it happened to get.
+    const a = await listener('a', new mongoose.Types.ObjectId('77a88b131c6abe859a17f0e7'));
     await seedConsentingListener(a);
 
     await withdrawOverHttp(a);
 
     const [line] = withdrawalLines();
     expect(line).toMatch(WITHDRAWAL_LINE);
-    const all = lines.join('\n');
+    // The user id is the line's one random token and WITHDRAWAL_LINE already pins its shape, so it is
+    // masked before the scan; every other character of every line is still searched.
+    const all = lines.join('\n').replace(/user=[0-9a-f]{24}\b/g, 'user=<id>');
     for (const secret of ['131', '88', '77', 'running', 'peak', 'winding down', 'long day', 'edm', 'isrc:']) expect(all).not.toContain(secret);
     expect(all).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
