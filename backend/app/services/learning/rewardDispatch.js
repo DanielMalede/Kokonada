@@ -25,6 +25,14 @@ const { disabled } = require('../../utils/envFlag');
  * only — a Beta delta of ones and zeros. `REWARD_JOB_KEYS` is pinned closed by test because a
  * field added carelessly later is exactly how a vital would get back in.
  *
+ * ── WHAT REDIS KEEPS (J1, BE-074) ───────────────────────────────────────────────────────────
+ *
+ * The verdict is still health-derived (the reward can come from the heart-rate slope, and the bucket
+ * names the band the music targeted), so the job asks to be deleted once it has run, success or
+ * failure (`REWARD_JOB_OPTIONS`), and the worker's failure reason names only the error type. Account
+ * deletion and a withdrawal of health-data consent remove the user's waiting jobs
+ * (queues/userJobPurge.js). docs/PRIVACY_DECLARATIONS.md declares all of it, in its own row.
+ *
  * ── WHAT HAPPENS WITHOUT REDIS ──────────────────────────────────────────────────────────────
  *
  * `enqueue` is a graceful no-op when `REDIS_URL` is unset, so a deployment without Redis simply
@@ -52,6 +60,13 @@ function feedbackDisabled() {
 const REWARD_JOB_KEYS = Object.freeze(['v', 'userId', 'bucket', 'reward', 'posterior', 'novelty', 'weightStep', 'at']);
 
 const REWARD_JOB_VERSION = FEEDBACK_LOOP_VERSION;
+
+/**
+ * J1 (BE-074). The job is deleted once it has run, whether its write succeeded or failed: its payload
+ * is health-derived, and nothing reads a finished job. Pinned on the job itself so it holds whatever
+ * the queue's defaults later become (a job's own options win over the queue's and the worker's).
+ */
+const REWARD_JOB_OPTIONS = Object.freeze({ removeOnComplete: true, removeOnFail: true });
 
 /**
  * Judge one finished play and hand the verdict to the write lane.
@@ -127,7 +142,7 @@ async function dispatchReward({ userId, play, atMs } = {}) {
       // payload already carries, which is the bar §0.2.2 sets for anything crossing Redis.
       weightStep,
       at: atMs,
-    });
+    }, REWARD_JOB_OPTIONS);
 
     return { dispatched: result?.queued === true, reason: result?.reason ?? null, verdict };
   } catch (e) {
@@ -136,4 +151,6 @@ async function dispatchReward({ userId, play, atMs } = {}) {
   }
 }
 
-module.exports = { dispatchReward, feedbackDisabled, FEEDBACK_FLAG, REWARD_JOB_KEYS, REWARD_JOB_VERSION };
+module.exports = {
+  dispatchReward, feedbackDisabled, FEEDBACK_FLAG, REWARD_JOB_KEYS, REWARD_JOB_VERSION, REWARD_JOB_OPTIONS,
+};

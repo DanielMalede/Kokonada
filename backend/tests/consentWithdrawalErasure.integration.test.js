@@ -13,6 +13,9 @@
 // gone under real query semantics — and that a second user's learning is untouched.
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.NODE_ENV = 'test';
+// J1 (BE-074): a withdrawal with a grant on file purges the job queue when REDIS_URL is set. This suite
+// has no Redis (config/redis is mocked below), so it runs without one even if the shell exports it.
+delete process.env.REDIS_URL;
 // Left unset on purpose: the local erasure must complete with NO outbound Garmin call.
 // (best-effort deregistration is flag-gated OFF until API approval).
 

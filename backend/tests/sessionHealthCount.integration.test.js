@@ -471,3 +471,36 @@ describe('structure — read-only by construction, and no drift from the models 
     expect(healthCount.redisPatterns('u1')).toEqual(patternsFor('u1'));
   });
 });
+
+// J1 follow-up (code hygiene). With no retries, a failed connect has already ended the client;
+// disconnecting it again arms ioredis's 2 s close timer on a socket that has already closed, and nothing
+// clears it. In process, main() must return with no ioredis timer still alive.
+describe('an unreachable Redis leaves no ioredis timer behind (in process)', () => {
+  it('main() returns redis=unavailable with no timer from ioredis still alive', async () => {
+    const asyncHooks = require('async_hooks');
+    const alive = new Map();
+    const hook = asyncHooks.createHook({
+      init(id, type) {
+        if (type !== 'Timeout') return;
+        const stack = new Error().stack;
+        if (/node_modules[\\/]ioredis[\\/]/.test(stack)) alive.set(id, stack); // either separator: Windows paths use \
+      },
+      destroy(id) { alive.delete(id); },
+    });
+    const lines = [];
+    hook.enable();
+    let code;
+    try {
+      code = await healthCount.main({
+        env: { MONGO_URI: uri, REDIS_URL: 'redis://127.0.0.1:1', [healthCount.OPERATOR_ENV]: String(A) },
+        out: (line) => lines.push(line),
+      });
+    } finally {
+      hook.disable();
+    }
+
+    expect(code).toBe(0);
+    expect(lines).toContain('S3 account-1 redis=unavailable');
+    expect([...alive.values()]).toEqual([]);
+  });
+});

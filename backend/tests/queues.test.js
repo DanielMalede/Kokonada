@@ -11,6 +11,7 @@ jest.mock('bullmq', () => {
       this.name = name;
       this.opts = opts;
       this.add = jest.fn().mockResolvedValue({ id: 'job-1' });
+      this.close = jest.fn().mockResolvedValue(undefined);
     }
   }
   MockQueue.instances = [];
@@ -152,6 +153,113 @@ describe('shadow audit — queue seam under failure', () => {
       expect.any(String),
       expect.objectContaining({ maxRetriesPerRequest: null, enableOfflineQueue: false })
     );
+  });
+});
+
+// J1 (BE-074). Nothing in the app reads a finished job, and a kept job is a copy of its payload in an
+// unencrypted Redis blob for as long as nobody deletes it. Removal is set at both ends: on every job
+// a producer adds, and on every worker for a job that carries no option of its own (one queued by
+// the code before J1 while a deploy rolls). Real Redis proves the effect in
+// rewardJobRetention.redis.test.js; these pin the wiring.
+describe('J1 (BE-074) — a finished job is not kept', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    delete process.env.REDIS_URL;
+  });
+
+  it('every producer queue deletes a job once it has run, whether it succeeded or failed', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const { Queue } = require('bullmq');
+    const { enqueue, scheduleRepeatable } = require('../app/queues/queue');
+
+    await enqueue('feature-hydration', {});
+    await scheduleRepeatable('session-trim', '30 3 * * *', {});
+
+    expect(Queue.instances).toHaveLength(2);
+    for (const queue of Queue.instances) {
+      expect(queue.opts.defaultJobOptions).toEqual({ removeOnComplete: true, removeOnFail: true });
+    }
+  });
+
+  // `true` is right on a job and WRONG on a worker: BullMQ hands a worker's value to its finish
+  // script unchanged, and the script reads `keepJobs.count` from it (moveToFinished-14.lua).
+  it('every worker deletes a finished job that set nothing itself, as {count: 0} and never as `true`', () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const { Worker } = require('bullmq');
+    const { startWorkers, DEFAULT_PROCESSORS } = require('../app/workers');
+
+    startWorkers(Object.fromEntries(Object.keys(DEFAULT_PROCESSORS).map((name) => [name, jest.fn()])));
+
+    expect(Worker.instances).toHaveLength(Object.keys(DEFAULT_PROCESSORS).length);
+    for (const worker of Worker.instances) {
+      expect(worker.opts.removeOnComplete).toEqual({ count: 0 });
+      expect(worker.opts.removeOnFail).toEqual({ count: 0 });
+    }
+  });
+});
+
+// J1 (BE-074). BullMQ treats a connection it is handed as SHARED and never closes it, so closing a
+// producer queue alone leaves its socket open. A script's exit and a test's teardown need both gone.
+describe('queues/queue closeQueues', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    delete process.env.REDIS_URL;
+  });
+
+  const trackConnections = () => {
+    const IORedis = require('ioredis');
+    const opened = [];
+    IORedis.mockImplementation(() => {
+      const connection = { disconnect: jest.fn() };
+      opened.push(connection);
+      return connection;
+    });
+    return opened;
+  };
+
+  it('closes every producer queue and disconnects the connection each one was handed', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const opened = trackConnections();
+    const { Queue } = require('bullmq');
+    const { enqueue, closeQueues } = require('../app/queues/queue');
+    await enqueue('feature-hydration', {});
+    await enqueue('embedding-build', {});
+
+    await closeQueues();
+
+    expect(Queue.instances).toHaveLength(2);
+    for (const queue of Queue.instances) expect(queue.close).toHaveBeenCalledTimes(1);
+    expect(opened).toHaveLength(2);
+    for (const connection of opened) expect(connection.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('disconnects the connection even when closing the queue fails', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    const opened = trackConnections();
+    const { Queue } = require('bullmq');
+    const { enqueue, closeQueues } = require('../app/queues/queue');
+    await enqueue('feature-hydration', {});
+    Queue.instances[0].close.mockRejectedValueOnce(new Error('Connection is closed.'));
+
+    await expect(closeQueues()).resolves.toBeUndefined();
+
+    expect(opened[0].disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('a later enqueue opens a fresh queue, and closing twice is harmless', async () => {
+    process.env.REDIS_URL = 'redis://example:6379';
+    trackConnections();
+    const { Queue } = require('bullmq');
+    const { enqueue, closeQueues } = require('../app/queues/queue');
+    await enqueue('feature-hydration', {});
+    await closeQueues();
+    await closeQueues();
+
+    await enqueue('feature-hydration', {});
+
+    expect(Queue.instances).toHaveLength(2);
+    expect(Queue.instances[1].add).toHaveBeenCalledTimes(1);
+    expect(Queue.instances[0].close).toHaveBeenCalledTimes(1);
   });
 });
 

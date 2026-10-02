@@ -195,7 +195,8 @@ async function openRedis(url) {
   try {
     await client.connect();
   } catch {
-    client.disconnect();
+    // No retries, so a failed connect has already ended the client. Disconnecting it again would arm
+    // ioredis's 2 s close timer on a socket that has already closed, and nothing would clear it.
     return { redis: UNREACHABLE, close: async () => {} };
   }
   return { redis: client, close: async () => { client.disconnect(); } };

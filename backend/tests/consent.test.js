@@ -38,8 +38,17 @@ jest.mock('../app/services/privacy/sessionHealthErasure', () => ({
   }),
 }));
 
+// J1 (BE-074): withdrawal ALSO removes the learning jobs waiting in the job queue. A FIXTURE change on
+// the same footing as the mocks above: this suite has no Redis, and with REDIS_URL exported the real
+// module would dial it. The jobs are proven gone on real Redis and real Mongo in
+// tests/consentWithdrawalJobs.redis.test.js.
+jest.mock('../app/queues/userJobPurge', () => ({
+  purgeUserJobs: jest.fn().mockResolvedValue({ removed: 0, inFlight: 0 }),
+}));
+
 const ConsentRecord = require('../app/models/ConsentRecord');
 const User = require('../app/models/User');
+const { purgeUserJobs } = require('../app/queues/userJobPurge');
 const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('../app/services/privacy/wearableErasure');
 const { purgeLearnedPersonalization } = require('../app/services/privacy/learningErasure');
 const { eraseSessionHealthOnWithdrawal } = require('../app/services/privacy/sessionHealthErasure');
@@ -340,5 +349,75 @@ describe('withdrawConsent — session health (BE-016)', () => {
 
     expect(withdrawalLine(info)).toMatch(/ learning=skipped rewardEvents=0 personalWeights=0 sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=none$/);
     info.mockRestore();
+  });
+});
+
+// J1 (BE-074). The learning jobs waiting in the job queue go with the learned preferences, under the
+// same gate (a grant on file) and BEFORE them, so a waiting job cannot write them back. Wiring only;
+// the jobs are proven gone on real Redis in tests/consentWithdrawalJobs.redis.test.js.
+describe('withdrawConsent — learning jobs in the job queue (J1)', () => {
+  const grantOnFile = () =>
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: consent.CURRENT_CONSENT_VERSION });
+  const withdrawalLine = (info) => info.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[consent-withdrawal]'));
+  let info;
+  beforeEach(() => { info = jest.spyOn(console, 'info').mockImplementation(() => {}); });
+  afterEach(() => info.mockRestore());
+
+  it('runs once for the user, after the withdrawal row and BEFORE the learned preferences are purged', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(purgeUserJobs).toHaveBeenCalledTimes(1);
+    expect(purgeUserJobs).toHaveBeenCalledWith(USER);
+    expect(ConsentRecord.create.mock.invocationCallOrder[0]).toBeLessThan(purgeUserJobs.mock.invocationCallOrder[0]);
+    expect(purgeUserJobs.mock.invocationCallOrder[0]).toBeLessThan(purgeLearnedPersonalization.mock.invocationCallOrder[0]);
+  });
+
+  it('the line carries learningJobs= with the count, right after providerErasureFailures=', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue(null);
+    purgeUserJobs.mockResolvedValueOnce({ removed: 3, inFlight: 1 });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(withdrawalLine(info)).toContain(' providerErasureFailures=0 learningJobs=3 learning=purged ');
+  });
+
+  it('a user with no grant on file keeps their jobs: not called, and the line says skipped', async () => {
+    ConsentRecord.latestFor.mockResolvedValue(null);
+
+    const result = await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(purgeUserJobs).not.toHaveBeenCalled();
+    expect(result.erasureFailures).toEqual([]);
+    expect(withdrawalLine(info)).toContain(' providerErasureFailures=0 learningJobs=skipped learning=skipped ');
+  });
+
+  it('a failure is its own entry, learning-jobs, and the learned preferences are still purged', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue({ _id: USER, save: jest.fn() });
+    purgeUserJobs.mockRejectedValueOnce(new Error(`connect ECONNREFUSED 10.0.0.7:6379 (${USER})`));
+
+    const result = await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(result.erasureFailures).toEqual(['learning-jobs']);
+    expect(purgeLearnedPersonalization).toHaveBeenCalledWith(USER);
+    const line = withdrawalLine(info);
+    expect(line).toContain(' providerErasureFailures=0 learningJobs=failed learning=purged ');
+    expect(line).not.toContain('10.0.0.7');
+  });
+
+  it('both learning steps failing are reported as two entries, jobs first', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue(null);
+    purgeUserJobs.mockRejectedValueOnce(new Error('down'));
+    purgeLearnedPersonalization.mockRejectedValueOnce(new Error('mongo timeout'));
+
+    const result = await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(result.erasureFailures).toEqual(['learning-jobs', 'learning']);
+    expect(withdrawalLine(info)).toContain(' learningJobs=failed learning=failed ');
   });
 });

@@ -22,6 +22,9 @@ jest.mock('../app/models/RefreshToken',    () => ({ deleteMany: jest.fn().mockRe
 jest.mock('../app/models/UnclassifiedTrack', () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 4 }) }));
 jest.mock('../app/models/ConsentRecord',   () => ({ deleteMany: jest.fn().mockResolvedValue({ deletedCount: 3 }) }));
 jest.mock('../app/utils/userRedisPurge',   () => ({ purgeUserKeys: jest.fn().mockResolvedValue(3) }));
+// J1 (BE-074): the account's learning jobs in the job queue. Mocked like the Redis purge above; the
+// jobs are proven gone on real Redis and real Mongo in accountDeletionJobs.redis.test.js.
+jest.mock('../app/queues/userJobPurge',    () => ({ purgeUserJobs: jest.fn().mockResolvedValue({ removed: 2, inFlight: 0 }) }));
 const mockDisconnectSockets = jest.fn();
 jest.mock('../app/sockets/index', () => ({
   getIo: jest.fn(() => ({ in: jest.fn(() => ({ disconnectSockets: mockDisconnectSockets })) })),
@@ -46,7 +49,10 @@ const ServeEvent      = require('../app/models/ServeEvent');
 const Identity        = require('../app/models/Identity');
 const RefreshToken    = require('../app/models/RefreshToken');
 const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
+const VitalSample     = require('../app/models/VitalSample');
+const ConsentRecord   = require('../app/models/ConsentRecord');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
+const { purgeUserJobs } = require('../app/queues/userJobPurge');
 const { revoke }      = require('../app/utils/tokenDenylist');
 const { deleteAccount }   = require('../app/controllers/authController');
 
@@ -115,6 +121,50 @@ describe('deleteAccount (GDPR hard-delete)', () => {
     await deleteAccount(req, res, jest.fn());
 
     expect(revoke).toHaveBeenCalledWith('jti-1', expect.any(Number));
+  });
+
+  // J1 (BE-074). FIRST: a waiting learning job that ran after the Mongo delete would write the
+  // account's learned preferences back.
+  it('removes the account\'s learning jobs from the job queue before any collection is touched', async () => {
+    await deleteAccount({ user: { _id: userId }, auth: {} }, buildRes(), jest.fn());
+
+    expect(purgeUserJobs).toHaveBeenCalledTimes(1);
+    expect(purgeUserJobs).toHaveBeenCalledWith(userId);
+    const deletes = [BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile,
+      PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]
+      .map((model) => model.deleteMany.mock.invocationCallOrder[0]);
+    expect(deletes.every(Number.isInteger)).toBe(true);
+    expect(purgeUserJobs.mock.invocationCallOrder[0]).toBeLessThan(Math.min(...deletes));
+  });
+
+  describe('when the learning-jobs purge fails (J1, best-effort and reported)', () => {
+    let logged;
+    beforeEach(() => {
+      logged = [];
+      for (const level of ['log', 'info', 'warn', 'error']) {
+        jest.spyOn(console, level).mockImplementation((...args) => { logged.push(args.map(String).join(' ')); });
+      }
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it.each([
+      ['an unreachable Redis', Object.assign(new Error(`connect ECONNREFUSED 10.0.0.7:6379 (${userId})`), { name: 'Error' }), 'Error'],
+      ['the spent budget', Object.assign(new Error('the job queue did not answer within 2500 ms'), { name: 'JobPurgeTimeoutError' }), 'JobPurgeTimeoutError'],
+    ])('%s: the account is still deleted, and one fixed line with no id is logged', async (_why, failure, type) => {
+      purgeUserJobs.mockRejectedValueOnce(failure);
+      const res = buildRes();
+      const next = jest.fn();
+
+      await deleteAccount({ user: { _id: userId }, auth: {} }, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(RewardEvent.deleteMany).toHaveBeenCalledWith({ userId });
+      expect(User.deleteOne).toHaveBeenCalledWith({ _id: userId });
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/permanently deleted/i) }));
+      expect(logged.filter((l) => l.startsWith('[account-deletion]'))).toEqual([`[account-deletion] learning-jobs purge failed (${type})`]);
+      expect(logged.join('\n')).not.toContain(userId);
+      expect(logged.join('\n')).not.toContain('10.0.0.7');
+    });
   });
 
   it('forwards errors to next() and does NOT delete the User when a child delete fails', async () => {

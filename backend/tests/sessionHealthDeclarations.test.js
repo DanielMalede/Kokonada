@@ -175,14 +175,15 @@ describe('round 1: G3, the activity rule after B1, the in-flight pool and the jo
     expect(withdrawalBullet()).toMatch(/a candidate pool \(`pool:`\) left by a playlist generation already running that then fails \(it expires within 12 hours by default\)/);
   });
 
-  it('account deletion is never said to erase the job queue\'s learning jobs', () => {
+  it('account deletion erases the job queue\'s waiting learning jobs, and logs and backups keep their own retention', () => {
     expect(doc()).not.toContain('Deleting the account erases all of it');
     // Round 1 follow-up (regulatory, MUST NOT 3): naming the job queue as the only exception would imply
     // that deletion also reaches the values derived from health data in logs and backups.
     const healthLine = doc().split('\n').find((l) => l.includes('Deleting the account erases it'));
     expect(healthLine).toContain('application logs and any database backups follow their own retention');
     const deletionLine = doc().split('\n').find((l) => l.includes('Users can request data deletion'));
-    expect(deletionLine).toContain('completed learning jobs (`bull:reward-ingest:`)');
+    expect(deletionLine).toContain('the account\'s learning jobs waiting in the job queue (`bull:reward-ingest:`)');
+    expect(deletionLine).not.toMatch(/not yet deleted/);
   });
 });
 
@@ -206,5 +207,79 @@ describe('the learning rows and the Art. 9 section', () => {
     for (const line of statements) {
       expect(line).not.toMatch(/\b(?:erases?|removes?|deletes?|deleted|removed|erased)\s+(?:all|everything)\b|every trace|permanent(?:ly)?|nothing is kept|anonymi[sz]/i);
     }
+  });
+});
+
+// J1 (BE-074, DEC-125): the learning jobs in the job queue. Each statement is what the code does: the
+// removal options (queues/queue.js, workers/index.js, rewardDispatch.js), the purge on account deletion
+// and on a withdrawal with a grant on file (queues/userJobPurge.js), and the token the withdrawal line prints.
+describe('J1: the learning jobs in the job queue', () => {
+  const jobsRow = () => retentionRows().find((l) => l.startsWith('| Learning jobs waiting to be written'));
+
+  it('have their own Retention row: deleted once run, with the options and the token, health-derived, never a heart-rate value', () => {
+    const row = jobsRow();
+    expect(row).toBeDefined();
+    for (const phrase of [
+      '`bull:reward-ingest:`', '**Deleted as soon as the job has run**', '`removeOnComplete`', '`removeOnFail`',
+      'never a heart-rate value', '**health-derived data**', 'names only the error\'s type', 'Deleted with the account',
+      'when a user who had granted health-data consent withdraws it, deleted before the withdrawal answers', '`learningJobs=`',
+    ]) expect(row).toContain(phrase);
+  });
+
+  // J1 round 1 (R3, R4): the whole payload and the whole step, including the shared count that names no user.
+  it('names every field the job carries and what the step writes besides the learned preferences', () => {
+    const row = jobsRow();
+    expect(row).toContain('one job is queued for the step that writes `RewardEvent` and `PersonalWeights` and, for an open-catalogue recording, adds the play\'s outcome to a shared count for that recording that names no user.');
+    expect(row).toContain('a change to the four ranking coefficients, whether a track picked as new to the listener paid off, and, for an open-catalogue (CC0) recording, its identifier and whether the play counted for or against it; never a heart-rate value.');
+  });
+
+  it('names what a deletion or a withdrawal does not reach: the running job, a play that ends meanwhile, an unreachable queue', () => {
+    const row = jobsRow();
+    expect(row).toContain('A job already running when the account is deleted or the consent is withdrawn, queued by a play that ends while either request is processed, or waiting while the job queue cannot be reached or does not answer in time, is deleted once it has run');
+    expect(row).toContain('what it writes to the learned preferences is not removed by that request: it follows the `RewardEvent` and `PersonalWeights` rows above, so for a deleted account it stays under the deleted account\'s ID until it expires, 365 days after the play by default (`BE-028`).');
+  });
+
+  // J1 round 1 (R5): the health bullet points at Retention for every job deletion does not reach, not only a running one.
+  it('the health-data bullet points at Retention for the jobs deletion does not reach and what they write', () => {
+    const healthLine = doc().split('\n').find((l) => l.includes('Deleting the account erases it'));
+    expect(healthLine).toContain('the learning jobs waiting in the job queue (`bull:reward-ingest:`; see **Retention** for the jobs it does not reach and what they write)');
+  });
+
+  it('stands right after the PersonalWeights row', () => {
+    const rows = retentionRows();
+    expect(rows.indexOf(jobsRow())).toBe(rows.findIndex((l) => l.includes('(`PersonalWeights`)')) + 1);
+  });
+
+  it('the token the row names is the one the withdrawal line prints', () => {
+    const src = fs.readFileSync(path.join(APP, 'services/privacy/consent.js'), 'utf8');
+    expect(src).toMatch(/learningJobs=\$\{learningJobs\}/);
+  });
+
+  it('the cache row points at the jobs\' own row', () => {
+    const cache = retentionRows().find((l) => l.startsWith('| User-scoped cache (Redis)'));
+    expect(cache).toContain('The job queue (`bull:`) is not part of this cache; its learning jobs have their own row above.');
+  });
+
+  it('the Play deletion answer says deletion erases the waiting jobs, and no longer that it does not', () => {
+    const line = doc().split('\n').find((l) => l.includes('Users can request data deletion'));
+    expect(line).toContain('user-scoped Redis state and the account\'s learning jobs waiting in the job queue (`bull:reward-ingest:`)');
+    expect(line).toContain('Once a learning job has run, the job queue deletes it.');
+    expect(line).toContain('but what it writes to the learned preferences is not deleted with the account: it stays under the deleted account\'s ID until it expires, 365 days after the play by default (see **Retention**; `BE-028`).');
+    expect(line).not.toContain('keeps no job'); // J1 round 1 (R6′): no completeness word
+    expect(line).not.toMatch(/not yet deleted|J1\) lands/);
+  });
+
+  it('the Art. 9 bullet names the jobs among what withdrawal erases, and not among what it does not remove', () => {
+    const bullet = withdrawalBullet();
+    const keeps = bullet.indexOf('Withdrawal does not remove');
+    expect(keeps).toBeGreaterThan(-1);
+    expect(bullet.indexOf('`bull:reward-ingest:`')).toBeGreaterThan(-1);
+    expect(bullet.indexOf('`bull:reward-ingest:`')).toBeLessThan(keeps);
+    expect(bullet.slice(keeps)).not.toContain('`bull:reward-ingest:`');
+    expect(bullet.slice(keeps)).toContain('a learning job already running when the withdrawal is made, queued by a play that ends while it is processed, or waiting while the job queue cannot be reached or does not answer in time, each deleted by the job queue once it has run, and what such a job writes to the learned preferences, which then follows their own retention (see **Retention**);');
+  });
+
+  it('no statement still says the jobs wait for J1', () => {
+    expect(doc()).not.toMatch(/until BE-074 \(J1\) lands|not yet deleted with the account|completed learning jobs the job queue keeps/);
   });
 });

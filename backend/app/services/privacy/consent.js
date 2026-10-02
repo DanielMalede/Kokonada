@@ -8,6 +8,7 @@ const ConsentRecord = require('../../models/ConsentRecord');
 const User = require('../../models/User');
 const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('./wearableErasure');
 const { purgeLearnedPersonalization } = require('./learningErasure');
+const { purgeUserJobs } = require('../../queues/userJobPurge');
 const { eraseSessionHealthOnWithdrawal } = require('./sessionHealthErasure');
 
 // CROSS-PACKAGE CONTRACT: the mobile client reads this to decide whether an on-file grant is
@@ -161,7 +162,19 @@ async function withdrawConsent(userId, purpose) {
   // be over-erasure of exactly the kind wearableErasure.js's exclusion rationale argues against.
   let learning = 'skipped';
   let learningPurged = { rewardEvents: 0, personalWeights: 0 };
+  // J1 (BE-074): the learning jobs waiting in the job queue (`bull:reward-ingest:`) carry values
+  // derived from the heart rate and are what would write the learned preferences next, so they go
+  // under the same gate and FIRST. Best-effort with its own token, like the learning purge: a job
+  // queue that cannot be reached is reported (`learningJobs=failed`, 'learning-jobs'), never thrown.
+  // A job a worker is already running is deleted by the queue once it has run (queues/userJobPurge.js).
+  let learningJobs = 'skipped';
   if (hadGrantOnFile) {
+    try {
+      learningJobs = String((await purgeUserJobs(userId)).removed);
+    } catch {
+      learningJobs = 'failed';
+      erasureFailures.push('learning-jobs');
+    }
     try {
       learningPurged = await purgeLearnedPersonalization(userId);
       learning = 'purged';
@@ -208,7 +221,7 @@ async function withdrawConsent(userId, purpose) {
   // utils/biometricAudit's values-free access record.
   console.info(
     `[consent-withdrawal] user=${userId} purpose=${purpose} `
-    + `providerErasureFailures=${providerErasureFailures} learning=${learning} `
+    + `providerErasureFailures=${providerErasureFailures} learningJobs=${learningJobs} learning=${learning} `
     + `rewardEvents=${learningPurged.rewardEvents} personalWeights=${learningPurged.personalWeights} `
     + `sessionHealth=${sessionHealth} sessions=${sessionCounts.sessions} sessionTargets=${sessionCounts.sessionTargets} `
     + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys} sessionHealthFailed=${sessionHealthFailed}`,

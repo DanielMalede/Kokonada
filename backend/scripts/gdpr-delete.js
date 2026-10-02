@@ -26,8 +26,14 @@ const RefreshToken    = require('../app/models/RefreshToken');
 const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
 const ConsentRecord   = require('../app/models/ConsentRecord');
 const User            = require('../app/models/User');
-const { connectRedis } = require('../app/config/redis');
+const { connectRedis, getRedis } = require('../app/config/redis');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
+const { purgeUserJobs, countUserJobs } = require('../app/queues/userJobPurge');
+const { closeQueues } = require('../app/queues/queue');
+
+// An error's class name, or 'Error': never its message (a driver message can quote values).
+const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
+const JOB_QUEUE = 'Job queue (bull:reward-ingest:)';
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -89,6 +95,18 @@ async function main() {
     if (dryRun) {
       console.log(`[DRY RUN] GDPR deletion for userId: ${userId}`);
 
+      // J1 (BE-074): the learning jobs waiting in the job queue, removed first on a real run.
+      if (!process.env.REDIS_URL) {
+        console.log(`  ${JOB_QUEUE}: not reached (REDIS_URL is not set)`);
+      } else {
+        try {
+          const jobs = await countUserJobs(userId);
+          console.log(`  ${JOB_QUEUE}: ${jobs.jobs} learning job(s) would be deleted; ${jobs.inFlight} running`);
+        } catch (e) {
+          console.log(`  ${JOB_QUEUE}: learning jobs could not be counted (${errorType(e)})`);
+        }
+      }
+
       const biometricCount    = await BiometricLog.countDocuments({ userId });
       const vitalCount        = await VitalSample.countDocuments({ userId });
       const medicalExists     = await MedicalProfile.findOne({ userId }).lean();
@@ -122,6 +140,26 @@ async function main() {
       console.log('[DRY RUN] No changes made.');
     } else {
       console.log(`GDPR deletion for userId: ${userId}`);
+
+      // J1 (BE-074): FIRST, as in services/privacy/erasure.js, so a waiting learning job cannot run after
+      // the deletes below and write learned preferences back. Best-effort: a failure is reported and
+      // audited, and the deletion carries on. A running job is deleted by the queue once it has run.
+      let learningJobs;
+      if (!process.env.REDIS_URL) {
+        // The purge answers zero without REDIS_URL because the app then enqueues nothing; this script runs
+        // elsewhere, so here it only means the job queue was never looked at.
+        learningJobs = 'not-reached';
+        console.log(`  ${JOB_QUEUE}: not reached (REDIS_URL is not set)`);
+      } else {
+        try {
+          const jobs = await purgeUserJobs(userId);
+          learningJobs = jobs.removed;
+          console.log(`  ${JOB_QUEUE}: deleted ${jobs.removed} learning job(s); ${jobs.inFlight} running, deleted by the queue once run`);
+        } catch (e) {
+          learningJobs = 'failed';
+          console.log(`  ${JOB_QUEUE}: learning-jobs purge failed (${errorType(e)})`);
+        }
+      }
 
       const biometricResult = await BiometricLog.deleteMany({ userId });
       console.log(`  BiometricLog: deleted ${biometricResult.deletedCount} document(s)`);
@@ -189,6 +227,7 @@ async function main() {
       appendAudit({
         userId,
         deleted: {
+          learningJobs,
           biometricLogs:    biometricResult.deletedCount,
           medicalProfile:   medicalResult.deletedCount,
           morningStates:    morningResult.deletedCount,
@@ -207,6 +246,8 @@ async function main() {
       console.log('GDPR deletion complete.');
     }
   } finally {
+    await closeQueues();
+    getRedis()?.disconnect(); // the user-key purge's client is what kept the script alive after "complete"
     await mongoose.disconnect();
   }
 }
