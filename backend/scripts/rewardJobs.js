@@ -73,9 +73,10 @@ async function countFailedEvents(redis) {
 async function countAccounts(redis, db, jobHashes) {
   const owners = new Set();
   for (const key of jobHashes) {
+    const raw = await redis.hget(key, 'data'); // a Redis failure fails the count; it never reads as "no one"
     let owner = null;
     try {
-      owner = JSON.parse(await redis.hget(key, 'data'))?.userId ?? null;
+      owner = JSON.parse(raw)?.userId ?? null;
     } catch {
       owner = null; // an unreadable payload names no one
     }

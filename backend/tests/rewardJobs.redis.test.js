@@ -257,3 +257,15 @@ describeRealRedis('scripts/rewardJobs.js on the backlog the code before J1 left'
     expect(lines[lines.length - 1]).toBe('RESULT zero');
   });
 });
+
+describe('countRewardJobs — a read that fails is never a zero', () => {
+  it('an HGET that fails while counting accounts rejects, so main prints ERROR rather than accounts=0', async () => {
+    const redis = {
+      scan: async () => ['0', ['bull:reward-ingest:1']],
+      zcard: async () => 0, llen: async () => 0, xlen: async () => 0, xrange: async () => [], get: async () => '1',
+      hget: async () => { throw new Error('Connection is closed.'); },
+    };
+    const db = { collection: () => ({ countDocuments: async () => 0 }) };
+    await expect(script.countRewardJobs(redis, { db, env: {} })).rejects.toThrow('Connection is closed.');
+  });
+});
