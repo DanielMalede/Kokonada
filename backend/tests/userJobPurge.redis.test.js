@@ -141,6 +141,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
   let redis;
   const opened = [];
   let workers = [];
+  let release = () => {};
 
   const connect = () => {
     const connection = new IORedis(url, { maxRetriesPerRequest: null });
@@ -154,6 +155,10 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
   });
   beforeEach(() => flushTestDb(redis));
   afterEach(async () => {
+    // A test that failed before releasing its gate leaves a running job, and close() would wait on it
+    // until the hook timed out and leaked the worker's sockets.
+    release();
+    release = () => {};
     for (const worker of workers) {
       await worker.close();
       worker.opts.connection.disconnect();
@@ -241,7 +246,6 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
   });
 
   it('a running job is counted as in flight and left alone; once it has run, the queue deletes it', async () => {
-    let release;
     const gate = new Promise((resolve) => { release = resolve; });
     workers = startWorkers({ [NAME]: async () => { await gate; return {}; } });
     const active = once(workers[0], 'active');
@@ -261,7 +265,6 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
   // The race the purge must survive: a job it listed as waiting is taken by a worker before it is removed.
   // BullMQ refuses to remove a locked job (removeJob-2.lua returns 0), and the purge counts it in flight.
   it('a job a worker takes between the listing and the removal is counted in flight and left to run', async () => {
-    let release;
     const gate = new Promise((resolve) => { release = resolve; });
     await enqueue(NAME, payload(USER_A), { removeOnComplete: true, removeOnFail: true });
     const [jobId] = await redis.lrange(`${R}wait`, 0, -1);
