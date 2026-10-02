@@ -430,13 +430,18 @@ describe('rewardJobs — model-free, on the models\' own collections', () => {
 });
 
 describe('countRewardJobs — a read that fails is never a zero', () => {
-  it('an HGET that fails while counting accounts rejects, so main prints ERROR rather than accounts=0', async () => {
+  // Each read fails on its own: since DEC-127 the timestamp is read before the payload, so a fake that failed
+  // every HGET would reject at the timestamp and pass even with the payload read back inside the try.
+  it.each([['timestamp'], ['data']])('an HGET of %s that fails rejects, so main prints ERROR rather than a false count', async (failing) => {
     const redis = {
       scan: async () => ['0', ['bull:reward-ingest:1']],
       zcard: async () => 0, llen: async () => 0, xlen: async () => 0, xrange: async () => [], get: async () => '1',
-      hget: async () => { throw new Error('Connection is closed.'); },
+      hget: async (_key, field) => {
+        if (field === failing) throw new Error('Connection is closed.');
+        return field === 'timestamp' ? String(Date.UTC(2026, 9, 1)) : JSON.stringify({ userId: 'aaaaaaaaaaaaaaaaaaaaaaaa', at: 1 });
+      },
     };
-    const db = { collection: () => ({ countDocuments: async () => 0 }) };
+    const db = { collection: () => ({ find: () => ({ toArray: async () => [] }) }) };
     await expect(script.countRewardJobs(redis, { db, env: {} })).rejects.toThrow('Connection is closed.');
   });
 });
