@@ -89,6 +89,14 @@ jobs:
       - name: Design-system lint
         run: npm run lint:design-system
         working-directory: mobile/KokonadaHealth
+      # The Design Lab must be ABSENT from every build that can be uploaded (MB-084; Apple 2.3.1(a)
+      # with 2.2; Play Deceptive Behavior). This bundles index.js exactly as the release Gradle task
+      # does (Metro --dev false, then hermesc), scans the JS, the sourcemap and the bytecode for any
+      # lab trace, and runs the same pipeline over index.lab.js as a positive control, so a clean
+      # result means the scan could see the lab. Exit 2 (the check could not run) fails too.
+      - name: Design Lab exclusion
+        run: npm run lab:excluded
+        working-directory: mobile/KokonadaHealth
 
   mobile-android-compile:
     name: Mobile — Android compile check
@@ -118,6 +126,7 @@ jobs:
               - 'mobile/KokonadaHealth/android/**'
               - 'mobile/KokonadaHealth/package.json'
               - 'mobile/KokonadaHealth/package-lock.json'
+              - 'mobile/KokonadaHealth/scripts/lab/**'
               - '.github/workflows/ci.yml'
       - uses: actions/setup-node@v4
         if: steps.changes.outputs.android == 'true'
@@ -141,6 +150,17 @@ jobs:
         # gradlew is committed without the execute bit (authored on Windows), so actions/checkout
         # lays it down non-executable → exit 126. chmod it before invoking.
         run: chmod +x gradlew && ./gradlew :app:processDebugResources :app:compileDebugKotlin :app:compileDebugJavaWithJavac --console=plain
+        working-directory: mobile/KokonadaHealth/android
+      # MB-084: merge the release and lab manifests and compile both variants' Kotlin, then check that
+      # release declares and compiles no Design Lab, and that the lab declares none of the real app
+      # (no MainActivity, network, health or Bluetooth permission, or real-app scheme). The scripts
+      # exit 2 when there is nothing to check, so a skipped merge cannot pass.
+      - name: Design Lab — merged manifests and release classes
+        if: steps.changes.outputs.android == 'true'
+        run: |
+          ./gradlew :app:processReleaseMainManifest :app:processLabMainManifest :app:compileLabKotlin :app:compileReleaseKotlin --console=plain
+          node ../scripts/lab/assertManifests.mjs
+          node ../scripts/lab/assertLabExcluded.mjs --scan app/build/tmp/kotlin-classes/release
         working-directory: mobile/KokonadaHealth/android
 
   # Cheap Ubuntu job whose only purpose is to decide whether the 10x macOS runner is worth
