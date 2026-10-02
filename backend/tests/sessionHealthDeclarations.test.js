@@ -263,7 +263,9 @@ describe('J1: the learning jobs in the job queue', () => {
   it('the Play deletion answer says deletion erases the waiting jobs, and no longer that it does not', () => {
     const line = doc().split('\n').find((l) => l.includes('Users can request data deletion'));
     expect(line).toContain('user-scoped Redis state and the account\'s learning jobs waiting in the job queue (`bull:reward-ingest:`)');
-    expect(line).toContain('The job queue keeps no job that has run');
+    expect(line).toContain('Once a learning job has run, the job queue deletes it.');
+    expect(line).toContain('but what it writes to the learned preferences is not deleted with the account: it stays under the deleted account\'s ID until it expires, 365 days after the play by default (see **Retention**; `BE-028`).');
+    expect(line).not.toContain('keeps no job'); // J1 round 1 (R6′): no completeness word
     expect(line).not.toMatch(/not yet deleted|J1\) lands/);
   });
 
