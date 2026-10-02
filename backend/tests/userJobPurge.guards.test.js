@@ -90,6 +90,25 @@ describe('every job that carries a user id is on a queue the purge erases', () =
     const withUser = new Set(calls.filter((c) => /\buserId\b/.test(c.args)).map((c) => c.queueArg));
     expect(withUser.has('QUEUES.REWARD_INGEST')).toBe(true);
   });
+
+  // A new producer file fails here until someone has checked whether its payload names a user.
+  it('every module that imports the producer seam is a reviewed producer', () => {
+    const importers = sourceFiles(APP)
+      .filter((f) => /require\(\s*['"](?:\.{1,2}\/)+queues\/queue['"]\s*\)/.test(stripComments(read(f))))
+      .map(rel)
+      .sort();
+    expect(importers).toEqual([
+      'index.js',
+      'scripts/backfillEmbeddingV2.js',
+      'scripts/reembedCorpus.js',
+      'services/biosonic/baselines.js',
+      'services/discovery/corpusIngest.js',
+      'services/features/featureService.js',
+      'services/learning/rewardDispatch.js',
+      'services/wearable/metricStore.js',
+      'worker.js',
+    ]);
+  });
 });
 
 describe('BullMQ is reached only through app/queues/ and the worker registry', () => {
