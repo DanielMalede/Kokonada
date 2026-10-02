@@ -31,13 +31,19 @@ function sourceFiles(dir) {
 // Comments mention `enqueue()` in prose; only code counts. (A `//` after a colon is a URL, not a comment.)
 const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-/** Every `enqueue(…)` call in app/ (queue.js itself aside), with its whole argument text. */
+/** Every `enqueue(…)` call in app/ (queue.js itself aside), under its own name or an alias, with its whole argument text. */
 function enqueueCalls() {
   const calls = [];
   for (const file of sourceFiles(APP)) {
     if (file === QUEUE_SRC) continue;
     const src = stripComments(read(file));
-    for (const match of src.matchAll(/(?<![\w$.])enqueue\(/g)) {
+    // The house's injectable default (`enqueueFn = enqueue`, app/scripts/reembedCorpus.js) and a destructuring
+    // rename (`{ enqueue: add }`) call the same function under another name.
+    const names = new Set(['enqueue']);
+    for (const m of src.matchAll(/([A-Za-z_$][\w$]*)\s*=\s*enqueue\b/g)) names.add(m[1]);
+    for (const m of src.matchAll(/\benqueue\s*:\s*([A-Za-z_$][\w$]*)/g)) names.add(m[1]);
+    const call = new RegExp(`(?<![\\w$.])(?:${[...names].map((n) => n.replace(/\$/g, '\\$')).join('|')})\\(`, 'g');
+    for (const match of src.matchAll(call)) {
       const open = match.index + match[0].length;
       let depth = 1;
       let i = open;
