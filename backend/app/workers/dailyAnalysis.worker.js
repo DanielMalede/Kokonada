@@ -10,6 +10,10 @@ const {
 } = require('../agents/runtime/physiology/dailyAnalysis');
 const { localDayIndex } = require('../agents/runtime/physiology/baselineEngine');
 const { readNightHistory } = require('../repositories/sleepHistoryRepo');
+const { existingAccountIds } = require('../services/privacy/accountExistence');
+
+// An error's class name, or 'Error': never its message (a driver message can quote values).
+const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
 
 // A6 — daily analysis, WIRING half (W4-012). Nightly per-user consolidation: refresh baselines
 // (reuse, not a second decrypt-and-fuse path — the stateVector.worker precedent), page the
@@ -72,9 +76,20 @@ async function _priorNights(userId, beforeDate) {
   return readNightHistory(userId, { before: beforeDate, limit: HISTORY_NIGHTS });
 }
 
+// J2 (BE-094, S1): only profiles whose account still exists. A profile under an id with no User doc is a
+// deleted account's leftover (a recompute or a health-data sync that wrote it after the deletion); left in,
+// it would have its baseline re-written, a MorningState row added and a [biometric-access] line logged
+// under the deleted ID every night. Removing it is the daily sweep's job, not this one's. A failed account
+// read fails the run: nobody is processed rather than a leftover being processed (the error's type only).
 async function _eligibleUserIds(limit) {
   const rows = await MedicalProfile.find({}).sort({ _id: 1 }).limit(limit).select('userId');
-  return rows.map((r) => r.userId);
+  let existing;
+  try {
+    existing = await existingAccountIds(rows.map((r) => r.userId));
+  } catch (e) {
+    throw new Error(`[dailyAnalysis] account read failed (${errorType(e)})`);
+  }
+  return rows.map((r) => r.userId).filter((id) => existing.has(String(id)));
 }
 
 async function _processUser(userId, now) {

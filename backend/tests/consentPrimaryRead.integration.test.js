@@ -126,6 +126,22 @@ describe('the consent read goes to the primary even when the connection prefers 
     expect([...userFinds, ...consentFinds()].map((f) => f.address)).toEqual([...userFinds, ...consentFinds()].map(() => primary));
   });
 
+  // J2 (BE-094, S1): the nightly analysis skips a profile whose account is gone. A secondary that has not
+  // yet seen a new account would report it gone, and that user would be skipped as a deleted account.
+  it('existingAccountIds reads the accounts from the primary', async () => {
+    const { existingAccountIds } = require('../app/services/privacy/accountExistence');
+    const user = await User.create({ ssoProvider: 'google', ssoId: 'sso-existence-primary', email: 'existence-primary@example.com' });
+    const gone = new mongoose.Types.ObjectId();
+    finds.length = 0;
+
+    const existing = await existingAccountIds([user._id, gone]);
+
+    expect([...existing]).toEqual([String(user._id)]);
+    const userFinds = finds.filter((f) => f.collection === User.collection.collectionName);
+    expect(userFinds).toHaveLength(1);
+    expect(userFinds[0].address).toBe(primary);
+  });
+
   it('the tie read (a full window of rows in one millisecond) reads the primary too', async () => {
     const userId = new mongoose.Types.ObjectId();
     const at = new Date();
