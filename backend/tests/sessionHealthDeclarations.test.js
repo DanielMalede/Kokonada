@@ -226,10 +226,23 @@ describe('J1: the learning jobs in the job queue', () => {
     ]) expect(row).toContain(phrase);
   });
 
+  // J1 round 1 (R3, R4): the whole payload and the whole step, including the shared count that names no user.
+  it('names every field the job carries and what the step writes besides the learned preferences', () => {
+    const row = jobsRow();
+    expect(row).toContain('one job is queued for the step that writes `RewardEvent` and `PersonalWeights` and, for an open-catalogue recording, adds the play\'s outcome to a shared count for that recording that names no user.');
+    expect(row).toContain('a change to the four ranking coefficients, whether a track picked as new to the listener paid off, and, for an open-catalogue (CC0) recording, its identifier and whether the play counted for or against it; never a heart-rate value.');
+  });
+
   it('names what a deletion or a withdrawal does not reach: the running job, a play that ends meanwhile, an unreachable queue', () => {
     const row = jobsRow();
-    expect(row).toContain('A job already running then, queued by a play that ends while the request is processed, or waiting while the job queue cannot be reached, is deleted once it has run');
-    expect(row).toContain('what it writes to the learned preferences is not removed by that request');
+    expect(row).toContain('A job already running when the account is deleted or the consent is withdrawn, queued by a play that ends while either request is processed, or waiting while the job queue cannot be reached or does not answer in time, is deleted once it has run');
+    expect(row).toContain('what it writes to the learned preferences is not removed by that request: it follows the `RewardEvent` and `PersonalWeights` rows above, so for a deleted account it stays under the deleted account\'s ID until it expires, 365 days after the play by default (`BE-028`).');
+  });
+
+  // J1 round 1 (R5): the health bullet points at Retention for every job deletion does not reach, not only a running one.
+  it('the health-data bullet points at Retention for the jobs deletion does not reach and what they write', () => {
+    const healthLine = doc().split('\n').find((l) => l.includes('Deleting the account erases it'));
+    expect(healthLine).toContain('the learning jobs waiting in the job queue (`bull:reward-ingest:`; see **Retention** for the jobs it does not reach and what they write)');
   });
 
   it('stands right after the PersonalWeights row', () => {
@@ -261,7 +274,7 @@ describe('J1: the learning jobs in the job queue', () => {
     expect(bullet.indexOf('`bull:reward-ingest:`')).toBeGreaterThan(-1);
     expect(bullet.indexOf('`bull:reward-ingest:`')).toBeLessThan(keeps);
     expect(bullet.slice(keeps)).not.toContain('`bull:reward-ingest:`');
-    expect(bullet.slice(keeps)).toContain('a learning job already running when the withdrawal is made');
+    expect(bullet.slice(keeps)).toContain('a learning job already running when the withdrawal is made, queued by a play that ends while it is processed, or waiting while the job queue cannot be reached or does not answer in time, each deleted by the job queue once it has run, and what such a job writes to the learned preferences, which then follows their own retention (see **Retention**);');
   });
 
   it('no statement still says the jobs wait for J1', () => {
