@@ -20,15 +20,24 @@ const { getRedis } = require('../config/redis');
 // AudioFeature cache (`af:<recordingKey>`), the LLM cache (`gemini:<model>:<hash>`) and the
 // token denylist (`revoked:jti:<jti>`, self-expiring revocation records). Purging any
 // of these on a single user's erasure would evict every other user's rows.
+//
+// J2 (BE-094, DT-14): each entry also says how to FIND every user's keys (`scan`, a SCAN MATCH pattern
+// over all users) and whose a found key is (`idOf`). The daily sweep of deleted accounts' data
+// (services/privacy/orphanSweep.js) discovers ids this way, so a key left under a deleted account's id is
+// found even when no Mongo row is.
 const USER_KEY_NAMESPACES = Object.freeze([
-  { name: 'serve-ledger',   pattern: (id) => `ledger:${id}:*` },   // serve-ledger hot windows (global + per-mood)
-  { name: 'candidate-pool', pattern: (id) => `pool:${id}:*` },     // candidate-pool partitions
-  { name: 'live-buffer',    pattern: (id) => `buffer:${id}:*` },   // precompiled live-biometric playlists
-  { name: 'bio-baseline',   pattern: (id) => `bio:baseline:${id}` }, // AAD-bound encrypted baseline blob
+  // serve-ledger hot windows (global + per-mood)
+  { name: 'serve-ledger',   pattern: (id) => `ledger:${id}:*`, scan: 'ledger:*', idOf: (key) => key.split(':')[1] },
+  // candidate-pool partitions
+  { name: 'candidate-pool', pattern: (id) => `pool:${id}:*`, scan: 'pool:*', idOf: (key) => key.split(':')[1] },
+  // precompiled live-biometric playlists
+  { name: 'live-buffer',    pattern: (id) => `buffer:${id}:*`, scan: 'buffer:*', idOf: (key) => key.split(':')[1] },
+  // AAD-bound encrypted baseline blob
+  { name: 'bio-baseline',   pattern: (id) => `bio:baseline:${id}`, scan: 'bio:baseline:*', idOf: (key) => key.slice('bio:baseline:'.length) },
   // W4-006 (§0.4 S5): the carried affect posterior — an AAD-bound encrypted HMM state whose
   // `label` is an INFERRED emotional/physiological state. Self-expires in 2 h, but right-to-
   // erasure means an inference about a person goes when they ask, not when a TTL gets round to it.
-  { name: 'bio-affect',     pattern: (id) => `bio:affect:${id}` },
+  { name: 'bio-affect',     pattern: (id) => `bio:affect:${id}`, scan: 'bio:affect:*', idOf: (key) => key.slice('bio:affect:'.length) },
 ]);
 
 function patternsFor(userId) {

@@ -176,7 +176,7 @@ describe('ADR-0015: no disconnect-side module purges learning jobs', () => {
       .sort();
     expect(importers).toEqual(['services/privacy/consent.js', 'services/privacy/erasure.js']);
     const callers = (name) => sourceFiles(APP).filter((f) => new RegExp(`\\b${name}\\b`).test(stripComments(read(f)))).map(rel).sort();
-    expect(callers('eraseUserChildData')).toEqual(['controllers/authController.js', 'services/privacy/erasure.js']);
+    expect(callers('eraseUserChildData')).toEqual(['controllers/authController.js', 'services/privacy/erasure.js', 'services/privacy/orphanSweep.js']);
     expect(callers('withdrawConsent')).toEqual(['controllers/consentController.js', 'services/privacy/consent.js']);
   });
 });
