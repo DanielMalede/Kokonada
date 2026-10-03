@@ -19,6 +19,11 @@ const { keyedPseudonym } = require('../utils/encryption');
 
 const STATE_JOB_ID_INFO = 'kokonada:job-id:state-vector-recompute:v1';
 
+// THE RESULT (DT-2). BullMQ writes a finished job's return value into the event log next to its id, so a
+// result that varied with what the job found (refused, refreshed, undone) would record a per-pseudonym
+// consent trace. Every job returns this same constant.
+const STATE_JOB_RESULT = Object.freeze({ done: true });
+
 /** `sv-` + 22 base64url characters: the job id for this user's state recompute. */
 function stateVectorJobId(userId) {
   return `sv-${keyedPseudonym(STATE_JOB_ID_INFO, String(userId)).slice(0, 22)}`;
@@ -29,4 +34,6 @@ function stateVectorJobOptions(userId, delay) {
   return { jobId: stateVectorJobId(userId), delay, removeOnComplete: true, removeOnFail: true };
 }
 
-module.exports = { STATE_JOB_ID_INFO, stateVectorJobId, stateVectorJobOptions };
+module.exports = {
+  STATE_JOB_ID_INFO, STATE_JOB_RESULT, stateVectorJobId, stateVectorJobOptions,
+};

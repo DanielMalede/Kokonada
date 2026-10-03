@@ -62,7 +62,7 @@ function resolveHourContext(now, baselines) {
  */
 async function resolveAffect({
   userId, live = {}, baselines = null, state = {}, sleep = {}, taps = null,
-  tzOffsetMinutes = 0, now,
+  tzOffsetMinutes = 0, now, persist = 'background',
 } = {}) {
   if (affectDisabled()) return null;
 
@@ -73,9 +73,16 @@ async function resolveAffect({
       { live, baselines: baselines ?? {}, state, sleep, taps, tzOffsetMinutes },
       { now, states: STATES },
     );
-    // Fire-and-forget: the posterior is a convenience for the NEXT update, and blocking a
-    // response on a cache write trades a real latency budget for a speculative benefit.
-    Promise.resolve(saveAffectState(userId, step.state)).catch(() => {});
+    if (persist === 'await') {
+      // J2 (BE-087, DT-5 W-c): the state-recompute job re-checks consent once it has written and undoes
+      // its writes if the account or the grant is gone. A save still in flight would land AFTER that undo,
+      // so on that lane the save is awaited (saveAffectState never throws).
+      await saveAffectState(userId, step.state);
+    } else {
+      // Fire-and-forget: the posterior is a convenience for the NEXT update, and blocking a
+      // response on a cache write trades a real latency budget for a speculative benefit.
+      Promise.resolve(saveAffectState(userId, step.state)).catch(() => {});
+    }
     return step.affect;
   } catch (e) {
     // Type only — an engine validation message can quote the evidence that failed it, and on this
