@@ -42,6 +42,7 @@ const { encrypt, decrypt } = require('../app/utils/encryption');
 const { translate } = require('../app/services/biosonic/translate');
 const baselines = require('../app/services/biosonic/baselines');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
+const { stateVectorJobId } = require('../app/queues/stateVectorJob');
 
 const sleepMetric = (metric, value) => ({ metric, value, unit: 'min', recordedAt: new Date('2026-07-01T06:00:00Z'), source: 'health_connect' });
 
@@ -63,11 +64,12 @@ describe('ATTACK 1 — full-system regression boundaries', () => {
       // Deterministic jobId + delay = BullMQ coalesces the burst into ONE run;
       // removeOnComplete frees the id so the NEXT batch can re-queue.
       expect(opts).toEqual(expect.objectContaining({
-        jobId: 'state-vector-u1', // BullMQ forbids ':' in custom job ids
+        jobId: stateVectorJobId('u1'),
         delay: expect.any(Number),
         removeOnComplete: true,
         removeOnFail: true,
       }));
+      expect(opts.jobId).toMatch(/^sv-[A-Za-z0-9_-]{22}$/);
     }
   });
 
