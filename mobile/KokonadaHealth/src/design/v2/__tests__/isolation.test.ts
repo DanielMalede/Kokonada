@@ -73,6 +73,17 @@ describe('src/design/v2 imports nothing from outside v2', () => {
     expect(importsLeavingV2(source, path.join(V2, 'color', 'planted.ts'), V2)).toEqual([spec]);
   });
 
+  // v2 and the lab start at zero design-system violations, so the ratchet's baseline must never
+  // hold a key for them: one there would let a violation in v2 be recorded as accepted debt.
+  it('the design-system baseline holds no key under src/design/v2/ or src/design/lab/', () => {
+    const baseline = JSON.parse(fs.readFileSync(path.resolve(V2, '../../../scripts/lint/design-system-baseline.json'), 'utf8'));
+    const keys = Object.keys(baseline.files);
+    expect(keys.length).toBeGreaterThan(0);
+    const exempt = (k: string) => k.startsWith('src/design/v2/') || k.startsWith('src/design/lab/');
+    expect(keys.filter(exempt)).toEqual([]);
+    expect([...keys, 'src/design/v2/color/planted.ts'].filter(exempt)).toEqual(['src/design/v2/color/planted.ts']);
+  });
+
   it('does not flag a package or a path that stays inside v2', () => {
     const source = "import React from 'react';\nimport { a } from './oklab.ts';\nimport { b } from '../motion/ports.ts';";
     expect(importsLeavingV2(source, path.join(V2, 'color', 'x.ts'), V2)).toEqual([]);
