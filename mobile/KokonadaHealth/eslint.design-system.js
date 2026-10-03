@@ -50,5 +50,16 @@ module.exports = {
         'kokonada/no-scale-literals': 'off',
       },
     },
+    {
+      // v2's one exemption, and only this one file: the module scripts/tokens/generate.mjs writes
+      // from design-tokens/*.tokens.json. It is the v2 palette and scales by definition, as
+      // tokens.ts is for v1, and nobody edits it by hand (a freshness test pins it to its sources).
+      // Everything else under src/design/v2/ is enforced, tests included.
+      files: ['src/design/v2/tokens/tokens.generated.ts'],
+      rules: {
+        'kokonada/no-color-literals': 'off',
+        'kokonada/no-scale-literals': 'off',
+      },
+    },
   ],
 };
