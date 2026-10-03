@@ -24,6 +24,7 @@ const mongoose = require('mongoose');
 const PlaylistSession   = require('../app/models/PlaylistSession');
 const ServeEvent        = require('../app/models/ServeEvent');
 const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
+const User              = require('../app/models/User');
 const { process: runJob } = require('../app/workers/sessionTrim.worker');
 
 jest.setTimeout(120000);
@@ -44,7 +45,13 @@ afterAll(async () => {
 beforeEach(async () => {
   delete process.env.SESSION_SENSITIVE_RETENTION_DAYS;
   delete process.env.PROVIDER_CONTENT_RETENTION_DAYS;
-  await Promise.all([PlaylistSession.deleteMany({}), ServeEvent.deleteMany({}), UnclassifiedTrack.deleteMany({})]);
+  await Promise.all([PlaylistSession.deleteMany({}), ServeEvent.deleteMany({}), UnclassifiedTrack.deleteMany({}), User.deleteMany({})]);
+  // J2 (BE-094; fixture F4): the job now also sweeps the data of ids no account carries, so the user these
+  // rows belong to is a real account, as every real user is: one with Spotify linked, since its sessions are
+  // Spotify sessions (an account with them and no link is a disconnect the HX-2 sweep finishes).
+  const account = new User({ _id: userId, ssoProvider: 'google', ssoId: 'sso-session-trim', email: 'session-trim@example.com' });
+  account.setToken('spotifyToken', { accessToken: 'access', refreshToken: 'refresh' });
+  await account.save();
 });
 
 const userId = new mongoose.Types.ObjectId();
@@ -283,7 +290,7 @@ describe('sessionTrim — the [sessionTrim] line is the production check, and ca
     // `... unclassifiedExpired=\d+ spotifyErasures=\d+ failures=\d+$`. The new token sits before
     // `spotifyErasures=`, so the line still ends `spotifyErasures=N failures=N`, which
     // spotifyDisconnectErasure.integration.test.js pins and DEC-119 does not reverse. Still counts only.
-    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ healthErasures=\d+ spotifyErasures=\d+ failures=\d+$/);
+    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ orphanErasures=(?:\d+|refused|disabled) orphanBacklog=\d+ stateEvents=\d+ healthErasures=\d+ spotifyErasures=\d+ failures=\d+$/);
     const all = lines.join('\n');
     for (const secret of ['Song A', 'Artist A', 'trk1', 'isrc:', 'hidden-playlist-1', String(userId)]) {
       expect(all).not.toContain(secret);
@@ -302,5 +309,66 @@ describe('sessionTrim — the [sessionTrim] line is the production check, and ca
     spy.mockRestore(); logSpy.mockRestore(); errSpy.mockRestore();
     expect(await raw(old.id)).toMatchObject(PROVIDER_FIELDS_STRIPPED); // the other steps still ran
     expect(lines.find((l) => l.startsWith('[sessionTrim]'))).toMatch(/failures=1$/);
+  });
+});
+
+// J2 (BE-094, BE-084; Plan B T9 and T10). Two more daily steps, between the provider-content clock and the
+// health sweep: the sweep of deleted accounts' data (services/privacy/orphanSweep.js), whose tokens say
+// whether it ran (`orphanErasures=` a count, `disabled` or `refused`) and how many deleted accounts are
+// left (`orphanBacklog=`, always a real count), and the 24-hour trim of the state-recompute event log
+// (`stateEvents=`; no Redis here, so 0).
+describe('sessionTrim — the sweep of deleted accounts\' data and the state-recompute log trim (J2)', () => {
+  let lines;
+  beforeEach(() => {
+    delete process.env.ORPHAN_SWEEP_DISABLED;
+    lines = [];
+    for (const level of ['log', 'info', 'warn', 'error']) {
+      jest.spyOn(console, level).mockImplementation((...a) => { lines.push(a.map(String).join(' ')); });
+    }
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete process.env.ORPHAN_SWEEP_DISABLED;
+  });
+  const trimLine = () => lines.filter((l) => l.startsWith('[sessionTrim]'));
+  const leftover = (id) => PlaylistSession.collection.insertOne({ userId: id, moodKey: 'calm', createdAt: new Date() });
+
+  it('a deleted account\'s rows are erased in the run; the live account\'s are not; the line counts it', async () => {
+    const gone = new mongoose.Types.ObjectId();
+    await session(5 * DAY);
+    await leftover(gone);
+
+    const res = await runJob();
+
+    expect(res).toEqual(expect.objectContaining({ orphanErasures: 1, orphanBacklog: 0, stateEvents: 0, failures: 0 }));
+    expect(await PlaylistSession.countDocuments({ userId: gone })).toBe(0);
+    expect(await PlaylistSession.countDocuments({ userId })).toBe(1);
+    expect(trimLine()).toHaveLength(1);
+    expect(trimLine()[0]).toContain(' unclassifiedExpired=0 orphanErasures=1 orphanBacklog=0 stateEvents=0 healthErasures=');
+    expect(lines.join('\n')).not.toContain(String(gone));
+  });
+
+  it('disarmed: orphanErasures=disabled and orphanBacklog is the real count; nothing is erased; not a failure', async () => {
+    process.env.ORPHAN_SWEEP_DISABLED = 'true';
+    await session(5 * DAY);
+    await leftover(new mongoose.Types.ObjectId());
+
+    const res = await runJob();
+
+    expect(res).toEqual(expect.objectContaining({ orphanErasures: 'disabled', orphanBacklog: 1, failures: 0 }));
+    expect(await PlaylistSession.countDocuments({})).toBe(2);
+    expect(trimLine()[0]).toContain(' orphanErasures=disabled orphanBacklog=1 stateEvents=0 ');
+    expect(lines).toContain('[orphanSweep] disabled');
+  });
+
+  it('refused: orphanErasures=refused with the real backlog, nothing is erased, and the run fails loudly', async () => {
+    await session(5 * DAY);
+    for (let i = 0; i < 6; i += 1) await leftover(new mongoose.Types.ObjectId());
+
+    await expect(runJob()).rejects.toThrow(/1 step/);
+
+    expect(await PlaylistSession.countDocuments({})).toBe(7);
+    expect(trimLine()[0]).toContain(' orphanErasures=refused orphanBacklog=6 stateEvents=0 ');
+    expect(trimLine()[0]).toMatch(/ failures=1$/);
   });
 });

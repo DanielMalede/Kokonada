@@ -9,6 +9,8 @@ const {
 const unclassifiedRepo = require('../repositories/unclassifiedRepo');
 const { sweepOwedSpotifyErasures } = require('../services/privacy/spotifyErasure');
 const { sweepOwedHealthErasures } = require('../services/privacy/sessionHealthSweep');
+const { nightlyOrphanSweep } = require('../services/privacy/orphanSweep');
+const { trimStateEvents } = require('../queues/stateVectorJob');
 
 // The daily retention job. Two clocks run here:
 //   • T3.1 — the encrypted, re-identifying context (the free-text contextPrompt and the HR
@@ -23,6 +25,13 @@ const { sweepOwedHealthErasures } = require('../services/privacy/sessionHealthSw
 //     finish, and withdrawals made before that erasure existed, are finished here (`healthErasures=`;
 //     services/privacy/sessionHealthSweep.js). It runs after the 30-day trim, so a session the trim
 //     reaches in this run is judged as trimmed in this run. HEALTH_ERASURE_SWEEP_DISABLED stops the backlog; owed erasures still finish.
+//   • J2 (BE-094) — the data a deleted account left behind (rows and keys under an id no User doc carries)
+//     is erased by the house cascade (services/privacy/orphanSweep.js), at most 50 accounts a run:
+//     `orphanErasures=` the count, or `disabled` (the sweep is not armed) or `refused` (its guard refused;
+//     a failed step), and `orphanBacklog=` the deleted accounts still left, always a real count. Before the
+//     health sweep, and before the 05:00 nightly analysis.
+//   • J2 (BE-084, T-a) — the state-recompute event log loses every entry more than 24 hours old by the
+//     Redis server's clock (`stateEvents=`; queues/stateVectorJob.js).
 // Each step runs even if another fails; the run then fails loudly so the worker logs it.
 // The `[sessionTrim]` line (counts only) is the production check that the job ran.
 
@@ -57,6 +66,10 @@ async function processJob() {
     // Backfill BEFORE expiry, so a row that just got its clock is judged by it in the same run.
     ['unclassifiedBackfilled', () => unclassifiedRepo.backfillCreatedAt()],
     ['unclassifiedExpired', () => unclassifiedRepo.expireCreatedBefore(providerCutoff)],
+    // J2 (BE-094): two tokens from one step (the signed P10 places them here, so the line still ends
+    // `healthErasures=N spotifyErasures=N failures=N`).
+    [['orphanErasures', 'orphanBacklog'], () => nightlyOrphanSweep()],
+    ['stateEvents', () => trimStateEvents()],
     // After the 30-day trim (see the BE-016 note above). Before the Spotify sweep, which it does not
     // depend on, so the line still ends `spotifyErasures=N failures=N`.
     ['healthErasures', () => sweepOwedHealthErasures()],
@@ -65,17 +78,20 @@ async function processJob() {
 
   const result = {};
   let failures = 0;
-  for (const [name, run] of steps) {
+  for (const [names, run] of steps) {
+    const tokens = Array.isArray(names) ? names : [names];
     try {
-      // A step returns a count, or { count, failed } when it works through many units (users).
+      // A step returns a count, or { count, failed } when it works through many units (users), or, for a
+      // step with several tokens, { <token>: value, …, failed }.
       const out = await run();
-      result[name] = typeof out === 'number' ? out : (out?.count ?? 0);
+      if (tokens.length > 1) for (const token of tokens) result[token] = out?.[token] ?? 0;
+      else result[tokens[0]] = typeof out === 'number' ? out : (out?.count ?? 0);
       failures += typeof out === 'number' ? 0 : (out?.failed ?? 0);
     } catch (err) {
-      result[name] = 0;
+      for (const token of tokens) result[token] = 0;
       failures += 1;
       // The error NAME only: a driver message can quote the values it choked on.
-      console.error(`[sessionTrim] step ${name} failed (${err?.name || 'Error'})`);
+      console.error(`[sessionTrim] step ${tokens[0]} failed (${err?.name || 'Error'})`);
     }
   }
   result.failures = failures;
