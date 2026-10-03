@@ -21,9 +21,10 @@
 //   • An id found in Redis that cannot be an ObjectId names no account and has no Mongo rows: only its
 //     keys are purged, never the Mongo cascade (its CastError would abort the run). It counts as one of
 //     the run's erasures (`orphanErasures=`).
-//   • ORPHAN_SWEEP_DISABLED (DT-13, house envFlag) stops the nightly run with no deploy; while it is set
-//     the step logs one line, `[orphanSweep] disabled`, and still counts the backlog (read-only). The
-//     operator's one-off clean (DT-12 C-2, the private count tool) calls sweepDeletedAccountOrphans
+//   • The nightly run erases only while ARMED (DT-13), a question asked of one predicate, isSweepArmed,
+//     whose mechanism may change; today ORPHAN_SWEEP_DISABLED (house envFlag) disarms it with no deploy.
+//     Disarmed, the step logs one line, `[orphanSweep] disabled`, and still counts the backlog (read-only).
+//     The operator's one-off clean (DT-12 C-2, the private count tool) calls sweepDeletedAccountOrphans
 //     directly, on the owner's word, bound to the orphan count it recorded: any other count refuses.
 // Lines carry counts and closed tokens only; an orphan's id is a deleted account's id and is never logged.
 
@@ -161,12 +162,21 @@ async function sweepDeletedAccountOrphans({ expectedOrphans } = {}) {
 }
 
 /**
- * The sessionTrim step: `{ orphanErasures, orphanBacklog, failed }`. `orphanErasures` is the count, or
- * `disabled` (the switch is set) or `refused` (the guard refused; a failure for the run). `orphanBacklog`
- * is always the real number of orphans left, counted read-only when the sweep did not run.
+ * DT-13: may the NIGHTLY run erase? The one place that decides, asked by nightlyOrphanSweep and nowhere
+ * else, so a change of mechanism (an opt-in, an arming marker in the database) changes only this body.
+ * Today: armed unless ORPHAN_SWEEP_DISABLED is engaged (house envFlag spelling). Async on purpose.
  */
-async function nightlyOrphanSweep() {
-  if (disabled(process.env[KILL_SWITCH])) {
+async function isSweepArmed() {
+  return !disabled(process.env[KILL_SWITCH]);
+}
+
+/**
+ * The sessionTrim step: `{ orphanErasures, orphanBacklog, failed }`. `orphanErasures` is the count, or
+ * `disabled` (not armed) or `refused` (the guard refused; a failure for the run). `orphanBacklog` is always
+ * the real number of orphans left, counted read-only when the sweep did not run. `isArmed` is injectable.
+ */
+async function nightlyOrphanSweep({ isArmed = isSweepArmed } = {}) {
+  if (!(await isArmed())) {
     console.warn('[orphanSweep] disabled');
     const { orphans } = await discoverOrphans();
     return { orphanErasures: 'disabled', orphanBacklog: orphans.length, failed: 0 };
@@ -186,6 +196,7 @@ module.exports = {
   ORPHAN_SWEEP_CAP,
   KILL_SWITCH,
   OrphanSweepRefused,
+  isSweepArmed,
   discoverOrphans,
   sweepDeletedAccountOrphans,
   nightlyOrphanSweep,

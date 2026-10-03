@@ -51,7 +51,7 @@ const User = require('../app/models/User');
 const { __fake: redis } = require('../app/config/redis');
 const accountExistence = require('../app/services/privacy/accountExistence');
 const {
-  sweepDeletedAccountOrphans, nightlyOrphanSweep, discoverOrphans, OrphanSweepRefused,
+  sweepDeletedAccountOrphans, nightlyOrphanSweep, discoverOrphans, OrphanSweepRefused, isSweepArmed,
   CASCADE_MODELS, ORPHAN_SWEEP_CAP,
 } = require('../app/services/privacy/orphanSweep');
 
@@ -304,6 +304,35 @@ describe('the nightly step (sessionTrim): tokens, the switch, counts only', () =
     await expect(nightlyOrphanSweep()).resolves.toEqual({ orphanErasures: 'disabled', orphanBacklog: 1, failed: 0 });
     expect(await mongoose.models.ServeEvent.countDocuments({})).toBe(3);
     expect(lines.filter((l) => l.startsWith('[orphanSweep]'))).toEqual(['[orphanSweep] disabled']);
+  });
+
+  // DT-13 is being revised (an opt-in, or an arming marker in the database): the step asks ONE predicate,
+  // injectable, so only its implementation changes. Both paths, with the environment saying the opposite.
+  it('the step asks one predicate: disarmed, it deletes nothing and still counts the real backlog', async () => {
+    await seedOne((await account())._id);
+    await seedOne((await account())._id);
+    await seedOne(oid());
+
+    await expect(nightlyOrphanSweep({ isArmed: async () => false })).resolves.toEqual({ orphanErasures: 'disabled', orphanBacklog: 1, failed: 0 });
+    expect(await mongoose.models.ServeEvent.countDocuments({})).toBe(3);
+    expect(lines.filter((l) => l.startsWith('[orphanSweep]'))).toEqual(['[orphanSweep] disabled']);
+  });
+
+  it('the step asks one predicate: armed, it sweeps, whatever the environment says', async () => {
+    process.env.ORPHAN_SWEEP_DISABLED = 'true';
+    await seedOne((await account())._id);
+    await seedOne((await account())._id);
+    await seedOne(oid());
+
+    await expect(nightlyOrphanSweep({ isArmed: async () => true })).resolves.toEqual({ orphanErasures: 1, orphanBacklog: 0, failed: 0 });
+  });
+
+  it('isSweepArmed, today: armed unless ORPHAN_SWEEP_DISABLED is engaged (house envFlag spelling)', async () => {
+    for (const [value, armed] of [[undefined, true], ['', true], ['false', true], ['0', true], ['true', false], ['1', false], ['yes', false]]) {
+      if (value === undefined) delete process.env.ORPHAN_SWEEP_DISABLED;
+      else process.env.ORPHAN_SWEEP_DISABLED = value;
+      await expect(isSweepArmed()).resolves.toBe(armed);
+    }
   });
 
   it('refused: the token says so, the backlog is the real count, and the run counts a failure', async () => {
