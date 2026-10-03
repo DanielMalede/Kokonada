@@ -16,6 +16,8 @@
 // Without ENCRYPTION_KEY it throws, inside each producer's own try, so nothing is queued.
 
 const { keyedPseudonym } = require('../utils/encryption');
+const { QUEUES } = require('./definitions');
+const { createConnection } = require('../config/redis');
 
 const STATE_JOB_ID_INFO = 'kokonada:job-id:state-vector-recompute:v1';
 
@@ -34,6 +36,52 @@ function stateVectorJobOptions(userId, delay) {
   return { jobId: stateVectorJobId(userId), delay, removeOnComplete: true, removeOnFail: true };
 }
 
+// THE EVENT LOG'S TIME BOUND (DT-3 T-a). The log names every job by its pseudonym, and the server can link
+// that back to the account. BullMQ bounds it by count only (QUEUE_EVENTS_MAX_LEN in queue.js, about 100 to
+// 200 entries), so the daily `sessionTrim` job also deletes every entry more than 24 hours old
+// (`stateEvents=`): no entry is kept more than 2 days while that job runs. An entry's id is
+// `<ms>-<seq>` stamped by the REDIS SERVER's clock, so the cut comes from Redis TIME, never the app's
+// clock, and the trim is exact (`XTRIM MINID`, needs Redis 6.2 or later).
+const STATE_EVENTS_KEY = `bull:${QUEUES.STATE_VECTOR_RECOMPUTE}:events`;
+const STATE_EVENTS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// Its own connection, as the job purge has (queues/userJobPurge.js): the log lives in the job queue's
+// Redis, which the app's cache client may not be connected to (app/worker.js never connects it). It fails
+// fast and never waits: no retry, no buffering, a connect timeout, closed after every call.
+const TRIM_CONNECTION = Object.freeze({
+  lazyConnect: true,
+  enableOfflineQueue: false,
+  maxRetriesPerRequest: 1,
+  retryStrategy: () => null,
+  connectTimeout: 1500,
+  disconnectTimeout: 100,
+});
+
+/**
+ * Deletes every state-recompute event-log entry more than 24 hours old by the Redis server's clock.
+ * Returns how many went. Without REDIS_URL nothing can have been queued (enqueue is a no-op): 0, and no
+ * connection is opened. Throws when the job queue cannot be reached, so the daily job counts a failed step.
+ */
+async function trimStateEvents() {
+  if (!process.env.REDIS_URL) return 0;
+  const connection = createConnection(TRIM_CONNECTION);
+  connection.on('error', () => {}); // a failure is reported through the rejection, never as an event
+  try {
+    await connection.connect();
+    const [seconds, micros] = await connection.time();
+    const cut = Number(seconds) * 1000 + Math.floor(Number(micros) / 1000) - STATE_EVENTS_MAX_AGE_MS;
+    return await connection.xtrim(STATE_EVENTS_KEY, 'MINID', cut);
+  } finally {
+    connection.disconnect();
+  }
+}
+
 module.exports = {
-  STATE_JOB_ID_INFO, STATE_JOB_RESULT, stateVectorJobId, stateVectorJobOptions,
+  STATE_JOB_ID_INFO,
+  STATE_JOB_RESULT,
+  STATE_EVENTS_KEY,
+  STATE_EVENTS_MAX_AGE_MS,
+  stateVectorJobId,
+  stateVectorJobOptions,
+  trimStateEvents,
 };
