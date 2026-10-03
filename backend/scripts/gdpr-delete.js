@@ -30,6 +30,7 @@ const { connectRedis, getRedis } = require('../app/config/redis');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
 const { purgeUserJobs, countUserJobs } = require('../app/queues/userJobPurge');
 const { closeQueues } = require('../app/queues/queue');
+const { revokeHealthConsentForDeletion, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
 
 // An error's class name, or 'Error': never its message (a driver message can quote values).
 const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
@@ -120,6 +121,7 @@ async function main() {
       const refreshCount      = await RefreshToken.countDocuments({ userId });
       const unclassifiedCount = await UnclassifiedTrack.countDocuments({ userId });
       const consentCount      = await ConsentRecord.countDocuments({ userId });
+      const latestConsent     = await ConsentRecord.latestFor(userId, HEALTH_CONSENT_PURPOSE);
       const userExists        = await User.findById(userId).lean();
 
       console.log(`  BiometricLog: ${biometricCount} document(s) would be deleted`);
@@ -134,7 +136,7 @@ async function main() {
       console.log(`  Identity: ${identityCount} document(s) would be deleted`);
       console.log(`  RefreshToken: ${refreshCount} document(s) would be deleted`);
       console.log(`  UnclassifiedTrack: ${unclassifiedCount} document(s) would be deleted`);
-      console.log(`  ConsentRecord: ${consentCount} document(s) would be deleted`);
+      console.log(`  ConsentRecord: ${latestConsent?.status === 'granted' ? 'a withdrawal of health-data consent would be recorded first; ' : ''}${consentCount} document(s) would be deleted`);
       console.log(`  User: ${userExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
       console.log('  Redis: user-scoped ledger/pool/baseline keys would be purged');
       console.log('[DRY RUN] No changes made.');
@@ -159,6 +161,18 @@ async function main() {
           learningJobs = 'failed';
           console.log(`  ${JOB_QUEUE}: learning-jobs purge failed (${errorType(e)})`);
         }
+      }
+
+      // J2 (BE-087, DT-6 M1′): then, as in services/privacy/erasure.js, the mark BEFORE any delete: a
+      // withdrawal row when the latest health-consent row is a grant, so a step that re-checks consent
+      // mid-deletion stops processing the account's health data. Best-effort: reported and audited.
+      let consentRevoked;
+      try {
+        consentRevoked = await revokeHealthConsentForDeletion(userId);
+        console.log(`  ConsentRecord: ${consentRevoked === 'revoked' ? 'recorded a withdrawal of health-data consent first' : 'no grant on file, no withdrawal recorded'}`);
+      } catch (e) {
+        consentRevoked = 'failed';
+        console.log(`  ConsentRecord: the withdrawal could not be recorded (${errorType(e)})`);
       }
 
       const biometricResult = await BiometricLog.deleteMany({ userId });
@@ -228,6 +242,7 @@ async function main() {
         userId,
         deleted: {
           learningJobs,
+          consentRevoked,
           biometricLogs:    biometricResult.deletedCount,
           medicalProfile:   medicalResult.deletedCount,
           morningStates:    morningResult.deletedCount,

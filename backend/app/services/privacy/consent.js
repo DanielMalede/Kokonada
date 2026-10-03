@@ -233,6 +233,28 @@ async function withdrawConsent(userId, purpose) {
   return { record, erasureFailures };
 }
 
+// J2 (BE-087, DT-6 M1′): account deletion's mark. Both deletion doors (services/privacy/erasure.js,
+// scripts/gdpr-delete.js) call this after the job purge and before they delete anything. When the latest
+// health-consent row is a grant, it appends a withdrawal row, the same "row first" rule withdrawConsent
+// follows, so every step that re-checks consent (the state-recompute job's fence, the live lane's HX-1 and
+// BE-016 compensations) stops processing the account's health data while it is deleted. The cascade then
+// erases the row with the rest of the history; if the deletion does not finish, the account stays, with
+// its consent withdrawn, until the user grants it again. Returns 'revoked' when it wrote the row, 'none'
+// when the latest row is not a grant (never granted, or already withdrawn). Throws on a read or write
+// error; the caller reports it and carries on.
+async function revokeHealthConsentForDeletion(userId) {
+  const latest = await ConsentRecord.latestFor(userId, HEALTH_CONSENT_PURPOSE);
+  if (latest?.status !== 'granted') return 'none';
+  await ConsentRecord.create({
+    userId,
+    purpose: HEALTH_CONSENT_PURPOSE,
+    consentVersion: CURRENT_CONSENT_VERSION,
+    status: 'withdrawn',
+    withdrawnAt: new Date(),
+  });
+  return 'revoked';
+}
+
 // TRUE once the user has re-consented at (or above) the version where the Garmin lane's
 // special-category processing is lawful. A pure predicate on a version number; a non-number
 // (undefined / null / "no grant" sentinel) reads below the min → fails closed.
@@ -283,6 +305,7 @@ module.exports = {
   withdrawConsent,
   getConsentStatus,
   getConsentState,
+  revokeHealthConsentForDeletion,
   garminSpecialCategoryAllowed,
   getGrantedConsentVersion,
 };

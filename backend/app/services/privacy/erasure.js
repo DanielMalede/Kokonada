@@ -21,6 +21,7 @@ const UnclassifiedTrack = require('../../models/UnclassifiedTrack');
 const ConsentRecord = require('../../models/ConsentRecord');
 const { purgeUserKeys } = require('../../utils/userRedisPurge');
 const { purgeUserJobs } = require('../../queues/userJobPurge');
+const { revokeHealthConsentForDeletion } = require('./consent');
 
 // An error's class name, or 'Error': never its message (a driver message can quote values).
 const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
@@ -48,6 +49,15 @@ async function eraseUserChildData(userId) {
     await purgeUserJobs(userId);
   } catch (err) {
     console.error(`[account-deletion] learning-jobs purge failed (${errorType(err)})`);
+  }
+  // J2 (BE-087, DT-6 M1′): then the mark, BEFORE any delete. ConsentRecord goes in the same Promise.all as
+  // MedicalProfile and the User doc goes last, so without it a step that re-checks consent mid-deletion
+  // reads "granted" and keeps what it wrote. A withdrawal row first (consent.revokeHealthConsentForDeletion)
+  // makes every check read withdrawn from here on. Best-effort like the purge: one fixed line, no id.
+  try {
+    await revokeHealthConsentForDeletion(userId);
+  } catch (err) {
+    console.error(`[account-deletion] consent withdrawal failed (${errorType(err)})`);
   }
   await Promise.all([
     BiometricLog.deleteMany({ userId }),
