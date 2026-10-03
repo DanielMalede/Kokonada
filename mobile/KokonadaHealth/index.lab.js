@@ -3,17 +3,13 @@
  * scripts (scripts/lab), and is never reached from index.js: the release entry's import closure,
  * its Metro bundle and every upload artifact are checked for it (npm run lab:excluded).
  *
+ * LabRoot (MB-085) reads the launch arguments, draws the named scene, and sends READY lines that
+ * carry the sentinel, so the lab bundle always holds it.
+ *
  * @format
  */
 
 import { AppRegistry } from 'react-native';
-import { LAB_SENTINEL } from './src/design/lab/sentinel';
+import { LabRoot } from './src/design/lab/LabRoot';
 
-// MB-085 replaces this placeholder with the lab runtime. Until then the lab renders nothing, and
-// carries the sentinel so the exclusion check's positive control can see the lab bundle.
-function DesignLab() {
-  return null;
-}
-DesignLab.sentinel = LAB_SENTINEL;
-
-AppRegistry.registerComponent('KokonadaLab', () => DesignLab);
+AppRegistry.registerComponent('KokonadaLab', () => LabRoot);
