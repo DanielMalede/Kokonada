@@ -1,0 +1,541 @@
+{
+  "color": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "dark": {
+      "ground": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.17,0.01,60],"alpha":1,"hex":"#130F0A"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "surface1": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.22,0.012,60],"alpha":1,"hex":"#1F1915"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "surface2": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.26,0.013,60],"alpha":1,"hex":"#29231E"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+      "text": {
+        "primary": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.94,0.012,80],"alpha":1,"hex":"#EFEAE2"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+        "secondary": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.73,0.015,75],"alpha":1,"hex":"#ADA79E"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "tertiary": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.64,0.015,70],"alpha":1,"hex":"#928B83"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "onTint": {"$type":"color","$value":"{color.dark.ground}"},
+        "onInk": {"$type":"color","$value":"{color.dark.ground}"}
+      },
+      "line": {
+        "hairline": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.3,0.012,60],"alpha":1,"hex":"#322C28"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "control": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.57,0.015,65],"alpha":1,"hex":"#7E766E"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
+      },
+      "focus": {"$type":"color","$value":"{color.dark.text.primary}"},
+      "plate": {
+        "rim": {
+          "base": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.58,0.015,70],"alpha":1,"hex":"#807971"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+          "lit": {"$type":"color","$value":"{color.dark.plate.rim.base}"}
+        },
+        "ring": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.26,0.013,60],"alpha":1,"hex":"#29231E"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "ringHighlight": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.34,0.012,70],"alpha":1,"hex":"#3C3731"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "face": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.23,0.012,60],"alpha":1,"hex":"#211C17"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
+      },
+      "bead": {
+        "setting": {"$type":"color","$value":"{color.dark.plate.face}"},
+        "neutral": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.72,0,0],"alpha":1,"hex":"#A4A4A4"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "shadow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.17,0.01,60],"alpha":0.5,"hex":"#130F0A"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
+      },
+      "field": {
+        "restGlow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.55,0.035,75],"alpha":1,"hex":"#7E6F5B"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
+      },
+      "nav": {
+        "surface": {"$type":"color","$value":"{color.dark.surface2}"},
+        "activeFill": {"$type":"color","$value":"{color.dark.text.primary}"},
+        "activeLabel": {"$type":"color","$value":"{color.dark.text.onInk}"},
+        "inactive": {"$type":"color","$value":"{color.dark.text.secondary}"}
+      },
+      "avatar": {"fill":{"$type":"color","$value":"{color.dark.surface1}"}}
+    },
+    "light": {
+      "ground": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.965,0.01,80],"alpha":1,"hex":"#F7F3EC"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "surface1": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.99,0.004,80],"alpha":1,"hex":"#FDFBF9"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "surface2": {"$type":"color","$value":{"colorSpace":"oklch","components":[1,0,0],"alpha":1,"hex":"#FFFFFF"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+      "text": {
+        "primary": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.24,0.018,60],"alpha":1,"hex":"#261D17"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+        "secondary": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.45,0.02,65],"alpha":1,"hex":"#5D534A"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "tertiary": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.52,0.02,70],"alpha":1,"hex":"#71675D"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "onTint": {"$type":"color","$value":{"colorSpace":"oklch","components":[1,0,0],"alpha":1,"hex":"#FFFFFF"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "onInk": {"$type":"color","$value":"{color.light.surface1}"}
+      },
+      "line": {
+        "hairline": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.9,0.01,75],"alpha":1,"hex":"#E2DDD7"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "control": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.6,0.02,70],"alpha":1,"hex":"#887E74"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
+      },
+      "focus": {"$type":"color","$value":"{color.light.text.primary}"},
+      "plate": {
+        "rim": {
+          "base": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.6,0.02,70],"alpha":1,"hex":"#887E74"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+          "lit": {"$type":"color","$value":"{color.light.plate.rim.base}"}
+        },
+        "ring": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.975,0.008,80],"alpha":1,"hex":"#FAF6F1"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "ringHighlight": {"$type":"color","$value":{"colorSpace":"oklch","components":[1,0,0],"alpha":1,"hex":"#FFFFFF"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "face": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.99,0.004,80],"alpha":1,"hex":"#FDFBF9"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
+      },
+      "bead": {
+        "setting": {"$type":"color","$value":"{color.light.plate.face}"},
+        "neutral": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.45,0,0],"alpha":1,"hex":"#555555"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
+        "shadow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.24,0.018,60],"alpha":0.25,"hex":"#261D17"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
+      },
+      "field": {
+        "restGlow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.8,0.025,75],"alpha":1,"hex":"#C7BCAC"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
+      },
+      "nav": {
+        "surface": {"$type":"color","$value":"{color.light.surface1}"},
+        "activeFill": {"$type":"color","$value":"{color.light.text.primary}"},
+        "activeLabel": {"$type":"color","$value":"{color.light.text.onInk}"},
+        "inactive": {"$type":"color","$value":"{color.light.text.secondary}"}
+      },
+      "avatar": {"fill":{"$type":"color","$value":"{color.light.surface1}"}}
+    }
+  },
+  "elevation": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "none": {"dark":{"$type":"shadow","$value":[]},"light":{"$type":"shadow","$value":[]}},
+    "e1": {
+      "dark": {"$type":"shadow","$value":[]},
+      "light": {"$type":"shadow","$value":[{"color":{"colorSpace":"oklch","components":[0.24,0.018,60],"alpha":0.06,"hex":"#261D17"},"offsetX":{"value":0,"unit":"px"},"offsetY":{"value":2,"unit":"px"},"blur":{"value":8,"unit":"px"},"spread":{"value":0,"unit":"px"},"inset":false}],"$extensions":{"com.kokonada":{"hex":"v0"}}}
+    },
+    "e2": {
+      "dark": {"$type":"shadow","$value":[]},
+      "light": {"$type":"shadow","$value":[{"color":{"colorSpace":"oklch","components":[0.24,0.018,60],"alpha":0.06,"hex":"#261D17"},"offsetX":{"value":0,"unit":"px"},"offsetY":{"value":10,"unit":"px"},"blur":{"value":24,"unit":"px"},"spread":{"value":0,"unit":"px"},"inset":false},{"color":{"colorSpace":"oklch","components":[0.24,0.018,60],"alpha":0.05,"hex":"#261D17"},"offsetX":{"value":0,"unit":"px"},"offsetY":{"value":2,"unit":"px"},"blur":{"value":4,"unit":"px"},"spread":{"value":0,"unit":"px"},"inset":false}],"$extensions":{"com.kokonada":{"hex":"v0"}}}
+    },
+    "raised": {"dark":{"$type":"shadow","$value":[]},"light":{"$type":"shadow","$value":[]}},
+    "recessed": {"dark":{"$type":"shadow","$value":[]},"light":{"$type":"shadow","$value":[]}}
+  },
+  "plate": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "inset": {"$type":"dimension","$value":{"value":44,"unit":"px"}},
+    "depth": {"$type":"number","$value":6},
+    "shadow": {
+      "dark": {
+        "offsetY": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+        "blur": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+        "strength": {"$type":"number","$value":0}
+      },
+      "light": {
+        "offsetY": {"$type":"dimension","$value":{"value":10,"unit":"px"}},
+        "blur": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+        "strength": {"$type":"number","$value":0.06}
+      }
+    },
+    "shadow2": {
+      "dark": {
+        "offsetY": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+        "blur": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+        "strength": {"$type":"number","$value":0}
+      },
+      "light": {
+        "offsetY": {"$type":"dimension","$value":{"value":2,"unit":"px"}},
+        "blur": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
+        "strength": {"$type":"number","$value":0.05}
+      }
+    },
+    "face": {
+      "vignette": {"dark":{"$type":"number","$value":0},"light":{"$type":"number","$value":0}},
+      "centreLift": {"dark":{"$type":"number","$value":0},"light":{"$type":"number","$value":0}}
+    },
+    "rim": {"light":{"$type":"number","$value":0}},
+    "ringHighlightArc": {"$type":"number","$value":180},
+    "labelBand": {"min":{"$type":"dimension","$value":{"value":28,"unit":"px"}}}
+  },
+  "bead": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "diameter": {"$type":"dimension","$value":{"value":18,"unit":"px"}},
+    "chromaScale": {"$type":"number","$value":0.85},
+    "highlight": {
+      "mix": {"$type":"number","$value":0.3},
+      "radius": {"$type":"number","$value":0.8},
+      "offsetX": {"$type":"number","$value":-0.25},
+      "offsetY": {"$type":"number","$value":-0.3}
+    },
+    "shadow": {
+      "offsetY": {"$type":"dimension","$value":{"value":2,"unit":"px"}},
+      "blur": {"$type":"dimension","$value":{"value":4,"unit":"px"}}
+    },
+    "setting": {"width":{"$type":"dimension","$value":{"value":1.5,"unit":"px"}}}
+  },
+  "field": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "mask": {
+      "outside": {"$type":"number","$value":1},
+      "face": {"$type":"number","$value":0},
+      "ring": {"$type":"number","$value":0},
+      "moat": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+      "moatFeather": {"$type":"dimension","$value":{"value":32,"unit":"px"}},
+      "quietFeather": {"$type":"dimension","$value":{"value":56,"unit":"px"}}
+    },
+    "K": {"dark":{"$type":"number","$value":0.57},"light":{"$type":"number","$value":0.18}},
+    "cap": {"dark":{"$type":"number","$value":0.68},"light":{"$type":"number","$value":0.22}},
+    "presence": {"min":{"$type":"number","$value":0.5},"none":{"$type":"number","$value":0.75}},
+    "genesisPresence": {"$type":"number","$value":1.15},
+    "lobe": {
+      "radius": {"$type":"number","$value":0.8},
+      "centreAlpha": {"$type":"number","$value":0},
+      "centreBeta": {"$type":"number","$value":1.12},
+      "neutralLobe": {"$type":"number","$value":0}
+    },
+    "rest": {"$extensions":{"com.kokonada":{"lobes":[[-0.97,-0.56],[0.97,0.56]]}}},
+    "grain": {"ground":{"$type":"number","$value":0.04},"inside":{"$type":"number","$value":0.04}},
+    "pivot": {"$type":"number","$value":0.2},
+    "graph": {"restIntenseRoute":{"$type":"string","$value":"waypoint"}},
+    "drift": {"D":{"$type":"number","$value":0.8},"A0":{"$type":"number","$value":0.06}},
+    "warp": {"W0":{"$type":"number","$value":0.18},"orbit":{"$type":"number","$value":0.3}},
+    "shimmer": {"deg":{"$type":"number","$value":0}},
+    "breath": {
+      "nRest": {"$type":"number","$value":10},
+      "nStress": {"$type":"number","$value":6},
+      "inhale": {"$type":"number","$value":0.38},
+      "ampRadius": {"$type":"number","$value":0.04},
+      "ampPresence": {"$type":"number","$value":0.06}
+    },
+    "stillTime": {"$type":"duration","$value":{"value":0,"unit":"ms"}}
+  },
+  "nav": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "surfaceOpacity": {"$type":"number","$value":1},
+    "radius": {"$type":"dimension","$value":{"value":32,"unit":"px"}},
+    "insetSide": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+    "insetBottom": {"$type":"dimension","$value":{"value":12,"unit":"px"}},
+    "elevation": {"$type":"string","$value":"e2"},
+    "topLine": {"width":{"$type":"dimension","$value":{"value":0,"unit":"px"}}},
+    "active": {
+      "dot": {
+        "size": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+        "offset": {"$type":"dimension","$value":{"value":0,"unit":"px"}}
+      },
+      "capsule": {
+        "opacity": {"$type":"number","$value":1},
+        "height": {"$type":"dimension","$value":{"value":48,"unit":"px"}},
+        "radius": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+        "edgeWidth": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+        "depth": {"$type":"number","$value":0}
+      }
+    }
+  },
+  "avatar": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "ringWidth": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+    "depth": {"$type":"number","$value":2}
+  },
+  "cta": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "keyline": {"$type":"dimension","$value":{"value":1,"unit":"px"}},
+    "pressScale": {"$type":"number","$value":0.98}
+  },
+  "motion": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "placement": {
+      "scaleFrom": {"$type":"number","$value":0.9},
+      "overshoot": {"$type":"number","$value":1},
+      "easing": {"$type":"string","$value":"motion.settle"}
+    }
+  },
+  "type": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "voice": {
+      "l": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":26,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":34,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":26,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":36,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        }
+      }
+    },
+    "ui": {
+      "title": {"weight":{"$type":"fontWeight","$value":500}},
+      "display": {"weight":{"$type":"fontWeight","$value":400}}
+    }
+  },
+  "radius": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "xs": {"$type":"dimension","$value":{"value":8,"unit":"px"}},
+    "s": {"$type":"dimension","$value":{"value":12,"unit":"px"}},
+    "m": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+    "l": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+    "xl": {"$type":"dimension","$value":{"value":32,"unit":"px"}}
+  },
+  "layout": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "gutter": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+    "gap": {
+      "aiToVoice": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+      "voiceToPlate": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+      "plateToWell": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+      "wellToNav": {"$type":"dimension","$value":{"value":16,"unit":"px"}}
+    }
+  },
+  "haptics": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "place": {"$type":"string","$value":"TICK@0:0.35","$extensions":{"com.kokonada":{"fallback":"EFFECT_TICK","trigger":"plate.tap"}}},
+    "replace": {"$type":"string","$value":"TICK@0:0.35","$extensions":{"com.kokonada":{"fallback":"EFFECT_TICK","trigger":"plate.tap.fourth"}}},
+    "remove": {"$type":"string","$value":"","$extensions":{"com.kokonada":{"fallback":"","trigger":"plate.tapLatest"}}},
+    "commit": {"$type":"string","$value":"CLICK@0:0.35","$extensions":{"com.kokonada":{"fallback":"EFFECT_CLICK","trigger":"cta.press"}}},
+    "ready": {"$type":"string","$value":"","$extensions":{"com.kokonada":{"fallback":"","trigger":"music.ready"}}},
+    "nav": {"$type":"string","$value":"","$extensions":{"com.kokonada":{"fallback":"","trigger":"nav.select"}}},
+    "press": {"$type":"string","$value":"","$extensions":{"com.kokonada":{"fallback":"","trigger":"button.press"}}},
+    "consent": {"$type":"string","$value":"","$extensions":{"com.kokonada":{"fallback":"","trigger":"none"}}}
+  },
+  "$extensions": {
+    "com.kokonada": {
+      "direction": "linen",
+      "hardest": [
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "dark",
+          "node": "J",
+          "x": 0.02,
+          "y": 0.953,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "dark",
+          "node": "J",
+          "x": 0.02,
+          "y": 0.877,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "light",
+          "node": "I",
+          "x": -0.02,
+          "y": 0.953,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "light",
+          "node": "I",
+          "x": -0.02,
+          "y": 0.877,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "dark",
+          "node": "C",
+          "x": 0.953,
+          "y": -0.02,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "dark",
+          "node": "C",
+          "x": 0.877,
+          "y": -0.02,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "light",
+          "node": "C",
+          "x": 0.953,
+          "y": -0.02,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "light",
+          "node": "C",
+          "x": 0.877,
+          "y": -0.02,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "dark",
+          "node": "C",
+          "x": 0.02,
+          "y": -0.953,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "dark",
+          "node": "C",
+          "x": 0.02,
+          "y": -0.877,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "light",
+          "node": "R",
+          "x": -0.02,
+          "y": -0.953,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "light",
+          "node": "R",
+          "x": -0.02,
+          "y": -0.877,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "dark",
+          "node": "R",
+          "x": -0.953,
+          "y": -0.02,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "dark",
+          "node": "R",
+          "x": -0.877,
+          "y": -0.02,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "light",
+          "node": "I",
+          "x": -0.953,
+          "y": 0.02,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "light",
+          "node": "I",
+          "x": -0.877,
+          "y": 0.02,
+          "fontScale": 2,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 4.5
+        },
+        {
+          "id": "edge.rim",
+          "element": "hero.plate.rim",
+          "face": "dark",
+          "node": "C",
+          "x": 0,
+          "y": -1,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 3
+        },
+        {
+          "id": "edge.rim",
+          "element": "hero.plate.rim",
+          "face": "light",
+          "node": "R",
+          "x": -0.01,
+          "y": -1,
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":false,"sweep":"T@4Hz"},
+          "threshold": 3
+        },
+        {
+          "id": "reach.top",
+          "element": ["hero.aiLine","hero.voiceLine"],
+          "face": "dark",
+          "beads": [{"node":"I","x":-0.5,"y":0.85},{"node":"J","x":0,"y":0.98},{"node":"J","x":0.5,"y":0.85}],
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":"hold"},
+          "threshold": 4.5
+        },
+        {
+          "id": "reach.bottom",
+          "element": ["hero.cta.label","hero.nav.item.*"],
+          "face": "dark",
+          "beads": [
+            {"node":"R","x":-0.5,"y":-0.85},
+            {"node":"C","x":0,"y":-0.98},
+            {"node":"C","x":0.5,"y":-0.85}
+          ],
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":"hold"},
+          "threshold": 4.5,
+          "iconThreshold": 3
+        },
+        {
+          "id": "reach.top",
+          "element": ["hero.aiLine","hero.voiceLine"],
+          "face": "light",
+          "beads": [{"node":"I","x":-0.5,"y":0.85},{"node":"J","x":0,"y":0.98},{"node":"J","x":0.5,"y":0.85}],
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":"hold"},
+          "threshold": 4.5
+        },
+        {
+          "id": "reach.bottom",
+          "element": ["hero.cta.label","hero.nav.item.*"],
+          "face": "light",
+          "beads": [
+            {"node":"R","x":-0.5,"y":-0.85},
+            {"node":"C","x":0,"y":-0.98},
+            {"node":"C","x":0.5,"y":-0.85}
+          ],
+          "fontScale": 1,
+          "fieldState": {"s":0,"c":1,"genesis":"hold"},
+          "threshold": 4.5,
+          "iconThreshold": 3
+        }
+      ],
+      "neverRedScenes": [
+        {
+          "id": "seam",
+          "faces": ["dark","light"],
+          "beads": [{"node":"I","x":-0.15,"y":0.8},{"node":"J","x":0.15,"y":0.8}]
+        },
+        {"id":"ctaKeyline","faces":["dark","light"],"scene":"one.intense"},
+        {"id":"ringHalo","faces":["dark","light"],"beads":[{"node":"I","x":-0.02,"y":0.953}]},
+        {"id":"backlight","faces":["dark","light"],"beads":[{"node":"I","x":-0.7,"y":0.7}]},
+        {"id":"restToIntense","faces":["dark","light"],"steppedThroughMs":600}
+      ]
+    }
+  }
+}
