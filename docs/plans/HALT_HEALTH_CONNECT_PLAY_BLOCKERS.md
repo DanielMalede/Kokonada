@@ -77,7 +77,7 @@ The linked page (answer/13996367) counts "Health and fitness apps" among health 
 
 *Added 2026-10-04.* The first upload to any Play track, internal testing included, waits until:
 - HALT 1 to HALT 5 above are closed on evidence;
-- Settled" is vague, so this states the closing condition: "**HALT 6 · Account type (CMP-093)** is closed: a verified organisation account with a D-U-N-S number exists, or Google Play's written statement is kept as `CMP-093` evidence;
+- **HALT 6 · Account type (CMP-093)** is closed: a verified organisation account with a D-U-N-S number exists, or Google Play's written statement is kept as `CMP-093` evidence;
 - the store-gate hardening PR is merged, with:
   - the rxandroidble fix: `tools:node="remove"` on both `uses-permission-sdk-23` location entries that rxandroidble 1.17.2 adds to the merged release manifest with no `maxSdkVersion`, so the app declares location it never reads (`compliance-auditor`, V1 lab round 1: a HALT on any Play upload, not on a directly installed tester build);
   - the iOS `ENTRY_FILE` guard (a bundle-phase script, a pbxproj pin and a bash test), a precondition on any iOS archive: no iOS archive is exported for upload, and nothing goes to TestFlight or App Store Connect, until that PR is merged and the IPA scan exits 0.
