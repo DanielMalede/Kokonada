@@ -54,6 +54,41 @@ found; 2 means the scan could not run.
 npm run lab:excluded -- --scan android/app/build/outputs/bundle/release/app-release.aab
 ```
 
+## Building the lab and capturing on a phone (OPS-100)
+
+Run these from a clean commit. Every step refuses rather than produce evidence whose build it
+cannot prove.
+
+1. **`node scripts/lab/bundleLab.mjs`** bundles `index.lab.js` exactly as the release task bundles `index.js`
+   (Metro `--dev false`, then `hermesc -O`). It writes `android/app/src/lab/assets/index.android.bundle`
+   and `lab-stamp.json` (the commit, an empty porcelain, and the bundle's sha256). It runs from the
+   real path only: Metro breaks under a `subst` drive.
+2. **`node scripts/lab/buildLabApk.mjs`** builds `:app:assembleLab` for arm64-v8a. On Windows it maps the repository to
+   a free drive letter (never `W:`) because the native build fails on a long path. It points
+   `autolinking.json` at that drive, then puts the file back byte for byte and removes the drive,
+   even when the build fails. It checks that the APK carries the stamped bundle, and it never
+   installs anything.
+3. **Install it yourself,** beside the real app: `adb install -r android/app/build/outputs/apk/lab/app-lab.apk`.
+   The package is `com.kokonadahealth.lab` and it is debug-signed, so the real app and its data are
+   untouched.
+4. **`node scripts/lab/capture.mjs --plan scripts/lab/capture-plans/smoke.json --out <folder outside the repo>`**:
+   - **It refuses unless:**
+     - the stamp chain holds: HEAD, porcelain, stamp, the APK's bundle and stamp, and the installed
+       APK are all this build;
+     - the OS is not forcing dark mode onto apps.
+   - **Before any change,** it saves the phone's settings to `<out>/device-original-state.json`.
+   - **For each shot:**
+     - it launches the lab fresh with the shot's arguments and waits for READY;
+     - it grabs the screen raw twice and requires sRGB and a settled frame;
+     - it hashes only the app region (the system bars are excluded) and keeps a lossless PNG crop;
+     - it writes a schema-checked manifest row.
+   - **Across launches,** a shot captured twice must hash the same (QA-078), and a still shot must
+     draw zero frames.
+   - **On every exit, Ctrl-C included,** it restores the phone and writes `manifest.json`.
+   - **If a run was killed hard,** run `node scripts/lab/capture.mjs --restore --out <that folder>`.
+
+`node scripts/lab/capture.mjs --check` verifies the build's stamp chain with no phone attached.
+
 ## iOS
 
 There is no lab target on iOS: the Xcode project builds `index.js` only. The iOS `main.jsbundle`

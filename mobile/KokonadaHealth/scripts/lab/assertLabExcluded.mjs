@@ -122,8 +122,11 @@ function run(command, args, cwd) {
   }
 }
 
-/** Metro then hermesc, with the flags of BundleHermesCTask. Returns the three outputs' paths. */
-export function releaseBundle(appRoot, entry, platform, outDir) {
+/**
+ * Metro then hermesc, with the flags of BundleHermesCTask. Returns the three outputs' paths. Assets
+ * go to `assetsDest` (the lab's own res folder for the lab build) or beside the outputs.
+ */
+export function releaseBundle(appRoot, entry, platform, outDir, { assetsDest = path.join(outDir, 'res') } = {}) {
   const require = createRequire(path.join(appRoot, 'package.json'));
   const cli = require.resolve('react-native/cli.js');
   const [binDir, binName] = HERMESC_DIRS[process.platform] || [];
@@ -135,7 +138,7 @@ export function releaseBundle(appRoot, entry, platform, outDir) {
   const map = `${bundle}.map`;
   const hbc = `${bundle}.hbc`;
   run(process.execPath, [cli, 'bundle', '--platform', platform, '--dev', 'false', '--reset-cache',
-    '--entry-file', entry, '--bundle-output', bundle, '--assets-dest', path.join(outDir, 'res'),
+    '--entry-file', entry, '--bundle-output', bundle, '--assets-dest', assetsDest,
     '--sourcemap-output', map, '--minify', 'false'], appRoot);
   run(hermesc, ['-w', '-emit-binary', '-max-diagnostic-width=80', '-out', hbc, bundle, '-O', '-output-source-map'], appRoot);
   return { bundle, map, hbc };
