@@ -445,3 +445,57 @@ describe('withdrawConsent — learningJobs counts learning jobs only (J2)', () =
     expect(line).toContain(' providerErasureFailures=0 learningJobs=3 learning=purged ');
   });
 });
+
+// J2 (BE-087; Plan B T7, DT-8 L3). The same purge also removes the state-recompute jobs; the line ends with
+// their own count, so `learningJobs=` keeps counting learning jobs only. One call, so a failure is still
+// the one 'learning-jobs' entry. Wiring only; the jobs are proven gone on real Redis in
+// tests/consentWithdrawalJobs.redis.test.js.
+describe('withdrawConsent — state-recompute jobs in the job queue (J2)', () => {
+  const grantOnFile = () =>
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: consent.CURRENT_CONSENT_VERSION });
+  const withdrawalLine = (info) => info.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[consent-withdrawal]'));
+  let info;
+  beforeEach(() => { info = jest.spyOn(console, 'info').mockImplementation(() => {}); });
+  afterEach(() => info.mockRestore());
+
+  it('the line ends stateJobs=<state jobs removed>, and learningJobs= counts the learning jobs only', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue(null);
+    purgeUserJobs.mockResolvedValueOnce({
+      removed: 5, inFlight: 1, byQueue: { 'reward-ingest': { removed: 3, inFlight: 0 }, 'state-vector-recompute': { removed: 2, inFlight: 1 } },
+    });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    const line = withdrawalLine(info);
+    expect(line).toContain(' providerErasureFailures=0 learningJobs=3 learning=purged ');
+    expect(line).toMatch(/ sessionHealthFailed=none stateJobs=2$/);
+  });
+
+  it('a user with no grant on file: stateJobs=skipped', async () => {
+    ConsentRecord.latestFor.mockResolvedValue(null);
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(withdrawalLine(info)).toMatch(/ stateJobs=skipped$/);
+  });
+
+  it('the purge fails: learningJobs=failed and stateJobs=failed, one learning-jobs entry, no message', async () => {
+    grantOnFile();
+    User.findById.mockResolvedValue(null);
+    purgeUserJobs.mockRejectedValueOnce(new Error(`connect ECONNREFUSED 10.0.0.7:6379 (${USER})`));
+
+    const result = await consent.withdrawConsent(USER, PURPOSE);
+
+    expect(result.erasureFailures).toEqual(['learning-jobs']);
+    const line = withdrawalLine(info);
+    expect(line).toContain(' learningJobs=failed ');
+    expect(line).toMatch(/ stateJobs=failed$/);
+    expect(line).not.toContain('10.0.0.7');
+  });
+
+  it('the token the declarations name is the one the line prints', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '../app/services/privacy/consent.js'), 'utf8');
+    expect(src).toMatch(/stateJobs=\$\{stateJobs\}/);
+  });
+});

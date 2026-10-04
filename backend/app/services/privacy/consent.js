@@ -168,12 +168,19 @@ async function withdrawConsent(userId, purpose) {
   // queue that cannot be reached is reported (`learningJobs=failed`, 'learning-jobs'), never thrown.
   // A job a worker is already running is deleted by the queue once it has run (queues/userJobPurge.js).
   let learningJobs = 'skipped';
+  // J2 (BE-087, DT-8 L3): the same purge removes the state-recompute jobs (`bull:state-vector-recompute:`),
+  // which would read the health data and write the baseline, the state estimate and the profile again. Each
+  // queue's own count goes on the line, so `learningJobs=` never counts a state job; `stateJobs=` ends the
+  // line. One call, so a failure is still the one 'learning-jobs' entry.
+  let stateJobs = 'skipped';
   if (hadGrantOnFile) {
     try {
-      // J2 (T4): the same purge also removes the state-recompute jobs; this token counts learning jobs only.
-      learningJobs = String((await purgeUserJobs(userId)).byQueue['reward-ingest'].removed);
+      const { byQueue } = await purgeUserJobs(userId);
+      learningJobs = String(byQueue['reward-ingest'].removed);
+      stateJobs = String(byQueue['state-vector-recompute'].removed);
     } catch {
       learningJobs = 'failed';
+      stateJobs = 'failed';
       erasureFailures.push('learning-jobs');
     }
     try {
@@ -225,7 +232,8 @@ async function withdrawConsent(userId, purpose) {
     + `providerErasureFailures=${providerErasureFailures} learningJobs=${learningJobs} learning=${learning} `
     + `rewardEvents=${learningPurged.rewardEvents} personalWeights=${learningPurged.personalWeights} `
     + `sessionHealth=${sessionHealth} sessions=${sessionCounts.sessions} sessionTargets=${sessionCounts.sessionTargets} `
-    + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys} sessionHealthFailed=${sessionHealthFailed}`,
+    + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys} sessionHealthFailed=${sessionHealthFailed} `
+    + `stateJobs=${stateJobs}`,
   );
 
   // Explicit shape (not a spread of the Mongoose document — `create()` returns a real Document
