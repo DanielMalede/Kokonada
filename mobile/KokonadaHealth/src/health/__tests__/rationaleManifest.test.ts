@@ -160,4 +160,16 @@ describe.each([
       'android.permission.ACCESS_COARSE_LOCATION tools:node=remove',
     ]);
   });
+
+  // The capped legacy BLE permissions imply required classic Bluetooth and location hardware, which
+  // Play filters devices on; the app requires neither (it works mood-only, with no wearable). The
+  // artifact check is `aapt2 dump badging`: both show as uses-feature-not-required.
+  it('declares Bluetooth LE, classic Bluetooth and location hardware as not required', () => {
+    const features = named(root, 'uses-feature').map((f) => `${nameOf(f)} required=${f.attrs['android:required']}`);
+    expect(features).toEqual([
+      'android.hardware.bluetooth_le required=false',
+      'android.hardware.bluetooth required=false',
+      'android.hardware.location required=false',
+    ]);
+  });
 });
