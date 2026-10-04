@@ -107,8 +107,12 @@ There is no lab target on iOS. The Xcode bundle phase refuses any entry but `ind
 `ios/scripts/bundle-react-native.sh` through React Native's `with-environment.sh`, which sources
 `ios/.xcode.env` and `ios/.xcode.env.local` first, and that script stops the build if `ENTRY_FILE` is
 set to anything other than `index.js` or an `index.ios.js` exists, before `react-native-xcode.sh` runs
-(MB-093, pinned by `scripts/ios/__tests__/bundlePhase.test.ts`). Scan the `.ipa` before every App
-Store Connect upload all the same: the scan reads the archive itself, whatever built it.
+(MB-093, pinned by `scripts/ios/__tests__/bundlePhase.test.ts`). It also stops the build if any of
+`EXTRA_PACKAGER_ARGS`, `CLI_PATH`, `BUNDLE_COMMAND`, `BUNDLE_CONFIG`, `CONFIG_JSON`, `CONFIG_CMD`,
+`NODE_ARGS` or `BUNDLE_NAME` is set, if `PROJECT_ROOT` is not this app's root, or if `SKIP_BUNDLING` is
+set outside Debug. These refusals are not exhaustive (`NODE_BINARY` and `HERMES_CLI_PATH` are set
+legitimately and left alone), so scan the `.ipa` before every App Store Connect upload all the same:
+the scan reads the archive itself, whatever built it.
 
 If an iOS lab target is ever added:
 
