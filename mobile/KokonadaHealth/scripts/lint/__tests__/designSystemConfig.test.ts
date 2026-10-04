@@ -83,6 +83,11 @@ describe('design-system rule scope', () => {
     expect(await severityFor('src/design/v2/tokens/tokens.generated.ts', rule)).toBe(0);
   });
 
+  it.each(RULES)('%s is an ERROR in any other *.generated.ts under v2', async (rule) => {
+    expect(await severityFor('src/design/v2/field/blueNoise.generated.ts', rule)).toBe(2);
+    expect(await severityFor('src/design/v2/tokens/other.generated.ts', rule)).toBe(2);
+  });
+
   it.each(RULES)('%s is an ERROR in a v2 file beside the generated module, and in the v2 colour core', async (rule) => {
     expect(await severityFor('src/design/v2/tokens/useTokens.ts', rule)).toBe(2);
     expect(await severityFor('src/design/v2/tokens/__tests__/tokens.rules.test.ts', rule)).toBe(2);
