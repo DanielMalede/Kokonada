@@ -75,7 +75,9 @@ export function fieldSweepFor(
     designBand: DESIGN_BAND,
     checkBand: CHECK_BAND,
     ditherAmplitude: amplitudeFor(id),
-    grid: { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.1, pixelKStep: 0.1, chromaScales: [0.25, 0.5, 1] },
+    // Float is exact over t and presence, sampled at k 0.01 and shimmer 1°; the 8-bit grid is
+    // coarser (t and k at 0.2), because quantisation is a small perturbation of the float colour.
+    grid: { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.2, pixelKStep: 0.2, chromaScales: [0.25, 0.5, 1] },
   };
 }
 
@@ -181,15 +183,15 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   const faceGround = lab(c.plate.face);
   const fieldNodes = [...anchors, lab(c.field.restGlow)];
   const ringFloat = shifted(lit(ring, anchors, haloPeak(face), [0], 0.01));
-  const ringBytes = quantised(shifted(lit(ring, anchors, haloPeak(face), [0], 0.05)));
+  const ringBytes = quantised(shifted(lit(ring, anchors, haloPeak(face), [0], 0.1)));
   const faceFloat = shifted([
     ...lit(faceGround, anchors, haloPeak(face), [0], 0.01),
     ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, 0.01) : []),
   ]);
   const faceBytes = quantised(
     shifted([
-      ...lit(faceGround, anchors, haloPeak(face), [0], 0.05),
-      ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, 0.05) : []),
+      ...lit(faceGround, anchors, haloPeak(face), [0], 0.1),
+      ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, 0.1) : []),
     ]),
   );
 
