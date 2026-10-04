@@ -109,6 +109,18 @@ describe('the lab variant', () => {
     expect(checkLabManifest(LAB)).toEqual([]);
   });
 
+  it('passes the permissions on its allow-list: biometric and fingerprint, vibration, and its own receiver permission', () => {
+    const allowed = ['android.permission.USE_BIOMETRIC', 'android.permission.USE_FINGERPRINT', 'android.permission.VIBRATE',
+      'com.kokonadahealth.lab.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION']
+      .map((p) => `<uses-permission android:name="${p}" />`).join('');
+    expect(checkLabManifest(plantInLab(APP_OPEN, `${allowed}${APP_OPEN}`))).toEqual([]);
+  });
+
+  it('reads BROWSABLE in any filter of any component', () => {
+    expect(manifestFacts(RELEASE).browsable).toBe(true);
+    expect(manifestFacts(LAB).browsable).toBe(false);
+  });
+
   it.each([
     ['the real app package', 'package="com.kokonadahealth.lab"', 'package="com.kokonadahealth"', /lab package/],
     ['MainActivity', '</application>', '<activity android:name="com.kokonadahealth.MainActivity" /></application>', /MainActivity/],
@@ -121,6 +133,9 @@ describe('the lab variant', () => {
     ['the real OAuth return scheme', 'android:scheme="kokonadalab-unused"', 'android:scheme="kokonada"', /kokonada\b/],
     ['cleartext traffic', 'android:usesCleartextTraffic="false"', 'android:usesCleartextTraffic="true"', /cleartext/],
     ['no launcher', '<category android:name="android.intent.category.LAUNCHER" />', '', /launcher/],
+    ['location for API 23+ (uses-permission-sdk-23)', APP_OPEN, `<uses-permission-sdk-23 android:name="android.permission.ACCESS_FINE_LOCATION" />${APP_OPEN}`, /ACCESS_FINE_LOCATION/],
+    ['a permission outside the allow-list (BODY_SENSORS)', APP_OPEN, `<uses-permission android:name="android.permission.BODY_SENSORS" />${APP_OPEN}`, /BODY_SENSORS, which is not on the lab's permission allow-list/],
+    ['a BROWSABLE intent filter (a deep link into the lab)', '<data android:scheme="kokonadalab-unused" android:host="never" />', '<category android:name="android.intent.category.BROWSABLE" /><data android:scheme="kokonadalab-unused" android:host="never" />', /BROWSABLE intent filter: the lab has no deep link/],
   ])('fails with %s', (_label, find, replace, why) => {
     expect(checkLabManifest(plantInLab(find, replace)).join('\n')).toMatch(why);
   });

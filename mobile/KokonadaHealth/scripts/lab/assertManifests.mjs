@@ -104,6 +104,7 @@ export function manifestFacts(xml) {
       .map((c) => c.attrs['android:name']),
     schemes: descendants(manifest).filter((c) => c.name === 'data' && c.attrs['android:scheme']).map((c) => c.attrs['android:scheme']),
     cleartext: app ? app.attrs['android:usesCleartextTraffic'] ?? null : null,
+    browsable: descendants(manifest).some((c) => c.name === 'category' && c.attrs['android:name'] === 'android.intent.category.BROWSABLE'),
   };
 }
 
@@ -121,6 +122,10 @@ const RADIO_AND_LOCATION = new Set([
   'BLUETOOTH', 'BLUETOOTH_ADMIN', 'BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT', 'BLUETOOTH_ADVERTISE',
   'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'ACCESS_BACKGROUND_LOCATION',
 ].map((p) => `android.permission.${p}`));
+
+// The only permissions the lab may hold (the round-1 review's MF-5): what React Native and its
+// libraries bring that touches no user data, plus the lab's own receiver permission.
+const LAB_ALLOWED_PERMISSIONS = ['android.permission.USE_BIOMETRIC', 'android.permission.USE_FINGERPRINT', 'android.permission.VIBRATE'];
 
 const isLabComponent = (name) => /DesignLabActivity/.test(name) || name.startsWith('com.kokonadahealth.lab.');
 
@@ -149,10 +154,13 @@ export function checkLabManifest(xml) {
       problems.push(`declares the real app's ${c.name.split('.').pop()}`);
     }
   }
+  if (f.browsable) problems.push('has a BROWSABLE intent filter: the lab has no deep link');
+  const allowed = new Set([...LAB_ALLOWED_PERMISSIONS, `${f.package}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`]);
   for (const p of f.permissions) {
     if (p === 'android.permission.INTERNET') problems.push('requests INTERNET');
     else if (p.startsWith('android.permission.health.')) problems.push(`requests the health permission ${p}`);
     else if (RADIO_AND_LOCATION.has(p)) problems.push(`requests ${p}`);
+    else if (!allowed.has(p)) problems.push(`requests ${p}, which is not on the lab's permission allow-list`);
   }
   for (const s of f.schemes) {
     if (REAL_APP_SCHEMES.has(s.toLowerCase())) problems.push(`handles the real app's scheme ${s}://`);

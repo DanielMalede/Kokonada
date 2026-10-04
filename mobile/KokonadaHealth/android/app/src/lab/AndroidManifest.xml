@@ -32,6 +32,10 @@
       <!-- The real app's entry and its kokonada:// OAuth return: the lab must never catch either. -->
       <activity android:name=".MainActivity" tools:node="remove" />
 
+      <!-- The Spotify auth library's LoginActivity holds a BROWSABLE redirect filter: in the lab that
+           would be a deep link, and the lab has none (QA-077). The lab never signs in to Spotify. -->
+      <activity android:name="com.spotify.sdk.android.auth.LoginActivity" tools:node="remove" />
+
       <!-- The Health Connect privacy-policy screen and its Android 14 alias belong to the real app. -->
       <activity android:name=".PermissionsRationaleActivity" tools:node="remove" />
       <activity-alias android:name="ViewPermissionUsageActivity" tools:node="remove" />
