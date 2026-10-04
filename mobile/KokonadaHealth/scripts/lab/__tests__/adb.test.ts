@@ -46,10 +46,13 @@ describe('createAdb', () => {
     const stream = adb().logcat();
     const seen: string[] = [];
     const off = stream.on((line: string) => seen.push(line));
-    await new Promise((r) => setTimeout(r, 300));
+    // Wait for the lines, not for a fixed time: under a full parallel jest run, starting the child
+    // process alone can take longer than any fixed sleep would allow.
+    const deadline = Date.now() + 15000;
+    while (seen.length < 3 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
     off();
     await stream.close();
     expect(seen).toEqual(['first line', 'KOKONADA_LAB READY {"run":"r","seq":0}', 'third line']);
     expect(stream.closed()).toBe(true);
-  });
+  }, 20000);
 });
