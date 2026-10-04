@@ -119,22 +119,22 @@
     "noise": {"space":{"$type":"string","$value":"oklab.L"},"paintDither":{"$type":"number","$value":0}},
     "tiers": {
       "$extensions": {"com.kokonada":{"lock":"owner:DEC-084","status":"proposed"}},
-      "H": {
+      "full": {
         "renderScale": {"$type":"number","$value":0.5},
         "octaves": {"$type":"number","$value":3},
         "fpsCap": {"$type":"number","$value":60},
         "shimmer": {"$type":"number","$value":1}
       },
-      "M": {
+      "low": {
         "renderScale": {"$type":"number","$value":0.33},
         "octaves": {"$type":"number","$value":2},
         "fpsCap": {"$type":"number","$value":30},
         "shimmer": {"$type":"number","$value":0}
       },
-      "L": {"fpsCap":{"$type":"number","$value":0}},
+      "still": {"fpsCap":{"$type":"number","$value":0}},
       "reducedMotion": {"$type":"string","$value":"still"},
-      "powerSave": {"$type":"string","$value":"M"},
-      "thermalSevere": {"$type":"string","$value":"L"}
+      "powerSave": {"$type":"string","$value":"low"},
+      "thermalSevere": {"$type":"string","$value":"still"}
     },
     "fallback": {
       "$extensions": {

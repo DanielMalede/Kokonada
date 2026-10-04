@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import type { MotionPorts, SignalSource } from '../ports.ts';
+import { BASE } from '../../tokens/tokens.generated.ts';
 import { resolveMotionTier, useMotionPolicy, type MotionTier } from '../useMotionPolicy.ts';
 
 const { act } = ReactTestRenderer;
@@ -76,6 +77,23 @@ describe('resolveMotionTier: the precedence', () => {
     [true, null, 'still'],
   ] as const)('an unanswered setting is the cautious one: %p and %p give %p', (reduceMotion, powerSave, tier) => {
     expect(resolveMotionTier({ reduceMotion, powerSave })).toBe(tier);
+  });
+});
+
+// The tier names are the token file's (base field.tiers, owner-locked under DEC-084), so the
+// policy and the field read one vocabulary: reduced motion and battery saver map to the tiers
+// the tokens name, and every tier the policy returns is one the tokens define.
+describe('the policy speaks the token file’s tier names', () => {
+  const tiers = BASE.field.tiers;
+
+  it('reduced motion gives tiers.reducedMotion, battery saver tiers.powerSave', () => {
+    expect(resolveMotionTier({ reduceMotion: true, powerSave: false })).toBe(tiers.reducedMotion);
+    expect(resolveMotionTier({ reduceMotion: false, powerSave: true })).toBe(tiers.powerSave);
+    expect(resolveMotionTier({ reduceMotion: true, powerSave: true })).toBe(tiers.reducedMotion);
+  });
+
+  it('every tier the policy returns is a tier the tokens define', () => {
+    for (const tier of ['full', 'low', 'still'] as const) expect(Object.keys(tiers)).toContain(tier);
   });
 });
 

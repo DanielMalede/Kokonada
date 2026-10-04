@@ -3,7 +3,7 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  'base.tokens.json': 'd0564f791d05103daff3f18c53321fe326fd1f538c2637fa24f04f2e7fcadcf9',
+  'base.tokens.json': 'e155dba626fd91c2ebb265c6843c43d2a12385c9aac9a086a1e454c13efb0384',
   'direction.abyss.tokens.json': '1f62771eb11577b8abdfe086154e5d767f866f4e50ee094e6d369e5c952d8a45',
   'direction.basin.tokens.json': '468a492f41adfa719ddfc55746a22d89289570e53137a3e66290ea8c00d04b91',
   'direction.linen.tokens.json': 'dc22aca8e8225ee907f5aa75181f5ebbc348d5897c4a6c96853ff0f8d32f454d',
@@ -107,12 +107,12 @@ export const BASE = {
     dither: { amplitude: 0.003922, pattern: 'blueNoise64.static' },
     noise: { space: 'oklab.L', paintDither: 0 },
     tiers: {
-      H: { renderScale: 0.5, octaves: 3, fpsCap: 60, shimmer: 1 },
-      M: { renderScale: 0.33, octaves: 2, fpsCap: 30, shimmer: 0 },
-      L: { fpsCap: 0 },
+      full: { renderScale: 0.5, octaves: 3, fpsCap: 60, shimmer: 1 },
+      low: { renderScale: 0.33, octaves: 2, fpsCap: 30, shimmer: 0 },
+      still: { fpsCap: 0 },
       reducedMotion: 'still',
-      powerSave: 'M',
-      thermalSevere: 'L',
+      powerSave: 'low',
+      thermalSevere: 'still',
     },
     fallback: { radiusScale: 1.35, halos: 0, latestOnly: 1 },
   },
