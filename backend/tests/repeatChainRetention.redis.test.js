@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-100 (J2 Plan B T13; the ops094 resilience review §6) — a schedule queued by the code before J1 keeps
+// OPS-102 (J2 Plan B T13; the ops094 resilience review §6) — a schedule queued by the code before J1 keeps
 // no finished job, on a REAL Redis (the lane in tests/helpers/realRedis.js).
 //
 // What deletes these jobs is not obvious, and nothing tested it. A schedule's chain is extended by the
@@ -36,7 +36,7 @@ async function until(check, what) {
   }
 }
 
-describeRealRedis('OPS-100: a schedule queued before J1 keeps no finished job', (url) => {
+describeRealRedis('OPS-102: a schedule queued before J1 keeps no finished job', (url) => {
   let redis;
   const opened = [];
   const closers = [];
