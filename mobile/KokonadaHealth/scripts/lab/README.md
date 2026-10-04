@@ -94,8 +94,10 @@ cannot prove.
 
 ## iOS
 
-There is no lab target on iOS: the Xcode project builds `index.js` only. The iOS `main.jsbundle`
-comes from the same `index.js` closure that the jest check covers on every run.
+There is no lab target on iOS. The Xcode bundle phase builds `index.js` unless `ENTRY_FILE` is set in
+the environment, in `ios/.xcode.env` or in `ios/.xcode.env.local`, or an `index.ios.js` exists; any
+of these would put another entry into an archive that can go to TestFlight. Until the bundle-phase
+guard lands, scan the `.ipa` before every App Store Connect upload.
 
 If an iOS lab target is ever added:
 

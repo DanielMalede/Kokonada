@@ -56,6 +56,27 @@ describe('the release entry never reaches the Design Lab (MB-084)', () => {
   });
 });
 
+describe('the release entry is index.js on both platforms (MF-4)', () => {
+  // The RN Gradle plugin takes ENTRY_FILE (refused in build.gradle), then react.entryFile, then
+  // index.android.js if it exists, then index.js; react-native-xcode.sh takes ENTRY_FILE, then
+  // index.ios.js, then index.js. So the entry is named explicitly, and the platform files must not exist.
+  it('neither index.android.js nor index.ios.js exists: either would take precedence over index.js', () => {
+    expect(fs.existsSync(path.join(APP, 'index.android.js'))).toBe(false);
+    expect(fs.existsSync(path.join(APP, 'index.ios.js'))).toBe(false);
+  });
+
+  it('the react {} block names index.js as the entry file', () => {
+    const gradle = fs.readFileSync(path.join(APP, 'android/app/build.gradle'), 'utf8');
+    expect(gradle).toMatch(/^ {4}entryFile = file\("\.\.\/\.\.\/index\.js"\)$/m);
+  });
+
+  it('the lab README says what the iOS bundle phase really does', () => {
+    const readme = fs.readFileSync(path.join(APP, 'scripts/lab/README.md'), 'utf8').replace(/\s+/g, ' ');
+    expect(readme).toContain('There is no lab target on iOS. The Xcode bundle phase builds `index.js` unless `ENTRY_FILE` is set in the environment, in `ios/.xcode.env` or in `ios/.xcode.env.local`, or an `index.ios.js` exists; any of these would put another entry into an archive that can go to TestFlight. Until the bundle-phase guard lands, scan the `.ipa` before every App Store Connect upload.');
+    expect(readme).not.toContain('the Xcode project builds `index.js` only');
+  });
+});
+
 describe('the lab reaches only what F-4 allows (deny by default)', () => {
   // The lab may import itself, the v2 foundations it exercises, and one shared domain module (the
   // circumplex geometry, with its own closure). Anything else is a violation, so nothing from the
