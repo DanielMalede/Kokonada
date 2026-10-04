@@ -88,6 +88,36 @@ describe('maxInBandOnPixelBlend: every 8-bit pixel a GPU can round the blend to'
     expect(found.pixel).toEqual([1, 0, 0]);
     expect(found.chroma).toBeLessThan(CHECK_BAND.chromaFloor);
   });
+
+  // It starts at the first partial coverage. From (200, 40, 40) toward (0, 255, 255) every channel
+  // moves more than half a level per 1/255, so only at a = 1 can the GPU still round to the
+  // background's own channels; from 2/255 on, every pixel the blend can round to is less red. The
+  // oracle below enumerates {floor, ceil}³ itself, with oklab.ts, to prove that of the fixture.
+  it('starts at 1 / 255: a blend whose reddest pixel only the first coverage reaches', () => {
+    const bg = [200, 40, 40] as const;
+    const ink = [0, 255, 255] as const;
+    const inBandChroma = (p: readonly number[]) => {
+      const lab = srgbToOklab([p[0] / 255, p[1] / 255, p[2] / 255]);
+      const hue = (((Math.atan2(lab.b, lab.a) * 180) / Math.PI) % 360 + 360) % 360;
+      return hueInBand(hue, CHECK_BAND) ? Math.hypot(lab.a, lab.b) : 0;
+    };
+    const reddestAt = (a: number) => {
+      const levels = [0, 1, 2].map((c) => {
+        const v = ((255 - a) * bg[c] + a * ink[c]) / 255;
+        return [...new Set([Math.floor(v), Math.ceil(v)])];
+      });
+      let best = 0;
+      for (const r of levels[0]) for (const g of levels[1]) for (const b of levels[2]) best = Math.max(best, inBandChroma([r, g, b]));
+      return best;
+    };
+    const first = reddestAt(1);
+    const later = Math.max(...Array.from({ length: 253 }, (_, i) => reddestAt(i + 2)));
+    expect(later).toBeLessThan(first);
+
+    const found = maxInBandOnPixelBlend(bg, ink, CHECK_BAND);
+    expect(found.coverage).toBe(1 / 255);
+    expect(found.chroma).toBeCloseTo(first, 12);
+  });
 });
 
 // Resilience HIGH-1's bite: Linen light's old ink, oklch(0.24 0.018 60), as the rim words' edge
