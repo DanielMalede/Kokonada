@@ -27,6 +27,14 @@ describe('QA-077: the restated pass rule (resilience-auditor, V1 lab round 1, se
     expect(body).not.toContain('lab:excluded');
   });
 
+  it('names the real release JS task scan as clause B 6a (round 2, architect), recorded as an amendment', () => {
+    const body = qa.slice(qa.indexOf('### QA-077'));
+    const b = body.slice(body.indexOf('**B. In CI, whenever'), body.indexOf('**C. In every Gradle build'));
+    expect(b).toContain('6a. The real `:app:createBundleReleaseJsAndAssets` output (the Hermes bundle, the packager and compiler maps, and the composed map) exists, is non-empty, and holds no lab marker.');
+    expect(b.indexOf('6a. ')).toBeGreaterThan(b.indexOf('6. '));
+    expect(qa).toMatch(/added: 'pass rule clause B 6a: [^']+' source: 'V1 lab round-2 review, architect/);
+  });
+
   it('says that lab evidence never stands for release evidence, and what controls iOS until its guard lands', () => {
     expect(qa).toContain('Lab-variant evidence (`buildType: lab`) never satisfies a release-evidence clause (QA-031).');
     expect(qa).toContain("Clause A1's iOS part closes with the store-gate PR; until then clause D9's IPA scan is the iOS control.");
