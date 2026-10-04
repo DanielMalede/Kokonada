@@ -67,9 +67,13 @@ export function waitForLab({ source, run, seq, timeoutMs, signal = undefined }) 
   });
 }
 
-/** Problems with a READY: another build (sentinel), another scene, a probe the plan needs missing. */
-export function checkReady(ready, { sentinel, scene, probes }) {
+/**
+ * Problems with a READY: another build (sentinel), another step than the one sent (seq), another
+ * scene, a probe the plan needs missing.
+ */
+export function checkReady(ready, { sentinel, scene, probes, seq = undefined }) {
   const problems = [];
+  if (seq !== undefined && ready.seq !== seq) problems.push(`READY is for seq ${ready.seq}, but the harness sent ${seq}`);
   if (ready.sentinel !== sentinel) problems.push(`sentinel ${ready.sentinel} is not this build's ${sentinel}: the installed lab is another build`);
   if (ready.scene !== scene) problems.push(`scene ${ready.scene} is not the planned ${scene}`);
   for (const id of probes) if (!ready.probes || !(id in ready.probes)) problems.push(`probe ${id} is missing from READY`);

@@ -102,6 +102,11 @@ describe('checkReady', () => {
     expect(checkReady(ready, { sentinel: 'S', scene: 'smoke', probes: ['stage', 'mark'] })).toEqual([]);
   });
 
+  it('fails a READY for another step than the one sent (READY.seq)', () => {
+    expect(checkReady({ ...ready, seq: 1 }, { sentinel: 'S', scene: 'smoke', probes: [], seq: 0 }).join()).toMatch(/seq 1.*sent 0/);
+    expect(checkReady(ready, { sentinel: 'S', scene: 'smoke', probes: [], seq: 0 })).toEqual([]);
+  });
+
   it('fails another build (sentinel), another scene, or a missing probe', () => {
     expect(checkReady({ ...ready, sentinel: 'OLD' }, { sentinel: 'S', scene: 'smoke', probes: [] }).join()).toMatch(/sentinel/);
     expect(checkReady(ready, { sentinel: 'S', scene: 'hero', probes: [] }).join()).toMatch(/scene/);

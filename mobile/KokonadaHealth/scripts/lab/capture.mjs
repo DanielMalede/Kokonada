@@ -136,7 +136,7 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
     }
     const payload = await ready;
     const readyAt = now();
-    const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes });
+    const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes, seq: 0 });
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
 
     const first = requireSrgb(parseRawScreencap(await adb.execOut(['screencap'])));
