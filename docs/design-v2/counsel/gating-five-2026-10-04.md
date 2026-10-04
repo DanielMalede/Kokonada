@@ -142,7 +142,7 @@
    - The code marks its text "PLACEHOLDER COPY".
    - Its six sections never mention emotion inference. Its purpose line is "turns how your body is doing into music tuned to you" (`ConsentSheet.tsx:19,38,40-77`).
 4. **The already-enrolled group is the owner alone** (`REG-011`).
-5. **The LLM-written captions are off,** by the owner's ruling of 2026-10-04 (`DISCOVERY_CAPTION_LLM`, read at call time, `captionService.js:20`). The deploy-log proof is not yet recorded.
+5. **The LLM-written captions are to be switched off,** by the owner's ruling of 2026-10-04 (`DISCOVERY_CAPTION_LLM`, read at call time, `captionService.js:20`). That the switch is done is not yet recorded (`DAN-053`).
 - **Readings.**
 - **EU, the AI line.**
   - Art. 50(3) is law only if the system is emotion recognition and Kokonada is its deployer (Q5). The line ships either way.
@@ -162,7 +162,7 @@
 - The English AI line shows on three screens.
 - Only the owner has seen the placeholder consent.
 - The Hebrew line exists only in the lab app.
-- The captions are off.
+- The captions are to be switched off (`DAN-053`).
 
 ### Q5 · Is the affect engine high-risk emotion recognition? *(item 1)*
 - **Ask.**
@@ -238,7 +238,7 @@
 4. EU-3 (fourth bullet) — Can one text serve as both the Art. 9 consent and the ePrivacy Art. 5(3) consent?
 5. BE-C1, T (2026-09-30) — Which leftovers kept on a session are health data: the watch activity, the Live mark, heart-session tracks and serve keys, valence, a wearable-detected activity?
 6. J2-Q4 — Is the trace a state-recompute job leaves health data?
-7. PP-Q3 — Is a target tempo from which the heart rate can be recovered, sent to the AI provider, health data? Is the notice about it enough? (The captions are off.)
+7. PP-Q3 — Is a target tempo from which the heart rate can be recovered, sent to the AI provider, health data? Is the notice about it enough? (The captions are to be switched off.)
 8. H5-CQ9 — Can a language tag stored with a health-consent record reveal Art. 9 data?
 
 **B. How consent works**
