@@ -105,7 +105,8 @@ function orphanSetFingerprint(ids) {
   return crypto.createHash('sha256').update(set.join('\n')).digest('hex').slice(0, 8);
 }
 
-const Marker = mongoose.model('OpsMarker', new mongoose.Schema({
+// Compiled once per mongoose: a second load of this module (a cleared cache entry) reuses it.
+const Marker = mongoose.models.OpsMarker || mongoose.model('OpsMarker', new mongoose.Schema({
   _id: String,
   v: Number,
   kind: String,

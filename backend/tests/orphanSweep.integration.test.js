@@ -524,6 +524,27 @@ describe('discoverOrphans is read-only', () => {
   });
 });
 
+// J2 round 1 (the architect's LOW): the marker model is compiled when orphanSweep.js loads. Loaded a second
+// time on the same mongoose (its own cache entry cleared, the models and mongoose still loaded), the plain
+// `mongoose.model('OpsMarker', …)` threw OverwriteModelError. Shown in a real Node process.
+describe('the marker model survives a second load of the module', () => {
+  it('re-requiring orphanSweep.js on the same mongoose reuses the one OpsMarker model', () => {
+    const { spawnSync } = require('child_process');
+    const code = [
+      "const mongoose = require('mongoose');",
+      "const p = require.resolve('./app/services/privacy/orphanSweep');",
+      'require(p);',
+      'delete require.cache[p];',
+      "try { require(p); process.stdout.write('LOADED_TWICE ' + mongoose.modelNames().filter((n) => n === 'OpsMarker').length); }",
+      "catch (e) { process.stdout.write('THREW ' + e.name); }",
+    ].join('\n');
+    const run = spawnSync(process.execPath, ['-e', code], {
+      cwd: path.join(__dirname, '..'), env: { ...process.env, ENCRYPTION_KEY: 'a'.repeat(64), REDIS_URL: '' }, encoding: 'utf8', timeout: 30000,
+    });
+    expect(run.stdout.trim()).toBe('LOADED_TWICE 1');
+  });
+});
+
 // Resilience §7 (on T12 v2): discovery attributes a key to an id, and the purge must delete exactly what it
 // found. An id that is not an ObjectId is never turned into a pattern: `pool:*:x` gives the id `*`, and a
 // pattern built from it (`pool:*:*`, `ledger:*:*`, `bio:baseline:*`) reached every user. And the backlog is a
