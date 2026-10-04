@@ -8,7 +8,7 @@ import { findMarkers, labMarkers, labSourcesInMap, scanPath } from '../assertLab
 import { readZipEntries } from '../lib/zip.mjs';
 import { LAB_SENTINEL } from '../../../src/design/lab/sentinel';
 
-// The scanner behind `npm run lab:excluded` (MB-084). It reads what a store upload is made of — a
+// The scanner behind `node scripts/lab/assertLabExcluded.mjs` (MB-084). It reads what a store upload is made of — a
 // JS or Hermes bundle, its sourcemap, compiled classes, an APK or an AAB — and reports any trace
 // of the Design Lab. Every check is shown to BITE on a planted trace before a clean result is
 // allowed to mean anything.

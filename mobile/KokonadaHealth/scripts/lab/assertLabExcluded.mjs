@@ -2,7 +2,7 @@
 // Behavior). The lab must be ABSENT from every build that can be uploaded to Play Console (any
 // track) or App Store Connect (TestFlight included), not merely unreachable in it.
 //
-//   node scripts/lab/assertLabExcluded.mjs                    the full check (CI, `npm run lab:excluded`)
+//   node scripts/lab/assertLabExcluded.mjs                    the full check (CI)
 //   node scripts/lab/assertLabExcluded.mjs --closure-only     the static import closure only (fast)
 //   node scripts/lab/assertLabExcluded.mjs --entry <file>     treat <file> as the release entry (a planted test)
 //   node scripts/lab/assertLabExcluded.mjs --platform ios     bundle for iOS instead of Android

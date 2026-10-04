@@ -95,7 +95,7 @@ jobs:
       # lab trace, and runs the same pipeline over index.lab.js as a positive control, so a clean
       # result means the scan could see the lab. Exit 2 (the check could not run) fails too.
       - name: Design Lab exclusion
-        run: npm run lab:excluded
+        run: node scripts/lab/assertLabExcluded.mjs
         working-directory: mobile/KokonadaHealth
 
   mobile-android-compile:

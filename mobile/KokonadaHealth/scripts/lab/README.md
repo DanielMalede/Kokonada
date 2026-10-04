@@ -24,14 +24,17 @@ with launch arguments, never by a deep link.
 
 ## How exclusion is enforced
 
+No npm scripts for the lab: `package.json` is in the iOS job's filter (ci.yml), and a scripts-only edit buys a macOS run.
+Every command below is a direct `node scripts/lab/<name>.mjs` call.
+
 - **`index.js` never imports the lab.** `src/design/lab/__tests__/labExclusion.test.ts` checks
   this on every jest run: the import closure of `index.js`, and every import edge into the lab.
-- **`npm run lab:excluded`** (CI, job "Mobile — jest"):
+- **`node scripts/lab/assertLabExcluded.mjs`** (CI, job "Mobile — jest"):
   - Metro bundles `index.js` with the release Gradle task's own flags, and `hermesc` compiles it.
   - The JS, the sourcemap and the Hermes bytecode must hold no lab trace.
   - Positive control: the same pipeline over `index.lab.js` must show the sentinel. Otherwise a
     clean result proves nothing.
-- **`npm run lab:manifests`** (CI, job "Mobile — Android compile check"):
+- **`node scripts/lab/assertManifests.mjs`** (CI, job "Mobile — Android compile check"):
   - Every merged manifest Gradle wrote is checked.
   - `release`, and any other variant that is not the lab, declares no lab component.
   - The lab declares none of the real app.
@@ -51,7 +54,7 @@ Scan the exact file you are about to upload. Exit 0 means no trace was found; 1 
 found; 2 means the scan could not run.
 
 ```sh
-npm run lab:excluded -- --scan android/app/build/outputs/bundle/release/app-release.aab
+node scripts/lab/assertLabExcluded.mjs --scan android/app/build/outputs/bundle/release/app-release.aab
 ```
 
 ## Building the lab and capturing on a phone (OPS-100)
@@ -96,6 +99,6 @@ comes from the same `index.js` closure that the jest check covers on every run.
 
 If an iOS lab target is ever added:
 
-- check the iOS `main.jsbundle` the same way (`npm run lab:excluded -- --platform ios`);
+- check the iOS `main.jsbundle` the same way (`node scripts/lab/assertLabExcluded.mjs --platform ios`);
 - scan the archive's `.ipa` before every App Store Connect or TestFlight upload;
 - keep the lab target out of any scheme that is archived for upload.

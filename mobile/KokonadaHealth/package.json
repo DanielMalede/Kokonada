@@ -8,9 +8,7 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "lint:design-system": "node scripts/lint/designSystemLint.mjs",
-    "lab:excluded": "node scripts/lab/assertLabExcluded.mjs",
-    "lab:manifests": "node scripts/lab/assertManifests.mjs"
+    "lint:design-system": "node scripts/lint/designSystemLint.mjs"
   },
   "dependencies": {
     "@invertase/react-native-apple-authentication": "^2.4.0",
