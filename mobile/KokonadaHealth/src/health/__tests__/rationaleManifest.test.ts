@@ -54,8 +54,13 @@ const ancestor = (el: El, tagName: string): El | null => {
 };
 const nameOf = (el: El | null) => el?.attrs['android:name'];
 
-// The health and Bluetooth permissions shipped today — HX-5 adds none and removes none.
-const PERMISSIONS = [
+// The <uses-permission> entries the app's own SOURCE manifest declares, which the copy-me snippet
+// mirrors; HX-5 adds none and removes none. This is not the list a build ships: the merged manifest
+// also carries what libraries add (USE_BIOMETRIC, USE_FINGERPRINT, VIBRATE, androidx.core's receiver
+// permission), and before MB-093 it also carried rxandroidble's uncapped API 23+ location. What ships
+// is checked on the merged manifest, in CI's Android job, by scripts/lab/assertManifests.mjs against
+// the allow-list in scripts/lab/uploadPermissions.mjs (MB-093).
+const SOURCE_PERMISSIONS = [
   'android.permission.INTERNET',
   'android.permission.health.READ_HEART_RATE',
   'android.permission.health.READ_HEART_RATE_VARIABILITY',
@@ -116,8 +121,8 @@ describe.each([
     expect(activity!.order).toBeLessThan(aliases[0].order);
   });
 
-  it('the permission list is today’s, exactly — none added, none removed', () => {
-    expect(permissionsOf(root)).toEqual(PERMISSIONS);
+  it('its own <uses-permission> entries are unchanged, none added and none removed (a source list: what ships is checked on the merged manifest)', () => {
+    expect(permissionsOf(root)).toEqual(SOURCE_PERMISSIONS);
   });
 });
 
