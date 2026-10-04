@@ -91,7 +91,7 @@ async function processJob() {
       // A step returns a count, or { count, failed } when it works through many units (users), or, for a
       // step with several tokens, { <token>: value, …, failed }.
       const out = await run();
-      if (tokens.length > 1) for (const token of tokens) result[token] = out?.[token] ?? 0;
+      if (tokens.length > 1) for (const token of tokens) result[token] = out?.[token] ?? FAILURE_WORD[token] ?? 0;
       else result[tokens[0]] = typeof out === 'number' ? out : (out?.count ?? 0);
       failures += typeof out === 'number' ? 0 : (out?.failed ?? 0);
     } catch (err) {

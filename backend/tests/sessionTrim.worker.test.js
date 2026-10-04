@@ -428,6 +428,17 @@ describe('sessionTrim — the sweep of deleted accounts\' data and the state-rec
     expect(lines).toContain('[sessionTrim] step stateEvents failed (ReplyError)');
   });
 
+  // J2 round 1 (L1, the architect's required line): a result that lacks a token is not a count. A J2 token
+  // reads its failure word, never 0, whether its step threw or simply did not say.
+  it('a sweep result that carries only { failed: 1 }: orphanErasures=refused orphanBacklog=unknown, never 0', async () => {
+    await session(5 * DAY);
+    sweepDeletedAccountOrphans.mockResolvedValueOnce({ failed: 1 });
+
+    await expect(runJob()).rejects.toThrow(/1 step/);
+
+    expect(trimLine()[0]).toContain(' orphanErasures=refused orphanBacklog=unknown stateEvents=0 ');
+  });
+
   // §D: the sweep never throws, but if its step ever did, the worker's catch still writes its failure words.
   it('a sweep step that throws: orphanErasures=refused orphanBacklog=unknown, never 0', async () => {
     await session(5 * DAY);
