@@ -23,11 +23,9 @@ export interface BreathPhase {
   readonly cycle: BreathCycle;
 }
 
-const { floor } = Math;
-const numberIsFinite = Number.isFinite;
 
 function assertCycle(cycle: BreathCycle): void {
-  if (!(cycle.periodMs > 0 && numberIsFinite(cycle.periodMs))) {
+  if (!(cycle.periodMs > 0 && Number.isFinite(cycle.periodMs))) {
     throw new RangeError(`breath period must be a finite number > 0, got ${cycle.periodMs}`);
   }
   if (!(cycle.inhale > 0 && cycle.inhale < 1)) {
@@ -46,7 +44,7 @@ export function startBreath(cycle: BreathCycle): BreathPhase {
 
 /** `target` is the cycle the law asks for now; it is adopted at the next boundary, not before. */
 export function advanceBreath(state: BreathPhase, dtMs: number, target: BreathCycle): BreathPhase {
-  if (!(dtMs >= 0 && numberIsFinite(dtMs))) {
+  if (!(dtMs >= 0 && Number.isFinite(dtMs))) {
     throw new RangeError(`a breath step must be a finite number of ms >= 0, got ${dtMs}`);
   }
   assertCycle(target);
@@ -56,11 +54,11 @@ export function advanceBreath(state: BreathPhase, dtMs: number, target: BreathCy
   }
   const leftoverMs = (next - 1) * state.cycle.periodMs;
   const turns = leftoverMs / target.periodMs;
-  return { phase: turns - floor(turns), cycle: target };
+  return { phase: turns - Math.floor(turns), cycle: target };
 }
 
 export function fixedTimeBreathPhase(tMs: number, law: BreathLaw, stress: number): number {
-  if (!numberIsFinite(tMs)) {
+  if (!Number.isFinite(tMs)) {
     throw new RangeError(`time must be a finite number of ms, got ${tMs}`);
   }
   const T = law.masterPeriodMs;

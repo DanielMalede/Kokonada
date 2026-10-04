@@ -1,7 +1,7 @@
 // The breath law (DEC-015, DSN-035; signed in the V1 addendum §2.5).
 //
 // Every breath period is a whole fraction of the field's master period T: period(s) = T / n(s),
-// with n(s) = round(nRest − (nRest − nStress)·s). Tension only lowers n, so the breath only ever
+// with n(s) = Math.round(nRest − (nRest − nStress)·s). Tension only lowers n, so the breath only ever
 // slows as stress rises, and t can wrap modulo T without a seam. The curve is two cosine halves:
 // it rises over the inhale share of the cycle and falls over the rest.
 //
@@ -35,9 +35,6 @@ export interface BreathViolation {
   readonly periodMs: number;
 }
 
-const { cos, floor, PI, round } = Math;
-const numberIsFinite = Number.isFinite;
-const numberIsInteger = Number.isInteger;
 
 /** Stress outside [0, 1] is clamped; a stress that is not a number is no inferred tension: rest. */
 function clampStress(stress: number): number {
@@ -48,7 +45,7 @@ function clampStress(stress: number): number {
 }
 
 export function breathCycles(law: BreathLaw, stress: number): number {
-  return round(law.nRest - (law.nRest - law.nStress) * clampStress(stress));
+  return Math.round(law.nRest - (law.nRest - law.nStress) * clampStress(stress));
 }
 
 export function breathPeriodMs(law: BreathLaw, stress: number): number {
@@ -60,19 +57,19 @@ export function breathLevel(phase: number, inhale: number): number {
   if (!(inhale > 0 && inhale < 1)) {
     throw new RangeError(`inhale share must be in (0, 1), got ${inhale}`);
   }
-  const p = phase - floor(phase);
+  const p = phase - Math.floor(phase);
   if (p < inhale) {
-    return 0.5 - 0.5 * cos((PI * p) / inhale);
+    return 0.5 - 0.5 * Math.cos((Math.PI * p) / inhale);
   }
-  return 0.5 + 0.5 * cos((PI * (p - inhale)) / (1 - inhale));
+  return 0.5 + 0.5 * Math.cos((Math.PI * (p - inhale)) / (1 - inhale));
 }
 
 function assertLaw(law: BreathLaw): void {
-  if (!(law.masterPeriodMs > 0 && numberIsFinite(law.masterPeriodMs))) {
+  if (!(law.masterPeriodMs > 0 && Number.isFinite(law.masterPeriodMs))) {
     throw new RangeError(`master period must be a finite number > 0, got ${law.masterPeriodMs}`);
   }
   for (const n of [law.nRest, law.nStress]) {
-    if (!(numberIsInteger(n) && n > 0)) {
+    if (!(Number.isInteger(n) && n > 0)) {
       throw new RangeError(`breaths per master period must be whole numbers > 0, got ${law.nRest} and ${law.nStress}`);
     }
   }
@@ -92,7 +89,7 @@ export function breathLawViolations(law: BreathLaw, rules: BreathRules): BreathV
   if (!(rest >= rules.restMinMs && rest <= rules.restMaxMs)) {
     violations.push({ rule: 'rest-out-of-band', stress: 0, periodMs: rest });
   }
-  const steps = round(1 / rules.stressStep);
+  const steps = Math.round(1 / rules.stressStep);
   let previous = rest;
   let shortens: BreathViolation | null = null;
   let ceiling: BreathViolation | null = null;

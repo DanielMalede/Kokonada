@@ -75,12 +75,6 @@ const ACHROMATIC_CHROMA = 0.000004;
 
 const DEG = 180 / Math.PI;
 
-// Bound once at module scope. Jest runs each module in a vm sandbox where every global lookup
-// (Math, Number) costs about ten times a local one (measured: 389 ns against 36 ns per pow), and
-// the never-red sweeps make millions of these calls. Anywhere else this changes nothing.
-const { abs, atan2, cbrt, cos, pow, sign, sin, sqrt } = Math;
-const numberIsNaN = Number.isNaN;
-
 function multiply(m: Matrix, v: readonly [number, number, number]): [number, number, number] {
   return [
     m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
@@ -91,18 +85,18 @@ function multiply(m: Matrix, v: readonly [number, number, number]): [number, num
 
 /** One sRGB channel to linear light. Negative values mirror, as CSS Color 4 extends it. */
 export function srgbToLinear(value: number): number {
-  const magnitude = abs(value);
+  const magnitude = Math.abs(value);
   if (magnitude <= 0.04045) {
     return value / 12.92;
   }
-  return sign(value) * pow((magnitude + 0.055) / 1.055, 2.4);
+  return Math.sign(value) * Math.pow((magnitude + 0.055) / 1.055, 2.4);
 }
 
 /** One linear-light channel to gamma-encoded sRGB. Negative values mirror. */
 export function linearToSrgb(value: number): number {
-  const magnitude = abs(value);
+  const magnitude = Math.abs(value);
   if (magnitude > 0.0031308) {
-    return sign(value) * (1.055 * pow(magnitude, 1 / 2.4) - 0.055);
+    return Math.sign(value) * (1.055 * Math.pow(magnitude, 1 / 2.4) - 0.055);
   }
   return 12.92 * value;
 }
@@ -118,7 +112,7 @@ export function xyzToLinearSrgb(xyz: Xyz): LinearSrgb {
 export function xyzToOklab(xyz: Xyz): Oklab {
   // Math.cbrt keeps the sign; a general power function would return NaN for negative LMS.
   const lms = multiply(XYZ_TO_LMS, xyz);
-  const [L, a, b] = multiply(LMS_TO_OKLAB, [cbrt(lms[0]), cbrt(lms[1]), cbrt(lms[2])]);
+  const [L, a, b] = multiply(LMS_TO_OKLAB, [Math.cbrt(lms[0]), Math.cbrt(lms[1]), Math.cbrt(lms[2])]);
   return { L, a, b };
 }
 
@@ -138,18 +132,18 @@ export function oklabToSrgb(lab: Oklab): Srgb {
 }
 
 export function oklabToOklch(lab: Oklab): Oklch {
-  const C = sqrt(lab.a * lab.a + lab.b * lab.b);
+  const C = Math.sqrt(lab.a * lab.a + lab.b * lab.b);
   if (C <= ACHROMATIC_CHROMA) {
     return { L: lab.L, C, h: NaN };
   }
-  const h = atan2(lab.b, lab.a) * DEG;
+  const h = Math.atan2(lab.b, lab.a) * DEG;
   return { L: lab.L, C, h: h < 0 ? h + 360 : h };
 }
 
 export function oklchToOklab(lch: Oklch): Oklab {
   // A powerless hue converts as 0, the way CSS Color 4 treats a missing component.
-  const h = numberIsNaN(lch.h) ? 0 : lch.h / DEG;
-  return { L: lch.L, a: lch.C * cos(h), b: lch.C * sin(h) };
+  const h = Number.isNaN(lch.h) ? 0 : lch.h / DEG;
+  return { L: lch.L, a: lch.C * Math.cos(h), b: lch.C * Math.sin(h) };
 }
 
 /**
