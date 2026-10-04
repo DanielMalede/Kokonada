@@ -152,8 +152,17 @@ describe.each(CASES)('DSN-019 edge inks: %s, %s face', (id, face) => {
   const warmBand: RedBand = { hueFrom: ink.hueMin, hueTo: ink.hueMax, chromaFloor: 0 };
   const colourAt = (path: string) => path.split('.').reduce<any>((node, key) => node[key], DIRECTIONS[id].color[face]) as ColorValue;
 
-  it('lists text.onInk among the edge inks', () => {
-    expect(rule.tokens).toEqual(expect.arrayContaining(['text.primary', 'text.onTint', 'text.onInk', 'bead.setting', 'bead.shadow']));
+  it('lists exactly the eight edge inks, text.onInk among them', () => {
+    expect(rule.tokens).toEqual([
+      'text.primary',
+      'text.onTint',
+      'text.onInk',
+      'plate.rim.base',
+      'plate.rim.lit',
+      'plate.ringHighlight',
+      'bead.setting',
+      'bead.shadow',
+    ]);
   });
 
   it.each(rule.tokens)('%s meets the edge-ink rule', (path) => {
