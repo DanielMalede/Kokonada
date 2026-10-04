@@ -177,6 +177,13 @@ describe.each(IDS)('QA-066 and QA-067: %s', (id) => {
   });
 });
 
+describe('the breath curve', () => {
+  // breathLevel implements cosine halves and nothing else, so the token must name that curve.
+  it('is cosineHalves, the one breathLevel draws', () => {
+    expect(BASE.breath.curve).toBe('cosineHalves');
+  });
+});
+
 describe('the breath bounds', () => {
   it('the fastest breath base allows is no faster than 0.2 Hz (DSN-032)', () => {
     expect(BASE.field.clock.T / BASE.field.clock.breath.nMax).toBeGreaterThanOrEqual(5000);
