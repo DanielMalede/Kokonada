@@ -2,6 +2,14 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// MB-084: the React Native plugin reads the ENTRY_FILE environment variable for EVERY variant,
+// release included, so one variable would put another entry (the Design Lab's index.lab.js) into a
+// build that can be uploaded. Nothing here uses it; refuse to configure while it is set.
+if (System.getenv("ENTRY_FILE") != null) {
+    throw new GradleException("ENTRY_FILE is set (" + System.getenv("ENTRY_FILE") + "). It would replace the JS entry " +
+        "of every variant, release included. Unset it; the Design Lab is bundled by scripts/lab instead (MB-084).")
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -22,6 +30,10 @@ react {
     //   skip the bundling of the JS bundle and the assets. Default is "debug", "debugOptimized".
     //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
     // debuggableVariants = ["liteDebug", "liteDebugOptimized", "prodDebug", "prodDebugOptimized"]
+    //
+    // The Design Lab (MB-084): `lab` is listed so the plugin never bundles index.js into it. The lab's
+    // own bundle (index.lab.js, Hermes, --dev false) is written to src/lab/assets by scripts/lab.
+    debuggableVariants = ["debug", "debugOptimized", "lab"]
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
@@ -38,6 +50,10 @@ react {
     //
     //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
     // entryFile = file("../js/MyApplication.android.js")
+    //
+    // MB-084: named explicitly, so an index.android.js (which the plugin would otherwise prefer) can
+    // never become the release entry. labExclusion.test.ts pins this line and that no such file exists.
+    entryFile = file("../../index.js")
     //
     //   A list of extra flags to pass to the 'bundle' commands.
     //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
@@ -101,7 +117,10 @@ android {
     }
     signingConfigs {
         debug {
-            storeFile file('debug.keystore')
+            // OPS-100: the lab scripts pass the main checkout's debug keystore (project property
+            // kokonadaDebugKeystore), so a lab APK from any worktree carries the same signature and
+            // installs over another. Without the property, nothing changes.
+            storeFile file(project.findProperty('kokonadaDebugKeystore') ?: 'debug.keystore')
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
@@ -128,6 +147,63 @@ android {
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
+        // The Design Lab (MB-084): release-equivalent (not debuggable, Hermes, JS built with --dev
+        // false) but a separate package that installs beside the real app, signed with the DEBUG key
+        // even where the release key exists, and never uploaded. Its manifest and its activity live in
+        // src/lab, which merges into this build type alone. scripts/lab/assertManifests.mjs and
+        // scripts/lab/assertLabExcluded.mjs check that no other variant carries any of it.
+        lab {
+            initWith release
+            applicationIdSuffix ".lab"
+            signingConfig signingConfigs.debug
+            // Libraries publish debug and release only.
+            matchingFallbacks = ["release"]
+            // The React Native plugin sets usesCleartextTraffic for debug, release and debugOptimized
+            // only. The Spotify redirect is pointed at a scheme nothing sends, so the lab can never
+            // catch the real app's kokonadahealth://spotify-callback.
+            manifestPlaceholders = [
+                usesCleartextTraffic: "false",
+                redirectSchemeName  : "kokonadalab-unused",
+                redirectHostName    : "never"
+            ]
+        }
+    }
+}
+
+// Two refusals for the Design Lab (MB-084), decided from the task graph so they hold on every run,
+// a dry run included, whatever Gradle considers up to date:
+//   · an App Bundle is the format Play Console takes, and the lab is never uploaded, so it is never one;
+//   · a lab APK carries the bundle scripts/lab writes, and without it the app would start with no JS.
+//     Only packaging needs it, so the manifest and Kotlin tasks still run without one.
+gradle.taskGraph.whenReady { graph ->
+    def planned = graph.allTasks.findAll { it.project == project }*.name
+    def aab = planned.find { it in ["bundleLab", "packageLabBundle", "signLabBundle"] }
+    if (aab != null) {
+        throw new GradleException("The Design Lab is never built as an App Bundle (" + aab + "): it is never " +
+            "uploaded to Play Console on any track (MB-084).")
+    }
+    def packaging = planned.find { it in ["mergeLabAssets", "packageLab"] }
+    if (packaging != null && !file("src/lab/assets/index.android.bundle").isFile()) {
+        throw new GradleException("The Design Lab bundle is missing: src/lab/assets/index.android.bundle (needed by " +
+            packaging + "). Build it with the lab scripts (scripts/lab) before assembling the lab (MB-084).")
+    }
+}
+
+// MB-084 (round-1 review, MF-2): whatever route puts JS into an app variant's assets (the RN plugin,
+// a hand-made bundle in src/main/assets, anything else), the merged assets of every variant that is
+// not the lab must not hold the Design Lab sentinel. Checked on the merge task's real output.
+def labSentinel = {
+    def m = file("../../src/design/lab/sentinel.ts").text =~ /(?m)^export const LAB_SENTINEL = '([a-z0-9-]{16,})';$/
+    if (!m.find()) throw new GradleException("src/design/lab/sentinel.ts must declare LAB_SENTINEL as one literal (MB-084)")
+    new String(m.group(1).getBytes("UTF-8"), "ISO-8859-1")
+}
+tasks.matching { it.name ==~ /^merge\w*Assets$/ && !(it.name ==~ /^merge\w*LabAssets$/) }.configureEach { t ->
+    t.doLast {
+        def needle = labSentinel()
+        t.outputs.files.each { root -> if (root.exists()) root.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+            if (new String(f.bytes, "ISO-8859-1").contains(needle))
+                throw new GradleException("${t.name}: ${f} holds the Design Lab sentinel; the lab is never packaged into an uploadable variant (MB-084).")
+        } }
     }
 }
 

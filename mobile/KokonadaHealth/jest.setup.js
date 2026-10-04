@@ -47,6 +47,20 @@ jest.mock('react-native-reanimated', () => ({
   useDerivedValue: (fn) => ({ value: fn() }),
   withTiming: (v) => v,
   withSpring: (v) => v,
+  // Animated.View (the default export's View) renders as a plain View headless; its animated style is
+  // computed once by useAnimatedStyle above, from the shared values it reads.
+  View: require('react-native').View,
+  // A frame callback that never fires: a headless render draws no frames. It returns one stable
+  // handle per call site, as Reanimated does, so setActive() works. The field-clock laws it drives are
+  // tested on a stateful fake that runs frames (src/design/v2/clock/__tests__/fieldClock.test.tsx).
+  useFrameCallback: (_callback, autostart = true) => {
+    const ref = require('react').useRef(null);
+    if (ref.current === null) {
+      const handle = { isActive: autostart, callbackId: -1, setActive: (active) => { handle.isActive = active; } };
+      ref.current = handle;
+    }
+    return ref.current;
+  },
 }));
 
 const StubView = ({ children }) => children ?? null;

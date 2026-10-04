@@ -62,6 +62,11 @@ android/app/src/main/assets/index.android.bundle
 # Bundled drawables + resource shrinker output copied from node_modules at build time
 android/app/src/main/assets/drawable-*
 android/app/src/main/assets/raw/
+# The Design Lab bundle and the assets copied beside it, written by scripts/lab (MB-084). Only
+# src/lab/res/values (the lab's name) is source.
+android/app/src/lab/assets/
+android/app/src/lab/res/drawable-*/
+android/app/src/lab/res/raw/
 
 # Ruby / CocoaPods
 **/Pods/

@@ -107,3 +107,4 @@ declaration **and** the consent screen. <!-- verified: mobile/KokonadaHealth/and
 - [ ] Privacy policy URL + account-deletion URL live and consistent with this doc.
 - [ ] ~~Demo video~~ — not required (Health Connect background read is not requested; the app is foreground-only). Reassess if the BLE/watch live-HR lane (§2) needs its own disclosure.
 - [ ] Rationale WebView copy == this declaration == consent screen (verbatim in substance).
+- [ ] **The Design Lab is absent from the exact file being uploaded (QA-077).** This applies on any Play track, internal app sharing included. From `mobile/KokonadaHealth`, run `node scripts/lab/assertLabExcluded.mjs --scan <the .aab or .apk to upload>`, and keep the artifact's name, its SHA-256 and the exit 0 with the upload record. Exit 1 or 2 blocks the upload. Until the release harness exists (OPS-028, OPS-030), this line is where the check is enforced.
