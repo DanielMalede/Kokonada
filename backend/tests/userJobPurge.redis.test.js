@@ -33,6 +33,9 @@ const R = `bull:${NAME}:`;
 const payload = (userId) => ({
   v: 1, userId, bucket: { stateDomain: 'stress', targetBand: 'resting', hourBin: 3 }, reward: 0.4, posterior: null, novelty: null, weightStep: null, at: 1_700_000_000_000,
 });
+// P13 (J2, T4): the purge also reports each registered queue. These tests seed learning jobs only, so the
+// state-recompute queue reads 0. Both queues are named literally, never derived from the registry.
+const learningOnly = (x, y) => ({ removed: x, inFlight: y, byQueue: { 'reward-ingest': { removed: x, inFlight: y }, 'state-vector-recompute': { removed: 0, inFlight: 0 } } });
 
 async function until(check, what) {
   const deadline = Date.now() + 10_000;
@@ -65,7 +68,7 @@ describe('without REDIS_URL nothing can have been queued (enqueue is a no-op), s
   it('purge and count answer zero and open no connection', async () => {
     const before = process.getActiveResourcesInfo().filter((t) => t === 'TCPSocketWrap').length;
 
-    await expect(purgeUserJobs(USER_A)).resolves.toEqual({ removed: 0, inFlight: 0 });
+    await expect(purgeUserJobs(USER_A)).resolves.toEqual(learningOnly(0, 0));
     await expect(countUserJobs(USER_A)).resolves.toEqual({ jobs: 0, inFlight: 0 });
 
     expect(process.getActiveResourcesInfo().filter((t) => t === 'TCPSocketWrap').length).toBe(before);
@@ -224,7 +227,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
 
     const out = await purgeUserJobs(USER_A);
 
-    expect(out).toEqual({ removed: 5, inFlight: 0 });
+    expect(out).toEqual(learningOnly(5, 0));
     for (const id of Object.values(ids.A)) expect(await where(id)).toEqual({ hash: 0, states: [] });
     for (const [kind, id] of Object.entries(ids.B)) expect(await where(id)).toEqual({ hash: 1, states: [STATE_OF[kind]] });
     for (const id of ids.ownerless) expect((await where(id)).hash).toBe(1);
@@ -234,7 +237,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
   it('accepts the account id as an ObjectId (the deletion passes req.user._id)', async () => {
     const ids = await seedBacklog();
 
-    expect(await purgeUserJobs(new mongoose.Types.ObjectId(USER_A))).toEqual({ removed: 5, inFlight: 0 });
+    expect(await purgeUserJobs(new mongoose.Types.ObjectId(USER_A))).toEqual(learningOnly(5, 0));
     expect((await where(ids.B.waiting)).hash).toBe(1);
   });
 
@@ -242,7 +245,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
     await seedBacklog();
     await purgeUserJobs(USER_A);
 
-    expect(await purgeUserJobs(USER_A)).toEqual({ removed: 0, inFlight: 0 });
+    expect(await purgeUserJobs(USER_A)).toEqual(learningOnly(0, 0));
   });
 
   it('a running job is counted as in flight and left alone; once it has run, the queue deletes it', async () => {
@@ -254,7 +257,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
 
     const out = await purgeUserJobs(USER_A);
 
-    expect(out).toEqual({ removed: 0, inFlight: 1 });
+    expect(out).toEqual(learningOnly(0, 1));
     expect(await where(job.id)).toEqual({ hash: 1, states: ['active'] });
     const completed = once(workers[0], 'completed');
     release();
@@ -282,7 +285,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
       spy.mockRestore();
     }
 
-    expect(out).toEqual({ removed: 0, inFlight: 1 });
+    expect(out).toEqual(learningOnly(0, 1));
     expect(await where(jobId)).toEqual({ hash: 1, states: ['active'] });
     const completed = once(workers[0], 'completed');
     release();
@@ -304,7 +307,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
     const ids = await seedBacklog();
 
     for (const id of ['undefined', 'null', '0', 'aaaaaaaaaaaaaaaaaaaaaaab']) {
-      expect(await purgeUserJobs(id)).toEqual({ removed: 0, inFlight: 0 });
+      expect(await purgeUserJobs(id)).toEqual(learningOnly(0, 0));
     }
 
     for (const id of ids.ownerless) expect((await where(id)).hash).toBe(1);
@@ -326,7 +329,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
     await queue.addBulk(Array.from({ length: 1203 }, (_, i) => ({ name: NAME, data: payload(i % 3 === 0 ? USER_B : USER_A) })));
     await queue.close();
 
-    expect(await purgeUserJobs(USER_A)).toEqual({ removed: 802, inFlight: 0 });
+    expect(await purgeUserJobs(USER_A)).toEqual(learningOnly(802, 0));
 
     expect(await redis.llen(`${R}wait`)).toBe(401);
   });
@@ -339,7 +342,7 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
     await queue.close();
     expect(await redis.lpos(`${R}paused`, a)).not.toBeNull();
 
-    expect(await purgeUserJobs(USER_A)).toEqual({ removed: 1, inFlight: 0 });
+    expect(await purgeUserJobs(USER_A)).toEqual(learningOnly(1, 0));
 
     expect(await redis.exists(`${R}${a}`)).toBe(0);
     expect(await redis.lpos(`${R}paused`, b)).not.toBeNull();
