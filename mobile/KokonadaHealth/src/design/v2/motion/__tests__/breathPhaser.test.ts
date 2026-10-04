@@ -77,20 +77,25 @@ describe('advanceBreath: n changes only at a wrap (QA-066)', () => {
       }
     }
     expect(frame).toBeGreaterThan(300);
-    expect(changed.n).toBe(STRESSED_N);
+    // DSN-035: toward a slower target n moves one step per wrap.
+    expect(changed.n).toBe(REST_N - 1);
     expect(steady.n).toBe(REST_N);
   });
 
   it('carries the time left over at the boundary into the new cycle', () => {
     const state = advanceBreath({ phase: 0.9, n: 6, wrapsSinceChange: 1 }, 300, 3, SHORT);
-    expect(state.n).toBe(3);
-    expect(state.phase).toBeCloseTo(200 / 2000, 12);
+    // DSN-035: one step toward the slower target, so n 5, a 1200 ms breath.
+    expect(state.n).toBe(5);
+    expect(state.phase).toBeCloseTo(200 / 1200, 12);
   });
 
   it('a step longer than a cycle lands on the right phase of the new cycle', () => {
     const state = advanceBreath({ phase: 0.5, n: 6, wrapsSinceChange: 1 }, 1600, 12, SHORT);
-    expect(breathPeriodOf(state, SHORT)).toBe(500);
-    expect(state.phase).toBeCloseTo(0.2, 12);
+    // DSN-035, wrap by wrap: at 500 ms n steps up to 7 (857.14 ms); at the next wrap, 857.14 ms
+    // later, the step back up waits (fewer than fasterWrapsPerStep wraps); 242.86 ms remain.
+    expect(state.n).toBe(7);
+    expect(state.wrapsSinceChange).toBe(1);
+    expect(state.phase).toBeCloseTo(17 / 60, 12);
   });
 
   // Property, over 20 000 frames of irregular timing and a target that changes at random.
@@ -123,6 +128,89 @@ describe('advanceBreath: n changes only at a wrap (QA-066)', () => {
     expect(advanceBreath(copy, 12345, STRESSED_N, CLOCK)).toEqual(advanceBreath(state, 12345, STRESSED_N, CLOCK));
   });
 
+});
+
+// DSN-035 (designer rulings §2; resilience second voice §1): toward a slower target n moves one
+// step per wrap; back toward rest, one step only at a wrap at least fasterWrapsPerStep wraps after
+// the last change. QA-066's monotonicity applies to the target n(s); the n actually breathing
+// depends on its history, which is the point of the rule.
+describe('the change limit, wrap by wrap', () => {
+  const F = CLOCK.fasterWrapsPerStep;
+
+  // Property: 400 000 frames of a random walk of targets across [nStress, nRest]. Frames are at
+  // most 50 ms and the shortest breath is 5 000 ms, so a frame crosses at most one wrap. The wrap
+  // count since the last change is kept here, independently of the state's own counter.
+  it('moves n only at wraps, one step at a time, never early and never past the target', () => {
+    const random = seeded(31);
+    let state = startBreath(REST_N, CLOCK);
+    let target = REST_N;
+    let wrapsSinceChange = F - 1;
+    let ups = 0;
+    let downs = 0;
+    // Collected and asserted once: an expect per frame costs more than the phaser itself.
+    const violations: string[] = [];
+    for (let i = 0; i < 400000; i++) {
+      if (random() < 0.002) target = STRESSED_N + Math.floor(random() * (REST_N - STRESSED_N + 1));
+      const dt = random() * 50;
+      const wraps = state.phase + dt / breathPeriodOf(state, CLOCK) >= 1;
+      const next = advanceBreath(state, dt, target, CLOCK);
+      let expected = state.n;
+      if (wraps && target < state.n) {
+        expected = state.n - 1;
+        downs++;
+        wrapsSinceChange = 0;
+      } else if (wraps && target > state.n && wrapsSinceChange + 1 >= F) {
+        expected = state.n + 1;
+        ups++;
+        wrapsSinceChange = 0;
+      } else if (wraps) {
+        wrapsSinceChange++;
+      }
+      if (next.n !== expected || next.n < STRESSED_N || next.n > REST_N) {
+        violations.push(`frame ${i}: n ${state.n} -> ${next.n}, expected ${expected} (target ${target}, wrap ${wraps})`);
+      }
+      state = next;
+    }
+    expect(violations.slice(0, 5)).toEqual([]);
+    expect(ups).toBeGreaterThan(20);
+    expect(downs).toBeGreaterThan(20);
+  });
+
+  // Abyss: 5 wraps from rest to full tension, 5.45 + 6.0 + 6.67 + 7.5 + 8.57 s = 34.2 s; then 10
+  // wraps back, two at each n from 6 to 10, 77.5 s.
+  const sum = (ns: number[]) => ns.reduce((total, n) => total + 60000 / n, 0);
+  const TO_FULL_MS = sum([11, 10, 9, 8, 7]);
+  const TO_REST_MS = sum([6, 6, 7, 7, 8, 8, 9, 9, 10, 10]);
+
+  it('takes 34.2 s from rest to full tension in Abyss', () => {
+    expect(TO_FULL_MS / 1000).toBeCloseTo(34.2, 1);
+    const start = startBreath(REST_N, CLOCK);
+    expect(advanceBreath(start, TO_FULL_MS - 0.5, STRESSED_N, CLOCK).n).toBe(7);
+    expect(advanceBreath(start, TO_FULL_MS + 0.5, STRESSED_N, CLOCK).n).toBe(STRESSED_N);
+  });
+
+  it('takes 77.5 s from full tension back to rest in Abyss', () => {
+    expect(TO_REST_MS / 1000).toBeCloseTo(77.5, 1);
+    const atFull = advanceBreath(startBreath(REST_N, CLOCK), TO_FULL_MS + 0.5, STRESSED_N, CLOCK);
+    expect(atFull).toMatchObject({ n: STRESSED_N, wrapsSinceChange: 0 });
+    expect(advanceBreath(atFull, TO_REST_MS - 1, REST_N, CLOCK).n).toBe(REST_N - 1);
+    expect(advanceBreath(atFull, TO_REST_MS, REST_N, CLOCK).n).toBe(REST_N);
+  });
+
+  // The limit it replaces, planted: +1000 / −500 ms per wrap cannot be met with periods of T / n
+  // (7 500 → 8 571 ms is already +1 071), so a phaser bound by it stalls at n 8.
+  it('bites: the old millisecond limit never converges', () => {
+    let n = REST_N;
+    for (let wrap = 0; wrap < 100; wrap++) {
+      const next = n > STRESSED_N ? n - 1 : n;
+      if (60000 / next - 60000 / n <= 1000) n = next;
+    }
+    expect(n).toBe(8);
+    expect(advanceBreath(startBreath(REST_N, CLOCK), TO_FULL_MS + 0.5, STRESSED_N, CLOCK).n).toBe(STRESSED_N);
+  });
+});
+
+describe('advanceBreath: refusals', () => {
   it('a zero step changes nothing', () => {
     const state = startBreath(REST_N, CLOCK);
     expect(advanceBreath(state, 0, STRESSED_N, CLOCK)).toEqual(state);

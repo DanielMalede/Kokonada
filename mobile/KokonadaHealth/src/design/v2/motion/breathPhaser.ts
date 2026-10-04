@@ -67,9 +67,23 @@ export function breathPeriodOf(state: BreathState, clock: BreathClock): number {
   return clock.masterPeriodMs / state.n;
 }
 
-/** What happens to n at one wrap, given the target n the law asks for now. */
-function atWrap(n: number, wrapsSinceChange: number, targetN: number): { n: number; wrapsSinceChange: number } {
-  return targetN !== n ? { n: targetN, wrapsSinceChange: 0 } : { n, wrapsSinceChange: wrapsSinceChange + 1 };
+/**
+ * DSN-035, at one wrap: toward a slower target (a lower n) one step; back toward rest one step,
+ * but only once fasterWrapsPerStep wraps have passed since the last change; otherwise count.
+ */
+function atWrap(
+  n: number,
+  wrapsSinceChange: number,
+  targetN: number,
+  fasterWrapsPerStep: number,
+): { n: number; wrapsSinceChange: number } {
+  if (targetN < n) {
+    return { n: n - 1, wrapsSinceChange: 0 };
+  }
+  if (targetN > n && wrapsSinceChange >= fasterWrapsPerStep - 1) {
+    return { n: n + 1, wrapsSinceChange: 0 };
+  }
+  return { n, wrapsSinceChange: wrapsSinceChange + 1 };
 }
 
 /**
@@ -96,7 +110,7 @@ export function advanceBreath(state: BreathState, clampedDtMs: number, targetN: 
     }
     remainingMs = Math.max(0, remainingMs - (1 - phase) * periodMs);
     phase = 0;
-    ({ n, wrapsSinceChange } = atWrap(n, wrapsSinceChange, targetN));
+    ({ n, wrapsSinceChange } = atWrap(n, wrapsSinceChange, targetN, clock.fasterWrapsPerStep));
   }
 }
 
