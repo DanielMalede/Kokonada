@@ -132,6 +132,22 @@ export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exist
 
 // ---- the real tools --------------------------------------------------------------------
 
+/**
+ * The spawn arguments for the Gradle wrapper in `cwd`. Fixed arguments only, never user input.
+ * On Windows the wrapper is named by its absolute path: where NoDefaultCurrentDirectoryInExePath is
+ * set, cmd.exe does not search the current directory and a bare `gradlew.bat` is not found. The
+ * command line is passed verbatim, as `/s /c ""<wrapper>" <args>"`, so a path with a space survives.
+ * @param {{ cwd: string, args: string[], env?: Record<string, string> }} call
+ * @param {string} [platform]
+ * @returns {[string, string[], { cwd: string, env: Record<string, string | undefined>, windowsVerbatimArguments?: boolean }]}
+ */
+export function gradleSpawn({ cwd, args, env = {} }, platform = process.platform) {
+  const options = { cwd, env: { ...process.env, ...env } };
+  if (platform !== 'win32') return ['sh', [path.posix.join(cwd, 'gradlew'), ...args], options];
+  const wrapper = path.win32.join(cwd, 'gradlew.bat');
+  return ['cmd.exe', ['/d', '/s', '/c', `""${wrapper}" ${args.join(' ')}"`], { ...options, windowsVerbatimArguments: true }];
+}
+
 // apksigner from the Android SDK that android/local.properties names (or ANDROID_HOME), newest build-tools.
 function apksignerCommand(appRoot, args) {
   const props = path.join(appRoot, 'android/local.properties');
@@ -186,10 +202,10 @@ function realTools(appRoot) {
         return { sha256: digest[1].replace(/:/g, '').toLowerCase() };
       },
     },
-    // Fixed arguments only, never user input; gradlew.bat needs cmd on Windows.
-    gradle: ({ cwd, args, env = {} }) => (process.platform === 'win32'
-      ? run('cmd.exe', ['/d', '/s', '/c', `gradlew.bat ${args.join(' ')}`], { cwd, stdio: 'inherit', env: { ...process.env, ...env } })
-      : run('sh', ['./gradlew', ...args], { cwd, stdio: 'inherit', env: { ...process.env, ...env } })),
+    gradle: (call) => {
+      const [command, args, options] = gradleSpawn(call);
+      return run(command, args, { ...options, stdio: 'inherit' });
+    },
   };
 }
 

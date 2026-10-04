@@ -3,8 +3,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { bundleLab } from '../bundleLab.mjs';
-import { buildLabApk, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
+import { buildLabApk, gradleSpawn, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
 import { Refused } from '../capture.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { zip } from '../__fixtures__/zipWriter';
@@ -211,5 +212,32 @@ describe('buildLabApk', () => {
   it('refuses an APK signed by any other certificate than the shared debug key', async () => {
     await expect(rig({ apkCert: { dn: 'CN=Kokonada Health, O=Kokonada', sha256: 'b'.repeat(64) } }).run()).rejects.toThrow(/not the debug key/);
     await expect(rig({ apkCert: { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'c'.repeat(64) } }).run()).rejects.toThrow(/not signed with the shared debug keystore/);
+  });
+});
+
+describe('the real Gradle wrapper call', () => {
+  // Found on the first real run: with NoDefaultCurrentDirectoryInExePath set (it is in some shells),
+  // cmd.exe does not look in the current directory, so a bare `gradlew.bat` "is not recognized". The
+  // wrapper is named by its absolute path, quoted, and the call runs through the real cmd.exe here.
+  const onWindows = process.platform === 'win32' ? it : it.skip;
+  onWindows('runs the wrapper in cwd by its absolute path, even where cmd.exe does not search the current directory', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lab gradle '));
+    fs.writeFileSync(path.join(dir, 'gradlew.bat'), '@echo off\r\necho WRAPPER %* KEY=%ORG_GRADLE_PROJECT_kokonadaDebugKeystore%\r\n');
+    const keystore = String.raw`C:\k\debug.keystore`;
+    const [command, args, options] = gradleSpawn({ cwd: dir, args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a'], env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore } });
+    const r = spawnSync(command, args, { ...options, env: { ...options.env, NoDefaultCurrentDirectoryInExePath: '1' }, encoding: 'utf8' });
+    expect(r.stderr).toBe('');
+    expect(r.stdout.trim()).toBe(`WRAPPER :app:assembleLab -PreactNativeArchitectures=arm64-v8a KEY=${keystore}`);
+    expect(r.status).toBe(0);
+  });
+
+  const elsewhere = process.platform === 'win32' ? it.skip : it;
+  elsewhere('runs ./gradlew in cwd through sh', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lab gradle '));
+    fs.writeFileSync(path.join(dir, 'gradlew'), 'echo "WRAPPER $* KEY=$ORG_GRADLE_PROJECT_kokonadaDebugKeystore"\n');
+    const [command, args, options] = gradleSpawn({ cwd: dir, args: [':app:assembleLab'], env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: '/k/debug.keystore' } });
+    const r = spawnSync(command, args, { ...options, encoding: 'utf8' });
+    expect(r.stdout.trim()).toBe('WRAPPER :app:assembleLab KEY=/k/debug.keystore');
+    expect(r.status).toBe(0);
   });
 });
