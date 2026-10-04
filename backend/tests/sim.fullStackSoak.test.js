@@ -94,6 +94,7 @@ const { STATES } = require('../app/agents/runtime/knowledge/stateTaxonomy');
 const BiometricLog = require('../app/models/BiometricLog');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const { _resetDebounceState } = require('../app/sockets/biometricHandler');
+const { pinWallClock } = require('./helpers/fixtureClock');
 
 jest.setTimeout(180000);
 
@@ -128,7 +129,10 @@ beforeEach(async () => {
   getRedis.mockReturnValue(fakeRedis());
 });
 
-afterEach(() => { _resetDebounceState(); });
+afterEach(() => {
+  jest.useRealTimers();
+  _resetDebounceState();
+});
 
 // ── replay.js API additions (W4-015) ─────────────────────────────────────────────────────────
 describe('replaySocketLane — onEvent + injectSimTime (W4-015 additions)', () => {
@@ -166,7 +170,7 @@ describe('replaySocketLane — onEvent + injectSimTime (W4-015 additions)', () =
     const lastEv = run.socket.events[2];
     const carried = await peekAffectState(uid, { now: lastEv.atMs });
     expect(carried).not.toBeNull();
-    // T0 is 2026-07-06 — decades before the real clock the test executes under. If the posterior
+    // T0 is 2026-07-06 — months before the real clock the test executes under. If the posterior
     // had been stamped with `Date.now()` instead of the injected sim time, this delta would be
     // enormous rather than a few minutes.
     expect(Math.abs(carried.lastAtMs - lastEv.atMs)).toBeLessThan(10 * 60 * 1000);
@@ -179,6 +183,12 @@ describe('replaySocketLane — onEvent + injectSimTime (W4-015 additions)', () =
     const uid = new mongoose.Types.ObjectId().toString();
     const socket = createReplaySocket({ userId: uid });
 
+    // "Wall-clock time" is what Date.now() reads, and that is all the handler falls back to without
+    // injectSimTime. It is pinned to the close of the fixture's day: on the machine's clock these
+    // readings aged past the anomaly filter's 90-day S6 floor on 2026-10-04, and a refused reading
+    // never reaches the posterior at all. A full day separates the pin from the last event, so a
+    // posterior stamped with event time instead could not land inside [before, after].
+    pinWallClock(run.meta.endAtMs);
     const before = Date.now();
     await replaySocketLane({
       run, socket, lane: 'direct', liveMode: true, maxEvents: 3,
