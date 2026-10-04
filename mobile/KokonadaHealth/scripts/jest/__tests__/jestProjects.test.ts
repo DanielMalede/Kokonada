@@ -7,6 +7,9 @@ import { spawnSync } from 'child_process';
 //   · unit — the existing configuration, with the global stubs (jest.setup.js), every test except
 //     *.skia.test.*;
 //   · skia — Skia's CanvasKit environment, *.skia.test.* only, and never the Skia stub.
+//   · sweeps — UI-073's full-resolution never-red pass, *.sweeps.test.* only, in its own config
+//     (jest.sweeps.config.js), so `jest` and `jest --ci` never run it; CI runs it serially, in its
+//     own step after the default run.
 // Splitting a jest config is how suites silently stop running: a narrowed pattern runs fewer files
 // and still reports green. So this asks jest itself which files each project runs, and compares the
 // union with an independent walk of the disk.
@@ -14,8 +17,9 @@ import { spawnSync } from 'child_process';
 const APP = path.resolve(__dirname, '../../..');
 const rel = (f: string) => path.relative(APP, f).split(path.sep).join('/');
 
-function listTests(project: string): string[] {
-  const r = spawnSync(process.execPath, [path.join(APP, 'node_modules/jest/bin/jest.js'), '--listTests', '--json', '--selectProjects', project], {
+function listTests(project: string, config?: string): string[] {
+  const configArgs = config ? ['--config', config] : [];
+  const r = spawnSync(process.execPath, [path.join(APP, 'node_modules/jest/bin/jest.js'), '--listTests', '--json', ...configArgs, '--selectProjects', project], {
     cwd: APP, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
   });
   if (r.status !== 0) throw new Error(`jest --listTests --selectProjects ${project} failed (${r.status}): ${r.stderr}`);
@@ -47,10 +51,12 @@ function testsOnDisk(): string[] {
 }
 
 const SKIA_TEST = /\.skia\.test\.[mc]?[jt]sx?$/;
+const SWEEPS_TEST = /\.sweeps\.test\.[mc]?[jt]sx?$/;
 
 describe('the two jest projects (MB-086)', () => {
   const unit = listTests('unit');
   const skia = listTests('skia');
+  const sweeps = listTests('sweeps', 'jest.sweeps.config.js');
   const disk = testsOnDisk();
 
   it('the walk sees the real suite (a list that finds nothing must fail, not pass)', () => {
@@ -64,13 +70,26 @@ describe('the two jest projects (MB-086)', () => {
     expect(skia.length).toBeGreaterThan(0);
   });
 
-  it('the unit project runs every other test, and no *.skia.test.* file', () => {
-    expect(unit).toEqual(disk.filter((f) => !SKIA_TEST.test(f)));
+  it('the sweeps project runs every *.sweeps.test.* file, and only those (UI-073)', () => {
+    expect(sweeps).toEqual(disk.filter((f) => SWEEPS_TEST.test(f)));
+    expect(sweeps.length).toBeGreaterThan(0);
   });
 
-  it('no suite is lost or run twice: unit and skia together are exactly the tests on disk', () => {
-    expect(unit.filter((f) => skia.includes(f))).toEqual([]);
-    expect([...unit, ...skia].sort()).toEqual(disk);
+  it('the unit project runs every other test, and no *.skia.test.* or *.sweeps.test.* file', () => {
+    expect(unit).toEqual(disk.filter((f) => !SKIA_TEST.test(f) && !SWEEPS_TEST.test(f)));
+  });
+
+  it('no suite is lost or run twice: unit, skia and sweeps together are exactly the tests on disk', () => {
+    expect(unit.filter((f) => skia.includes(f) || sweeps.includes(f))).toEqual([]);
+    expect(skia.filter((f) => sweeps.includes(f))).toEqual([]);
+    expect([...unit, ...skia, ...sweeps].sort()).toEqual(disk);
+  });
+
+  it('the default config has no sweeps project, so `jest` and `jest --ci` keep the coarse grids', () => {
+    const config = require('../../../jest.config.js') as { projects: Array<{ displayName: string }> };
+    expect(config.projects.map((p) => p.displayName)).toEqual(['unit', 'skia']);
+    const sweepsConfig = require('../../../jest.sweeps.config.js') as { projects: Array<{ displayName: string }> };
+    expect(sweepsConfig.projects.map((p) => p.displayName)).toEqual(['sweeps']);
   });
 
   it('the skia project does not load the global stubs, and the unit project does', () => {
@@ -86,9 +105,37 @@ describe('the two jest projects (MB-086)', () => {
   });
 
 
-  it('CI runs jest exactly as `jest --ci`: no --selectProjects and no paths, so both projects always run', () => {
+  it('CI runs jest as `jest --ci` (no --selectProjects and no paths, so unit and skia always run), then the sweeps serially in their own step', () => {
     const ci = fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8');
     const runs = ci.split(/\r?\n/).filter((line) => /node_modules\/\.bin\/jest\b/.test(line)).map((line) => line.trim());
-    expect(runs).toEqual(['run: ./node_modules/.bin/jest --ci']);
+    expect(runs).toEqual(['run: ./node_modules/.bin/jest --ci', 'run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --runInBand']);
+  });
+
+  it('both jest steps are in the mobile job, the sweeps right after the default run', () => {
+    const ci = fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8').split(/\r?\n/);
+    const job = ci.slice(ci.indexOf('  mobile:'), ci.indexOf('  mobile-android-compile:'))
+      .map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
+    const start = job.indexOf('run: ./node_modules/.bin/jest --ci');
+    expect(start).toBeGreaterThan(-1);
+    expect(job.slice(start, start + 4)).toEqual([
+      'run: ./node_modules/.bin/jest --ci',
+      'working-directory: mobile/KokonadaHealth',
+      '- name: Never-red sweeps at full resolution (UI-073)',
+      'run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --runInBand',
+    ]);
+  });
+
+  // The macOS job costs real minutes, so a change to the jest split must never start it.
+  it('the iOS paths filter matches neither jest config nor ci.yml', () => {
+    const ci = fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8').split(/\r?\n/);
+    const job = ci.slice(ci.indexOf('  ios-changes:'), ci.indexOf('  mobile-ios-build:'));
+    const globs = job.slice(job.findIndex((l) => l.trim() === 'ios:') + 1)
+      .map((l) => l.trim()).filter((l) => l.startsWith("- '")).map((l) => l.slice(3, -1));
+    // A glob as paths-filter reads it: ** crosses folders, * does not.
+    const toRegExp = (glob: string) =>
+      new RegExp(`^${glob.split('**').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')).join('.*')}$`);
+    const matches = (file: string) => globs.some((g) => toRegExp(g).test(file));
+    expect(matches('mobile/KokonadaHealth/ios/Podfile')).toBe(true); // the parse sees the real filter
+    expect(['mobile/KokonadaHealth/jest.config.js', 'mobile/KokonadaHealth/jest.sweeps.config.js', '.github/workflows/ci.yml'].filter(matches)).toEqual([]);
   });
 });

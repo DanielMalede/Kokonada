@@ -12,6 +12,10 @@ const transform = {
 // really compiles and a surface really draws. Name such a test *.skia.test.ts(x).
 const SKIA_TESTS = '\\.skia\\.test\\.[jt]sx?$';
 
+// The full-resolution never-red sweeps (UI-073) run only in jest.sweeps.config.js, in CI's own
+// serial step; the default run keeps the coarse grids. Name such a test *.sweeps.test.ts.
+const SWEEPS_TESTS = '\\.sweeps\\.test\\.[jt]sx?$';
+
 // Two projects, one run: `jest` (and CI's `jest --ci`) runs both. jestProjects.test.ts checks that
 // together they run exactly the tests on disk, so a split can never silently drop a suite.
 module.exports = {
@@ -31,7 +35,7 @@ module.exports = {
       transformIgnorePatterns: [
         'node_modules/(?!(?:@react-native|react-native|@reduxjs/toolkit|immer|redux|reselect|redux-thunk|react-redux|zustand|@react-navigation|react-native-screens|react-native-haptic-feedback)/)',
       ],
-      testPathIgnorePatterns: ['/node_modules/', SKIA_TESTS],
+      testPathIgnorePatterns: ['/node_modules/', SKIA_TESTS, SWEEPS_TESTS],
     },
     {
       displayName: 'skia',

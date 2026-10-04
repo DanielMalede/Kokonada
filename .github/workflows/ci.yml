@@ -77,6 +77,12 @@ jobs:
       - name: Run tests
         run: ./node_modules/.bin/jest --ci
         working-directory: mobile/KokonadaHealth
+      # UI-073: the never-red sweeps at full resolution (the sweeps project, jest.sweeps.config.js),
+      # serially and after the default run, so their load never slows the UI suites. The default
+      # run keeps the coarse grids; this step is the one that sees every 8-bit rounding.
+      - name: Never-red sweeps at full resolution (UI-073)
+        run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --runInBand
+        working-directory: mobile/KokonadaHealth
       # The design-system gate: colour and scale values that bypass src/design/tokens.ts are
       # ERRORS, and this step FAILS the build on them. It runs the same .eslintrc.js as
       # `npm run lint`, keeps only the kokonada/* messages, and ratchets them against
