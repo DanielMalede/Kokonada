@@ -127,10 +127,23 @@ function sandbox(): Sandbox {
   return { dir, rn, envDir, log: path.join(dir, 'bundler.log') };
 }
 
+// The other react-native-xcode.sh inputs that can change what is bundled, or what bundles it, each with
+// a value that would redirect the bundle. The wrapper refuses every one of them when non-empty.
+const OTHER_INPUTS: Array<[string, string]> = [
+  ['EXTRA_PACKAGER_ARGS', '--entry-file index.lab.js'],
+  ['CLI_PATH', '/tmp/another-bundler.js'],
+  ['BUNDLE_COMMAND', 'ram-bundle'],
+  ['BUNDLE_CONFIG', 'metro.lab.config.js'],
+  ['CONFIG_JSON', '/tmp/rn-config.json'],
+  ['CONFIG_CMD', 'node lab-config.js'],
+  ['NODE_ARGS', '--require ./hook.js'],
+  ['BUNDLE_NAME', 'lab'],
+];
+
 const baseEnv = (s: Sandbox, extra: Record<string, string> = {}) => {
   const env: Record<string, string | undefined> = { ...process.env };
-  delete env.ENTRY_FILE;
-  delete env.PROJECT_ROOT;
+  // Nothing from the machine running the tests may decide a result.
+  for (const v of ['ENTRY_FILE', 'PROJECT_ROOT', 'SKIP_BUNDLING', 'CONFIGURATION', ...OTHER_INPUTS.map(([name]) => name)]) delete env[v];
   return {
     ...env,
     REACT_NATIVE_PATH: posix(s.rn),
@@ -258,6 +271,59 @@ describe('the wrapper, run directly', () => {
 
   it('with nothing to refuse, execs react-native-xcode.sh with no argument', () => {
     const r = runWrapper(s);
+    expect(r.status).toBe(0);
+    expect(bundlerRuns(s)).toEqual(['ran ENTRY_FILE=[<unset>] args=[]']);
+  });
+});
+
+describe('the other inputs that can redirect or drop the iOS bundle (MB-093 round 1, FIX 1)', () => {
+  let s: Sandbox;
+  beforeEach(() => { s = sandbox(); });
+  afterEach(() => { fs.rmSync(s.dir, { recursive: true, force: true }); });
+
+  it.each(OTHER_INPUTS)('refuses a non-empty %s', (name, value) => {
+    const r = runWrapper(s, { [name]: value });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(`error: ${name} is set ("${value}"). It can change what the iOS bundle phase bundles; this phase takes React Native's defaults only (MB-093).`);
+    expect(bundlerRuns(s)).toEqual([]);
+  });
+
+  it('refuses EXTRA_PACKAGER_ARGS="--entry-file index.lab.js" exported in ios/.xcode.env.local, run through the phase', () => {
+    fs.writeFileSync(path.join(s.envDir, '.xcode.env.local'), "export EXTRA_PACKAGER_ARGS='--entry-file index.lab.js'\n");
+    const r = runPhase(s);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('error: EXTRA_PACKAGER_ARGS is set ("--entry-file index.lab.js")');
+    expect(bundlerRuns(s)).toEqual([]);
+  });
+
+  it('refuses a PROJECT_ROOT that is not this app\'s root, even with no index.ios.js in it', () => {
+    const elsewhere = path.join(s.dir, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    const r = runWrapper(s, { PROJECT_ROOT: posix(elsewhere) });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(`error: PROJECT_ROOT is "${posix(elsewhere)}", not this app's root: the iOS bundle phase bundles this app's index.js only (MB-093).`);
+    expect(bundlerRuns(s)).toEqual([]);
+  });
+
+  it.each([
+    ['the app root itself', () => posix(APP)],
+    ['the app root reached through ios/..', () => `${posix(IOS)}/..`],
+  ])('lets a PROJECT_ROOT through when it is %s', (_label, root) => {
+    const r = runWrapper(s, { PROJECT_ROOT: root() });
+    expect(r.stderr).not.toMatch(/error:/);
+    expect(r.status).toBe(0);
+    expect(bundlerRuns(s)).toEqual(['ran ENTRY_FILE=[<unset>] args=[]']);
+  });
+
+  it.each(['Release', 'Staging', ''])('refuses SKIP_BUNDLING when CONFIGURATION is %p: an archive must carry the bundle', (configuration) => {
+    const r = runWrapper(s, { SKIP_BUNDLING: '1', CONFIGURATION: configuration });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/error: SKIP_BUNDLING is set for a \S+ build: an archive must carry the bundle built from index\.js \(MB-093\)\./);
+    expect(bundlerRuns(s)).toEqual([]);
+  });
+
+  it('lets SKIP_BUNDLING through for a Debug build, where nothing is archived for upload', () => {
+    const r = runWrapper(s, { SKIP_BUNDLING: '1', CONFIGURATION: 'Debug' });
     expect(r.status).toBe(0);
     expect(bundlerRuns(s)).toEqual(['ran ENTRY_FILE=[<unset>] args=[]']);
   });
