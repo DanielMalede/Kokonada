@@ -32,7 +32,7 @@
 
 ## § IF YOU READ NOTHING ELSE — as of 2026-10-04
 
-**The headline.** Since 2026-10-03 an agent merges to `main`. A merge to `main` is a production deploy, and nothing on GitHub or Railway can stop a bad one: the private repository on the free plan cannot have branch protection (GitHub answers 403), Railway creates the deployment one second before CI starts, and no settings file holds a single deny rule, although Daniel chose hard denies on 2026-10-03. The post-merge CI agent sees a red result only after production is already running the code. → `KW-050`
+**The headline.** Since 2026-10-03 an agent merges to `main`. A merge to `main` is a production deploy, and nothing on GitHub or Railway can stop a bad one: the private repository on the free plan cannot have branch protection (GitHub answers 403), Railway created the #211 deployment one second before CI started, which suggests nothing waits for CI (INFERRED: `BE-012` records Wait for CI switched back on on 2026-08-28, and a waiting deployment is also created at once), and no settings file holds a single deny rule, although Daniel chose hard denies on 2026-10-03. If Wait for CI is off, the post-merge CI agent sees a red result only after production is already running the code. → `KW-050`
 
 **Top 3, in order.**
 
@@ -45,7 +45,7 @@
 
    Cost: about 30 minutes. What it buys: every later delegated merge and production read runs behind a guard instead of behind good intentions.
 2. **Before J2 merges:** make J2's new orphan sweep fail safe. As planned, it erases every deleted-account orphan at the first 03:30 UTC after deploy, unless Daniel has set `ORPHAN_SWEEP_DISABLED=true` in Railway first. The orchestrator can neither set nor read that variable. Either invert the default to an enable flag, or prove the switch from the boot log before 03:30 UTC. → `KW-051`. Cost: about 1 hour of build and review.
-3. **By 2026-10-20: Daniel sends counsel a one-page "gating five".** Today the counsel pack holds about 70 questions in at least seven annexes, and nothing has been sent. The first dated answer is due around 2026-11-02 (`DISCOVERY_CAPTION_LLM` against AI Act Art. 50(2) on 2026-12-02). The breath-law question under the MDR applies now, and it decides whether Play needs an organisation account. → `KW-054`, `KW-055`, `KW-062`. Cost: 1 hour of agent drafting, then a fixed-fee scoping call that only Daniel can book and pay for.
+3. **By 2026-10-20: Daniel sends counsel a one-page "gating five".** Today the counsel pack holds about 70 questions in at least seven annexes, and nothing has been sent. The first dated answer is due around 2026-11-02 (`DISCOVERY_CAPTION_LLM` against AI Act Art. 50(2) on 2026-12-02). The breath-law question under the MDR applies now, and a medical answer settles Play's organisation account, and a wellness answer does not remove it (`CMP-093`, corrected 2026-10-04). → `KW-054`, `KW-055`, `KW-062`. Cost: 1 hour of agent drafting, then a fixed-fee scoping call that only Daniel can book and pay for.
 
 **The order of work for finishing the plan with the least risk (for the orchestrator).**
 
@@ -134,7 +134,7 @@ Legal and process:
 - **Spotify.** The February-2026 Development-Mode migration has applied to existing apps since **2026-03-09**. It is newly found here and has been biting for seven months (`KW-052`).
 - **Groq.** It shut `llama-3.1-8b-instant` (2026-08-16), then deprecated one of its own recommended replacements four weeks later (`qwen/qwen3.6-27b`, 2026-09-14). The backend already moved to `openai/gpt-oss-20b` (#197).
 - **The AI Act.** The Annex III guidelines are still a draft, and they warn against circumvention by relabelling ("angry attitude" rather than "angry emotion") (`KW-055`).
-- **Play.** The organisation-account rule covers "Medical apps and Human Subjects Research apps". That ties the store logistics to the MDR question (`KW-054`).
+- **Play.** The organisation-account rule covers "Health apps", whose categories include "Health and fitness apps"; on Play's text Kokonada is one whatever the MDR answer (`CMP-093`, re-issued 2026-10-04; `KW-054`).
 
 **The pre-mortem is unchanged for the second consecutive run** (see § KILL CRITERIA). One more identical run moves it to the top of this file, by rule.
 
@@ -296,7 +296,7 @@ STATUS: CLOSED (2026-10-04)
 TIER: 0
 BITES: n/a
 OWNER: —
-EVIDENCE: `Kokonada-private/session-3181c7f6/j1/dan048-result-2026-10-02.md`, step 1: `W workers-in-process=yes` at 11:21:57Z on deployment `c72c60e1`. `be016/runs/sessionTrim-nightly-2026-10-02.txt`: `[sessionTrim] trimmed=2 stripped=19 serveEvents=950 … failures=0` at 2026-10-02T03:30:08.884Z. `backend/app/workers/index.js:67` (`RUN_WORKERS_IN_PROCESS === 'true'`). Both private files were re-read this run.
+EVIDENCE: the DAN-048 result in the private evidence folder, step 1: `W workers-in-process=yes` at 11:21:57Z on deployment `c72c60e1`. A nightly run file in the private evidence folder: a `[sessionTrim]` line with `failures=0` at 2026-10-02T03:30:08.884Z. `backend/app/workers/index.js:67` (`RUN_WORKERS_IN_PROCESS === 'true'`). Both private files were re-read this run.
 CONFIDENCE: PROVEN
 WHAT IT IS: The seed suspected that no worker ran. Production proves they do.
 SOLUTION: None needed. The remaining instrument gap is `KW-032` (no build id on `/health`).
@@ -315,12 +315,12 @@ TIER: 1
 BITES: **the first delegated merge,** expected this week (J2 or `design/v1-lab`). It then bites on every merge after it.
 OWNER: Daniel (two portal and settings actions), then the build team
 EVIDENCE:
-- `gh api repos/DanielMalede/Kokonada/branches/main/protection` and `…/rulesets` both answer 403, "Upgrade to GitHub Pro or make this repository public to enable this feature" [read 2026-10-04]. The repository is private on the free plan.
+- `gh api repos/<owner>/Kokonada/branches/main/protection` and `…/rulesets` both answer 403, "Upgrade to GitHub Pro or make this repository public to enable this feature" [read 2026-10-04]. The repository is private on the free plan.
 - Railway created deployment `43efb034` for #211 at 2026-10-02T06:49:42Z (HANDOFF §3, §6), while CI run `36975438457` on `main` started at 06:49:43Z and ran 3m31s (`gh run list`, read 2026-10-04).
 - Neither `.claude/settings.json` (origin and the main tree's uncommitted copy) nor `~/.claude/settings.json` nor `.claude/settings.local.json` holds a `deny` rule. The project file on `origin/main` allows `Bash(git push *)`, `Bash(git merge *)` and `Bash(gh pr *)` (`.claude/settings.json:16-18`) and has no `ask` list. The main tree's uncommitted copy only reorders those lines and adds an empty `ask` [read 2026-10-04].
 - Daniel's Round 12 ruling, verbatim: "להשאיר מיזוג, לחסום הרסני (מומלץ)". It keeps merge, and adds hard denies for force push, `reset --hard`, `git clean`, `stash drop`/`clear` and a direct push to `main`, "shown to the owner for his own approval". That change has not been made.
 - Railway's "Wait for CI": "Deployments enter a `WAITING` state until all GitHub Actions check suites finish"; "A workflow that fails skips the deployment immediately"; it requires a workflow `on: push: branches: [main]`, which `.github/workflows/ci.yml:3-5` has [verified 2026-10-04, docs.railway.com/deployments/github-autodeploys].
-CONFIDENCE: PROVEN (no protection, no denies). INFERRED that Wait for CI is off, from the deployment being created one second before CI started; Daniel can confirm in the service settings.
+CONFIDENCE: PROVEN (no protection, no denies). INFERRED that Wait for CI is off, from the deployment being created one second before CI started. `BE-012` records it switched back on on 2026-08-28, and with it on Railway also creates the deployment at once, in a `WAITING` state, so the timing alone does not settle it; Daniel can confirm in the service settings.
 WHAT IT IS: Under the delegation, the post-merge CI agent is the only check. It runs after Railway has already started deploying, so it detects a bad merge and cannot prevent it. A mistaken `git push origin main` or a `--force` is not blocked by anything but the model's own care. A single instance serves production, so a bad deploy is an outage for its user, and a deploy restart also triggers `KW-009`.
 SOLUTION: Three layers. The first two cost nothing.
 1. **Daniel switches on Wait for CI** for `kokonada-backend` (Railway → service → Settings → Source). Proof: the next merge shows the deployment as `WAITING`, then `SUCCESS` after CI is green.
@@ -407,7 +407,7 @@ BITES: on any cold start with no network, a DNS failure, or a 5xx during a Railw
 OWNER: Build team
 EVIDENCE: `mobile/KokonadaHealth/src/prodBootstrap.ts:62-64` (`if (me.ok) … else await authSession.clear()`). `src/net/apiClient.ts:43-44` returns `{ok:false, error:'network error'}` for a transport failure, and `:57` does the same for any non-OK status.
 CONFIDENCE: PROVEN
-WHAT IT IS: A transport error wipes the stored session, and sign-in needs the same network. **No TASKS row** (`KW-061`).
+WHAT IT IS: A transport error wipes the stored session, and sign-in needs the same network. Tracked as `MB-019` (P1, since 2026-09-24; corrected 2026-10-04).
 SOLUTION: Clear the session only on an authoritative 401 after a failed refresh (`apiClient.ts:47-49`), never on a network error or a 5xx. Add a test for an offline cold start and one for a 502 cold start. Include it in the "silent lies" PR.
 LINKED: `KW-050`, `KW-010`
 LAST VERIFIED: 2026-10-04
@@ -582,7 +582,7 @@ CONFIDENCE: PROVEN
 WHAT IT IS: Every track adds questions to a pack nobody has triaged. Size drives the lawyer's cost and time, and size is why it has not been sent. The answers that gate the plan are few. Today they are buried among answers that change one sentence of a declaration.
 SOLUTION: regulatory-researcher drafts a one-page "gating five" in an hour. Everything else goes in an appendix marked "answer when convenient". The five:
 1. Emotion recognition and the high-risk classification (`DAN-010`).
-2. The MDR intended purpose, given VISION §6, DEC-015 and the breath law (REG-080, copy-check Q1). This also decides Play's organisation account and its D-U-N-S lead time (`DAN-026`).
+2. The MDR intended purpose, given VISION §6, DEC-015 and the breath law (REG-080, copy-check Q1). A medical answer makes Play's organisation-account rule certain; a wellness answer does not remove it (`CMP-093`, `DAN-026`).
 3. The controller identity and an EU representative: who the privacy policy names.
 4. The minimum age.
 5. The Art. 50 notice for already-enrolled users, and its wording.
@@ -832,7 +832,7 @@ LAST VERIFIED: 2026-10-04
 ### KW-056 — The design bar is now judged by agents whose taste has already diverged from the owner's [autonomy]
 STATUS: OPEN
 TIER: 3
-BITES: **at V1's direction choice (DEC-128), this week,** then at every page's G6. The rework, if it comes, comes when Daniel first sees a finished page.
+BITES: **at V1's direction choice (a V1-range DEC, DEC-130 to DEC-134), this week,** then at every page's G6. The rework, if it comes, comes when Daniel first sees a finished page.
 OWNER: the orchestrator (process), Daniel (veto)
 EVIDENCE: The plan of 2026-09-23 kept exactly two gates for Daniel, G3 (direction) and G6 (prototype) (`docs/plans/DESIGN_V2_PLAN.md:32`, the "המעורבות שלך" row). Round 11 delegated both. Round 7 Q1: Daniel chose "רקע חם גם לֽC", the option not marked recommended. The owner's standard: "שבסוף אהיה מרוצה". His stated pain is "work being redone" (design-reboot memory). Round 11's mitigation is "an independent second design critic", which is the same model family as the first.
 CONFIDENCE: PROVEN (the record). INFERRED (that the critics' errors are correlated).
@@ -844,7 +844,7 @@ SOLUTION: **Decide and notify, with a veto window.**
 - Feed his recorded choices (Rounds 7 and 9, the V0 synthesis) to both critics as an explicit "owner's taste" input.
 
 Cost: a few minutes of his time per gate. Adopting T8 makes the fallback automatic.
-LINKED: `KW-057`, T8, DEC-098, DEC-128
+LINKED: `KW-057`, T8, DEC-098
 LAST VERIFIED: 2026-10-04
 
 ---
@@ -873,7 +873,7 @@ STATUS: OPEN
 TIER: 3
 BITES: every day it stays. Any compromise of this laptop, or a mistaken agent command, gets a shell in the production container with every production secret in its environment.
 OWNER: the orchestrator (in-plan), Daniel (the hotspot, if still wanted)
-EVIDENCE: `C:\Users\danie\.ssh\kokonada_railway` and `.pub` exist, dated 2026-10-02 [listed 2026-10-04]. HANDOFF §0: remove after "the 24-hour recount on or after 2026-10-03 11:22Z". No recount file exists in `session-3181c7f6\j1\`. `railway ssh` runs with `dangerouslyDisableSandbox` (HANDOFF §2.5).
+EVIDENCE: `~/.ssh/kokonada_railway` and `.pub` exist, dated 2026-10-02 [listed 2026-10-04]. HANDOFF §0: remove after "the 24-hour recount on or after 2026-10-03 11:22Z". No recount file exists in the private evidence folder. `railway ssh` runs with `dangerouslyDisableSandbox` (HANDOFF §2.5).
 CONFIDENCE: PROVEN (the files exist). INFERRED (still registered; probably passphrase-less, since it is used unattended).
 WHAT IT IS: The key's lifetime was tied to a step blocked on Daniel's network. So "temporary" now means "until the next hotspot".
 SOLUTION: Remove it now: `railway ssh keys remove kokonada-railway-temp-2026-10-02`, then delete `~/.ssh/kokonada_railway*`. Mint a fresh temporary key at the start of the recount sitting (2 minutes) and remove it at the end of the same sitting. Proof: `railway ssh keys list` shows no `kokonada-railway-temp-*`, and the files are gone.
@@ -908,9 +908,9 @@ LAST VERIFIED: 2026-10-04
 ### KW-061 — The risk ledger itself was lost for a month, and eight of its findings never reached TASKS
 STATUS: OPEN
 TIER: 3
-BITES: already. `KW-004`, `KW-007`, `KW-008` and `KW-009` are live defects with no work item.
+BITES: already. `KW-004`, `KW-007` and `KW-008` are live defects with no work item (`KW-009` is `MB-019`, corrected 2026-10-04).
 OWNER: the orchestrator
-EVIDENCE: `stash@{0}^3:WEAKNESSES_AND_FAILURES.md` (676 lines, seeded 2026-09-01). It is absent from every branch (`git log --all -- WEAKNESSES_AND_FAILURES.md` is empty). A TASKS grep (2026-10-04) finds no row for `KW-002`, `KW-004`, `KW-007`, `KW-008`, `KW-009`, `KW-036`, `KW-037` or `KW-052`.
+EVIDENCE: `stash@{0}^3:WEAKNESSES_AND_FAILURES.md` (676 lines, seeded 2026-09-01). It is absent from every branch (`git log --all -- WEAKNESSES_AND_FAILURES.md` is empty). A TASKS grep (2026-10-04) finds no row for `KW-002`, `KW-004`, `KW-007`, `KW-008`, `KW-036`, `KW-037` or `KW-052` (`KW-009` is `MB-019`, corrected 2026-10-04).
 CONFIDENCE: PROVEN
 WHAT IT IS: The process failure behind several product failures. The findings-go-to-tasks rule had no input, because the file was not in the tree.
 SOLUTION: The orchestrator commits this file at the root, and its scribe adds TASKS rows for the eight IDs above (P1 for `KW-004`, `KW-007`, `KW-008`, `KW-009` and `KW-052`). It also puts T1–T10 and § Lines to Daniel once, by phone. When S4 (`DAN-013`) reconciles `stash@{0}`, the stash's 2026-09-01 copy of this file is superseded by this one. It must not be restored over it; keep it in the rescue branch as history. Proof: the rows exist and cite these KW IDs.
@@ -1024,7 +1024,7 @@ STATUS: MITIGATED
 TIER: 3
 BITES: as a bill.
 OWNER: Build team
-EVIDENCE: `backend/app/models/ServeEvent.js:30` now has a TTL. HX-2 (#206) removes provider track data from sessions within 30 days. The nightly `serveEvents=950` (2026-10-02).
+EVIDENCE: `backend/app/models/ServeEvent.js:30` now has a TTL. HX-2 (#206) removes provider track data from sessions within 30 days. The nightly `[sessionTrim]` line reports the ServeEvent trim (2026-10-02).
 CONFIDENCE: PROVEN
 WHAT IT IS: Mostly addressed.
 SOLUTION: Re-check `BiometricLog`'s "100k cap" comment at the next run.
@@ -1110,7 +1110,7 @@ LAST VERIFIED: 2026-10-04
 ### KW-043 — There is no revenue model, and the decision that there is none is locked
 STATUS: OPEN
 TIER: 4
-BITES: when costs exceed what a student pays, or free tiers change.
+BITES: when costs exceed what the owner can pay, or free tiers change.
 OWNER: Daniel
 EVIDENCE: ADR-0001 (unchanged). The Groq, Railway and Atlas tiers are unrecorded (`DAN-035`, calendar "Unverified").
 CONFIDENCE: PROVEN
@@ -1163,7 +1163,7 @@ LAST VERIFIED: 2026-09-01
 
 ---
 
-### KW-047 — One person, university, and a backlog that grew sixfold in a month
+### KW-047 — The owner's limited time, and a backlog that grew sixfold in a month
 STATUS: OPEN
 TIER: 4
 BITES: as the quiet cause behind the rest. The delegation moved the build load, not the owner-only load.
@@ -1186,7 +1186,7 @@ STATUS: NEEDS ATTENTION
 TIER: 4
 BITES: it is the pre-mortem's answer, for the second consecutive run.
 OWNER: Daniel
-EVIDENCE: The production counts cover "the operator's own account only" (BE-016 counts, 2026-10-01), and Spotify-linked users number 1 (HX-2 count, 2026-10-01). The `DAN-036` test accounts do not exist. No interview, session or survey is recorded since 2026-09-01.
+EVIDENCE: The production counts cover "the operator's own account only" (BE-016 counts, 2026-10-01), and the only Spotify-linked account is the owner's (HX-2 count, 2026-10-01). The `DAN-036` test accounts do not exist. No interview, session or survey is recorded since 2026-09-01.
 CONFIDENCE: PROVEN
 ⚠ NEEDS ATTENTION — NO KNOWN SOLUTION:
 - **Tried:** naming it in the seed. The file was stashed and never read.
