@@ -78,7 +78,7 @@ describe('advanceFieldTime (the worklet the frame callback runs)', () => {
   });
 
   it('clamps a long frame (a return from the background) to MAX_FRAME_DT_MS', () => {
-    expect(MAX_FRAME_DT_MS).toBeLessThanOrEqual(100);
+    expect(MAX_FRAME_DT_MS).toBe(50); // motion.dtClamp in the V1 tokens (DSN-039)
     expect(advanceFieldTime(100, 30000, T)).toBe(100 + MAX_FRAME_DT_MS);
   });
 

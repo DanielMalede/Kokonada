@@ -13,7 +13,9 @@
 import { useCallback, useEffect } from 'react';
 import { useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
 
-export const MAX_FRAME_DT_MS = 100;
+// The value comes from motion.dtClamp in the V1 tokens (designer ruling DSN-039). Once the token
+// pipeline is merged in (B4), this becomes a read of that token.
+export const MAX_FRAME_DT_MS = 50;
 
 export type FieldClock = { readonly t: SharedValue<number> };
 
