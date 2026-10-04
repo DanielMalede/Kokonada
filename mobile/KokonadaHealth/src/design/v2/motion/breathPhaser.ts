@@ -97,6 +97,13 @@ export function advanceBreath(state: BreathState, clampedDtMs: number, targetN: 
   assertClock(clock);
   assertN(targetN, 'the target n');
   assertN(state.n, 'n');
+  // A phase outside [0, 1) would spin the wrap loop forever (NaN and ±Infinity never get below 1).
+  if (!(state.phase >= 0 && state.phase < 1)) {
+    throw new RangeError(`the breath phase must be in [0, 1), got ${state.phase}`);
+  }
+  if (!(Number.isInteger(state.wrapsSinceChange) && state.wrapsSinceChange >= 0)) {
+    throw new RangeError(`wrapsSinceChange must be a whole number >= 0, got ${state.wrapsSinceChange}`);
+  }
   if (clampedDtMs === 0) {
     return state;
   }

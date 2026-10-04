@@ -216,6 +216,16 @@ describe('advanceBreath: refusals', () => {
     expect(advanceBreath(state, 0, STRESSED_N, CLOCK)).toEqual(state);
   });
 
+  // A phase that is not in [0, 1) would make the wrap loop spin forever (NaN and ±Infinity never
+  // get below 1), which on the UI thread is a hang. Refuse it, and a broken wrap count, at entry.
+  it.each([NaN, Infinity, -Infinity, 1, 1.5, -0.1])('refuses the phase %p instead of looping forever', (phase) => {
+    expect(() => advanceBreath({ phase, n: 11, wrapsSinceChange: 1 }, 16, REST_N, CLOCK)).toThrow(RangeError);
+  });
+
+  it.each([-1, 0.5, NaN, Infinity])('refuses the wrap count %p', (wrapsSinceChange) => {
+    expect(() => advanceBreath({ phase: 0.5, n: 11, wrapsSinceChange }, 16, REST_N, CLOCK)).toThrow(RangeError);
+  });
+
   it.each([-1, NaN, Infinity])('refuses the step %p ms: the clock only moves forward', (dt) => {
     expect(() => advanceBreath(startBreath(REST_N, CLOCK), dt, REST_N, CLOCK)).toThrow(RangeError);
   });
