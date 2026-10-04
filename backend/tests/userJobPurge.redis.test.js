@@ -46,13 +46,18 @@ async function until(check, what) {
 }
 
 describe('USER_JOB_QUEUES', () => {
-  it('registers the learning jobs, owned by the job payload\'s userId', () => {
-    expect(USER_JOB_QUEUES.map((q) => q.name)).toEqual([QUEUES.REWARD_INGEST]);
+  it('registers the learning jobs and the state-recompute jobs, each owned by the job payload\'s userId', () => {
+    expect(USER_JOB_QUEUES.map((q) => q.name)).toEqual([QUEUES.REWARD_INGEST, QUEUES.STATE_VECTOR_RECOMPUTE]);
     const [reward] = USER_JOB_QUEUES;
     expect(reward.ownerOf({ userId: USER_A })).toBe(USER_A);
     expect(reward.ownerOf({})).toBeUndefined();
     expect(reward.ownerOf(null)).toBeUndefined();
     expect(Object.isFrozen(USER_JOB_QUEUES)).toBe(true);
+    // J2 (T4): the state-recompute job holds only { userId }, so its owner is read the same way.
+    const state = USER_JOB_QUEUES[1];
+    expect(state.ownerOf({ userId: USER_A })).toBe(USER_A);
+    expect(state.ownerOf({})).toBeUndefined();
+    expect(state.ownerOf(null)).toBeUndefined();
   });
 
   it('keeps the purge within 3 seconds', () => {
@@ -346,5 +351,87 @@ describeRealRedis('purgeUserJobs and countUserJobs on the job queue', (url) => {
 
     expect(await redis.exists(`${R}${a}`)).toBe(0);
     expect(await redis.lpos(`${R}paused`, b)).not.toBeNull();
+  });
+});
+
+// J2 (BE-087; Plan B T4, P13). The state-recompute jobs are registered too: a job waiting for an account
+// being deleted, or whose consent is being withdrawn, would otherwise run afterwards and write its health
+// data again. The result names each queue's count (`byQueue`), so the withdrawal line can say how many of
+// each it removed without one token counting the other's jobs.
+describeRealRedis("the purge also removes the account's state-recompute jobs (J2, T4)", (url) => {
+  const { stateVectorJobOptions, STATE_EVENTS_KEY } = require('../app/queues/stateVectorJob');
+  const STATE = QUEUES.STATE_VECTOR_RECOMPUTE;
+  const SV = `bull:${STATE}:`;
+  let redis;
+  let workers = [];
+  let release = () => {};
+
+  beforeAll(async () => {
+    process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'a'.repeat(64);
+    redis = await openTestRedis(url);
+    process.env.REDIS_URL = url;
+  });
+  beforeEach(() => flushTestDb(redis));
+  afterEach(async () => {
+    release();
+    release = () => {};
+    for (const worker of workers) {
+      await worker.close();
+      worker.opts.connection.disconnect();
+    }
+    workers = [];
+    await closeQueues();
+  });
+  afterAll(() => {
+    redis?.disconnect();
+    delete process.env.REDIS_URL;
+  });
+
+  const stateJobs = async () => [...await redis.zrange(`${SV}delayed`, 0, -1), ...await redis.lrange(`${SV}wait`, 0, -1)].sort();
+
+  it('one learning job and one state job of A: removed 2, each queue 1; B keeps both of its own', async () => {
+    for (const user of [USER_A, USER_B]) {
+      await expect(enqueue(NAME, payload(user))).resolves.toEqual({ queued: true });
+      await expect(enqueue(STATE, { userId: user }, stateVectorJobOptions(user, 60_000))).resolves.toEqual({ queued: true });
+    }
+
+    const out = await purgeUserJobs(USER_A);
+
+    expect(out).toEqual({ removed: 2, inFlight: 0, byQueue: { 'reward-ingest': { removed: 1, inFlight: 0 }, 'state-vector-recompute': { removed: 1, inFlight: 0 } } });
+    expect(await stateJobs()).toEqual([stateVectorJobOptions(USER_B, 60_000).jobId]);
+    expect(await redis.llen(`${R}wait`)).toBe(1);
+  });
+
+  it('a state job queued under the old id (state-vector-<userId>) is removed too: the owner is read from the payload', async () => {
+    const legacy = new Queue(STATE, { connection: new IORedis(url, { maxRetriesPerRequest: null }), skipMetasUpdate: true });
+    await legacy.add(STATE, { userId: USER_A }, { jobId: `state-vector-${USER_A}`, delay: 60_000 });
+    await legacy.add(STATE, { userId: USER_B }, { jobId: `state-vector-${USER_B}`, delay: 60_000 });
+    await legacy.close();
+    legacy.opts.connection.disconnect();
+
+    expect(await purgeUserJobs(USER_A)).toEqual({ removed: 1, inFlight: 0, byQueue: { 'reward-ingest': { removed: 0, inFlight: 0 }, 'state-vector-recompute': { removed: 1, inFlight: 0 } } });
+    expect(await stateJobs()).toEqual([`state-vector-${USER_B}`]);
+  });
+
+  it('a running state job is counted in flight on its own queue and left to run', async () => {
+    const gate = new Promise((resolve) => { release = resolve; });
+    workers = startWorkers({ [STATE]: async () => { await gate; return { done: true }; } });
+    const active = once(workers[0], 'active');
+    await enqueue(STATE, { userId: USER_A }, stateVectorJobOptions(USER_A, 0));
+    await active;
+
+    expect(await purgeUserJobs(USER_A)).toEqual({ removed: 0, inFlight: 1, byQueue: { 'reward-ingest': { removed: 0, inFlight: 0 }, 'state-vector-recompute': { removed: 0, inFlight: 1 } } });
+  });
+
+  it('the removal it logs names the job by its pseudonym only, and the purge leaves the log bound alone', async () => {
+    await enqueue(STATE, { userId: USER_A }, stateVectorJobOptions(USER_A, 60_000));
+    expect(await redis.hget(`${SV}meta`, 'opts.maxLenEvents')).toBe('100');
+
+    await purgeUserJobs(USER_A);
+
+    const entries = await redis.xrange(STATE_EVENTS_KEY, '-', '+');
+    expect(entries.some(([, f]) => f[f.indexOf('event') + 1] === 'removed')).toBe(true);
+    expect(JSON.stringify(entries)).not.toMatch(/[0-9a-fA-F]{24}/);
+    expect(await redis.hget(`${SV}meta`, 'opts.maxLenEvents')).toBe('100');
   });
 });

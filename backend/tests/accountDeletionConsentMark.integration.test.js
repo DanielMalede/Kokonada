@@ -238,6 +238,19 @@ describe('both doors mark first (lockstep)', () => {
     expect(realRun.slice(realRun.indexOf('appendAudit('))).toMatch(/\bconsentRevoked\b/);
   });
 
+  // J2 (T4): the purge reaches both queues, so the script reports and audits each on its own, never the
+  // total as learning jobs.
+  it('gdpr-delete.js names both queues, and records learningJobs and stateJobs from each queue\'s own count', () => {
+    expect(GDPR_DELETE).toContain("const JOB_QUEUE = 'Job queue (bull:reward-ingest:, bull:state-vector-recompute:)';");
+    const realRun = GDPR_DELETE.slice(GDPR_DELETE.indexOf('console.log(`GDPR deletion for userId'));
+    expect(realRun).toContain("learningJobs = jobs.byQueue['reward-ingest'].removed;");
+    expect(realRun).toContain("stateJobs = jobs.byQueue['state-vector-recompute'].removed;");
+    expect(realRun).toContain("stateJobs = 'not-reached';");
+    expect(realRun).toContain("stateJobs = 'failed';");
+    expect(realRun.slice(realRun.indexOf('appendAudit('))).toMatch(/\bstateJobs\b/);
+    expect(realRun).not.toMatch(/learningJobs = jobs\.removed;/);
+  });
+
   it('gdpr-delete.js writes nothing on a dry run: the mark is only on the real run', () => {
     const dryRun = GDPR_DELETE.slice(GDPR_DELETE.indexOf('if (dryRun)'), GDPR_DELETE.indexOf('console.log(`GDPR deletion for userId'));
     expect(dryRun).not.toContain('revokeHealthConsentForDeletion(');

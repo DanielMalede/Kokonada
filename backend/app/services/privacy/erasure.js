@@ -41,7 +41,8 @@ const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$
 // (catalog/hydration/embedding) now refuse Spotify Content, so no new spotify: rows accrue.
 async function eraseUserChildData(userId) {
   // J1 (BE-074): the account's learning jobs waiting in the job queue (`bull:reward-ingest:`) go FIRST,
-  // so a waiting job cannot run after the deletes below and write learned preferences back.
+  // so a waiting job cannot run after the deletes below and write learned preferences back. J2 (T4): so do
+  // its state-recompute jobs (`bull:state-vector-recompute:`), which would write its health data again.
   // Best-effort, like the Redis purge at the end: a Redis outage must not block the deletion, so a
   // failure is logged as one fixed line (no id, no message) and the cascade carries on. A job a worker
   // is already running is deleted by the queue once it has run (queues/userJobPurge.js).

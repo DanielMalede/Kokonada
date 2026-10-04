@@ -34,7 +34,7 @@ const { revokeHealthConsentForDeletion, HEALTH_CONSENT_PURPOSE } = require('../a
 
 // An error's class name, or 'Error': never its message (a driver message can quote values).
 const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
-const JOB_QUEUE = 'Job queue (bull:reward-ingest:)';
+const JOB_QUEUE = 'Job queue (bull:reward-ingest:, bull:state-vector-recompute:)';
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -102,9 +102,9 @@ async function main() {
       } else {
         try {
           const jobs = await countUserJobs(userId);
-          console.log(`  ${JOB_QUEUE}: ${jobs.jobs} learning job(s) would be deleted; ${jobs.inFlight} running`);
+          console.log(`  ${JOB_QUEUE}: ${jobs.jobs} learning or state-recompute job(s) would be deleted; ${jobs.inFlight} running`);
         } catch (e) {
-          console.log(`  ${JOB_QUEUE}: learning jobs could not be counted (${errorType(e)})`);
+          console.log(`  ${JOB_QUEUE}: the jobs could not be counted (${errorType(e)})`);
         }
       }
 
@@ -146,19 +146,24 @@ async function main() {
       // J1 (BE-074): FIRST, as in services/privacy/erasure.js, so a waiting learning job cannot run after
       // the deletes below and write learned preferences back. Best-effort: a failure is reported and
       // audited, and the deletion carries on. A running job is deleted by the queue once it has run.
+      // J2 (T4): the purge also reaches the state-recompute jobs; each queue is reported and audited on its own.
       let learningJobs;
+      let stateJobs;
       if (!process.env.REDIS_URL) {
         // The purge answers zero without REDIS_URL because the app then enqueues nothing; this script runs
         // elsewhere, so here it only means the job queue was never looked at.
         learningJobs = 'not-reached';
+        stateJobs = 'not-reached';
         console.log(`  ${JOB_QUEUE}: not reached (REDIS_URL is not set)`);
       } else {
         try {
           const jobs = await purgeUserJobs(userId);
-          learningJobs = jobs.removed;
-          console.log(`  ${JOB_QUEUE}: deleted ${jobs.removed} learning job(s); ${jobs.inFlight} running, deleted by the queue once run`);
+          learningJobs = jobs.byQueue['reward-ingest'].removed;
+          stateJobs = jobs.byQueue['state-vector-recompute'].removed;
+          console.log(`  ${JOB_QUEUE}: deleted ${learningJobs} learning job(s) and ${stateJobs} state-recompute job(s); ${jobs.inFlight} running, deleted by the queue once run`);
         } catch (e) {
           learningJobs = 'failed';
+          stateJobs = 'failed';
           console.log(`  ${JOB_QUEUE}: learning-jobs purge failed (${errorType(e)})`);
         }
       }
@@ -242,6 +247,7 @@ async function main() {
         userId,
         deleted: {
           learningJobs,
+          stateJobs,
           consentRevoked,
           biometricLogs:    biometricResult.deletedCount,
           medicalProfile:   medicalResult.deletedCount,
