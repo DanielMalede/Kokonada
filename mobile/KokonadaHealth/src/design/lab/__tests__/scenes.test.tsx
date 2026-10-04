@@ -15,6 +15,24 @@ describe('the lab scenes', () => {
     for (const scene of Object.values(SCENES)) expect(Number.isFinite(scene.periodMs) && scene.periodMs > 0).toBe(true);
   });
 
+  it('the smoke scene moves with the field clock, as a pure function of t (still on a fixed clock, moving on a running one)', () => {
+    const opacityAt = (t: number) => {
+      let tree!: ReactTestRenderer.ReactTestRenderer;
+      act(() => {
+        tree = ReactTestRenderer.create(
+          <ProbeRegistry onMeasure={() => {}}>
+            <SCENES.smoke.Component clock={{ t: { value: t } } as never} t={t} params={{ run: 'r', scene: 'smoke', clock: 'fixed', t, stepMs: 0, frames: 1 }} />
+          </ProbeRegistry>,
+        );
+      });
+      const pulse = tree.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'smoke-pulse')[0];
+      return [pulse.props.style].flat().reduce((o: number | undefined, s: { opacity?: number } | undefined) => s?.opacity ?? o, undefined);
+    };
+    expect(opacityAt(0)).toBeCloseTo(0.6, 10);
+    expect(opacityAt(1500)).toBeCloseTo(1, 10); // a quarter of the 6 s period
+    expect(opacityAt(4500)).toBeCloseTo(0.2, 10);
+  });
+
   it.each(Object.keys(SCENES))('%s renders exactly the probes it declares, each once', (id) => {
     const scene = SCENES[id];
     const Scene = scene.Component;

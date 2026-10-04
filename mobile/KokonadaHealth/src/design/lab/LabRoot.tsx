@@ -6,7 +6,7 @@
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DeviceEventEmitter, PixelRatio } from 'react-native';
+import { AccessibilityInfo, DeviceEventEmitter, PixelRatio } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
 import { fixedClockTime } from './clock/fixedClock';
@@ -26,12 +26,15 @@ export const LAB_EVENTS = { command: 'labCommand', powerSave: 'labPowerSave' } a
 /** One frame from now; returns a cancel. */
 export type FrameSource = { next(callback: () => void): () => void };
 export type LabEventSource = { addListener(name: string, listener: (event: unknown) => void): { remove(): void } };
+/** The OS reduced-motion setting (on Android, RN reads TRANSITION_ANIMATION_SCALE). */
+export type ReduceMotionSource = { current(): Promise<boolean>; subscribe(listener: (on: boolean) => void): () => void };
 export type LabDeps = {
   emit(line: string): void;
   frames: FrameSource;
   events: LabEventSource;
   /** The scene's fonts are loaded (there are none yet; UI-069 adds them). */
   fontsReady: boolean;
+  reduceMotion: ReduceMotionSource;
   scenes: Readonly<Record<string, Scene>>;
 };
 
@@ -42,11 +45,20 @@ const animationFrames: FrameSource = {
   },
 };
 
+const accessibilityReduceMotion: ReduceMotionSource = {
+  current: () => AccessibilityInfo.isReduceMotionEnabled(),
+  subscribe: (listener) => {
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', listener);
+    return () => sub.remove();
+  },
+};
+
 const DEFAULT_DEPS: LabDeps = {
   emit: (line) => console.log(line),
   frames: animationFrames,
   events: DeviceEventEmitter as unknown as LabEventSource,
   fontsReady: true,
+  reduceMotion: accessibilityReduceMotion,
   scenes: SCENES,
 };
 
@@ -110,7 +122,16 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   useEffect(() => {
     if (step.t !== null) controlled.value = step.t;
   }, [controlled, step.t]);
-  const realtime = useRealtimeFieldClock(scene.periodMs, params.clock === 'realtime');
+  // The real-time clock runs only once reduced motion is known to be off: a still shot then draws no
+  // frame, and the same scene with motion allowed draws some (the harness's positive control).
+  const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    deps.reduceMotion.current().then((on) => { if (live) setReduceMotion(on); }, () => {});
+    const unsubscribe = deps.reduceMotion.subscribe((on) => setReduceMotion(on));
+    return () => { live = false; unsubscribe(); };
+  }, [deps]);
+  const realtime = useRealtimeFieldClock(scene.periodMs, params.clock === 'realtime' && reduceMotion === false);
   const clock: FieldClock = params.clock === 'realtime' ? realtime : { t: controlled };
 
   // What READY reports is what was committed last.

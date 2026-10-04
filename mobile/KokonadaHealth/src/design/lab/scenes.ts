@@ -5,7 +5,7 @@
 import type { ComponentType } from 'react';
 import type { FieldClock } from '../v2/clock/fieldClock';
 import type { LabParams } from './params';
-import { SMOKE_PROBES, SmokeScene } from './scenes/SmokeScene';
+import { SMOKE_PERIOD_MS, SMOKE_PROBES, SmokeScene } from './scenes/SmokeScene';
 
 export type SceneProps = {
   /** The field clock: a SharedValue for UI-thread drawing. */
@@ -22,5 +22,5 @@ export type Scene = {
 };
 
 export const SCENES: Readonly<Record<string, Scene>> = {
-  smoke: { periodMs: 6000, probes: SMOKE_PROBES, Component: SmokeScene },
+  smoke: { periodMs: SMOKE_PERIOD_MS, probes: SMOKE_PROBES, Component: SmokeScene },
 };
