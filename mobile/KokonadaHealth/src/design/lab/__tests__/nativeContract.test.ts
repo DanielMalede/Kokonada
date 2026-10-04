@@ -40,6 +40,13 @@ describe('the lab activity and the lab runtime use the same names', () => {
     expect(code).toContain('putArray("nonStringKeys"');
   });
 
+  it('re-sends the battery-saver state once React is ready, and stops listening when the activity goes', () => {
+    const ready = code.slice(code.indexOf('override fun onReactContextInitialized'));
+    expect(code).toContain('addReactInstanceEventListener(');
+    expect(code).toContain('removeReactInstanceEventListener(');
+    expect(ready.slice(0, ready.indexOf('}'))).toContain('emitPowerSave()');
+  });
+
   it('forces right-to-left before React starts (before super.onCreate), as F-13 requires', () => {
     const onCreate = code.slice(code.indexOf('override fun onCreate'));
     const force = onCreate.indexOf('forceRTL(this, true)');

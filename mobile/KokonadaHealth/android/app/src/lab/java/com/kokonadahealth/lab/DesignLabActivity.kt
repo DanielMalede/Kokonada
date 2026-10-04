@@ -9,7 +9,9 @@ import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
+import com.facebook.react.ReactInstanceEventListener
 import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.ReactContext
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.facebook.react.modules.i18nmanager.I18nUtil
@@ -34,6 +36,18 @@ class DesignLabActivity : ReactActivity() {
     I18nUtil.instance.allowRTL(this, true)
     I18nUtil.instance.forceRTL(this, true)
     super.onCreate(savedInstanceState)
+    reactHost?.addReactInstanceEventListener(reactReady)
+  }
+
+  override fun onDestroy() {
+    reactHost?.removeReactInstanceEventListener(reactReady)
+    super.onDestroy()
+  }
+
+  // A battery-saver change between launch (the initial prop) and React starting would otherwise be
+  // lost: emit() is a no-op until the context exists. The harness also cross-checks the device.
+  private val reactReady = object : ReactInstanceEventListener {
+    override fun onReactContextInitialized(context: ReactContext) { emitPowerSave() }
   }
 
   override fun createReactActivityDelegate(): ReactActivityDelegate =

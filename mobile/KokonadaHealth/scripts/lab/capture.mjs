@@ -24,7 +24,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { findMarkers, readSentinel } from './assertLabExcluded.mjs';
 import { createAdb } from './lib/adb.mjs';
-import { applySession, applyShot, parseGfxFrames, parseSystemBars, readDeviceFacts, restoreDevice, snapshotDevice } from './lib/device.mjs';
+import { applySession, applyShot, parseGfxFrames, parseSystemBars, readDeviceFacts, readPowerSave, restoreDevice, snapshotDevice } from './lib/device.mjs';
 import { validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
 import { checkReady, classifyProbes, launchArgs, waitForLab } from './lib/protocol.mjs';
@@ -138,11 +138,18 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
     const readyAt = now();
     const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes, seq: 0 });
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
+    // The lab hears battery saver through an event that can be lost before React is ready, so its
+    // READY is checked against the device itself, here and again after the grabs.
+    const powerSaveAtReady = await readPowerSave(adb);
+    if (payload.powerSave !== powerSaveAtReady) {
+      throw new Error(`${shot.id}: READY says power save ${payload.powerSave} but the device says ${powerSaveAtReady}`);
+    }
 
     const first = requireSrgb(parseRawScreencap(await adb.execOut(['screencap'])));
     await sleep(plan.settleMs);
     const second = requireSrgb(parseRawScreencap(await adb.execOut(['screencap'])));
     const captured = now();
+    if ((await readPowerSave(adb)) !== powerSaveAtReady) throw new Error(`${shot.id}: power save changed while the screen was being read`);
     if (first.width !== second.width || first.height !== second.height) throw new Error(`${shot.id}: the screen changed size between grabs`);
     const screen = { width: first.width, height: first.height };
     const region = appRegion(screen, parseSystemBars(await adb.shell(['dumpsys', 'window'])));

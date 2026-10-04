@@ -183,6 +183,23 @@ describe('restore runs on every exit path', () => {
     await fails(w, /not sRGB/);
   });
 
+  it('a READY whose power-save state the device contradicts (a change the lab never heard)', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { powerSave: true }));
+    await fails(w, /power save/);
+  });
+
+  it('a battery-saver change between READY and the grabs', async () => {
+    const w = world();
+    const execOut = w.device.execOut.bind(w.device);
+    w.device.execOut = async (args: string[]) => {
+      const out = await execOut(args);
+      w.device.settings.set('global/low_power', '1'); // switched on while the screen was being read
+      return out;
+    };
+    await fails(w, /power save changed/);
+  });
+
   it('a first grab that is not sRGB, even when the settle grab is: and no PNG is kept in the wrong colour space', async () => {
     const w = world();
     let n = 0;

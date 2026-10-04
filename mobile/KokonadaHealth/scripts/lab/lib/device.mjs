@@ -34,6 +34,11 @@ export async function snapshotDevice(adb) {
   return { settings, night: parseNight(await adb.shell(['cmd', 'uimode', 'night'])) };
 }
 
+/** Battery saver as the device itself reports it (settings global low_power). */
+export async function readPowerSave(adb) {
+  return (await readSetting(adb, 'global', 'low_power')) === '1';
+}
+
 /** For the whole session: keep the screen on while on USB power. */
 export async function applySession(adb, session = {}) {
   if (session.stayOn) await adb.shell(['svc', 'power', 'stayon', 'usb']);
