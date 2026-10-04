@@ -13,6 +13,7 @@ export interface SignalSource {
 export type ReduceMotionSource = SignalSource;
 export type PowerSaveSource = SignalSource;
 
+/** Each source must be created once (module scope or a stable memo): a new object is a new, unanswered source, so a source rebuilt on every render never answers. */
 export interface MotionPorts {
   readonly reduceMotion: ReduceMotionSource;
   readonly powerSave: PowerSaveSource;
