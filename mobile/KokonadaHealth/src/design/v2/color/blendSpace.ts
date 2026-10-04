@@ -19,7 +19,7 @@
 // lightness drop under stress, glyph anti-aliasing pairs, grain, and the real Skia render.
 
 import { mixOklab, type Oklab, type Srgb } from './oklab.ts';
-import { assertRedBand, reachableRedPixel, triangleTouchesRed, type RedBand } from './redBand.ts';
+import { assertRedBand, maxInBandChromaInTriangle, maxInBandChromaOfPixels, type RedBand } from './redBand.ts';
 
 export interface BlendGraph {
   readonly nodes: Readonly<Record<string, Oklab>>;
@@ -71,10 +71,18 @@ export interface NeverRedFailure {
   readonly segment: string;
   readonly ground: string;
   readonly k: number;
-  readonly shimmerDeg: number;
+  /** The rotation of each end of the segment. */
+  readonly shimmerDeg: readonly [number, number];
   readonly t?: number;
   readonly chromaScales?: readonly [number, number];
   readonly pixel?: Srgb;
+}
+
+/** Where a sweep's largest in-band chroma sits, for DEC-081's margin rule. */
+export interface NeverRedMax extends Omit<NeverRedFailure, 'check'> {
+  /** 0 when nothing is in the band. */
+  readonly chroma: number;
+  readonly hue: number;
 }
 
 export interface NeverRedReport {
@@ -82,6 +90,10 @@ export interface NeverRedReport {
   readonly floatChecks: number;
   readonly pixelSamples: number;
   readonly failures: readonly NeverRedFailure[];
+  /** The largest in-band chroma in float, against the design band. */
+  readonly maxDesign: NeverRedMax;
+  /** The largest in-band chroma on 8-bit pixels, against the check band. */
+  readonly maxCheck: NeverRedMax;
 }
 
 const RAD = Math.PI / 180;
@@ -248,12 +260,18 @@ export function sweepNeverRed(config: NeverRedSweep): NeverRedReport {
   const segments = graphSegments(config.graph);
   const { grid, kp } = config;
   const groundNames = Object.keys(config.grounds);
+  // Halos do not shimmer and the field does, so one pixel can mix a turned colour with an unturned
+  // one: each end of a segment takes its own rotation. Float takes every pair of shimmer samples;
+  // pixels take each end at −shimmer, 0 and +shimmer.
   const shimmers = samplesAround(config.shimmerDeg, grid.shimmerStepDeg);
+  const pixelShimmers = samplesAround(config.shimmerDeg, config.shimmerDeg || 1);
   const floatKs = samplesUpTo(config.kMax, grid.kStep);
   const pixelKs = samplesUpTo(config.kMax, grid.pixelKStep);
   const ts = samplesUpTo(1, grid.pixelTStep);
   const scales = grid.chromaScales;
   const failures: NeverRedFailure[] = [];
+  let maxDesign: NeverRedMax = { chroma: 0, hue: NaN, segment: '', ground: '', k: 0, shimmerDeg: [0, 0] };
+  let maxCheck: NeverRedMax = { chroma: 0, hue: NaN, segment: '', ground: '', k: 0, shimmerDeg: [0, 0] };
   let floatChecks = 0;
   let pixelSamples = 0;
 
@@ -263,20 +281,28 @@ export function sweepNeverRed(config: NeverRedSweep): NeverRedReport {
     for (let g = 0; g < groundNames.length; g++) {
       const ground = groundNames[g];
       const G = config.grounds[ground];
-      // Float, exact over presence and the mix parameter: at a given k and φ the reachable set is
-      // the triangle (c·G, c·G + k·P, c·G + k·Q) in the a-b plane, c being the ground's share.
+      // Float, exact over presence and the mix parameter: at a given k and pair of rotations the
+      // reachable set is the triangle (c·G, c·G + k·P, c·G + k·Q) in the a-b plane, c being the
+      // ground's share; its largest in-band chroma is exact, and C >= floor is the red verdict.
       for (let ki = 0; ki < floatKs.length; ki++) {
         const k = floatKs[ki];
         const c = groundChromaShare(k, kp);
-        for (let fi = 0; fi < shimmers.length; fi++) {
-          const P = rotateHue(segment.from, shimmers[fi]);
-          const Q = rotateHue(segment.to, shimmers[fi]);
-          const base = { L: 0, a: c * G.a, b: c * G.b };
+        const base = { L: 0, a: c * G.a, b: c * G.b };
+        for (let fp = 0; fp < shimmers.length; fp++) {
+          const P = rotateHue(segment.from, shimmers[fp]);
           const atP = { L: 0, a: base.a + k * P.a, b: base.b + k * P.b };
-          const atQ = { L: 0, a: base.a + k * Q.a, b: base.b + k * Q.b };
-          floatChecks++;
-          if (triangleTouchesRed(base, atP, atQ, config.designBand)) {
-            failures.push({ check: 'design-band', segment: segment.id, ground, k, shimmerDeg: shimmers[fi] });
+          for (let fq = 0; fq < shimmers.length; fq++) {
+            const Q = rotateHue(segment.to, shimmers[fq]);
+            const atQ = { L: 0, a: base.a + k * Q.a, b: base.b + k * Q.b };
+            floatChecks++;
+            const found = maxInBandChromaInTriangle(base, atP, atQ, config.designBand);
+            const shimmerDeg = [shimmers[fp], shimmers[fq]] as const;
+            if (found.chroma > maxDesign.chroma) {
+              maxDesign = { chroma: found.chroma, hue: found.hue, segment: segment.id, ground, k, shimmerDeg };
+            }
+            if (found.chroma >= config.designBand.chromaFloor) {
+              failures.push({ check: 'design-band', segment: segment.id, ground, k, shimmerDeg });
+            }
           }
         }
       }
@@ -287,22 +313,27 @@ export function sweepNeverRed(config: NeverRedSweep): NeverRedReport {
             for (let j = 0; j < scales.length; j++) {
               const from = { L: segment.from.L, a: scales[i] * segment.from.a, b: scales[i] * segment.from.b };
               const to = { L: segment.to.L, a: scales[j] * segment.to.a, b: scales[j] * segment.to.b };
-              const mixed = mixOklab(from, to, ts[ti]);
-              for (let fi = 0; fi < shimmers.length; fi++) {
-                pixelSamples++;
-                const shown = pivotComposite(rotateHue(mixed, shimmers[fi]), G, pixelKs[ki], kp);
-                const pixel = reachableRedPixel(shown, config.checkBand, config.ditherAmplitude);
-                if (pixel) {
-                  failures.push({
-                    check: 'check-band-pixel',
+              for (let fp = 0; fp < pixelShimmers.length; fp++) {
+                for (let fq = 0; fq < pixelShimmers.length; fq++) {
+                  pixelSamples++;
+                  const mixed = mixOklab(rotateHue(from, pixelShimmers[fp]), rotateHue(to, pixelShimmers[fq]), ts[ti]);
+                  const shown = pivotComposite(mixed, G, pixelKs[ki], kp);
+                  const found = maxInBandChromaOfPixels(shown, config.checkBand, config.ditherAmplitude);
+                  const where = {
                     segment: segment.id,
                     ground,
                     k: pixelKs[ki],
-                    shimmerDeg: shimmers[fi],
+                    shimmerDeg: [pixelShimmers[fp], pixelShimmers[fq]] as const,
                     t: ts[ti],
-                    chromaScales: [scales[i], scales[j]],
-                    pixel,
-                  });
+                    chromaScales: [scales[i], scales[j]] as const,
+                    pixel: found.pixel,
+                  };
+                  if (found.chroma > maxCheck.chroma) {
+                    maxCheck = { chroma: found.chroma, hue: found.hue, ...where };
+                  }
+                  if (found.chroma >= config.checkBand.chromaFloor) {
+                    failures.push({ check: 'check-band-pixel', ...where });
+                  }
                 }
               }
             }
@@ -311,5 +342,5 @@ export function sweepNeverRed(config: NeverRedSweep): NeverRedReport {
       }
     }
   }
-  return { segments: segments.map((seg) => seg.id), floatChecks, pixelSamples, failures };
+  return { segments: segments.map((seg) => seg.id), floatChecks, pixelSamples, failures, maxDesign, maxCheck };
 }

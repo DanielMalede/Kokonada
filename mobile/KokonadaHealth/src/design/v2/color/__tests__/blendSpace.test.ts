@@ -7,7 +7,7 @@ import {
   type NeverRedSweep,
 } from '../blendSpace.ts';
 import { mixOklab, oklchToOklab, srgbToOklab, type Oklab } from '../oklab.ts';
-import type { RedBand } from '../redBand.ts';
+import { maxInBandChromaInTriangle, type RedBand } from '../redBand.ts';
 
 // FIXTURES. The bands are DEC-081's numbers (base.neverRed: a design band checked in float, a
 // check band checked on 8-bit pixels), copied here so the mechanism is tested on its own; the
@@ -177,10 +177,36 @@ describe('sweepNeverRed: the field’s whole blend space against both bands', ()
     const grounds = { ground: NEUTRAL_DARK, face: lch(0.14, 0.005, 70), ring: lch(0.27, 0.006, 72) };
     const report = sweep({ grounds, shimmerDeg: 3 });
     expect(report.segments).toEqual(graphSegments(ROUTED).map((s) => s.id));
-    // k: 0 to 0.85 in 17 equal steps is 18 samples; shimmer: −3° to +3° in 1° steps is 7.
-    expect(report.floatChecks).toBe(17 * 3 * 18 * 7);
-    // pixels: k 0 to 0.85 in 4 steps (5), t 0 to 1 in 4 steps (5), 2 × 2 chroma scales, 7 shimmers.
-    expect(report.pixelSamples).toBe(17 * 3 * 5 * 5 * 4 * 7);
+    // k: 0 to 0.85 in 17 equal steps is 18 samples; shimmer: −3° to +3° in 1° steps is 7, for
+    // each end of the segment on its own, because halos do not shimmer: 7 × 7.
+    expect(report.floatChecks).toBe(17 * 3 * 18 * 7 * 7);
+    // pixels: k 0 to 0.85 in 4 steps (5), t 0 to 1 in 4 steps (5), 2 × 2 chroma scales, and each
+    // end at −3°, 0 or +3°: 3 × 3.
+    expect(report.pixelSamples).toBe(17 * 3 * 5 * 5 * 4 * 3 * 3);
+  });
+
+  // Resilience second voice §3: a pixel can mix a shimmering field colour with a steady halo, so
+  // the two ends of a segment rotate independently. Two near-opposite hues stay clear when they
+  // turn together and cross the band when only one of them turns.
+  it('rotates the two ends of a segment independently', () => {
+    const graph: BlendGraph = { nodes: { X: lch(0.7, 0.06, 60), Y: lch(0.7, 0.06, 234) }, straight: [['X', 'Y']], waypoint: [] };
+    const failures = sweep({ graph, shimmerDeg: 4 }).failures.filter((f) => f.check === 'design-band');
+    expect(failures.length).toBeGreaterThan(0);
+    expect(failures.every((f) => f.shimmerDeg[0] !== f.shimmerDeg[1])).toBe(true);
+  });
+
+  // DEC-081's margin rule needs the largest in-band chroma, not only a verdict.
+  it('reports its largest in-band chroma in float and on pixels, and where each peaks', () => {
+    const clear = sweep({});
+    expect(clear.maxDesign.chroma).toBeGreaterThanOrEqual(0);
+    expect(clear.maxDesign.chroma).toBeLessThan(DESIGN_BAND.chromaFloor);
+    expect(clear.maxCheck.chroma).toBeLessThan(CHECK_BAND.chromaFloor);
+    const planted = sweep({ graph: PLANTED });
+    // Over a neutral ground the k = 0.85 composite scales the joy–intense chord by 0.85.
+    const chord = maxInBandChromaInTriangle(NODES.J, NODES.J, NODES.I, DESIGN_BAND).chroma;
+    expect(planted.maxDesign).toMatchObject({ segment: 'J-I', k: 0.85 });
+    expect(planted.maxDesign.chroma).toBeCloseTo(0.85 * chord, 12);
+    expect(planted.maxCheck.chroma).toBeGreaterThanOrEqual(CHECK_BAND.chromaFloor);
   });
 
   it('the shimmer is part of the space: a hue 3° clear of the band fails at ±4° and passes at ±2°', () => {
