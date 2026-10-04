@@ -29,6 +29,18 @@ describe.each(CASES)('QA-065 field segments (upsampling and Skia not yet covered
     expect(cfg.ditherAmplitude).toBe(BASE.field.dither.amplitude + Math.max(d.field.grain.ground, d.field.grain.inside));
   });
 
+  // The resolutions, pinned the same way (resilience round 2, FIX-3): a coarser grid, a lost shimmer
+  // or pivot, or a swapped band would otherwise go in unseen. A deliberate change edits these here.
+  it('sweeps at k 0.01 and shimmer 1° in float, t and k 0.2 and chroma scales ¼, ½ and 1 on 8-bit pixels, with the pivot, shimmer and bands', () => {
+    const cfg = sweepFor(id, face);
+    const d = DIRECTIONS[id];
+    expect(cfg.grid).toEqual({ kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.2, pixelKStep: 0.2, chromaScales: [0.25, 0.5, 1] });
+    expect(cfg.kp).toBe(d.field.pivot);
+    expect(cfg.shimmerDeg).toBe(d.field.shimmer.deg);
+    expect(cfg.designBand).toEqual(DESIGN_BAND);
+    expect(cfg.checkBand).toEqual(CHECK_BAND);
+  });
+
   it('no blend-graph colour composited over a local ground is red, in float or on 8-bit pixels, with the margin', () => {
     const report = sweepNeverRed(sweepFor(id, face));
     expect(report.failures).toEqual([]);
