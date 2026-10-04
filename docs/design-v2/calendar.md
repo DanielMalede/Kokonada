@@ -10,7 +10,7 @@ scribe substitutions:
     count: 1
     match: 'B8'
     why: 'item B8 (line 168): the certificate owner name and the fingerprint fragment are dropped; the expiry date stays'
-amended: 2026-10-01
+amended: 2026-10-04
 amendments:
   - field: 'C1, Note'
     replaced: '`YOUTUBE_CLIENT_ID` is not set in production, so its clock is moot.'
@@ -24,6 +24,13 @@ amendments:
     replaced: 'Not dormant by configuration: `youtube.js` falls back to `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (set in production), and `YOUTUBE_REDIRECT_URI` was present until 2026-10-01, so the backend treated YouTube as configured. Sealed in code by DEC-122 (HX-3); production counts all zero at 2026-10-01T14:05Z (DAN-046).'
     with: 'Not dormant by configuration: `youtube.js` falls back to `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, and `GOOGLE_CLIENT_SECRET` and `YOUTUBE_REDIRECT_URI` were both set in production until 2026-10-01 (deleted at about 17:10Z, DAN-046), so the backend treated YouTube as configured until then. Sealed in code by DEC-122 (HX-3); the five DAN-046 P0 counts were zero at 2026-10-01T14:05Z.'
     source: 'HX-3 DEC-113 verification pass, compliance-auditor, 2026-10-01'
+  - field: 'C2, the D-U-N-S line'
+    replaced: 'the D-U-N-S number, which takes up to 30 days;'
+    with: 'the D-U-N-S number, which takes up to 30 days (Play Help 13628312, retrieved 2026-10-04);'
+    source: 'CMP-093 re-check, compliance-auditor, 2026-10-04 (§6, NEW-FINDING P1, docs: the line is accurate and needed only its source)'
+  - field: 'B9'
+    added: '**B9.** 2027, the day not yet named. Android developer verification goes global: an APK installed directly on a certified device, other than over ADB, needs its package registered by a verified developer. (With its Relevance, Source, Severity and Calendar lines, below B8.)'
+    source: 'CMP-093 re-check, compliance-auditor, 2026-10-04 (§6, NEW-FINDING P2, watch)'
 ---
 
 # External-dates calendar (plan step L1), 2026-09-29
@@ -198,6 +205,12 @@ The logs of the current deployment start 2026-09-29 12:00 and contain no LLM cal
 - **Severity:** LOW.
 - **Calendar:** NO.
 
+**B9.** 2027, the day not yet named. Android developer verification goes global: an APK installed directly on a certified device, other than over ADB, needs its package registered by a verified developer.
+- **Relevance:** the Israel tester stage can run on an APK installed directly, with no Play account (`CMP-093`). From the global date, `com.kokonadahealth` needs a registered developer: a full account, or a limited-distribution account for up to 20 devices.
+- **Source:** developer.android.com/developer-verification ("Verification capability will be expanded globally for all apps on certified Android devices in 2027"); its FAQ ("Apps installed using ADB won't require verification"); the limited-distribution guide. Retrieved 2026-10-04 by the compliance-auditor.
+- **Severity:** MEDIUM (a watch item).
+- **Calendar:** NO, until Google names the date.
+
 ## C. Clocks triggered by a Kokonada event
 
 **C1.** Google OAuth clocks. In "Testing" status, refresh tokens expire after 7 days. An unused client is deleted after 6 months.
@@ -207,7 +220,7 @@ The logs of the current deployment start 2026-09-29 12:00 and contain no LLM cal
 - **Calendar:** NO.
 
 **C2.** Legal entity and controller. This one decision gates:
-- the D-U-N-S number, which takes up to 30 days;
+- the D-U-N-S number, which takes up to 30 days (Play Help 13628312, retrieved 2026-10-04);
 - an organisation Play account, which Play requires for health apps;
 - Garmin, whose program is business use only;
 - Spotify Extended Quota;

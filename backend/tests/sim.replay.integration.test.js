@@ -100,10 +100,20 @@ const ConsentRecord  = require('../app/models/ConsentRecord');
 const { _debounceMap } = require('../app/sockets/biometricHandler');
 const { isPhysiologicalHR } = require('../app/services/wearable/hrRange');
 const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
+const { MAX_AGE_MS, FUTURE_TOLERANCE_MS } = require('../app/agents/runtime/ingestion/anomalyFilter');
+const { pinWallClock } = require('./helpers/fixtureClock');
 
 jest.setTimeout(180000);
 
+const DAY_MS = 24 * 3600 * 1000;
 const T0 = Date.UTC(2026, 6, 6, 0, 0, 0);
+// The longest window any test here replays (`denseRun`). Every fixture sits in [T0, T0 + this].
+const LONGEST_FIXTURE_DAYS = 2;
+// The wall clock every test in this file runs on: the moment the longest fixture window closes.
+// Pinned in beforeEach, because the S6 gate judges each reading against Date.now(): on the
+// machine's clock these readings went stale on 2026-10-04 (see tests/helpers/fixtureClock.js),
+// and the future-dated artifacts stopped being future long before that.
+const FIXTURE_WALL_CLOCK = T0 + LONGEST_FIXTURE_DAYS * DAY_MS;
 
 let mem;
 let userId;
@@ -157,9 +167,11 @@ beforeEach(async () => {
   ]);
   userId = new mongoose.Types.ObjectId();
   jest.clearAllMocks();
+  pinWallClock(FIXTURE_WALL_CLOCK);
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   // Belt and braces on top of every test's own closeReplaySocket: no armed debounce timer
   // may outlive a test (W4-D06 — a leaked 60 s timer fires inside a LATER suite).
   const { _resetDebounceState } = require('../app/sockets/biometricHandler');
@@ -331,7 +343,7 @@ describe('replay — the socket lane runs the real gates', () => {
   // reliably present. They use the `direct` lane so 2880 consent lookups do not turn a
   // gate assertion into a database benchmark; the consent gate has its own pins above.
   const denseRun = (personaId) => generate({
-    persona: personaId, seed: 2026, startAt: T0, days: 2, sampleIntervalSec: 60, artifacts: true,
+    persona: personaId, seed: 2026, startAt: T0, days: LONGEST_FIXTURE_DAYS, sampleIntervalSec: 60, artifacts: true,
   });
 
   test('out-of-range artifacts are rejected by the real gate, exactly as many as were emitted', async () => {
@@ -522,7 +534,10 @@ describe('replay — virtual time drives the streaming debounce', () => {
     });
     const socket = createReplaySocket({ userId });
 
-    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    // Virtual time starts at the first reading and `onAdvance` moves it with every delta, so each
+    // reading is delivered at its own timestamp. Without an explicit `now` jest starts this clock
+    // at the machine's time, which put every reading past the 90-day S6 floor on 2026-10-04.
+    jest.useFakeTimers({ now: run.socket.events[0].atMs, doNotFake: ['nextTick', 'setImmediate'] });
     let report;
     try {
       report = await replaySocketLane({
@@ -585,6 +600,16 @@ describe('replay — harness contract', () => {
     closeReplaySocket(b);
     expect(_debounceMap.has(a.id)).toBe(false);
     expect(_debounceMap.has(b.id)).toBe(false);
+  });
+
+  test('every test here runs on the fixture\'s clock, inside the S6 window, never the machine\'s', () => {
+    // The 2026-10-04 regression: on the machine's clock, T0 aged past the anomaly filter's 90-day
+    // floor and every socket-lane reading was refused as stale before it reached a trigger.
+    expect(Date.now()).toBe(FIXTURE_WALL_CLOCK);
+    // The earliest sample any fixture here emits is younger than the floor...
+    expect(T0).toBeGreaterThan(FIXTURE_WALL_CLOCK - MAX_AGE_MS);
+    // ...and the last clean one is not in the future, so only a deliberate artifact ever is.
+    expect(T0 + LONGEST_FIXTURE_DAYS * DAY_MS).toBeLessThanOrEqual(FIXTURE_WALL_CLOCK + FUTURE_TOLERANCE_MS);
   });
 
   test('the harness validates its own inputs', async () => {
