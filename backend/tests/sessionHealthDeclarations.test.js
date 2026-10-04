@@ -236,7 +236,7 @@ describe('J1: the learning jobs in the job queue', () => {
   it('names what a deletion or a withdrawal does not reach: the running job, a play that ends meanwhile, an unreachable queue', () => {
     const row = jobsRow();
     expect(row).toContain('A job already running when the account is deleted or the consent is withdrawn, queued by a play that ends while either request is processed, or waiting while the job queue cannot be reached or does not answer in time, is deleted once it has run');
-    expect(row).toContain('what it writes to the learned preferences is not removed by that request: it follows the `RewardEvent` and `PersonalWeights` rows above, so for a deleted account it stays under the deleted account\'s ID until it expires, 365 days after the play by default (`BE-028`).');
+    expect(row).toContain('what it writes to the learned preferences is not removed by that request: after a withdrawal it follows the `RewardEvent` and `PersonalWeights` rows above, and for a deleted account it stays under the deleted account\'s ID until the daily sweep of deleted accounts\' data removes it, within a day (`BE-028`, `BE-094`).');
   });
 
   // J1 round 1 (R5): the health bullet points at Retention for every job deletion does not reach, not only a running one.
@@ -264,7 +264,7 @@ describe('J1: the learning jobs in the job queue', () => {
     const line = doc().split('\n').find((l) => l.includes('Users can request data deletion'));
     expect(line).toContain('user-scoped Redis state and the account\'s learning jobs waiting in the job queue (`bull:reward-ingest:`)');
     expect(line).toContain('Once a learning job has run, the job queue deletes it.');
-    expect(line).toContain('but what it writes to the learned preferences is not deleted with the account: it stays under the deleted account\'s ID until it expires, 365 days after the play by default (see **Retention**; `BE-028`).');
+    expect(line).toContain('but what it writes to the learned preferences is not deleted with the account: it stays under the deleted account\'s ID until the daily sweep of deleted accounts\' data removes it, within a day (see **Retention**; `BE-028`, `BE-094`).');
     expect(line).not.toContain('keeps no job'); // J1 round 1 (R6′): no completeness word
     expect(line).not.toMatch(/not yet deleted|J1\) lands/);
   });
