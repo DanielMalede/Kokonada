@@ -60,6 +60,28 @@ Corroborating evidence the release checklist has not been run: `src/health/confi
 
 **Fix** — file the declaration with a per-permission justification, including for `READ_HEALTH_DATA_HISTORY`.
 
+## HALT 6 · Account type (CMP-093)
+
+*Added 2026-10-04 from `compliance-auditor`'s re-check of `CMP-093`; sources fetched that day.*
+
+**Requirement** — https://support.google.com/googleplay/android-developer/answer/10788890 (Play Console Requirements):
+> "When creating your Play Console account, developers providing the following services must register as an Organization:" … "1.2. Health apps, such as Medical apps and Human Subjects Research apps. Learn more about Health app categories."
+
+The linked page (answer/13996367) counts "Health and fitness apps" among health apps, and an app that reads health data must declare health features (answer/14738291).
+
+**What stops** — no personal Google Play developer account is created for Kokonada, and no build goes to any Play track from one, internal testing included.
+
+**Fix** — an organisation account with a D-U-N-S number ("up to 30 days", answer/13628312), or a written statement from Google Play that a Health-and-fitness-only declaration is outside §1.2. For the Israel tester stage an APK installed directly needs no Play account. The owner's steps are TASKS `DAN-056`, `DAN-057` and `DAN-058`.
+
+## Exit criteria
+
+*Added 2026-10-04.* The first upload to any Play track, internal testing included, waits until:
+- HALT 1 to HALT 5 above are closed on evidence;
+- **HALT 6 · Account type (CMP-093)** is settled;
+- the store-gate hardening PR is merged, with:
+  - the rxandroidble fix: `tools:node="remove"` on both `uses-permission-sdk-23` location entries that rxandroidble 1.17.2 adds to the merged release manifest with no `maxSdkVersion`, so the app declares location it never reads (`compliance-auditor`, V1 lab round 1: a HALT on any Play upload, not on a directly installed tester build);
+  - the iOS `ENTRY_FILE` guard (a bundle-phase script, a pbxproj pin and a bash test), a precondition on any iOS archive: no iOS archive is exported for upload, and nothing goes to TestFlight or App Store Connect, until that PR is merged and the IPA scan exits 0.
+
 ---
 
 ## What is right, and must not be broken fixing the above
