@@ -78,14 +78,32 @@ export function labSourcesInMap(json) {
   });
 }
 
-const ARCHIVE = /\.(apk|aab|apks|zip|jar|aar)$/i;
+const ARCHIVE = /\.(apk|aab|apks|ipa|zip|jar|aar)$/i;
+// What an app artifact must contain for a clean scan to mean anything (MF-1): its JS (a Metro or
+// Hermes bundle) and, on Android, its compiled code (dex).
+const JS_BUNDLE = /\.(bundle|jsbundle)$/i;
+const DEX = /\.dex$/i;
+const HERMES_MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03, 0xc1, 0x03, 0x19, 0x1f]);
+const DEX_MAGIC = Buffer.from('dex\n', 'latin1');
+const ANDROID_ARTIFACT = /\.(apk|aab|apks)$/i;
+const IOS_ARTIFACT = /\.ipa$/i;
+
+/** Why a scanned app artifact proves nothing, or null. Folders of build outputs are not held to it. */
+export function artifactShortfall(target, stats) {
+  if (ANDROID_ARTIFACT.test(target)) {
+    if (stats.bundles === 0) return `${target}: read no JS bundle, so this is not an app artifact the scan can vouch for`;
+    if (stats.dex === 0) return `${target}: read no dex, so this is not an app artifact the scan can vouch for`;
+  }
+  if (IOS_ARTIFACT.test(target) && stats.bundles === 0) return `${target}: read no JS bundle (main.jsbundle), so this is not an app artifact the scan can vouch for`;
+  return null;
+}
 
 /**
  * Every lab trace in a file, a directory, or an archive (nested archives included):
  * [{ where, marker, encoding }]. Paths count as content, so a planted class is found by its name too.
  * Throws when the path is missing or holds nothing to read.
  */
-export function scanPath(markers, target) {
+export function scanPath(markers, target, stats = { bundles: 0, dex: 0 }) {
   if (!fs.existsSync(target)) throw new Error(`not found: ${target}`);
   const findings = [];
   let read = 0;
@@ -96,6 +114,8 @@ export function scanPath(markers, target) {
       for (const entry of readZipEntries(buf)) scanBytes(`${where}!/${entry.name}`, entry.name, entry.data);
       return;
     }
+    if (JS_BUNDLE.test(name) || buf.subarray(0, 8).equals(HERMES_MAGIC)) stats.bundles += 1;
+    if (DEX.test(name) || buf.subarray(0, 4).equals(DEX_MAGIC)) stats.dex += 1;
     for (const m of findMarkers(markers, buf)) findings.push({ where, ...m });
   };
   const walk = (p) => {
@@ -153,7 +173,7 @@ function parseArgs(argv) {
     if (a === '--closure-only') args.closureOnly = true;
     else if (a === '--entry') args.entry = argv[++i];
     else if (a === '--platform') args.platform = argv[++i];
-    else if (a === '--scan') { while (argv[i + 1] && !argv[i + 1].startsWith('--')) args.scan.push(argv[++i]); }
+    else if (a === '--scan') { const n = args.scan.length; while (argv[i + 1] && !argv[i + 1].startsWith('--')) args.scan.push(argv[++i]); if (args.scan.length === n) throw new Error('--scan needs at least one path: a scan that reads nothing is never a pass'); }
     else throw new Error(`unknown argument: ${a}`);
   }
   if (!args.entry || !['android', 'ios'].includes(args.platform)) throw new Error('bad --entry or --platform');
@@ -205,11 +225,22 @@ function main(argv) {
   try {
     const markers = labMarkers(appRoot);
     if (args.scan.length) {
-      const findings = args.scan.flatMap((t) => scanPath(markers, path.resolve(t)));
+      const findings = [];
+      const shortfalls = [];
+      for (const t of args.scan) {
+        const stats = { bundles: 0, dex: 0 };
+        findings.push(...scanPath(markers, path.resolve(t), stats));
+        const shortfall = artifactShortfall(t, stats);
+        if (shortfall) shortfalls.push(shortfall);
+      }
       if (findings.length) {
         console.error('Design Lab traces in a scanned build output:');
         for (const f of findings) console.error(`  ${f.where}: ${f.marker} (${f.encoding})`);
         return 1;
+      }
+      if (shortfalls.length) {
+        console.error(`the scan cannot vouch for what it read:\n  ${shortfalls.join('\n  ')}`);
+        return 2;
       }
       console.log(`scanned ${args.scan.length} path(s): no Design Lab trace`);
       return 0;

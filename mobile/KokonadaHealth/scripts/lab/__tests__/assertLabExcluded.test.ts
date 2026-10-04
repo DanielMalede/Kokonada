@@ -60,6 +60,7 @@ function zip(entries: Array<{ name: string; data: Buffer; deflate?: boolean }>):
 }
 
 const utf16 = (s: string) => Buffer.from(s, 'utf16le');
+const HBC_RELEASE = Buffer.concat([Buffer.from([0xc6, 0x1f, 0xbc, 0x03, 0xc1, 0x03, 0x19, 0x1f]), Buffer.from('the app, compiled')]);
 let tmp: string;
 beforeAll(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-excluded-')); });
 afterAll(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
@@ -176,9 +177,39 @@ describe('the CLI (a real process; its exit code is what CI reads)', () => {
 
   it('exits 1 on a planted artifact, 0 on a clean one, and 2 on a path that is not there', () => {
     const planted = put('cli/planted.apk', zip([{ name: 'classes.dex', data: Buffer.from('Lcom/kokonadahealth/lab/DesignLabActivity;'), deflate: true }]));
-    const clean = put('cli/clean.apk', zip([{ name: 'classes.dex', data: Buffer.from('Lcom/kokonadahealth/MainActivity;'), deflate: true }]));
+    const clean = put('cli/clean.apk', zip([
+      { name: 'classes.dex', data: Buffer.from('Lcom/kokonadahealth/MainActivity;'), deflate: true },
+      { name: 'assets/index.android.bundle', data: HBC_RELEASE, deflate: true },
+    ]));
     expect(run('--scan', planted).status).toBe(1);
     expect(run('--scan', clean).status).toBe(0);
     expect(run('--scan', path.join(tmp, 'cli/missing.aab')).status).toBe(2);
+  });
+
+  it('exits 2 on --scan with no path: a scan that reads nothing is never a pass (MF-1)', () => {
+    expect(run('--scan').status).toBe(2);
+    expect(run('--scan', '--closure-only').status).toBe(2);
+  });
+
+  it('exits 2 on an app artifact it read no app in: an Android one needs a JS bundle and a dex, an IPA a JS bundle', () => {
+    const dex = { name: 'classes.dex', data: Buffer.from('dex\n035 Lcom/kokonadahealth/MainActivity;'), deflate: true };
+    const bundle = { name: 'assets/index.android.bundle', data: HBC_RELEASE, deflate: true };
+    const noBundle = put('cli/nobundle.apk', zip([dex]));
+    const noDex = put('cli/nodex.apk', zip([bundle]));
+    const aab = put('cli/app.aab', zip([{ ...dex, name: 'base/dex/classes.dex' }, { ...bundle, name: 'base/assets/index.android.bundle' }]));
+    const ipa = put('cli/app.ipa', zip([{ name: 'Payload/KokonadaHealth.app/main.jsbundle', data: HBC_RELEASE, deflate: true }]));
+    const ipaEmpty = put('cli/empty.ipa', zip([{ name: 'Payload/KokonadaHealth.app/Info.plist', data: Buffer.from('plist') }]));
+    expect(run('--scan', noBundle).stderr).toMatch(/no JS bundle/);
+    expect(run('--scan', noBundle).status).toBe(2);
+    expect(run('--scan', noDex).stderr).toMatch(/no dex/);
+    expect(run('--scan', noDex).status).toBe(2);
+    expect(run('--scan', aab).status).toBe(0);
+    expect(run('--scan', ipa).status).toBe(0);
+    expect(run('--scan', ipaEmpty).status).toBe(2);
+  });
+
+  it('holds a build-output directory to no such rule (classes and bundle folders are scanned as they are)', () => {
+    const classes = put('cli/classes/com/kokonadahealth/MainActivity.class', Buffer.from('com/kokonadahealth/MainActivity'));
+    expect(run('--scan', path.dirname(path.dirname(path.dirname(classes)))).status).toBe(0);
   });
 });
