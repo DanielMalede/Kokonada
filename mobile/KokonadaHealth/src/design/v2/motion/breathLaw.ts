@@ -1,9 +1,12 @@
 // The breath law (DEC-015, DSN-035; signed in the V1 addendum §2.5).
 //
-// Every breath period is a whole fraction of the field's master period T: period(s) = T / n(s),
-// with n(s) = Math.round(nRest − (nRest − nStress)·s). Tension only lowers n, so the breath only ever
-// slows as stress rises, and t can wrap modulo T without a seam. The curve is two cosine halves:
-// it rises over the inhale share of the cycle and falls over the rest.
+// Every breath period is a whole fraction of the field's master period T: period = T / n. The
+// target is n(s) = nRest − Math.round((nRest − nStress)·s), computed here in JS and handed on as an
+// integer; Math.round rounds halves up, so a tie goes to the slower breath (DSN-035). Tension only
+// lowers the target, so QA-066's monotonicity holds for n(s); the period actually breathing also
+// depends on history, because the phaser moves n one step at a time (breathPhaser.ts). t can wrap
+// modulo T without a seam. The curve is two cosine halves: it rises over the inhale share of the
+// cycle and falls over the rest.
 //
 // breathLawViolations checks a direction's tokens against QA-066 and QA-067. The bounds are a
 // parameter, because they belong to the QA rules and the owner's decision, not to this code.
@@ -45,7 +48,7 @@ function clampStress(stress: number): number {
 }
 
 export function breathCycles(law: BreathLaw, stress: number): number {
-  return Math.round(law.nRest - (law.nRest - law.nStress) * clampStress(stress));
+  return law.nRest - Math.round((law.nRest - law.nStress) * clampStress(stress));
 }
 
 export function breathPeriodMs(law: BreathLaw, stress: number): number {

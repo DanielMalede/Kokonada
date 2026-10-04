@@ -40,6 +40,14 @@ describe('the period is T / n(s), n(s) = round(nRest − (nRest − nStress)·s)
     }
   });
 
+  // DSN-035: n(s) = nRest − Math.round((nRest − nStress)·s). Math.round rounds halves up, so a
+  // tie takes the bigger step from rest: the slower breath. For A, s = 0.1, 0.3 … 0.9 are ties.
+  it('a tie goes to the slower breath', () => {
+    expect(breathCycles(A, 0.1)).toBe(10);
+    expect(breathCycles(A, 0.5)).toBe(8);
+    expect(breathCycles(A, 0.9)).toBe(6);
+  });
+
   // A stress value that is not a number means no tension was inferred, which is rest.
   it('clamps stress to [0, 1] and reads NaN as rest', () => {
     expect(breathCycles(A, -0.5)).toBe(11);
