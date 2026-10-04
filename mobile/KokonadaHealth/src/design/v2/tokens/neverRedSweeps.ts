@@ -11,7 +11,7 @@
 // numbers. The graph's edges come from the extensions module, which only tests, scripts and the lab
 // import, so the caller passes them in. Sweep-only: never imported by app code.
 
-import { pivotComposite, type BlendGraph, type NeverRedSweep } from '../color/blendSpace.ts';
+import { pivotComposite, samplesAround, type BlendGraph, type NeverRedSweep } from '../color/blendSpace.ts';
 import { maxInBandOnPixelBlend, maxInBandOnSrgbBlend, type BlendMax, type Bytes } from '../color/edgeSweep.ts';
 import { mixSafe } from '../color/mixSafe.ts';
 import { mixOklab, type Oklab, type Srgb } from '../color/oklab.ts';
@@ -43,11 +43,32 @@ const amplitudeFor = (id: DirectionId) =>
   BASE.field.dither.amplitude + Math.max(DIRECTIONS[id].field.grain.ground, DIRECTIONS[id].field.grain.inside);
 const haloPeak = (face: Face) => (face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight);
 
+/**
+ * How finely a sweep samples: 'coarse' in the default jest run, 'full' in the sweeps project
+ * (UI-073), which runs serially in its own CI step.
+ */
+export type SweepResolution = 'coarse' | 'full';
+
+/**
+ * The field sweep's grids; neverRed.field.test.ts pins both. Float is exact over t and presence,
+ * sampled at k 0.01 and shimmer 1°, in both. The default 8-bit grid is coarser (t and k at 0.2, each
+ * end of a segment at −shimmer, 0 and +shimmer), because rounding is a small perturbation of the
+ * float colour; the full grid takes t and k at 0.1 and pixel shimmer at 1°, so it also sees a colour
+ * just outside the design band that rounding turns into the check band.
+ */
+function fieldGrid(resolution: SweepResolution): NeverRedSweep['grid'] {
+  const chromaScales = [0.25, 0.5, 1];
+  return resolution === 'full'
+    ? { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.1, pixelKStep: 0.1, chromaScales, pixelShimmerStepDeg: 1 }
+    : { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.2, pixelKStep: 0.2, chromaScales };
+}
+
 export function fieldSweepFor(
   id: DirectionId,
   face: Face,
   graphEdges: GraphEdges,
   edges?: { straight: Array<[string, string]>; waypoint: Array<[string, string]> },
+  resolution: SweepResolution = 'coarse',
 ): NeverRedSweep {
   const d = DIRECTIONS[id];
   const colours = d.color[face];
@@ -75,9 +96,7 @@ export function fieldSweepFor(
     designBand: DESIGN_BAND,
     checkBand: CHECK_BAND,
     ditherAmplitude: amplitudeFor(id),
-    // Float is exact over t and presence, sampled at k 0.01 and shimmer 1°; the 8-bit grid is
-    // coarser (t and k at 0.2), because quantisation is a small perturbation of the float colour.
-    grid: { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.2, pixelKStep: 0.2, chromaScales: [0.25, 0.5, 1] },
+    grid: fieldGrid(resolution),
   };
 }
 
@@ -105,51 +124,52 @@ const upTo = (limit: number, step: number) => {
 };
 
 /**
- * The edge sweep's resolutions; neverRed.edges.test.ts pins them.
+ * The edge sweep's grids, 'coarse' for the default run and 'full' for the sweeps project (UI-073);
+ * neverRed.edges.test.ts pins both.
  *   • floatKStep: the halo and field k step of the exact float pass (design band).
- *   • byteKStep: the k step of the 8-bit pass (check band), coarser because rounding is a small
- *     perturbation of the float colour.
+ *   • byteKStep: the k step of the 8-bit pass (check band).
  *   • presenceShares: the bead presences, as shares of the direction's bead chroma scale.
- *   • byteDitherAmplitude: each 8-bit background is the nearest pixels of a lit colour at L − A, L
- *     and L + A, plus this much dither (0: the nearest pixels only).
+ *   • shimmerStepDeg: the turns of a field-lit colour; null takes only −shimmer, 0 and +shimmer.
+ *   • byteBackground: 'nearest' takes the nearest pixels of a lit colour at L − A, L and L + A;
+ *     'dithered' takes every pixel the dither and grain reach over L ± A (ditherReachable).
  *   • ctaMixSteps: the CTA fill is taken at every i / ctaMixSteps of each mixSafe transition.
- * The default run keeps the coarse 8-bit grids. A full-resolution 8-bit pass is planned as its own
- * serial jest project (docs/design-v2/V1_SQUAD_B_NOTES.md, "the sweeps project").
  */
-export const EDGE_SWEEP_GRID = {
-  floatKStep: 0.01,
-  byteKStep: 0.1,
-  presenceShares: [0.25, 0.5, 1],
-  byteDitherAmplitude: 0,
-  ctaMixSteps: 20,
+export const EDGE_SWEEP_GRIDS = {
+  coarse: { floatKStep: 0.01, byteKStep: 0.1, presenceShares: [0.25, 0.5, 1], shimmerStepDeg: null, byteBackground: 'nearest', ctaMixSteps: 20 },
+  full: { floatKStep: 0.01, byteKStep: 0.01, presenceShares: [0.25, 0.5, 1], shimmerStepDeg: 1, byteBackground: 'dithered', ctaMixSteps: 20 },
 } as const;
 
 export interface EdgeSweepInputs {
   readonly floatKStep: number;
   readonly byteKStep: number;
-  /** EDGE_SWEEP_GRID.presenceShares times the direction's bead chroma scale. */
+  /** The grid's presenceShares times the direction's bead chroma scale. */
   readonly presences: readonly number[];
   /** The turns a field-lit colour takes; halo-lit colours never turn. */
   readonly shimmers: readonly number[];
-  /** The L shifts grain and dither give a lit surface: −A, 0 and +A. */
+  /** The L shifts grain and dither give a lit surface in float: −A, 0 and +A. */
   readonly lShifts: readonly number[];
+  /** The L shifts of the 8-bit backgrounds, before each is dithered by byteDitherAmplitude. */
+  readonly byteLShifts: readonly number[];
   readonly byteDitherAmplitude: number;
   readonly ctaMixSteps: number;
 }
 
-/** What edgeFamiliesFor sweeps for a direction, from EDGE_SWEEP_GRID and the direction's tokens. */
-export function edgeSweepInputs(id: DirectionId): EdgeSweepInputs {
+/** What edgeFamiliesFor sweeps for a direction, from the grid and the direction's tokens. */
+export function edgeSweepInputs(id: DirectionId, resolution: SweepResolution = 'coarse'): EdgeSweepInputs {
   const d = DIRECTIONS[id];
   const deg = d.field.shimmer.deg;
   const amplitude = amplitudeFor(id);
-  const grid = EDGE_SWEEP_GRID;
+  const grid = EDGE_SWEEP_GRIDS[resolution];
+  const lShifts = [-amplitude, 0, amplitude];
+  const dithered = grid.byteBackground === 'dithered';
   return {
     floatKStep: grid.floatKStep,
     byteKStep: grid.byteKStep,
     presences: grid.presenceShares.map((p) => p * d.bead.chromaScale),
-    shimmers: deg > 0 ? [-deg, 0, deg] : [0],
-    lShifts: [-amplitude, 0, amplitude],
-    byteDitherAmplitude: grid.byteDitherAmplitude,
+    shimmers: grid.shimmerStepDeg === null ? samplesAround(deg, deg || 1) : samplesAround(deg, grid.shimmerStepDeg),
+    lShifts,
+    byteLShifts: dithered ? [0] : lShifts,
+    byteDitherAmplitude: dithered ? amplitude : 0,
     ctaMixSteps: grid.ctaMixSteps,
   };
 }
@@ -203,12 +223,12 @@ class Family {
   }
 }
 
-export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
+export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse'): EdgeFamilyMax[] {
   const d = DIRECTIONS[id];
   const c = d.color[face];
   const tier = tierFor(face);
   const kp = d.field.pivot;
-  const { floatKStep, byteKStep, presences, shimmers, lShifts, byteDitherAmplitude, ctaMixSteps } = edgeSweepInputs(id);
+  const { floatKStep, byteKStep, presences, shimmers, lShifts, byteLShifts, byteDitherAmplitude, ctaMixSteps } = edgeSweepInputs(id, resolution);
   const anchors = QUADRANTS.map((q) => lab(BASE.emotion[q][tier]));
   const srgb = (x: Oklab) => sweepOklabToSrgb(x);
 
@@ -226,9 +246,12 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   };
   // Grain and dither move a surface pixel on L only, by up to ±amplitude. Each lit surface is taken
   // at L − amplitude, L and L + amplitude ("grain at both extremes", designer §1.2 step 1), in float
-  // and as its 8-bit pixel (a rounding tie either way).
-  const shifted = (colours: Oklab[]): Oklab[] =>
-    colours.flatMap((colour) => lShifts.map((delta) => ({ L: colour.L + delta, a: colour.a, b: colour.b })));
+  // and as its 8-bit pixel (a rounding tie either way). At full resolution each 8-bit background is
+  // instead every pixel the dither and grain reach over L ± amplitude (byteLShifts [0], dithered).
+  const shiftedBy = (deltas: readonly number[]) => (colours: Oklab[]): Oklab[] =>
+    colours.flatMap((colour) => deltas.map((delta) => ({ L: colour.L + delta, a: colour.a, b: colour.b })));
+  const shifted = shiftedBy(lShifts);
+  const byteShifted = shiftedBy(byteLShifts);
   const quantised = (colours: Oklab[]): Bytes[] => {
     const out = new Map<string, Bytes>();
     for (const colour of colours) {
@@ -243,13 +266,13 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   const faceGround = lab(c.plate.face);
   const fieldNodes = [...anchors, lab(c.field.restGlow)];
   const ringFloat = shifted(lit(ring, anchors, haloPeak(face), [0], floatKStep));
-  const ringBytes = quantised(shifted(lit(ring, anchors, haloPeak(face), [0], byteKStep)));
+  const ringBytes = quantised(byteShifted(lit(ring, anchors, haloPeak(face), [0], byteKStep)));
   const faceFloat = shifted([
     ...lit(faceGround, anchors, haloPeak(face), [0], floatKStep),
     ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, floatKStep) : []),
   ]);
   const faceBytes = quantised(
-    shifted([
+    byteShifted([
       ...lit(faceGround, anchors, haloPeak(face), [0], byteKStep),
       ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, byteKStep) : []),
     ]),

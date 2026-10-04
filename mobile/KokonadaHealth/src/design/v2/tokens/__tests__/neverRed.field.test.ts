@@ -41,6 +41,14 @@ describe.each(CASES)('QA-065 field segments (upsampling and Skia not yet covered
     expect(cfg.checkBand).toEqual(CHECK_BAND);
   });
 
+  // The sweeps project's grid (UI-073): only the 8-bit grid is finer; everything else is the same.
+  it('at full resolution, t and k 0.1 and shimmer 1° on 8-bit pixels, and nothing else changes', () => {
+    const coarse = sweepFor(id, face);
+    const full = fieldSweepFor(id, face, GRAPH.edges, undefined, 'full');
+    expect(full.grid).toEqual({ kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.1, pixelKStep: 0.1, chromaScales: [0.25, 0.5, 1], pixelShimmerStepDeg: 1 });
+    expect({ ...full, grid: coarse.grid }).toEqual(coarse);
+  });
+
   it('no blend-graph colour composited over a local ground is red, in float or on 8-bit pixels, with the margin', () => {
     const report = sweepNeverRed(sweepFor(id, face));
     expect(report.failures).toEqual([]);

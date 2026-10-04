@@ -212,7 +212,7 @@ function samplesUpTo(limit: number, step: number): number[] {
 }
 
 /** −half to +half inclusive, in equal steps no longer than `step`. */
-function samplesAround(half: number, step: number): number[] {
+export function samplesAround(half: number, step: number): number[] {
   if (half === 0) {
     return [0];
   }
