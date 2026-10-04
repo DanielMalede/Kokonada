@@ -37,6 +37,9 @@ Every command below is a direct `node scripts/lab/<name>.mjs` call.
 - **`node scripts/lab/assertManifests.mjs`** (CI, job "Mobile — Android compile check"):
   - Every merged manifest Gradle wrote is checked.
   - `release`, and any other variant that is not the lab, declares no lab component.
+  - The same variants pass the upload permission gate (`scripts/lab/uploadPermissions.mjs`, MB-093):
+    no location for API 23 and up, no COARSE or BACKGROUND location, FINE and the legacy Bluetooth
+    permissions only up to API 30, a `neverForLocation` scan, and no permission off the allow-list.
   - The lab declares none of the real app.
 - **Gradle refuses:**
   - to configure while `ENTRY_FILE` is set. The React Native plugin applies that variable to every
