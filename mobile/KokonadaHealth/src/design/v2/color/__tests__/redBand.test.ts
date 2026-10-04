@@ -10,13 +10,11 @@ import {
   type RedBand,
 } from '../redBand.ts';
 
-// FIXTURE, pending DEC-081: the owner has not ruled the band, the floor or the routing. These
-// tests prove the mechanism, so the band is an explicit parameter here. The numbers are V0's
-// band (v0-spec §4.2: "Hue in [350°, 50°] is never used at C > 0.02"), which is also the check
-// band the designer proposes in base.neverRed. The token rules run on the token file's own band.
+// FIXTURE. These tests prove the mechanism, so the band is an explicit parameter here. The
+// numbers are V0's band (v0-spec §4.2: "Hue in [350°, 50°]"), which DEC-081 made the check band
+// in base.neverRed. The token rules run on the token file's own bands.
 //
-// At the floor itself the sources differ: V0 and the designer call red "C > floor", QA-065 passes
-// only "chroma < floor". This code applies QA-065's, the stricter, so C exactly at the floor is red.
+// DEC-081 also ruled the boundary: a closed band, so C exactly at the floor is red.
 const V0_BAND: RedBand = { hueFrom: 350, hueTo: 50, chromaFloor: 0.02 };
 
 const lch = (L: number, C: number, h: number): Oklab => oklchToOklab({ L, C, h });

@@ -1,9 +1,9 @@
-// The never-red check (QA-063, QA-065), with the band as a parameter: the owner rules its numbers
-// in DEC-081, so nothing here hard-codes them.
+// The never-red check (QA-063, QA-065), with the band as a parameter: DEC-081 set the numbers in
+// base.neverRed, and nothing here hard-codes them.
 //
 // A colour is red when its OKLCh hue lies in the band (circular, both ends inclusive) AND its
-// chroma is at or above the band's floor. "At or above" is QA-065's pass rule ("chroma < floor"
-// passes); it is the stricter reading of a boundary the sources word differently.
+// chroma is at or above the band's floor: DEC-081's closed band, which is QA-065's pass rule
+// ("chroma < floor" passes).
 //
 // Lightness never decides redness, so the geometry below works in OKLab's a-b plane. There the red
 // region is a sector of the hue circle with the disc of radius `chromaFloor` cut out of it: one

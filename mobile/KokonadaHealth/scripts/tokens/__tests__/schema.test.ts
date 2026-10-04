@@ -156,9 +156,14 @@ describe('locks and the owner’s pending decisions', () => {
     expect(errors).toContainEqual(expect.stringMatching(/^direction\.abyss\.tokens\.json: radius: .*lock/));
   });
 
-  it('the never-red band is the owner’s (DEC-081) and marked proposed', () => {
+  // DEC-081 is decided: a closed band, red iff the hue is in the band (ends inclusive) and C >= floor.
+  it('the never-red band is the owner’s (DEC-081), marked decided, with its rule sentence', () => {
     const noStatus = errorsOf(planted(BASE, (j) => delete j.neverRed.$extensions['com.kokonada'].status));
-    expect(noStatus).toContainEqual(expect.stringMatching(/^base\.tokens\.json: neverRed: .*proposed/));
+    expect(noStatus).toContainEqual(expect.stringMatching(/^base\.tokens\.json: neverRed: .*decided/));
+    const stillProposed = errorsOf(planted(BASE, (j) => (j.neverRed.$extensions['com.kokonada'].status = 'proposed')));
+    expect(stillProposed).toContainEqual(expect.stringMatching(/^base\.tokens\.json: neverRed: .*decided/));
+    const otherRule = errorsOf(planted(BASE, (j) => (j.neverRed.$extensions['com.kokonada'].rule = 'red iff C > floor')));
+    expect(otherRule).toContainEqual(expect.stringMatching(/^base\.tokens\.json: neverRed: .*rule/));
     const designerLock = errorsOf(planted(BASE, (j) => (j.neverRed.$extensions['com.kokonada'].lock = 'designer')));
     expect(designerLock).toContainEqual(expect.stringMatching(/^base\.tokens\.json: neverRed: .*owner:DEC-081/));
   });

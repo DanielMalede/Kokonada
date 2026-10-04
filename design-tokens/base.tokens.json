@@ -1,6 +1,6 @@
 {
   "neverRed": {
-    "$extensions": {"com.kokonada":{"lock":"owner:DEC-081","status":"proposed"}},
+    "$extensions": {"com.kokonada":{"lock":"owner:DEC-081","status":"decided","rule":"red iff hue in [start,end] inclusive and C >= floor"}},
     "check": {
       "hueStart": {"$type":"number","$value":350},
       "hueEnd": {"$type":"number","$value":50},

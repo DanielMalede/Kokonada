@@ -9,8 +9,8 @@ import {
 import { mixOklab, oklchToOklab, srgbToOklab, type Oklab } from '../oklab.ts';
 import type { RedBand } from '../redBand.ts';
 
-// FIXTURES. The bands are the numbers the designer proposes for DEC-081 (base.neverRed: a design
-// band checked in float, a check band checked on 8-bit pixels). The owner has not ruled them; the
+// FIXTURES. The bands are DEC-081's numbers (base.neverRed: a design band checked in float, a
+// check band checked on 8-bit pixels), copied here so the mechanism is tested on its own; the
 // token rules run on the token file's own values. The nodes are V0 set A's core tier (v0-spec
 // §4.2), and R0 is one rest-glow value from the designer's addendum, used here as a fixture.
 const DESIGN_BAND: RedBand = { hueFrom: 345, hueTo: 55, chromaFloor: 0.015 };

@@ -98,7 +98,7 @@ describe('buildTokenModel', () => {
 
   it('collects the $extensions data by path, without locks or hex markers', () => {
     expect(model.extensions.base.$root.hero.elements).toEqual(expect.arrayContaining(['hero.header', 'hero.scroll']));
-    expect(model.extensions.base.neverRed).toEqual({ status: 'proposed' });
+    expect(model.extensions.base.neverRed).toEqual({ status: 'decided', rule: 'red iff hue in [start,end] inclusive and C >= floor' });
     expect(model.extensions.abyss['haptics.place']).toEqual({ fallback: 'EFFECT_TICK', trigger: 'plate.tap' });
     expect(JSON.stringify(model.extensions)).not.toMatch(/"lock"|"hex":"(generated|v0)"/);
   });

@@ -3,7 +3,7 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  'base.tokens.json': 'c6a21a7675da3897aea1421a02f70e5055e9ae7ed87d92ad48fe9f3a303c590e',
+  'base.tokens.json': '3d8e8c03cd9abd42db36aa169c267046fc84335f0b814a2923e2f2c64b25a5b3',
   'direction.abyss.tokens.json': '1f6a9dcb3fe403b6666748b4dd782b843fcf53923cc9cfcea020450867cbc0f2',
   'direction.basin.tokens.json': '32ff7e69a25f8f3cb74aca8306c086625a03c948456d730470057f4f0b83b776',
   'direction.linen.tokens.json': '426668de54596096d7bebe2f875a7911e88579e920120bc6c99f793e25c9ed86',
@@ -1532,7 +1532,7 @@ export const EXTENSIONS = {
         language: 'Hebrew right-to-left on the device; English on the boards only',
       },
     },
-    neverRed: { status: 'proposed' },
+    neverRed: { status: 'decided', rule: 'red iff hue in [start,end] inclusive and C >= floor' },
     'field.graph': {
       nodes: {
         J: '{emotion.joy}',

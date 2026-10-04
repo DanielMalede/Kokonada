@@ -7,8 +7,8 @@ import { breathLawViolations, type BreathLaw } from '../../motion/breathLaw.ts';
 import { BASE, DIRECTIONS, EXTENSIONS, type ColorValue, type DirectionId, type Face } from '../tokens.generated.ts';
 
 // The rules the committed tokens must keep, per direction and per face, read from the generated
-// module the app uses. The never-red bands are base.neverRed: the designer's proposal, PENDING
-// DEC-081, so these tests run on whatever the owner rules once the token file carries it.
+// module the app uses. The never-red bands are base.neverRed, as DEC-081 ruled them, read from
+// the token file rather than repeated here.
 
 const IDS = Object.keys(DIRECTIONS) as DirectionId[];
 const FACES: Face[] = ['dark', 'light'];
@@ -28,15 +28,15 @@ const rgb = (c: ColorValue): Srgb => [1, 3, 5].map((i) => parseInt(c.hex.slice(i
 /** Dark faces carry the core tier of each emotion, light faces the deep tier (designer §1.1). */
 const tierFor = (face: Face) => (face === 'dark' ? 'core' : 'deep');
 
-describe('the bands are the designer’s proposal, pending DEC-081', () => {
-  it('base.neverRed is marked proposed', () => {
-    expect(EXTENSIONS.base.neverRed).toEqual({ status: 'proposed' });
+describe('the bands are DEC-081’s ruling', () => {
+  it('base.neverRed is marked decided, with the rule the code applies', () => {
+    expect(EXTENSIONS.base.neverRed).toEqual({ status: 'decided', rule: 'red iff hue in [start,end] inclusive and C >= floor' });
   });
 });
 
 // QA-063: no emotion or field hue in the red band. In float against the design band, and as the
 // 8-bit hex the app paints against the check band.
-describe.each(CASES)('QA-063 (pending DEC-081): %s, %s face', (id, face) => {
+describe.each(CASES)('QA-063: %s, %s face', (id, face) => {
   const colours: Array<[string, ColorValue]> = [
     ...QUADRANTS.map((q) => [`emotion.${q}.${tierFor(face)}`, BASE.emotion[q][tierFor(face)]] as [string, ColorValue]),
     ['field.restGlow', DIRECTIONS[id].color[face].field.restGlow],
@@ -122,7 +122,7 @@ function sweepFor(id: DirectionId, face: Face, edges?: { straight: Array<[string
   };
 }
 
-describe.each(CASES)('QA-065 (pending DEC-081): %s, %s face', (id, face) => {
+describe.each(CASES)('QA-065 field segments (AA pairs, upsampling and Skia not yet covered): %s, %s face', (id, face) => {
   // The sweep's inputs, pinned: dropping a ground, a k bound, a segment or the grain from the
   // amplitude would otherwise leave this block green while it checked less.
   it('sweeps the grounds, k range, segments and dither amplitude this direction can show', () => {
@@ -134,7 +134,7 @@ describe.each(CASES)('QA-065 (pending DEC-081): %s, %s face', (id, face) => {
     expect(cfg.ditherAmplitude).toBe(BASE.field.dither.amplitude + Math.max(d.field.grain.ground, d.field.grain.inside));
   });
 
-  it('nothing the field can show is red, in float or on 8-bit pixels', () => {
+  it('no blend-graph colour composited over a local ground is red, in float or on 8-bit pixels', () => {
     const report = sweepNeverRed(sweepFor(id, face));
     expect(report.failures).toEqual([]);
     expect(report.pixelSamples).toBeGreaterThan(0);

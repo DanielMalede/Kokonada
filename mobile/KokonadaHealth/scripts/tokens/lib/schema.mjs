@@ -15,6 +15,8 @@ const TYPES = new Set(['color', 'dimension', 'duration', 'number', 'string', 'fo
 const LOCKS = new Set(['designer', 'owner:DEC-081', 'owner:DEC-084', 'generated']);
 const HEX = /^#[0-9A-F]{6}$/;
 export const ALIAS = /^\{([A-Za-z0-9_.-]+)\}$/;
+/** DEC-081, as the designer worded it for the token file: a closed band, ends inclusive. */
+export const NEVER_RED_RULE = 'red iff hue in [start,end] inclusive and C >= floor';
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -198,8 +200,11 @@ function checkOwnerDecisions(file, json, errors) {
   if (neverRed.lock !== 'owner:DEC-081') {
     errors.push(`${file}: neverRed: the never-red band is the owner's: lock must be owner:DEC-081`);
   }
-  if (neverRed.status !== 'proposed') {
-    errors.push(`${file}: neverRed: the band is the designer's proposal until the owner rules: status must be "proposed"`);
+  if (neverRed.status !== 'decided') {
+    errors.push(`${file}: neverRed: DEC-081 is decided: status must be "decided"`);
+  }
+  if (neverRed.rule !== NEVER_RED_RULE) {
+    errors.push(`${file}: neverRed: the rule sentence must be DEC-081's, the one the code applies: "${NEVER_RED_RULE}"`);
   }
   if (kokonada(json.field?.tiers).lock !== 'owner:DEC-084') {
     errors.push(`${file}: field.tiers: the tiers are the owner's: lock must be owner:DEC-084`);
