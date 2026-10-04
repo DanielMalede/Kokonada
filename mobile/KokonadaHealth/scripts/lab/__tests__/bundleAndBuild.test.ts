@@ -168,7 +168,9 @@ describe('buildLabApk', () => {
     expect(regen.cwd).toBe(path.join(r.appRoot, 'android')); // regenerated from the real path
     expect(assemble.args).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain']);
     expect(assemble.cwd).toBe(`L:\\${path.join('mobile', 'App', 'android')}`);
-    expect(assemble.autolinking).toContain('L:\\\\mobile\\\\App');
+    // relinkAutolinking swaps the repository root for the drive and keeps the rest of each path in this
+    // platform's separators (L:\mobile\App on Windows, L:/mobile/App on Linux), JSON-escaped in the file.
+    expect(assemble.autolinking).toContain(JSON.stringify(path.join(`L:${path.sep}`, 'mobile', 'App')).slice(1, -1));
     expect(fs.readFileSync(r.autolinking, 'utf8')).toBe(r.real);
     expect(r.drives.size).toBe(0);
     expect(result.apkSha256).toMatch(/^[0-9a-f]{64}$/);
