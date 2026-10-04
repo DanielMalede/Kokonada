@@ -133,10 +133,19 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     frames: params.frames,
     onReady: ({ probes }) => {
       const now = latest.current;
-      say('READY', {
-        run: params.run, seq: now.seq, scene: params.scene, clock: params.clock, t: now.t,
-        powerSave: now.powerSave, pixelRatio: PixelRatio.get(), probes, sentinel: LAB_SENTINEL,
-      });
+      // Formatted before anything is sent: a READY that cannot be written is an ERROR that ends the
+      // run, and the command gate never settles, so no later command or READY can follow it.
+      let line: string;
+      try {
+        line = formatLine('READY', {
+          run: params.run, seq: now.seq, scene: params.scene, clock: params.clock, t: now.t,
+          powerSave: now.powerSave, pixelRatio: PixelRatio.get(), probes, sentinel: LAB_SENTINEL,
+        });
+      } catch (e) {
+        fail((e as Error).message);
+        return;
+      }
+      deps.emit(line);
       commands.settle();
     },
   }));

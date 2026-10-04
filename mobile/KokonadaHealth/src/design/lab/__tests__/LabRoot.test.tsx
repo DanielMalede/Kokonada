@@ -172,6 +172,23 @@ describe('after an ERROR', () => {
   });
 });
 
+describe('a READY that cannot be written (SF-2)', () => {
+  it('is an ERROR that ends the run: one ERROR, the next command ignored as busy, and no READY ever', () => {
+    const ratio = jest.spyOn(PixelRatio, 'get').mockReturnValue(2);
+    const h = setup(STEPPED);
+    h.layout();
+    ratio.mockReturnValue(NaN); // READY's pixelRatio is not finite, so the line cannot be formatted
+    h.tick(2);
+    expect(h.of('ERROR')).toHaveLength(1);
+    expect(h.of('ERROR')[0].errors[0]).toMatch(/not a finite number/);
+    h.command({ seq: '1', cmd: 'step' });
+    h.tick(4);
+    expect(h.of('IGNORED')).toEqual([{ run: 'r2', seq: 1, reason: 'busy' }]);
+    expect(h.of('ERROR')).toHaveLength(1);
+    expect(h.of('READY')).toEqual([]);
+  });
+});
+
 describe('commands', () => {
   const settled = () => {
     const h = setup(STEPPED);
