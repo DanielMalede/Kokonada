@@ -10,11 +10,11 @@ const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('./wearableErasure
 const { purgeLearnedPersonalization } = require('./learningErasure');
 const { purgeUserJobs } = require('../../queues/userJobPurge');
 const { eraseSessionHealthOnWithdrawal } = require('./sessionHealthErasure');
-
-// CROSS-PACKAGE CONTRACT: the mobile client reads this to decide whether an on-file grant is
-// still current (a bump re-prompts before the OS health sheet). Bump this — and update the
-// consent copy / dataCategories it stands for — whenever the terms materially change.
-const CURRENT_CONSENT_VERSION = 1;
+// The version, the purpose and the status read live in the import-light consentState.js (J2 round 1, M1);
+// they are re-exported below as the same objects.
+const {
+  CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE, getConsentState, getConsentStatus,
+} = require('./consentState');
 
 // ENFORCED go-live gate for the Garmin server-to-server lane's special-category (GDPR Art.9)
 // types — spo2 / respiratory_rate / body_battery (mobile consentApi.ts GARMIN_ONLY_DATA_CATEGORIES).
@@ -27,11 +27,6 @@ const CURRENT_CONSENT_VERSION = 1;
 // re-consent before any of the three is ever persisted. The tripwire test fails if the two drift
 // into alignment without a conscious bump.
 const GARMIN_CONSENT_MIN_VERSION = 2;
-
-// The one purpose enum value in use today (ConsentRecord.js schema). Exported so every call
-// site (routes/integrations.js's requireConsent mounts, watchHrIngest's inline gate, the mobile
-// CONSENT_PURPOSE contract) shares ONE literal instead of drifting copies.
-const HEALTH_CONSENT_PURPOSE = 'health_biometric_processing';
 
 // Records a granted consent at the current version. `dataCategories` is the special-category
 // data the user agreed to; kept as sent so the record reflects exactly what was shown.
@@ -278,32 +273,6 @@ function garminSpecialCategoryAllowed(consentVersion) {
 async function getGrantedConsentVersion(userId, purpose) {
   const latest = await ConsentRecord.latestFor(userId, purpose);
   return latest && latest.status === 'granted' ? latest.consentVersion : 0;
-}
-
-// The status a latest row stands for. staleVersion means the user IS granted but at an older
-// contract version — the client should re-prompt, and the server treats it as not-current
-// (distinct from a first-time "no record" case).
-function statusOf(latest) {
-  const granted = !!latest && latest.status === 'granted';
-  return {
-    granted,
-    currentVersion: CURRENT_CONSENT_VERSION,
-    staleVersion: granted && latest.consentVersion < CURRENT_CONSENT_VERSION,
-  };
-}
-
-// J2 (BE-087): the same read and the same rule as getConsentStatus, together with the latest row the
-// status was decided from. A caller that asks twice around a write (healthConsentGate.healthWriteFence)
-// compares the rows' _ids: every new row changes it — a withdrawal, a re-grant — even when the status
-// reads the same again.
-async function getConsentState(userId, purpose) {
-  const latest = await ConsentRecord.latestFor(userId, purpose);
-  return { status: statusOf(latest), latest };
-}
-
-// The read the server gate and the client both consume.
-async function getConsentStatus(userId, purpose) {
-  return (await getConsentState(userId, purpose)).status;
 }
 
 module.exports = {

@@ -32,7 +32,7 @@ jest.mock('../app/services/biosonic/affectService', () => ({
 // J2 (BE-087; fixture F2): the worker asks the consent gate before it reads and again after it writes.
 // This unit suite pins the refresh itself, so the gate admits; the gate, the refusals and the undo run for
 // real in stateVectorFence.integration.test.js.
-jest.mock('../app/services/privacy/healthConsentGate', () => ({
+jest.mock('../app/services/privacy/healthWriteFence', () => ({
   healthWriteFence: jest.fn().mockResolvedValue({ admitted: true, reason: null, fence: 'f1' }),
 }));
 
