@@ -17,6 +17,13 @@ describe('formatLine', () => {
     expect(formatLine('ERROR', { errors: ['a\nb'] })).not.toMatch(/\n/);
   });
 
+  it('refuses a line over 4,000 UTF-8 bytes: logcat would truncate it, and the harness could not read it', () => {
+    const fits = formatLine('READY', { pad: 'x'.repeat(3900) });
+    expect(Buffer.byteLength(fits, 'utf8')).toBeLessThanOrEqual(4000);
+    expect(() => formatLine('READY', { pad: 'x'.repeat(4000) })).toThrow(/4000 bytes/);
+    expect(() => formatLine('READY', { pad: 'א'.repeat(1990) })).toThrow(/4000 bytes/); // 2 bytes each in UTF-8
+  });
+
   it('refuses a number that is not finite rather than writing null for it', () => {
     expect(() => formatLine('READY', { t: NaN })).toThrow(/finite/);
     expect(() => formatLine('READY', { probes: { a: { px: { x: Infinity } } } })).toThrow(/finite/);

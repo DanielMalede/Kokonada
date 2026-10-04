@@ -15,7 +15,23 @@
 export const LAB_TAG = 'KOKONADA_LAB';
 export type LineKind = 'READY' | 'ERROR' | 'IGNORED';
 
-/** One protocol line. Throws on a number that is not finite: JSON would silently write null. */
+/** Logcat truncates a line at about 4 KB, so a longer one could not be read back whole. */
+export const MAX_LINE_BYTES = 4000;
+
+// UTF-8 length without Buffer or TextEncoder, which the lab's Hermes runtime may not have.
+function utf8Bytes(s: string): number {
+  let bytes = 0;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) as number;
+    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/**
+ * One protocol line. Throws on a number that is not finite (JSON would silently write null), and
+ * on a line over MAX_LINE_BYTES (logcat would truncate it).
+ */
 export function formatLine(kind: LineKind, payload: unknown): string {
   const json = JSON.stringify(payload, (key, value) => {
     if (typeof value === 'number' && !Number.isFinite(value)) {
@@ -23,7 +39,10 @@ export function formatLine(kind: LineKind, payload: unknown): string {
     }
     return value;
   });
-  return `${LAB_TAG} ${kind} ${json}`;
+  const line = `${LAB_TAG} ${kind} ${json}`;
+  const bytes = utf8Bytes(line);
+  if (bytes > MAX_LINE_BYTES) throw new Error(`${kind}: the line is ${bytes} bytes, over the ${MAX_LINE_BYTES} bytes logcat keeps`);
+  return line;
 }
 
 // ---- commands -----------------------------------------------------------------------------
