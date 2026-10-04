@@ -104,5 +104,11 @@ describe('DirectionProvider and useTokens', () => {
     it('for a direction the tokens do not have', () => {
       expect(() => render({ direction: 'paper' as DirectionId })).toThrow(/paper/);
     });
+
+    // An inherited key such as 'constructor' is truthy on any object, so a plain lookup would
+    // hand back Object's constructor and fail later with a vague TypeError instead.
+    it.each(['constructor', 'toString', '__proto__'])('for the inherited key %p, with the named error', (key) => {
+      expect(() => render({ direction: key as DirectionId })).toThrow(new RegExp(`no tokens for direction ${key}`));
+    });
   });
 });

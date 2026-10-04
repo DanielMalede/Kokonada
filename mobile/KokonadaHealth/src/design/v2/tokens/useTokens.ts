@@ -22,7 +22,7 @@ export function useTokens(): Tokens {
   // An unknown phone setting (null) reads as the light face.
   const face: Face = choice?.face ?? (scheme === 'dark' ? 'dark' : 'light');
   const tokens = useMemo(() => {
-    const direction = id === undefined ? undefined : DIRECTIONS[id];
+    const direction = id !== undefined && Object.prototype.hasOwnProperty.call(DIRECTIONS, id) ? DIRECTIONS[id] : undefined;
     return id !== undefined && direction ? { id, face, base: BASE, direction, color: direction.color[face] } : null;
   }, [id, face]);
   if (!choice) {
