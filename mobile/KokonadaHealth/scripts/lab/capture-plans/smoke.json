@@ -6,24 +6,73 @@
   },
   "readyTimeoutMs": 30000,
   "settleMs": 300,
-  "session": { "stayOn": true },
+  "session": {
+    "stayOn": true
+  },
   "shots": [
     {
       "id": "smoke-fixed",
       "repeat": 2,
       "scene": "smoke",
-      "args": { "clock": "fixed", "t": "1500", "frames": "3" },
-      "device": { "fontScale": 1.0, "night": "yes", "animatorScale": 1, "powerSave": false },
-      "probes": ["stage", "mark"]
+      "args": {
+        "clock": "fixed",
+        "t": "1500",
+        "frames": "3"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "mark"
+      ]
+    },
+    {
+      "id": "smoke-moving-control",
+      "repeat": 1,
+      "scene": "smoke",
+      "args": {
+        "clock": "realtime"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "mark"
+      ],
+      "proof": {
+        "kind": "draws-frames",
+        "seconds": 10
+      }
     },
     {
       "id": "smoke-still-reduced-motion",
       "repeat": 1,
       "scene": "smoke",
-      "args": { "clock": "realtime" },
-      "device": { "fontScale": 1.0, "night": "yes", "animatorScale": 0, "powerSave": false },
-      "probes": ["stage", "mark"],
-      "proof": { "kind": "zero-frames", "seconds": 10 }
+      "args": {
+        "clock": "realtime"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 0,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "mark"
+      ],
+      "proof": {
+        "kind": "zero-frames",
+        "seconds": 10
+      }
     }
   ]
 }

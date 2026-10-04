@@ -48,6 +48,10 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const numIn = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 
+// zero-frames: a still shot draws nothing (QA-034, QA-035). draws-frames: its positive control, the
+// same scene with motion allowed, must draw something, or the zero proves nothing.
+const PROOFS = ['zero-frames', 'draws-frames'];
+
 /** Every problem with a capture plan, as sentences. [] for a valid plan. */
 export function validatePlan(plan) {
   const e = [];
@@ -81,8 +85,8 @@ export function validatePlan(plan) {
       if (typeof d.powerSave !== 'boolean') e.push(`${at}.device.powerSave must be a boolean`);
     }
     if (!Array.isArray(s.probes) || s.probes.length === 0 || !s.probes.every((p) => TOKEN.test(p))) e.push(`${at}.probes must be a non-empty list of probe ids`);
-    if (s.proof !== undefined && !(isObject(s.proof) && s.proof.kind === 'zero-frames' && intIn(s.proof.seconds, 1, 120))) {
-      e.push(`${at}.proof must be { kind: "zero-frames", seconds: 1 to 120 }`);
+    if (s.proof !== undefined && !(isObject(s.proof) && PROOFS.includes(s.proof.kind) && intIn(s.proof.seconds, 1, 120))) {
+      e.push(`${at}.proof must be { kind: "zero-frames" or "draws-frames", seconds: 1 to 120 }`);
     }
   });
   return e;
@@ -259,8 +263,10 @@ export async function capture({
         await adb.shell(['dumpsys', 'gfxinfo', plan.app.package, 'reset']);
         await sleep(shot.proof.seconds * 1000);
         const frames = parseGfxFrames(await adb.shell(['dumpsys', 'gfxinfo', plan.app.package]));
-        proofs.push({ shot: shot.id, kind: shot.proof.kind, seconds: shot.proof.seconds, frames, passed: frames === 0 });
-        if (frames !== 0) throw new Error(`${shot.id}: ${frames} frames rendered in ${shot.proof.seconds} s while it should be still (QA-034, QA-035)`);
+        const still = shot.proof.kind === 'zero-frames';
+        proofs.push({ shot: shot.id, kind: shot.proof.kind, seconds: shot.proof.seconds, frames, passed: still ? frames === 0 : frames > 0 });
+        if (still && frames !== 0) throw new Error(`${shot.id}: ${frames} frames rendered in ${shot.proof.seconds} s while it should be still (QA-034, QA-035)`);
+        if (!still && frames === 0) throw new Error(`${shot.id}: the positive control drew no frame in ${shot.proof.seconds} s, so a zero-frames proof beside it would prove nothing`);
       }
     }
   } catch (e) {

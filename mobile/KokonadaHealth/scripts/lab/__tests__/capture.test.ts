@@ -131,6 +131,25 @@ describe('a successful run', () => {
     ]);
   });
 
+  it('records a positive control that drew frames beside the still shot that drew none', async () => {
+    const w = world();
+    const shell = w.device.shell.bind(w.device);
+    let movingShot = false;
+    w.device.shell = async (args: string[]) => {
+      const line = args.join(' ');
+      if (line.startsWith('am start')) movingShot = line.includes('smoke-moving');
+      const out = await shell(args);
+      if (line.endsWith('gfxinfo com.kokonadahealth.lab reset') && movingShot) w.device.gfxFrames = 600;
+      return out;
+    };
+    const moving = { ...PLAN.shots[1], id: 'smoke-moving', device: { ...PLAN.shots[1].device, animatorScale: 1 }, proof: { kind: 'draws-frames', seconds: 10 } };
+    const { manifest } = await w.run({ plan: { ...PLAN, shots: [moving, PLAN.shots[1]] } });
+    expect(manifest.proofs).toEqual([
+      { shot: 'smoke-moving', kind: 'draws-frames', seconds: 10, frames: 600, passed: true },
+      { shot: 'smoke-still', kind: 'zero-frames', seconds: 10, frames: 0, passed: true },
+    ]);
+  });
+
   it('records the zero-frames proof of the still shot', async () => {
     const w = world();
     const { manifest } = await w.run();
@@ -234,6 +253,12 @@ describe('restore runs on every exit path', () => {
     await fails(w, /37 frames/);
   });
 
+  it('a positive control that draws no frame: the zero-frames proof beside it would prove nothing', async () => {
+    const w = world();
+    const moving = { ...PLAN.shots[1], id: 'smoke-moving', device: { ...PLAN.shots[1].device, animatorScale: 1 }, proof: { kind: 'draws-frames', seconds: 10 } };
+    await fails(w, /positive control.*drew no frame/, { plan: { ...PLAN, shots: [moving, PLAN.shots[1]] } });
+  });
+
   it('an interruption (Ctrl-C) while waiting for READY', async () => {
     const w = world();
     const controller = new AbortController();
@@ -306,6 +331,17 @@ describe('the shipped smoke plan', () => {
     expect(plan.shots.some((s: { repeat: number; args: { clock: string } }) => s.repeat >= 2 && s.args.clock === 'fixed')).toBe(true);
     expect(plan.shots.some((s: { args: { clock: string }; device: { animatorScale: number }; proof?: { kind: string; seconds: number } }) =>
       s.args.clock === 'realtime' && s.device.animatorScale === 0 && s.proof?.kind === 'zero-frames' && s.proof.seconds === 10)).toBe(true);
+  });
+
+  it('has the positive control beside the still shot: the same scene in real time with motion on, which must draw frames', () => {
+    const plan = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../capture-plans/smoke.json'), 'utf8'));
+    const still = plan.shots.find((s: { proof?: { kind: string } }) => s.proof?.kind === 'zero-frames');
+    const control = plan.shots.find((s: { proof?: { kind: string } }) => s.proof?.kind === 'draws-frames');
+    expect(control).toBeDefined();
+    expect(control.scene).toBe(still.scene);
+    expect(control.args.clock).toBe('realtime');
+    expect(control.device.animatorScale).toBeGreaterThan(0);
+    expect(control.proof.seconds).toBe(still.proof.seconds);
   });
 
   it('validatePlan names what is wrong', () => {
