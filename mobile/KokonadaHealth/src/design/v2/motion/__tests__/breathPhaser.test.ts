@@ -3,6 +3,7 @@ import {
   advanceBreath,
   breathPeriodOf,
   fixedTimeBreathPhase,
+  MAX_STEP_MS,
   startBreath,
   startBreathFromStill,
   type BreathClock,
@@ -228,6 +229,21 @@ describe('advanceBreath: refusals', () => {
 
   it.each([-1, NaN, Infinity])('refuses the step %p ms: the clock only moves forward', (dt) => {
     expect(() => advanceBreath(startBreath(REST_N, CLOCK), dt, REST_N, CLOCK)).toThrow(RangeError);
+  });
+
+  // A finite but huge step would keep the wrap loop busy for ages; at Number.MAX_VALUE, taking one
+  // period off the time left no longer changes it, so the loop never ends. One hour is the most.
+  it.each([3_600_001, 1e12, Number.MAX_VALUE])('refuses the step %p ms: longer than MAX_STEP_MS', (dt) => {
+    expect(() => advanceBreath(startBreath(REST_N, CLOCK), dt, REST_N, CLOCK)).toThrow(RangeError);
+  });
+
+  it('accepts a step of exactly MAX_STEP_MS, one hour: 720 wraps at n 12, wrap by wrap', () => {
+    expect(MAX_STEP_MS).toBe(3_600_000);
+    expect(advanceBreath({ phase: 0, n: 12, wrapsSinceChange: 1 }, MAX_STEP_MS, 12, CLOCK)).toEqual({
+      phase: 0,
+      n: 12,
+      wrapsSinceChange: 721,
+    });
   });
 
   it.each([0, 6.5, NaN])('refuses the target n %p: n is a whole number of breaths per T', (target) => {

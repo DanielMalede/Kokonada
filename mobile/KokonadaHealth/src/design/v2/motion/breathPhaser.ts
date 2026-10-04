@@ -8,7 +8,9 @@
 // runs at the new period, so the breath never jumps.
 //
 // Its dt is the field clock's clamped dt (motion.dtClamp), never a raw frame dt; the loop does not
-// rely on that clamp.
+// rely on that clamp. It takes any step up to MAX_STEP_MS wrap by wrap (one hour: about 720 wraps
+// at n 12) and refuses a longer one, which would keep it busy for ages or, at Number.MAX_VALUE,
+// forever.
 //
 // Fixed time (captures, stills, sweeps): fixedTimeBreathPhase is frac(n(s)·t / T) at a fixed n, a
 // pure function of t that repeats exactly every master period T (DSN-050).
@@ -32,6 +34,12 @@ export interface BreathClock {
   /** Wraps that must pass before n may step back up (breath.changeLimit.fasterWrapsPerStep). */
   readonly fasterWrapsPerStep: number;
 }
+
+/**
+ * The longest step advanceBreath takes: one hour. Far above any clamped frame dt, and above the
+ * 77.5 s it takes to walk from full tension back to rest; at n 12 it is 720 wraps.
+ */
+export const MAX_STEP_MS = 3_600_000;
 
 function assertClock(clock: BreathClock): void {
   if (!(clock.masterPeriodMs > 0 && Number.isFinite(clock.masterPeriodMs))) {
@@ -93,6 +101,9 @@ function atWrap(
 export function advanceBreath(state: BreathState, clampedDtMs: number, targetN: number, clock: BreathClock): BreathState {
   if (!(clampedDtMs >= 0 && Number.isFinite(clampedDtMs))) {
     throw new RangeError(`a breath step must be a finite number of ms >= 0, got ${clampedDtMs}`);
+  }
+  if (clampedDtMs > MAX_STEP_MS) {
+    throw new RangeError(`a breath step must be at most ${MAX_STEP_MS} ms, got ${clampedDtMs}`);
   }
   assertClock(clock);
   assertN(targetN, 'the target n');
