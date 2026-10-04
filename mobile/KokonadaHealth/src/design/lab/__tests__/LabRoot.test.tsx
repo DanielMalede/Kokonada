@@ -1,6 +1,6 @@
 import React from 'react';
 import { EventEmitter } from 'events';
-import { PixelRatio, Text, View } from 'react-native';
+import { I18nManager, PixelRatio, Text, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { LabRoot, LAB_EVENTS } from '../LabRoot';
 import { Probe } from '../probe/Probe';
@@ -78,6 +78,8 @@ describe('a refused launch', () => {
 
 describe('READY', () => {
   it('waits for every probe, then for N frames, then is sent exactly once with the whole state', () => {
+    jest.replaceProperty(I18nManager, 'isRTL', true);
+    jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
     const h = setup(FIXED);
     h.tick(5);
     expect(h.of('READY')).toEqual([]);
@@ -91,6 +93,7 @@ describe('READY', () => {
     const ratio = PixelRatio.get();
     expect(h.of('READY')).toEqual([{
       run: 'r1', seq: 0, scene: 'smoke', clock: 'fixed', t: 1500, powerSave: false, pixelRatio: ratio,
+      isRTL: true, fontScale: 1.3,
       probes: {
         stage: { dp: { x: 0, y: 0, width: 400, height: 800 }, px: { x: 0, y: 0, width: 400 * ratio, height: 800 * ratio } },
         mark: { dp: { x: 120, y: 320, width: 160, height: 160 }, px: { x: 120 * ratio, y: 320 * ratio, width: 160 * ratio, height: 160 * ratio } },
@@ -99,6 +102,24 @@ describe('READY', () => {
     }]);
     h.tick(10);
     expect(h.of('READY')).toHaveLength(1);
+  });
+
+  // The harness refuses a shot unless the app itself reports RTL (F-13) and the font scale it really
+  // used (adb reads only the OS setting). So both are read when READY is sent, not at launch.
+  it('reads the layout direction and the font scale live, when each READY is sent', () => {
+    jest.replaceProperty(I18nManager, 'isRTL', false);
+    const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1);
+    const h = setup(STEPPED);
+    h.layout();
+    h.tick(1);
+    jest.replaceProperty(I18nManager, 'isRTL', true);
+    fontScale.mockReturnValue(1.6);
+    h.tick(1);
+    expect(h.of('READY')[0]).toMatchObject({ seq: 0, isRTL: true, fontScale: 1.6 });
+    fontScale.mockReturnValue(0.85);
+    h.command({ seq: '1', cmd: 'step' });
+    h.tick(2);
+    expect(h.of('READY')[1]).toMatchObject({ seq: 1, isRTL: true, fontScale: 0.85 });
   });
 
   it('carries the sentinel: the lab uses it at runtime, so it survives into the bundle', () => {

@@ -6,7 +6,7 @@
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, DeviceEventEmitter, PixelRatio } from 'react-native';
+import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
 import { fixedClockTime } from './clock/fixedClock';
@@ -160,7 +160,11 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       try {
         line = formatLine('READY', {
           run: params.run, seq: now.seq, scene: params.scene, clock: params.clock, t: now.t,
-          powerSave: now.powerSave, pixelRatio: PixelRatio.get(), probes, sentinel: LAB_SENTINEL,
+          powerSave: now.powerSave, pixelRatio: PixelRatio.get(),
+          // Read now, as the app lays out: the harness refuses a shot unless isRTL is true (F-13), and
+          // compares fontScale with the scale it set, only to confirm the setting took effect.
+          isRTL: I18nManager.isRTL, fontScale: PixelRatio.getFontScale(),
+          probes, sentinel: LAB_SENTINEL,
         });
       } catch (e) {
         fail((e as Error).message);
