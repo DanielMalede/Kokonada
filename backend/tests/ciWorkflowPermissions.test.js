@@ -139,12 +139,12 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     expect(ci.triggers.sort()).toEqual(['pull_request', 'push']);
     expect(ci.jobs.map((j) => j.id).sort()).toEqual([
       'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'mobile-ios-build', 'mobile-sweeps', 'secret-scan', 'sweeps-changes',
     ]);
     // Every job checks out, so every job needs `contents` named in any override it declares.
     expect(ci.jobs.filter((j) => j.checksOut).map((j) => j.id).sort()).toEqual([
       'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'mobile-ios-build', 'mobile-sweeps', 'secret-scan', 'sweeps-changes',
     ]);
 
     // Every job that touches the PR API is caught by the PR-API rule. secret-scan and
@@ -153,11 +153,13 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     // filter now lives in the cheap `ios-changes` job so the 10x macOS runner is gated by
     // `needs`+`if` and never allocated on a non-iOS PR — so the PR-API scope moved with it.
     // The macOS job no longer touches the PR API at all, which is why it drops out here.
+    // `sweeps-changes` is the same pattern for the full-resolution never-red sweeps (UI-073): its
+    // paths-filter gates `mobile-sweeps`, which itself never touches the PR API.
     const prApiJobs = ci.jobs
       .filter((j) => j.uses.some((u) => PR_API_ACTIONS.some((a) => a.match.test(u))))
       .map((j) => j.id)
       .sort();
-    expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile', 'secret-scan']);
+    expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile', 'secret-scan', 'sweeps-changes']);
   });
 
   it.each(WORKFLOWS.map((w) => [w.file]))(

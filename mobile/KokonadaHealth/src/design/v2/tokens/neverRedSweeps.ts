@@ -11,7 +11,7 @@
 // numbers. The graph's edges come from the extensions module, which only tests, scripts and the lab
 // import, so the caller passes them in. Sweep-only: never imported by app code.
 
-import { pivotComposite, samplesAround, type BlendGraph, type NeverRedSweep } from '../color/blendSpace.ts';
+import { pivotComposite, samplesAround, sweepNeverRed, type BlendGraph, type NeverRedReport, type NeverRedSweep } from '../color/blendSpace.ts';
 import { maxInBandOnPixelBlend, maxInBandOnSrgbBlend, type BlendMax, type Bytes } from '../color/edgeSweep.ts';
 import { mixSafe } from '../color/mixSafe.ts';
 import { mixOklab, type Oklab, type Srgb } from '../color/oklab.ts';
@@ -343,4 +343,27 @@ export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepRe
     pairsOf('CTA fill · ground', ctaFills.map((f) => [f, lab(c.ground)]));
   }
   return families.map((family) => family.result());
+}
+
+// ---------------------------------------------------------------- the sweeps project (UI-073)
+
+/** The field at full resolution, for one direction and face: what the sweeps project checks. */
+export function fullFieldReport(id: DirectionId, face: Face, graphEdges: GraphEdges): { grid: NeverRedSweep['grid']; report: NeverRedReport } {
+  const config = fieldSweepFor(id, face, graphEdges, undefined, 'full');
+  return { grid: config.grid, report: sweepNeverRed(config) };
+}
+
+/**
+ * The edges at full resolution, for one direction and face, with the families over a lit surface
+ * that did not check more pixel blends than the default grid: the proof the full grid really ran.
+ */
+export function fullEdgeReport(id: DirectionId, face: Face): { families: EdgeFamilyMax[]; litFamilies: number; notFiner: string[] } {
+  const full = edgeFamiliesFor(id, face, 'full');
+  const coarse = edgeFamiliesFor(id, face);
+  const lit = (f: EdgeFamilyMax) => f.family.startsWith('ring halo') || f.family.startsWith('face lit');
+  return {
+    families: full,
+    litFamilies: full.filter(lit).length,
+    notFiner: full.filter((f, i) => lit(f) && !(f.pixelBlends > coarse[i].pixelBlends)).map((f) => f.family),
+  };
 }

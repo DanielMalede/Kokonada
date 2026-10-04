@@ -77,12 +77,6 @@ jobs:
       - name: Run tests
         run: ./node_modules/.bin/jest --ci
         working-directory: mobile/KokonadaHealth
-      # UI-073: the never-red sweeps at full resolution (the sweeps project, jest.sweeps.config.js),
-      # serially and after the default run, so their load never slows the UI suites. The default
-      # run keeps the coarse grids; this step is the one that sees every 8-bit rounding.
-      - name: Never-red sweeps at full resolution (UI-073)
-        run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --runInBand
-        working-directory: mobile/KokonadaHealth
       # The design-system gate: colour and scale values that bypass src/design/tokens.ts are
       # ERRORS, and this step FAILS the build on them. It runs the same .eslintrc.js as
       # `npm run lint`, keeps only the kokonada/* messages, and ratchets them against
@@ -301,6 +295,62 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
         working-directory: mobile/KokonadaHealth/ios
+
+  # Cheap Ubuntu job that decides whether the full-resolution never-red sweeps (UI-073) must run,
+  # the same pattern as ios-changes. The sweeps take minutes, and the Actions budget is a P0
+  # resource (see ios-changes), so they never run inside the always-run mobile job.
+  sweeps-changes:
+    name: Detect changes to the never-red sweeps' inputs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter resolves the changed-file set through listFiles(pull_number).
+      pull-requests: read
+    outputs:
+      sweeps: ${{ steps.filter.outputs.sweeps }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          # Every input that can change a sweep result: the token sources, the v2 colour and token
+          # code the sweeps load, both jest configs, the lockfile and this file. Pinned, with a
+          # check that it covers every file the sweep tests import
+          # (mobile/KokonadaHealth/scripts/jest/__tests__/jestProjects.test.ts).
+          filters: |
+            sweeps:
+              - 'design-tokens/**'
+              - 'mobile/KokonadaHealth/src/design/v2/color/**'
+              - 'mobile/KokonadaHealth/src/design/v2/tokens/**'
+              - 'mobile/KokonadaHealth/jest.sweeps.config.js'
+              - 'mobile/KokonadaHealth/jest.config.js'
+              - 'mobile/KokonadaHealth/package-lock.json'
+              - '.github/workflows/ci.yml'
+
+  # UI-073: QA-065 at full resolution (the sweeps project, jest.sweeps.config.js), one file per
+  # direction, two workers. The default run keeps the coarse grids, which hid up to 0.004 of
+  # check-band chroma, so this job is the never-red check whenever its filter fires. Gated by
+  # `needs` + `if`, so an unrelated PR shows it as skipped, not as a silent green.
+  mobile-sweeps:
+    name: Mobile — never-red sweeps at full resolution
+    runs-on: ubuntu-latest
+    needs: sweeps-changes
+    if: needs.sweeps-changes.outputs.sweeps == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: mobile/KokonadaHealth/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: mobile/KokonadaHealth
+      - name: Never-red sweeps at full resolution
+        run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2
+        working-directory: mobile/KokonadaHealth
 
   # The backend deploys via Railway's NATIVE GitHub integration: the service is
   # connected to this repo with Root Directory = /backend, branch = main, "auto-deploy

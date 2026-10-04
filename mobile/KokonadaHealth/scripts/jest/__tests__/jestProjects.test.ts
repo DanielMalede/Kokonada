@@ -8,8 +8,8 @@ import { spawnSync } from 'child_process';
 //     *.skia.test.*;
 //   · skia — Skia's CanvasKit environment, *.skia.test.* only, and never the Skia stub.
 //   · sweeps — UI-073's full-resolution never-red pass, *.sweeps.test.* only, in its own config
-//     (jest.sweeps.config.js), so `jest` and `jest --ci` never run it; CI runs it serially, in its
-//     own step after the default run.
+//     (jest.sweeps.config.js), so `jest` and `jest --ci` never run it. CI runs it in its own job,
+//     gated by a pinned paths filter, so a PR that cannot change a sweep result skips it.
 // Splitting a jest config is how suites silently stop running: a narrowed pattern runs fewer files
 // and still reports green. So this asks jest itself which files each project runs, and compares the
 // union with an independent walk of the disk.
@@ -51,6 +51,42 @@ function testsOnDisk(): string[] {
 }
 
 const SKIA_TEST = /\.skia\.test\.[mc]?[jt]sx?$/;
+
+// ci.yml, as lines, and a job's block within it (from its key to the next job's key).
+const ciLines = () => fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8').split(/\r?\n/);
+function jobBlock(lines: string[], id: string): string[] {
+  const start = lines.indexOf(`  ${id}:`);
+  if (start < 0) return [];
+  const end = lines.findIndex((l, i) => i > start && /^ {2}[\w-]+:\s*$/.test(l));
+  return lines.slice(start, end < 0 ? lines.length : end);
+}
+/** The globs listed under a paths-filter output name inside a job block. */
+function filterGlobs(block: string[], output: string): string[] {
+  const at = block.findIndex((l) => l.trim() === `${output}:`);
+  if (at < 0) return [];
+  const out: string[] = [];
+  for (const line of block.slice(at + 1)) {
+    const t = line.trim();
+    if (!t.startsWith("- '")) break;
+    out.push(t.slice(3, -1));
+  }
+  return out;
+}
+// A glob as paths-filter reads it: ** crosses folders, * does not.
+const globRegExp = (glob: string) =>
+  new RegExp(`^${glob.split('**').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')).join('.*')}$`);
+const matchesAny = (globs: string[]) => (file: string) => globs.some((g) => globRegExp(g).test(file));
+
+/** Every input that can change a sweep result: the CI-cost fix's filter, pinned. */
+const SWEEPS_FILTER = [
+  'design-tokens/**',
+  'mobile/KokonadaHealth/src/design/v2/color/**',
+  'mobile/KokonadaHealth/src/design/v2/tokens/**',
+  'mobile/KokonadaHealth/jest.sweeps.config.js',
+  'mobile/KokonadaHealth/jest.config.js',
+  'mobile/KokonadaHealth/package-lock.json',
+  '.github/workflows/ci.yml',
+];
 const SWEEPS_TEST = /\.sweeps\.test\.[mc]?[jt]sx?$/;
 
 describe('the two jest projects (MB-086)', () => {
@@ -105,36 +141,58 @@ describe('the two jest projects (MB-086)', () => {
   });
 
 
-  it('CI runs jest as `jest --ci` (no --selectProjects and no paths, so unit and skia always run), then the sweeps serially in their own step', () => {
-    const ci = fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8');
-    const runs = ci.split(/\r?\n/).filter((line) => /node_modules\/\.bin\/jest\b/.test(line)).map((line) => line.trim());
-    expect(runs).toEqual(['run: ./node_modules/.bin/jest --ci', 'run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --runInBand']);
+  it('CI runs jest as `jest --ci` (no --selectProjects and no paths, so unit and skia always run), and the sweeps with two workers in their own job', () => {
+    const runs = ciLines().filter((line) => /node_modules\/\.bin\/jest\b/.test(line)).map((line) => line.trim());
+    expect(runs).toEqual(['run: ./node_modules/.bin/jest --ci', 'run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2']);
   });
 
-  it('both jest steps are in the mobile job, the sweeps right after the default run', () => {
-    const ci = fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8').split(/\r?\n/);
-    const job = ci.slice(ci.indexOf('  mobile:'), ci.indexOf('  mobile-android-compile:'))
-      .map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
-    const start = job.indexOf('run: ./node_modules/.bin/jest --ci');
-    expect(start).toBeGreaterThan(-1);
-    expect(job.slice(start, start + 4)).toEqual([
-      'run: ./node_modules/.bin/jest --ci',
-      'working-directory: mobile/KokonadaHealth',
-      '- name: Never-red sweeps at full resolution (UI-073)',
-      'run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --runInBand',
-    ]);
+  // The CI-cost fix: the full pass never runs inside the always-run mobile job. It has its own job,
+  // gated like iOS: skipped (not silently green) on a PR its filter does not match.
+  it('the sweeps job is gated by the pinned filter: needs and if on sweeps-changes, read-only token, and the only place the sweeps run', () => {
+    const lines = ciLines();
+    const job = jobBlock(lines, 'mobile-sweeps').map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
+    expect(job).toContain('needs: sweeps-changes');
+    expect(job).toContain("if: needs.sweeps-changes.outputs.sweeps == 'true'");
+    const perms = job.indexOf('permissions:');
+    expect(perms).toBeGreaterThan(-1);
+    expect(job.slice(perms + 1, perms + 3)).toEqual(['contents: read', 'steps:']);
+    expect(job).toContain('run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2');
+    const mobile = jobBlock(lines, 'mobile').join('\n');
+    expect(mobile).toContain('run: ./node_modules/.bin/jest --ci');
+    expect(mobile).not.toContain('jest.sweeps.config.js');
+    const changes = jobBlock(lines, 'sweeps-changes').map((l) => l.trim());
+    expect(changes).toContain('sweeps: ${{ steps.filter.outputs.sweeps }}');
+    expect(changes).toContain('uses: dorny/paths-filter@v3');
+  });
+
+  it('the sweeps filter is exactly the pinned list of every input to a sweep result', () => {
+    expect(filterGlobs(jobBlock(ciLines(), 'sweeps-changes'), 'sweeps')).toEqual(SWEEPS_FILTER);
+  });
+
+  // Positive control: every file a sweep test actually loads (its relative import closure), the
+  // token sources, both jest configs, the lockfile and ci.yml match the filter, and an app screen
+  // does not. A sweep module added outside color/ or tokens/ would fail here.
+  it('the filter covers every file the sweeps load, and only design files', () => {
+    const matches = matchesAny(filterGlobs(jobBlock(ciLines(), 'sweeps-changes'), 'sweeps'));
+    const { importClosure } = require('../../lab/importGraph.mjs') as { importClosure(entry: string): string[] };
+    const repoRel = (f: string) => path.relative(path.resolve(APP, '../..'), f).split(path.sep).join('/');
+    const sweepsFiles = testsOnDisk().filter((f) => SWEEPS_TEST.test(f));
+    expect(sweepsFiles.length).toBeGreaterThan(0);
+    const loaded = [...new Set(sweepsFiles.flatMap((f) => importClosure(path.join(APP, f)).map(repoRel)))].sort();
+    expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/tokens/neverRedSweeps.ts');
+    expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/color/blendSpace.ts');
+    const tokens = fs.readdirSync(path.resolve(APP, '../../design-tokens')).map((f) => `design-tokens/${f}`);
+    expect(tokens.length).toBeGreaterThan(0);
+    const inputs = [...loaded, ...tokens, 'mobile/KokonadaHealth/jest.config.js', 'mobile/KokonadaHealth/jest.sweeps.config.js',
+      'mobile/KokonadaHealth/package-lock.json', '.github/workflows/ci.yml'];
+    expect(inputs.filter((f) => !matches(f))).toEqual([]);
+    expect(matches('mobile/KokonadaHealth/src/experience/wheel/wheelGeometry.ts')).toBe(false);
   });
 
   // The macOS job costs real minutes, so a change to the jest split must never start it.
   it('the iOS paths filter matches neither jest config nor ci.yml', () => {
-    const ci = fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8').split(/\r?\n/);
-    const job = ci.slice(ci.indexOf('  ios-changes:'), ci.indexOf('  mobile-ios-build:'));
-    const globs = job.slice(job.findIndex((l) => l.trim() === 'ios:') + 1)
-      .map((l) => l.trim()).filter((l) => l.startsWith("- '")).map((l) => l.slice(3, -1));
-    // A glob as paths-filter reads it: ** crosses folders, * does not.
-    const toRegExp = (glob: string) =>
-      new RegExp(`^${glob.split('**').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')).join('.*')}$`);
-    const matches = (file: string) => globs.some((g) => toRegExp(g).test(file));
+    const globs = filterGlobs(jobBlock(ciLines(), 'ios-changes'), 'ios');
+    const matches = matchesAny(globs);
     expect(matches('mobile/KokonadaHealth/ios/Podfile')).toBe(true); // the parse sees the real filter
     expect(['mobile/KokonadaHealth/jest.config.js', 'mobile/KokonadaHealth/jest.sweeps.config.js', '.github/workflows/ci.yml'].filter(matches)).toEqual([]);
   });
