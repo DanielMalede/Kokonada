@@ -47,6 +47,12 @@ describe('QA-065 anti-aliased pairs: the resolutions the sweep runs at', () => {
     expect(coverageRange(0.5)).toEqual({ float: [0, 0.5], bytes: [1, 128] });
     expect(coverageRange(0.001)).toEqual({ float: [0, 0.001], bytes: [1, 1] });
   });
+
+  // The float sweep takes a coverage in (0, 1] only; the range refuses the rest rather than invent
+  // a pixel range for an ink that is never drawn.
+  it.each([0, -0.1, 1.01, NaN])('refuses the coverage %p', (coverage) => {
+    expect(() => coverageRange(coverage)).toThrow(RangeError);
+  });
 });
 
 describe.each(CASES)('QA-065 anti-aliased pairs: %s, %s face', (id, face) => {

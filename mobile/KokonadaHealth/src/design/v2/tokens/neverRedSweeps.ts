@@ -155,11 +155,15 @@ export function edgeSweepInputs(id: DirectionId): EdgeSweepInputs {
 }
 
 /**
- * The coverages an ink at coverage α is swept over: [0, α] in float; 1 to ⌈α·255⌉ on 8-bit pixels,
- * at most 254 (255 is the ink itself, which the authored-colour check covers).
+ * The coverages an ink at coverage α ∈ (0, 1] is swept over: [0, α] in float; 1 to ⌈α·255⌉ on 8-bit
+ * pixels, at most 254 (255 is the ink itself, which the authored-colour check covers). For α > 0,
+ * ⌈α·255⌉ is at least 1.
  */
 export function coverageRange(coverage: number): { readonly float: readonly [number, number]; readonly bytes: readonly [number, number] } {
-  return { float: [0, coverage], bytes: [1, Math.min(254, Math.max(1, Math.ceil(coverage * 255)))] };
+  if (!(coverage > 0 && coverage <= 1)) {
+    throw new RangeError(`an ink's coverage must be in (0, 1], got ${coverage}`);
+  }
+  return { float: [0, coverage], bytes: [1, Math.min(254, Math.ceil(coverage * 255))] };
 }
 
 /** An ink and how far it can cover: 1 for a solid edge, its alpha for a shadow. */
