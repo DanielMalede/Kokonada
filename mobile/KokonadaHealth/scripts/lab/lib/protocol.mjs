@@ -70,6 +70,8 @@ export function waitForLab({ source, run, seq, timeoutMs, signal = undefined }) 
 /**
  * Problems with a READY: another build (sentinel), another step than the one sent (seq), another
  * scene, a probe the plan needs missing.
+ * @param {any} ready
+ * @param {{ sentinel: string, scene: string, probes: string[], seq?: number }} expected
  */
 export function checkReady(ready, { sentinel, scene, probes, seq = undefined }) {
   const problems = [];
