@@ -84,11 +84,15 @@ async function eraseUserChildData(userId) {
     Identity.deleteMany({ userId }),
     RefreshToken.deleteMany({ userId }),
     UnclassifiedTrack.deleteMany({ userId }),
-    // Art.9 consent history is fully erased with the account (audit H-9, decision 3: no
-    // anonymized retention ledger). Its lockstep with userDataExport.js's COLLECTIONS and
-    // scripts/gdpr-delete.js is enforced by the shadow.qa4.crypto completeness guard.
-    ConsentRecord.deleteMany({ userId }),
   ]);
+  // Art.9 consent history is fully erased with the account (audit H-9, decision 3: no
+  // anonymized retention ledger). Its lockstep with userDataExport.js's COLLECTIONS and
+  // scripts/gdpr-delete.js is enforced by the shadow.qa4.crypto completeness guard.
+  // J2 (P13 decision): LAST, once every other collection is gone, as in scripts/gdpr-delete.js. A deletion
+  // that stops part-way then leaves the account with its whole consent history, the withdrawal row above
+  // included, so it reads withdrawn; in the same Promise.all, the history could be erased while the
+  // health data it covers stayed. Before the Redis purge, so the cascade still reads as one list.
+  await ConsentRecord.deleteMany({ userId });
   await purgeUserKeys(userId);
 }
 

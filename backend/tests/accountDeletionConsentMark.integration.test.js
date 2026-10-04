@@ -242,4 +242,100 @@ describe('both doors mark first (lockstep)', () => {
     const dryRun = GDPR_DELETE.slice(GDPR_DELETE.indexOf('if (dryRun)'), GDPR_DELETE.indexOf('console.log(`GDPR deletion for userId'));
     expect(dryRun).not.toContain('revokeHealthConsentForDeletion(');
   });
+
+  // The P13 decision (consent last): the consent history is deleted only once every other collection is.
+  it('erasure.js: ConsentRecord is deleted after the Promise.all of the others, and before the Redis purge', () => {
+    const body = ERASURE.slice(ERASURE.indexOf('async function eraseUserChildData'));
+    const all = body.indexOf('await Promise.all([');
+    const allEnd = body.indexOf(']);', all);
+    const consent = body.indexOf('await ConsentRecord.deleteMany({ userId })');
+    expect([all, allEnd, consent].every((i) => i > -1)).toBe(true);
+    expect(body.slice(all, allEnd)).not.toContain('ConsentRecord.deleteMany(');
+    expect(consent).toBeGreaterThan(allEnd);
+    expect(consent).toBeLessThan(body.indexOf('await purgeUserKeys('));
+  });
+
+  it('gdpr-delete.js: ConsentRecord is the last collection the real run deletes, before the User doc', () => {
+    const realRun = GDPR_DELETE.slice(GDPR_DELETE.indexOf('console.log(`GDPR deletion for userId'));
+    const consent = realRun.indexOf('ConsentRecord.deleteMany(');
+    const deletes = [...realRun.matchAll(/(\w+)\.delete(?:Many|One)\(/g)].filter((m) => m[1] !== 'ConsentRecord');
+    expect(deletes.length).toBeGreaterThanOrEqual(12);
+    for (const m of deletes) expect({ [m[1]]: m.index < consent }).toEqual({ [m[1]]: true });
+    expect(consent).toBeLessThan(realRun.indexOf('User.findByIdAndDelete('));
+  });
+});
+
+// The P13 decision: a deletion that stops part-way keeps the consent history, so the account it leaves
+// reads withdrawn. Every real deleteMany is run once and its promise kept, so the assertions read the
+// database only after every delete the cascade started has settled: a check made at the rejection would
+// race the ones still in flight.
+describe('a deletion that stops part-way keeps the consent history (consent last)', () => {
+  function keepDeletes() {
+    const src = fs.readFileSync(ERASURE_SRC, 'utf8');
+    const body = src.slice(src.indexOf('async function eraseUserChildData'), src.indexOf('await purgeUserKeys'));
+    const cascade = [...body.matchAll(/(\w+)\.deleteMany\(\s*\{\s*userId\s*\}/g)].map((m) => mongoose.models[m[1]]);
+    expect(cascade).toHaveLength(13);
+    const kept = [];
+    for (const model of cascade) {
+      const real = model.deleteMany.bind(model);
+      jest.spyOn(model, 'deleteMany').mockImplementation((...args) => {
+        const run = real(...args).exec();
+        kept.push(run);
+        return run;
+      });
+    }
+    return kept;
+  }
+
+  it('a failed delete: every consent row survives, the withdrawal row included, and the account reads withdrawn', async () => {
+    const user = await account();
+    await row(user._id, 'granted');
+    await row(user._id, 'withdrawn');
+    await row(user._id, 'granted');
+    const kept = keepDeletes();
+    await failOnce('delete', 'musicprofiles');
+    const next = jest.fn();
+
+    try {
+      await deleteAccount({ user: { _id: user._id }, auth: {} }, res(), next);
+    } finally {
+      await failPointOff();
+    }
+    await Promise.allSettled(kept);
+
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    expect(await User.exists({ _id: user._id })).not.toBeNull();
+    const rows = await ConsentRecord.find({ userId: user._id }).sort({ createdAt: 1, _id: 1 }).lean();
+    expect(rows.map((r) => r.status)).toEqual(['granted', 'withdrawn', 'granted', 'withdrawn']); // the last is M1′'s
+    expect((await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE)).granted).toBe(false);
+    expect((await ConsentRecord.latestFor(user._id, HEALTH_CONSENT_PURPOSE)).status).toBe('withdrawn');
+  });
+
+  it('while MedicalProfile.deleteMany is held, the consent delete has not been called; released, it runs and none remain', async () => {
+    const user = await account();
+    await row(user._id, 'granted');
+    let release;
+    let reached;
+    const held = new Promise((r) => { release = r; });
+    const atDelete = new Promise((r) => { reached = r; });
+    const realProfiles = MedicalProfile.deleteMany.bind(MedicalProfile);
+    jest.spyOn(MedicalProfile, 'deleteMany').mockImplementation(async (...args) => {
+      reached();
+      await held;
+      return realProfiles(...args);
+    });
+    const consentDelete = jest.spyOn(ConsentRecord, 'deleteMany');
+
+    const deletion = deleteAccount({ user: { _id: user._id }, auth: {} }, res(), jest.fn());
+    await atDelete;
+    await new Promise((r) => setTimeout(r, 50)); // every other delete of the batch has had its turn
+    const calledWhileHeld = consentDelete.mock.calls.length;
+    release();
+    await deletion;
+
+    expect(calledWhileHeld).toBe(0);
+    expect(consentDelete).toHaveBeenCalledTimes(1);
+    expect(await ConsentRecord.countDocuments({ userId: user._id })).toBe(0);
+    expect(await User.exists({ _id: user._id })).toBeNull();
+  });
 });
