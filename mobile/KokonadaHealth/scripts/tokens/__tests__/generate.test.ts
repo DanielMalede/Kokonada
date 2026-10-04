@@ -96,10 +96,12 @@ describe('buildTokenModel', () => {
   });
 
   it('resolves aliases to the value they point at, through chains', () => {
+    // Abyss dark text.onTint -> ground; Linen dark nav.activeLabel -> text.onInk -> text.onTint.
+    const abyssDark = model.directions.abyss.color.dark;
+    expect(abyssDark.text.onTint).toEqual(abyssDark.ground);
     const linenDark = model.directions.linen.color.dark;
-    expect(linenDark.text.onTint).toEqual(linenDark.ground);
-    // nav.activeLabel -> text.onInk -> ground
-    expect(linenDark.nav.activeLabel).toEqual(linenDark.ground);
+    expect(linenDark.text.onInk).toEqual(linenDark.text.onTint);
+    expect(linenDark.nav.activeLabel).toEqual(linenDark.text.onTint);
   });
 
   it('reads dimensions as dp and durations as ms', () => {

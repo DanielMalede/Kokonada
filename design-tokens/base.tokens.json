@@ -18,7 +18,27 @@
       "chromaFloor": {"$type":"number","$value":0.015}
     },
     "window": {"hueStart":{"$type":"number","$value":150},"hueEnd":{"$type":"number","$value":252}},
-    "warmSurfaceMaxChroma": {"$type":"number","$value":0.007}
+    "margin": {"$type":"number","$value":0.0005},
+    "edgeInk": {
+      "$extensions": {
+        "com.kokonada": {
+          "tokens": [
+            "text.primary",
+            "text.onTint",
+            "text.onInk",
+            "plate.rim.base",
+            "plate.rim.lit",
+            "plate.ringHighlight",
+            "bead.setting",
+            "bead.shadow"
+          ],
+          "rule": "per direction and face: C == 0, or hue in [window.hueStart, window.hueEnd], or (C <= maxChroma and hue in [hueMin, hueMax])"
+        }
+      },
+      "maxChroma": {"$type":"number","$value":0.004},
+      "hueMin": {"$type":"number","$value":70},
+      "hueMax": {"$type":"number","$value":100}
+    }
   },
   "emotion": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},

@@ -4,10 +4,10 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  'base.tokens.json': '223d741cbbfb22ef4ae2d9679be75809dd4a7ccd2744c4fb64236fb467d34484',
-  'direction.abyss.tokens.json': '1f62771eb11577b8abdfe086154e5d767f866f4e50ee094e6d369e5c952d8a45',
-  'direction.basin.tokens.json': '468a492f41adfa719ddfc55746a22d89289570e53137a3e66290ea8c00d04b91',
-  'direction.linen.tokens.json': 'dc22aca8e8225ee907f5aa75181f5ebbc348d5897c4a6c96853ff0f8d32f454d',
+  'base.tokens.json': 'e3ad1585fc45ea26e7f4f1352dbc4d009554feefb15fffc82eb47c5990b6be0b',
+  'direction.abyss.tokens.json': '68304fe7c114ff6675fc3c7b7bffd257b633b673128a26e4c42b27ab9c72aa16',
+  'direction.basin.tokens.json': 'b4709270720236c5ee29a3409289c6b3765e4d8e73540fe73de8b327de109827',
+  'direction.linen.tokens.json': 'bb370e06c54bc076182122fe6b673e6f9d8b378054aa69f7a5fd3570ddabf880',
 };
 
 export const EXTENSIONS = {
@@ -173,6 +173,19 @@ export const EXTENSIONS = {
       },
     },
     neverRed: { status: 'decided', rule: 'red iff hue in [start,end] inclusive and C >= floor' },
+    'neverRed.edgeInk': {
+      tokens: [
+        'text.primary',
+        'text.onTint',
+        'text.onInk',
+        'plate.rim.base',
+        'plate.rim.lit',
+        'plate.ringHighlight',
+        'bead.setting',
+        'bead.shadow',
+      ],
+      rule: 'per direction and face: C == 0, or hue in [window.hueStart, window.hueEnd], or (C <= maxChroma and hue in [hueMin, hueMax])',
+    },
     'field.graph': {
       nodes: {
         J: '{emotion.joy}',

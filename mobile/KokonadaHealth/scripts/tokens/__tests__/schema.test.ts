@@ -197,6 +197,30 @@ describe('type and motion rules', () => {
   });
 });
 
+// Designer edge-ink gaps §a: on the light face every shadow colour that is not black or white is
+// that face's text.primary, so the shadows follow the ink if it ever changes again.
+describe('light-face shadows follow the ink', () => {
+  const BASIN = 'direction.basin.tokens.json';
+  const shadowRule = (errors: string[]) => errors.filter((e) => /text\.primary/.test(e));
+
+  it('a light bead.shadow that is not text.primary is an error', () => {
+    const errors = errorsOf(planted(LINEN, (j) => (j.color.light.bead.shadow.$value.components = [0.24, 0.02, 60])));
+    expect(shadowRule(errors)).toContainEqual(expect.stringMatching(/^direction\.linen\.tokens\.json: color\.light\.bead\.shadow: /));
+  });
+
+  it('a light elevation layer that is not text.primary is an error', () => {
+    const errors = errorsOf(planted(BASIN, (j) => (j.elevation.raised.light.$value[0].color.components = [0.25, 0.02, 65])));
+    expect(shadowRule(errors)).toContainEqual(expect.stringMatching(/^direction\.basin\.tokens\.json: elevation\.raised\.light: /));
+  });
+
+  it('black and white shadows are allowed', () => {
+    const black = errorsOf(planted(LINEN, (j) => (j.color.light.bead.shadow.$value.components = [0, 0, 0])));
+    const white = errorsOf(planted(LINEN, (j) => (j.color.light.bead.shadow.$value.components = [1, 0, 0])));
+    expect(shadowRule(black)).toEqual([]);
+    expect(shadowRule(white)).toEqual([]);
+  });
+});
+
 // DSN-035's change limit, counted in breath steps (designer rulings §2; resilience second voice
 // §1.5): the code implements one step per wrap when slowing, and a whole number of wraps per step
 // when speeding back up.

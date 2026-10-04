@@ -259,6 +259,36 @@ function checkChangeLimit(file, base, errors) {
   }
 }
 
+/**
+ * Designer edge-ink gaps §a: on the light face, every shadow colour that is not black or white is
+ * that face's text.primary (components equal), so shadows follow the ink if it changes again.
+ */
+function checkLightShadows(file, tokens, errors) {
+  const primaryPath = 'color.light.text.primary';
+  if (!tokens.has(primaryPath)) {
+    return;
+  }
+  const primary = resolveAlias(tokens, primaryPath).token?.$value?.components;
+  if (!Array.isArray(primary)) {
+    return;
+  }
+  const allowed = (c) =>
+    (c[0] === 0 && c[1] === 0) || (c[0] === 1 && c[1] === 0) || (c[0] === primary[0] && c[1] === primary[1] && c[2] === primary[2]);
+  const say = (path, c) =>
+    errors.push(`${file}: ${path}: a light-face shadow is black, white or text.primary [${primary.join(', ')}], got [${c.join(', ')}]`);
+  for (const [path, token] of tokens) {
+    if (path === 'color.light.bead.shadow' && isObject(token.$value) && Array.isArray(token.$value.components)) {
+      if (!allowed(token.$value.components)) say(path, token.$value.components);
+    }
+    if (/^elevation\.[^.]+\.light$/.test(path) && Array.isArray(token.$value)) {
+      for (const layer of token.$value) {
+        const c = layer?.color?.components;
+        if (Array.isArray(c) && !allowed(c)) say(path, c);
+      }
+    }
+  }
+}
+
 /** Copy-check §4: nRest at most nMax, nStress at least nMin. */
 function checkBreathBounds(base, directions, errors) {
   const nMax = base.get('field.clock.breath.nMax')?.$value;
@@ -331,7 +361,9 @@ export function validateSources(sources) {
     checkOwnerDecisions(base.name, base.json, errors);
   }
   for (const source of sources.filter((s) => DIRECTION_FILE.test(s.name))) {
-    directions.push({ file: source.name, tokens: checkFile(source.name, source.json, errors, notes) });
+    const tokens = checkFile(source.name, source.json, errors, notes);
+    checkLightShadows(source.name, tokens, errors);
+    directions.push({ file: source.name, tokens });
   }
   if (directions.length === 0) {
     errors.push('direction.<id>.tokens.json: missing: the schema needs at least one direction file');

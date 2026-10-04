@@ -1,8 +1,8 @@
-import { graphSegments, sweepNeverRed, type BlendGraph, type NeverRedSweep } from '../../color/blendSpace.ts';
 import { contrastRatio } from '../../color/contrast.ts';
 import { hueSeparationViolations } from '../../color/deltaE.ts';
 import { srgbToOklab, type Oklab, type Srgb } from '../../color/oklab.ts';
 import { hueInBand, isRed, type RedBand } from '../../color/redBand.ts';
+import { mixSafe } from '../../color/mixSafe.ts';
 import { breathLawViolations, type BreathLaw } from '../../motion/breathLaw.ts';
 import { EXTENSIONS } from '../tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type ColorValue, type DirectionId, type Face } from '../tokens.generated.ts';
@@ -83,9 +83,8 @@ describe('QA-064', () => {
   });
 });
 
-// QA-065 over the signed blend graph (addendum §2.4): every reachable segment, every local ground
-// the field or a halo lands on, k up to max(cap, halo peak), the pivot, the shimmer, and the
-// field's L dither on 8-bit pixels.
+// The signed blend graph (addendum §2.4). The QA-065 sweeps over it and over the anti-aliased
+// pairs live in neverRed.field.test.ts and neverRed.edges.test.ts.
 const GRAPH = EXTENSIONS.base['field.graph'] as unknown as {
   edges: { straight: Array<[string, string]>; waypoint: Array<[string, string]>; restIntense: [string, string] };
 };
@@ -105,60 +104,86 @@ describe('the blend graph and the bands', () => {
   });
 });
 
-function sweepFor(id: DirectionId, face: Face, edges?: { straight: Array<[string, string]>; waypoint: Array<[string, string]> }): NeverRedSweep {
-  const d = DIRECTIONS[id];
-  const colours = d.color[face];
-  const tier = tierFor(face);
-  const routed = d.field.graph.restIntenseRoute === 'waypoint';
-  const graph: BlendGraph = {
-    nodes: {
-      J: lab(BASE.emotion.joy[tier]),
-      C: lab(BASE.emotion.calm[tier]),
-      R: lab(BASE.emotion.reflective[tier]),
-      I: lab(BASE.emotion.intense[tier]),
-      R0: lab(colours.field.restGlow),
-    },
-    straight: edges?.straight ?? [...GRAPH.edges.straight, ...(routed ? [] : [GRAPH.edges.restIntense])],
-    waypoint: edges?.waypoint ?? [...GRAPH.edges.waypoint, ...(routed ? [GRAPH.edges.restIntense] : [])],
-  };
-  const grounds: Record<string, Oklab> = { face: lab(colours.plate.face), ring: lab(colours.plate.ring) };
-  if (d.field.mask.outside > 0) grounds.ground = lab(colours.ground);
-  const halo = face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight;
-  return {
-    graph,
-    grounds,
-    kMax: Math.max(d.field.cap[face], halo),
-    kp: d.field.pivot,
-    shimmerDeg: d.field.shimmer.deg,
-    designBand: DESIGN_BAND,
-    checkBand: CHECK_BAND,
-    ditherAmplitude: BASE.field.dither.amplitude + Math.max(d.field.grain.ground, d.field.grain.inside),
-    grid: { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.1, pixelKStep: 0.1, chromaScales: [0.25, 0.5, 1] },
-  };
+// DEC-081's margin rule (DSN-013): every authored colour and every sweep maximum stays at least
+// neverRed.margin below the floor of each band it is checked against.
+const MARGIN = BASE.neverRed.margin;
+const DESIGN_LIMIT = DESIGN_BAND.chromaFloor - MARGIN;
+const CHECK_LIMIT = CHECK_BAND.chromaFloor - MARGIN;
+
+/** Every colour value in a token tree, with its path. */
+function colourLeaves(node: unknown, prefix: string, out: Array<[string, ColorValue]> = []): Array<[string, ColorValue]> {
+  if (node && typeof node === 'object' && 'hex' in node && 'oklab' in node) {
+    out.push([prefix, node as ColorValue]);
+  } else if (Array.isArray(node)) {
+    node.forEach((child, i) => colourLeaves(child, `${prefix}[${i}]`, out));
+  } else if (node && typeof node === 'object') {
+    for (const [key, child] of Object.entries(node)) colourLeaves(child, prefix ? `${prefix}.${key}` : key, out);
+  }
+  return out;
 }
 
-describe.each(CASES)('QA-065 field segments (AA pairs, upsampling and Skia not yet covered): %s, %s face', (id, face) => {
-  // The sweep's inputs, pinned: dropping a ground, a k bound, a segment or the grain from the
-  // amplitude would otherwise leave this block green while it checked less.
-  it('sweeps the grounds, k range, segments and dither amplitude this direction can show', () => {
-    const cfg = sweepFor(id, face);
-    const d = DIRECTIONS[id];
-    expect(Object.keys(cfg.grounds).sort()).toEqual(d.field.mask.outside > 0 ? ['face', 'ground', 'ring'] : ['face', 'ring']);
-    expect(cfg.kMax).toBe(Math.max(d.field.cap[face], face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight));
-    expect(graphSegments(cfg.graph)).toHaveLength(d.field.graph.restIntenseRoute === 'waypoint' ? 17 : 16);
-    expect(cfg.ditherAmplitude).toBe(BASE.field.dither.amplitude + Math.max(d.field.grain.ground, d.field.grain.inside));
+const hueOf = (colour: Oklab) => ((((Math.atan2(colour.b, colour.a) * 180) / Math.PI) % 360) + 360) % 360;
+const chromaOf = (colour: Oklab) => Math.hypot(colour.a, colour.b);
+
+describe('DEC-081’s margin on every authored colour', () => {
+  const authored: Array<[string, ColorValue]> = [
+    ...colourLeaves(BASE.emotion, 'emotion'),
+    ...IDS.flatMap((id) => [...colourLeaves(DIRECTIONS[id].color, `${id}.color`), ...colourLeaves(DIRECTIONS[id].elevation, `${id}.elevation`)]),
+  ];
+
+  it('the margin is 0.0005', () => {
+    expect(MARGIN).toBe(0.0005);
   });
 
-  it('no blend-graph colour composited over a local ground is red, in float or on 8-bit pixels', () => {
-    const report = sweepNeverRed(sweepFor(id, face));
-    expect(report.failures).toEqual([]);
-    expect(report.pixelSamples).toBeGreaterThan(0);
+  it.each(authored)('%s keeps the margin in float and as its hex', (_path, colour) => {
+    const float = lab(colour);
+    if (hueInBand(hueOf(float), DESIGN_BAND)) expect(chromaOf(float)).toBeLessThanOrEqual(DESIGN_LIMIT);
+    const painted = srgbToOklab(rgb(colour));
+    if (hueInBand(hueOf(painted), CHECK_BAND)) expect(chromaOf(painted)).toBeLessThanOrEqual(CHECK_LIMIT);
+  });
+});
+
+// DSN-019 (designer rulings §1, gaps §b): every edge ink is achromatic, or inside the ground window,
+// or a near-neutral warm ink, per direction and face.
+describe.each(CASES)('DSN-019 edge inks: %s, %s face', (id, face) => {
+  const rule = EXTENSIONS.base['neverRed.edgeInk'] as unknown as { tokens: string[] };
+  const ink = BASE.neverRed.edgeInk;
+  const windowBand: RedBand = { hueFrom: BASE.neverRed.window.hueStart, hueTo: BASE.neverRed.window.hueEnd, chromaFloor: 0 };
+  const warmBand: RedBand = { hueFrom: ink.hueMin, hueTo: ink.hueMax, chromaFloor: 0 };
+  const colourAt = (path: string) => path.split('.').reduce<any>((node, key) => node[key], DIRECTIONS[id].color[face]) as ColorValue;
+
+  it('lists text.onInk among the edge inks', () => {
+    expect(rule.tokens).toEqual(expect.arrayContaining(['text.primary', 'text.onTint', 'text.onInk', 'bead.setting', 'bead.shadow']));
   });
 
-  it('bites: the planted straight joy–intense edge fails', () => {
-    const planted = sweepFor(id, face, { straight: [['J', 'I']], waypoint: [] });
-    const report = sweepNeverRed({ ...planted, grid: { ...planted.grid, pixelTStep: 0.5, pixelKStep: 0.5 } });
-    expect(report.failures.some((f) => f.segment === 'J-I' && f.check === 'design-band')).toBe(true);
+  it.each(rule.tokens)('%s meets the edge-ink rule', (path) => {
+    const [, C, h] = colourAt(path).oklch;
+    const ok = C === 0 || hueInBand(h, windowBand) || (C <= ink.maxChroma && hueInBand(h, warmBand));
+    expect({ path, C, h, ok }).toEqual({ path, C, h, ok: true });
+  });
+});
+
+// Designer gaps §b: text.onInk is text.onTint, so the CTA label never changes colour while mixSafe
+// carries the fill from neutral to orchid to amber and back.
+describe.each(CASES)('the CTA label through a mixSafe transition: %s, %s face', (id, face) => {
+  it('is the same colour in every frame', () => {
+    const c = DIRECTIONS[id].color[face];
+    const tier = tierFor(face);
+    const legs: Array<[Oklab, Oklab]> = [
+      [lab(c.text.primary), lab(BASE.emotion.intense[tier])],
+      [lab(BASE.emotion.intense[tier]), lab(BASE.emotion.joy[tier])],
+      [lab(BASE.emotion.joy[tier]), lab(c.text.primary)],
+    ];
+    const labels: ColorValue[] = [];
+    legs.forEach(([from, to], leg) => {
+      for (let i = 0; i <= 20; i++) {
+        // The fill this frame; the label is onInk only while the fill is the neutral one.
+        mixSafe(from, to, i / 20, DESIGN_BAND);
+        const neutral = (leg === 0 && i === 0) || (leg === 2 && i === 20);
+        labels.push(neutral ? c.text.onInk : c.text.onTint);
+      }
+    });
+    for (const label of labels) expect(label).toEqual(labels[0]);
   });
 });
 
