@@ -53,6 +53,15 @@ describe('the Design Lab steps in CI', () => {
     expect(commands.slice(start, start + ANDROID_LAB_STEP.length)).toEqual(ANDROID_LAB_STEP);
   });
 
+  it('the same step then requires the compiler map and the composed map to be non-empty too (QA-077 B 6a)', () => {
+    const end = commands.indexOf(ANDROID_LAB_STEP[0]) + ANDROID_LAB_STEP.length;
+    expect(commands.slice(end, end + 3)).toEqual([
+      'test -s app/build/intermediates/sourcemaps/react/release/index.android.bundle.compiler.map',
+      'test -s app/build/generated/sourcemaps/react/release/index.android.bundle.map',
+      'working-directory: mobile/KokonadaHealth/android',
+    ]);
+  });
+
   it('the Android job also runs when modules/, an index*.js or the lab scripts change', () => {
     const filter = ci.map((l) => l.trim());
     for (const glob of ['android/**', 'modules/**', 'index*.js', 'scripts/lab/**']) {

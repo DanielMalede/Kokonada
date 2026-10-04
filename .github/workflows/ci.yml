@@ -176,6 +176,9 @@ jobs:
           test -s app/build/generated/assets/react/release/index.android.bundle
           test -s app/build/intermediates/sourcemaps/react/release/index.android.bundle.packager.map
           node ../scripts/lab/assertLabExcluded.mjs --scan app/build/generated/assets/react/release app/build/intermediates/sourcemaps/react/release app/build/generated/sourcemaps/react/release
+          # QA-077 B 6a: the compiler map and the composed map exist and are non-empty too.
+          test -s app/build/intermediates/sourcemaps/react/release/index.android.bundle.compiler.map
+          test -s app/build/generated/sourcemaps/react/release/index.android.bundle.map
         working-directory: mobile/KokonadaHealth/android
 
   # Cheap Ubuntu job whose only purpose is to decide whether the 10x macOS runner is worth
