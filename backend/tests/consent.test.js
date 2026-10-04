@@ -325,7 +325,7 @@ describe('withdrawConsent — session health (BE-016)', () => {
     const line = withdrawalLine(info);
     expect(line).toContain('providerErasureFailures=0');
     // N6 (round 1): the failed steps reach the line, as closed step:Type tokens.
-    expect(line).toMatch(/ sessionHealth=failed sessions=2 sessionTargets=1 serveEvents=0 redisKeys=0 sessionHealthFailed=serveBands:MongoServerError,redisKeys:ReplyError$/);
+    expect(line).toMatch(/ sessionHealth=failed sessions=2 sessionTargets=1 serveEvents=0 redisKeys=0 sessionHealthFailed=serveBands:MongoServerError,redisKeys:ReplyError stateJobs=0$/);
     info.mockRestore();
   });
 
@@ -338,7 +338,7 @@ describe('withdrawConsent — session health (BE-016)', () => {
     await consent.withdrawConsent(USER, PURPOSE);
 
     const line = withdrawalLine(info);
-    expect(line).toMatch(/ sessionHealth=failed sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=unknown:TypeError$/);
+    expect(line).toMatch(/ sessionHealth=failed sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=unknown:TypeError stateJobs=0$/);
     expect(line).not.toContain('10.0.0.1');
     info.mockRestore();
   });
@@ -350,7 +350,7 @@ describe('withdrawConsent — session health (BE-016)', () => {
 
     await consent.withdrawConsent(USER, PURPOSE);
 
-    expect(withdrawalLine(info)).toMatch(/ learning=skipped rewardEvents=0 personalWeights=0 sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=none$/);
+    expect(withdrawalLine(info)).toMatch(/ learning=skipped rewardEvents=0 personalWeights=0 sessionHealth=skipped sessions=0 sessionTargets=0 serveEvents=0 redisKeys=0 sessionHealthFailed=none stateJobs=skipped$/);
     info.mockRestore();
   });
 });
