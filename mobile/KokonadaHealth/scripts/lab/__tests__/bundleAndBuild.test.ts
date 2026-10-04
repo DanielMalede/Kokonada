@@ -120,7 +120,8 @@ describe('the drive letter and the autolinking paths', () => {
 });
 
 describe('buildLabApk', () => {
-  function rig({ gradleFails = false, apkBundle = HBC } = {}) {
+  const DEBUG_CERT = { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'a'.repeat(64) };
+  function rig({ gradleFails = false, apkBundle = HBC, keystorePresent = true, apkCert = DEBUG_CERT } = {}) {
     const a = app();
     const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: {}, entry: 'index.lab.js', createdAt: NOW().toISOString() });
     a.write('android/app/src/lab/assets/index.android.bundle', HBC);
@@ -128,14 +129,17 @@ describe('buildLabApk', () => {
     const autolinking = path.join(a.appRoot, 'android/build/generated/autolinking/autolinking.json');
     const real = JSON.stringify({ root: path.join(a.repoRoot, 'mobile', 'App'), project: { android: { packageName: 'x' } } }, null, 2);
     const drives = new Map<string, string>();
-    const calls: Array<{ cwd: string; args: string[]; autolinking: string | null }> = [];
+    const calls: Array<{ cwd: string; args: string[]; env?: Record<string, string>; autolinking: string | null }> = [];
+    const keystore = path.join(a.repoRoot, 'shared-debug.keystore');
+    if (keystorePresent) fs.writeFileSync(keystore, 'keystore bytes');
+    const signer = { apkCertificate: () => apkCert, keystoreCertificate: () => ({ sha256: DEBUG_CERT.sha256 }) };
     const subst = {
       list: () => [...drives.entries()].map(([l, t]) => `${l}:\\: => ${t}`).join('\n'),
       add: (letter: string, target: string) => { drives.set(letter, target); },
       remove: (letter: string) => { drives.delete(letter); },
     };
-    const gradle = ({ cwd, args }: { cwd: string; args: string[] }) => {
-      calls.push({ cwd, args, autolinking: fs.existsSync(autolinking) ? fs.readFileSync(autolinking, 'utf8') : null });
+    const gradle = ({ cwd, args, env }: { cwd: string; args: string[]; env?: Record<string, string> }) => {
+      calls.push({ cwd, args, env, autolinking: fs.existsSync(autolinking) ? fs.readFileSync(autolinking, 'utf8') : null });
       if (args[0] === 'help') {
         fs.mkdirSync(path.dirname(autolinking), { recursive: true });
         fs.writeFileSync(autolinking, real);
@@ -150,9 +154,9 @@ describe('buildLabApk', () => {
       ]));
     };
     const run = (git = cleanGit) => buildLabApk({
-      repoRoot: a.repoRoot, appRoot: a.appRoot, git, gradle, subst, exists: () => false, platform: 'win32', log: () => {},
+      repoRoot: a.repoRoot, appRoot: a.appRoot, git, gradle, subst, exists: () => false, platform: 'win32', log: () => {}, keystore, signer,
     });
-    return { ...a, autolinking, real, drives, calls, run };
+    return { ...a, autolinking, real, drives, calls, run, keystore };
   }
 
   it('builds under a free drive with autolinking pointed at it, then restores the file byte for byte and removes the drive', async () => {
@@ -188,5 +192,24 @@ describe('buildLabApk', () => {
     const r = rig({ apkBundle: Buffer.concat([MAGIC, Buffer.from(`another ${SENTINEL}`)]) });
     await expect(r.run()).rejects.toThrow(/another bundle/);
     expect(r.drives.size).toBe(0);
+  });
+
+  it('signs with the one shared debug keystore (the main checkout one), passed to Gradle as a project property', async () => {
+    const r = rig();
+    const result = await r.run();
+    expect(r.calls[1].env).toEqual({ ORG_GRADLE_PROJECT_kokonadaDebugKeystore: r.keystore });
+    expect(result.signer).toEqual(DEBUG_CERT);
+  });
+
+  it('refuses before any drive or Gradle when the shared debug keystore is missing', async () => {
+    const r = rig({ keystorePresent: false });
+    await expect(r.run()).rejects.toThrow(/shared debug keystore/);
+    expect(r.calls).toEqual([]);
+    expect(r.drives.size).toBe(0);
+  });
+
+  it('refuses an APK signed by any other certificate than the shared debug key', async () => {
+    await expect(rig({ apkCert: { dn: 'CN=Kokonada Health, O=Kokonada', sha256: 'b'.repeat(64) } }).run()).rejects.toThrow(/not the debug key/);
+    await expect(rig({ apkCert: { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'c'.repeat(64) } }).run()).rejects.toThrow(/not signed with the shared debug keystore/);
   });
 });

@@ -147,6 +147,16 @@ describe('the lab has its own entry and its own Android activity', () => {
     expect(launched).not.toBe(JSON.parse(fs.readFileSync(path.join(APP, 'app.json'), 'utf8')).name);
   });
 
+  it('the lab is release-equivalent but debug-signed, with the shared debug keystore when the lab scripts pass it', () => {
+    const gradle = fs.readFileSync(path.join(APP, 'android/app/build.gradle'), 'utf8').replace(/\/\/[^\n]*/g, '');
+    const lab = gradle.slice(gradle.indexOf('        lab {'), gradle.indexOf('        lab {') + 600);
+    expect(lab).toContain('initWith release');
+    expect(lab).toContain('signingConfig signingConfigs.debug');
+    expect(lab).not.toMatch(/debuggable\s+true/);
+    const debugSigning = gradle.slice(gradle.indexOf('signingConfigs {'), gradle.indexOf('        release {', gradle.indexOf('signingConfigs {')));
+    expect(debugSigning).toContain(`storeFile file(project.findProperty('kokonadaDebugKeystore') ?: 'debug.keystore')`);
+  });
+
   it('the app has no product flavors, so the lab refusals keyed on exact task names (bundleLab, mergeLabAssets) stay exact', () => {
     const gradle = fs.readFileSync(path.join(APP, 'android/app/build.gradle'), 'utf8').replace(/\/\/[^\n]*/g, '');
     expect(gradle).not.toMatch(/\bproductFlavors\b|\bflavorDimensions\b/);

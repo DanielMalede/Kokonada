@@ -12,7 +12,9 @@
 //      regenerate it under the drive and drop the local spotify-remote module;
 //   3. it runs :app:assembleLab for arm64-v8a through the drive;
 //   4. ALWAYS, success or failure: it puts autolinking.json back byte for byte and removes the drive;
-//   5. it checks the APK carries the stamped bundle and stamp.
+//   5. it checks the APK carries the stamped bundle and stamp, and that it is signed with the one shared
+//      debug keystore (the main checkout's android/app/debug.keystore, read in place, never copied), so a
+//      lab APK from any worktree installs over another with adb install -r.
 // It never installs anything: that is a separate, explicit `adb install -r`.
 //
 // Exit codes: 0 built · 1 the build or its check failed · 2 refused.
@@ -54,9 +56,12 @@ export function relinkAutolinking(text, from, to) {
  * @param {{ repoRoot: string, appRoot: string, git: { head(): string, porcelain(): string },
  *           gradle: (run: { cwd: string, args: string[] }) => unknown,
  *           subst: { list(): string, add(letter: string, target: string): unknown, remove(letter: string): unknown },
- *           exists: (letter: string) => boolean, platform?: string, log?: (message: string) => void }} options
+ *           exists: (letter: string) => boolean, platform?: string, log?: (message: string) => void,
+ *           keystore: string,
+ *           signer: { apkCertificate(apk: string): { dn: string, sha256: string },
+ *                     keystoreCertificate(keystore: string): { sha256: string } } }} options
  */
-export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exists, platform = process.platform, log = () => {} }) {
+export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exists, platform = process.platform, log = () => {}, keystore, signer }) {
   const repo = path.resolve(repoRoot);
   const app = path.resolve(appRoot);
   const stampFile = path.join(app, LAB_ASSETS, 'lab-stamp.json');
@@ -67,6 +72,9 @@ export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exist
   const problems = verifyStampChain({ head, porcelain: git.porcelain(), stamp });
   if (stamp.bundleSha256 !== sha256(fs.readFileSync(bundleFile))) problems.push('the bundle on disk is not the stamped one: run node scripts/lab/bundleLab.mjs');
   if (problems.length) throw new Refused(`the lab cannot be built:\n  ${problems.join('\n  ')}`);
+  if (!keystore || !fs.existsSync(keystore)) {
+    throw new Refused(`the shared debug keystore is missing (${keystore}): every worktree signs the lab with that one key, so adb install -r keeps working`);
+  }
 
   const androidDir = path.join(app, 'android');
   const autolinking = path.join(app, AUTOLINKING);
@@ -91,7 +99,12 @@ export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exist
       cwd = `${letter}:\\${path.relative(repo, androidDir)}`;
       log(`autolinking.json: ${relinked.count} paths now under ${letter}:`);
     }
-    gradle({ cwd, args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain'] });
+    // The shared keystore reaches build.gradle as the project property kokonadaDebugKeystore.
+    gradle({
+      cwd,
+      args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain'],
+      env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore },
+    });
   } finally {
     if (letter) {
       fs.writeFileSync(autolinking, original);
@@ -111,10 +124,25 @@ export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exist
     apk: { bundleSha256: bundle ? sha256(bundle.data) : null, stamp: stampEntry ? JSON.parse(stampEntry.data.toString('utf8')) : null },
   });
   if (apkProblems.length) throw new Error(`the built APK fails the stamp chain:\n  ${apkProblems.join('\n  ')}`);
-  return { apk: apkPath, apkSha256: sha256(apkBytes) };
+  const cert = signer.apkCertificate(apkPath);
+  if (!/CN=Android Debug\b/.test(cert.dn)) throw new Error(`the lab APK is signed by ${cert.dn}, not the debug key`);
+  if (cert.sha256 !== signer.keystoreCertificate(keystore).sha256) throw new Error('the lab APK is not signed with the shared debug keystore');
+  return { apk: apkPath, apkSha256: sha256(apkBytes), signer: cert };
 }
 
 // ---- the real tools --------------------------------------------------------------------
+
+// apksigner from the Android SDK that android/local.properties names (or ANDROID_HOME), newest build-tools.
+function apksignerCommand(appRoot, args) {
+  const props = path.join(appRoot, 'android/local.properties');
+  const line = fs.existsSync(props) ? /^sdk\.dir=(.*)$/m.exec(fs.readFileSync(props, 'utf8')) : null;
+  const sdk = (line ? line[1].replace(/\\(.)/g, '$1').trim() : '') || process.env.ANDROID_HOME;
+  if (!sdk) throw new Error('no Android SDK: set sdk.dir in android/local.properties, or ANDROID_HOME');
+  const tools = path.join(sdk, 'build-tools');
+  const version = fs.readdirSync(tools).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+  const bin = path.join(tools, version, process.platform === 'win32' ? 'apksigner.bat' : 'apksigner');
+  return process.platform === 'win32' ? ['cmd.exe', ['/d', '/s', '/c', bin, ...args]] : [bin, args];
+}
 
 function realTools(appRoot) {
   const git = (args) => {
@@ -136,10 +164,32 @@ function realTools(appRoot) {
       remove: (letter) => run('subst', [`${letter}:`, '/D']),
     },
     exists: (letter) => fs.existsSync(`${letter}:\\`),
+    // The main checkout is the first entry of `git worktree list`; its debug keystore signs every lab.
+    keystore: path.join(
+      git(['worktree', 'list', '--porcelain']).split(/\r?\n/)[0].replace(/^worktree /, ''),
+      'mobile/KokonadaHealth/android/app/debug.keystore',
+    ),
+    signer: {
+      apkCertificate: (apk) => {
+        const [command, args] = apksignerCommand(appRoot, ['verify', '--print-certs', apk]);
+        const out = run(command, args);
+        const dn = /Signer #1 certificate DN: (.*)/.exec(out);
+        const digest = /Signer #1 certificate SHA-256 digest: ([0-9a-f]+)/.exec(out);
+        if (!dn || !digest) throw new Error(`apksigner printed no signer for ${apk}`);
+        return { dn: dn[1].trim(), sha256: digest[1] };
+      },
+      // The standard debug keystore's public password; this reads the certificate, not the key.
+      keystoreCertificate: (keystore) => {
+        const out = run('keytool', ['-list', '-v', '-keystore', keystore, '-storepass', 'android', '-alias', 'androiddebugkey']);
+        const digest = /SHA256: ([0-9A-F:]+)/.exec(out);
+        if (!digest) throw new Error(`keytool printed no SHA256 for ${keystore}`);
+        return { sha256: digest[1].replace(/:/g, '').toLowerCase() };
+      },
+    },
     // Fixed arguments only, never user input; gradlew.bat needs cmd on Windows.
-    gradle: ({ cwd, args }) => (process.platform === 'win32'
-      ? run('cmd.exe', ['/d', '/s', '/c', `gradlew.bat ${args.join(' ')}`], { cwd, stdio: 'inherit' })
-      : run('sh', ['./gradlew', ...args], { cwd, stdio: 'inherit' })),
+    gradle: ({ cwd, args, env = {} }) => (process.platform === 'win32'
+      ? run('cmd.exe', ['/d', '/s', '/c', `gradlew.bat ${args.join(' ')}`], { cwd, stdio: 'inherit', env: { ...process.env, ...env } })
+      : run('sh', ['./gradlew', ...args], { cwd, stdio: 'inherit', env: { ...process.env, ...env } })),
   };
 }
 
@@ -150,7 +200,7 @@ if (process.argv[1] && /buildLabApk\.mjs$/.test(process.argv[1])) {
       const tools = realTools(appRoot);
       return buildLabApk({ ...tools, appRoot, log: (m) => console.log(m) });
     })
-    .then(({ apk, apkSha256 }) => console.log(`built ${apk}\nsha256 ${apkSha256}`))
+    .then(({ apk, apkSha256, signer }) => console.log(`built ${apk}\nsha256 ${apkSha256}\nsigned by ${signer.dn} (certificate sha256 ${signer.sha256})`))
     .catch((e) => {
       console.error(e.message);
       process.exitCode = e instanceof Refused ? 2 : 1;

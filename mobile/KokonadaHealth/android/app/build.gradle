@@ -117,7 +117,10 @@ android {
     }
     signingConfigs {
         debug {
-            storeFile file('debug.keystore')
+            // OPS-100: the lab scripts pass the main checkout's debug keystore (project property
+            // kokonadaDebugKeystore), so a lab APK from any worktree carries the same signature and
+            // installs over another. Without the property, nothing changes.
+            storeFile file(project.findProperty('kokonadaDebugKeystore') ?: 'debug.keystore')
             storePassword 'android'
             keyAlias 'androiddebugkey'
             keyPassword 'android'
