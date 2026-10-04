@@ -244,6 +244,21 @@ function checkParity(directions, errors) {
   }
 }
 
+/**
+ * DSN-035's change limit: the phaser implements exactly one step per wrap when slowing, and a
+ * whole number of wraps per step when speeding up. Any other value would be silently unenforced.
+ */
+function checkChangeLimit(file, base, errors) {
+  const slower = base.get('breath.changeLimit.slowerStepsPerWrap')?.$value;
+  const faster = base.get('breath.changeLimit.fasterWrapsPerStep')?.$value;
+  if (slower !== 1) {
+    errors.push(`${file}: breath.changeLimit.slowerStepsPerWrap: must be 1, the only value the phaser implements, got ${slower}`);
+  }
+  if (!(Number.isInteger(faster) && faster >= 1)) {
+    errors.push(`${file}: breath.changeLimit.fasterWrapsPerStep: must be a whole number of at least 1, got ${faster}`);
+  }
+}
+
 /** Copy-check §4: nRest at most nMax, nStress at least nMin. */
 function checkBreathBounds(base, directions, errors) {
   const nMax = base.get('field.clock.breath.nMax')?.$value;
@@ -324,6 +339,7 @@ export function validateSources(sources) {
   checkParity(directions, errors);
   if (base) {
     checkBreathBounds(baseTokens, directions, errors);
+    checkChangeLimit(base.name, baseTokens, errors);
     checkTypeAndMotion(base.name, baseTokens, directions, errors);
   }
   return { errors, notes };

@@ -197,6 +197,21 @@ describe('type and motion rules', () => {
   });
 });
 
+// DSN-035's change limit, counted in breath steps (designer rulings §2; resilience second voice
+// §1.5): the code implements one step per wrap when slowing, and a whole number of wraps per step
+// when speeding back up.
+describe('breath.changeLimit', () => {
+  it('slowerStepsPerWrap must be 1, the only value the phaser implements', () => {
+    const errors = errorsOf(planted(BASE, (j) => (j.breath.changeLimit.slowerStepsPerWrap.$value = 2)));
+    expect(errors).toContainEqual(expect.stringMatching(/^base\.tokens\.json: breath\.changeLimit\.slowerStepsPerWrap: /));
+  });
+
+  it.each([0, 1.5, -1])('fasterWrapsPerStep must be a whole number of at least 1, not %p', (value) => {
+    const errors = errorsOf(planted(BASE, (j) => (j.breath.changeLimit.fasterWrapsPerStep.$value = value)));
+    expect(errors).toContainEqual(expect.stringMatching(/^base\.tokens\.json: breath\.changeLimit\.fasterWrapsPerStep: /));
+  });
+});
+
 // Copy-check amendment §4: "The schema rejects any direction's nRest above nMax or nStress below
 // nMin." n = 12 is the 0.2 Hz cap (5.0 s), n = 6 the 10 s ceiling.
 describe('breath cycle bounds read from base', () => {

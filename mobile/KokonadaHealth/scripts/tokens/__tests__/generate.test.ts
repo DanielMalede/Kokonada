@@ -111,6 +111,14 @@ describe('buildTokenModel', () => {
     expect(model.base.plate.labelBand.min).toBe(28);
   });
 
+  // DSN-035 (designer rulings §2): the limit is counted in breath steps, and n is an integer from JS.
+  it('carries the breath change limit in steps, and the breath-phase formula with n from JS', () => {
+    expect(model.base.breath.changeLimit).toEqual({ slowerStepsPerWrap: 1, fasterWrapsPerStep: 2 });
+    expect(model.extensions.base['field.clock'].breathPhase).toBe(
+      'frac(n·t/T) at fixed n; n(s) = nRest − Math.round((nRest − nStress)·s), computed in JS, passed as an integer',
+    );
+  });
+
   it('defines the haptic delay as Android’s gap after the previous primitive ends', () => {
     expect(model.extensions.base.haptics.delay).toMatch(/addPrimitive.*after the previous primitive ends/);
   });

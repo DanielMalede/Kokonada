@@ -3,7 +3,7 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  'base.tokens.json': 'af2bce9b1a31b233c9ea31adea2a02aa0d559d7005d114eda71ddbc172b87f27',
+  'base.tokens.json': '223d741cbbfb22ef4ae2d9679be75809dd4a7ccd2744c4fb64236fb467d34484',
   'direction.abyss.tokens.json': '1f62771eb11577b8abdfe086154e5d767f866f4e50ee094e6d369e5c952d8a45',
   'direction.basin.tokens.json': '468a492f41adfa719ddfc55746a22d89289570e53137a3e66290ea8c00d04b91',
   'direction.linen.tokens.json': 'dc22aca8e8225ee907f5aa75181f5ebbc348d5897c4a6c96853ff0f8d32f454d',
@@ -117,7 +117,7 @@ export const BASE = {
     },
     fallback: { radiusScale: 1.35, halos: 0, latestOnly: 1 },
   },
-  breath: { curve: 'cosineHalves', changeLimit: { upMs: 1000, downMs: 500 } },
+  breath: { curve: 'cosineHalves', changeLimit: { slowerStepsPerWrap: 1, fasterWrapsPerStep: 2 } },
   plate: {
     rim: { width: 1.5 },
     minDiameter: 264,
@@ -1575,7 +1575,7 @@ export const EXTENSIONS = {
         harmonics: { lobe0: [2, 3], lobe1: [3, 2], lobe2: [1, 2] },
         phases: { lobe0: [0, 0], lobe1: [1.3, 0.7], lobe2: [2.1, 4] },
       },
-      breathPhase: 'frac(n(s)·t/T), n(s) = round(nRest − (nRest − nStress)·s)',
+      breathPhase: 'frac(n·t/T) at fixed n; n(s) = nRest − Math.round((nRest − nStress)·s), computed in JS, passed as an integer',
       lobeOffset: 'A_d(s)·R·(sin(2π·kx·t/T + φx), cos(2π·ky·t/T + φy)); A_d(s) = A0·[1 + (D − 1)(1 − s)]·(1 − 0.4s)',
       warp: 'q\' = q + W(s)·(fbm(1.4q + orbit·(cos 2πt/T, sin 2πt/T)) − 0.5, fbm(1.4q + (5.2, 1.3) + orbit·(sin 2πt/T, cos 2πt/T)) − 0.5); W(s) = W0·(1 − 0.4s)',
       shimmer: 'hue rotates by deg·(1 − s)·sin(6πt/T), common-mode',
