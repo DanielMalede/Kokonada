@@ -1,9 +1,9 @@
-# HALT — Five Health Connect / Play blockers in shipped Android code
+# HALT — Health Connect / Play blockers: five in shipped Android code (2026-08-26), and the Play account type (2026-10-04)
 
 **Raised:** 2026-08-26 by `compliance-auditor`, all sources fetched that day.
 **Severity:** blocks **any** Play track, including closed testing. One item is a live user-facing privacy misstatement.
 **Routing:** `developer` under TDD → `resilience-auditor` → `compliance-auditor` re-audit. Items 1 and 5 need a human (hosting + Play Console).
-**Status:** not started.
+**Status:** (2026-10-04, `e4743af`) HALT 1–3 are fixed in code by HX-5 (#208) (`PermissionsRationaleActivity.kt:72-85`; `AndroidManifest.xml:82,91`). HALT 2–3 close on #208's device evidence (`CMP-067`, `MB-035`); HALT 1 also needs the hosted policy (`CMP-066`, `DAN-015`). HALT 4: the link ships on Sign-in and the Vault (`SignInScreen.tsx:109-111`; `VaultConsentPanel.tsx:56`), and on the consent sheet only from the build that sets `PRIVACY_POLICY_HOSTED` (`legalLinks.ts:30`; `ConsentSheet.tsx:221-225`); it closes once `DAN-015` hosts the page (`CMP-081`). HALT 5 and HALT 6 are open. HALT 5 is filed from the Play account that closes HALT 6, after `DAN-015`. The sections below are the text as raised.
 
 ---
 
@@ -77,7 +77,7 @@ The linked page (answer/13996367) counts "Health and fitness apps" among health 
 
 *Added 2026-10-04.* The first upload to any Play track, internal testing included, waits until:
 - HALT 1 to HALT 5 above are closed on evidence;
-- **HALT 6 · Account type (CMP-093)** is settled;
+- Settled" is vague, so this states the closing condition: "**HALT 6 · Account type (CMP-093)** is closed: a verified organisation account with a D-U-N-S number exists, or Google Play's written statement is kept as `CMP-093` evidence;
 - the store-gate hardening PR is merged, with:
   - the rxandroidble fix: `tools:node="remove"` on both `uses-permission-sdk-23` location entries that rxandroidble 1.17.2 adds to the merged release manifest with no `maxSdkVersion`, so the app declares location it never reads (`compliance-auditor`, V1 lab round 1: a HALT on any Play upload, not on a directly installed tester build);
   - the iOS `ENTRY_FILE` guard (a bundle-phase script, a pbxproj pin and a bash test), a precondition on any iOS archive: no iOS archive is exported for upload, and nothing goes to TestFlight or App Store Connect, until that PR is merged and the IPA scan exits 0.
