@@ -72,7 +72,8 @@ describe('the release entry is index.js on both platforms (MF-4)', () => {
 
   it('the lab README says what the iOS bundle phase really does', () => {
     const readme = fs.readFileSync(path.join(APP, 'scripts/lab/README.md'), 'utf8').replace(/\s+/g, ' ');
-    expect(readme).toContain('There is no lab target on iOS. The Xcode bundle phase builds `index.js` unless `ENTRY_FILE` is set in the environment, in `ios/.xcode.env` or in `ios/.xcode.env.local`, or an `index.ios.js` exists; any of these would put another entry into an archive that can go to TestFlight. Until the bundle-phase guard lands, scan the `.ipa` before every App Store Connect upload.');
+    expect(readme).toContain('There is no lab target on iOS. The Xcode bundle phase refuses any entry but `index.js`: it runs `ios/scripts/bundle-react-native.sh` through React Native\'s `with-environment.sh`, which sources `ios/.xcode.env` and `ios/.xcode.env.local` first, and that script stops the build if `ENTRY_FILE` is set to anything other than `index.js` or an `index.ios.js` exists, before `react-native-xcode.sh` runs (MB-093, pinned by `scripts/ios/__tests__/bundlePhase.test.ts`). Scan the `.ipa` before every App Store Connect upload all the same: the scan reads the archive itself, whatever built it.');
+    expect(readme).not.toContain('Until the bundle-phase guard lands');
     expect(readme).not.toContain('the Xcode project builds `index.js` only');
   });
 });
