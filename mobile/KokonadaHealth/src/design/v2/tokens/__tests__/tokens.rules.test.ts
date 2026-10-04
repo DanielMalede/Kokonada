@@ -1,4 +1,4 @@
-import { sweepNeverRed, type BlendGraph, type NeverRedSweep } from '../../color/blendSpace.ts';
+import { graphSegments, sweepNeverRed, type BlendGraph, type NeverRedSweep } from '../../color/blendSpace.ts';
 import { contrastRatio } from '../../color/contrast.ts';
 import { hueSeparationViolations } from '../../color/deltaE.ts';
 import { srgbToOklab, type Oklab, type Srgb } from '../../color/oklab.ts';
@@ -102,12 +102,23 @@ function sweepFor(id: DirectionId, face: Face, edges?: { straight: Array<[string
     shimmerDeg: d.field.shimmer.deg,
     designBand: DESIGN_BAND,
     checkBand: CHECK_BAND,
-    ditherAmplitude: BASE.field.dither.amplitude,
+    ditherAmplitude: BASE.field.dither.amplitude + Math.max(d.field.grain.ground, d.field.grain.inside),
     grid: { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.1, pixelKStep: 0.1, chromaScales: [0.25, 0.5, 1] },
   };
 }
 
 describe.each(CASES)('QA-065 (pending DEC-081): %s, %s face', (id, face) => {
+  // The sweep's inputs, pinned: dropping a ground, a k bound, a segment or the grain from the
+  // amplitude would otherwise leave this block green while it checked less.
+  it('sweeps the grounds, k range, segments and dither amplitude this direction can show', () => {
+    const cfg = sweepFor(id, face);
+    const d = DIRECTIONS[id];
+    expect(Object.keys(cfg.grounds).sort()).toEqual(d.field.mask.outside > 0 ? ['face', 'ground', 'ring'] : ['face', 'ring']);
+    expect(cfg.kMax).toBe(Math.max(d.field.cap[face], face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight));
+    expect(graphSegments(cfg.graph)).toHaveLength(d.field.graph.restIntenseRoute === 'waypoint' ? 17 : 16);
+    expect(cfg.ditherAmplitude).toBe(BASE.field.dither.amplitude + Math.max(d.field.grain.ground, d.field.grain.inside));
+  });
+
   it('nothing the field can show is red, in float or on 8-bit pixels', () => {
     const report = sweepNeverRed(sweepFor(id, face));
     expect(report.failures).toEqual([]);
