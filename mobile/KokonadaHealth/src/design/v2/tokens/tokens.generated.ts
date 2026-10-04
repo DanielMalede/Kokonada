@@ -6,7 +6,7 @@ export const TOKENS_SOURCE = {
   'base.tokens.json': '3d8e8c03cd9abd42db36aa169c267046fc84335f0b814a2923e2f2c64b25a5b3',
   'direction.abyss.tokens.json': '1f6a9dcb3fe403b6666748b4dd782b843fcf53923cc9cfcea020450867cbc0f2',
   'direction.basin.tokens.json': '32ff7e69a25f8f3cb74aca8306c086625a03c948456d730470057f4f0b83b776',
-  'direction.linen.tokens.json': '426668de54596096d7bebe2f875a7911e88579e920120bc6c99f793e25c9ed86',
+  'direction.linen.tokens.json': '4e87060ad05255c7e97518076ab0dfc0692e129536b762b12b1303f2a7f8ad02',
 };
 
 export type DirectionId = 'abyss' | 'basin' | 'linen';
@@ -1012,7 +1012,7 @@ const basin: DirectionTokens = {
 const linen: DirectionTokens = {
   color: {
     dark: {
-      ground: { hex: '#130F0A', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
+      ground: { hex: '#130E0B', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
       surface1: { hex: '#1F1915', alpha: 1, oklch: [0.22, 0.012, 60], oklab: [0.22, 0.006, 0.0103923048] },
       surface2: { hex: '#29231E', alpha: 1, oklch: [0.26, 0.013, 60], oklab: [0.26, 0.0065, 0.0112583302] },
       text: {
@@ -1034,8 +1034,8 @@ const linen: DirectionTokens = {
           oklch: [0.64, 0.015, 70],
           oklab: [0.64, 0.0051303021, 0.0140953893],
         },
-        onTint: { hex: '#130F0A', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
-        onInk: { hex: '#130F0A', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
+        onTint: { hex: '#130E0B', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
+        onInk: { hex: '#130E0B', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
       },
       line: {
         hairline: { hex: '#322C28', alpha: 1, oklch: [0.3, 0.012, 60], oklab: [0.3, 0.006, 0.0103923048] },
@@ -1079,7 +1079,7 @@ const linen: DirectionTokens = {
       bead: {
         setting: { hex: '#211C17', alpha: 1, oklch: [0.23, 0.012, 60], oklab: [0.23, 0.006, 0.0103923048] },
         neutral: { hex: '#A4A4A4', alpha: 1, oklch: [0.72, 0, 0], oklab: [0.72, 0, 0] },
-        shadow: { hex: '#130F0A', alpha: 0.5, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
+        shadow: { hex: '#130E0B', alpha: 0.5, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
       },
       field: {
         restGlow: {
@@ -1097,7 +1097,7 @@ const linen: DirectionTokens = {
           oklch: [0.94, 0.012, 80],
           oklab: [0.94, 0.0020837781, 0.011817693],
         },
-        activeLabel: { hex: '#130F0A', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
+        activeLabel: { hex: '#130E0B', alpha: 1, oklch: [0.17, 0.01, 60], oklab: [0.17, 0.005, 0.008660254] },
         inactive: {
           hex: '#ADA79E',
           alpha: 1,

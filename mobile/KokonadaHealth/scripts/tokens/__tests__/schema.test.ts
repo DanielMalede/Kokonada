@@ -99,13 +99,13 @@ describe('hexes', () => {
 
   // V0's hexes were hand-computed "to about ±1 per channel" (v0-spec caveat 2); the designer's
   // rule is to copy them. One step off is reported as a note for the designer, two is an error.
+  // The designer corrected the one such hex, Linen dark ground, to the core's #130E0B (B2 review),
+  // so none is left; the planted one shows the note still works.
   it('a hex copied from V0 may be one step off the core, and each such hex is listed', () => {
-    const { errors, notes } = validateSources(real());
+    expect(validateSources(real()).notes).toEqual([]);
+    const { errors, notes } = validateSources(planted(LINEN, (j) => (j.color.dark.surface1.$value.hex = '#1F1916')));
     expect(errors).toEqual([]);
-    expect(notes).toEqual([
-      expect.stringMatching(/^direction\.linen\.tokens\.json: color\.dark\.ground: .*#130F0A.*#130E0B/),
-      expect.stringMatching(/^direction\.linen\.tokens\.json: color\.dark\.bead\.shadow: .*#130F0A.*#130E0B/),
-    ]);
+    expect(notes).toEqual([expect.stringMatching(/^direction\.linen\.tokens\.json: color\.dark\.surface1: .*#1F1916.*#1F1915/)]);
   });
 
   it('a V0 hex two steps off the core is an error', () => {

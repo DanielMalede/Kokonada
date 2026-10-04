@@ -2,7 +2,7 @@
   "color": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "dark": {
-      "ground": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.17,0.01,60],"alpha":1,"hex":"#130F0A"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "ground": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.17,0.01,60],"alpha":1,"hex":"#130E0B"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
       "surface1": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.22,0.012,60],"alpha":1,"hex":"#1F1915"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
       "surface2": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.26,0.013,60],"alpha":1,"hex":"#29231E"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
       "text": {
@@ -29,7 +29,7 @@
       "bead": {
         "setting": {"$type":"color","$value":"{color.dark.plate.face}"},
         "neutral": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.72,0,0],"alpha":1,"hex":"#A4A4A4"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
-        "shadow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.17,0.01,60],"alpha":0.5,"hex":"#130F0A"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
+        "shadow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.17,0.01,60],"alpha":0.5,"hex":"#130E0B"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
       },
       "field": {
         "restGlow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.55,0.035,75],"alpha":1,"hex":"#7E6F5B"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
