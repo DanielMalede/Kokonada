@@ -188,7 +188,7 @@ Every ID from the four page maps (`cmp-compliance.md` §2, `reg-eu.md` §5, `reg
 | [CMP-090](CMP-090.md) | A report control on any text an LLM wrote | OBLIGATION | SETTLED | P0 | P3, P4, server plumbing, store listing |
 | [CMP-091](CMP-091.md) | Target API level 36 | OBLIGATION | SETTLED | P0 | Q1, store listing |
 | [CMP-092](CMP-092.md) | Play's 12-tester closed test against Spotify's 5-user cap | OPEN QUESTION | SETTLED+ | P0 | store listing, P13, P3 |
-| [CMP-093](CMP-093.md) | Organization account for a health app | OBLIGATION | HALT | P0 | the Play account, store listing |
+| [CMP-093](CMP-093.md) | Organization account for a health app | OBLIGATION | HALT | P0 | the Play account, store listing, P13 |
 | [CMP-094](CMP-094.md) | Audience excludes children, and assets do not appeal to them | OBLIGATION | NEEDS OWNER | P0 | P10 (age-step slot), P13, V0, V1, store listing |
 | [CMP-095](CMP-095.md) | Title and metadata rules | OBLIGATION | SETTLED | P0 | P13, store listing |
 | [CMP-096](CMP-096.md) | Screenshot and graphic rules | OBLIGATION | SETTLED | P0 | P13, store listing |
