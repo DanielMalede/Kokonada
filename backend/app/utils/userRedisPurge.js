@@ -40,6 +40,11 @@ const USER_KEY_NAMESPACES = Object.freeze([
   { name: 'bio-affect',     pattern: (id) => `bio:affect:${id}`, scan: 'bio:affect:*', idOf: (key) => key.slice('bio:affect:'.length) },
 ]);
 
+// J2 (resilience §7 on T12 v2; round 1, L2): both purges build their patterns from the id, so an id holding a
+// SCAN glob character would match other users' keys (`ledger:*:*` reaches everyone). The strict purge throws;
+// the best-effort one, which never throws, answers 0. Either way Redis is sent nothing.
+const GLOB_CHARACTER = /[*?[\]\\]/;
+
 function patternsFor(userId) {
   return USER_KEY_NAMESPACES.map((ns) => ns.pattern(userId));
 }
@@ -48,6 +53,7 @@ async function purgeUserKeys(userId) {
   const redis = getRedis();
   const id = typeof userId === 'string' ? userId : String(userId || '');
   if (!redis || !id.trim()) return 0;
+  if (GLOB_CHARACTER.test(id)) return 0;
 
   let deleted = 0;
   try {
@@ -69,9 +75,6 @@ async function purgeUserKeys(userId) {
 // which would let an erasure report itself finished while an 8-day ledger window outlived its promise.
 // A Redis that is configured but unusable is a failed step; a deployment with no Redis has nothing to
 // purge. Callers: spotifyErasure.purgeSpotifyData and sessionHealthErasure.
-// J2 (resilience §7 on T12 v2): the patterns are built from the id, so an id holding a SCAN glob character
-// would match other users' keys (`ledger:*:*` reaches everyone). Refused outright.
-const GLOB_CHARACTER = /[*?[\]\\]/;
 
 async function purgeUserKeysStrict(userId) {
   const id = String(userId || '').trim();
