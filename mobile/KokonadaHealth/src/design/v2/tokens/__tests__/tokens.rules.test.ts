@@ -55,8 +55,7 @@ describe('QA-063 bites', () => {
   });
 });
 
-// QA-064: the emotion hues stay at least emotion.minHueGap apart. The shimmer is common-mode, so
-// it moves every hue together and the gaps hold.
+// QA-064 covers the anchors (≥ 70°). Marks never shimmer; the field's common-mode shimmer keeps field-to-mark separation ≥ emotion.minFieldMarkGap (64°).
 describe('QA-064', () => {
   it.each(['core', 'deep'] as const)('the %s tier keeps every pair at least minHueGap apart', (tier) => {
     const hues = Object.fromEntries(QUADRANTS.map((q) => [q, BASE.emotion[q][tier].oklch[2]]));
@@ -65,6 +64,21 @@ describe('QA-064', () => {
 
   it('bites: a 65° pair fails', () => {
     expect(hueSeparationViolations({ joy: 80, calm: 145 }, BASE.emotion.minHueGap)).toHaveLength(1);
+  });
+
+  /** The tightest gap between neighbouring anchor hues, round the circle. */
+  const tightestAnchorGap = () => {
+    const hues = QUADRANTS.map((q) => BASE.emotion[q].core.oklch[2]).sort((a, b) => a - b);
+    return Math.min(...hues.map((h, i) => (i === hues.length - 1 ? hues[0] + 360 - h : hues[i + 1] - h)));
+  };
+
+  // DSN-014: on screen a field hue stays at least minFieldMarkGap from a mark of another quadrant.
+  it.each(IDS)('%s: the tightest anchor gap less the shimmer is at least minFieldMarkGap', (id) => {
+    expect(tightestAnchorGap() - DIRECTIONS[id].field.shimmer.deg).toBeGreaterThanOrEqual(BASE.emotion.minFieldMarkGap);
+  });
+
+  it('bites: a shimmer of 9° would leave 63°, under 64°', () => {
+    expect(tightestAnchorGap() - 9).toBeLessThan(BASE.emotion.minFieldMarkGap);
   });
 });
 

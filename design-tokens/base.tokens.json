@@ -38,7 +38,8 @@
       "core": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.68,0.1,322],"alpha":1,"hex":"#B583BD"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
       "deep": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.48,0.1,322],"alpha":1,"hex":"#78497F"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
     },
-    "minHueGap": {"$type":"number","$value":70}
+    "minHueGap": {"$type":"number","$value":70},
+    "minFieldMarkGap": {"$type":"number","$value":64}
   },
   "placement": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
