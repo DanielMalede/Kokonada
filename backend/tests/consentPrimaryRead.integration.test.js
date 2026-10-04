@@ -37,7 +37,11 @@ const finds = []; // { collection, address } for every `find` the driver sends
 const aggregates = []; // { collection, address } for every `aggregate` (countDocuments) it sends
 
 beforeAll(async () => {
-  rs = await MongoMemoryReplSet.create({ replSet: { count: 2, storageEngine: 'wiredTiger' } });
+  // The second member can never be elected (priority 0), so the primary recorded below stays the primary.
+  rs = await MongoMemoryReplSet.create({
+    replSet: { count: 2, storageEngine: 'wiredTiger' },
+    instanceOpts: [{ replicaMemberConfig: { priority: 1 } }, { replicaMemberConfig: { priority: 0 } }],
+  });
   await mongoose.connect(rs.getUri(), {
     dbName: 'kokonada_consent_primary_read_it',
     readPreference: 'secondaryPreferred',
@@ -72,6 +76,15 @@ beforeEach(async () => {
 const consentFinds = () => finds.filter((f) => f.collection === ConsentRecord.collection.collectionName);
 
 describe('the consent read goes to the primary even when the connection prefers a secondary', () => {
+  // Every assertion compares against the primary recorded in beforeAll. If the set could elect another
+  // member mid-suite (a missed heartbeat on a loaded machine), every test would fail at once with the roles
+  // swapped — seen once in five runs (J2). Only the recorded primary may be electable.
+  it('the setup is stable: no member but the recorded primary can be elected', async () => {
+    const { config } = await mongoose.connection.db.admin().command({ replSetGetConfig: 1 });
+    const electable = config.members.filter((m) => m.priority > 0).map((m) => m.host);
+    expect(electable).toEqual([primary]);
+  });
+
   it('the setup is not vacuous: an unpinned read on this connection goes to the secondary', async () => {
     await ConsentRecord.find({}).exec();
     expect(consentFinds()).toHaveLength(1);
