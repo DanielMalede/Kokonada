@@ -80,7 +80,9 @@ The linked page (answer/13996367) counts "Health and fitness apps" among health 
 - **HALT 6 · Account type (CMP-093)** is closed: a verified organisation account with a D-U-N-S number exists, or Google Play's written statement is kept as `CMP-093` evidence;
 - the store-gate hardening PR is merged, with:
   - the rxandroidble fix: `tools:node="remove"` on both `uses-permission-sdk-23` location entries that rxandroidble 1.17.2 adds to the merged release manifest with no `maxSdkVersion`, so the app declares location it never reads (`compliance-auditor`, V1 lab round 1: a HALT on any Play upload, not on a directly installed tester build);
+    - **Satisfied by this PR (MB-093).** The main manifest removes both entries (`AndroidManifest.xml:28-33`). The merged release and debug manifests, the release variant's packaged manifest and a real debug APK (`aapt2 dump permissions`) carry neither, and FINE stays only up to API 30. CI's Android job holds every uploadable variant's merged permissions to `scripts/lab/uploadPermissions.mjs`. Still owed before the first Play upload: MB-093's Android 12+ device checks (`dumpsys package`, a live-HR scan with only Nearby devices granted and Location off, and the permission dump of the exact artifact uploaded).
   - the iOS `ENTRY_FILE` guard (a bundle-phase script, a pbxproj pin and a bash test), a precondition on any iOS archive: no iOS archive is exported for upload, and nothing goes to TestFlight or App Store Connect, until that PR is merged and the IPA scan exits 0.
+    - **Satisfied by this PR (MB-093).** The bundle phase runs `ios/scripts/bundle-react-native.sh` through `with-environment.sh`; the wrapper refuses any `ENTRY_FILE` other than `index.js`, and an `index.ios.js`, before `react-native-xcode.sh` runs. `scripts/ios/__tests__/bundlePhase.test.ts` pins the phase and runs it. The IPA scan with exit 0 stays a condition on every archive.
 
 ---
 
