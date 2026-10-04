@@ -86,6 +86,8 @@ cannot prove.
    - **Before any change,** it saves the phone's settings to `<out>/device-original-state.json`.
    - **For each shot:**
      - it launches the lab fresh with the shot's arguments and waits for READY;
+     - it refuses the shot unless READY says the app is laid out right to left (F-13) and reports
+       the font scale the shot set, within 0.01; the row keeps that scale beside the OS setting;
      - it grabs the screen raw twice and requires sRGB and a settled frame;
      - it hashes only the app region (the system bars are excluded) and keeps a lossless PNG crop;
      - it writes a schema-checked manifest row.

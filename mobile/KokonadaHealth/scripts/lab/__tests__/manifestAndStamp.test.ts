@@ -19,7 +19,7 @@ const ROW = {
   device: { model: 'SM-S906B', fingerprint: 'samsung/g0sxeea/g0s:16/x/1:user/release-keys', width: 1080, height: 2340, density: 450, refreshRate: 120 },
   app: { package: 'com.kokonadahealth.lab', apkSha256: H('4'), buildType: 'lab', hermes: true, dev: false },
   scene: 'smoke', direction: null, face: null,
-  fontScale: { requested: 1, observed: 1 },
+  fontScale: { requested: 1, observed: 1, app: 1 },
   motion: { reduceMotionObserved: false, powerSaveObserved: false, tier: null },
   locale: 'he-IL', isRTL: true,
   clock: { mode: 'fixed', t: 1500, seq: 0 },
@@ -38,6 +38,7 @@ describe('a manifest row is checked against its schema', () => {
   it.each([
     ['a missing field, by its path', { ...ROW, device: { ...ROW.device, fingerprint: undefined } }, /device\.fingerprint is required/],
     ['a wrong type', { ...ROW, isRTL: 'yes' }, /isRTL must be a boolean or null/],
+    ['a font scale without the one the app reported at READY', { ...ROW, fontScale: { requested: 1, observed: 1 } }, /fontScale\.app is required/],
     ['a wrong type in a required boolean', { ...ROW, forceDark: 'no' }, /forceDark must be a boolean/],
     ['a build type other than lab (never G11 evidence)', { ...ROW, app: { ...ROW.app, buildType: 'release' } }, /app\.buildType must be "lab"/],
     ['a dev bundle', { ...ROW, app: { ...ROW.app, dev: true } }, /app\.dev must be false/],

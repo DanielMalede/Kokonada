@@ -38,10 +38,11 @@ const SCHEMA = {
   scene: string,
   direction: nullableString,
   face: nullableString,
-  fontScale: { requested: number(0.1), observed: number(0.1) },
+  // requested: the plan; observed: the OS setting (adb); app: what the app reported at READY.
+  fontScale: { requested: number(0.1), observed: number(0.1), app: number(0.1) },
   motion: { reduceMotionObserved: boolean, powerSaveObserved: boolean, tier: nullableString },
   locale: string,
-  // From READY when the lab reports it; null when this lab build does not (see the OPS-100 report).
+  // From READY. The harness refuses a shot unless it is true (F-13), so a written row says true.
   isRTL: nullableBoolean,
   clock: { mode: oneOf(['fixed', 'stepped', 'realtime']), t: nullableNumber(0), seq: int(0) },
   shaderStatus: nullableString,

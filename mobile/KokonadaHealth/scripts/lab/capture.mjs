@@ -140,7 +140,7 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
     }
     const payload = await ready;
     const readyAt = now();
-    const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes, seq: 0 });
+    const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes, seq: 0, fontScale: shot.device.fontScale });
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
     // The lab hears battery saver through an event that can be lost before React is ready, so its
     // READY is checked against the device itself, here and again after the grabs.
@@ -173,10 +173,10 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
       device: { model: facts.model, fingerprint: facts.fingerprint, width: first.width, height: first.height, density: facts.density, refreshRate: facts.refreshRate },
       app: { package: plan.app.package, apkSha256: build.apkSha256, buildType: 'lab', hermes: build.hermes, dev: build.stamp.dev },
       scene: shot.scene, direction: null, face: null,
-      fontScale: { requested: shot.device.fontScale, observed: observed.fontScale },
+      fontScale: { requested: shot.device.fontScale, observed: observed.fontScale, app: payload.fontScale },
       motion: { reduceMotionObserved: observed.animatorScales.transition === 0, powerSaveObserved: payload.powerSave === true, tier: payload.tier ?? null },
       locale: facts.locale,
-      isRTL: typeof payload.isRTL === 'boolean' ? payload.isRTL : null,
+      isRTL: payload.isRTL, // checkReady refused anything but true
       clock: { mode: payload.clock, t: payload.t ?? null, seq: payload.seq },
       shaderStatus: payload.shaderStatus ?? null,
       uimode: observed.night === 'yes' ? 'night' : 'day',

@@ -56,6 +56,8 @@ function readyLine(run: string, extras: Record<string, string>, device: FakeDevi
       mark: { dp: { x: 10, y: 30, width: 20, height: 20 }, px: { x: 10, y: 30, width: 20, height: 20 } },
       planted: { dp: { x: 35, y: 10, width: 10, height: 10 }, px: { x: 35, y: 10, width: 10, height: 10 } },
     },
+    // The lab activity forces RTL, and the app reads the font scale the device was set to.
+    isRTL: true, fontScale: Number(device.settings.get('system/font_scale')),
     sentinel: SENTINEL, ...override,
   })}`;
 }
@@ -110,7 +112,19 @@ describe('a successful run', () => {
       expect([decoded.width, decoded.height]).toEqual([row.region.width, row.region.height]);
     }
     expect(manifest.rows[0].region).toEqual({ x: 0, y: STATUS_BAR, width: SCREEN.width, height: 70 });
+    // The OS setting (adb) and the scale the app itself reported at READY, side by side.
+    expect(manifest.rows[0].fontScale).toEqual({ requested: 1, observed: 1, app: 1 });
+    expect(manifest.rows[0].isRTL).toBe(true);
     expect(JSON.parse(fs.readFileSync(path.join(w.outDir, 'manifest.json'), 'utf8')).outcome).toBe('passed');
+  });
+
+  it('records the font scale the app reported, not the one requested, when the two agree within 0.01', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { fontScale: 1.005 }));
+    const { manifest } = await w.run();
+    expect(manifest.rows.map((r: { fontScale: unknown }) => r.fontScale)).toEqual([
+      { requested: 1, observed: 1, app: 1.005 }, { requested: 1, observed: 1, app: 1.005 }, { requested: 1, observed: 1, app: 1.005 },
+    ]);
   });
 
   it('QA-078: the same shot from two separate launches has the same app-region hash, though the status-bar clock moved', async () => {
@@ -194,6 +208,18 @@ describe('restore runs on every exit path', () => {
     const w = world();
     w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { sentinel: 'kokonada-design-lab-sentinel-0ld0ld0ld0ld' }));
     await fails(w, /sentinel/);
+  });
+
+  it('a READY that is not right to left (F-13)', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { isRTL: false }));
+    await fails(w, /right to left/);
+  });
+
+  it('a READY whose font scale is not the one the harness set (the setting did not take effect)', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { fontScale: 0.8 }));
+    await fails(w, /font scale 0\.8 /);
   });
 
   it('a grab that is not sRGB', async () => {

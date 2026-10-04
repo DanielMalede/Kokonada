@@ -96,7 +96,7 @@ describe('waitForLab', () => {
 });
 
 describe('checkReady', () => {
-  const ready = { run: 'r', seq: 0, scene: 'smoke', sentinel: 'S', probes: { stage: {}, mark: {} } };
+  const ready = { run: 'r', seq: 0, scene: 'smoke', sentinel: 'S', isRTL: true, fontScale: 1, probes: { stage: {}, mark: {} } };
 
   it('passes the READY of the lab that was built', () => {
     expect(checkReady(ready, { sentinel: 'S', scene: 'smoke', probes: ['stage', 'mark'] })).toEqual([]);
@@ -105,6 +105,22 @@ describe('checkReady', () => {
   it('fails a READY for another step than the one sent (READY.seq)', () => {
     expect(checkReady({ ...ready, seq: 1 }, { sentinel: 'S', scene: 'smoke', probes: [], seq: 0 }).join()).toMatch(/seq 1.*sent 0/);
     expect(checkReady(ready, { sentinel: 'S', scene: 'smoke', probes: [], seq: 0 })).toEqual([]);
+  });
+
+  it('fails a READY that is not right to left: every device capture is RTL (F-13), and only the app knows its direction', () => {
+    expect(checkReady({ ...ready, isRTL: false }, { sentinel: 'S', scene: 'smoke', probes: [] }).join()).toMatch(/isRTL false.*right to left/);
+    expect(checkReady({ ...ready, isRTL: undefined }, { sentinel: 'S', scene: 'smoke', probes: [] }).join()).toMatch(/isRTL undefined/);
+  });
+
+  it('fails a READY whose font scale is more than 0.01 from the scale the harness set (the setting did not take effect)', () => {
+    const at = (fontScale: unknown) => checkReady({ ...ready, fontScale }, { sentinel: 'S', scene: 'smoke', probes: [], fontScale: 1.3 });
+    expect(at(1.3)).toEqual([]);
+    expect(at(1.31)).toEqual([]); // 0.01 away, which binary floating point makes a hair more
+    expect(at(1.29)).toEqual([]);
+    expect(at(1.32).join()).toMatch(/font scale 1\.32 .*1\.3\b/);
+    expect(at(0.8).join()).toMatch(/font scale 0\.8 /);
+    expect(at(undefined).join()).toMatch(/font scale undefined/);
+    expect(at('1.3').join()).toMatch(/font scale "1\.3"/);
   });
 
   it('fails another build (sentinel), another scene, or a missing probe', () => {

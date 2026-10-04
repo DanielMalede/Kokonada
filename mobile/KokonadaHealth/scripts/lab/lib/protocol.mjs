@@ -67,15 +67,25 @@ export function waitForLab({ source, run, seq, timeoutMs, signal = undefined }) 
   });
 }
 
+/** How far READY's font scale may be from the one the harness set (round 2, resilience and architect). */
+export const FONT_SCALE_TOLERANCE = 0.01;
+
 /**
  * Problems with a READY: another build (sentinel), another step than the one sent (seq), another
- * scene, a probe the plan needs missing.
+ * scene, a probe the plan needs missing, a layout that is not RTL, a font scale that did not take.
  * @param {any} ready
- * @param {{ sentinel: string, scene: string, probes: string[], seq?: number }} expected
+ * @param {{ sentinel: string, scene: string, probes: string[], seq?: number, fontScale?: number }} expected
  */
-export function checkReady(ready, { sentinel, scene, probes, seq = undefined }) {
+export function checkReady(ready, { sentinel, scene, probes, seq = undefined, fontScale = undefined }) {
   const problems = [];
   if (seq !== undefined && ready.seq !== seq) problems.push(`READY is for seq ${ready.seq}, but the harness sent ${seq}`);
+  // F-13: every device capture is right to left, and only the app can report its real direction.
+  if (ready.isRTL !== true) problems.push(`READY says isRTL ${JSON.stringify(ready.isRTL)}: every capture must be laid out right to left (F-13)`);
+  // The scale the app really used, against the one the harness set: a check that the setting took
+  // effect, never a size. 1e-9 absorbs binary floating point at exactly 0.01.
+  if (fontScale !== undefined && !(typeof ready.fontScale === 'number' && Math.abs(ready.fontScale - fontScale) <= FONT_SCALE_TOLERANCE + 1e-9)) {
+    problems.push(`READY says font scale ${JSON.stringify(ready.fontScale)} but the harness set ${fontScale}: more than ${FONT_SCALE_TOLERANCE} apart, so the setting did not take effect`);
+  }
   if (ready.sentinel !== sentinel) problems.push(`sentinel ${ready.sentinel} is not this build's ${sentinel}: the installed lab is another build`);
   if (ready.scene !== scene) problems.push(`scene ${ready.scene} is not the planned ${scene}`);
   for (const id of probes) if (!ready.probes || !(id in ready.probes)) problems.push(`probe ${id} is missing from READY`);
