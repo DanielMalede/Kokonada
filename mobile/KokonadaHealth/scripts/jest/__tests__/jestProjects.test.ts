@@ -11,7 +11,7 @@ import { spawnSync } from 'child_process';
 // and still reports green. So this asks jest itself which files each project runs, and compares the
 // union with an independent walk of the disk.
 
-const APP = path.resolve(__dirname, '../../../..');
+const APP = path.resolve(__dirname, '../../..');
 const rel = (f: string) => path.relative(APP, f).split(path.sep).join('/');
 
 function listTests(project: string): string[] {
@@ -56,7 +56,7 @@ describe('the two jest projects (MB-086)', () => {
   it('the walk sees the real suite (a list that finds nothing must fail, not pass)', () => {
     expect(disk.length).toBeGreaterThan(180);
     expect(disk).toContain('src/design/v2/__tests__/skiaSmoke.skia.test.ts');
-    expect(unit).toContain('src/design/v2/__tests__/jestProjects.test.ts');
+    expect(unit).toContain('scripts/jest/__tests__/jestProjects.test.ts');
   });
 
   it('the skia project runs every *.skia.test.* file, and only those', () => {
@@ -74,10 +74,21 @@ describe('the two jest projects (MB-086)', () => {
   });
 
   it('the skia project does not load the global stubs, and the unit project does', () => {
-    const config = require('../../../../jest.config.js') as { projects: Array<{ displayName: string; setupFiles?: string[]; testEnvironment?: string }> };
+    const config = require('../../../jest.config.js') as { projects: Array<{ displayName: string; setupFiles?: string[]; testEnvironment?: string }> };
     const byName = Object.fromEntries(config.projects.map((p) => [p.displayName, p]));
     expect(byName.unit.setupFiles).toContain('<rootDir>/jest.setup.js');
     expect(byName.skia.setupFiles ?? []).not.toContain('<rootDir>/jest.setup.js');
     expect(byName.skia.testEnvironment).toBe('@shopify/react-native-skia/jestEnv.js');
+  });
+
+  it('lives with the tooling it guards, not in src/design/v2 (whose relative imports must stay inside v2)', () => {
+    expect(fs.existsSync(path.join(APP, 'src/design/v2/__tests__/jestProjects.test.ts'))).toBe(false);
+  });
+
+
+  it('CI runs jest exactly as `jest --ci`: no --selectProjects and no paths, so both projects always run', () => {
+    const ci = fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8');
+    const runs = ci.split(/\r?\n/).filter((line) => /node_modules\/\.bin\/jest\b/.test(line)).map((line) => line.trim());
+    expect(runs).toEqual(['run: ./node_modules/.bin/jest --ci']);
   });
 });
