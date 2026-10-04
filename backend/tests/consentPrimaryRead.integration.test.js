@@ -142,6 +142,25 @@ describe('the consent read goes to the primary even when the connection prefers 
     expect(userFinds[0].address).toBe(primary);
   });
 
+  // J2 (BE-094, DT-13 FINAL §A, §F 6): the orphan sweep erases only while its marker says it is armed. A
+  // secondary that has not seen a disarm would keep it erasing.
+  it('the orphan sweep\'s arming marker is read from the primary', async () => {
+    const { isArmed } = require('../app/services/privacy/orphanSweep');
+    await mongoose.connection.db.collection('opsmarkers').insertOne(
+      { _id: 'orphan-sweep', v: 1, kind: 'orphan-sweep', armedAt: new Date(), recordSha256: 'f'.repeat(64), recountOrphans: 0, deployedCommit: 'c'.repeat(40) },
+      { writeConcern: { w: 'majority' } },
+    );
+    await mongoose.connection.db.collection('opsmarkers').find({}).toArray();
+    expect(finds.filter((f) => f.collection === 'opsmarkers').at(-1).address).not.toBe(primary); // not vacuous
+    finds.length = 0;
+
+    await expect(isArmed()).resolves.toEqual({ armed: true, reason: null });
+
+    const markerFinds = finds.filter((f) => f.collection === 'opsmarkers');
+    expect(markerFinds).toHaveLength(1);
+    expect(markerFinds[0].address).toBe(primary);
+  });
+
   it('the tie read (a full window of rows in one millisecond) reads the primary too', async () => {
     const userId = new mongoose.Types.ObjectId();
     const at = new Date();

@@ -1,33 +1,43 @@
 'use strict';
 
-// J2 (BE-094; DT-11, DT-13, DT-14) — the daily sweep of deleted accounts' data, run by sessionTrim.
+// J2 (BE-094; DT-11, DT-14, and DT-13 FINAL of 2026-10-04) — the sweep of deleted accounts' data, run daily
+// by sessionTrim.
 //
 // A deleted account's data can outlive the deletion: a health-data sync or a recompute that wrote after the
-// cascade ran (BE-028's batch lane), a server stopped between a write and its re-check. All of it sits
-// under an id that no User doc carries any more: both deletion doors remove the User doc LAST. This finds
-// those ids and runs the house cascade for each (erasure.eraseUserChildData), then the strict Redis purge.
-// It is what the declarations' "within a day" for a deleted account rests on, so it must never erase a
-// live account:
-//   • DISCOVERY: every user id in every collection the cascade deletes (`distinct('userId')`; CASCADE_MODELS
-//     is pinned to erasure.js's list by a lockstep test) and in every user-scoped Redis namespace (a SCAN per
-//     userRedisPurge registry entry).
-//   • An id is an orphan only when no User doc carries it, read on the PRIMARY (accountExistence), and read
-//     AGAIN, for that id, right before its cascade. A doc with `deletedAt` set is an account, not an orphan.
-//   • It REFUSES, deleting nothing (OrphanSweepRefused), when the users read returns none while ids exist,
-//     or when the orphans are more than 5 and more than half of all ids: a wrong database, an empty
-//     restore or a lagging read must never read as "everyone was deleted". A read that FAILS throws.
-//   • At most ORPHAN_SWEEP_CAP accounts per run (each cascade includes the job purge, up to 2.5 s); the
-//     rest is the backlog for the next run, and the line says how many (`orphanBacklog=`).
-//   • An id found in Redis that cannot be an ObjectId names no account and has no Mongo rows: only its
-//     keys are purged, never the Mongo cascade (its CastError would abort the run). It counts as one of
-//     the run's erasures (`orphanErasures=`).
-//   • The nightly run erases only while ARMED (DT-13), a question asked of one predicate, isSweepArmed,
-//     whose mechanism may change; today ORPHAN_SWEEP_DISABLED (house envFlag) disarms it with no deploy.
-//     Disarmed, the step logs one line, `[orphanSweep] disabled`, and still counts the backlog (read-only).
-//     The operator's one-off clean (DT-12 C-2, the private count tool) calls sweepDeletedAccountOrphans
-//     directly, on the owner's word, bound to the orphan count it recorded: any other count refuses.
+// cascade ran (BE-028's batch lane), a server stopped between a write and its re-check. All of it sits under
+// an id that no User doc carries any more: both deletion doors remove the User doc LAST. This finds those ids
+// and runs the house cascade for each (erasure.eraseUserChildData), then the strict Redis purge. It is what
+// the declarations' "within a day" for a deleted account rests on, so it must never erase a live account,
+// and must not run before the production record and the owner's clean.
+//
+//   DISCOVERY (DT-14). Every user id in every collection the cascade deletes (`distinct('userId')`;
+//   CASCADE_MODELS is pinned to erasure.js's list by a lockstep test) and in every user-scoped Redis
+//   namespace (a SCAN per userRedisPurge registry entry). An id is an orphan only when no User doc carries
+//   it, read on the PRIMARY (accountExistence), and read AGAIN, for that id, right before its cascade. A doc
+//   with `deletedAt` set is an account. An id found in Redis that cannot be an ObjectId names no account and
+//   has no Mongo rows: it is purged in Redis only, never passed to the Mongo cascade (its CastError would
+//   end the run), and it counts like any orphan.
+//
+//   ARMING (DT-13 §A, §C). The nightly run erases only while the marker document `opsmarkers/_id:
+//   'orphan-sweep'` exists with exactly its v1 shape, read on the primary. Only armOrphanSweep writes it, and
+//   only once a fresh discovery finds no orphan at all, so it cannot be armed before the owner's clean.
+//   ORPHAN_SWEEP_DISABLED (house envFlag rules) can only DISARM. The reader never creates the collection.
+//
+//   THE NIGHTLY RUN (§B) never throws to the worker loop; it returns `{ count, backlog, failed }`:
+//     disarmed            read-only discovery; `disabled`, the real backlog, one `[orphanSweep] disarmed` line;
+//     any read failure    `refused`, backlog `unknown`, a failure (the marker, the discovery or the users);
+//     armed               DT-14: refuses (deleting nothing) when the users read returns none while ids exist,
+//                         or when the orphans are more than 5 and more than half of all ids; 50 accounts a
+//                         run, the rest is the backlog.
+//   THE FORCED RUN (§B; the private count tool, on the owner's word): the exact orphan count and the 8-hex
+//   fingerprint of the exact set (orphanSetFingerprint) replace ONLY the ratio refusal; the users-empty
+//   refusal stays, and the cap is lifted for the verified set. The marker is not consulted: this is the
+//   clean that comes before arming.
+//
 // Lines carry counts and closed tokens only; an orphan's id is a deleted account's id and is never logged.
 
+const crypto = require('crypto');
+const mongoose = require('mongoose');
 const BiometricLog = require('../../models/BiometricLog');
 const VitalSample = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
@@ -56,10 +66,20 @@ const CASCADE_MODELS = Object.freeze([
 const ORPHAN_SWEEP_CAP = 50;
 const REFUSE_ABOVE = 5;
 const KILL_SWITCH = 'ORPHAN_SWEEP_DISABLED';
-const OBJECT_ID = /^[0-9a-f]{24}$/;
+const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
+
+// The marker. A raw collection with no model file, so no model-discovery guard (retention, export, erasure
+// lockstep) ever sees it; it holds no user data.
+const MARKER_COLLECTION = 'opsmarkers';
+const MARKER_ID = 'orphan-sweep';
+const MARKER_FIELDS = ['_id', 'armedAt', 'deployedCommit', 'kind', 'recordSha256', 'recountOrphans', 'v'];
+const ARM_CONFIRM = 'arm-orphan-sweep';
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const COMMIT_HEX = /^[0-9a-f]{40}$/;
+const SET_HEX = /^[0-9a-f]{8}$/;
 
 class OrphanSweepRefused extends Error {
-  constructor(reason, { orphans, ids }) {
+  constructor(reason, { orphans, ids } = {}) {
     super(`orphan sweep refused (${reason})`);
     this.name = 'OrphanSweepRefused';
     this.reason = reason;
@@ -71,24 +91,66 @@ class OrphanSweepRefused extends Error {
 // An error's class name, or 'Error': never its message (a driver message can quote values).
 const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
 
-async function mongoIds() {
-  const ids = new Set();
+/** An id as the set holds it: a 24-hex id in lower case, anything else as it is. */
+const normalizeId = (id) => (OBJECT_ID.test(String(id)) ? String(id).toLowerCase() : String(id));
+
+/**
+ * §B: the fingerprint of an orphan set — normalised, de-duplicated, sorted, joined by '\n', the first 8 hex
+ * characters of its sha256. The private count tool prints the same for the same set (pinned vector).
+ */
+function orphanSetFingerprint(ids) {
+  const set = [...new Set([...ids].map(normalizeId))].sort();
+  return crypto.createHash('sha256').update(set.join('\n')).digest('hex').slice(0, 8);
+}
+
+function markerCollection() {
+  return mongoose.connection.db.collection(MARKER_COLLECTION);
+}
+
+function validMarker(doc) {
+  if (!doc || typeof doc !== 'object') return false;
+  if (Object.keys(doc).sort().join(',') !== MARKER_FIELDS.join(',')) return false;
+  return doc._id === MARKER_ID
+    && doc.v === 1
+    && doc.kind === MARKER_ID
+    && doc.armedAt instanceof Date && !Number.isNaN(doc.armedAt.getTime())
+    && typeof doc.recordSha256 === 'string' && SHA256_HEX.test(doc.recordSha256)
+    && doc.recountOrphans === 0
+    && typeof doc.deployedCommit === 'string' && COMMIT_HEX.test(doc.deployedCommit);
+}
+
+/**
+ * §A: may the nightly run erase? `{ armed, reason }`, reason ∈ absent | malformed | override | read-error
+ * (null when armed). A primary read; never creates the collection; never throws.
+ */
+async function isArmed() {
+  if (disabled(process.env[KILL_SWITCH])) return { armed: false, reason: 'override' };
+  let doc;
+  try {
+    doc = await markerCollection().findOne({ _id: MARKER_ID }, { readPreference: 'primary' });
+  } catch {
+    return { armed: false, reason: 'read-error' };
+  }
+  if (!doc) return { armed: false, reason: 'absent' };
+  return validMarker(doc) ? { armed: true, reason: null } : { armed: false, reason: 'malformed' };
+}
+
+async function mongoIds(into) {
   for (const model of CASCADE_MODELS) {
     for (const value of await model.distinct('userId').read('primary')) {
-      if (value != null) ids.add(String(value));
+      if (value != null) into.add(normalizeId(value));
     }
   }
-  return ids;
 }
 
 // A deployment with no Redis has no keys to find; a Redis that is configured but unusable is a failure,
-// never "no keys" (the same rule as purgeUserKeysStrict).
-async function redisIds() {
-  const ids = new Set();
+// never "no keys" (the same rule as purgeUserKeysStrict). `spellings` keeps each raw id a key was found
+// under, so the Redis purge reaches the key as it was written.
+async function redisIds(into, spellings) {
   const redis = getRedis();
   if (!redis) {
     if (process.env.REDIS_URL) throw new Error('Redis is configured but unavailable');
-    return ids;
+    return;
   }
   for (const ns of USER_KEY_NAMESPACES) {
     let cursor = '0';
@@ -96,99 +158,137 @@ async function redisIds() {
       const [next, keys] = await redis.scan(cursor, 'MATCH', ns.scan, 'COUNT', 500);
       cursor = next;
       for (const key of keys) {
-        const id = ns.idOf(key);
-        if (id) ids.add(id);
+        const raw = ns.idOf(key);
+        if (!raw) continue;
+        const id = normalizeId(raw);
+        into.add(id);
+        if (!spellings.has(id)) spellings.set(id, new Set());
+        spellings.get(id).add(raw);
       }
     } while (cursor !== '0');
   }
-  return ids;
 }
 
-/**
- * Read-only. `ids`: how many distinct user ids hold data; `accountIds`: how many of them could name an
- * account (ObjectIds); `accountsRead`: how many the users read found; `orphans`: the ids no User doc
- * carries, sorted.
- */
-async function discoverOrphans() {
-  const all = [...new Set([...await mongoIds(), ...await redisIds()])].sort();
-  const accountIds = all.filter((id) => OBJECT_ID.test(id));
+async function discover() {
+  const all = new Set();
+  const spellings = new Map();
+  await mongoIds(all);
+  await redisIds(all, spellings);
+  const ids = [...all].sort();
+  const accountIds = ids.filter((id) => OBJECT_ID.test(id));
   const existing = await accountExistence.existingAccountIds(accountIds);
   return {
-    ids: all.length,
+    ids: ids.length,
     accountIds: accountIds.length,
     accountsRead: existing.size,
-    orphans: all.filter((id) => !existing.has(id)),
+    orphans: ids.filter((id) => !existing.has(id)),
+    spellings,
   };
 }
 
+/** Read-only. The counts, the orphan ids (sorted) and their set fingerprint. Throws on a read error. */
+async function discoverOrphans() {
+  const { spellings: _spellings, ...found } = await discover();
+  return { ...found, set: orphanSetFingerprint(found.orphans) };
+}
+
+async function eraseOne(id, spellings) {
+  if (OBJECT_ID.test(id)) {
+    // The per-id re-check: an account created since the discovery read is left alone.
+    if ((await accountExistence.existingAccountIds([id])).has(id)) return 'account';
+    await eraseUserChildData(id);
+  }
+  for (const raw of new Set([id, ...(spellings.get(id) || [])])) await purgeUserKeysStrict(raw);
+  return 'erased';
+}
+
+const refusedRead = () => {
+  console.error('[orphanSweep] refused reason=read-error');
+  return { count: 'refused', backlog: 'unknown', failed: 1 };
+};
+const refusedGuard = (reason, found) => {
+  console.error(`[orphanSweep] refused reason=${reason} orphans=${found.orphans.length} ids=${found.ids}`);
+  return { count: 'refused', backlog: found.orphans.length, failed: 1 };
+};
+
 /**
- * Erases the data of up to ORPHAN_SWEEP_CAP deleted accounts. Returns `{ erased, failed, backlog, orphans,
- * ids }`. Throws OrphanSweepRefused (nothing deleted) under the guard above. `expectedOrphans`, for the
- * operator's one-off clean only: the orphan count it recorded; any other count refuses, and a matching one
- * passes the ratio guard (never the empty-users guard, never the cap).
+ * §B. `{ count, backlog, failed }`; never throws. `count` is the deleted accounts erased, or `disabled` or
+ * `refused`; `backlog` the orphans left (`unknown` when they could not be counted). `armed` is the one
+ * injectable predicate; `force` with `expectedOrphans` and `expectedSet` is the private tool's clean.
  */
-async function sweepDeletedAccountOrphans({ expectedOrphans } = {}) {
-  const found = await discoverOrphans();
-  const counts = { orphans: found.orphans.length, ids: found.ids };
-  if (found.accountIds > 0 && found.accountsRead === 0) throw new OrphanSweepRefused('no_accounts_read', counts);
-  if (expectedOrphans !== undefined) {
-    if (expectedOrphans !== counts.orphans) throw new OrphanSweepRefused('count_mismatch', counts);
-  } else if (counts.orphans > REFUSE_ABOVE && counts.orphans * 2 > counts.ids) {
-    throw new OrphanSweepRefused('too_many', counts);
+async function sweepDeletedAccountOrphans({ armed = isArmed, force = false, expectedOrphans, expectedSet } = {}) {
+  let state = { armed: true, reason: null };
+  if (!force) {
+    try {
+      state = await armed();
+    } catch {
+      state = { armed: false, reason: 'read-error' };
+    }
+    if (state.reason === 'read-error') return refusedRead();
+  }
+
+  let found;
+  try {
+    found = await discover();
+  } catch {
+    return refusedRead();
+  }
+  if (!state.armed) {
+    console.warn(`[orphanSweep] disarmed reason=${state.reason} backlog=${found.orphans.length}`);
+    return { count: 'disabled', backlog: found.orphans.length, failed: 0 };
+  }
+
+  if (found.accountIds > 0 && found.accountsRead === 0) return refusedGuard('no_accounts_read', found);
+  if (force) {
+    if (!Number.isInteger(expectedOrphans) || typeof expectedSet !== 'string' || !SET_HEX.test(expectedSet)) {
+      return refusedGuard('bad_expectation', found);
+    }
+    if (found.orphans.length !== expectedOrphans) return refusedGuard('count_mismatch', found);
+    if (orphanSetFingerprint(found.orphans) !== expectedSet) return refusedGuard('set_mismatch', found);
+  } else if (found.orphans.length > REFUSE_ABOVE && found.orphans.length * 2 > found.ids) {
+    return refusedGuard('too_many', found);
   }
 
   let erased = 0;
   let failed = 0;
   let stillAccounts = 0;
-  for (const id of found.orphans.slice(0, ORPHAN_SWEEP_CAP)) {
-    const scope = OBJECT_ID.test(id) ? 'account' : 'cache';
+  for (const id of force ? found.orphans : found.orphans.slice(0, ORPHAN_SWEEP_CAP)) {
     try {
-      if (scope === 'account') {
-        // The per-id re-check: an account created since the discovery read is left alone.
-        if ((await accountExistence.existingAccountIds([id])).has(id)) {
-          stillAccounts += 1;
-          continue;
-        }
-        await eraseUserChildData(id);
-      }
-      await purgeUserKeysStrict(id);
-      erased += 1;
+      if ((await eraseOne(id, found.spellings)) === 'account') stillAccounts += 1;
+      else erased += 1;
     } catch (err) {
       failed += 1; // left for the next run
-      console.error(`[orphanSweep] erase failed scope=${scope} error=${errorType(err)}`);
+      console.error(`[orphanSweep] erase failed scope=${OBJECT_ID.test(id) ? 'account' : 'cache'} error=${errorType(err)}`);
     }
   }
-  return { erased, failed, backlog: counts.orphans - erased - stillAccounts, ...counts };
+  return { count: erased, backlog: found.orphans.length - erased - stillAccounts, failed };
 }
 
 /**
- * DT-13: may the NIGHTLY run erase? The one place that decides, asked by nightlyOrphanSweep and nowhere
- * else, so a change of mechanism (an opt-in, an arming marker in the database) changes only this body.
- * Today: armed unless ORPHAN_SWEEP_DISABLED is engaged (house envFlag spelling). Async on purpose.
+ * §C: arms the nightly run. Refuses (OrphanSweepRefused, nothing written) unless the confirm literal is
+ * right, `recordSha256` is 64 hex, `deployedCommit` is 40 hex, and a fresh discovery finds no orphan at all.
+ * A second arm changes nothing.
  */
-async function isSweepArmed() {
-  return !disabled(process.env[KILL_SWITCH]);
+async function armOrphanSweep({ confirm, recordSha256, deployedCommit } = {}) {
+  if (confirm !== ARM_CONFIRM) throw new OrphanSweepRefused('confirm');
+  if (typeof recordSha256 !== 'string' || !SHA256_HEX.test(recordSha256)) throw new OrphanSweepRefused('record-sha256');
+  if (typeof deployedCommit !== 'string' || !COMMIT_HEX.test(deployedCommit)) throw new OrphanSweepRefused('deployed-commit');
+  const found = await discover();
+  if (found.orphans.length > 0) throw new OrphanSweepRefused('orphans', { orphans: found.orphans.length, ids: found.ids });
+  const current = await markerCollection().findOne({ _id: MARKER_ID }, { readPreference: 'primary' });
+  if (validMarker(current)) return { armed: true, v: 1 };
+  await markerCollection().replaceOne(
+    { _id: MARKER_ID },
+    { v: 1, kind: MARKER_ID, armedAt: new Date(), recordSha256, recountOrphans: 0, deployedCommit },
+    { upsert: true, writeConcern: { w: 'majority' } },
+  );
+  return { armed: true, v: 1 };
 }
 
-/**
- * The sessionTrim step: `{ orphanErasures, orphanBacklog, failed }`. `orphanErasures` is the count, or
- * `disabled` (not armed) or `refused` (the guard refused; a failure for the run). `orphanBacklog` is always
- * the real number of orphans left, counted read-only when the sweep did not run. `isArmed` is injectable.
- */
-async function nightlyOrphanSweep({ isArmed = isSweepArmed } = {}) {
-  if (!(await isArmed())) {
-    console.warn('[orphanSweep] disabled');
-    const { orphans } = await discoverOrphans();
-    return { orphanErasures: 'disabled', orphanBacklog: orphans.length, failed: 0 };
-  }
-  try {
-    const out = await sweepDeletedAccountOrphans();
-    return { orphanErasures: out.erased, orphanBacklog: out.backlog, failed: out.failed };
-  } catch (err) {
-    if (!(err instanceof OrphanSweepRefused)) throw err;
-    console.error(`[orphanSweep] refused reason=${err.reason} orphans=${err.orphans} ids=${err.ids}`);
-    return { orphanErasures: 'refused', orphanBacklog: err.orphans, failed: 1 };
-  }
+/** §C: disarms the nightly run (deletes the marker). */
+async function disarmOrphanSweep() {
+  const res = await markerCollection().deleteOne({ _id: MARKER_ID }, { writeConcern: { w: 'majority' } });
+  return { disarmed: res.deletedCount };
 }
 
 module.exports = {
@@ -196,8 +296,10 @@ module.exports = {
   ORPHAN_SWEEP_CAP,
   KILL_SWITCH,
   OrphanSweepRefused,
-  isSweepArmed,
+  orphanSetFingerprint,
+  isArmed,
   discoverOrphans,
   sweepDeletedAccountOrphans,
-  nightlyOrphanSweep,
+  armOrphanSweep,
+  disarmOrphanSweep,
 };

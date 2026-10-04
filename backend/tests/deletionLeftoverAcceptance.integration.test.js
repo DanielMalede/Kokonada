@@ -7,7 +7,8 @@
 // The batch ingest lane (wearable/metricStore.persistMetrics) upserts MedicalProfile itself and has no
 // re-check after its write (BE-028). A sync that started before DELETE /api/auth/account and writes after the
 // cascade re-creates the profile under an id no User doc carries. Before J2 that profile was kept for good
-// and fed every night by dailyAnalysis. Now: S1 skips it, and the sweep removes it within a day.
+// and fed every night by dailyAnalysis. Now: S1 skips it, and the sweep removes it within a day once it is
+// armed (DT-13 FINAL: after the production record and the owner's clean, when no orphan is left).
 //
 // Real: MongoDB, the ingest path, the deletion controller and cascade, dailyAnalysis, sessionTrim and the
 // sweep. No Redis (REDIS_URL unset): the queue and the cache are not what this measures. The literal
@@ -35,6 +36,7 @@ const { deleteAccount } = require('../app/controllers/authController');
 const { process: runDailyAnalysis } = require('../app/workers/dailyAnalysis.worker');
 const { process: runSessionTrim } = require('../app/workers/sessionTrim.worker');
 const { HEALTH_CONSENT_PURPOSE, CURRENT_CONSENT_VERSION } = require('../app/services/privacy/consent');
+const { armOrphanSweep } = require('../app/services/privacy/orphanSweep');
 
 jest.setTimeout(120000);
 
@@ -77,6 +79,8 @@ it('a sync that writes after the deletion leaves a profile; the nightly analysis
   const live = await bystander();
   const user = await User.create({ ssoProvider: 'google', ssoId: 'sso-leftover', email: 'leftover@example.com' });
   await ConsentRecord.create({ userId: user._id, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date() });
+  // Armed as production will be: after the clean, with no orphan left.
+  await expect(armOrphanSweep({ confirm: 'arm-orphan-sweep', recordSha256: 'f'.repeat(64), deployedCommit: 'c'.repeat(40) })).resolves.toEqual({ armed: true, v: 1 });
 
   // Hold the ingest's profile upsert (metricStore.js, the batch lane) until the deletion has finished.
   let release;
