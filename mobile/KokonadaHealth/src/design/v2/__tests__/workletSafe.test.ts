@@ -49,6 +49,20 @@ describe('worklet-safe maths', () => {
     expect(offenders).toEqual([]);
   });
 
+  // sweepConvert binds Math for the sweeps' speed; UI-thread code must use oklab.ts instead.
+  const importsSweepConvert = (source: string) => /from\s+['"][^'"]*sweepConvert(?:\.ts)?['"]/.test(source);
+
+  it('no file that contains a worklet, and no future worklet module, imports sweepConvert', () => {
+    const offenders = sourceFiles(V2)
+      .filter((file) => {
+        const source = fs.readFileSync(file, 'utf8');
+        return (WORKLET.test(source) || FUTURE_WORKLET_MODULES.includes(rel(file))) && importsSweepConvert(source);
+      })
+      .map(rel);
+    expect(offenders).toEqual([]);
+    expect(importsSweepConvert(["import { sweepSrgbToOklab } from './sweepConvert", ".ts';"].join(''))).toBe(true);
+  });
+
   it.each(FUTURE_WORKLET_MODULES)('%s, which will hold worklets, binds no Math or Number function', (file) => {
     expect(hostBindings(fs.readFileSync(path.join(V2, file), 'utf8'))).toEqual([]);
   });

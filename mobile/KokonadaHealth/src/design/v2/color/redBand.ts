@@ -10,7 +10,8 @@
 // connected region bounded by two rays and an arc. That shape is what makes the segment and
 // triangle tests exact instead of sampled.
 
-import { oklabToSrgb, srgbToOklab, type Oklab, type Srgb } from './oklab.ts';
+import type { Oklab, Srgb } from './oklab.ts';
+import { sweepOklabToSrgb, sweepSrgbToOklab } from './sweepConvert.ts';
 
 export interface RedBand {
   /** Degrees in [0, 360); the band runs counter-clockwise from here… */
@@ -153,7 +154,7 @@ export function ditherReachable(lab: Oklab, amplitudeL: number): Srgb[] {
   // each pixel by a number rather than a string.
   const found = new Map<number, Srgb>();
   const scaled = (delta: number): number[] => {
-    const rgb = oklabToSrgb({ L: lab.L + delta, a: lab.a, b: lab.b });
+    const rgb = sweepOklabToSrgb({ L: lab.L + delta, a: lab.a, b: lab.b });
     const out = [0, 0, 0];
     for (let c = 0; c < 3; c++) {
       out[c] = 255 * min(1, max(0, rgb[c]));
@@ -216,7 +217,7 @@ export function reachableRedPixel(lab: Oklab, band: RedBand, amplitudeL: number)
   assertRedBand(band);
   const pixels = ditherReachable(lab, amplitudeL);
   for (let i = 0; i < pixels.length; i++) {
-    const shown = srgbToOklab(pixels[i]);
+    const shown = sweepSrgbToOklab(pixels[i]);
     if (isRedPoint([shown.a, shown.b], band)) {
       return pixels[i];
     }
