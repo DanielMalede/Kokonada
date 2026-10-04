@@ -99,6 +99,48 @@ export function labModules(appRoot, files) {
   return files.map((f) => toPosix(appRoot, f)).filter(isLabPath).sort();
 }
 
+// ---- what the lab may import (F-4: deny by default) -----------------------------------------
+
+/**
+ * The only app modules outside the lab and v2 that the lab may reach: the circumplex geometry and
+ * its own closure (wheelGeometry imports laneCommit, which imports nothing). labExclusion.test.ts
+ * pins this list to that closure, so it cannot grow quietly.
+ */
+export const LAB_SHARED_MODULES = ['src/experience/wheel/wheelGeometry.ts', 'src/state/hot/laneCommit.ts'];
+
+/** The only packages the lab may import. Health, Bluetooth, auth and Spotify are not among them. */
+export const LAB_PACKAGES = ['react', 'react-native', 'react-native-reanimated', '@shopify/react-native-skia'];
+
+/** The app modules among `files` (absolute) that the lab may not reach, as app-relative posix paths. */
+export function labClosureViolations(appRoot, files) {
+  return files
+    .map((f) => toPosix(appRoot, f))
+    .filter((f) => !isLabPath(f) && !f.startsWith('src/design/v2/') && !LAB_SHARED_MODULES.includes(f))
+    .sort();
+}
+
+/** The package a bare specifier names: `@scope/name` for a scoped one, else its first segment. */
+const packageOf = (spec) => (spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]);
+const isBare = (spec) => !spec.startsWith('.') && !spec.startsWith('/');
+
+/** The packages a source names that are not on LAB_PACKAGES, in source order. */
+export function packageViolationsInSource(source, fileName) {
+  return moduleSpecifiers(source, fileName).filter(isBare).map(packageOf).filter((p) => !LAB_PACKAGES.includes(p));
+}
+
+/** Every package the files (absolute) import, sorted and unique. */
+export function barePackages(files) {
+  const all = files.filter((f) => PARSED.has(path.extname(f)))
+    .flatMap((f) => moduleSpecifiers(fs.readFileSync(f, 'utf8'), f).filter(isBare).map(packageOf));
+  return [...new Set(all)].sort();
+}
+
+/** Every import of a package that is not on LAB_PACKAGES: [{ file, package }] (absolute file). */
+export function labPackageViolations(files) {
+  return files.filter((f) => PARSED.has(path.extname(f)))
+    .flatMap((f) => packageViolationsInSource(fs.readFileSync(f, 'utf8'), f).map((p) => ({ file: f, package: p })));
+}
+
 /** Every parseable source file under the app root, outside dependencies and native build trees. */
 export function appSources(appRoot) {
   const out = [];

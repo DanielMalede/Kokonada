@@ -1,7 +1,10 @@
 /// <reference types="node" />
 import * as fs from 'fs';
 import * as path from 'path';
-import { importClosure, labImporters, labModules, moduleSpecifiers } from '../../../../scripts/lab/importGraph.mjs';
+import {
+  barePackages, importClosure, labClosureViolations, labImporters, labModules, labPackageViolations, LAB_SHARED_MODULES,
+  moduleSpecifiers, packageViolationsInSource,
+} from '../../../../scripts/lab/importGraph.mjs';
 
 // MB-084 · QA-077 · Apple 2.3.1(a) with 2.2 · Play Deceptive Behavior. The Design Lab must be
 // ABSENT from every build that can be uploaded, not merely unreachable in it. That is decided by
@@ -50,6 +53,44 @@ describe('the release entry never reaches the Design Lab (MB-084)', () => {
   it('a planted import of the lab is found: the check bites', () => {
     const planted = importClosure(path.join(APP, 'scripts/lab/__fixtures__/sentinelEntry.js'));
     expect(labModules(APP, planted)).toEqual(['src/design/lab/sentinel.ts']);
+  });
+});
+
+describe('the lab reaches only what F-4 allows (deny by default)', () => {
+  // The lab may import itself, the v2 foundations it exercises, and one shared domain module (the
+  // circumplex geometry, with its own closure). Anything else is a violation, so nothing from the
+  // app (health config, legal copy, a screen) can ride into the lab, and the build route's premises
+  // hold: no config.ts overlay (F-2 step 5) and no Spotify autolinking fix (F-2 step 9).
+  const closure = importClosure(path.join(APP, 'index.lab.js'));
+  const closureRel = closure.map(rel);
+
+  it('the closure of index.lab.js has no module outside the lab, v2 and the shared allow-list', () => {
+    expect(closureRel).toContain('src/design/lab/LabRoot.tsx');
+    expect(closureRel).toContain('src/design/v2/clock/fieldClock.ts');
+    expect(labClosureViolations(APP, closure)).toEqual([]);
+  });
+
+  it('never reaches src/health/config.ts, the premise for building the lab with no config overlay', () => {
+    expect(closureRel).not.toContain('src/health/config.ts');
+  });
+
+  it('imports only the allowed packages, and never the Spotify module', () => {
+    expect(barePackages(closure)).toContain('react-native'); // the package scan sees the real imports
+    expect(labPackageViolations(closure)).toEqual([]);
+    expect(barePackages(closure)).not.toContain('@kokonada/spotify-remote');
+  });
+
+  it('catches a planted module and a planted package', () => {
+    const planted = ['src/health/config.ts', 'src/legal/legalCopy.ts', 'src/design/v2/x.ts', 'src/experience/wheel/wheelGeometry.ts']
+      .map((f) => path.join(APP, f));
+    expect(labClosureViolations(APP, planted)).toEqual(['src/health/config.ts', 'src/legal/legalCopy.ts']);
+    const source = "import { SpotifyRemote } from '@kokonada/spotify-remote';\n"
+      + "import { initialize } from 'react-native-health-connect/lib/x';\nimport { View } from 'react-native';\n";
+    expect(packageViolationsInSource(source, 'planted.ts')).toEqual(['@kokonada/spotify-remote', 'react-native-health-connect']);
+  });
+
+  it('the shared allow-list is exactly wheelGeometry and its own closure, so its growth fails visibly', () => {
+    expect(importClosure(path.join(APP, 'src/experience/wheel/wheelGeometry.ts')).map(rel).sort()).toEqual([...LAB_SHARED_MODULES].sort());
   });
 });
 
