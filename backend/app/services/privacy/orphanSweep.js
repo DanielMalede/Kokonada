@@ -155,9 +155,10 @@ async function mongoIds(into) {
 }
 
 // A deployment with no Redis has no keys to find; a Redis that is configured but unusable is a failure,
-// never "no keys" (the same rule as purgeUserKeysStrict). `spellings` keeps each raw id a key was found
-// under, so the Redis purge reaches the key as it was written.
-async function redisIds(into, spellings) {
+// never "no keys" (the same rule as purgeUserKeysStrict). `keyNames` keeps the exact name of every key
+// found, per id: the erase deletes exactly those, so no discovered key falls outside the purge (a
+// `ledger:<id>` with no sub-key, an upper-case spelling) and no id is ever turned into a pattern.
+async function redisIds(into, keyNames) {
   const redis = getRedis();
   if (!redis) {
     if (process.env.REDIS_URL) throw new Error('Redis is configured but unavailable');
@@ -173,8 +174,8 @@ async function redisIds(into, spellings) {
         if (!raw) continue;
         const id = normalizeId(raw);
         into.add(id);
-        if (!spellings.has(id)) spellings.set(id, new Set());
-        spellings.get(id).add(raw);
+        if (!keyNames.has(id)) keyNames.set(id, new Set());
+        keyNames.get(id).add(key);
       }
     } while (cursor !== '0');
   }
@@ -182,9 +183,9 @@ async function redisIds(into, spellings) {
 
 async function discover() {
   const all = new Set();
-  const spellings = new Map();
+  const keyNames = new Map();
   await mongoIds(all);
-  await redisIds(all, spellings);
+  await redisIds(all, keyNames);
   const ids = [...all].sort();
   const accountIds = ids.filter((id) => OBJECT_ID.test(id));
   const existing = await accountExistence.existingAccountIds(accountIds);
@@ -193,24 +194,49 @@ async function discover() {
     accountIds: accountIds.length,
     accountsRead: existing.size,
     orphans: ids.filter((id) => !existing.has(id)),
-    spellings,
+    keyNames,
   };
 }
 
 /** Read-only. The counts, the orphan ids (sorted) and their set fingerprint. Throws on a read error. */
 async function discoverOrphans() {
-  const { spellings: _spellings, ...found } = await discover();
+  const { keyNames: _keyNames, ...found } = await discover();
   return { ...found, set: orphanSetFingerprint(found.orphans) };
 }
 
-async function eraseOne(id, spellings) {
-  if (OBJECT_ID.test(id)) {
-    // The per-id re-check: an account created since the discovery read is left alone.
-    if ((await accountExistence.existingAccountIds([id])).has(id)) return 'account';
-    await eraseUserChildData(id);
+/** Deletes exactly the named keys, by name: never a pattern. */
+async function deleteKeyNames(names) {
+  if (!names.length) return 0;
+  const redis = getRedis();
+  if (!redis) throw new Error('Redis is configured but unavailable');
+  return redis.del(...names);
+}
+
+async function eraseOne(id, keyNames) {
+  const found = [...(keyNames.get(id) || [])];
+  if (!OBJECT_ID.test(id)) {
+    // Not an ObjectId: no account, no Mongo rows, and never a pattern built from it (resilience §7: an id
+    // like `*` would match every user). Exactly the keys discovery found under it.
+    await deleteKeyNames(found);
+    return 'erased';
   }
-  for (const raw of new Set([id, ...(spellings.get(id) || [])])) await purgeUserKeysStrict(raw);
+  // The per-id re-check: an account created since the discovery read is left alone.
+  if ((await accountExistence.existingAccountIds([id])).has(id)) return 'account';
+  await eraseUserChildData(id);
+  // Hex is safe in a pattern, so the registry purge runs too, then the exact names it may not reach.
+  await purgeUserKeysStrict(id);
+  await deleteKeyNames(found);
   return 'erased';
+}
+
+/** After the loop: the orphans still there, by a fresh read-only discovery; `unknown` if it cannot be read. */
+async function backlogNow() {
+  try {
+    return { backlog: (await discover()).orphans.length, failed: 0 };
+  } catch (err) {
+    console.error(`[orphanSweep] backlog read failed error=${errorType(err)}`);
+    return { backlog: 'unknown', failed: 1 };
+  }
 }
 
 const refusedRead = () => {
@@ -262,17 +288,17 @@ async function sweepDeletedAccountOrphans({ armed = isArmed, force = false, expe
 
   let erased = 0;
   let failed = 0;
-  let stillAccounts = 0;
   for (const id of force ? found.orphans : found.orphans.slice(0, ORPHAN_SWEEP_CAP)) {
     try {
-      if ((await eraseOne(id, found.spellings)) === 'account') stillAccounts += 1;
-      else erased += 1;
+      if ((await eraseOne(id, found.keyNames)) === 'erased') erased += 1;
     } catch (err) {
       failed += 1; // left for the next run
       console.error(`[orphanSweep] erase failed scope=${OBJECT_ID.test(id) ? 'account' : 'cache'} error=${errorType(err)}`);
     }
   }
-  return { count: erased, backlog: found.orphans.length - erased - stillAccounts, failed };
+  // Never `orphans - erased`: a key the purge did not reach would read as gone. A fresh count instead.
+  const after = await backlogNow();
+  return { count: erased, backlog: after.backlog, failed: failed + after.failed };
 }
 
 /**

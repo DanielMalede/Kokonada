@@ -69,9 +69,14 @@ async function purgeUserKeys(userId) {
 // which would let an erasure report itself finished while an 8-day ledger window outlived its promise.
 // A Redis that is configured but unusable is a failed step; a deployment with no Redis has nothing to
 // purge. Callers: spotifyErasure.purgeSpotifyData and sessionHealthErasure.
+// J2 (resilience §7 on T12 v2): the patterns are built from the id, so an id holding a SCAN glob character
+// would match other users' keys (`ledger:*:*` reaches everyone). Refused outright.
+const GLOB_CHARACTER = /[*?[\]\\]/;
+
 async function purgeUserKeysStrict(userId) {
   const id = String(userId || '').trim();
   if (!id) throw new Error('refusing a Redis purge without a user id');
+  if (GLOB_CHARACTER.test(id)) throw new Error('refusing a Redis purge for an id that holds a glob character');
   const redis = getRedis();
   if (!redis) {
     if (process.env.REDIS_URL) throw new Error('Redis is configured but unavailable');

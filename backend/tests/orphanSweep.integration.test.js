@@ -37,8 +37,9 @@ jest.mock('../app/config/redis', () => {
   const glob = (pattern) => new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
   const fake = {
     store,
+    sticky: new Set(), // keys whose DEL is answered but which stay, as if written again at once
     async scan(_cursor, _match, pattern) { const re = glob(pattern); return ['0', [...store.keys()].filter((k) => re.test(k))]; },
-    async del(...keys) { return keys.flat().reduce((n, k) => n + (store.delete(k) ? 1 : 0), 0); },
+    async del(...keys) { return keys.flat().reduce((n, k) => n + (!fake.sticky.has(k) && store.delete(k) ? 1 : 0), 0); },
     async set(key, value) { store.set(key, value); return 'OK'; },
     async get(key) { return store.has(key) ? store.get(key) : null; },
     async exists(key) { return store.has(key) ? 1 : 0; },
@@ -83,6 +84,7 @@ beforeEach(async () => {
   await Promise.all([User.deleteMany({}), ...CASCADE_MODELS.map((m) => m.collection.deleteMany({}))]);
   await mongoose.connection.db.collection('opsmarkers').drop().catch(() => {});
   redis.store.clear();
+  redis.sticky.clear();
   delete process.env.ORPHAN_SWEEP_DISABLED;
   lines = [];
   for (const level of ['log', 'info', 'warn', 'error']) {
@@ -519,5 +521,63 @@ describe('discoverOrphans is read-only', () => {
 
   it('OrphanSweepRefused is what the writer throws', () => {
     expect(new OrphanSweepRefused('confirm', { orphans: 0, ids: 0 })).toEqual(expect.objectContaining({ name: 'OrphanSweepRefused', reason: 'confirm' }));
+  });
+});
+
+// Resilience §7 (on T12 v2): discovery attributes a key to an id, and the purge must delete exactly what it
+// found. An id that is not an ObjectId is never turned into a pattern: `pool:*:x` gives the id `*`, and a
+// pattern built from it (`pool:*:*`, `ledger:*:*`, `bio:baseline:*`) reached every user. And the backlog is a
+// fresh count after the loop, never `orphans - erased`, which read 0 while a key the purge missed stayed.
+describe('the purge deletes exactly what discovery found; the backlog is read again after the loop', () => {
+  it('a forced run with a key pool:*:x deletes only that key; every live account keeps its keys', async () => {
+    const live = await account();
+    await seedOne(live._id);
+    const liveKeys = [`pool:${live._id}:calm`, `ledger:${live._id}:served`, `buffer:${live._id}:bio:peak:running`, `bio:baseline:${live._id}`, `bio:affect:${live._id}`];
+    for (const key of liveKeys) redis.store.set(key, 'x');
+    redis.store.set('pool:*:x', 'x');
+    const found = await discoverOrphans();
+    expect(found.orphans).toEqual(['*']);
+
+    await expect(sweepDeletedAccountOrphans({ force: true, expectedOrphans: 1, expectedSet: found.set })).resolves.toEqual({ count: 1, backlog: 0, failed: 0 });
+
+    expect(redis.store.has('pool:*:x')).toBe(false);
+    expect(liveKeys.filter((key) => !redis.store.has(key))).toEqual([]);
+  });
+
+  it('ledger:<orphan> with no sub-key is deleted, and the backlog reads 0 from the re-read', async () => {
+    await seedOne((await account())._id);
+    await arm();
+    const gone = String(oid());
+    redis.store.set(`ledger:${gone}`, 'x');
+
+    await expect(sweepDeletedAccountOrphans()).resolves.toEqual({ count: 1, backlog: 0, failed: 0 });
+
+    expect(redis.store.has(`ledger:${gone}`)).toBe(false);
+    expect((await discoverOrphans()).orphans).toEqual([]);
+  });
+
+  it('a key that stays after its DEL: the backlog is the true remaining count, read after the loop', async () => {
+    await seedOne((await account())._id);
+    await arm();
+    const gone = String(oid());
+    redis.store.set(`pool:${gone}:calm`, 'x');
+    redis.sticky.add(`pool:${gone}:calm`);
+
+    await expect(sweepDeletedAccountOrphans()).resolves.toEqual({ count: 1, backlog: 1, failed: 0 });
+
+    expect(redis.store.has(`pool:${gone}:calm`)).toBe(true);
+  });
+
+  it('the re-read fails: the backlog is unknown and the run counts a failure', async () => {
+    await seedOne((await account())._id);
+    await arm();
+    await seedOne(oid());
+    // The first discovery reads serveevents once; the re-read after the loop is the next read there.
+    await mongoose.connection.db.admin().command({
+      configureFailPoint: 'failCommand', mode: { skip: 1 }, data: { failCommands: ['distinct'], errorCode: 2, namespace: `${DB}.serveevents` },
+    });
+
+    await expect(sweepDeletedAccountOrphans()).resolves.toEqual({ count: 1, backlog: 'unknown', failed: 1 });
+    expect(sweepLines()).toEqual(['[orphanSweep] backlog read failed error=MongoServerError']);
   });
 });

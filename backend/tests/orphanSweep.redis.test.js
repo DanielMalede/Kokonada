@@ -110,6 +110,23 @@ describeRealRedis('J2 T9: the orphan sweep on a real Redis', (url) => {
     expect(await redis.exists(...KEYS(live))).toBe(5);
   });
 
+  // Resilience §7 on a real Redis: real SCAN MATCH treats `*` as a glob, which is how a pattern built from
+  // the id `*` reached every user. The forced run deletes the one key discovery found, by name.
+  it('a forced run with a key pool:*:x deletes only that key; every live account keeps its keys, and a ledger key with no sub-key goes', async () => {
+    const live = await User.create({ ssoProvider: 'google', ssoId: 'sso-glob-live', email: 'glob-live@example.com' });
+    await ServeEvent.collection.insertOne({ userId: live._id, seeded: true });
+    for (const key of KEYS(String(live._id))) await redis.set(key, 'x');
+    const gone = String(new mongoose.Types.ObjectId());
+    await redis.set('pool:*:x', 'x');
+    await redis.set(`ledger:${gone}`, 'x');
+
+    await expect(sweepDeletedAccountOrphans({ force: true, expectedOrphans: 2, expectedSet: orphanSetFingerprint(['*', gone]) }))
+      .resolves.toEqual({ count: 2, backlog: 0, failed: 0 });
+
+    expect(await redis.exists('pool:*:x', `ledger:${gone}`)).toBe(0);
+    expect(await redis.exists(...KEYS(String(live._id)))).toBe(5);
+  });
+
   it('§F 8 forced: the exact count and set clear the non-ObjectId key in Redis only, then arming succeeds', async () => {
     const { gone } = await seed();
     await expect(armOrphanSweep(ARM)).rejects.toEqual(expect.objectContaining({ reason: 'orphans', orphans: 2 }));
