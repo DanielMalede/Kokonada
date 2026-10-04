@@ -213,7 +213,7 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   const srgb = (x: Oklab) => sweepOklabToSrgb(x);
 
   // Surfaces lit by a halo (no shimmer: marks never shimmer) or by the field (which shimmers).
-  const lit = (ground: Oklab, nodes: Oklab[], kMax: number, turns: number[], kStep: number): Oklab[] => {
+  const lit = (ground: Oklab, nodes: Oklab[], kMax: number, turns: readonly number[], kStep: number): Oklab[] => {
     const out: Oklab[] = [];
     for (const node of nodes) {
       for (const p of presences) {
