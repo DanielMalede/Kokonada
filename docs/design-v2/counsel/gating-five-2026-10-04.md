@@ -340,20 +340,20 @@
 # Appendix B · Sources not retrieved
 
 1. **Art. 50 Guidelines C(2026) 5054.**
- - Why missing: a binary file the tooling cannot read. It is saved at `C:\Users\danie\.claude\projects\c--Users-danie-Videos-Kokonada\3181c7f6-a2e3-45a7-ba43-a520798841cb\tool-results\webfetch-1790423898454-gt7m0z.bin`.
+ - Why missing: a binary file the tooling cannot read (a saved copy is kept in the private evidence folder).
  - Would settle: point 102 (Q5); first exposure and language (Q4).
  - How: rename the file to `.pdf` and read points 100–106 and 141–146. About 30 minutes.
 2. **The AI Act as amended by Reg. 2026/1744, in the Official Journal.**
  - Why missing: EUR-Lex returned an empty page on 2026-10-04. Every AI Act quote here comes from the Commission Service Desk's consolidated text "as at 27 July 2026".
  - How: open EUR-Lex in a browser. About 10 minutes.
 3. **The draft Annex III classification guidelines (May 2026).**
- - Why missing: the copy saved today is unreadable here, because the PDF renderer (poppler) is not installed. Path: `C:\Users\danie\.claude\projects\c--Users-danie-Videos-Kokonada\fd9fc638-8367-4b54-8996-409a8cceed48\tool-results\webfetch-1791069671462-6hfg5o.pdf`. That copy is hosted by dirittobancario.it, not by the Commission.
+ - Why missing: the copy saved today is unreadable here, because the PDF renderer (poppler) is not installed (a saved copy is kept in the private evidence folder). That copy is hosted by dirittobancario.it, not by the Commission.
  - Would settle: where the guidelines draw the line between emotions and physical states, and their warning against relabelling (Q5).
  - Also: no final version was found by a search on 2026-10-04.
 4. **The GDPR and the MDR in the Official Journal.**
  - Why missing: EUR-Lex returned empty pages. The quotes here are from legislation.gov.uk's "as adopted" texts.
 5. **EDPB Guidelines 3/2018 on territorial scope.**
- - Why missing: the saved PDF is unreadable (poppler). Path: `...\fd9fc638-8367-4b54-8996-409a8cceed48\tool-results\webfetch-1791067628654-759nny.pdf`.
+ - Why missing: the saved PDF is unreadable (poppler) (a saved copy is kept in the private evidence folder).
  - Would settle: the hinge, and the Art. 27(2)(a) exemption (Q1).
 6. **Israeli official texts.**
  - Every Israeli quote is a Nevo reproduction. The Knesset PDF is binary.
