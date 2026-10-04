@@ -117,4 +117,85 @@ describeRealRedis('J2 T11: the #verify, literally (slow)', (url) => {
     await wait();
     expect(await leftovers(user._id)).toEqual({ profiles: 0, keys: 0 });
   });
+
+  // NF-A (the privacy-page re-check): the serving lane queues a recompute for any account whose baseline
+  // is not cached, whatever its consent. Cases 4 and 5 run that job to the end and show the gate keeps it
+  // from reading or writing any health data. The job is promoted instead of waiting out its 5 seconds.
+  describe('NF-A: a playlist for an account without a current grant', () => {
+    const IORedis = require('ioredis');
+    const { Queue } = require('bullmq');
+    const MorningState = require('../app/models/MorningState');
+    const baselinesService = require('../app/services/biosonic/baselines');
+    const { buildTargets } = require('../app/services/generation/targetsBuilder');
+
+    const logged = () => ['log', 'info', 'warn', 'error'].flatMap((level) => console[level].mock.calls.map((c) => c.map(String).join(' ')));
+    async function promoteAndRun(jobId) {
+      const connection = new IORedis(url, { maxRetriesPerRequest: null });
+      const queue = new Queue(QUEUES.STATE_VECTOR_RECOMPUTE, { connection, skipMetasUpdate: true });
+      try {
+        await (await queue.getJob(jobId)).promote();
+        const deadline = Date.now() + 30_000;
+        while (await redis.exists(`${S}${jobId}`)) {
+          if (Date.now() > deadline) throw new Error('the promoted job never ran');
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      } finally {
+        await queue.close();
+        connection.disconnect();
+      }
+    }
+    /** The playlist, then its one queued recompute run to the end; what the job did is returned. */
+    async function playlistThenJob(user) {
+      baselinesService._resetRefreshCooldown();
+      for (const level of ['log', 'info', 'warn', 'error']) console[level].mockClear();
+      const compute = jest.spyOn(baselinesService, 'computeBaselines');
+
+      const targets = await buildTargets({ userId: String(user._id), moodKey: 'calm' });
+      expect(targets).toEqual(expect.objectContaining({ hourOfDay: expect.any(Number) }));
+
+      // The serving lane queues the refresh without awaiting it (baselines._scheduleRefresh), so it lands
+      // a moment after buildTargets returns.
+      const deadline = Date.now() + 10_000;
+      while ((await redis.zcard(`${S}delayed`)) === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 100)); // and nothing else is still landing
+      const delayed = await redis.zrange(`${S}delayed`, 0, -1);
+      expect(delayed).toHaveLength(1);
+      expect(JSON.parse(await redis.hget(`${S}${delayed[0]}`, 'data'))).toEqual({ userId: String(user._id) });
+      await promoteAndRun(delayed[0]);
+      return { compute, lines: logged() };
+    }
+    function expectNothingRead(user, { compute, lines }) {
+      expect(compute).not.toHaveBeenCalled();
+      expect(lines.filter((l) => l.startsWith('[biometric-access]'))).toEqual([]);
+      expect(lines.filter((l) => l.startsWith('[stateVector]'))).toEqual([]);
+      return Promise.all([
+        expect(redis.exists(`bio:baseline:${user._id}`)).resolves.toBe(0),
+        expect(MorningState.countDocuments({ userId: user._id })).resolves.toBe(0),
+      ]);
+    }
+
+    it('4. never granted: the playlist queues one job, which runs and writes no health data', async () => {
+      const user = await User.create({ ssoProvider: 'google', ssoId: 'sso-nfa-never', email: 'nfa-never@example.com' });
+      expect(await ConsentRecord.countDocuments({ userId: user._id })).toBe(0);
+      expect(await MedicalProfile.countDocuments({ userId: user._id })).toBe(0);
+
+      const run = await playlistThenJob(user);
+
+      expect(await MedicalProfile.countDocuments({ userId: user._id })).toBe(0);
+      await expectNothingRead(user, run);
+    });
+
+    it('5. granted, then withdrawn: the playlist that follows leaves the profile count as the withdrawal left it', async () => {
+      const user = await User.create({ ssoProvider: 'google', ssoId: 'sso-nfa-withdrawn', email: 'nfa-withdrawn@example.com' });
+      await ConsentRecord.create({ userId: user._id, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date() });
+      await MedicalProfile.create({ userId: user._id, fitnessLevel: 'active' });
+      await withdrawConsent(user._id, HEALTH_CONSENT_PURPOSE);
+      const afterWithdrawal = await MedicalProfile.countDocuments({ userId: user._id });
+
+      const run = await playlistThenJob(user);
+
+      expect(await MedicalProfile.countDocuments({ userId: user._id })).toBe(afterWithdrawal);
+      await expectNothingRead(user, run);
+    });
+  });
 });
