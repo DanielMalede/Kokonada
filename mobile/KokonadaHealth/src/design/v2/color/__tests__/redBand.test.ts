@@ -199,14 +199,16 @@ describe('ditherReachable: every 8-bit pixel the field’s L dither can show', (
   });
 
   // An oracle that is not the enumeration: sweep the dither in 20,001 steps and round each.
-  it('finds every pixel a 20,001-step sweep of the dither finds', () => {
-    for (const colour of [lch(0.6, 0.0192, 25), AMBER, ORCHID, lch(0.21, 0.012, 70), lch(0.925, 0.016, 72)]) {
+  // 0.044 is the widest amplitude the token sweeps use: the ±1/255 dither plus Linen's 0.040 grain.
+  it.each([1 / 255, 0.044])('finds every pixel a 20,001-step sweep of an amplitude of %p finds', (amplitude) => {
+    const colours = [lch(0.6, 0.0192, 25), AMBER, ORCHID, lch(0.21, 0.012, 70), lch(0.925, 0.016, 72), lch(0.45, 0.15, 150), lch(0.3, 0.12, 300)];
+    for (const colour of colours) {
       const swept = new Set<string>();
       for (let i = 0; i <= 20000; i++) {
-        const delta = -1 / 255 + (2 / 255) * (i / 20000);
-        swept.add(toBytes(ditherReachable({ ...colour, L: colour.L + delta }, 0))[0]);
+        const delta = -amplitude + 2 * amplitude * (i / 20000);
+        for (const pixel of toBytes(ditherReachable({ ...colour, L: colour.L + delta }, 0))) swept.add(pixel);
       }
-      const enumerated = new Set(toBytes(ditherReachable(colour, 1 / 255)));
+      const enumerated = new Set(toBytes(ditherReachable(colour, amplitude)));
       for (const pixel of swept) expect(enumerated).toContain(pixel);
     }
   });

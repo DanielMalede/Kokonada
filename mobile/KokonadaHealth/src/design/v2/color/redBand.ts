@@ -26,7 +26,7 @@ export interface RedBand {
 const ACHROMATIC_CHROMA = 0.000004;
 const RAD = Math.PI / 180;
 // Bound once: global lookups are ten times slower in jest's sandbox (see oklab.ts).
-const { abs, atan2, cos, floor, hypot, max, min, round, sin } = Math;
+const { abs, atan2, ceil, cos, floor, hypot, max, min, round, sin } = Math;
 const numberIsFinite = Number.isFinite;
 /** A channel this close to a half step can round either way; noise from the round trip is ~1e-10. */
 const ROUNDING_TIE = 1e-7;
@@ -200,8 +200,10 @@ export function ditherReachable(lab: Oklab, amplitudeL: number): Srgb[] {
   let u0 = scaled(d0);
   record(u0);
   if (amplitudeL > 0) {
-    for (let i = 1; i <= DITHER_STEPS; i++) {
-      const d1 = -amplitudeL + (2 * amplitudeL * i) / DITHER_STEPS;
+    // About four steps per 8-bit step of L, so a wide (grain) amplitude is not cut coarsely.
+    const steps = max(DITHER_STEPS, ceil(amplitudeL * 255 * 4));
+    for (let i = 1; i <= steps; i++) {
+      const d1 = -amplitudeL + (2 * amplitudeL * i) / steps;
       const u1 = scaled(d1);
       record(u1);
       refine(d0, u0, d1, u1);
