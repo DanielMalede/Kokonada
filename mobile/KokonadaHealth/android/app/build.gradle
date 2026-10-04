@@ -182,6 +182,24 @@ gradle.taskGraph.whenReady { graph ->
     }
 }
 
+// MB-084 (round-1 review, MF-2): whatever route puts JS into an app variant's assets (the RN plugin,
+// a hand-made bundle in src/main/assets, anything else), the merged assets of every variant that is
+// not the lab must not hold the Design Lab sentinel. Checked on the merge task's real output.
+def labSentinel = {
+    def m = file("../../src/design/lab/sentinel.ts").text =~ /(?m)^export const LAB_SENTINEL = '([a-z0-9-]{16,})';$/
+    if (!m.find()) throw new GradleException("src/design/lab/sentinel.ts must declare LAB_SENTINEL as one literal (MB-084)")
+    new String(m.group(1).getBytes("UTF-8"), "ISO-8859-1")
+}
+tasks.matching { it.name ==~ /^merge\w*Assets$/ && !(it.name ==~ /^merge\w*LabAssets$/) }.configureEach { t ->
+    t.doLast {
+        def needle = labSentinel()
+        t.outputs.files.each { root -> if (root.exists()) root.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+            if (new String(f.bytes, "ISO-8859-1").contains(needle))
+                throw new GradleException("${t.name}: ${f} holds the Design Lab sentinel; the lab is never packaged into an uploadable variant (MB-084).")
+        } }
+    }
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
