@@ -185,6 +185,15 @@ describe('sweepNeverRed: the field’s whole blend space against both bands', ()
     expect(report.pixelSamples).toBe(17 * 3 * 5 * 5 * 4 * 3 * 3);
   });
 
+  // The full-resolution sweep (UI-073) turns pixels at 1° too; without the field, the default run
+  // keeps −s, 0 and +s at each end.
+  it('turns pixels at their own step when the grid gives one: −3° to +3° at 1° is 7 × 7', () => {
+    const grounds = { ground: NEUTRAL_DARK, face: lch(0.14, 0.005, 70), ring: lch(0.27, 0.006, 72) };
+    const grid = { kStep: 0.05, shimmerStepDeg: 1, pixelTStep: 0.25, pixelKStep: 0.25, chromaScales: [0.5, 1], pixelShimmerStepDeg: 1 };
+    const report = sweep({ grounds, shimmerDeg: 3, grid });
+    expect(report.pixelSamples).toBe(17 * 3 * 5 * 5 * 4 * 7 * 7);
+  });
+
   // Resilience second voice §3: a pixel can mix a shimmering field colour with a steady halo, so
   // the two ends of a segment rotate independently. Two near-opposite hues stay clear when they
   // turn together and cross the band when only one of them turns.
@@ -250,6 +259,8 @@ describe('sweepNeverRed: the field’s whole blend space against both bands', ()
     [{ grid: { kStep: 0, shimmerStepDeg: 1, pixelTStep: 0.25, pixelKStep: 0.25, chromaScales: [1] } }],
     [{ grid: { kStep: 0.05, shimmerStepDeg: 1, pixelTStep: 0.25, pixelKStep: 0.25, chromaScales: [] } }],
     [{ grid: { kStep: 0.05, shimmerStepDeg: 1, pixelTStep: 0.25, pixelKStep: 0.25, chromaScales: [1.5] } }],
+    [{ grid: { kStep: 0.05, shimmerStepDeg: 1, pixelTStep: 0.25, pixelKStep: 0.25, chromaScales: [1], pixelShimmerStepDeg: 0 } }],
+    [{ grid: { kStep: 0.05, shimmerStepDeg: 1, pixelTStep: 0.25, pixelKStep: 0.25, chromaScales: [1], pixelShimmerStepDeg: NaN } }],
     [{ grounds: {} }],
   ])('refuses the configuration %j', (overrides) => {
     expect(() => sweep(overrides as Partial<NeverRedSweep>)).toThrow(RangeError);

@@ -63,6 +63,8 @@ export interface NeverRedSweep {
     readonly pixelTStep: number;
     readonly pixelKStep: number;
     readonly chromaScales: readonly number[];
+    /** The pixel shimmer step; absent, each end of a segment takes only −shimmer, 0 and +shimmer. */
+    readonly pixelShimmerStepDeg?: number;
   };
 }
 
@@ -242,6 +244,9 @@ function assertSweep(config: NeverRedSweep): void {
   if (![grid.kStep, grid.shimmerStepDeg, grid.pixelTStep, grid.pixelKStep].every(positive)) {
     throw new RangeError('every grid step must be a finite number > 0');
   }
+  if (grid.pixelShimmerStepDeg !== undefined && !positive(grid.pixelShimmerStepDeg)) {
+    throw new RangeError('the pixel shimmer step, when given, must be a finite number > 0');
+  }
   if (grid.chromaScales.length === 0 || !grid.chromaScales.every((p) => p >= 0 && p <= 1)) {
     throw new RangeError('chroma scales must be a non-empty list of values in [0, 1]');
   }
@@ -262,9 +267,9 @@ export function sweepNeverRed(config: NeverRedSweep): NeverRedReport {
   const groundNames = Object.keys(config.grounds);
   // Halos do not shimmer and the field does, so one pixel can mix a turned colour with an unturned
   // one: each end of a segment takes its own rotation. Float takes every pair of shimmer samples;
-  // pixels take each end at −shimmer, 0 and +shimmer.
+  // pixels take each end at −shimmer, 0 and +shimmer, or every grid.pixelShimmerStepDeg when given.
   const shimmers = samplesAround(config.shimmerDeg, grid.shimmerStepDeg);
-  const pixelShimmers = samplesAround(config.shimmerDeg, config.shimmerDeg || 1);
+  const pixelShimmers = samplesAround(config.shimmerDeg, grid.pixelShimmerStepDeg ?? (config.shimmerDeg || 1));
   const floatKs = samplesUpTo(config.kMax, grid.kStep);
   const pixelKs = samplesUpTo(config.kMax, grid.pixelKStep);
   const ts = samplesUpTo(1, grid.pixelTStep);
