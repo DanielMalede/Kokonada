@@ -35,6 +35,18 @@ const {
   HR_NOISE_FLOOR, HR_BAND_RELEASE_MARGIN, RECAL_HYSTERESIS_FLAG,
 } = require('../app/sockets/biometricHandler');
 const { bandFromHeartRate, BAND_LOWER_CUT } = require('../app/services/moodDescriptors');
+const { MAX_AGE_MS, FUTURE_TOLERANCE_MS } = require('../app/agents/runtime/ingestion/anomalyFilter');
+const { pinWallClock } = require('./helpers/fixtureClock');
+
+// The ping fixture's fixed timeline: 5-minute watch pings from 08:00Z, the longest series ten of
+// them (45 minutes), all inside one hour.
+const PING_START_MS = Date.UTC(2026, 7, 19, 8);
+const PING_INTERVAL_MS = 5 * 60_000;
+const PING_WINDOW_MS = 60 * 60_000;
+// The wall clock every test here runs on: the end of that hour, pinned in beforeEach. The S6 gate
+// judges each ping against Date.now(), so on the machine's clock these pings go stale on
+// 2026-11-17T08:00Z (see tests/helpers/fixtureClock.js).
+const FIXTURE_WALL_CLOCK = PING_START_MS + PING_WINDOW_MS;
 
 const call = (prevHR, nextHR, activityChanged = false) =>
   _shouldRecalibrate({ prevHR, nextHR, activityChanged });
@@ -55,7 +67,7 @@ function pingSeries(socketId, hrs, { activity } = {}) {
       activityType: activity,
       // The real adapter builds recordedAt from this, and isValidReading rejects an
       // unparseable one — 5 minutes apart, the way the watch lane actually pings.
-      startTimeLocal: new Date(Date.UTC(2026, 7, 19, 8, 5 * i)).toISOString(),
+      startTimeLocal: new Date(PING_START_MS + i * PING_INTERVAL_MS).toISOString(),
     }, { immediate: true });
     const state = _debounceMap.get(socket.id);
     expect(state).toBeDefined();  // a rejected reading would silently read as "no flap"
@@ -64,9 +76,36 @@ function pingSeries(socketId, hrs, { activity } = {}) {
   return fired;
 }
 
+beforeEach(() => {
+  pinWallClock(FIXTURE_WALL_CLOCK);
+});
+
 afterEach(() => {
+  jest.useRealTimers();
   delete process.env[RECAL_HYSTERESIS_FLAG];
   _resetDebounceState(); // W4-D06: releases armed 60 s timers, then clears
+});
+
+// ── The ping fixture runs on its own clock ────────────────────────────────────
+
+describe('W4-D05 — the ping fixture runs on its own clock, inside the S6 window', () => {
+  it('every test here runs on the fixture\'s clock, never the machine\'s', () => {
+    // Without this, the pings below aged past the anomaly filter's 90-day floor on 2026-11-17 and
+    // every latch test read a refused reading as "the trigger did not fire".
+    expect(Date.now()).toBe(FIXTURE_WALL_CLOCK);
+    // The first ping is younger than the floor, and the last one the window allows is not "future".
+    expect(PING_START_MS).toBeGreaterThan(FIXTURE_WALL_CLOCK - MAX_AGE_MS);
+    expect(PING_START_MS + PING_WINDOW_MS).toBeLessThanOrEqual(FIXTURE_WALL_CLOCK + FUTURE_TOLERANCE_MS);
+  });
+
+  it('so every ping a series sends reaches the trigger: the filter refuses none of them', () => {
+    // `expect(state).toBeDefined()` in pingSeries cannot see this: the state exists whether or not
+    // the reading was refused.
+    pingSeries('d05-clock', [88, 93, 88, 93, 88, 93, 88, 93, 88, 93]);
+    const { filterState } = _debounceMap.get('d05-clock');
+    expect(filterState.sampleCount).toBe(10);
+    expect(filterState.rejectedCount).toBe(0);
+  });
 });
 
 // ── The cuts have ONE definition ──────────────────────────────────────────────
