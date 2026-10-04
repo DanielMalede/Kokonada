@@ -3,8 +3,9 @@
 The single running list of everything still open in this repo. **If it is not written here, it does not exist.**
 A task that lives only in a conversation is already lost — that is what this file exists to stop.
 
-**Last updated:** 2026-10-02
-**Next free IDs:** `BE-094` · `MB-084` · `UI-066` · `OPS-100` · `ARCH-013` · `DAN-050`
+**Last updated:** 2026-10-04
+**Next free IDs:** `BE-120` · `MB-105` · `UI-090` · `OPS-125` · `ARCH-017` · `DAN-063`
+Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, ARCH-013–016, DAN-050–062, DEC-128–154; each branch writes its own rows.
 
 ---
 
