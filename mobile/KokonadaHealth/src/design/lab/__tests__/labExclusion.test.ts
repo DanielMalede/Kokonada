@@ -147,6 +147,11 @@ describe('the lab has its own entry and its own Android activity', () => {
     expect(launched).not.toBe(JSON.parse(fs.readFileSync(path.join(APP, 'app.json'), 'utf8')).name);
   });
 
+  it('the app has no product flavors, so the lab refusals keyed on exact task names (bundleLab, mergeLabAssets) stay exact', () => {
+    const gradle = fs.readFileSync(path.join(APP, 'android/app/build.gradle'), 'utf8').replace(/\/\/[^\n]*/g, '');
+    expect(gradle).not.toMatch(/\bproductFlavors\b|\bflavorDimensions\b/);
+  });
+
   it('lab Android code lives only in the lab source set, and no Gradle file points another source set at it', () => {
     const ANDROID = path.join(APP, 'android');
     const SKIP = new Set(['build', '.gradle', '.cxx', '.idea']);
