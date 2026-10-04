@@ -108,6 +108,8 @@ export interface EdgeFamilyMax {
   readonly design: BlendMax;
   /** 8-bit blends, every GPU rounding, against the check band. */
   readonly check: BlendMax & { readonly pixel?: Bytes };
+  /** The distinct 8-bit blends (background, ink, coverage cap) checked: how much the grid saw. */
+  readonly pixelBlends: number;
 }
 
 const toBytes = (rgb: Srgb): Bytes =>
@@ -219,7 +221,7 @@ class Family {
   }
 
   result(): EdgeFamilyMax {
-    return { family: this.family, design: this.design, check: this.check };
+    return { family: this.family, design: this.design, check: this.check, pixelBlends: this.seen.size };
   }
 }
 

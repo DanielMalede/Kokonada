@@ -38,7 +38,15 @@ describe.each(CASES)('QA-065 at full resolution: %s, %s face', (id, face) => {
   it(
     'the edges: no anti-aliased pair reaches within the margin of either band',
     () => {
-      const over = edgeFamiliesFor(id, face, 'full')
+      const full = edgeFamiliesFor(id, face, 'full');
+      // The full grid really ran: every family that blends over a lit surface checks more pixel
+      // blends than the default grid does.
+      const coarse = edgeFamiliesFor(id, face);
+      const lit = (f: { family: string }) => f.family.startsWith('ring halo') || f.family.startsWith('face lit');
+      const fewer = full.filter((f, i) => lit(f) && !(f.pixelBlends > coarse[i].pixelBlends)).map((f) => f.family);
+      expect(full.filter(lit).length).toBeGreaterThan(0);
+      expect(fewer).toEqual([]);
+      const over = full
         .filter((f) => f.design.chroma > DESIGN_LIMIT || f.check.chroma > CHECK_LIMIT)
         .map((f) => ({
           family: f.family,
