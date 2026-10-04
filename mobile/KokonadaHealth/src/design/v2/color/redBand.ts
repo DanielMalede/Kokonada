@@ -135,6 +135,76 @@ export function triangleTouchesRed(p: Oklab, q: Oklab, r: Oklab, band: RedBand):
   return segmentTouchesRegion(P, Q, band) || segmentTouchesRegion(Q, R, band) || segmentTouchesRegion(R, P, band);
 }
 
+export interface InBandMax {
+  /** The largest chroma with a hue in the band; 0 when nothing is in the band. */
+  readonly chroma: number;
+  /** Its hue in degrees; NaN when nothing is in the band. */
+  readonly hue: number;
+}
+
+/** Sutherland–Hodgman: keep the part of `polygon` where cross(u, x) * sign >= 0. */
+function clipHalfPlane(polygon: Point[], u: Point, sign: number): Point[] {
+  const side = (x: Point) => sign * cross(u, x);
+  const out: Point[] = [];
+  for (let i = 0; i < polygon.length; i++) {
+    const s = polygon[i];
+    const e = polygon[(i + 1) % polygon.length];
+    const ss = side(s);
+    const se = side(e);
+    if (ss >= 0) {
+      out.push(s);
+    }
+    if ((ss >= 0) !== (se >= 0)) {
+      const t = ss / (ss - se);
+      out.push([s[0] + t * (e[0] - s[0]), s[1] + t * (e[1] - s[1])]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Exact: the largest chroma among the triangle's colours whose hue lies in the band. The band is
+ * narrower than 180°, so its cone is convex; the triangle clipped to it is a convex polygon, and
+ * chroma (a convex function) peaks at one of that polygon's corners.
+ */
+export function maxInBandChromaInTriangle(p: Oklab, q: Oklab, r: Oklab, band: RedBand): InBandMax {
+  assertRedBand(band);
+  if (!(width(band) < 180)) {
+    throw new RangeError(`the exact maximum needs a band narrower than 180°, got ${width(band)}°`);
+  }
+  for (const corner of [p, q, r]) {
+    assertFiniteColour(corner);
+  }
+  const from: Point = [cos(band.hueFrom * RAD), sin(band.hueFrom * RAD)];
+  const to: Point = [cos(band.hueTo * RAD), sin(band.hueTo * RAD)];
+  // Counter-clockwise of the start ray, clockwise of the end ray.
+  const clipped = clipHalfPlane(clipHalfPlane([[p.a, p.b], [q.a, q.b], [r.a, r.b]], from, 1), to, -1);
+  let best: InBandMax = { chroma: 0, hue: NaN };
+  for (let i = 0; i < clipped.length; i++) {
+    const chroma = hypot(clipped[i][0], clipped[i][1]);
+    if (chroma > ACHROMATIC_CHROMA && chroma > best.chroma) {
+      best = { chroma, hue: normalise(atan2(clipped[i][1], clipped[i][0]) / RAD) };
+    }
+  }
+  return best;
+}
+
+/** The largest in-band chroma among the 8-bit pixels `ditherReachable` lists, and its pixel. */
+export function maxInBandChromaOfPixels(lab: Oklab, band: RedBand, amplitudeL: number): InBandMax & { readonly pixel: Srgb } {
+  assertRedBand(band);
+  const pixels = ditherReachable(lab, amplitudeL);
+  let best: InBandMax & { pixel: Srgb } = { chroma: 0, hue: NaN, pixel: pixels[0] };
+  for (let i = 0; i < pixels.length; i++) {
+    const shown = sweepSrgbToOklab(pixels[i]);
+    const chroma = hypot(shown.a, shown.b);
+    const hue = atan2(shown.b, shown.a) / RAD;
+    if (chroma > ACHROMATIC_CHROMA && chroma > best.chroma && hueInBand(hue, band)) {
+      best = { chroma, hue: normalise(hue), pixel: pixels[i] };
+    }
+  }
+  return best;
+}
+
 /**
  * Every 8-bit sRGB pixel the device can show for `lab` when a static dither δ in
  * [−amplitudeL, +amplitudeL] is added to OKLab L, the result is clamped to the gamut, and each

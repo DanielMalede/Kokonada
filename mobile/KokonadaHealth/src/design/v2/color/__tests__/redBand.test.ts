@@ -4,6 +4,8 @@ import {
   ditherReachable,
   hueInBand,
   isRed,
+  maxInBandChromaInTriangle,
+  maxInBandChromaOfPixels,
   reachableRedPixel,
   segmentTouchesRed,
   triangleTouchesRed,
@@ -155,6 +157,90 @@ describe('triangleTouchesRed: a straight mix composited toward a third colour', 
 
   it('is red when a corner is red', () => {
     expect(triangleTouchesRed(TEAL, DEEP_BLUE, srgbToOklab([1, 0, 0]), V0_BAND)).toBe(true);
+  });
+});
+
+// The margin rule (DEC-081, DSN-013) needs the largest in-band chroma, not only a verdict. For a
+// triangle it is exact: the triangle clipped to the band's cone (the band is narrower than 180°,
+// so the cone is convex) is a convex polygon, and chroma, a convex function, peaks at a vertex.
+describe('maxInBandChromaInTriangle: the exact largest in-band chroma', () => {
+  const at = (C: number, h: number): Oklab => lch(0.6, C, h);
+  const ORIGIN = { L: 0.6, a: 0, b: 0 };
+
+  /** Oracle: a dense barycentric grid over the triangle, which knows nothing about clipping. */
+  function bruteForce(p: Oklab, q: Oklab, r: Oklab, band: RedBand, n = 400): number {
+    let best = 0;
+    for (let i = 0; i <= n; i++) {
+      for (let j = 0; i + j <= n; j++) {
+        const u = i / n;
+        const v = j / n;
+        const a = p.a + u * (q.a - p.a) + v * (r.a - p.a);
+        const b = p.b + u * (q.b - p.b) + v * (r.b - p.b);
+        const C = Math.hypot(a, b);
+        if (C > 0 && hueInBand((Math.atan2(b, a) * 180) / Math.PI, band)) best = Math.max(best, C);
+      }
+    }
+    return best;
+  }
+
+  it('a triangle inside the band peaks at its most chromatic corner', () => {
+    const max = maxInBandChromaInTriangle(ORIGIN, at(0.03, 20), at(0.05, 30), V0_BAND);
+    expect(max.chroma).toBeCloseTo(0.05, 12);
+    expect(max.hue).toBeCloseTo(30, 9);
+  });
+
+  it('a triangle that crosses an edge peaks where its side meets the edge ray', () => {
+    // From 40° at C 0.02 to 60° at C 0.1: the in-band part ends at 50°.
+    const max = maxInBandChromaInTriangle(at(0.02, 40), at(0.1, 60), at(0.02, 40), V0_BAND);
+    expect(max.hue).toBeCloseTo(50, 9);
+    expect(max.chroma).toBeGreaterThan(0.02);
+    expect(Math.abs(max.chroma - bruteForce(at(0.02, 40), at(0.1, 60), at(0.02, 40), V0_BAND))).toBeLessThan(2e-4);
+  });
+
+  it('a triangle on the cool side has none in the band', () => {
+    expect(maxInBandChromaInTriangle(TEAL, DEEP_BLUE, ORIGIN, V0_BAND)).toEqual({ chroma: 0, hue: NaN });
+  });
+
+  it('the straight amber-to-orchid chord peaks where it enters at 50°, above every sample of it', () => {
+    const max = maxInBandChromaInTriangle(AMBER, ORIGIN, ORCHID, V0_BAND);
+    const chord = maxInBandChromaInTriangle(AMBER, AMBER, ORCHID, V0_BAND);
+    expect(chord.hue).toBeCloseTo(50, 9);
+    expect(max.chroma).toBeGreaterThanOrEqual(chord.chroma);
+    expect(Math.abs(max.chroma - bruteForce(AMBER, ORIGIN, ORCHID, V0_BAND))).toBeLessThan(2e-4);
+  });
+
+  // Property: on 150 seeded triangles the exact maximum is at least the oracle's, never more
+  // than its grid error above it, and its verdict at the floor is triangleTouchesRed's.
+  it('agrees with the brute force and with triangleTouchesRed on random triangles', () => {
+    let x = 12345;
+    const random = () => (x = (x * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    const corner = () => at(0.12 * random(), 360 * random());
+    for (let i = 0; i < 150; i++) {
+      const [p, q, r] = [corner(), corner(), corner()];
+      const exact = maxInBandChromaInTriangle(p, q, r, V0_BAND).chroma;
+      const grid = bruteForce(p, q, r, V0_BAND, 200);
+      expect(exact).toBeGreaterThanOrEqual(grid - 1e-12);
+      expect(exact - grid).toBeLessThan(2e-3);
+      expect(exact >= V0_BAND.chromaFloor).toBe(triangleTouchesRed(p, q, r, V0_BAND));
+    }
+  });
+
+  it('refuses a band of 180° or more, where the cone is not convex', () => {
+    expect(() => maxInBandChromaInTriangle(ORIGIN, AMBER, ORCHID, { hueFrom: 0, hueTo: 200, chromaFloor: 0.02 })).toThrow(RangeError);
+  });
+});
+
+describe('maxInBandChromaOfPixels: the largest in-band chroma the device can show', () => {
+  it('for the near-floor sample, quantised alone and with the dither', () => {
+    const sample = lch(0.6, 0.0192, 25);
+    expect(maxInBandChromaOfPixels(sample, V0_BAND, 0).chroma).toBeCloseTo(0.0188, 4);
+    const dithered = maxInBandChromaOfPixels(sample, V0_BAND, 1 / 255);
+    expect(dithered.chroma).toBeCloseTo(0.02004, 5);
+    expect(dithered.pixel.map((c) => Math.round(c * 255))).toEqual([139, 123, 121]);
+  });
+
+  it('a grey has nothing in the band above rounding noise', () => {
+    expect(maxInBandChromaOfPixels({ L: 0.6, a: 0, b: 0 }, V0_BAND, 1 / 255).chroma).toBeLessThan(0.005);
   });
 });
 
