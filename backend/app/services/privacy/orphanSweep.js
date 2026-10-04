@@ -68,8 +68,10 @@ const REFUSE_ABOVE = 5;
 const KILL_SWITCH = 'ORPHAN_SWEEP_DISABLED';
 const OBJECT_ID = /^[0-9a-fA-F]{24}$/;
 
-// The marker. A raw collection with no model file, so no model-discovery guard (retention, export, erasure
-// lockstep) ever sees it; it holds no user data.
+// The marker: one document in `opsmarkers`, holding no user data. Its model is defined here, not in
+// app/models, so no model-discovery guard (retention, export, erasure lockstep) ever sees it. It never
+// creates its collection (autoCreate and autoIndex off): only armOrphanSweep's write does. It is written
+// through the model, never the raw driver (resilience N3, tests/youtubeTokenWriters.structural.test.js).
 const MARKER_COLLECTION = 'opsmarkers';
 const MARKER_ID = 'orphan-sweep';
 const MARKER_FIELDS = ['_id', 'armedAt', 'deployedCommit', 'kind', 'recordSha256', 'recountOrphans', 'v'];
@@ -103,9 +105,18 @@ function orphanSetFingerprint(ids) {
   return crypto.createHash('sha256').update(set.join('\n')).digest('hex').slice(0, 8);
 }
 
-function markerCollection() {
-  return mongoose.connection.db.collection(MARKER_COLLECTION);
-}
+const Marker = mongoose.model('OpsMarker', new mongoose.Schema({
+  _id: String,
+  v: Number,
+  kind: String,
+  armedAt: Date,
+  recordSha256: String,
+  recountOrphans: Number,
+  deployedCommit: String,
+}, { collection: MARKER_COLLECTION, versionKey: false, autoCreate: false, autoIndex: false, strict: 'throw' }));
+
+/** The marker as stored (every field, known or not), read on the primary. */
+const readMarker = () => Marker.findOne({ _id: MARKER_ID }).read('primary').lean();
 
 function validMarker(doc) {
   if (!doc || typeof doc !== 'object') return false;
@@ -127,7 +138,7 @@ async function isArmed() {
   if (disabled(process.env[KILL_SWITCH])) return { armed: false, reason: 'override' };
   let doc;
   try {
-    doc = await markerCollection().findOne({ _id: MARKER_ID }, { readPreference: 'primary' });
+    doc = await readMarker();
   } catch {
     return { armed: false, reason: 'read-error' };
   }
@@ -275,9 +286,8 @@ async function armOrphanSweep({ confirm, recordSha256, deployedCommit } = {}) {
   if (typeof deployedCommit !== 'string' || !COMMIT_HEX.test(deployedCommit)) throw new OrphanSweepRefused('deployed-commit');
   const found = await discover();
   if (found.orphans.length > 0) throw new OrphanSweepRefused('orphans', { orphans: found.orphans.length, ids: found.ids });
-  const current = await markerCollection().findOne({ _id: MARKER_ID }, { readPreference: 'primary' });
-  if (validMarker(current)) return { armed: true, v: 1 };
-  await markerCollection().replaceOne(
+  if (validMarker(await readMarker())) return { armed: true, v: 1 };
+  await Marker.replaceOne(
     { _id: MARKER_ID },
     { v: 1, kind: MARKER_ID, armedAt: new Date(), recordSha256, recountOrphans: 0, deployedCommit },
     { upsert: true, writeConcern: { w: 'majority' } },
@@ -287,7 +297,7 @@ async function armOrphanSweep({ confirm, recordSha256, deployedCommit } = {}) {
 
 /** §C: disarms the nightly run (deletes the marker). */
 async function disarmOrphanSweep() {
-  const res = await markerCollection().deleteOne({ _id: MARKER_ID }, { writeConcern: { w: 'majority' } });
+  const res = await Marker.deleteOne({ _id: MARKER_ID }, { writeConcern: { w: 'majority' } });
   return { disarmed: res.deletedCount };
 }
 
