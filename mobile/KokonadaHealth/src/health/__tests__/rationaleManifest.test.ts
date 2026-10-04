@@ -143,3 +143,21 @@ describe('AndroidManifest.xml — MainActivity no longer answers Health Connect'
     expect(exported).toEqual(['.MainActivity', RATIONALE_ACTIVITY, 'ViewPermissionUsageActivity']);
   });
 });
+
+// MB-093. Both the app manifest and the copy-me snippet remove rxandroidble's uncapped API 23+ COARSE
+// and FINE location, so a setup copied from the snippet does not bring them back. These pin the
+// source; what ships is checked on the merged manifest by scripts/lab/assertManifests.mjs.
+describe.each([
+  ['AndroidManifest.xml', MANIFEST],
+  ['native-snippets/AndroidManifest.additions.xml', SNIPPET],
+])('%s — no location beyond the capped FINE entry (MB-093)', (_label, file) => {
+  const root = parse(`<fragment>${fs.readFileSync(file, 'utf8')}</fragment>`);
+
+  it('removes rxandroidble’s two uncapped API 23+ location entries', () => {
+    const sdk23 = named(root, 'uses-permission-sdk-23').map((p) => `${nameOf(p)} tools:node=${p.attrs['tools:node']}`);
+    expect(sdk23).toEqual([
+      'android.permission.ACCESS_FINE_LOCATION tools:node=remove',
+      'android.permission.ACCESS_COARSE_LOCATION tools:node=remove',
+    ]);
+  });
+});
