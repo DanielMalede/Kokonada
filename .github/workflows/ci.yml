@@ -89,6 +89,19 @@ jobs:
       - name: Design-system lint
         run: npm run lint:design-system
         working-directory: mobile/KokonadaHealth
+      # The Design Lab must be ABSENT from every build that can be uploaded (MB-084; Apple 2.3.1(a)
+      # with 2.2; Play Deceptive Behavior). This bundles index.js exactly as the release Gradle task
+      # does (Metro --dev false, then hermesc), scans the JS, the sourcemap and the bytecode for any
+      # lab trace, and runs the same pipeline over index.lab.js as a positive control, so a clean
+      # result means the scan could see the lab. Exit 2 (the check could not run) fails too.
+      - name: Design Lab exclusion
+        run: node scripts/lab/assertLabExcluded.mjs
+        working-directory: mobile/KokonadaHealth
+      # The same check on the iOS release bundle (Metro --platform ios, then hermesc), so QA-077
+      # clause A3 ("for Android and for iOS") holds on every PR.
+      - name: Design Lab exclusion (iOS bundle)
+        run: node scripts/lab/assertLabExcluded.mjs --platform ios
+        working-directory: mobile/KokonadaHealth
 
   mobile-android-compile:
     name: Mobile — Android compile check
@@ -118,6 +131,9 @@ jobs:
               - 'mobile/KokonadaHealth/android/**'
               - 'mobile/KokonadaHealth/package.json'
               - 'mobile/KokonadaHealth/package-lock.json'
+              - 'mobile/KokonadaHealth/scripts/lab/**'
+              - 'mobile/KokonadaHealth/modules/**'
+              - 'mobile/KokonadaHealth/index*.js'
               - '.github/workflows/ci.yml'
       - uses: actions/setup-node@v4
         if: steps.changes.outputs.android == 'true'
@@ -141,6 +157,28 @@ jobs:
         # gradlew is committed without the execute bit (authored on Windows), so actions/checkout
         # lays it down non-executable → exit 126. chmod it before invoking.
         run: chmod +x gradlew && ./gradlew :app:processDebugResources :app:compileDebugKotlin :app:compileDebugJavaWithJavac --console=plain
+        working-directory: mobile/KokonadaHealth/android
+      # MB-084: merge the release and lab manifests and compile both variants' Kotlin, then check that
+      # release declares and compiles no Design Lab, and that the lab declares none of the real app
+      # (no MainActivity, network, health or Bluetooth permission, or real-app scheme). The scripts
+      # exit 2 when there is nothing to check, so a skipped merge cannot pass.
+      - name: Design Lab — merged manifests and release classes
+        if: steps.changes.outputs.android == 'true'
+        run: |
+          ./gradlew :app:processReleaseMainManifest :app:processLabMainManifest :app:compileLabKotlin :app:compileReleaseKotlin :app:createBundleReleaseJsAndAssets --console=plain
+          node ../scripts/lab/assertManifests.mjs
+          node ../scripts/lab/assertLabExcluded.mjs --scan app/build/tmp/kotlin-classes/release
+          # Positive control: the same scan must FIND the lab in the lab's own classes (exit 1 exactly);
+          # 0 or 2 means it could not see a lab class, so the release result above proves nothing.
+          rc=0; node ../scripts/lab/assertLabExcluded.mjs --scan app/build/tmp/kotlin-classes/lab || rc=$?
+          test "$rc" -eq 1
+          # The real release task's own outputs: bytecode, packager/compiler maps, composed map.
+          test -s app/build/generated/assets/react/release/index.android.bundle
+          test -s app/build/intermediates/sourcemaps/react/release/index.android.bundle.packager.map
+          node ../scripts/lab/assertLabExcluded.mjs --scan app/build/generated/assets/react/release app/build/intermediates/sourcemaps/react/release app/build/generated/sourcemaps/react/release
+          # QA-077 B 6a: the compiler map and the composed map exist and are non-empty too.
+          test -s app/build/intermediates/sourcemaps/react/release/index.android.bundle.compiler.map
+          test -s app/build/generated/sourcemaps/react/release/index.android.bundle.map
         working-directory: mobile/KokonadaHealth/android
 
   # Cheap Ubuntu job whose only purpose is to decide whether the 10x macOS runner is worth

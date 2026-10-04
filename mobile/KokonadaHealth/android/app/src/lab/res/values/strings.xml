@@ -1,0 +1,4 @@
+<resources>
+    <!-- The Design Lab installs beside the real app (its own package), so it needs its own name. -->
+    <string name="app_name">Kokonada Lab</string>
+</resources>
