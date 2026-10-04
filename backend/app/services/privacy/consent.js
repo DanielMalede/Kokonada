@@ -170,7 +170,8 @@ async function withdrawConsent(userId, purpose) {
   let learningJobs = 'skipped';
   if (hadGrantOnFile) {
     try {
-      learningJobs = String((await purgeUserJobs(userId)).removed);
+      // J2 (T4): the same purge also removes the state-recompute jobs; this token counts learning jobs only.
+      learningJobs = String((await purgeUserJobs(userId)).byQueue['reward-ingest'].removed);
     } catch {
       learningJobs = 'failed';
       erasureFailures.push('learning-jobs');

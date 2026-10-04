@@ -42,8 +42,11 @@ jest.mock('../app/services/privacy/sessionHealthErasure', () => ({
 // the same footing as the mocks above: this suite has no Redis, and with REDIS_URL exported the real
 // module would dial it. The jobs are proven gone on real Redis and real Mongo in
 // tests/consentWithdrawalJobs.redis.test.js.
+// J2 (P13; fixture F1): the purge's result also names each queue's count, as the real one does.
 jest.mock('../app/queues/userJobPurge', () => ({
-  purgeUserJobs: jest.fn().mockResolvedValue({ removed: 0, inFlight: 0 }),
+  purgeUserJobs: jest.fn().mockResolvedValue({
+    removed: 0, inFlight: 0, byQueue: { 'reward-ingest': { removed: 0, inFlight: 0 }, 'state-vector-recompute': { removed: 0, inFlight: 0 } },
+  }),
 }));
 
 const ConsentRecord = require('../app/models/ConsentRecord');
@@ -378,7 +381,7 @@ describe('withdrawConsent — learning jobs in the job queue (J1)', () => {
   it('the line carries learningJobs= with the count, right after providerErasureFailures=', async () => {
     grantOnFile();
     User.findById.mockResolvedValue(null);
-    purgeUserJobs.mockResolvedValueOnce({ removed: 3, inFlight: 1 });
+    purgeUserJobs.mockResolvedValueOnce({ removed: 3, inFlight: 1, byQueue: { 'reward-ingest': { removed: 3, inFlight: 1 }, 'state-vector-recompute': { removed: 0, inFlight: 0 } } });
 
     await consent.withdrawConsent(USER, PURPOSE);
 
@@ -419,5 +422,26 @@ describe('withdrawConsent — learning jobs in the job queue (J1)', () => {
 
     expect(result.erasureFailures).toEqual(['learning-jobs', 'learning']);
     expect(withdrawalLine(info)).toContain(' learningJobs=failed learning=failed ');
+  });
+});
+
+// J2 (T4): the purge also removes the state-recompute jobs, and its result names each queue's count.
+// `learningJobs=` must still count only the learning jobs, never a state job.
+describe('withdrawConsent — learningJobs counts learning jobs only (J2)', () => {
+  let info;
+  beforeEach(() => { info = jest.spyOn(console, 'info').mockImplementation(() => {}); });
+  afterEach(() => info.mockRestore());
+
+  it('the purge removed 3 learning jobs and 2 state jobs: learningJobs=3', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: consent.CURRENT_CONSENT_VERSION });
+    User.findById.mockResolvedValue(null);
+    purgeUserJobs.mockResolvedValueOnce({
+      removed: 5, inFlight: 0, byQueue: { 'reward-ingest': { removed: 3, inFlight: 0 }, 'state-vector-recompute': { removed: 2, inFlight: 0 } },
+    });
+
+    await consent.withdrawConsent(USER, PURPOSE);
+
+    const line = info.mock.calls.map((c) => String(c[0])).find((l) => l.startsWith('[consent-withdrawal]'));
+    expect(line).toContain(' providerErasureFailures=0 learningJobs=3 learning=purged ');
   });
 });
