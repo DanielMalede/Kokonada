@@ -73,7 +73,11 @@ cannot prove.
    installs anything.
 3. **Install it yourself,** beside the real app: `adb install -r android/app/build/outputs/apk/lab/app-lab.apk`.
    The package is `com.kokonadahealth.lab` and it is debug-signed, so the real app and its data are
-   untouched.
+   untouched. Every worktree signs the lab with the main checkout's debug keystore. If `install -r`
+   still reports a signature mismatch (a lab installed from an older route), remove only the lab:
+   `adb uninstall com.kokonadahealth.lab`. Never shorten the package: `com.kokonadahealth` is the
+   real app, with its data. `scripts/lab/__tests__/uninstallPin.test.ts` keeps every uninstall in the
+   lab tooling on the exact lab package.
 4. **`node scripts/lab/capture.mjs --plan scripts/lab/capture-plans/smoke.json --out <folder outside the repo>`**:
    - **It refuses unless:**
      - the stamp chain holds: HEAD, porcelain, stamp, the APK's bundle and stamp, and the installed
