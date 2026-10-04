@@ -104,6 +104,64 @@ const upTo = (limit: number, step: number) => {
   return Array.from({ length: n + 1 }, (_, i) => (i === n ? limit : (i * limit) / n));
 };
 
+/**
+ * The edge sweep's resolutions; neverRed.edges.test.ts pins them.
+ *   • floatKStep: the halo and field k step of the exact float pass (design band).
+ *   • byteKStep: the k step of the 8-bit pass (check band), coarser because rounding is a small
+ *     perturbation of the float colour.
+ *   • presenceShares: the bead presences, as shares of the direction's bead chroma scale.
+ *   • byteDitherAmplitude: each 8-bit background is the nearest pixels of a lit colour at L − A, L
+ *     and L + A, plus this much dither (0: the nearest pixels only).
+ *   • ctaMixSteps: the CTA fill is taken at every i / ctaMixSteps of each mixSafe transition.
+ * The default run keeps the coarse 8-bit grids. A full-resolution 8-bit pass is planned as its own
+ * serial jest project (docs/design-v2/V1_SQUAD_B_NOTES.md, "the sweeps project").
+ */
+export const EDGE_SWEEP_GRID = {
+  floatKStep: 0.01,
+  byteKStep: 0.1,
+  presenceShares: [0.25, 0.5, 1],
+  byteDitherAmplitude: 0,
+  ctaMixSteps: 20,
+} as const;
+
+export interface EdgeSweepInputs {
+  readonly floatKStep: number;
+  readonly byteKStep: number;
+  /** EDGE_SWEEP_GRID.presenceShares times the direction's bead chroma scale. */
+  readonly presences: readonly number[];
+  /** The turns a field-lit colour takes; halo-lit colours never turn. */
+  readonly shimmers: readonly number[];
+  /** The L shifts grain and dither give a lit surface: −A, 0 and +A. */
+  readonly lShifts: readonly number[];
+  readonly byteDitherAmplitude: number;
+  readonly ctaMixSteps: number;
+}
+
+/** What edgeFamiliesFor sweeps for a direction, from EDGE_SWEEP_GRID and the direction's tokens. */
+export function edgeSweepInputs(id: DirectionId): EdgeSweepInputs {
+  const d = DIRECTIONS[id];
+  const deg = d.field.shimmer.deg;
+  const amplitude = amplitudeFor(id);
+  const grid = EDGE_SWEEP_GRID;
+  return {
+    floatKStep: grid.floatKStep,
+    byteKStep: grid.byteKStep,
+    presences: grid.presenceShares.map((p) => p * d.bead.chromaScale),
+    shimmers: deg > 0 ? [-deg, 0, deg] : [0],
+    lShifts: [-amplitude, 0, amplitude],
+    byteDitherAmplitude: grid.byteDitherAmplitude,
+    ctaMixSteps: grid.ctaMixSteps,
+  };
+}
+
+/**
+ * The coverages an ink at coverage α is swept over: [0, α] in float; 1 to ⌈α·255⌉ on 8-bit pixels,
+ * at most 254 (255 is the ink itself, which the authored-colour check covers).
+ */
+export function coverageRange(coverage: number): { readonly float: readonly [number, number]; readonly bytes: readonly [number, number] } {
+  return { float: [0, coverage], bytes: [1, Math.min(254, Math.max(1, Math.ceil(coverage * 255)))] };
+}
+
 /** An ink and how far it can cover: 1 for a solid edge, its alpha for a shadow. */
 interface Ink {
   readonly colour: ColorValue;
@@ -123,12 +181,12 @@ class Family {
   }
 
   float(bg: Srgb, ink: Srgb, coverage: number): void {
-    const found = maxInBandOnSrgbBlend(bg, ink, DESIGN_BAND, coverage);
+    const found = maxInBandOnSrgbBlend(bg, ink, DESIGN_BAND, coverageRange(coverage).float[1]);
     if (found.chroma > this.design.chroma) this.design = found;
   }
 
   pixels(bg: Bytes, ink: Bytes, coverage: number): void {
-    const cap = Math.min(254, Math.max(1, Math.ceil(coverage * 255)));
+    const cap = coverageRange(coverage).bytes[1];
     const key = `${bg.join(',')}>${ink.join(',')}@${cap}`;
     if (this.seen.has(key)) return;
     this.seen.add(key);
@@ -146,9 +204,7 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   const c = d.color[face];
   const tier = tierFor(face);
   const kp = d.field.pivot;
-  const amplitude = amplitudeFor(id);
-  const presences = [0.25, 0.5, 1].map((p) => p * d.bead.chromaScale);
-  const shimmers = d.field.shimmer.deg > 0 ? [-d.field.shimmer.deg, 0, d.field.shimmer.deg] : [0];
+  const { floatKStep, byteKStep, presences, shimmers, lShifts, byteDitherAmplitude, ctaMixSteps } = edgeSweepInputs(id);
   const anchors = QUADRANTS.map((q) => lab(BASE.emotion[q][tier]));
   const srgb = (x: Oklab) => sweepOklabToSrgb(x);
 
@@ -168,11 +224,11 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   // at L − amplitude, L and L + amplitude ("grain at both extremes", designer §1.2 step 1), in float
   // and as its 8-bit pixel (a rounding tie either way).
   const shifted = (colours: Oklab[]): Oklab[] =>
-    colours.flatMap((colour) => [-amplitude, 0, amplitude].map((delta) => ({ L: colour.L + delta, a: colour.a, b: colour.b })));
+    colours.flatMap((colour) => lShifts.map((delta) => ({ L: colour.L + delta, a: colour.a, b: colour.b })));
   const quantised = (colours: Oklab[]): Bytes[] => {
     const out = new Map<string, Bytes>();
     for (const colour of colours) {
-      for (const p of ditherReachable(colour, 0)) {
+      for (const p of ditherReachable(colour, byteDitherAmplitude)) {
         const bytes = toBytes(p);
         out.set(bytes.join(','), bytes);
       }
@@ -182,16 +238,16 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   const ring = lab(c.plate.ring);
   const faceGround = lab(c.plate.face);
   const fieldNodes = [...anchors, lab(c.field.restGlow)];
-  const ringFloat = shifted(lit(ring, anchors, haloPeak(face), [0], 0.01));
-  const ringBytes = quantised(shifted(lit(ring, anchors, haloPeak(face), [0], 0.1)));
+  const ringFloat = shifted(lit(ring, anchors, haloPeak(face), [0], floatKStep));
+  const ringBytes = quantised(shifted(lit(ring, anchors, haloPeak(face), [0], byteKStep)));
   const faceFloat = shifted([
-    ...lit(faceGround, anchors, haloPeak(face), [0], 0.01),
-    ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, 0.01) : []),
+    ...lit(faceGround, anchors, haloPeak(face), [0], floatKStep),
+    ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, floatKStep) : []),
   ]);
   const faceBytes = quantised(
     shifted([
-      ...lit(faceGround, anchors, haloPeak(face), [0], 0.1),
-      ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, 0.1) : []),
+      ...lit(faceGround, anchors, haloPeak(face), [0], byteKStep),
+      ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, byteKStep) : []),
     ]),
   );
 
@@ -245,7 +301,7 @@ export function edgeFamiliesFor(id: DirectionId, face: Face): EdgeFamilyMax[] {
   for (const from of ends) {
     for (const to of ends) {
       if (from === to) continue;
-      for (let i = 1; i < 20; i++) ctaFills.push(mixSafe(from, to, i / 20, DESIGN_BAND));
+      for (let i = 1; i < ctaMixSteps; i++) ctaFills.push(mixSafe(from, to, i / ctaMixSteps, DESIGN_BAND));
     }
   }
   pairsOf('CTA fill · text.onTint', ctaFills.map((f) => [f, lab(c.text.onTint)]));
