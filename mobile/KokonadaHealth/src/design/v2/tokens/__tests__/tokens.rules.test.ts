@@ -2,7 +2,7 @@ import { graphSegments, sweepNeverRed, type BlendGraph, type NeverRedSweep } fro
 import { contrastRatio } from '../../color/contrast.ts';
 import { hueSeparationViolations } from '../../color/deltaE.ts';
 import { srgbToOklab, type Oklab, type Srgb } from '../../color/oklab.ts';
-import { isRed, type RedBand } from '../../color/redBand.ts';
+import { hueInBand, isRed, type RedBand } from '../../color/redBand.ts';
 import { breathLawViolations, type BreathLaw } from '../../motion/breathLaw.ts';
 import { BASE, DIRECTIONS, EXTENSIONS, type ColorValue, type DirectionId, type Face } from '../tokens.generated.ts';
 
@@ -74,6 +74,21 @@ describe('QA-064', () => {
 const GRAPH = EXTENSIONS.base['field.graph'] as unknown as {
   edges: { straight: Array<[string, string]>; waypoint: Array<[string, string]>; restIntense: [string, string] };
 };
+
+describe('the blend graph and the bands', () => {
+  // topTwoSoft can pick any two beads, so every pair of nodes needs exactly one edge.
+  it('the blend graph joins every pair of nodes exactly once', () => {
+    const key = (a: string, b: string) => [a, b].sort().join('-');
+    const n = ['J', 'C', 'R', 'I', 'R0'];
+    const listed = [...GRAPH.edges.straight, ...GRAPH.edges.waypoint, GRAPH.edges.restIntense].map(([a, b]) => key(a, b)).sort();
+    expect(listed).toEqual(n.flatMap((a, i) => n.slice(i + 1).map((b) => key(a, b))).sort());
+  });
+
+  it('the design band contains the check band, and its floor is no higher', () => {
+    for (let h = 0; h < 360; h += 0.25) if (hueInBand(h, CHECK_BAND)) expect(hueInBand(h, DESIGN_BAND)).toBe(true);
+    expect(DESIGN_BAND.chromaFloor).toBeLessThanOrEqual(CHECK_BAND.chromaFloor);
+  });
+});
 
 function sweepFor(id: DirectionId, face: Face, edges?: { straight: Array<[string, string]>; waypoint: Array<[string, string]> }): NeverRedSweep {
   const d = DIRECTIONS[id];
