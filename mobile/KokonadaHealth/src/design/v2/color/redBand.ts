@@ -190,19 +190,41 @@ export function maxInBandChromaInTriangle(p: Oklab, q: Oklab, r: Oklab, band: Re
 }
 
 /** The largest in-band chroma among the 8-bit pixels `ditherReachable` lists, and its pixel. */
+/** Per band, each 8-bit pixel's in-band chroma (−1 when not in the band): a sweep meets the same
+ *  pixels many times, and there are at most 2^24 of them. */
+const PIXEL_CHROMA = new Map<string, Map<number, number>>();
+
 export function maxInBandChromaOfPixels(lab: Oklab, band: RedBand, amplitudeL: number): InBandMax & { readonly pixel: Srgb } {
   assertRedBand(band);
+  const bandKey = `${band.hueFrom}/${band.hueTo}`;
+  let cache = PIXEL_CHROMA.get(bandKey);
+  if (!cache) {
+    cache = new Map();
+    PIXEL_CHROMA.set(bandKey, cache);
+  }
   const pixels = ditherReachable(lab, amplitudeL);
-  let best: InBandMax & { pixel: Srgb } = { chroma: 0, hue: NaN, pixel: pixels[0] };
+  let bestChroma = 0;
+  let bestPixel = pixels[0];
   for (let i = 0; i < pixels.length; i++) {
-    const shown = sweepSrgbToOklab(pixels[i]);
-    const chroma = hypot(shown.a, shown.b);
-    const hue = atan2(shown.b, shown.a) / RAD;
-    if (chroma > ACHROMATIC_CHROMA && chroma > best.chroma && hueInBand(hue, band)) {
-      best = { chroma, hue: normalise(hue), pixel: pixels[i] };
+    const p = pixels[i];
+    const key = round(p[0] * 255) * 65536 + round(p[1] * 255) * 256 + round(p[2] * 255);
+    let chroma = cache.get(key);
+    if (chroma === undefined) {
+      const shown = sweepSrgbToOklab(p);
+      const C = hypot(shown.a, shown.b);
+      chroma = C > ACHROMATIC_CHROMA && hueInBand(atan2(shown.b, shown.a) / RAD, band) ? C : -1;
+      cache.set(key, chroma);
+    }
+    if (chroma > bestChroma) {
+      bestChroma = chroma;
+      bestPixel = p;
     }
   }
-  return best;
+  if (bestChroma === 0) {
+    return { chroma: 0, hue: NaN, pixel: bestPixel };
+  }
+  const shown = sweepSrgbToOklab(bestPixel);
+  return { chroma: bestChroma, hue: normalise(atan2(shown.b, shown.a) / RAD), pixel: bestPixel };
 }
 
 /**
