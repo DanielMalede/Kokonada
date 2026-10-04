@@ -1,6 +1,12 @@
 {
   "neverRed": {
-    "$extensions": {"com.kokonada":{"lock":"owner:DEC-081","status":"decided","rule":"red iff hue in [start,end] inclusive and C >= floor"}},
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "owner:DEC-081",
+        "status": "decided",
+        "rule": "red iff hue in [start,end] inclusive and C >= floor"
+      }
+    },
     "check": {
       "hueStart": {"$type":"number","$value":350},
       "hueEnd": {"$type":"number","$value":50},
@@ -110,6 +116,7 @@
       "amplitude": {"$type":"number","$value":0.003922},
       "pattern": {"$type":"string","$value":"blueNoise64.static"}
     },
+    "noise": {"space":{"$type":"string","$value":"oklab.L"},"paintDither":{"$type":"number","$value":0}},
     "tiers": {
       "$extensions": {"com.kokonada":{"lock":"owner:DEC-084","status":"proposed"}},
       "H": {
@@ -304,6 +311,30 @@
           "weight": {"$type":"fontWeight","$value":400},
           "tracking": {"$type":"number","$value":0}
         }
+      },
+      "title": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":28,"unit":"px"}},
+          "tracking": {"$type":"number","$value":-0.005}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":30,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        }
+      },
+      "display": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":28,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":34,"unit":"px"}},
+          "tracking": {"$type":"number","$value":-0.01}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":28,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":36,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        }
       }
     }
   },
@@ -360,7 +391,12 @@
     }
   },
   "haptics": {
-    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer",
+        "delay": "In PRIMITIVE@delayMs:scale, the delay is Android's VibrationEffect.Composition.addPrimitive delay: the gap after the previous primitive ends, not time from the start of the event."
+      }
+    },
     "minEventGap": {"$type":"duration","$value":{"value":80,"unit":"ms"}}
   },
   "$extensions": {

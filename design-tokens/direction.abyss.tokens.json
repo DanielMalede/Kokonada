@@ -125,8 +125,7 @@
       "centreLift": {"dark":{"$type":"number","$value":0},"light":{"$type":"number","$value":0.03}}
     },
     "rim": {"light":{"$type":"number","$value":1}},
-    "ringHighlightArc": {"$type":"number","$value":0},
-    "labelBand": {"min":{"$type":"dimension","$value":{"value":28,"unit":"px"}}}
+    "ringHighlightArc": {"$type":"number","$value":0}
   },
   "bead": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},

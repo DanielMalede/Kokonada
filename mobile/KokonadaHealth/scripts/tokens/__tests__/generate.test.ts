@@ -96,6 +96,25 @@ describe('buildTokenModel', () => {
     expect(model.directions.abyss.elevation.e2.light).toEqual([]);
   });
 
+  // Designer B2 review §4 and §5.
+  it('carries the noise rule, the title and display sizes, and no per-direction label band', () => {
+    expect(model.base.field.noise).toEqual({ space: 'oklab.L', paintDither: 0 });
+    expect(model.base.type.ui.title).toEqual({
+      latin: { size: 20, lineHeight: 28, tracking: -0.005 },
+      hebrew: { size: 20, lineHeight: 30, tracking: 0 },
+    });
+    expect(model.base.type.ui.display).toEqual({
+      latin: { size: 28, lineHeight: 34, tracking: -0.01 },
+      hebrew: { size: 28, lineHeight: 36, tracking: 0 },
+    });
+    for (const id of ['abyss', 'basin', 'linen']) expect(model.directions[id].plate.labelBand).toBeUndefined();
+    expect(model.base.plate.labelBand.min).toBe(28);
+  });
+
+  it('defines the haptic delay as Android’s gap after the previous primitive ends', () => {
+    expect(model.extensions.base.haptics.delay).toMatch(/addPrimitive.*after the previous primitive ends/);
+  });
+
   it('collects the $extensions data by path, without locks or hex markers', () => {
     expect(model.extensions.base.$root.hero.elements).toEqual(expect.arrayContaining(['hero.header', 'hero.scroll']));
     expect(model.extensions.base.neverRed).toEqual({ status: 'decided', rule: 'red iff hue in [start,end] inclusive and C >= floor' });

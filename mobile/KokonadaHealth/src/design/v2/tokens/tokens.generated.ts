@@ -3,10 +3,10 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  'base.tokens.json': '3d8e8c03cd9abd42db36aa169c267046fc84335f0b814a2923e2f2c64b25a5b3',
-  'direction.abyss.tokens.json': '1f6a9dcb3fe403b6666748b4dd782b843fcf53923cc9cfcea020450867cbc0f2',
-  'direction.basin.tokens.json': '32ff7e69a25f8f3cb74aca8306c086625a03c948456d730470057f4f0b83b776',
-  'direction.linen.tokens.json': '4e87060ad05255c7e97518076ab0dfc0692e129536b762b12b1303f2a7f8ad02',
+  'base.tokens.json': 'd0564f791d05103daff3f18c53321fe326fd1f538c2637fa24f04f2e7fcadcf9',
+  'direction.abyss.tokens.json': '1f62771eb11577b8abdfe086154e5d767f866f4e50ee094e6d369e5c952d8a45',
+  'direction.basin.tokens.json': '468a492f41adfa719ddfc55746a22d89289570e53137a3e66290ea8c00d04b91',
+  'direction.linen.tokens.json': 'dc22aca8e8225ee907f5aa75181f5ebbc348d5897c4a6c96853ff0f8d32f454d',
 };
 
 export type DirectionId = 'abyss' | 'basin' | 'linen';
@@ -105,6 +105,7 @@ export const BASE = {
     metaball: { low: 0.55, high: 1.6 },
     halo: { diameter: 44, peakDark: 0.45, peakLight: 0.25, combine: 'max', clipToRim: 1 },
     dither: { amplitude: 0.003922, pattern: 'blueNoise64.static' },
+    noise: { space: 'oklab.L', paintDither: 0 },
     tiers: {
       H: { renderScale: 0.5, octaves: 3, fpsCap: 60, shimmer: 1 },
       M: { renderScale: 0.33, octaves: 2, fpsCap: 30, shimmer: 0 },
@@ -163,6 +164,14 @@ export const BASE = {
       caption: {
         latin: { size: 13, lineHeight: 18, weight: 400, tracking: 0 },
         hebrew: { size: 13, lineHeight: 20, weight: 400, tracking: 0 },
+      },
+      title: {
+        latin: { size: 20, lineHeight: 28, tracking: -0.005 },
+        hebrew: { size: 20, lineHeight: 30, tracking: 0 },
+      },
+      display: {
+        latin: { size: 28, lineHeight: 34, tracking: -0.01 },
+        hebrew: { size: 28, lineHeight: 36, tracking: 0 },
       },
     },
   },
@@ -481,7 +490,6 @@ const abyss = {
     face: { vignette: { dark: -0.12, light: 0 }, centreLift: { dark: 0, light: 0.03 } },
     rim: { light: 1 },
     ringHighlightArc: 0,
-    labelBand: { min: 28 },
   },
   bead: {
     diameter: 16,
@@ -946,7 +954,6 @@ const basin: DirectionTokens = {
     face: { vignette: { dark: 0, light: 0 }, centreLift: { dark: 0, light: 0 } },
     rim: { light: 0 },
     ringHighlightArc: 180,
-    labelBand: { min: 28 },
   },
   bead: {
     diameter: 20,
@@ -1305,7 +1312,6 @@ const linen: DirectionTokens = {
     face: { vignette: { dark: 0, light: 0 }, centreLift: { dark: 0, light: 0 } },
     rim: { light: 0 },
     ringHighlightArc: 180,
-    labelBand: { min: 28 },
   },
   bead: {
     diameter: 18,
@@ -1580,6 +1586,9 @@ export const EXTENSIONS = {
         position: [0, 0.585, 0.63, 0.7, 0.815, 0.926, 1],
         weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0],
       },
+    },
+    haptics: {
+      delay: 'In PRIMITIVE@delayMs:scale, the delay is Android\'s VibrationEffect.Composition.addPrimitive delay: the gap after the previous primitive ends, not time from the start of the event.',
     },
   },
   abyss: {

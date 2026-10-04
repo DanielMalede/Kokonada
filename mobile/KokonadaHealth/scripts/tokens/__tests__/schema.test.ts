@@ -174,6 +174,29 @@ describe('locks and the owner’s pending decisions', () => {
   });
 });
 
+// Designer B2 review §5 and §1c.
+describe('type and motion rules', () => {
+  it('a weight of 300 needs a size of at least 20, across the base and direction files', () => {
+    const small = errorsOf(planted(BASE, (j) => (j.type.ui.display.latin.size.$value.value = 18)));
+    expect(small).toContainEqual(expect.stringMatching(/^direction\.abyss\.tokens\.json: type\.ui\.display\.weight: .*20/));
+    const body = errorsOf(planted(BASE, (j) => (j.type.ui.body.latin.weight.$value = 300)));
+    expect(body).toContainEqual(expect.stringMatching(/^base\.tokens\.json: type\.ui\.body\.latin\.weight: .*20/));
+  });
+
+  it('Hebrew tracking is never negative, in either file', () => {
+    const base = errorsOf(planted(BASE, (j) => (j.type.ui.title.hebrew.tracking.$value = -0.01)));
+    expect(base).toContainEqual(expect.stringMatching(/^base\.tokens\.json: type\.ui\.title\.hebrew\.tracking: /));
+    const direction = errorsOf(planted(ABYSS, (j) => (j.type.voice.l.hebrew.tracking.$value = -0.01)));
+    expect(direction).toContainEqual(expect.stringMatching(/^direction\.abyss\.tokens\.json: type\.voice\.l\.hebrew\.tracking: /));
+  });
+
+  it('motion.placement.easing names a motion the base file has', () => {
+    const errors = errorsOf(planted(ABYSS, (j) => (j.motion.placement.easing.$value = 'motion.nope')));
+    expect(errors).toContainEqual(expect.stringMatching(/^direction\.abyss\.tokens\.json: motion\.placement\.easing: .*motion\.nope/));
+    expect(errorsOf(planted(ABYSS, (j) => (j.motion.placement.easing.$value = 'motion.respond')))).toEqual([]);
+  });
+});
+
 // Copy-check amendment §4: "The schema rejects any direction's nRest above nMax or nStress below
 // nMin." n = 12 is the 0.2 Hz cap (5.0 s), n = 6 the 10 s ceiling.
 describe('breath cycle bounds read from base', () => {

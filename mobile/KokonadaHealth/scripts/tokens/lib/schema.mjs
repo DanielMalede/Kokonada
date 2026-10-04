@@ -260,6 +260,43 @@ function checkBreathBounds(base, directions, errors) {
   }
 }
 
+/**
+ * Designer B2 review: a weight of 300 only where the size is at least 20 (base sizes, direction
+ * weights for title and display), Hebrew tracking never negative, and motion.placement.easing
+ * naming a motion the base file has.
+ */
+function checkTypeAndMotion(baseFile, base, directions, errors) {
+  const size = (role, script) => base.get(`type.ui.${role}.${script}.size`)?.$value?.value;
+  for (const [path, token] of base) {
+    const match = path.match(/^type\.ui\.([^.]+)\.(latin|hebrew)\.weight$/);
+    if (match && token.$value === 300 && !(size(match[1], match[2]) >= 20)) {
+      errors.push(`${baseFile}: ${path}: a weight of 300 needs a size of at least 20, got ${size(match[1], match[2])}`);
+    }
+  }
+  for (const { file, tokens } of directions) {
+    for (const [path, token] of tokens) {
+      const match = path.match(/^type\.ui\.([^.]+)\.weight$/);
+      if (match && token.$value === 300) {
+        const sizes = ['latin', 'hebrew'].map((script) => size(match[1], script));
+        if (!sizes.every((s) => s >= 20)) {
+          errors.push(`${file}: ${path}: a weight of 300 needs a size of at least 20; base type.ui.${match[1]} sizes are ${sizes.join(' and ')}`);
+        }
+      }
+    }
+    const easing = tokens.get('motion.placement.easing')?.$value;
+    if (easing !== undefined && !(typeof easing === 'string' && base.has(`${easing}.duration`) && base.has(`${easing}.easing`))) {
+      errors.push(`${file}: motion.placement.easing: ${JSON.stringify(easing)} names no motion in ${baseFile}`);
+    }
+  }
+  for (const { file, tokens } of [{ file: baseFile, tokens: base }, ...directions]) {
+    for (const [path, token] of tokens) {
+      if (/\.hebrew\.tracking$/.test(path) && token.$value < 0) {
+        errors.push(`${file}: ${path}: Hebrew tracking is never negative, got ${token.$value}`);
+      }
+    }
+  }
+}
+
 /** sources: [{ name, json }]. */
 export function validateSources(sources) {
   const errors = [];
@@ -287,6 +324,7 @@ export function validateSources(sources) {
   checkParity(directions, errors);
   if (base) {
     checkBreathBounds(baseTokens, directions, errors);
+    checkTypeAndMotion(base.name, baseTokens, directions, errors);
   }
   return { errors, notes };
 }
