@@ -58,6 +58,8 @@ describe('parseLabArgs: what is refused, with the reason', () => {
     ['a stepped clock with no step', { run: 'r', scene: 'smoke', clock: 'stepped' }, /stepMs is required/],
     ['a zero step', { run: 'r', scene: 'smoke', clock: 'stepped', stepMs: '0' }, /stepMs must be > 0/],
     ['a time on the real-time clock', { run: 'r', scene: 'smoke', clock: 'realtime', t: '10' }, /t is not taken by the realtime clock/],
+    ['a step of 310 digits, which overflows to Infinity', { run: 'r', scene: 'smoke', clock: 'stepped', stepMs: `1${'0'.repeat(309)}` }, /stepMs must be a finite decimal number/],
+    ['a step as long as the period (it would sample one instant forever)', { run: 'r', scene: 'smoke', clock: 'stepped', stepMs: '6000' }, /stepMs must be < 6000/],
     ['zero frames', { ...FIXED, frames: '0' }, /frames must be an integer from 1 to 600/],
     ['a fractional frame count', { ...FIXED, frames: '1.5' }, /frames must be an integer from 1 to 600/],
     ['too many frames', { ...FIXED, frames: '601' }, /frames must be an integer from 1 to 600/],

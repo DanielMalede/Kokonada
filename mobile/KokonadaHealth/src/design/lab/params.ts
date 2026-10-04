@@ -89,7 +89,8 @@ export function parseLabArgs(
   const decimal = (key: string): number | null | undefined => {
     const v = values[key];
     if (v === undefined) return wrongType.has(key) ? null : undefined;
-    if (!DECIMAL.test(v)) {
+    // A long enough digit string passes the pattern and still becomes Infinity.
+    if (!DECIMAL.test(v) || !Number.isFinite(Number(v))) {
       errors.push(`${key} must be a finite decimal number (got "${v}")`);
       return null;
     }
@@ -104,6 +105,8 @@ export function parseLabArgs(
   } else if (clock === 'stepped') {
     if (stepMs === undefined) errors.push('stepMs is required for the stepped clock');
     else if (typeof stepMs === 'number' && !(stepMs > 0)) errors.push('stepMs must be > 0');
+    // A step of a whole period or more lands on the same instant every time: a sweep would prove nothing.
+    else if (typeof stepMs === 'number' && timing && !(stepMs < timing.periodMs)) errors.push(`stepMs must be < ${timing.periodMs}`);
   } else if (clock === 'realtime') {
     if (t !== undefined) errors.push('t is not taken by the realtime clock');
     if (stepMs !== undefined) errors.push('stepMs is only for the stepped clock');
