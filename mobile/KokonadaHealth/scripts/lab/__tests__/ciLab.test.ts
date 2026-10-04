@@ -32,6 +32,21 @@ describe('the Design Lab steps in CI', () => {
     expect(commands).toContain('run: node scripts/lab/assertLabExcluded.mjs');
   });
 
+  it('the mobile job checks the iOS release bundle too, right after the Android one (QA-077 A3: "for Android and for iOS")', () => {
+    const job = ci.slice(ci.indexOf('  mobile:'), ci.indexOf('  mobile-android-compile:'))
+      .map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
+    const start = job.indexOf('- name: Design Lab exclusion');
+    expect(start).toBeGreaterThan(-1);
+    expect(job.slice(start, start + 6)).toEqual([
+      '- name: Design Lab exclusion',
+      'run: node scripts/lab/assertLabExcluded.mjs',
+      'working-directory: mobile/KokonadaHealth',
+      '- name: Design Lab exclusion (iOS bundle)',
+      'run: node scripts/lab/assertLabExcluded.mjs --platform ios',
+      'working-directory: mobile/KokonadaHealth',
+    ]);
+  });
+
   it('the Android lab step runs exactly these commands, in this order', () => {
     const start = commands.indexOf(ANDROID_LAB_STEP[0]);
     expect(start).toBeGreaterThan(-1);

@@ -97,6 +97,11 @@ jobs:
       - name: Design Lab exclusion
         run: node scripts/lab/assertLabExcluded.mjs
         working-directory: mobile/KokonadaHealth
+      # The same check on the iOS release bundle (Metro --platform ios, then hermesc), so QA-077
+      # clause A3 ("for Android and for iOS") holds on every PR.
+      - name: Design Lab exclusion (iOS bundle)
+        run: node scripts/lab/assertLabExcluded.mjs --platform ios
+        working-directory: mobile/KokonadaHealth
 
   mobile-android-compile:
     name: Mobile — Android compile check
