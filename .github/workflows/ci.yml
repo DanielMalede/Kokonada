@@ -127,6 +127,8 @@ jobs:
               - 'mobile/KokonadaHealth/package.json'
               - 'mobile/KokonadaHealth/package-lock.json'
               - 'mobile/KokonadaHealth/scripts/lab/**'
+              - 'mobile/KokonadaHealth/modules/**'
+              - 'mobile/KokonadaHealth/index*.js'
               - '.github/workflows/ci.yml'
       - uses: actions/setup-node@v4
         if: steps.changes.outputs.android == 'true'
@@ -158,9 +160,17 @@ jobs:
       - name: Design Lab — merged manifests and release classes
         if: steps.changes.outputs.android == 'true'
         run: |
-          ./gradlew :app:processReleaseMainManifest :app:processLabMainManifest :app:compileLabKotlin :app:compileReleaseKotlin --console=plain
+          ./gradlew :app:processReleaseMainManifest :app:processLabMainManifest :app:compileLabKotlin :app:compileReleaseKotlin :app:createBundleReleaseJsAndAssets --console=plain
           node ../scripts/lab/assertManifests.mjs
           node ../scripts/lab/assertLabExcluded.mjs --scan app/build/tmp/kotlin-classes/release
+          # Positive control: the same scan must FIND the lab in the lab's own classes (exit 1 exactly);
+          # 0 or 2 means it could not see a lab class, so the release result above proves nothing.
+          rc=0; node ../scripts/lab/assertLabExcluded.mjs --scan app/build/tmp/kotlin-classes/lab || rc=$?
+          test "$rc" -eq 1
+          # The real release task's own outputs: bytecode, packager/compiler maps, composed map.
+          test -s app/build/generated/assets/react/release/index.android.bundle
+          test -s app/build/intermediates/sourcemaps/react/release/index.android.bundle.packager.map
+          node ../scripts/lab/assertLabExcluded.mjs --scan app/build/generated/assets/react/release app/build/intermediates/sourcemaps/react/release app/build/generated/sourcemaps/react/release
         working-directory: mobile/KokonadaHealth/android
 
   # Cheap Ubuntu job whose only purpose is to decide whether the 10x macOS runner is worth
