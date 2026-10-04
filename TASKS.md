@@ -1681,7 +1681,7 @@ _(put anything you are unsure about here rather than losing it)_
   - **What it supersedes:** ADR-0009, keeping the regulator ethic and dropping "binds UI motion to BPM" (CMP-016, QA-070, REG-016).
   - **The DSN rules:** the `designer` authors them, and the developer scribes them as `docs/design-v2/registry/DSN-001.md` onward, with the INDEX updated.
   - **Order:** it starts after P0-2 and finishes after B8. Its DSN and INDEX edits come after main, carrying PR #A's INDEX changes, is merged into the V1 branch.
-  - where: `docs/adr/` · `docs/design-v2/registry/` · done when: the ADR is Proposed with its README row, the DSN files exist, and on acceptance ADR-0009 reads "Superseded by 0017" (`ARCH-008`) and the owner's choice is recorded verbatim in `DEC-128` · related: `ARCH-008`, `DAN-033`, `DAN-051`, `UI-071` · src: plan §6 B9 and §9; `architect`, V1 lab round 2 (the INDEX order) · added: 2026-10-04
+  - where: `docs/adr/` · `docs/design-v2/registry/` · done when: the ADR is Proposed with its README row, the DSN files exist, and on acceptance ADR-0009 reads "Superseded by 0017" (`ARCH-008`) and the owner's choice is recorded verbatim in `DEC-130` (reserved for the owner's V1 direction choice, to be written at the V1 sitting) · related: `ARCH-008`, `DAN-033`, `DAN-051`, `UI-071` · src: plan §6 B9 and §9; `architect`, V1 lab round 2 (the INDEX order) · added: 2026-10-04
 
 ---
 
@@ -2129,7 +2129,7 @@ _(put anything you are unsure about here rather than losing it)_
     - merge the V1 PR.
   - **Before it:** the phone for two sessions, the A4 smoke run (`OPS-100`) and the B8 run (`UI-071`), with "Kokonada Lab" allowed to install beside the real app. The phone's settings are saved and restored.
   - **Optional:** DEC-098 (the dark re-sample) and DEC-095 (the RN version, before about 9 Nov).
-  - where: the V1 boards and evidence, outside the repo (`Kokonada-private/design-v2/v1/boards/`, `Kokonada-private/evidence/v1/`) · done when: the choice is recorded verbatim with the input SHA in `DEC-128` and `DECISIONS.md`, and the V1 PR is merged · related: `ARCH-013`, `UI-071`, `OPS-100`, `DAN-033` · src: `V1_BUILD_PLAN.md` §10 and §11 (outside the repo) · added: 2026-10-04
+  - where: the V1 boards and evidence, outside the repo (`Kokonada-private/design-v2/v1/boards/`, `Kokonada-private/evidence/v1/`) · done when: the choice is recorded verbatim with the input SHA in `DEC-130` (reserved for the owner's V1 direction choice, to be written at the V1 sitting) and `DECISIONS.md`, and the V1 PR is merged · related: `ARCH-013`, `UI-071`, `OPS-100`, `DAN-033` · src: `V1_BUILD_PLAN.md` §10 and §11 (outside the repo) · added: 2026-10-04
 - [ ] `DAN-052` `P3` **Approve one line in `.claude/agents/compliance-auditor.md`: the exact-artifact Design Lab scan before any store submission (V1 lab round 1, N3).** An agent's message cannot authorise editing agent configuration, so the line waits for the owner.
   - `compliance-auditor`, round 2: for PR #A, N3 is already satisfied by the two checklist lines and `CMP-141`. This line is extra protection, not a precondition.
   - **The proposed text:** "Before any store submission, require `node scripts/lab/assertLabExcluded.mjs --scan <the exact .aab, .apk or .ipa>` run from `mobile/KokonadaHealth`, recorded with the artifact's name, its SHA-256 and exit 0; exit 1 or 2 is a HALT (QA-077, CMP-141)."
