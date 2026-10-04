@@ -4,7 +4,8 @@ import { hueSeparationViolations } from '../../color/deltaE.ts';
 import { srgbToOklab, type Oklab, type Srgb } from '../../color/oklab.ts';
 import { hueInBand, isRed, type RedBand } from '../../color/redBand.ts';
 import { breathLawViolations, type BreathLaw } from '../../motion/breathLaw.ts';
-import { BASE, DIRECTIONS, EXTENSIONS, type ColorValue, type DirectionId, type Face } from '../tokens.generated.ts';
+import { EXTENSIONS } from '../tokens.extensions.generated.ts';
+import { BASE, DIRECTIONS, type ColorValue, type DirectionId, type Face } from '../tokens.generated.ts';
 
 // The rules the committed tokens must keep, per direction and per face, read from the generated
 // module the app uses. The never-red bands are base.neverRed, as DEC-081 ruled them, read from

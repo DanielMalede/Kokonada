@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { buildTokenModel, generateTokensModule } from '../lib/emit.mjs';
+import { buildTokenModel, generateExtensionsModule, generateTokensModule } from '../lib/emit.mjs';
 import { readTokenSources } from '../lib/sources.mjs';
 import { oklchToOklab } from '../../../src/design/v2/color/oklab.ts';
 
@@ -54,6 +54,25 @@ describe('generateTokensModule', () => {
       return { ...s, json };
     });
     expect(() => generateTokensModule(broken)).toThrow(/direction\.abyss\.tokens\.json: plate\.inset: /);
+  });
+});
+
+// The architect's seam (v1lab-r1-reconciliation): the $extensions data (hero, scenes, hardest
+// placements, graph tables) lives in its own module, which only the lab, scripts and tests import.
+describe('generateExtensionsModule', () => {
+  it('holds EXTENSIONS, which the token module no longer carries', () => {
+    expect(generateTokensModule(real())).not.toMatch(/EXTENSIONS/);
+    expect(generateExtensionsModule(real())).toMatch(/^export const EXTENSIONS = /m);
+  });
+
+  it('is byte-deterministic, LF only, and records the sha256 of each source', () => {
+    const text = generateExtensionsModule(real());
+    expect(generateExtensionsModule([...real()].reverse())).toBe(text);
+    expect(text.includes('\r')).toBe(false);
+    expect(text).toMatch(/^export const EXTENSIONS_SOURCE = /m);
+    for (const source of real()) {
+      expect(text).toContain(`'${source.name}': '${crypto.createHash('sha256').update(source.bytes).digest('hex')}'`);
+    }
   });
 });
 
