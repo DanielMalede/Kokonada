@@ -32,3 +32,32 @@ describe('QA-077: the restated pass rule (resilience-auditor, V1 lab round 1, se
     expect(qa).toContain("Clause A1's iOS part closes with the store-gate PR; until then clause D9's IPA scan is the iOS control.");
   });
 });
+
+describe('CMP-141: the Design Lab is absent from every uploaded build (compliance-auditor, round 1)', () => {
+  const cmp = () => flat(read('CMP-141'));
+  const index = () => flat(fs.readFileSync(path.join(REGISTRY, 'INDEX.md'), 'utf8'));
+
+  it('is a P0 prohibition scoped to every Play track, internal app sharing included, and to TestFlight', () => {
+    expect(cmp()).toContain('### CMP-141 · The Design Lab is absent from every uploaded build');
+    expect(cmp()).toContain('- kind: PROHIBITION');
+    expect(cmp()).toContain('Play Console (any track, internal app sharing included) or App Store Connect (TestFlight included)');
+    expect(cmp()).toContain('- severity if broken: P0');
+  });
+
+  it('is verified where the checks really run, with the iOS control until the store-gate PR', () => {
+    for (const check of ['node scripts/lab/assertLabExcluded.mjs', 'node scripts/lab/assertManifests.mjs', 'positive control', 'createBundleReleaseJsAndAssets', '--scan']) {
+      expect(cmp()).toContain(check);
+    }
+    expect(cmp()).toContain('No iOS archive is exported for upload, and nothing goes to TestFlight or App Store Connect, until the store-gate PR is merged and the IPA scan exits 0.');
+  });
+
+  it('quotes Apple 2.2 as it reads today ("should be intended")', () => {
+    expect(cmp()).toContain('should be intended for public distribution');
+  });
+
+  it('is counted and listed in the registry index', () => {
+    expect(index()).toContain('CMP 141');
+    expect(index()).toContain('Total 458');
+    expect(index()).toContain('| [CMP-141](CMP-141.md) | The Design Lab is absent from every uploaded build | PROHIBITION | SETTLED | P0 |');
+  });
+});
