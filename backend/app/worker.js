@@ -81,6 +81,10 @@ async function runWorker({
   }
 
   await connect();
+  // J2 (round 1, L3): the app's cache client too, as app/index.js connects it. The daily sweep of deleted
+  // accounts' data reads Redis through it, and without it would refuse every night on a standalone worker.
+  // connectRedis never throws: a cache that cannot be reached logs a warning and the workers still start.
+  await require('./config/redis').connectRedis();
 
   const workers = start();
   attachWorkerHandlers(workers, logger); // log worker/job errors instead of crashing

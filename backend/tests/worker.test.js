@@ -2,6 +2,22 @@
 
 process.env.NODE_ENV = 'test';
 
+// J2 round 1 (L3): runWorker now also connects the app's cache client (config/redis.connectRedis), which
+// the orphan sweep's discovery and the strict purge need. Mocked so no test dials the fixture REDIS_URL; it
+// records when it is called and can answer as a failed connect does (null, never a throw).
+const mockOrder = [];
+const mockCache = { result: {}, delayMs: 0 };
+jest.mock('../app/config/redis', () => ({
+  connectRedis: jest.fn(async () => {
+    mockOrder.push('cache:start');
+    await new Promise((r) => setTimeout(r, mockCache.delayMs));
+    mockOrder.push('cache:done');
+    return mockCache.result;
+  }),
+  getRedis: jest.fn(() => null),
+  createConnection: jest.fn(),
+}));
+
 // The worker entrypoint is dependency-injectable so the process wiring can be
 // unit-tested without booting real BullMQ workers, Mongo, or signal handlers.
 const { runWorker, makeShutdown } = require('../app/worker');
@@ -178,6 +194,41 @@ describe('runWorker (worker entrypoint)', () => {
 
     expect(w1.close).toHaveBeenCalledTimes(1);
     expect(w2.close).toHaveBeenCalledTimes(1);
+  });
+
+  // J2 round 1 (L3): a standalone worker service never connected the app's cache client, so the daily
+  // sweep's Redis discovery and the strict purge would refuse every night. It now connects it, after Mongo
+  // and before the workers start, and a cache that cannot be reached never stops the worker.
+  describe('the cache client (J2, L3)', () => {
+    beforeEach(() => {
+      mockOrder.length = 0;
+      mockCache.result = {};
+      mockCache.delayMs = 0;
+    });
+
+    it('awaits the cache connect after Mongo and before it starts the workers', async () => {
+      process.env.REDIS_URL = 'redis://example:6379';
+      mockCache.delayMs = 30;
+      const connectDB = jest.fn(async () => { mockOrder.push('mongo'); });
+      const startWorkers = jest.fn(() => { mockOrder.push('workers'); return []; });
+
+      await runWorker({ connectDB, startWorkers, onFatal: jest.fn(), exit: jest.fn(), logger: silentLogger() });
+
+      expect(mockOrder).toEqual(['mongo', 'cache:start', 'cache:done', 'workers']);
+    });
+
+    it('a cache connect that fails (connectRedis answers null) still starts the workers', async () => {
+      process.env.REDIS_URL = 'redis://example:6379';
+      mockCache.result = null;
+      const startWorkers = jest.fn().mockReturnValue([]);
+      const onFatal = jest.fn();
+
+      await runWorker({ connectDB: jest.fn().mockResolvedValue(), startWorkers, onFatal, exit: jest.fn(), logger: silentLogger() });
+
+      expect(mockOrder).toEqual(['cache:start', 'cache:done']);
+      expect(startWorkers).toHaveBeenCalledTimes(1);
+      expect(onFatal).not.toHaveBeenCalled();
+    });
   });
 });
 
