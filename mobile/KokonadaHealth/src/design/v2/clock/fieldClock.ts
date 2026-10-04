@@ -10,8 +10,8 @@
 //   · t wraps modulo T, so it never grows without bound or loses float precision;
 //   · it only moves forward: a negative, missing or non-finite dt adds nothing.
 
-import { useEffect } from 'react';
-import { useFrameCallback, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { useCallback, useEffect } from 'react';
+import { useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
 
 export const MAX_FRAME_DT_MS = 100;
 
@@ -34,10 +34,15 @@ export function advanceFieldTime(
 /** Real time for the field: advances on every frame while `active`, and holds still otherwise. */
 export function useRealtimeFieldClock(periodMs: number, active: boolean): FieldClock {
   const t = useSharedValue(0);
-  const frame = useFrameCallback((info) => {
+  // One worklet per (t, periodMs): Reanimated re-registers a frame callback when its identity or
+  // autostart changes, and a re-registered callback's first frame has no dt. An inline worklet would
+  // be a new identity on every render and drop a frame of field time each time. The clamp is passed
+  // in explicitly rather than read as a default parameter inside the worklet.
+  const onFrame = useCallback((info: FrameInfo) => {
     'worklet';
-    t.value = advanceFieldTime(t.value, info.timeSincePreviousFrame, periodMs);
-  }, active);
+    t.value = advanceFieldTime(t.value, info.timeSincePreviousFrame, periodMs, MAX_FRAME_DT_MS);
+  }, [t, periodMs]);
+  const frame = useFrameCallback(onFrame, false);
   useEffect(() => {
     frame.setActive(active);
   }, [frame, active]);
