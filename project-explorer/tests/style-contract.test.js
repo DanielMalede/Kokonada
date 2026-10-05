@@ -52,6 +52,19 @@ test('defines tablet and mobile layouts', () => {
 
 test('keeps technical flow readable on narrow screens', () => {
   assert.match(css, /body\s*\{[\s\S]*overflow-x\s*:\s*hidden/);
+  assert.doesNotMatch(css, /body\s*\{[^}]*min-width/);
   assert.match(css, /\.technical-flow\s*\{[\s\S]*overflow-x\s*:\s*auto/);
-  assert.match(html, /class="product-flow technical-flow"[^>]+aria-label=/);
+  assert.match(html, /class="technical-flow"[^>]+aria-label=[^>]*>[\s\S]*class="product-flow"/);
+  assert.doesNotMatch(html, /class="product-flow technical-flow"/);
+});
+
+test('keeps the closed mobile navigation inside the viewport', () => {
+  assert.match(css, /@media\s*\(max-width:\s*960px\)[\s\S]*\.side-navigation\s*\{[\s\S]*visibility\s*:\s*hidden/);
+  assert.match(css, /body\[data-nav-open="true"\]\s+\.side-navigation\s*\{[\s\S]*visibility\s*:\s*visible/);
+  assert.doesNotMatch(css, /\.side-navigation\s*\{[\s\S]*transform\s*:\s*translateX\(115%\)/);
+});
+
+test('allows long technical identifiers to reflow at high zoom', () => {
+  assert.match(css, /code\s*\{[^}]*overflow-wrap\s*:\s*anywhere/);
+  assert.match(css, /\.start-grid\s+article\s*\{[^}]*min-width\s*:\s*0/);
 });

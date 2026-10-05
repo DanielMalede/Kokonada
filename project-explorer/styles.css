@@ -44,7 +44,6 @@ html {
 }
 
 body {
-  min-width: 20rem;
   min-height: 100dvh;
   margin: 0;
   overflow-x: hidden;
@@ -70,6 +69,7 @@ button {
 }
 
 code {
+  overflow-wrap: anywhere;
   padding: 0.12rem 0.35rem;
   border: 1px solid var(--color-border);
   border-radius: 0.35rem;
@@ -479,6 +479,8 @@ main:focus {
 }
 
 .technical-flow {
+  width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
   scrollbar-color: var(--color-border-strong) var(--color-surface-quiet);
@@ -563,6 +565,10 @@ main:focus {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
   background: var(--color-surface-quiet);
+}
+
+.start-grid article {
+  min-width: 0;
 }
 
 .boundary-grid article:nth-child(2) {
@@ -916,13 +922,17 @@ footer a {
     width: min(21rem, calc(100vw - 2rem));
     max-height: none;
     margin: 0;
-    transform: translateX(115%);
-    transition: transform 180ms ease;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: visibility 180ms ease, opacity 180ms ease;
     box-shadow: 0 1.5rem 4rem rgb(1 9 12 / 0.55);
   }
 
   body[data-nav-open="true"] .side-navigation {
-    transform: translateX(0);
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .architecture-map,
