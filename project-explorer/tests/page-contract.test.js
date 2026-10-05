@@ -44,6 +44,16 @@ test('states the product boundary honestly', () => {
   assert.match(html, /אינ[הו] כלי (?:רפואי|לאבחון)/);
   assert.match(html, /שליטה.+פרטיות.+למידה/s);
   assert.match(html, /YouTube אינו נתיב פעיל/);
+  assert.match(html, /Spotify.+בטא.+מורשים מראש.+5 משתמשים/s);
+  assert.match(html, /ללא ספק מוזיקה.+עדיין עובד/s);
+});
+
+test('keeps the guided learning path continuous', () => {
+  const guidedTargets = ['journey', 'architecture', 'data-flow', 'status', 'deployment', 'workflow', 'glossary'];
+
+  for (const target of guidedTargets) {
+    assert.match(html, new RegExp(`class="next-step"[^>]+href="#${target}"`));
+  }
 });
 
 test('shows dated evidence and the PR 217 hold without JavaScript', () => {

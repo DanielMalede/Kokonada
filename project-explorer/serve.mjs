@@ -21,6 +21,7 @@ function send(response, statusCode, body, contentType = 'text/plain; charset=utf
   response.writeHead(statusCode, {
     'Content-Type': contentType,
     'Content-Length': payload.byteLength,
+    'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
   });
 
@@ -31,7 +32,11 @@ function send(response, statusCode, body, contentType = 'text/plain; charset=utf
   }
 }
 
-export function createExplorerServer({ rootPath = STATIC_ROOT, currentCommit = null } = {}) {
+export function createExplorerServer({
+  rootPath = STATIC_ROOT,
+  currentCommit = null,
+  readCurrentCommit: readCommit = null,
+} = {}) {
   return http.createServer(async (request, response) => {
     const method = request.method || 'GET';
     if (method !== 'GET' && method !== 'HEAD') {
@@ -55,10 +60,20 @@ export function createExplorerServer({ rootPath = STATIC_ROOT, currentCommit = n
     }
 
     if (pathname === '/current-commit.js') {
+      let liveCommit = currentCommit;
+      if (typeof readCommit === 'function') {
+        try {
+          liveCommit = readCommit();
+        } catch (_error) {
+          liveCommit = null;
+        }
+      }
+
+      response.setHeader('Cache-Control', 'no-store');
       send(
         response,
         200,
-        createCurrentCommitScript(currentCommit),
+        createCurrentCommitScript(liveCommit),
         'text/javascript; charset=utf-8',
         method,
       );
@@ -108,7 +123,7 @@ export function startExplorerServer(argumentsList = process.argv.slice(2)) {
   const port = readPort(argumentsList);
   const server = createExplorerServer({
     rootPath: STATIC_ROOT,
-    currentCommit: readCurrentCommit(),
+    readCurrentCommit,
   });
 
   server.listen(port, HOST, () => {

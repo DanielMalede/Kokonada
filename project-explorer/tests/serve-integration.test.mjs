@@ -26,8 +26,8 @@ function requestStatus(baseUrl, requestPath) {
   });
 }
 
-async function withServer(run) {
-  const server = createExplorerServer({ rootPath, currentCommit: commit });
+async function withServer(run, options = { currentCommit: commit }) {
+  const server = createExplorerServer({ rootPath, ...options });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const { port } = server.address();
@@ -53,6 +53,21 @@ test('serves the dashboard and dynamic checkout commit on loopback', async () =>
       `window.__KOKONADA_CURRENT_COMMIT__ = ${JSON.stringify(commit)};\n`,
     );
   });
+});
+
+test('refreshes the checkout commit on every virtual endpoint request', async () => {
+  let liveCommit = commit;
+
+  await withServer(async (baseUrl) => {
+    const first = await fetch(`${baseUrl}/current-commit.js`);
+    liveCommit = '9cd2adec3da0c953a844ee8a6b10c4bd64c5baec';
+    const second = await fetch(`${baseUrl}/current-commit.js`);
+
+    assert.match(await first.text(), new RegExp(commit));
+    assert.match(await second.text(), new RegExp(liveCommit));
+    assert.match(first.headers.get('cache-control') || '', /no-store/);
+    assert.match(second.headers.get('cache-control') || '', /no-store/);
+  }, { readCurrentCommit: () => liveCommit });
 });
 
 test('returns explicit status codes for unsupported requests', async () => {
