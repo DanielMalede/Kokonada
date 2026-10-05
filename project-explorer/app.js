@@ -17,6 +17,8 @@
     const snapshotState = document.querySelector('[data-snapshot-state]');
     const mobileNavToggle = document.querySelector('[data-mobile-nav-toggle]');
 
+    body.dataset.enhanced = 'true';
+
     function readLearningPreference() {
       return window.localStorage.getItem(STORAGE_KEY);
     }

@@ -59,9 +59,14 @@ test('keeps technical flow readable on narrow screens', () => {
 });
 
 test('keeps the closed mobile navigation inside the viewport', () => {
-  assert.match(css, /@media\s*\(max-width:\s*960px\)[\s\S]*\.side-navigation\s*\{[\s\S]*visibility\s*:\s*hidden/);
-  assert.match(css, /body\[data-nav-open="true"\]\s+\.side-navigation\s*\{[\s\S]*visibility\s*:\s*visible/);
+  assert.match(css, /body\[data-enhanced="true"\]\s+\.side-navigation\s*\{[\s\S]*visibility\s*:\s*hidden/);
+  assert.match(css, /body\[data-enhanced="true"\]\[data-nav-open="true"\]\s+\.side-navigation\s*\{[\s\S]*visibility\s*:\s*visible/);
   assert.doesNotMatch(css, /\.side-navigation\s*\{[\s\S]*transform\s*:\s*translateX\(115%\)/);
+});
+
+test('keeps the freshness warning visible on narrow screens', () => {
+  assert.doesNotMatch(css, /\.snapshot-identity\s*,\s*\.snapshot-state\s*\{\s*display\s*:\s*none/);
+  assert.match(css, /\.snapshot-state\[data-snapshot-state="stale"\]::after\s*\{[^}]*content/);
 });
 
 test('allows long technical identifiers to reflow at high zoom', () => {

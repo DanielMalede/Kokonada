@@ -901,12 +901,34 @@ footer a {
 }
 
 @media (max-width: 960px) {
-  .snapshot-identity,
-  .snapshot-state {
+  .snapshot-identity {
     display: none;
   }
 
-  .mobile-nav-toggle {
+  .snapshot-state {
+    max-width: 9rem;
+    white-space: normal;
+    font-size: 0;
+    line-height: 1.25;
+  }
+
+  .snapshot-state::after {
+    font-size: 0.7rem;
+  }
+
+  .snapshot-state[data-snapshot-state="current"]::after {
+    content: "Snapshot עדכני";
+  }
+
+  .snapshot-state[data-snapshot-state="stale"]::after {
+    content: "Snapshot לא עדכני";
+  }
+
+  .snapshot-state[data-snapshot-state="unknown"]::after {
+    content: "עדכניות לא ידועה";
+  }
+
+  body[data-enhanced="true"] .mobile-nav-toggle {
     display: inline-flex;
   }
 
@@ -914,7 +936,7 @@ footer a {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .side-navigation {
+  body[data-enhanced="true"] .side-navigation {
     position: fixed;
     inset-block: calc(var(--header-height) + var(--space-2)) var(--space-3);
     inset-inline-start: var(--space-3);
@@ -929,7 +951,7 @@ footer a {
     box-shadow: 0 1.5rem 4rem rgb(1 9 12 / 0.55);
   }
 
-  body[data-nav-open="true"] .side-navigation {
+  body[data-enhanced="true"][data-nav-open="true"] .side-navigation {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
@@ -1037,6 +1059,18 @@ footer a {
 
   footer {
     display: grid;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
 }
 

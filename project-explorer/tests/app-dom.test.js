@@ -101,6 +101,7 @@ test('applies stored Learning Mode and persists toggle changes', () => {
 test('renders stale snapshot state with text and status class', () => {
   const app = launchApp({ currentCommit: '71b850c' });
 
+  assert.equal(app.body.dataset.enhanced, 'true');
   assert.equal(app.snapshot.dataset.snapshotState, 'stale');
   assert.equal(app.snapshot.classList.contains('status-stale'), true);
   assert.match(app.snapshot.textContent, /snapshot אינו תואם/);
