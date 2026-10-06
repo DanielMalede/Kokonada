@@ -4,15 +4,32 @@ The single running list of everything still open in this repo. **If it is not wr
 A task that lives only in a conversation is already lost — that is what this file exists to stop.
 
 **Last updated:** 2026-10-06
-**Next free IDs:** `BE-122` · `MB-105` · `UI-090` · `OPS-158` · `ARCH-017` · `DAN-064`
-Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, OPS-136–145 (the next scribe PR), ARCH-013–016, DAN-050–062, DEC-128–154; each branch writes its own rows.
+**Next free IDs:** `BE-122` · `MB-105` · `UI-090` · `OPS-169` · `ARCH-017` · `DAN-065`
+Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, OPS-136–145 (the next scribe PR), ARCH-013–016, DAN-050–062, DEC-128–154, OPS-158–159 (the coordination branches); each branch writes its own rows.
 Bedrack's block (`WORK_LEDGER.md`): `900`–`999` in every prefix (`BE-900`, `MB-900`, …). Bedrack takes new IDs only from it; the next free IDs above never enter it.
+
+---
+
+## Next up
+
+The owner's ordered queue — at most ten IDs. A session with no named task recommends the top row and waits for a go (`CLAUDE.md`, session start); when the queue is empty it proposes an open `P0` row. Only the owner reorders it; a session may propose a change, with its reason, at its recommendation.
+
+**PROPOSED by the orchestrator on 2026-10-06, not yet ordered by the owner (`DAN-064`):**
+
+1. `OPS-160` — the instruction-layer overhaul: the rules every later task runs under.
+2. `DAN-053` — the owner's Round-13 actions; until Railway's Wait for CI is on, a merge deploys before CI ends and every PR must contain current `main`.
+3. `DAN-063` — the two-partner protocol on both machines and in the repository settings.
+4. `OPS-153` and `OPS-155` — coordination phase B and the coordinator's hardening (#230, #229), already in flight.
+5. `DAN-050` — J2's production evidence and arming.
+6. `ARCH-011` — the HALT fix lane, before P2's G1.
+7. `MB-087` — V1 plan B3, in progress on `design/v1-vision-frame`.
+8. `OPS-168` — `security-auditor`'s first pass over the sensitive surfaces that merged before it existed.
 
 ---
 
 ## How this file is maintained — read this, every session
 
-**Read `TASKS.md` at session start, right after `CLAUDE.md` and the `docs/ORCHESTRATOR_FABLE.md` session-start protocol. Recommend the next job from it.**
+**The session start is the ordered list in `CLAUDE.md`. It reads this file's head, down to `## Backend`, and its open `P0` rows — never the whole file; find any other row by grepping its ID. What to do next is `## Next up`.**
 
 **1 · Capture immediately, not later.**
 The moment Daniel says something should happen afterwards — "we'll do that next", "remind me", "not now", "אחר כך" — write the row *before* continuing the current work. Not at the end of the session. Not "I'll remember".
@@ -1757,6 +1774,26 @@ _(put anything you are unsure about here rather than losing it)_
 - [ ] `OPS-151` `P3` **`gh run list` has returned a months-old list for `CI` on `main` three times in three `merge-guard` runs on 2026-10-06, and the agent's POST-MERGE step 5 reads exactly that list.** The query is `gh run list --workflow CI --branch main --event push --limit 20` (`.claude/agents/merge-guard.md:54`). The runs saw: ids `290xxxxxxxx` with old head SHAs on #224's post-merge check, June 2026 runs on #225's pre-merge check, and run 29029855610 from 2026-07-09 on #226's post-merge check, while runs up to the same day exist; each time a repeat a minute later, or the `head_sha=` filter, returned the current runs. A session that took the newest entry of a stale list would read a months-old green as the state of `main`; one that matched on the head SHA would find no run and report `RED (UNVERIFIED)` for nothing. It did not reproduce on demand at about 13:25 UTC (four tries: `gh run list` with and without `--event`, the raw `actions/runs?branch=main&event=push`, and `head_sha=`, all current, `total_count` 276). Each of the three agents matched on the head SHA and was not misled, so no verdict was wrong. `#verify`
   - fix (an edit to the agent's prompt, so it needs the `resilience-auditor`): read the run for `T` by `gh api "repos/{owner}/{repo}/actions/runs?head_sha=<T>"` filtered to the `CI` workflow, never by the position in a list, and say so in the step; treat a list whose newest entry is not `T` or older than `T`'s commit as stale and re-read it once before a verdict · where: `.claude/agents/merge-guard.md:54` (POST-MERGE step 5; pre-merge step 3b lists by `--commit` and is not the query in question) · done when: the step names the `head_sha` read, and the audit passes · related: `OPS-146`, `DEC-143` · src: `merge-guard`'s post-merge run on PR #226, NEW-FINDING, with the same glitch noted on #224 and #225, 2026-10-06 · added: 2026-10-06
 
+- [ ] `OPS-160` `P1` **The instruction-layer overhaul (`DEC-155`): `CLAUDE.md` becomes the one binding source; `AGENTS.md` points Codex to it; a `security-auditor` agent; the merge rule with its jurisdiction table and three owner-approval classes; one session start; this file's Next up queue; sentinel scheduled and manual.**
+  - status: claimed by Malede on branch `chore/instruction-layer` (ledger slot M03, own task), draft PR #231
+  - where: `CLAUDE.md` · `AGENTS.md` · `docs/ORCHESTRATOR_FABLE.md` · `.claude/agents/**` · `.claude/commands/**` · `.claude/settings.json` · `.agents/skills/coordinate/SKILL.md` · `docs/plans/DESIGN_V2_PLAN.md` · `backend/tests/wave4.attributionGuard.test.js` · done when: merged on the owner's approval (instruction-layer class), a fresh session follows the new session start, and Bedrack confirms Codex reads `AGENTS.md` then `CLAUDE.md` · src: the owner's brief and session 9ae174f7, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-161` `P2` **The coordinator never sees two sessions of the same partner collide.** `assess()` skips every footprint of the caller's own section (`scripts/coord/lib/collide.js:448`), so two of the owner's sessions can claim the same file with no warning; on 2026-10-06 #229, #230 and #231 all claimed `TASKS.md`, and the instruction layer was split between them by hand.
+  - where: `scripts/coord/lib/collide.js:448` · done when: a same-partner overlap on another live branch reports at least WARN, pinned by a `coord.collide` test · src: the instruction-layer plan's exploration, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-162` `P2` **About 14 of the owner's merged branches still exist on `origin`** (`fix/j2-state-vector`, `fix/store-gate-hardening`, `fix/secret-scan-gates` and others whose PRs squash-merged), and the coordinator reads a recent branch of the other partner with no claim as a collision, so Bedrack's `check` can HALT on them. `DAN-063` turns on delete-on-merge for the future only.
+  - where: `origin` branches · done when: every merged branch is deleted after proving its content is on `main` (`git diff --quiet` against the squash commit), and `coord.js status` lists none of them as unclaimed · src: the instruction-layer plan's exploration, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-163` `P3` **About 21 leftover worktrees under `.claude/worktrees/`**: 7 on branches gone from `origin`, about 14 on merged branches, 5 detached (two with uncommitted evidence files). Every task now gets its own worktree, so they only grow.
+  - where: `.claude/worktrees/` · done when: each is proven merged or empty and removed (`git worktree remove`), the uncommitted evidence moved to `Kokonada-private` first, and `CLAUDE.md`'s lifecycle step that removes a task's worktree after its merge is followed · src: the instruction-layer plan's exploration, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-164` `P3` **The 02:58–05:10 UTC merge window has no recorded reason.** `merge-guard`, `/merge` and `OPS-110` state the rule only. It most likely covers the nightly BullMQ jobs at 03:00–05:00 UTC (`backend/app/index.js:177-195`), since a merge restarts the single production instance.
+  - where: `.claude/agents/merge-guard.md` (MERGE WINDOW) · `backend/app/index.js:177-195` · done when: the reason is confirmed and written beside the rule, or the window is changed to match the jobs · src: the instruction-layer plan's exploration, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-165` `P3` **`/graph` reads `GRAPH_REPORT.md`, which has never been generated**; the command only explains its own absence.
+  - where: `.claude/commands/graph.md` · done when: the graph is generated and kept fresh, or `custodian` retires the command · src: the instruction-layer plan's exploration, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-166` `P3` **The owner's `.claude/settings.local.json` allows `Bash(git add *)`**, so `git add -A` and `git add .` run with no prompt, against the stage-by-path rule; it also allows paths of the old `AI-Music-App` checkout.
+  - where: `.claude/settings.local.json` (the owner's, untracked) · done when: the owner narrows it, or deny rules for `git add -A` and `git add .` land in `.claude/settings.json` · src: the instruction-layer plan's exploration, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-167` `P2` **The sentinel routine's prompt** (outside the repository) tells the run to use the `hebrew-rtl-formatter` skill, which the owner forbade, and names untracked paths that no longer exist.
+  - where: the routine "Sentinel — Kokonada strategic risk review" · done when: its prompt carries the owner's correction (`DEC-155`, Round 5): no RTL skill, Hebrew written by hand with every line starting in Hebrew, and the stale paths gone · src: the owner, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-168` `P1` **Nothing that merged before 2026-10-06 was reviewed by `security-auditor`.** Its first pass covers the surfaces its jurisdiction names: auth and sessions, OAuth token storage and refresh, field encryption and key handling, the biometric socket and ingestion path, the `whr_` device token, Sentry scrubbing, logging of user data, the Android and iOS manifests and deep links, and the dependency manifests.
+  - where: the `security-auditor` rows of the jurisdiction table in `CLAUDE.md` · done when: every finding is a TASKS row and every P0 has a fix in flight · src: `DEC-155`, Round 2 · added: 2026-10-06
+
 ---
 
 ## Architecture & surface removals
@@ -2316,6 +2353,9 @@ _(put anything you are unsure about here rather than losing it)_
   - **Both machines, once:** `git config core.hooksPath .githooks`, which turns on the pre-push guard against pushes to `main` (and the existing pre-commit secret scan).
   - **With Bedrack:** walk through `WORK_LEDGER.md`'s rules, his ID block (`900`–`999`), the owner-only paths, and the rule that each partner merges only his own PRs. Confirm that his commits use his GitHub noreply email, so his unclaimed branches are attributed to him.
   - where: GitHub repository settings; both clones · done when: `gh api repos/DanielMalede/Kokonada --jq '[.delete_branch_on_merge,.allow_merge_commit,.allow_rebase_merge]'` prints `[true,false,false]`, and `git config core.hooksPath` prints `.githooks` on both machines · related: `OPS-152`, `OPS-110` · src: the coordination plan, 2026-10-06 · added: 2026-10-06
+
+- [ ] `DAN-064` `P1` **Order the `## Next up` queue at the top of this file.** The orchestrator proposed eight rows on 2026-10-06; the owner confirms, reorders or cuts them, and from then on owns the order (`DEC-155`, Round 6).
+  - where: `TASKS.md` `## Next up` · done when: the queue carries the owner's order and the PROPOSED line is gone · src: `DEC-155` · added: 2026-10-06
 
 ---
 

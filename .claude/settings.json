@@ -1,5 +1,10 @@
 {
   "includeCoAuthoredBy": false,
+  "attribution": {
+    "commit": false,
+    "pr": false,
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
       "Bash(npm test *)",
