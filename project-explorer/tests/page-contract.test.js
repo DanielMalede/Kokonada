@@ -77,4 +77,5 @@ test('uses local assets only', () => {
 
 test('provides a no-script explanation', () => {
   assert.match(html, /<noscript>[\s\S]*כל תוכן הליבה זמין[\s\S]*<\/noscript>/i);
+  assert.match(html, /class="snapshot-state[^"]*"[^>]+data-snapshot-state="unknown"/i);
 });

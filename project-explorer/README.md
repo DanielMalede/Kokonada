@@ -43,6 +43,25 @@ node --test project-explorer/tests/status-data.test.js project-explorer/tests/pa
 node --test project-explorer/tests/status-data.test.js project-explorer/tests/page-contract.test.js project-explorer/tests/app-core.test.js project-explorer/tests/app-dom.test.js project-explorer/tests/style-contract.test.js project-explorer/tests/serve-core.test.mjs project-explorer/tests/serve-integration.test.mjs
 ```
 
+## CI ב-GitHub Actions
+
+ה-workflow הראשי נמצא ב-`.github/workflows/ci.yml`. בכל Pull Request אל `main`, וגם בכל push
+אל `main`, GitHub מפעיל job בשם `Project Explorer — tests`. ה-job משתמש ב-Node 24 ומריץ את
+אותה בדיקה מלאה שמופיעה למעלה, על runner נקי של Ubuntu.
+
+כדי לבדוק ריצה ב-GitHub:
+
+- נכנסים ל-Pull Request ופותחים את אזור `Checks`, או נכנסים ללשונית `Actions` במאגר.
+- בוחרים את ריצת `CI` המתאימה ל-branch ול-commit הנבדקים.
+- בוחרים משמאל את `Project Explorer — tests` ופותחים את השלב `Run Project Explorer tests`.
+- סימון ירוק אומר שכל 39 הבדיקות עברו. סימון אדום אומר שיש לפתוח את הלוג ולמצוא את ה-subtest
+  הראשון שנכשל.
+- אחרי תיקון ו-push חדש, GitHub מפעיל ריצה חדשה אוטומטית. אפשר גם לבחור `Re-run jobs` כדי
+  להריץ שוב את אותו commit, למשל לאחר תקלה זמנית ב-runner.
+
+הדף מיועד לעבודה מקומית בתוך המאגר הפרטי. אין עבורו workflow של GitHub Pages, והוא אינו
+מתפרסם כאתר ציבורי.
+
 ## רענון תמונת המצב
 
 הנתונים בדף הם snapshot מתוארך. הם אינם ניטור חי. כדי לרענן אותם:

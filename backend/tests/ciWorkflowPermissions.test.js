@@ -139,12 +139,12 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     expect(ci.triggers.sort()).toEqual(['pull_request', 'push']);
     expect(ci.jobs.map((j) => j.id).sort()).toEqual([
       'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'mobile-ios-build', 'project-explorer', 'secret-scan',
     ]);
     // Every job checks out, so every job needs `contents` named in any override it declares.
     expect(ci.jobs.filter((j) => j.checksOut).map((j) => j.id).sort()).toEqual([
       'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'mobile-ios-build', 'project-explorer', 'secret-scan',
     ]);
 
     // Every job that touches the PR API is caught by the PR-API rule. secret-scan and

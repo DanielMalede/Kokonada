@@ -56,6 +56,25 @@ jobs:
         run: npm test
         working-directory: backend
 
+  project-explorer:
+    name: Project Explorer — tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run Project Explorer tests
+        run: >-
+          node --test
+          project-explorer/tests/status-data.test.js
+          project-explorer/tests/page-contract.test.js
+          project-explorer/tests/app-core.test.js
+          project-explorer/tests/app-dom.test.js
+          project-explorer/tests/style-contract.test.js
+          project-explorer/tests/serve-core.test.mjs
+          project-explorer/tests/serve-integration.test.mjs
+
   mobile:
     name: Mobile — jest
     runs-on: ubuntu-latest
@@ -306,4 +325,3 @@ jobs:
   # `railway up` from this repo fights the service's Root Directory (/backend) and fails
   # the build in ~2s; worse, that failed check made "wait for CI" block the native
   # deploy. Keep backend deploys native; CI only needs to go green.
-
