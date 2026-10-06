@@ -4,7 +4,7 @@ The single running list of everything still open in this repo. **If it is not wr
 A task that lives only in a conversation is already lost — that is what this file exists to stop.
 
 **Last updated:** 2026-10-06
-**Next free IDs:** `BE-120` · `MB-105` · `UI-090` · `OPS-154` · `ARCH-017` · `DAN-064`
+**Next free IDs:** `BE-120` · `MB-105` · `UI-090` · `OPS-155` · `ARCH-017` · `DAN-064`
 Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, OPS-136–145 (the next scribe PR), ARCH-013–016, DAN-050–062, DEC-128–154; each branch writes its own rows.
 Bedrack's block (`WORK_LEDGER.md`): `900`–`999` in every prefix (`BE-900`, `MB-900`, …). Bedrack takes new IDs only from it; the next free IDs above never enter it.
 
@@ -1216,6 +1216,32 @@ _(put anything you are unsure about here rather than losing it)_
 
 - [ ] `OPS-153` `P3` **`custodian.md` still assumes one human.** Line 86 says "Do NOT propose CODEOWNERS — solo repo, pure ceremony", and its run preconditions check only for a second session on the same working tree, not for the partner's live branches on origin. A custodian batch should also be disjoint from every live claim (`coord check` on the batch's files), as `DEC-144` already asks of open branches.
   - where: `.claude/agents/custodian.md:15-16`, `:86` · done when: the owner approves both lines and they land in their own commit · related: `OPS-151`, `DEC-144` · src: the coordination plan's exploration, 2026-10-06 · added: 2026-10-06
+
+- [ ] `OPS-154` `P3` **Coordinator engine, small findings from its build (2026-10-06), none blocking.**
+  - **A personal email sits in a tracked file.** `WORK_LEDGER.md`'s People row for Malede lists `danielmalede@gmail.com`, so his commits made under that address map to him. It is already in every commit's metadata, but switching local commits to the noreply address (`git config user.email 102303436+DanielMalede@users.noreply.github.com`) makes the value unnecessary and it can be dropped from the row.
+  - **The claim commit carries `[skip ci]`,** so the secret-scan gate does not scan it (the `OPS-131` class). It holds only ledger and TASKS lines, so the risk is low; the next commit on the branch runs the whole range.
+  - **`gh pr list --limit 300`** stops seeing older PRs once the repository passes 300; the content-merge rule still covers those branches unless `main` has since edited the same files, and then a finished branch can reappear as unclaimed for up to 14 days.
+  - **Speed:** `check` spawns about five git processes per branch that carries a ledger (6.8 s on 33 branches); one `git cat-file --batch` read would cut it once every branch carries one.
+  - **The attribution guard sweeps tracked files only,** so a new file is checked only once committed; `wave4.attributionGuard.test.js` is the place to widen it, if wanted.
+  - **Known residuals from the second `resilience-auditor` round (2026-10-06), recorded rather than fixed in the first PR:**
+    - *Recency on a fresh clone:* a revived branch with old-dated commits and no open PR cannot be seen where the clone has no reflog for the remote-tracking ref (every fresh clone, including each Codex session). Failing closed there would turn every stale branch into a HALT; the engine prints a note instead.
+    - *Dirty working copy:* resume, `ship` and `rescope` edit `TASKS.md` and `WORK_LEDGER.md` in the task worktree and commit the whole file, so unrelated in-progress edits to those files are committed with `[skip ci]`. Fix: refuse when the file has uncommitted changes, or edit the `HEAD:` blob.
+    - *A branch's own People table and headings decide how its ledger is read:* a branch that edits them makes its live slots invisible. Fix: read slots with main's People, and count fewer slots than main as malformed.
+    - *A `TASKS.md` status line on `main` that names a landed but undeleted branch* HALTs that row until the branch is deleted (`DAN-063`).
+    - *The owner of an unclaimed branch is its tip commit's author:* a cherry-picked or amended commit of the other partner is attributed to the wrong person when there is no PR. Fix: use the committer first, skipping GitHub's web-flow commits.
+    - *The same partner can take one slot from two clones* (cloud sessions): the lock is per clone. Fix: the post-push re-check HALTs when another live claim of mine holds the slot.
+    - *First-claim-wins in `ci` compares committer dates from local clocks;* treat claims within about ten minutes of each other as a tie.
+    - *The owner is the first row of the People table:* sorting the table changes who the owner-only, `DAN-` and ID-block rules apply to. Fix: an explicit role column, and an error unless there is exactly one owner.
+    - *The deploy-in-flight check in `check --merge` reads GitHub Actions push runs on `main`.* While `DAN-053` (Railway waits for CI) is open, Railway deploys on the push regardless of CI, so a finished run does not mean a finished deploy.
+  - **Third `resilience-auditor` round (2026-10-06): PASS WITH FINDINGS, all LOW:**
+    - *`check --merge` misses a rename's source path:* `gh pr diff --name-only` keeps only the new path, so a PR that renames a file the partner declared gets no `merge-order` HALT (`check` and `ci` still catch it). Fix: list the PR's files with git after the fetch (`--no-renames` against the merge-base), exit 2 if the head is not on origin.
+    - *Three fixes are pinned only in the pure functions:* real ages in `--merge` and `ci` output, the 100-open-PR cap through the CLI (the fake `gh` ignores `--limit`), and `ship` refusing a branch whose claim has landed but whose branch was not deleted.
+    - *`start` and `rescope` do not print the fresh-clone recency note;* `check` and `status` do.
+    - *A `gh` failure in the post-push re-check exits 2 without saying the claim is already pushed and no PR was opened.*
+    - *A hand-written Windows folder path with a trailing backslash* (`project-explorer\src\`) counts as a broken path instead of `project-explorer/src/**`.
+    - *A partly broken claim gives no warning of its own;* the dropped tokens show only inside another collision's text.
+    - *Help text:* `render.js` still says a branch name is reused only to resume a claim on origin (a local-only claim also resumes), and that `gh` is required only for `start` (`check`, `--merge` and `rescope` need it too); the header of `gh.js` says the same.
+  - where: `WORK_LEDGER.md` (People table) · `scripts/coord/lib/git.js`, `scripts/coord/coord.js` · done when: each is fixed or the owner accepts it, recorded here · related: `OPS-151`, `OPS-152`, `OPS-131` · src: the coordinator's `developer` report, 2026-10-06 · added: 2026-10-06
 
 - [ ] `OPS-001` `P1` **OWNED BY A SEPARATE SESSION — see the block below before acting.** The Wave-4 mission loop is not running. ~~`docs/plans/WAVE4_HALT` is present (2026-08-25 16:05) and no session has run since.~~ **The halt file is now ABSENT — see the finding below; the loop is stopped because no process is running it, not because of the flag.** `W4-015` (soak, closeout & package) is the **only remaining MUST** and has never seriously started; the 24 h `RUN_SOAK=1` run has never executed. `#verify`
   - ### 🔒 OWNED BY ANOTHER SESSION — DO NOT TOUCH, DO NOT RESTART, DO NOT ARCHIVE
