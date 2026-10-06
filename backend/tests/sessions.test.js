@@ -61,7 +61,10 @@ beforeEach(() => jest.clearAllMocks());
 
 describe('GET /api/sessions — DTO whitelist', () => {
   it('exposes the decrypted contextPrompt but NEVER the HR snapshot, trackKeys, or llmCacheKey', async () => {
-    mockFind([sessionDoc()]);
+    const privateHeartRateSentinel = 987654321;
+    mockFind([sessionDoc({
+      biometricSnapshot: { heartRate: privateHeartRateSentinel, activity: 'working' },
+    })]);
     const res = buildRes();
     await ctrl.listSessions({ user: { _id: 'u1' }, query: {} }, res, jest.fn());
 
@@ -75,7 +78,7 @@ describe('GET /api/sessions — DTO whitelist', () => {
 
     const blob = JSON.stringify(res.body);
     expect(blob).not.toMatch(/heartRate/);
-    expect(blob).not.toContain('72');          // the raw HR value never leaks
+    expect(blob).not.toContain(String(privateHeartRateSentinel)); // the raw HR value never leaks
     expect(blob).not.toMatch(/trackKeys|isrc:/);
     expect(blob).not.toMatch(/llmCacheKey|cache:secret/);
     expect(item).not.toHaveProperty('biometricSnapshot');
