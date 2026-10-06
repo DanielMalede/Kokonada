@@ -72,12 +72,12 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 - started: 2026-10-06
 
 ### M02
-- task: `OPS-153` (TASKS)
-- title: Coordination phase B: a pull-request check that runs the engine, its pin, the AGENTS.md section, and the secret scan over merge commits
-- branch: `feat/ops153-coordination-check`
-- paths: `.github/workflows/coordination.yml`, `.github/workflows/ci.yml`, `AGENTS.md`, `backend/tests/ciWorkflowPermissions.test.js`, `backend/tests/secretScanGates.test.js`, `TASKS.md`
+- task: `own:scribe-2026-10-06` (own)
+- title: docs: scribe 2026-10-06: DEC-156 (the privacy page waits for the armed sweep), the post-J2 counsel annex and the session's TASKS rows
+- branch: `docs/scribe2-2026-10-06`
+- paths: `TASKS.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-156.md`, `docs/design-v2/counsel/gating-five-2026-10-04.md`, `docs/design-v2/counsel/post-j2-privacy-questions-2026-10-06.md`, `docs/plans/HALT_HEALTH_CONNECT_PLAY_BLOCKERS.md`
 - resources: none
-- state: in-review · PR #230
+- state: claimed
 - started: 2026-10-06
 
 ### M03
