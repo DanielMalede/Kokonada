@@ -110,7 +110,7 @@ _free_
 - task: `own:healthkit-authoritative-store` (own)
 - title: HealthKit authoritative sample store foundation
 - branch: `feat/mb900-healthkit-store`
-- paths: `backend/app/models/HealthSample.js`, `backend/app/services/wearable/healthSampleIdentity.js`, `backend/tests/healthSampleIdentity.test.js`, `backend/tests/healthSampleModel.integration.test.js`, `backend/app/services/privacy/erasure.js`, `backend/scripts/gdpr-delete.js`, `backend/app/services/privacy/userDataExport.js`, `backend/tests/wave4.aadUpdateBinding.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `backend/tests/shadow.qa4.crypto.test.js`, `backend/tests/accountDeletion.test.js`, `backend/tests/userDataExport.test.js`, `docs/PRIVACY_DECLARATIONS.md`
+- paths: `backend/app/models/HealthSample.js`, `backend/app/services/wearable/healthSampleIdentity.js`, `backend/tests/healthSampleIdentity.test.js`, `backend/tests/healthSampleModel.integration.test.js`, `backend/app/services/privacy/erasure.js`, `backend/scripts/gdpr-delete.js`, `backend/app/services/privacy/userDataExport.js`, `backend/tests/wave4.aadUpdateBinding.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `backend/tests/shadow.qa4.crypto.test.js`, `backend/tests/accountDeletion.test.js`, `backend/tests/userDataExport.test.js`, `backend/tests/orphanSweep.integration.test.js`, `backend/tests/shadow.auth.test.js`, `backend/tests/accountDeletionConsentMark.integration.test.js`, `docs/PRIVACY_DECLARATIONS.md`
 - resources: none
 - state: claimed
 - started: 2026-10-06
