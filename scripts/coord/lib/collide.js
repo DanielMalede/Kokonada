@@ -26,9 +26,10 @@ const CLASS_ORDER = ['owner-only', 'malformed', 'exact', 'glob', 'exclusive grou
 
 const TASK_ID_RE = /^[A-Z][A-Z0-9]*-\d+$/;
 
-// The documented residual of the recency rule (printed once when it applies): without an open PR
-// and without reflog evidence, a branch is judged by its commit dates alone.
-const RECENCY_NOTE = 'note: recency from commit dates only; a revived branch with old-dated commits and no open PR cannot be seen on a fresh clone';
+// The documented residual of the recency rule (printed once when it applies): a branch with no open
+// PR, which this clone has never seen move or appear after its first fetch, is judged by its commit
+// dates alone.
+const RECENCY_NOTE = 'note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked';
 
 // Claim paths read from a ledger slot. A folder written with a trailing slash — or a Windows
 // backslash, converted first — is a folder claim; a path that cannot be normalised is reported
@@ -265,15 +266,18 @@ function headingBlocks(lines) {
   return out;
 }
 
-// The claim a structurally broken ledger still carries: every bullet line under a heading whose
-// text differs from the merge-base's, read as a broken slot is read. Its slot is the first changed
-// `### Xnn` block that holds a bullet (null when none does).
-function salvageLedger({ head, base }) {
+// The claim a structurally broken ledger still carries: the bullet lines under headings whose text
+// differs from the merge-base's, read as a broken slot is read. When some of those blocks name this
+// branch on a `- branch:` line, only they are its claim: a branch stacked on another unlanded branch
+// also carries that branch's claim (M3). Its slot is the first such `### Xnn` block with a bullet.
+function salvageLedger({ head, base, branch }) {
   const before = new Map(base ? headingBlocks(base.lines).map((b) => [b.heading, b.body.join('\n')]) : []);
   const changed = headingBlocks(head.lines).filter((b) => before.get(b.heading) !== b.body.join('\n'));
   const bullets = (b) => b.body.filter((l) => /^\s*- /.test(l)).map((l) => l.trim());
-  const slotBlock = changed.find((b) => /^###\s+[A-Z]\d{2}$/.test(b.heading || '') && bullets(b).length);
-  return { slot: slotBlock ? slotBlock.heading.replace(/^###\s+/, '') : null, ...claimTokens(changed.flatMap(bullets)) };
+  const naming = changed.filter((b) => bullets(b).some((l) => l === `- branch: \`${branch}\``));
+  const blocks = naming.length ? naming : changed;
+  const slotBlock = blocks.find((b) => /^###\s+[A-Z]\d{2}$/.test(b.heading || '') && bullets(b).length);
+  return { slot: slotBlock ? slotBlock.heading.replace(/^###\s+/, '') : null, ...claimTokens(blocks.flatMap(bullets)) };
 }
 
 // → footprints of every other branch on origin: live claims, and unclaimed branches that are recent
@@ -290,7 +294,7 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
     const common = { branch: b.name, tipTime: b.tipTime, author: b.author || null, firstLedgerTime: b.firstLedgerTime };
     const problems = structureProblems({ head, base, main: mainLedger || rules });
     if (problems.length) {
-      const s = salvageLedger({ head, base });
+      const s = salvageLedger({ head, base, branch: b.name });
       const cp = claimPaths(s.paths);
       out.push({
         ...common,
@@ -298,7 +302,8 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
         malformed: true,
         malformedWhy: `its ledger does not parse as main's: ${problems.join('; ')}`,
         slot: s.slot,
-        person: (s.slot && personBySection(rules, s.slot[0])) || ownerOfBranch(rules, b),
+        // the branch's owner (its PR, then its commit) decides; the slot letter only when neither tells
+        person: ownerOfBranch(rules, b) || (s.slot && personBySection(rules, s.slot[0])) || null,
         task: s.task,
         title: null,
         state: null,
@@ -631,7 +636,13 @@ function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
   const mine = (footprints || []).find((f) => f.branch === pr.headRefName && f.kind === 'claim' && f.person && f.person.section === me.section);
   const myFirst = mine ? val(mine.firstLedgerTime) : null;
   for (const fp of footprints || []) {
-    if (fp.branch === pr.headRefName) continue;
+    if (fp.branch === pr.headRefName) {
+      // A PR I opened whose head is HIS branch would merge his work: the author check alone passes it.
+      if (fp.person && fp.person.section !== me.section) {
+        reasons.push(reason('HALT', 'merge', fp, [], `${who(fp)}: PR #${pr.number}'s head ${pr.headRefName} carries ${fp.person.name}'s work (${where(fp, now)}) — merge only your own branches`));
+      }
+      continue;
+    }
     if (fp.person && fp.person.section === me.section) continue;
     const meets = overlaps(prFp, fp, rules).filter((o) => o.level === 'HALT');
     if (!meets.length) continue;

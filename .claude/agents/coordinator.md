@@ -72,6 +72,7 @@ Exit 0 CLEAR · 3 WARN · 1 HALT · 2 CANNOT VERIFY.
 | Before /ship | `ship` in the task worktree — moves the slot to `in-review · PR #N` and reports drift between declared and changed files |
 | Before /merge | `check --merge <N>` — refuses the partner's PR, a PR whose files meet his earlier live claim, and any merge while a deploy from `main` is still running; lists the partner's branches that will need `main` merged in |
 | Dropping a task | `release` — prints the close and delete commands for your own branch; the human runs them |
+| Trying `ship` or `rescope` safely | add `--dry-run`: it prints what it would do and changes nothing |
 | "Who is working on what?" | `status` |
 
 ---
@@ -108,6 +109,7 @@ To Malede, report in Hebrew. The ledger, commits and PR text stay in English.
 - **A path set widened to be safe.** `mobile/KokonadaHealth/src/experience/**` blocks the partner from half the app.
 - **Trusting declarations over diffs.** The engine also reads the files each branch actually changed. An unclaimed branch of the partner still counts.
 - **Case.** Windows treats `Tokens.ts` and `tokens.ts` as one file; the engine compares without case, and so do you.
+- **A branch the clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked.** The engine prints a note when this applies. A branch pushed later is seen on a long-lived clone; on a fresh clone (every Codex session) it is judged by its commit dates alone, so a revived branch with old-dated commits can stay invisible there until it moves again.
 - **A shallow clone.** It sees no partner branches; the engine exits 2, and the fix is `git fetch --unshallow`, never a retry. (A single-branch clone is handled: the engine fetches every branch itself.)
 - **Acting for the partner.** Releasing his stale claim, editing his slot, merging his PR "because it was green" — all forbidden. A stale claim is reported and he releases it.
 

@@ -88,6 +88,8 @@ const onOrigin = (name) => {
   return heads.has('refs/remotes/origin/' + name);
 };
 function refresh(pr) {
+  // lagging: GitHub has not caught up with a push yet, so the PR still shows its older head
+  if (pr.lagging) return pr;
   if ((pr.state !== 'OPEN' || !onOrigin(pr.headRefName)) && pr.files) return pr;
   try {
     // full refnames: GitHub never sees a local branch or tag that happens to be named origin/...
@@ -161,9 +163,14 @@ let env;
 let ghState;
 // The CLI's clock for `started:` dates is pinned, so a run across midnight cannot flake.
 const TODAY = '2026-10-06';
+// git's dates for an operation done `days` ago: its commits and its reflog entries.
+const AGE = (days) => {
+  const at = `@${Math.floor(Date.now() / 1000) - Math.round(days * 86400)} +0000`;
+  return { GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at };
+};
 
-function git(cwd, args) {
-  const res = spawnSync('git', args, { cwd, env, encoding: 'utf8', windowsHide: true });
+function git(cwd, args, extraEnv) {
+  const res = spawnSync('git', args, { cwd, env: { ...env, ...(extraEnv || {}) }, encoding: 'utf8', windowsHide: true });
   if (res.status !== 0) throw new Error(`git ${args.join(' ')} failed in ${cwd}:\n${res.stdout}${res.stderr}`);
   return res.stdout;
 }
@@ -226,10 +233,12 @@ function seedWorld(dir) {
   git(seed, ['commit', '-m', 'chore: seed']);
   git(seed, ['push', 'origin', 'HEAD:refs/heads/main']);
 
+  // The partners' clones are long-lived, as real ones are: made a day ago. git dates a reflog entry
+  // with the committer date, so their clone entries say so. (A clone made now is a fresh one.)
   const made = { seed };
   for (const actor of ['malede', 'bedrack']) {
     const clone = path.join(dir, actor);
-    git(dir, ['clone', bare, clone]);
+    git(dir, ['clone', bare, clone], AGE(1));
     git(clone, ['config', 'user.name', AUTHORS[actor][0]]);
     git(clone, ['config', 'user.email', AUTHORS[actor][1]]);
     made[actor] = clone;
@@ -400,7 +409,9 @@ describe('OPS-152 · coordinator end to end', () => {
     expect(changed).toBe('WORK_LEDGER.md');
 
     const pr = readGh().prs.find((p) => p.headRefName === 'feat/project-explorer-ci');
-    expect(pr).toMatchObject({ isDraft: true, baseRefName: 'main', title: 'own:project-explorer-ci: Restore the private Project Explorer with CI', author: { login: 'DanielBedrack' } });
+    // the squash merge takes the PR title as main's commit subject: `type: subject (ID)`, the type from
+    // the branch prefix
+    expect(pr).toMatchObject({ isDraft: true, baseRefName: 'main', title: 'feat: Restore the private Project Explorer with CI (own:project-explorer-ci)', author: { login: 'DanielBedrack' } });
     expect(pr.body).toMatch(/Claimed with scripts\/coord\/coord\.js/);
     expect(pr.body).toMatch(/B01/);
     expect(pr.body).not.toMatch(/claude|anthropic|generated with|co-authored|\bAI\b/i);
@@ -704,20 +715,8 @@ describe('OPS-152 · coordinator end to end', () => {
     expect(named.out).toMatch(/Bedrack \(@DanielBedrack\): unclaimed recent branch feat\/odd/);
     expect(named.out).not.toMatch(/owner unknown/);
 
-    // commits dated 40 days ago, pushed today: my clone has only seen the branch APPEAR, and a ref's
-    // creation is not a move (a fresh `git init` + fetch, as CI checks out, creates every ref at
-    // once), so it is judged by its commit date — dropped, and the output says so
-    const firstSeen = coord('malede', ['check', '--paths', 'docs/old/x.md']);
-    expect(firstSeen.out).not.toMatch(/feat\/old-dates/);
-    expect(firstSeen.out).toMatch(/recency from commit dates only/);
-    // he moves it (another old-dated commit) and my clone sees the move: recent work again
-    git(b, ['checkout', '-B', 'feat/old-dates', 'origin/feat/old-dates']);
-    write(b, 'docs/old/x.md', 'old, again\n');
-    git(b, ['add', '--', 'docs/old/x.md']);
-    const again = spawnSync('git', ['commit', '-m', 'docs: old again'], { cwd: b, env: { ...env, GIT_AUTHOR_DATE: old, GIT_COMMITTER_DATE: old }, encoding: 'utf8' });
-    expect(again.status).toBe(0);
-    git(b, ['push', 'origin', 'feat/old-dates']);
-    git(b, ['checkout', '--detach']);
+    // commits dated 40 days ago, pushed today: still recent work. My clone is a day old, and this is
+    // the first fetch it sees the branch in, so the branch appeared today (M1)
     const oldDated = coord('malede', ['check', '--paths', 'docs/old/x.md']);
     expect(oldDated.code).toBe(1);
     expect(oldDated.out).toMatch(/feat\/old-dates/);
@@ -951,7 +950,7 @@ describe('OPS-152 · coordinator end to end', () => {
     const fresh = path.join(root, 'fresh');
     git(root, ['clone', origin, fresh]);
     const noted = coord('malede', ['check', '--paths', 'docs/old/x.md'], { cwd: fresh });
-    expect(noted.out).toMatch(/recency from commit dates only; a revived branch with old-dated commits and no open PR cannot be seen on a fresh clone/);
+    expect(noted.out).toMatch(/note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked/);
     expect(noted.out).not.toMatch(/feat\/old-dates/);
   });
 
@@ -1094,7 +1093,7 @@ describe('OPS-152 · coordinator before the ledger is on main', () => {
 describe('OPS-155 · coordinator hardening end to end', () => {
   const W = {};
   const { setSlot } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'lib', 'ledger.js'));
-  const NOTE = /recency from commit dates only; a revived branch with old-dated commits and no open PR cannot be seen on a fresh clone/;
+  const NOTE = /note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked/;
   const run = (actor, args, { cwd, extraEnv } = {}) => coord(actor, args, { cwd: cwd || W.clones[actor], extraEnv: { FAKE_GH_STATE: W.ghState, ...(extraEnv || {}) } });
   const gh = () => JSON.parse(fs.readFileSync(W.ghState, 'utf8'));
   const setGh = (patch) => fs.writeFileSync(W.ghState, JSON.stringify({ ...gh(), ...patch }, null, 2));
@@ -1103,6 +1102,8 @@ describe('OPS-155 · coordinator hardening end to end', () => {
   const tipOf = (b) => git(W.origin, ['rev-parse', `refs/heads/${b}`]).trim();
   const wt = (actor, b) => path.join(W.clones[actor], `.worktree-${b.replace(/\//g, '-')}`);
   const prOf = (b) => gh().prs.find((p) => p.headRefName === b);
+  // A finished test's branch leaves origin, so its slot is free again (a partner has 12, or 6).
+  const release = (...branches) => { for (const b of branches) git(W.origin, ['branch', '-D', b]); };
   const claimOf = (over) => ({ taskKind: 'own', resources: [], state: 'claimed', pr: null, started: TODAY, ...over });
   const commitAll = (dir, files, message, extraEnv) => {
     git(dir, ['add', '--', ...files]);
@@ -1138,6 +1139,8 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(text).toMatch(/resume your own claim: on origin, or a local one a failed push left behind/);
     expect(text).toMatch(/gh missing or failing where it is required: check, check --merge, start and rescope/);
     expect(text).toMatch(/refuse while TASKS\.md or WORK_LEDGER\.md has uncommitted changes/);
+    expect(text).toMatch(/ship \[--pr N\] \[--dry-run\]/);
+    expect(text).toMatch(/rescope --paths a,b,c \[--dry-run\]/);
   });
 
   test('N12 · a branch he committed is his, even when its commit carries my author identity', () => {
@@ -1215,9 +1218,9 @@ describe('OPS-155 · coordinator hardening end to end', () => {
 
   test('A2 · --merge and ci print real ages through the CLI, never "age unknown"', () => {
     pushAged('aged\n');
-    // my start's fetch is the first time my clone sees feat/aged (a creation, not a move) ...
+    // my (day-old) clone sees feat/aged appear in my start's fetch, and then sees it move: recent work
+    // whatever its commit dates
     expect(run('malede', ['start', '--task', 'own:ages', '--title', 'Ages', '--paths', 'docs/ages/x.md', '--branch', 'docs/ages-m']).code).toBe(0);
-    // ... and this is a move it sees: a revived branch, recent work whatever its commit dates
     pushAged('aged, again\n');
     const dir = wt('malede', 'docs/ages-m');
     write(dir, 'docs/aged/x.md', 'mine too\n');
@@ -1302,6 +1305,7 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     const rs = run('malede', ['rescope', '--paths', 'docs/fresh/x.md,docs/fresh/y.md'], { cwd: path.join(fresh, '.worktree-docs-fresh-m') });
     expect(rs.out).toMatch(NOTE);
     expect(rs.code).toBe(0);
+    release('docs/fresh-m');
   });
 
   test('A4 · gh failing in the re-check after the push says the claim is pushed, no PR was opened, and to run start again', () => {
@@ -1324,6 +1328,7 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(again.out).toMatch(/resumed/);
     expect(again.code).toBe(0);
     expect(prOf('docs/a4-m')).toMatchObject({ state: 'OPEN', isDraft: true });
+    release('docs/a4-m');
   });
 
   test('N7 · ship, rescope and a resumed start refuse while TASKS.md or WORK_LEDGER.md has uncommitted changes; the commit holds only the coordinator\'s lines', () => {
@@ -1360,6 +1365,7 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(git(dir, ['show', '--format=', '--numstat', 'HEAD']).trim()).toBe('1\t1\tWORK_LEDGER.md');
     const changed = git(dir, ['show', '--format=', '-U0', 'HEAD']).split('\n').filter((l) => /^[-+]/.test(l) && !/^(?:--- a\/|\+\+\+ b\/)/.test(l));
     expect(changed).toEqual(['-- state: claimed', `+- state: in-review · PR #${prOf('docs/dirty-m').number}`]);
+    release('docs/dirty-m');
   });
 
   test('N10 · a TASKS row whose status line names a landed but undeleted branch is free again', () => {
@@ -1450,17 +1456,30 @@ describe('OPS-155 · coordinator hardening end to end', () => {
   });
 
   test('N1 · a local branch or tag named origin/main or origin/<b> shadows nothing: every verdict stays the same', () => {
+    // L8: everything this test reads, it makes. His claim, and my PR that changes the file he claimed.
+    expect(run('bedrack', ['start', '--task', 'own:n1-his', '--title', 'His side', '--paths', 'docs/n1/his.md', '--branch', 'docs/n1-his']).code).toBe(0);
+    expect([0, 3]).toContain(run('malede', ['start', '--task', 'own:n1-mine', '--title', 'My side', '--paths', 'docs/n1/mine/**', '--branch', 'docs/n1-mine']).code);
+    const mineDir = wt('malede', 'docs/n1-mine');
+    write(mineDir, 'docs/n1/his.md', 'mine\n');
+    commitAll(mineDir, ['docs/n1/his.md'], 'docs: touch his file');
+    git(mineDir, ['push', 'origin', 'HEAD']);
+
     const m = W.clones.malede;
     git(m, ['fetch', 'origin']);
-    // a commit whose ledger names two owners (step N15): read as "main", every command would exit 2
-    const twoOwners = git(m, ['log', '--format=%H', '--grep=^chore: two owners$', 'refs/remotes/origin/main']).trim();
-    expect(twoOwners).toMatch(/^[0-9a-f]{40}$/);
+    // a commit, reachable from nothing, whose ledger names two owners: read as "main", every command exits 2
+    const scratch = path.join(W.root, 'n1 scratch');
+    git(m, ['worktree', 'add', '--detach', scratch, 'refs/remotes/origin/main']);
+    const ledgerFile = path.join(scratch, 'WORK_LEDGER.md');
+    fs.writeFileSync(ledgerFile, fs.readFileSync(ledgerFile, 'utf8').replace('| Bedrack | partner |', '| Bedrack | owner |'));
+    commitAll(scratch, ['WORK_LEDGER.md'], 'chore: two owners, never pushed');
+    const twoOwners = git(scratch, ['rev-parse', 'HEAD']).trim();
+    git(m, ['worktree', 'remove', '--force', scratch]);
     const firstCommit = git(m, ['rev-list', '--max-parents=0', 'refs/remotes/origin/main']).trim();
     const probes = [
-      ['check', '--paths', 'docs/guide/intro.md'],
-      ['check', '--paths', 'docs/nothing/here.md'],
-      ['check', '--merge', String(prOf('docs/move-m').number)],
-      ['ci', '--branch', 'docs/move-m', '--author', 'DanielMalede'],
+      ['check', '--paths', 'docs/n1/his.md'],
+      ['check', '--paths', 'docs/n1/nothing.md'],
+      ['check', '--merge', String(prOf('docs/n1-mine').number)],
+      ['ci', '--branch', 'docs/n1-mine', '--author', 'DanielMalede'],
       ['status'],
     ];
     const verdicts = () => probes.map((args) => {
@@ -1468,7 +1487,7 @@ describe('OPS-155 · coordinator hardening end to end', () => {
       return { args: args.join(' '), code: r.code, out: r.stdout };
     });
     const before = verdicts();
-    // HALT, a pass (CLEAR — or WARN while his broken-ledger branch from N8 is still on origin), a
+    // HALT, a pass (CLEAR — or WARN while another test's broken-ledger branch is on origin), a
     // merge-order HALT, a ci FAIL and a status: verdicts a shadow could flip, each of them
     expect(before.map((v) => v.code)).toEqual([1, expect.any(Number), 1, 1, 0]);
     expect([0, 3]).toContain(before[1].code);
@@ -1479,8 +1498,8 @@ describe('OPS-155 · coordinator hardening end to end', () => {
       ['per-branch shadows instead', () => {
         git(m, ['branch', '-D', 'origin/main']);
         git(m, ['tag', '-d', 'origin/main']);
-        git(m, ['tag', 'origin/docs/guide-b', 'refs/remotes/origin/main']); // his claim, read from main: gone
-        git(m, ['branch', 'origin/docs/move-m', firstCommit]); // my PR's files, read from the seed: none
+        git(m, ['tag', 'origin/docs/n1-his', 'refs/remotes/origin/main']); // his claim, read from main: gone
+        git(m, ['branch', 'origin/docs/n1-mine', firstCommit]); // my PR's files, read from the seed: none
       }],
     ];
     try {
@@ -1489,9 +1508,156 @@ describe('OPS-155 · coordinator hardening end to end', () => {
         expect({ label, verdicts: verdicts() }).toEqual({ label, verdicts: before });
       }
     } finally {
-      for (const args of [['branch', '-D', 'origin/main'], ['tag', '-d', 'origin/main'], ['tag', '-d', 'origin/docs/guide-b'], ['branch', '-D', 'origin/docs/move-m']]) {
+      for (const args of [['branch', '-D', 'origin/main'], ['tag', '-d', 'origin/main'], ['tag', '-d', 'origin/docs/n1-his'], ['branch', '-D', 'origin/docs/n1-mine']]) {
         spawnSync('git', args, { cwd: m, env, encoding: 'utf8' });
       }
+    }
+    release('docs/n1-his', 'docs/n1-mine');
+  });
+
+  // His branch, cut from main, whose only commit is 40 days old; no PR.
+  const pushOldBranch = (name, file) => {
+    const b = W.clones.bedrack;
+    git(b, ['fetch', 'origin']);
+    git(b, ['checkout', '-B', name, 'refs/remotes/origin/main']);
+    write(b, file, `${name}\n`);
+    commitAll(b, [file], `docs: ${name}`, AGE(40));
+    git(b, ['push', 'origin', name]);
+    git(b, ['checkout', '--detach']);
+  };
+
+  test('M1 · a clone that existed before an old-dated branch was pushed sees it (HALT); a clone made after the push does not, and says so', () => {
+    // two long-lived clones, made an hour ago: one by `git clone`, one by `git init` + fetch
+    const viaClone = path.join(W.root, 'long-lived clone');
+    git(W.root, ['clone', W.origin, viaClone], AGE(1 / 24));
+    const viaInit = path.join(W.root, 'long-lived init');
+    fs.mkdirSync(viaInit);
+    git(viaInit, ['init', '-q']);
+    git(viaInit, ['remote', 'add', 'origin', W.origin]);
+    git(viaInit, ['fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*'], AGE(1 / 24));
+    // then he pushes a branch whose commits are 40 days old
+    pushOldBranch('feat/late-old', 'docs/late/x.md');
+    for (const dir of [viaClone, viaInit]) {
+      const res = run('malede', ['check', '--paths', 'docs/late/x.md'], { cwd: dir });
+      expect({ dir: path.basename(dir), out: res.out }).toEqual({ dir: path.basename(dir), out: expect.stringMatching(/Bedrack \(@DanielBedrack\): unclaimed recent branch feat\/late-old \(40 days old\)/) });
+      expect(res.code).toBe(1);
+    }
+    // a clone made now holds the branch from its first fetch: judged by commit date — dropped, with the note
+    const fresh = path.join(W.root, 'clone made after the push');
+    git(W.root, ['clone', W.origin, fresh]);
+    const late = run('malede', ['check', '--paths', 'docs/late/x.md'], { cwd: fresh });
+    expect(late.out).not.toMatch(/feat\/late-old/);
+    expect(late.out).toMatch(NOTE);
+    expect([0, 3]).toContain(late.code);
+  });
+
+  test('a PR whose head is HIS claimed branch cannot be merged by me, even one I opened → HALT', () => {
+    expect(run('bedrack', ['start', '--task', 'own:his-head', '--title', 'His head', '--paths', 'docs/his-head/x.md', '--branch', 'docs/his-head']).code).toBe(0);
+    const state = gh();
+    const n = state.next;
+    state.next += 1;
+    state.prs.push({
+      number: n, title: 'mine, from his branch', body: '', headRefName: 'docs/his-head', baseRefName: 'main', isDraft: false, state: 'OPEN',
+      author: { login: 'DanielMalede' }, url: `https://github.example/pull/${n}`,
+    });
+    fs.writeFileSync(W.ghState, JSON.stringify(state, null, 2));
+    const res = run('malede', ['check', '--merge', String(n)]);
+    expect(res.out).toMatch(new RegExp(`HALT \\[merge\\][^\\n]*PR #${n}'s head docs/his-head carries Bedrack's work`));
+    expect(res.code).toBe(1);
+    release('docs/his-head');
+  });
+
+  test('L1 · a local tag named like the branch does not stop start\'s push: the push names refs/heads/<b>', () => {
+    const m = W.clones.malede;
+    git(m, ['fetch', 'origin']);
+    git(m, ['tag', 'docs/l1-m', 'refs/remotes/origin/main']);
+    let res;
+    try {
+      res = run('malede', ['start', '--task', 'own:l1', '--title', 'A tag of the same name', '--paths', 'docs/l1/x.md', '--branch', 'docs/l1-m']);
+    } finally {
+      git(m, ['tag', '-d', 'docs/l1-m']);
+    }
+    expect([0, 3]).toContain(res.code);
+    expect(tipOf('docs/l1-m')).toBe(git(wt('malede', 'docs/l1-m'), ['rev-parse', 'HEAD']).trim());
+    expect(prOf('docs/l1-m')).toMatchObject({ state: 'OPEN' });
+    release('docs/l1-m');
+  });
+
+  test('L3 · check --merge cannot verify a PR from a fork, or one whose head on GitHub is not the head git fetched', () => {
+    expect([0, 3]).toContain(run('malede', ['start', '--task', 'own:l3', '--title', 'Heads', '--paths', 'docs/l3/x.md', '--branch', 'docs/l3-m']).code);
+    const n = prOf('docs/l3-m').number;
+    const patchPr = (patch) => {
+      const state = gh();
+      Object.assign(state.prs.find((p) => p.number === n), patch);
+      fs.writeFileSync(W.ghState, JSON.stringify(state, null, 2));
+    };
+    try {
+      patchPr({ isCrossRepository: true });
+      const fork = run('malede', ['check', '--merge', String(n)]);
+      expect(fork.out).toMatch(/comes from another repository/);
+      expect(fork.code).toBe(2);
+      patchPr({ isCrossRepository: false, lagging: true, headRefOid: '4'.repeat(40) });
+      const lag = run('malede', ['check', '--merge', String(n)]);
+      expect(lag.out).toMatch(/GitHub shows 4444444 as PR #\d+'s head, but origin\/docs\/l3-m is at [0-9a-f]{7}/);
+      expect(lag.code).toBe(2);
+    } finally {
+      patchPr({ lagging: false });
+    }
+    expect([0, 3]).toContain(run('malede', ['check', '--merge', String(n)]).code);
+    release('docs/l3-m');
+  });
+
+  test('L9 · ship --dry-run and rescope --dry-run say what they would do, and write and push nothing', () => {
+    expect([0, 3]).toContain(run('malede', ['start', '--task', 'own:l9', '--title', 'Dry runs', '--paths', 'docs/l9/x.md', '--branch', 'docs/l9-m']).code);
+    const dir = wt('malede', 'docs/l9-m');
+    const tip = tipOf('docs/l9-m');
+    const head = git(dir, ['rev-parse', 'HEAD']).trim();
+    const ship = run('malede', ['ship', '--dry-run'], { cwd: dir });
+    expect(ship.out).toMatch(new RegExp(`dry run: would mark M\\d\\d \\(own:l9\\) in review as PR #${prOf('docs/l9-m').number}; nothing was changed`));
+    expect(ship.code).toBe(0);
+    const rescope = run('malede', ['rescope', '--paths', 'docs/l9/x.md,docs/l9/y.md', '--dry-run'], { cwd: dir });
+    expect(rescope.out).toMatch(/dry run: would make M\d\d \(own:l9\) claim `docs\/l9\/x\.md`, `docs\/l9\/y\.md`; nothing was changed/);
+    expect([0, 3]).toContain(rescope.code);
+    expect(tipOf('docs/l9-m')).toBe(tip);
+    expect(git(dir, ['rev-parse', 'HEAD']).trim()).toBe(head);
+    expect(git(dir, ['status', '--porcelain']).trim()).toBe('');
+    release('docs/l9-m');
+  });
+
+  test('the draft PR is titled `type: title (ID)`, main\'s commit-subject form, the type from the branch prefix', () => {
+    for (const [branch, type] of [['design/pt-design', 'feat'], ['ops/pt-other', 'chore'], ['fix/pt-fix', 'fix']]) {
+      expect([0, 3]).toContain(run('malede', ['start', '--task', `own:${branch.split('/')[1]}`, '--title', 'Title form', '--paths', `docs/${branch.split('/')[1]}/x.md`, '--branch', branch]).code);
+      const pr = prOf(branch);
+      expect({ branch, title: pr.title }).toEqual({ branch, title: `${type}: Title form (own:${branch.split('/')[1]})` });
+      expect(pr.body).not.toMatch(/claude|anthropic|generated with|co-authored|\bAI\b/i);
+      release(branch);
+    }
+  });
+
+  test('M2 · status lists a salvaged claim that has no slot after the slotted ones, as "(no slot)"', () => {
+    expect(run('bedrack', ['start', '--task', 'own:m2', '--title', 'A slotted claim', '--paths', 'docs/m2/x.md', '--branch', 'docs/m2-b']).code).toBe(0);
+    const b = W.clones.bedrack;
+    git(b, ['fetch', 'origin']);
+    git(b, ['checkout', '-B', 'feat/no-slot', 'refs/remotes/origin/main']);
+    const file = path.join(b, 'WORK_LEDGER.md');
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('\n## Bedrack\n', '\n## Bedrack (renamed)\n'));
+    commitAll(b, ['WORK_LEDGER.md'], 'docs: rename my section');
+    git(b, ['push', 'origin', 'feat/no-slot']);
+    git(b, ['checkout', '--detach']);
+    try {
+      const res = run('malede', ['status']);
+      expect(res.code).toBe(0);
+      const his = res.out.slice(res.out.indexOf('== Bedrack'));
+      const slotted = his.search(/\n {2}B\d\d {2}own:m2/);
+      const none = his.indexOf('\n  (no slot)');
+      expect(slotted).toBeGreaterThan(-1);
+      expect(none).toBeGreaterThan(slotted);
+      expect(his.slice(none)).toMatch(/^\n {2}\(no slot\)[^\n]*\n\s+branch feat\/no-slot/);
+      const json = JSON.parse(run('malede', ['status', '--json']).stdout);
+      const claims = json.people.find((p) => p.login === 'DanielBedrack').claims;
+      expect(claims[claims.length - 1]).toMatchObject({ slot: null, branch: 'feat/no-slot' });
+    } finally {
+      release('feat/no-slot', 'docs/m2-b');
     }
   });
 });

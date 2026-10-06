@@ -16,7 +16,7 @@ const { spawnSync } = require('child_process');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 // `--test` arguments are globs, so the path is POSIX and relative to the repository root.
 const HOOK_TESTS = '.claude/hooks/merge-guard-trigger.test.mjs';
-const MIN_PASS = 151;
+const MIN_PASS = 155;
 
 jest.setTimeout(60000);
 

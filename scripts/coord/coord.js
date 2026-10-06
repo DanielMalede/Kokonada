@@ -212,6 +212,7 @@ function gather(ctx, { useGh = true, requireGh = false } = {}) {
   }
   const stats = {};
   const common = git.commonDir(root);
+  const birth = memo(() => git.cloneBirth(common));
   const mainBlobs = memo(() => git.treeBlobs(root, MAIN));
   const mainRoots = memo(() => git.roots(root, MAIN));
   const remote = git.remoteBranches(root);
@@ -233,7 +234,7 @@ function gather(ctx, { useGh = true, requireGh = false } = {}) {
       name: b.name,
       sha: b.sha,
       tipTime: b.tipTime,
-      seenTime: memo(() => git.reflogTime(common, b.name)),
+      seenTime: memo(() => git.reflogTime(common, b.name, birth())),
       author: b.author,
       committer: b.committer,
       headLedgerText,
@@ -301,8 +302,18 @@ function prFiles(ctx, pr, number) {
   const author = String((pr.author && pr.author.login) || '').toLowerCase();
   if (author !== ctx.me.login.toLowerCase()) return [];
   const b = String(pr.headRefName || '');
+  // L3 · a fork's branch of the same name is not this one; and the files listed must be the files of
+  // the very commit GitHub would merge.
+  if (pr.isCrossRepository === true) {
+    throw cannotVerify(`cannot verify: PR #${number} comes from another repository (a fork): its head is not origin/${b}`);
+  }
   if (!b || !git.refExists(ctx.root, remoteRef(b))) {
     throw cannotVerify(`cannot verify: PR #${number}'s head branch ${b || '(none)'} is not on origin after the fetch, so its files cannot be listed`);
+  }
+  const tip = git.revParse(ctx.root, remoteRef(b));
+  if (!pr.headRefOid || pr.headRefOid !== tip) {
+    const shown = pr.headRefOid ? String(pr.headRefOid).slice(0, 7) : 'no commit';
+    throw cannotVerify(`cannot verify: GitHub shows ${shown} as PR #${number}'s head, but origin/${b} is at ${String(tip).slice(0, 7)} — wait until both name the same commit, then run it again`);
   }
   const base = git.mergeBase(ctx.root, MAIN, remoteRef(b));
   if (!base) throw cannotVerify(`cannot verify: origin/${b} has no merge-base with origin/main, so PR #${number}'s files cannot be listed`);
@@ -330,7 +341,7 @@ function cmdCheck(cwd, flags) {
     stats = r.stats;
   }
   if (flags.merge) {
-    const pr = gh.prView(ctx.root, flags.merge, 'author,headRefName');
+    const pr = gh.prView(ctx.root, flags.merge, 'author,headRefName,headRefOid,isCrossRepository');
     if (!pr) throw cannotVerify(`cannot verify: gh could not read PR #${flags.merge}`);
     pr.files = prFiles(ctx, pr, flags.merge).map((p) => ({ path: p }));
     const runs = gh.runList(ctx.root);
@@ -387,6 +398,14 @@ function acquireLock(dir) {
     };
   }
   throw cannotVerify(`cannot verify: cannot take the lock ${file}`);
+}
+
+// A squash merge takes the PR's title as main's commit subject, so the title is in main's
+// `type: subject` form: the type from the branch prefix, the task at the end.
+const TITLE_TYPES = { fix: 'fix', feat: 'feat', docs: 'docs', chore: 'chore', design: 'feat' };
+function prTitle(branch, task, title) {
+  const prefix = branch.includes('/') ? branch.slice(0, branch.indexOf('/')).toLowerCase() : '';
+  return `${Object.hasOwn(TITLE_TYPES, prefix) ? TITLE_TYPES[prefix] : 'chore'}: ${title} (${task})`;
 }
 
 function prBody({ slotId, claim, declared }) {
@@ -625,7 +644,7 @@ function startLocked(ctx, flags) {
     const tmp = path.join(os.tmpdir(), `coord-pr-${process.pid}-${Date.now()}.md`);
     fs.writeFileSync(tmp, prBody({ slotId, claim, declared }), 'utf8');
     try {
-      const created = gh.prCreate(dir, { base: 'main', head: b, title: `${task}: ${title}`, bodyFile: tmp });
+      const created = gh.prCreate(dir, { base: 'main', head: b, title: prTitle(b, task, title), bodyFile: tmp });
       if (!created.url) throw cannotVerify(`cannot verify: gh pr create failed (${redact(created.error)}); the claim is pushed — run the same start again to open the PR`);
       url = created.url;
     } finally {
@@ -691,13 +710,18 @@ function cmdShip(cwd, flags) {
   const drift = driftOf(ctx, slot.claim.paths);
   const shipped = { ...slot.claim, state: 'in-review', pr: n };
   assertRoundTrip(shipped);
+  const driftLines = drift.length ? [`  WARN [drift] changed but not claimed: ${drift.map((f) => `\`${f}\``).join(', ')} — rescope before the ci check fails`] : [];
+  const verdict = drift.length ? 'WARN' : 'CLEAR';
+  // L9 · a dry run says what ship would do, and writes, commits and pushes nothing
+  if (flags['dry-run']) {
+    out([`${verdict} — dry run: would mark ${slot.id} (${slot.claim.task}) in review as PR #${n}; nothing was changed`, ...driftLines].join('\n'));
+    return drift.length ? 3 : 0;
+  }
   const next = L.setSlot(text, slot.id, shipped);
   if (next !== text) git.writeWorktreeFile(ctx.root, L.LEDGER_PATH, next);
   commitFiles(ctx.root, [L.LEDGER_PATH], `chore: ${slot.claim.task} in review`);
   pushIfAhead(ctx.root, b, false, 'run ship again');
-  const lines = [`${drift.length ? 'WARN' : 'CLEAR'} — ${slot.id} (${slot.claim.task}) is in review as PR #${n}`];
-  if (drift.length) lines.push(`  WARN [drift] changed but not claimed: ${drift.map((f) => `\`${f}\``).join(', ')} — rescope before the ci check fails`);
-  out(lines.join('\n'));
+  out([`${verdict} — ${slot.id} (${slot.claim.task}) is in review as PR #${n}`, ...driftLines].join('\n'));
   return drift.length ? 3 : 0;
 }
 
@@ -716,11 +740,17 @@ function cmdRescope(cwd, flags) {
   if (result.verdict === 'HALT') throw halt('HALT — the new paths collide; the claim was not changed');
   const rescoped = { ...slot.claim, paths: declared };
   assertRoundTrip(rescoped);
+  const listed = declared.map((p) => `\`${p}\``).join(', ');
+  // L9 · a dry run says what rescope would do, and writes, commits and pushes nothing
+  if (flags['dry-run']) {
+    out(`${result.verdict} — dry run: would make ${slot.id} (${slot.claim.task}) claim ${listed}; nothing was changed`);
+    return C.exitCodeOf(result.verdict);
+  }
   const next = L.setSlot(text, slot.id, rescoped);
   if (next !== text) git.writeWorktreeFile(ctx.root, L.LEDGER_PATH, next);
   commitFiles(ctx.root, [L.LEDGER_PATH], `chore: rescope ${slot.claim.task}`);
   pushIfAhead(ctx.root, b, false, 'run rescope again');
-  out(`${result.verdict} — ${slot.id} (${slot.claim.task}) now claims ${declared.map((p) => `\`${p}\``).join(', ')}`);
+  out(`${result.verdict} — ${slot.id} (${slot.claim.task}) now claims ${listed}`);
   return C.exitCodeOf(result.verdict);
 }
 
@@ -763,6 +793,7 @@ function cmdStatus(cwd, flags) {
         title: fp.title,
         branch: fp.branch,
         state: fp.state,
+        malformed: Boolean(fp.malformed),
         pr: fp.pr,
         paths: fp.declared,
         resources: fp.resources,
@@ -778,7 +809,9 @@ function cmdStatus(cwd, flags) {
       view.unknown.push({ branch: fp.branch, author: fp.author ? `${fp.author.name} <${fp.author.email}>` : 'unknown', ageDays, age, files: fp.actual });
     }
   }
-  for (const p of view.people) p.claims.sort((x, y) => x.slot.localeCompare(y.slot));
+  // A claim salvaged from a broken ledger may have no slot (M2): it sorts after every slotted one.
+  const slotKey = (c) => (c.slot ? `0${c.slot}` : '1');
+  for (const p of view.people) p.claims.sort((x, y) => slotKey(x).localeCompare(slotKey(y)));
   if (flags.json) {
     out(JSON.stringify({ ...view, note: ctx.note, notes: recencyNotes(stats) }, null, 2));
   } else {
@@ -847,7 +880,9 @@ function main(argv, cwd) {
   return fn(cwd, flags);
 }
 
-module.exports = { main, parseArgs, Exit, redact };
+// VALUE_FLAGS and BOOL_FLAGS: the merge-guard trigger reads coord.js's arguments the same way, and
+// its tests compare its list with these.
+module.exports = { main, parseArgs, Exit, redact, VALUE_FLAGS, BOOL_FLAGS };
 
 if (require.main === module) {
   let code;

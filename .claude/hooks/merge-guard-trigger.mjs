@@ -256,6 +256,40 @@ const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const LEADING_WORDS = new Set([
   'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'time', 'command', 'exec', 'nohup', 'builtin', '{', '}',
 ]);
+// Wrappers that run the command after them, with options of their own (L7). `env -C <dir>` runs it
+// in another directory; `timeout` takes a duration before the command.
+const ENV_WITH_VALUE = new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string']);
+const TIMEOUT_WITH_VALUE = new Set(['-k', '--kill-after', '-s', '--signal']);
+
+// words -> { k: the index of the command's name, dirUnknown: whether env -C moved it }.
+function skipLeading(words) {
+  let k = 0;
+  let dirUnknown = false;
+  const options = (withValue) => {
+    while (k < words.length && words[k].startsWith('-') && words[k] !== '-') {
+      const w = words[k];
+      if (/^(-C|--chdir)(=|$)/.test(w)) dirUnknown = true;
+      if (w === '--') { k += 1; return; }
+      k += withValue.has(w) ? 2 : 1;
+    }
+  };
+  while (k < words.length) {
+    const w = words[k];
+    if (ENV_ASSIGNMENT.test(w) || LEADING_WORDS.has(w)) {
+      k += 1;
+    } else if (w === 'env') {
+      k += 1;
+      options(ENV_WITH_VALUE);
+    } else if (w === 'timeout') {
+      k += 1;
+      options(TIMEOUT_WITH_VALUE);
+      k += 1; // the duration
+    } else {
+      break;
+    }
+  }
+  return { k, dirUnknown };
+}
 const CD = new Set(['cd', 'pushd', 'push-location', 'set-location', 'sl']);
 const POPD = new Set(['popd', 'pop-location']);
 const GH_WITH_VALUE = new Set([
@@ -368,8 +402,9 @@ function analyzeShell(command, shell) {
       else if (shell === 'bash' && scopes.length) cd = scopes.pop();
       continue;
     }
-    let k = 0;
-    while (k < words.length && (ENV_ASSIGNMENT.test(words[k]) || LEADING_WORDS.has(words[k]))) k += 1;
+    const lead = skipLeading(words);
+    let k = lead.k;
+    const here = lead.dirUnknown ? null : cd; // env -C runs the command elsewhere
     const name = (words[k] ?? '').toLowerCase();
     const args = words.slice(k + 1);
     if (CD.has(name)) {
@@ -379,9 +414,9 @@ function analyzeShell(command, shell) {
       cd = null;
     } else {
       let hit = null;
-      if (name === 'gh' && args[0] === 'pr') hit = analyzeGh(args[1], args.slice(2), cd);
-      else if (name === 'git') hit = analyzeGit(args, cd);
-      else if (isNode(name)) hit = analyzeNode(args, cd);
+      if (name === 'gh' && args[0] === 'pr') hit = analyzeGh(args[1], args.slice(2), here);
+      else if (name === 'git') hit = analyzeGit(args, here);
+      else if (isNode(name)) hit = analyzeNode(args, here);
       if (hit) hits.push(hit);
     }
   }
@@ -391,7 +426,7 @@ function analyzeShell(command, shell) {
 // The coordinator, scripts/coord/coord.js (OPS-156): start opens or resumes a draft PR and ship and
 // rescope push to it, all inside its own child processes, so no literal `gh pr create` or
 // `git push` shows. Its value flags are the ones its parseArgs reads; a test pins the two together.
-const COORD_VALUE_FLAGS = new Set(['paths', 'resources', 'task', 'merge', 'title', 'branch', 'dir', 'pr', 'author', 'mode']);
+export const COORD_VALUE_FLAGS = new Set(['paths', 'resources', 'task', 'merge', 'title', 'branch', 'dir', 'pr', 'author', 'mode']);
 const COORD_RAN = {
   start: "the coordinator's start ran (it opens or resumes a draft PR)",
   ship: "the coordinator's ship ran (it pushes the claim to the PR branch)",
@@ -434,9 +469,9 @@ function analyzeNode(args, dir) {
   }
   if (k >= args.length) return null;
   const { cmd, flags } = coordCommand(args.slice(k + 1));
-  if (flags.help || !Object.hasOwn(COORD_RAN, cmd ?? '')) return null;
+  // --dry-run changes nothing, on start, ship or rescope alike
+  if (flags.help || flags['dry-run'] || !Object.hasOwn(COORD_RAN, cmd ?? '')) return null;
   if (cmd === 'start') {
-    if (flags['dry-run']) return null;
     const branch = typeof flags.branch === 'string' && flags.branch && !opaque(flags.branch) ? flags.branch : null;
     return { kind: 'create', pr: null, branch, dir, repo: null, ran: COORD_RAN.start };
   }

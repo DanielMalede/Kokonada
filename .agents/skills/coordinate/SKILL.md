@@ -56,6 +56,7 @@ A HALT *after* the push means you lost a race: your claim is already pushed, no 
 | Ready for review | `node scripts/coord/coord.js ship` in the task worktree, then `gh pr edit --body-file <file>` and `gh pr ready` |
 | Before merging | `node scripts/coord/coord.js check --merge <PR number>` |
 | Dropping the task | `node scripts/coord/coord.js release` prints the close and delete commands for your branch |
+| Trying `ship` or `rescope` safely | add `--dry-run`: it prints what it would do and changes nothing |
 | Who is working on what | `node scripts/coord/coord.js status` |
 
 ## Working rules
@@ -63,6 +64,8 @@ A HALT *after* the push means you lost a race: your claim is already pushed, no 
 - **Never push to `main`.** Work on your own branch, in your own worktree. `git config core.hooksPath .githooks` turns on a pre-push guard that refuses pushes to `main`; it is once per clone, so in a fresh Codex clone run it at the start of every session.
 - **Merge only your own PRs**, one at a time, after CI is green on the PR's current head commit, and only when `check --merge` is clear. Never merge, push to, close or rebase the other partner's branch or PR.
 - **Stage by explicit path** (`git add -- <path>`). Never `git add -A` or `git add .`.
+- **Pull-request titles** that `start` opens read `<type>: <title> (<ID>)`, with the type taken from the branch prefix (`fix/`, `feat/`, `docs/`, `chore/`; `design/` counts as `feat`). Squash merges use the title as the commit message, so keep it that way.
+- **A branch you push to `origin` with commits older than 14 days and no open PR** can stay invisible to a fresh clone of the other partner; open the draft PR first.
 - **Keep `TASKS.md` and `WORK_LEDGER.md` committed in the task worktree** before `ship`, `rescope` or a resumed `start`: the engine refuses while either has uncommitted changes, so a claim commit never carries other edits.
 - **Claims made within ten minutes of each other count as a tie,** and a tie stops both: the two partners decide who goes first.
 - **Your section only.** Edit `WORK_LEDGER.md` only through the engine, and only your own section. Owner-only paths (`.claude/**`, `docs/design-v2/pages/**`, `docs/plans/WAVE4_STATE.md`) are Malede's.

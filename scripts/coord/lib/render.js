@@ -30,8 +30,8 @@ commands
   status  [--json]
           Both sections: live claims (slot, task, branch, paths, state, PR, age, drift, behind main)
           and unclaimed recent branches.
-  ship    [--pr N]                      (inside the task worktree) mark the slot in review
-  rescope --paths a,b,c                 (inside the task worktree) re-check and replace the paths
+  ship    [--pr N] [--dry-run]          (inside the task worktree) mark the slot in review
+  rescope --paths a,b,c [--dry-run]     (inside the task worktree) re-check and replace the paths
   release                               (inside the task worktree) print the commands that drop it
           ship, rescope and a resumed start commit only their own ledger lines, so they refuse
           while TASKS.md or WORK_LEDGER.md has uncommitted changes in the task worktree.
@@ -79,8 +79,9 @@ function renderStatus(view) {
     out.push(`== ${person.name} (@${person.login}) — section ${person.section} ==`);
     if (!person.claims.length) out.push('  no live claims');
     for (const c of person.claims) {
-      out.push(`  ${c.slot}  ${c.task}  ${c.title}`);
-      out.push(`      branch ${c.branch} · ${c.state === 'in-review' ? `in review (PR #${c.pr})` : 'claimed'} · ${prText(c.prInfo)} · last commit ${c.age}${c.behindMain ? ' · behind main' : ''}`);
+      out.push(`  ${[c.slot || '(no slot)', c.task || '(no task)', c.title || ''].join('  ').trimEnd()}`);
+      const state = c.malformed ? 'its ledger slot does not parse' : c.state === 'in-review' ? `in review (PR #${c.pr})` : 'claimed';
+      out.push(`      branch ${c.branch} · ${state} · ${prText(c.prInfo)} · last commit ${c.age}${c.behindMain ? ' · behind main' : ''}`);
       out.push(`      paths: ${ticks(c.paths)}${c.resources.length ? ` · resources: ${ticks(c.resources)}` : ''}`);
       if (c.drift.length) out.push(`      drift (changed, not claimed): ${ticks(c.drift)}`);
     }

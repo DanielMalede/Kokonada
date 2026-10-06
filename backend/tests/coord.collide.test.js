@@ -356,7 +356,8 @@ describe('OPS-152 · collide — which claims are live', () => {
       branches: [{ ...b, name: 'feat/no-evidence', seenTime: null }, { ...b, name: 'feat/seen-long-ago', seenTime: NOW - 30 * DAY }],
     });
     expect(stats.ageOnly).toEqual(['feat/no-evidence']);
-    expect(RECENCY_NOTE).toMatch(/recency from commit dates only; a revived branch with old-dated commits and no open PR cannot be seen on a fresh clone/);
+    // M1: the residual's true scope, said once
+    expect(RECENCY_NOTE).toBe('note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked');
   });
 
   test('N3 · gh answers count only when both PR lists came back and the open list is not cut at its limit', () => {
@@ -681,6 +682,20 @@ describe('OPS-152 · collide — check --merge', () => {
     expect(mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [old], now: NOW }).reasons[0].message).toMatch(/10 days old/);
   });
 
+  test('a PR whose head is HIS branch is not mine to merge, whoever opened it → HALT', () => {
+    const onHisBranch = { ...pr, headRefName: 'feat/b' }; // I opened it; the branch carries his claim
+    const his = fp({ branch: 'feat/b', declared: ['docs/his.md'], actual: ['docs/his.md'] });
+    const res = mergeAdvice({ rules, me: malede, pr: onHisBranch, runs: done, footprints: [his], now: NOW });
+    expect(classes(res)).toEqual(['HALT merge']);
+    expect(res.reasons[0]).toMatchObject({ person: 'Bedrack', branch: 'feat/b', slot: 'B01' });
+    expect(res.reasons[0].message).toMatch(/PR #230's head feat\/b carries Bedrack's work/);
+    // his unclaimed work on that branch counts as much as his claim
+    const unclaimed = fp({ kind: 'unclaimed', slot: null, branch: 'feat/b', actual: ['docs/his.md'] });
+    expect(classes(mergeAdvice({ rules, me: malede, pr: onHisBranch, runs: done, footprints: [unclaimed], now: NOW }))).toEqual(['HALT merge']);
+    // my own footprint on my head is what I am merging
+    expect(mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp], now: NOW }).verdict).toBe('CLEAR');
+  });
+
   test('nothing in the way → CLEAR', () => {
     expect(mergeAdvice({ rules, me: malede, pr, runs: [{ status: 'completed' }], footprints: [] }).verdict).toBe('CLEAR');
   });
@@ -891,6 +906,29 @@ describe('OPS-155 · collide — a claim is never half-read or hidden', () => {
       expect(fps[0]).toMatchObject({ kind: 'claim', malformed: true, declared: [] });
       expect(fps[0].person).toBe(bedrack); // no slot names him, so the branch's committer decides
       expect(classes(run(malede, { declared: ['x/y/z.js'] }, fps))).toEqual(['HALT malformed']);
+    });
+
+    test('M3 · a broken ledger stacked on my branch is salvaged from HIS claim — the block naming his branch — and is his', () => {
+      // feat/his is cut from my feat/mine (my claim in M03, not yet on main) and claims B02; then its
+      // section heading is renamed. Read against main, both M03 and B02 changed.
+      const mine = setSlot(freeText, 'M03', claim('feat/mine', { paths: ['docs/mine/a.md'] }));
+      const stacked = setSlot(mine, 'B02', claim('feat/his', { paths: ['docs/his/b.md'] })).replace('\n## Bedrack\n', '\n## Bedrack (away)\n');
+      const fps = derive(branch('feat/his', { headLedgerText: stacked }));
+      expect(fps).toHaveLength(1);
+      expect(fps[0]).toMatchObject({ kind: 'claim', malformed: true, slot: 'B02', declared: ['docs/his/b.md'] });
+      expect(fps[0].person).toBe(bedrack);
+      expect(classes(run(malede, { declared: ['docs/his/b.md'] }, fps))).toEqual(['HALT exact', 'WARN malformed']);
+    });
+
+    test('M3 · the branch\'s owner decides over a slot letter: his claim written into an M slot is still his', () => {
+      const misplaced = setSlot(freeText, 'M04', claim('feat/his', { paths: ['docs/his/c.md'] })).replace('\n## Bedrack\n', '\n## Bedrack (away)\n');
+      const fps = derive(branch('feat/his', { headLedgerText: misplaced, committer: HIS }));
+      expect(fps[0]).toMatchObject({ slot: 'M04', declared: ['docs/his/c.md'] });
+      expect(fps[0].person).toBe(bedrack);
+      expect(run(malede, { declared: ['docs/his/c.md'] }, fps).verdict).toBe('HALT');
+      // with no owner to be had from the commit or a PR, the slot letter still names one
+      const anon = derive(branch('feat/his', { headLedgerText: misplaced, author: { name: 'Laptop', email: 'root@laptop' } }));
+      expect(anon[0].person).toBe(malede);
     });
 
     test('a slot main added after the branch forked is not a missing slot', () => {

@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { classify, coordCommand, makeLookupOpenPr, makeCurrentBranch, makeClaim, run, handle } from './merge-guard-trigger.mjs';
+import { classify, coordCommand, COORD_VALUE_FLAGS, makeLookupOpenPr, makeCurrentBranch, makeClaim, run, handle } from './merge-guard-trigger.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, 'merge-guard-trigger.mjs');
@@ -191,6 +191,8 @@ describe('classify - the coordinator and gh pr ready (OPS-156)', () => {
     'node scripts/coord/coord.js help',
     'node scripts/coord/coord.js start -h',
     `node scripts/coord/coord.js start ${START} --dry-run`,
+    'node scripts/coord/coord.js ship --dry-run',
+    'node scripts/coord/coord.js rescope --paths a/b/c.js --dry-run',
     'node scripts/coord/coord.js ship --help',
     'node other.js start',
     'node scripts/other/coordinator.js ship',
@@ -208,6 +210,17 @@ describe('classify - the coordinator and gh pr ready (OPS-156)', () => {
       assert.deepEqual(classify(bash(cmd)), []);
     });
   }
+
+  test('L7: the value flags are exactly coord.js\'s, and each of its boolean flags reads as a boolean', () => {
+    const require = createRequire(import.meta.url);
+    const { VALUE_FLAGS, BOOL_FLAGS } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'coord.js'));
+    assert.deepEqual([...COORD_VALUE_FLAGS].sort(), [...VALUE_FLAGS].sort());
+    assert.ok(BOOL_FLAGS.size > 0);
+    for (const f of BOOL_FLAGS) {
+      assert.ok(!COORD_VALUE_FLAGS.has(f), f);
+      assert.deepEqual(coordCommand(['ship', `--${f}`, 'extra']), { cmd: 'ship', flags: { [f]: true } }, f);
+    }
+  });
 
   test('coordCommand reads every argument list exactly as coord.js parseArgs does', () => {
     const require = createRequire(import.meta.url);
@@ -350,6 +363,22 @@ describe('classify - chained commands', () => {
     assert.equal(one(ps('Set-Location backend; npm test; git push -u origin b2')).branch, 'b2');
     assert.equal(one(bash('npm test\ngit push origin b3\n')).branch, 'b3');
     assert.equal(one(bash('FOO=1 git push origin b5 || echo failed')).branch, 'b5');
+  });
+
+  test('L7: env and timeout in front of the command are passed over, with their own options', () => {
+    assert.equal(one(bash('env COORD_LOGIN=DanielMalede node scripts/coord/coord.js ship')).ran, "the coordinator's ship ran (it pushes the claim to the PR branch)");
+    assert.equal(one(bash('env -u GH_TOKEN gh pr ready 7')).pr, 7);
+    assert.equal(one(bash('env -i PATH=/usr/bin git push origin b13')).branch, 'b13');
+    assert.equal(one(bash('timeout 120 git push origin b14')).branch, 'b14');
+    assert.equal(one(bash('timeout -k 5 60s gh pr merge 5 --squash')).pr, 5);
+    assert.equal(one(bash('timeout --signal=KILL 1m node scripts/coord/coord.js rescope --paths a/b/c.js')).kind, 'push');
+    assert.equal(one(bash('nohup env FOO=1 timeout 30 git push origin b15')).branch, 'b15');
+    assert.deepEqual(classify(bash('env')), []);
+    assert.deepEqual(classify(bash('timeout 5 git status')), []);
+    // env -C runs the command in a directory this hook does not resolve: unknown, so it fires with the note
+    assert.equal(one(bash('env -C ../other git push')).dir, null);
+    assert.equal(one(bash('env --chdir=../other git push')).dir, null);
+    assert.match(context(run(bash('env -C ../other git push'), deps())).additionalContext, /could not be resolved/);
   });
 
   test('every relevant segment is a hit, in order', () => {

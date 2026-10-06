@@ -73,22 +73,53 @@ function roots(cwd, ref) {
   return must(cwd, ['rev-list', '--max-parents=0', ref]).split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
-// The last time this clone saw origin/<branch> MOVE (the remote-tracking ref's reflog), in seconds,
-// or null. The entry that CREATED the ref (old id all zeros, "storing head") is not a move: a fresh
-// `git init` + fetch — how CI checks out — creates every ref at fetch time, which would make every
-// branch look recent. Only a later update ("fast-forward", "forced-update") counts.
-function reflogTime(gitCommonDir, branch) {
+// A creation this much later than the clone's first fetch was the clone seeing a NEW branch.
+const CREATION_WINDOW = 10 * 60;
+
+const REFLOG_RE = /^([0-9a-f]+) ([0-9a-f]+) .*>\s(\d+)\s[+-]\d{4}\t/;
+const isZero = (id) => /^0+$/.test(id);
+const remoteLogs = (gitCommonDir) => path.join(gitCommonDir, 'logs', 'refs', 'remotes', 'origin');
+
+function reflogEntries(file) {
   try {
-    const file = path.join(gitCommonDir, 'logs', 'refs', 'remotes', 'origin', ...branch.split('/'));
-    const entries = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).reverse();
-    for (const entry of entries) {
-      const m = /^([0-9a-f]+) ([0-9a-f]+) .*>\s(\d+)\s[+-]\d{4}\t/.exec(entry);
-      if (m && !/^0+$/.test(m[1]) && m[1] !== m[2]) return Number(m[3]);
-    }
-    return null;
+    return fs.readFileSync(file, 'utf8').split('\n').map((l) => REFLOG_RE.exec(l)).filter(Boolean)
+      .map((m) => ({ from: m[1], to: m[2], time: Number(m[3]) }));
   } catch {
-    return null;
+    return [];
   }
+}
+
+// The clone's first fetch, in seconds (null when there is no remote-tracking reflog): the earliest
+// entry that CREATED a ref under refs/remotes/origin/ — origin/HEAD's "clone: from" for a clone, the
+// first fetch's batch for `git init` + fetch.
+function cloneBirth(gitCommonDir) {
+  let birth = null;
+  const walk = (dir) => {
+    let names;
+    try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of names) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      for (const r of reflogEntries(p)) if (isZero(r.from) && (birth === null || r.time < birth)) birth = r.time;
+    }
+  };
+  walk(remoteLogs(gitCommonDir));
+  return birth;
+}
+
+// The last time this clone saw origin/<branch> MOVE (the remote-tracking ref's reflog), in seconds,
+// or null. An update ("fast-forward", "forced-update") is a move. The entry that CREATED the ref
+// (old id all zeros) counts only when the clone already existed — it came more than ten minutes after
+// the clone's first fetch, so the clone saw the branch appear. The first fetch's own batch says
+// nothing: a fresh `git init` + fetch, how CI checks out, creates every ref in it at once.
+function reflogTime(gitCommonDir, branch, birth = cloneBirth(gitCommonDir)) {
+  const entries = reflogEntries(path.join(remoteLogs(gitCommonDir), ...branch.split('/')));
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const e = entries[i];
+    if (!isZero(e.from) && e.from !== e.to) return e.time;
+    if (isZero(e.from)) return birth !== null && e.time > birth + CREATION_WINDOW ? e.time : null;
+  }
+  return null;
 }
 
 // → the file's text at a ref, or null when the ref or the file does not exist there.
@@ -215,7 +246,8 @@ function commit(cwd, message) {
 function push(cwd, branch, { setUpstream = false } = {}) {
   const args = ['push', '--quiet'];
   if (setUpstream) args.push('-u');
-  args.push('origin', `${branch}:refs/heads/${branch}`);
+  // the source in full too: a tag named like the branch would make a short one ambiguous (L1)
+  args.push('origin', `refs/heads/${branch}:refs/heads/${branch}`);
   return run(cwd, args);
 }
 
@@ -242,6 +274,7 @@ module.exports = {
   isShallow,
   roots,
   reflogTime,
+  cloneBirth,
   treeFiles,
   showFile,
   remoteBranches,
