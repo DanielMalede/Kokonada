@@ -153,7 +153,13 @@ function secretScanJob() {
   const stepsIdx = findDirectKey(lines, jobIdx, 'steps');
   const starts = stepsIdx === undefined ? [] : directChildIndices(lines, stepsIdx);
   const end = stepsIdx === undefined ? 0 : blockIndices(lines, stepsIdx).pop() + 1;
+  const keyOf = (i) => lines[i].match(/^\s*([\w-]+):/)[1];
+  const onIdx = findDirectKey(lines, -1, 'on');
   return {
+    workflowKeys: directChildIndices(lines, -1).map(keyOf),
+    triggers: Object.fromEntries(directChildIndices(lines, onIdx)
+      .map((i) => [keyOf(i), directChildIndices(lines, i).map(keyOf)])),
+    keys: directChildIndices(lines, jobIdx).map(keyOf),
     permissions: permissionsIdx === undefined ? null : mappingOf(lines, permissionsIdx),
     steps: starts.map((start, n) => parseStep(lines.slice(start, n + 1 < starts.length ? starts[n + 1] : end))),
   };
@@ -229,6 +235,22 @@ describe('the PR and push secret scan (ci.yml, job secret-scan)', () => {
   it('ignores inline gitleaks:allow markers, so a PR cannot exempt its own line', () => {
     const gitleaksCall = commandsOf(scan.run).find((c) => c.startsWith('"$RUNNER_TEMP/gitleaks" git '));
     expect(gitleaksCall.split(' ')).toContain('--ignore-gitleaks-allow');
+  });
+
+  it('holds nothing beside its pinned steps that could skip, soften, cancel or re-point the scan', () => {
+    // Each list is the whole set allowed at its level. continue-on-error, if, shell,
+    // working-directory, defaults, container, needs, env or concurrency would each let the check go
+    // green on a scan that failed, was skipped or cancelled, or read another config: gitleaks takes
+    // GITLEAKS_CONFIG and GITLEAKS_CONFIG_TOML from the environment before any file, and a working
+    // directory moves where it reads .gitleaksignore.
+    expect(job.keys).toEqual(['name', 'runs-on', 'permissions', 'steps']);
+    expect(job.steps.map((s) => Object.keys(s).sort())).toEqual([
+      ['uses', 'with'], ['env', 'name', 'run'], ['env', 'name', 'run'],
+    ]);
+    expect(Object.keys(job.steps[0].with)).toEqual(['fetch-depth']);
+    expect(job.workflowKeys).toEqual(['name', 'on', 'permissions', 'jobs']);
+    // A paths, paths-ignore, branches-ignore or types filter would exempt whole pushes or PR updates.
+    expect(job.triggers).toEqual({ push: ['branches'], pull_request: ['branches'] });
   });
 });
 
