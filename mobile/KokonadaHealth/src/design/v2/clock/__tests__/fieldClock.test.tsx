@@ -1,6 +1,8 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { advanceFieldTime, MAX_FRAME_DT_MS, useRealtimeFieldClock, type FieldClock } from '../fieldClock';
+import { advanceBreath, startBreath, type BreathClock } from '../../motion/breathPhaser';
+import { BASE } from '../../tokens/tokens.generated';
+import { advanceFieldMotion, advanceFieldTime, clampFrameDt, MAX_FRAME_DT_MS, useRealtimeFieldClock, type FieldClock } from '../fieldClock';
 
 // MB-085. The real-time field clock is a SharedValue that a frame callback advances on the UI
 // thread. Its laws:
@@ -69,6 +71,63 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 const reanimated = require('react-native-reanimated') as { __frame(dt: number): void; __registrations(): number; __reset(): void };
+
+// One dt law (B4 item 6; architect, v1lab round 1): the clamp is motion.dtClamp, read once from the
+// tokens and exported once, and the breath phaser takes the same clamped dt as the field time.
+describe('one dt law', () => {
+  it('the clamp is motion.dtClamp, read from the tokens: change the token and the clamp follows', () => {
+    expect(MAX_FRAME_DT_MS).toBe(BASE.motion.dtClamp);
+    let clamp = -1;
+    jest.isolateModules(() => {
+      jest.doMock('../../tokens/tokens.generated', () => {
+        const actual = jest.requireActual('../../tokens/tokens.generated');
+        return { ...actual, BASE: { ...actual.BASE, motion: { ...actual.BASE.motion, dtClamp: 33 } } };
+      });
+      clamp = require('../fieldClock').MAX_FRAME_DT_MS;
+    });
+    expect(clamp).toBe(33);
+  });
+
+  it('clampFrameDt: a frame’s dt as the field takes it', () => {
+    expect(clampFrameDt(16)).toBe(16);
+    expect(clampFrameDt(30000)).toBe(MAX_FRAME_DT_MS);
+    for (const bad of [null, undefined, -16, NaN, Infinity, -Infinity]) expect(clampFrameDt(bad)).toBe(0);
+  });
+
+  describe('advanceFieldMotion: the field time and the breath move by one clamped dt', () => {
+    const T = BASE.field.clock.T;
+    const BREATH: BreathClock = { masterPeriodMs: T, fasterWrapsPerStep: BASE.breath.changeLimit.fasterWrapsPerStep };
+    const start = { t: 1000, breath: startBreath(11, BREATH) };
+
+    it('a long frame (a return from the background) moves both by the clamp, and no further', () => {
+      const next = advanceFieldMotion(start, 30000, T, 11, BREATH);
+      expect(next.t).toBe(1000 + MAX_FRAME_DT_MS);
+      expect(next.breath).toEqual(advanceBreath(start.breath, MAX_FRAME_DT_MS, 11, BREATH));
+      expect(next.breath.phase).toBeGreaterThan(0);
+    });
+
+    it('a frame with no dt (the first after a start) moves neither, and does not throw', () => {
+      // Fed raw, the null would reach advanceBreath, which refuses it: the reason for one law.
+      expect(() => advanceBreath(start.breath, null as unknown as number, 11, BREATH)).toThrow(RangeError);
+      for (const bad of [null, undefined, -16, NaN, Infinity]) expect(advanceFieldMotion(start, bad, T, 11, BREATH)).toEqual(start);
+    });
+
+    it('over any run of frames, the breath has moved by exactly the field time’s clamped steps', () => {
+      const dts = [16, 16.7, null, 30000, 33, -5, NaN, 8, 49.9, 50, 51, 120000, 16];
+      let motion = start;
+      let breath = start.breath;
+      let elapsed = 0;
+      for (const dt of dts) {
+        motion = advanceFieldMotion(motion, dt, T, 6, BREATH);
+        const step = clampFrameDt(dt);
+        breath = advanceBreath(breath, step, 6, BREATH);
+        elapsed += step;
+      }
+      expect(motion.breath).toEqual(breath);
+      expect(motion.t).toBeCloseTo((1000 + elapsed) % T, 9);
+    });
+  });
+});
 
 describe('advanceFieldTime (the worklet the frame callback runs)', () => {
   const T = 6000;
