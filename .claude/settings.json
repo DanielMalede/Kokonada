@@ -137,7 +137,12 @@
       "PowerShell(git push -u origin feat/monster-s1-identity-ledger)",
       "PowerShell(gh pr create --title \"Variance engine Phases 0-1: BullMQ seam + canonical track identity\" --body-file \"C:\\\\Users\\\\danie\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-danie-Videos-AI-Music-App\\\\965e163f-6f06-429f-a43b-dd9973ff17ae\\\\scratchpad\\\\pr-body.md\")",
       "PowerShell(gh pr merge 41 --squash --delete-branch)",
-      "Bash(git pull *)"
+      "Bash(git pull *)",
+      "Bash(git -C * status --porcelain --untracked-files=no)",
+      "Bash(git -C * merge --ff-only origin/main)",
+      "Bash(git -C * checkout -- WEAKNESSES_AND_FAILURES.md)",
+      "Bash(git -C * checkout --detach origin/main)",
+      "Bash(git hash-object *)"
     ],
     "ask": [],
     "deny": [
