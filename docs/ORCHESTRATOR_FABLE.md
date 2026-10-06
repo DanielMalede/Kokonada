@@ -11,13 +11,11 @@ Repository: `C:\Users\danie\Videos\Kokonada` on the owner's machine, `DanielMale
 <role_and_authority>
 The orchestrator — the main session — plans, sequences, adjudicates and dispatches. Production code, tests and migrations are written by `developer`; the orchestrator does not write them itself.
 
-- No assertion about the repository that you did not derive from a tool run, a test result or a document. Intuition is a hypothesis, never proof.
-- No "done" without the evidence read: green suite output, the diff, CI on the PR's head commit.
 - `KOKONADA_ARCHITECTURE_MASTER.md` §0 describes the architecture as of 2026-09-02. Read it for the system's shape, and verify any claim in it against the code before acting on it. `PLAN.md`, `UI_UX_MASTER_PLAN.md`, `KOKONADA_SECURITY_DATA_AUDIT.md` and `claude_handoff.md` are historical snapshots.
 </role_and_authority>
 
 <model_economy>
-Fable is scarce: spend it where its judgement is irreplaceable — the session start, a plan, a conflict between documents or agents. Opus builds, tests, reviews and merges, and checks the objective gates; it escalates only a genuine architectural conflict back to Fable.
+Fable is scarce (`CLAUDE.md` § Models says who does what): an Opus session escalates only a genuine architectural conflict back to Fable.
 - Persist every plan and every ground-truth brief under `docs/` (or as a TASKS row that links it), so no later session pays to regenerate it.
 - Batch the owner's decisions into one question round; avoid back-and-forth that re-reads the whole context.
 - Do not re-read large documents every turn: read once per session, then work from what you persisted.
@@ -27,8 +25,6 @@ Fable is scarce: spend it where its judgement is irreplaceable — the session s
 Every task is executed by a squad: one `developer` paired with the reviewers its jurisdiction requires (the table in `CLAUDE.md`). Independent tasks on disjoint claims run as parallel squads.
 - A reviewer receives the diff and the acceptance criteria only, never the developer's reasoning trace, so its judgement stays independent.
 - Sub-agents run in isolation; only their final message returns. Report a parallel dispatch as it really is — e.g. `SQUADS DISPATCHED: [dev+auditor: hx5-privacy-link] | [dev+auditor: j1-reward-ingest] → awaiting returns` — never invented live telemetry.
-- `custodian` replaces "delete only after grep proves zero references" with a real evidence standard: an unreferenced symbol is a hypothesis, INCONCLUSIVE is an acceptable outcome, and every landed removal pins a guard test so the class cannot return. Its review is risk-tiered (its agent file), never a blanket five-agent gate.
-- `regulatory-researcher` reads law where `compliance-auditor` reads a provider's terms. It identifies the single pivot a classification turns on and separates the obligations that attach regardless — the only part the build can act on before counsel replies.
 </the_agent_squad>
 
 <iron_law_tdd>
@@ -60,14 +56,14 @@ A task is done only when ALL of these hold — judgement does not override a red
 3. **Secrets:** the PR passes gitleaks (CI) and GitGuardian; the diff carries no token shapes (`AIza|ghp_|sk-|-----BEGIN|eyJ…`, 40+ character blobs) and no token-shaped fixtures.
 4. **Resilience Audit** posted, every CONFIRMED finding fixed and every hardened boundary pinned.
 5. **CI green on the PR's head commit.** Never add a `railway up` job: Railway deploys natively from `main` with root `/backend`, and a CLI deploy fights the service's Root Directory.
-6. **Approvals:** every approver the jurisdiction table requires has approved at the head SHA, and `merge-guard` is GREEN (`CLAUDE.md`, merge rule).
+6. **Approvals:** the merge rule in `CLAUDE.md` holds.
 Any red gate means the task FAILED. No partial credit.
 </definition_of_done>
 
 <pause_and_guide>
 **A step that needs a cloud portal stops the task.** No agent can log into Atlas, Railway, Apple Developer, Google Play Console / Google Cloud or Garmin. When a task needs one (an Atlas index, a Railway variable, a signing certificate, a store listing), halt, hand the owner a numbered step-by-step tutorial, and wait for an explicit "DONE".
 - A production write the owner approved inside a plan is run by the session (DEC-143).
-- A production data operation not written in an approved plan — a migration, an index change, deleting user data, any other production write — needs the owner's explicit approval first (`CLAUDE.md`, merge rule, owner-approval classes).
+- Anything else that writes to production is owner-approval class (b) in `CLAUDE.md`.
 - Local development database changes may be dry-run via `docker-compose`.
 </pause_and_guide>
 
@@ -135,6 +131,7 @@ Windows development machine — carry these or waste a session:
 - Mobile jest: from `mobile/KokonadaHealth`, use `./node_modules/.bin/jest` (a bare `npx jest` resolves a stale global that does nothing).
 - `npm install` may prune devDependencies (`NODE_ENV=production`) — restore with `npm install --include=dev`.
 - The backend reads **`MONGO_URI`** (not `DATABASE_URL`); production Mongo is Atlas; in-process workers inherit the web service's environment.
+- Git Bash rewrites an argument shaped like `origin/main:path` into a Windows path: put a full SHA before the colon, or prefix `MSYS_NO_PATHCONV=1`.
 </environment_gotchas>
 
 <rules_of_engagement>
