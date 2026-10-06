@@ -1,32 +1,46 @@
-// merge-guard trigger: a PostToolUse hook (DEC-143).
+// merge-guard trigger: a PostToolUse and PostToolUseFailure hook (DEC-143).
 //
-// After a tool call that creates a PR, pushes to a branch with an open PR into main, or merges a
-// PR, it prints an instruction (hookSpecificOutput.additionalContext) telling the session to
-// dispatch the `merge-guard` agent (.claude/agents/merge-guard.md) before the next merge or task.
-// Every other call prints nothing. It never throws and always exits 0; malformed stdin is silent.
+// After a tool call that merges a PR, creates one, or pushes to a branch with an open PR into main,
+// it prints an instruction (hookSpecificOutput.additionalContext) telling the session to dispatch
+// the `merge-guard` agent (.claude/agents/merge-guard.md). Every other call prints nothing. It never
+// throws and always exits 0; malformed stdin is silent.
 //
-// What counts, for the Bash and PowerShell tools (tool_input.command), anywhere in a chain
-// (&&, ||, ;, |, &, newlines, ( ), PowerShell { }):
-//   gh pr merge [<n>|<url>|<branch>] ...   -> merge   (post-merge)
-//   gh pr create ...                       -> create  (pre-merge; number from the URL gh prints)
-//   git [-C <path>] push ...               -> push    (pre-merge; only if the branch has an open
-//                                                      PR into main, or the lookup fails)
-// and the GitHub MCP tools *__merge_pull_request (pullNumber) and *__create_pull_request.
+// .claude/settings.json starts it for Bash and PowerShell only through `if` filters (`git *`,
+// `gh pr *`), so Node runs only for those commands, and for the GitHub MCP tools by matcher.
+// A command started under another name (`git.exe`, a full path, `bash -c "..."`) passes no filter.
+//
+// What counts, anywhere in a chain (&&, ||, ;, |, &, newlines, ( ), PowerShell { }):
+//   gh pr merge [<n>|<url>|<branch>]           -> merge   post-merge; several merges are all named
+//   gh pr create                               -> create  pre-merge; the number comes from the output
+//   git [-C <path>] push [<remote> <refspec>]  -> push    pre-merge, if the branch has an open PR
+//   gh pr update-branch [<n>|<url>|<branch>]   -> push      into main or that cannot be told
+// and the MCP tools *__merge_pull_request, *__create_pull_request, *__update_pull_request_branch.
 // Ignored: git push --dry-run/-n, --help, gh pr create --dry-run, gh pr merge --disable-auto.
+// After a FAILED call (PostToolUseFailure) a merge and a push fire as usual, since either can change
+// GitHub before the error; a create fires only when its error names the PR (it already exists).
+// A push resolves its branch from the refspec, else the current branch where the command ran
+// (earlier cd / pushd / Set-Location / sl segments and git -C). A branch or directory the shell
+// computes ($, backtick, %, {, @) is not guessed: it fires with a note instead.
 //
-// Documented choice: text inside quotes, heredoc bodies and PowerShell here-strings is data, not
-// a command. `echo "gh pr merge 5"` does not fire. The cost of that choice: a command hidden
-// inside a string that a second shell runs (`bash -c "gh pr merge 5"`) is not seen either.
-// `$( ... )` inside double quotes is lexed as the command it is.
+// Documented choice: text inside quotes, heredoc bodies and PowerShell here-strings is data, not a
+// command, so `git commit -m "... gh pr merge 5"` does not fire; the cost is that a command a second
+// shell runs from a string (`bash -c "gh pr merge 5"`) is not seen either. `$( ... )` is lexed.
 //
 // Run the tests from the repository root:  node --test .claude/hooks/merge-guard-trigger.test.mjs
 
 import { execFileSync } from 'node:child_process';
+import { closeSync, mkdirSync, openSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------------------------
-// Lexer: a command string -> segments (one simple command each) -> words.
+// Lexer: a command string -> segments (one simple command each, as words). OPEN and CLOSE mark a
+// `(` ... `)` group, so a bash subshell's cd does not leak out of it.
+
+const OPEN = ['('];
+const CLOSE = [')'];
+const PLACEHOLDER = '\u0001'; // stands for a "$( ... )" inside a double-quoted word
 
 function readHeredocDelimiter(src, j) {
   let word = '';
@@ -127,11 +141,9 @@ function lexRange(src, start, shell, segments, stopAtParen) {
     }
     if (ps && ch === '@' && (next === '"' || next === "'") && cur === null && /^[ \t]*\r?\n/.test(src.slice(i + 2))) {
       // PowerShell here-string: runs to a line that starts with "@ or '@.
-      const close = new RegExp(`\\n${next}@`);
-      const m = close.exec(src.slice(i + 2));
-      const end = m ? i + 2 + m.index + 3 : n;
+      const m = new RegExp(`\\n${next}@`).exec(src.slice(i + 2));
       append(src.slice(i + 2, m ? i + 2 + m.index : n));
-      i = end;
+      i = m ? i + 2 + m.index + 3 : n;
       continue;
     }
     if (ch === '"') {
@@ -156,8 +168,10 @@ function lexRange(src, start, shell, segments, stopAtParen) {
           continue;
         }
         if (c === '$' && src[j + 1] === '(') {
+          segments.push(OPEN);
           j = lexRange(src, j + 2, shell, segments, true);
-          append('\u0001');
+          segments.push(CLOSE);
+          append(PLACEHOLDER);
           continue;
         }
         append(c);
@@ -168,6 +182,7 @@ function lexRange(src, start, shell, segments, stopAtParen) {
     }
     if (ch === '(') {
       endSegment();
+      segments.push(OPEN);
       depth += 1;
       i += 1;
       continue;
@@ -175,8 +190,10 @@ function lexRange(src, start, shell, segments, stopAtParen) {
     if (ch === ')') {
       endSegment();
       i += 1;
-      if (depth > 0) depth -= 1;
-      else if (stopAtParen) return i;
+      if (depth > 0) {
+        depth -= 1;
+        segments.push(CLOSE);
+      } else if (stopAtParen) return i;
       continue;
     }
     if (ch === ';' || (ps && (ch === '{' || ch === '}'))) {
@@ -184,14 +201,9 @@ function lexRange(src, start, shell, segments, stopAtParen) {
       i += 1;
       continue;
     }
-    if (ch === '|') {
+    if (ch === '|' || ch === '&') {
       endSegment();
       i += next === '|' || next === '&' ? 2 : 1;
-      continue;
-    }
-    if (ch === '&') {
-      endSegment();
-      i += next === '&' ? 2 : 1;
       continue;
     }
     if (ch === '>' || ch === '<') {
@@ -228,34 +240,35 @@ function lexRange(src, start, shell, segments, stopAtParen) {
   return n;
 }
 
-function lex(command, shell) {
-  const segments = [];
-  lexRange(command, 0, shell, segments, false);
-  return segments;
-}
-
 // ---------------------------------------------------------------------------------------------
-// Classifier.
+// Classifier: a payload -> hits { kind, pr, branch, dir, repo }, one per relevant command.
+// `dir` is where the command ran, relative to the payload's cwd ('' = cwd, null = unknown).
 
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const LEADING_WORDS = new Set([
   'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'time', 'command', 'exec', 'nohup', 'builtin', '{', '}',
 ]);
-const GIT_GLOBAL_WITH_VALUE = new Set(['-c', '--git-dir', '--work-tree', '--namespace', '--config-env', '--super-prefix']);
-const PUSH_LONG_WITH_VALUE = new Set(['--push-option', '--repo', '--receive-pack', '--exec']);
-const MERGE_WITH_VALUE = new Set([
+const CD = new Set(['cd', 'pushd', 'push-location', 'set-location', 'sl']);
+const POPD = new Set(['popd', 'pop-location']);
+const GH_WITH_VALUE = new Set([
   '-b', '--body', '-F', '--body-file', '-t', '--subject', '--match-head-commit', '-A', '--author-email', '-R', '--repo',
 ]);
-const CREATE_WITH_VALUE = new Set([
-  '-a', '--assignee', '-B', '--base', '-b', '--body', '-F', '--body-file', '-H', '--head', '-l', '--label',
-  '-m', '--milestone', '-p', '--project', '-r', '--reviewer', '-T', '--template', '-t', '--title', '-R', '--repo',
-  '--recover',
+const PUSH_LONG_WITH_VALUE = new Set(['--push-option', '--repo', '--receive-pack', '--exec']);
+const MCP_KINDS = new Map([
+  ['merge_pull_request', 'merge'],
+  ['create_pull_request', 'create'],
+  ['update_pull_request_branch', 'push'],
 ]);
-const RANK = { push: 1, create: 2, merge: 3 };
+const OPAQUE = new RegExp(`[$\`%{${PLACEHOLDER}]`);
 
-function exeName(word) {
-  if (typeof word !== 'string') return '';
-  return word.split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, '');
+// A value the shell computes at run time, which this hook cannot know.
+const opaque = (s) => s === '@' || OPAQUE.test(s);
+
+const join = (base, rel) => (base === null ? null : base === '' || path.isAbsolute(rel) ? rel : path.join(base, rel));
+
+function positiveInt(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 function prFromArg(arg) {
@@ -263,37 +276,33 @@ function prFromArg(arg) {
   return m ? Number(m[1]) : null;
 }
 
-function analyzeGhMerge(args) {
-  let positional = null;
+function firstPositional(args) {
   for (let j = 0; j < args.length; j += 1) {
     const a = args[j];
-    if (a === '--help' || a === '-h' || a === '--disable-auto') return null;
-    if (a === '--') {
-      positional = positional ?? args[j + 1] ?? null;
-      break;
-    }
-    if (a.startsWith('-') && a.length > 1) {
-      if (!a.includes('=') && MERGE_WITH_VALUE.has(a)) j += 1;
-      continue;
-    }
-    if (positional === null) positional = a;
+    if (a === '--') return args[j + 1] ?? null;
+    if (!a.startsWith('-') || a.length === 1) return a;
+    if (!a.includes('=') && GH_WITH_VALUE.has(a)) j += 1;
   }
-  if (positional === null) return { kind: 'merge', pr: null, branch: null, dir: null };
-  const pr = prFromArg(positional);
-  return { kind: 'merge', pr, branch: pr === null ? positional : null, dir: null };
+  return null;
 }
 
-function analyzeGhCreate(args) {
-  let branch = null;
+function flagValue(args, short, long) {
   for (let j = 0; j < args.length; j += 1) {
-    const a = args[j];
-    if (a === '--help' || a === '-h' || a === '--dry-run') return null;
-    if (a === '-H' || a === '--head') branch = args[j + 1] ?? null;
-    else if (a.startsWith('--head=')) branch = a.slice('--head='.length);
-    if (a.startsWith('-') && !a.includes('=') && CREATE_WITH_VALUE.has(a)) j += 1;
+    if (args[j] === short || args[j] === long) return args[j + 1] ?? null;
+    if (args[j].startsWith(`${long}=`)) return args[j].slice(long.length + 1);
   }
-  if (branch && branch.includes(':')) branch = branch.slice(branch.indexOf(':') + 1); // owner:branch
-  return { kind: 'create', pr: null, branch: branch || null, dir: null };
+  return null;
+}
+
+// gh pr <sub> <args>
+function analyzeGh(sub, args, dir) {
+  if (args.includes('--help') || args.includes('-h')) return null;
+  const repo = flagValue(args, '-R', '--repo');
+  if (sub === 'create') return args.includes('--dry-run') ? null : { kind: 'create', pr: null, branch: null, dir, repo };
+  if ((sub !== 'merge' && sub !== 'update-branch') || args.includes('--disable-auto')) return null;
+  const arg = firstPositional(args);
+  const pr = arg === null ? null : prFromArg(arg);
+  return { kind: sub === 'merge' ? 'merge' : 'push', pr, branch: pr === null ? arg : null, dir, repo };
 }
 
 function branchFromRefspec(spec) {
@@ -304,21 +313,13 @@ function branchFromRefspec(spec) {
   return s && s !== 'HEAD' ? s : null;
 }
 
-function analyzeGit(args) {
+// git <args>
+function analyzeGit(args, cd) {
+  let dir = cd;
   let j = 0;
-  let dir = null;
   while (j < args.length && args[j].startsWith('-')) {
-    const a = args[j];
-    if (a === '-C') {
-      const v = args[j + 1];
-      if (v === undefined) return null;
-      dir = dir === null || path.isAbsolute(v) ? v : path.join(dir, v);
-      j += 2;
-    } else if (GIT_GLOBAL_WITH_VALUE.has(a)) {
-      j += 2;
-    } else {
-      j += 1;
-    }
+    if (args[j] === '-C') dir = join(dir, args[j + 1] ?? '');
+    j += args[j] === '-C' || args[j] === '-c' ? 2 : 1;
   }
   if (args[j] !== 'push') return null;
   const rest = args.slice(j + 1);
@@ -332,50 +333,112 @@ function analyzeGit(args) {
     }
     if (a.startsWith('--')) {
       if (!a.includes('=') && PUSH_LONG_WITH_VALUE.has(a)) k += 1;
-      continue;
-    }
-    if (a.startsWith('-') && a.length > 1) {
+    } else if (a.startsWith('-') && a.length > 1) {
       if (/^-[A-Za-z0-9]+$/.test(a)) {
         if (a.includes('n')) return null; // -n is --dry-run, also inside a cluster such as -nu
         if (a.endsWith('o')) k += 1; // -o <push-option>
       }
+    } else {
+      positional.push(a);
+    }
+  }
+  return { kind: 'push', pr: null, branch: branchFromRefspec(positional[1]), dir, repo: null };
+}
+
+function analyzeShell(command, shell) {
+  const segments = [];
+  lexRange(command, 0, shell, segments, false);
+  const hits = [];
+  const scopes = [];
+  let cd = '';
+  for (const words of segments) {
+    if (words === OPEN || words === CLOSE) {
+      if (shell === 'bash' && words === OPEN) scopes.push(cd);
+      else if (shell === 'bash' && scopes.length) cd = scopes.pop();
       continue;
     }
-    positional.push(a);
+    let k = 0;
+    while (k < words.length && (ENV_ASSIGNMENT.test(words[k]) || LEADING_WORDS.has(words[k]))) k += 1;
+    const name = (words[k] ?? '').toLowerCase();
+    const args = words.slice(k + 1);
+    if (CD.has(name)) {
+      const to = args.filter((a) => !a.startsWith('-')).pop();
+      cd = to === undefined || to.startsWith('~') ? null : join(cd, to);
+    } else if (POPD.has(name)) {
+      cd = null;
+    } else {
+      const hit = name === 'gh' && args[0] === 'pr' ? analyzeGh(args[1], args.slice(2), cd) : name === 'git' ? analyzeGit(args, cd) : null;
+      if (hit) hits.push(hit);
+    }
   }
-  return { kind: 'push', pr: null, branch: branchFromRefspec(positional[1]), dir };
+  return hits;
 }
 
-function analyzeSegment(words) {
-  let k = 0;
-  while (k < words.length && (ENV_ASSIGNMENT.test(words[k]) || LEADING_WORDS.has(words[k]))) k += 1;
-  const exe = exeName(words[k]);
-  const args = words.slice(k + 1);
-  if (exe === 'gh' && args[0] === 'pr') {
-    if (args[1] === 'merge') return analyzeGhMerge(args.slice(2));
-    if (args[1] === 'create') return analyzeGhCreate(args.slice(2));
-    return null;
+export function classify(input) {
+  if (!input || typeof input !== 'object') return [];
+  const tool = typeof input.tool_name === 'string' ? input.tool_name : '';
+  const ti = input.tool_input && typeof input.tool_input === 'object' ? input.tool_input : {};
+  if (tool.startsWith('mcp__')) {
+    const kind = MCP_KINDS.get(tool.slice(tool.lastIndexOf('__') + 2));
+    if (!kind) return [];
+    const pr = kind === 'create' ? null : positiveInt(ti.pullNumber ?? ti.pull_number);
+    const branch = kind === 'create' && typeof ti.head === 'string' && ti.head ? ti.head : null;
+    const repo = typeof ti.owner === 'string' && typeof ti.repo === 'string' ? `${ti.owner}/${ti.repo}` : null;
+    return [{ kind, pr, branch, dir: null, repo }];
   }
-  if (exe === 'git') return analyzeGit(args);
-  return null;
+  if ((tool !== 'Bash' && tool !== 'PowerShell') || typeof ti.command !== 'string') return [];
+  return analyzeShell(ti.command, tool === 'PowerShell' ? 'powershell' : 'bash');
 }
 
-function lastPrUrl(text) {
-  let last = null;
-  for (const m of String(text).matchAll(/\/pull\/(\d+)(?![\d\w])/g)) last = Number(m[1]);
-  return last;
-}
+// ---------------------------------------------------------------------------------------------
+// Side-effecting lookups, injectable for tests.
 
-function numberKey(text) {
-  const m = /\\*"number\\*"\s*:\s*(\d+)/.exec(String(text));
-  return m ? Number(m[1]) : null;
-}
+const execText = (exec, file, args, cwd, timeout) =>
+  String(exec(file, args, { cwd, timeout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })).trim();
 
-// The PR number in free text: the last PR URL, else a JSON "number" key (escaped or not).
-export function extractPrNumber(text) {
-  if (typeof text !== 'string' || !text) return null;
-  return lastPrUrl(text) ?? numberKey(text);
-}
+export const makeLookupOpenPr = (exec = execFileSync) => (branch, cwd) => {
+  const args = ['pr', 'list', '--head', branch, '--base', 'main', '--state', 'open', '--json', 'number', '--jq', '.[0].number'];
+  const out = execText(exec, 'gh', args, cwd, 10000);
+  if (out === '' || out === 'null') return null;
+  if (!/^\d+$/.test(out)) throw new Error(`unexpected gh output: ${out.slice(0, 80)}`);
+  return Number(out);
+};
+
+export const makeCurrentBranch = (exec = execFileSync) => (cwd) => {
+  const out = execText(exec, 'git', ['rev-parse', '--abbrev-ref', 'HEAD'], cwd, 5000);
+  return out && out !== 'HEAD' ? out : null;
+};
+
+// The hook runner starts this script once per matching `if` filter, even with the same command
+// string (seen live on CLI 2.1.283), so `git push && gh pr merge 5` starts it twice for one tool call. Each run
+// claims "<event>-<tool_use_id>" with an exclusive create; only the first prints. If the directory
+// is unusable it fails open: a duplicate instruction is harmless, a lost one is not.
+export const makeClaim = (dir = path.join(os.tmpdir(), 'merge-guard-trigger')) => (id) => {
+  try {
+    mkdirSync(dir, { recursive: true });
+    closeSync(openSync(path.join(dir, id.replace(/[^\w.-]/g, '_')), 'wx'));
+  } catch (e) {
+    return e.code !== 'EEXIST';
+  }
+  try {
+    for (const f of readdirSync(dir)) {
+      const p = path.join(dir, f);
+      if (Date.now() - statSync(p).mtimeMs > 86400000) rmSync(p, { force: true });
+    }
+  } catch {
+    // pruning is housekeeping only
+  }
+  return true;
+};
+
+const defaultDeps = () => ({ lookupOpenPr: makeLookupOpenPr(), currentBranch: makeCurrentBranch(), claim: makeClaim() });
+
+// ---------------------------------------------------------------------------------------------
+// The decision and the instruction.
+
+const UNRESOLVED = 'the pushed branch could not be resolved, so this fires to fail toward checking';
+const PHASE = { merge: 'post-merge', create: 'pre-merge', push: 'pre-merge' };
+const RAN = { merge: 'a PR merge ran', create: 'a PR create ran', push: 'a push to a PR branch ran' };
 
 function stringify(value) {
   if (typeof value === 'string') return value;
@@ -386,118 +449,14 @@ function stringify(value) {
   }
 }
 
-function shellOutput(response) {
-  if (response && typeof response === 'object' && typeof response.stdout === 'string') return response.stdout;
-  return stringify(response);
-}
-
-function mcpPr(value) {
-  if (value === undefined || value === null || value === '') return null;
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-// input: the PostToolUse hook payload. Returns { kind, pr, branch, dir } or null.
-// `dir` is the `git -C` path of a push (relative to input.cwd), else null.
-export function classify(input) {
-  if (!input || typeof input !== 'object') return null;
-  const tool = typeof input.tool_name === 'string' ? input.tool_name : '';
-  const toolInput = input.tool_input && typeof input.tool_input === 'object' ? input.tool_input : {};
-
-  if (tool.startsWith('mcp__')) {
-    if (tool.endsWith('__merge_pull_request')) {
-      return { kind: 'merge', pr: mcpPr(toolInput.pullNumber ?? toolInput.pull_number), branch: null, dir: null };
-    }
-    if (tool.endsWith('__create_pull_request')) {
-      const text = stringify(input.tool_response);
-      const head = typeof toolInput.head === 'string' && toolInput.head ? toolInput.head : null;
-      return { kind: 'create', pr: numberKey(text) ?? lastPrUrl(text), branch: head, dir: null };
-    }
-    return null;
-  }
-
-  if (tool !== 'Bash' && tool !== 'PowerShell') return null;
-  const command = toolInput.command;
-  if (typeof command !== 'string' || !command) return null;
-
-  let best = null;
-  for (const words of lex(command, tool === 'PowerShell' ? 'powershell' : 'bash')) {
-    const c = analyzeSegment(words);
-    if (c && (!best || RANK[c.kind] > RANK[best.kind])) best = c;
-  }
-  if (best && best.kind === 'create') best = { ...best, pr: extractPrNumber(shellOutput(input.tool_response)) };
-  return best;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Side-effecting lookups, injectable for tests.
-
-export function makeLookupOpenPr(exec = execFileSync) {
-  return (branch, cwd) => {
-    const out = String(
-      exec('gh', ['pr', 'list', '--head', branch, '--base', 'main', '--state', 'open', '--json', 'number', '--jq', '.[0].number'], {
-        cwd,
-        timeout: 10000,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      }),
-    ).trim();
-    if (out === '' || out === 'null') return null;
-    if (!/^\d+$/.test(out)) throw new Error(`unexpected gh output: ${out.slice(0, 80)}`);
-    return Number(out);
-  };
-}
-
-export function makeCurrentBranch(exec = execFileSync) {
-  return (cwd) => {
-    const out = String(
-      exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-        cwd,
-        timeout: 5000,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-      }),
-    ).trim();
-    return out && out !== 'HEAD' ? out : null;
-  };
-}
-
-function defaultDeps() {
-  return { lookupOpenPr: makeLookupOpenPr(), currentBranch: makeCurrentBranch() };
-}
-
-// ---------------------------------------------------------------------------------------------
-// The instruction.
-
-function message(kind, pr, branch, note) {
-  const phase = kind === 'merge' ? 'post-merge' : 'pre-merge';
-  const ran = {
-    merge: '`gh pr merge` ran',
-    create: '`gh pr create` ran',
-    push: branch && pr !== null ? `\`git push\` updated ${branch}, which has an open PR into main` : '`git push` ran',
-  }[kind];
-  let target;
-  if (pr !== null) target = `PR #${pr}`;
-  else if (kind === 'merge') {
-    target = branch
-      ? `the PR of branch ${branch} that was just merged`
-      : 'the PR that was just merged (the command named no number: find it with `gh pr list --state merged --limit 3 --json number,headRefName,mergedAt`)';
-  } else if (branch) {
-    target = `the PR for branch ${branch} (find it with \`gh pr list --head ${branch} --json number,baseRefName\`)`;
-  } else {
-    target = 'the PR for the current branch (find it with `gh pr view --json number,baseRefName`)';
-  }
-  return [
-    `merge-guard trigger: ${ran}.`,
-    `Dispatch the merge-guard agent now on ${target}, phase ${phase}.`,
-    'Do not start the next merge or the next task until it returns VERDICT: GREEN.',
-    'On VERDICT: RED, follow its instructions: record each finding as a TASKS.md row, fix it before the next task (DEC-143), and re-run merge-guard on the fixed state.',
-    note ? `Note: ${note}.` : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
+// The PR number in a call's output (or error): the last PR URL, or a JSON "number" key (escaped or
+// not). An MCP response is JSON whose body may quote other PRs, so there the key comes first.
+function prInText(text, keyFirst) {
+  let url = null;
+  for (const m of text.matchAll(/\/pull\/(\d+)(?![\d\w])/g)) url = Number(m[1]);
+  const key = /\\*"number\\*"\s*:\s*(\d+)/.exec(text);
+  const num = key ? Number(key[1]) : null;
+  return keyFirst ? num ?? url : url ?? num;
 }
 
 function errorText(e) {
@@ -505,40 +464,96 @@ function errorText(e) {
   return s.split('\n')[0].slice(0, 120);
 }
 
-// The hook's whole decision for one parsed payload: '' (print nothing) or the JSON to print.
-export function run(input, deps = defaultDeps()) {
-  if (!input || typeof input !== 'object') return '';
-  if (input.hook_event_name && input.hook_event_name !== 'PostToolUse') return '';
-  const c = classify(input);
-  if (!c) return '';
-
-  const cwd = typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
-  let { pr, branch } = c;
-  let note = '';
-  if (c.kind === 'push') {
-    const dir = c.dir ? path.resolve(cwd, c.dir) : cwd;
-    if (!branch) {
-      try {
-        branch = deps.currentBranch(dir) || null;
-      } catch {
-        branch = null;
-      }
-    }
-    if (!branch) {
-      note = 'the pushed branch could not be resolved, so this fires to fail toward checking';
-    } else {
-      try {
-        pr = deps.lookupOpenPr(branch, dir);
-        if (pr === null || pr === undefined) return '';
-      } catch (e) {
-        pr = null;
-        note = `the open-PR lookup failed (${errorText(e)}), so this fires to fail toward checking; establish whether ${branch} has an open PR into main`;
-      }
+// A push hit -> the same hit with its PR (or a note saying why it fires anyway), or null when the
+// pushed branch has no open PR into main.
+function resolvePush(hit, cwd, deps) {
+  if (hit.pr !== null) return hit;
+  const dir = hit.dir === null || opaque(hit.dir) ? null : path.resolve(cwd, hit.dir);
+  let branch = hit.branch;
+  if (branch === null && dir !== null) {
+    try {
+      branch = deps.currentBranch(dir) || null;
+    } catch {
+      branch = null;
     }
   }
-  return JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: message(c.kind, pr, branch, note) },
-  });
+  if (dir === null || branch === null || opaque(branch)) return { ...hit, branch: null, note: UNRESOLVED };
+  try {
+    const pr = deps.lookupOpenPr(branch, dir);
+    return pr === null || pr === undefined ? null : { ...hit, branch, pr };
+  } catch (e) {
+    const note = `the open-PR lookup failed (${errorText(e)}), so this fires to fail toward checking; establish whether ${branch} has an open PR into main`;
+    return { ...hit, branch, note };
+  }
+}
+
+function target(kind, h) {
+  if (h.pr !== null) return `PR #${h.pr}`;
+  if (kind === 'merge') {
+    return h.branch
+      ? `the PR of branch ${h.branch} that was just merged`
+      : 'the PR that was just merged (the command named no number: find it with `gh pr list --state merged --limit 3 --json number,headRefName,mergedAt`)';
+  }
+  return h.branch
+    ? `the PR for branch ${h.branch} (find it with \`gh pr list --head ${h.branch} --json number,baseRefName\`)`
+    : 'the PR for the current branch (find it with `gh pr view --json number,baseRefName` where the command ran)';
+}
+
+function message(kind, failed, targets, notes) {
+  const phase = PHASE[kind];
+  const named = targets.every((t) => /^PR #\d+$/.test(t)) ? targets.join(', ') : 'PR #N';
+  return [
+    `merge-guard trigger: ${RAN[kind]}${failed ? ' and exited with an error, which does not mean nothing changed on GitHub' : ''}.`,
+    `Dispatch the merge-guard agent now on ${targets.join(', ')}, phase ${phase}.`,
+    'Do not start the next merge or the next task until it returns VERDICT: GREEN.',
+    'On VERDICT: RED, follow its instructions: record each finding as a TASKS.md row, fix it before the next task (DEC-143), and re-run merge-guard on the fixed state.',
+    `If you cannot dispatch agents (you are a sub-agent), make the first line of your final report: \`merge-guard required: ${named}, ${phase}\`.`,
+    ...notes.map((note) => `Note: ${note}.`),
+  ].join(' ');
+}
+
+// The hook's whole decision for one parsed payload: '' (print nothing) or the JSON to print.
+// deps: { lookupOpenPr, currentBranch, claim?, projectDir? } (projectDir defaults to $CLAUDE_PROJECT_DIR).
+export function run(input, deps = defaultDeps()) {
+  if (!input || typeof input !== 'object') return '';
+  const event = input.hook_event_name ?? 'PostToolUse';
+  if (event !== 'PostToolUse' && event !== 'PostToolUseFailure') return '';
+  const failed = event === 'PostToolUseFailure';
+  const hits = classify(input);
+  if (!hits.length) return '';
+  if (deps.claim && typeof input.tool_use_id === 'string' && !deps.claim(`${event}-${input.tool_use_id}`)) return '';
+  const cwd = typeof input.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
+
+  let kind = 'merge';
+  let chosen = hits.filter((h) => h.kind === 'merge');
+  if (!chosen.length) {
+    const create = hits.find((h) => h.kind === 'create');
+    const response = input.tool_response;
+    const text = failed ? stringify(input.error) : typeof response?.stdout === 'string' ? response.stdout : stringify(response);
+    const pr = create ? prInText(text, input.tool_name.startsWith('mcp__')) : null;
+    if (create && (pr !== null || !failed)) {
+      kind = 'create';
+      chosen = [{ ...create, pr }];
+    } else {
+      kind = 'push';
+      chosen = hits.filter((h) => h.kind === 'push').map((h) => resolvePush(h, cwd, deps)).filter(Boolean);
+    }
+  }
+  if (!chosen.length) return '';
+
+  const root = deps.projectDir || process.env.CLAUDE_PROJECT_DIR || cwd;
+  const notes = new Set();
+  for (const h of chosen) {
+    if (h.note) notes.add(h.note);
+    if (h.repo) notes.add(`the command names repository ${h.repo}; run merge-guard against that repository`);
+    if (h.dir && !opaque(h.dir)) {
+      const where = path.resolve(cwd, h.dir);
+      const rel = path.relative(root, where);
+      if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) notes.add(`the command ran in ${where}, outside this project`);
+    }
+  }
+  const targets = [...new Set(chosen.map((h) => target(kind, h)))];
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: message(kind, failed, targets, [...notes]) } });
 }
 
 // Raw stdin text -> what to print. Malformed input prints nothing.
@@ -552,22 +567,23 @@ export function handle(raw, deps = defaultDeps()) {
 
 async function main() {
   let raw = '';
-  try {
-    process.stdin.setEncoding('utf8');
-    for await (const chunk of process.stdin) raw += chunk;
-  } catch {
-    raw = '';
-  }
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) raw += chunk;
   const out = handle(raw);
   if (out) process.stdout.write(out);
 }
 
-const isEntry =
-  import.meta.main ??
-  (typeof process.argv[1] === 'string' &&
-    path.resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase());
+// Entry guard: Node loads the main module from realpath(argv[1]), so the two are equal only when
+// this file is the script Node was started with, not when a test imports it.
+function isEntry() {
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
 
-if (isEntry) {
+if (isEntry()) {
   main()
     .catch(() => {})
     .finally(() => {
