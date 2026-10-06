@@ -63,6 +63,8 @@ A HALT *after* the push means you lost a race: your claim is already pushed, no 
 - **Never push to `main`.** Work on your own branch, in your own worktree. `git config core.hooksPath .githooks` turns on a pre-push guard that refuses pushes to `main`; it is once per clone, so in a fresh Codex clone run it at the start of every session.
 - **Merge only your own PRs**, one at a time, after CI is green on the PR's current head commit, and only when `check --merge` is clear. Never merge, push to, close or rebase the other partner's branch or PR.
 - **Stage by explicit path** (`git add -- <path>`). Never `git add -A` or `git add .`.
+- **Keep `TASKS.md` and `WORK_LEDGER.md` committed in the task worktree** before `ship`, `rescope` or a resumed `start`: the engine refuses while either has uncommitted changes, so a claim commit never carries other edits.
+- **Claims made within ten minutes of each other count as a tie,** and a tie stops both: the two partners decide who goes first.
 - **Your section only.** Edit `WORK_LEDGER.md` only through the engine, and only your own section. Owner-only paths (`.claude/**`, `docs/design-v2/pages/**`, `docs/plans/WAVE4_STATE.md`) are Malede's.
 - **New TASKS IDs** come from your own block, `900` to `999` in every prefix (for example `BE-900`), never from the header's "Next free IDs".
 - **Production is the owner's.** Atlas, Railway variables, store consoles and secrets are changed only by Malede.

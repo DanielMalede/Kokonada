@@ -16,10 +16,10 @@ Two people change this repository in parallel: Daniel Malede, the owner, and Dan
 
 ## People
 
-| login | name | section | git author | TASKS ids |
-|---|---|---|---|---|
-| `DanielMalede` | Malede | `M` | `Full Stack Developer`, `Daniel <danielmalede@gmail.com>` | the "Next free IDs" header |
-| `DanielBedrack` | Bedrack | `B` | `DanielBedrack` | `900` to `999` in every prefix |
+| login | name | role | section | git author | TASKS ids |
+|---|---|---|---|---|---|
+| `DanielMalede` | Malede | owner | `M` | `Full Stack Developer`, `Daniel <danielmalede@gmail.com>` | the "Next free IDs" header |
+| `DanielBedrack` | Bedrack | partner | `B` | `DanielBedrack` | `900` to `999` in every prefix |
 
 ## Exclusive files
 

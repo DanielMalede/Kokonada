@@ -42,10 +42,10 @@ Intro prose.
 
 ## People
 
-| login | name | section | git author | TASKS ids |
-|---|---|---|---|---|
-| \`DanielMalede\` | Malede | \`M\` | \`Full Stack Developer\` | the "Next free IDs" header |
-| \`DanielBedrack\` | Bedrack | \`B\` | \`DanielBedrack\` | \`900\` to \`999\` in every prefix |
+| login | name | role | section | git author | TASKS ids |
+|---|---|---|---|---|---|
+| \`DanielMalede\` | Malede | owner | \`M\` | \`Full Stack Developer\` | the "Next free IDs" header |
+| \`DanielBedrack\` | Bedrack | partner | \`B\` | \`DanielBedrack\` | \`900\` to \`999\` in every prefix |
 
 ## Exclusive files
 
@@ -244,6 +244,51 @@ describe('OPS-152 · ledger — parsing the header tables', () => {
   });
 });
 
+describe('OPS-155 · ledger — N15 · the owner is named by an explicit role, never by row order', () => {
+  const MALEDE_ROW = '| `DanielMalede` | Malede | owner | `M` | `Full Stack Developer` | the "Next free IDs" header |';
+  const BEDRACK_ROW = '| `DanielBedrack` | Bedrack | partner | `B` | `DanielBedrack` | `900` to `999` in every prefix |';
+  const sorted = ledgerText().replace(`${MALEDE_ROW}\n${BEDRACK_ROW}`, `${BEDRACK_ROW}\n${MALEDE_ROW}`);
+
+  test('sorting the People table changes nobody\'s role', () => {
+    expect(sorted).not.toBe(ledgerText());
+    const parsed = parseLedger(sorted);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.people.map((p) => p.login)).toEqual(['DanielBedrack', 'DanielMalede']);
+    expect(personByLogin(parsed, 'DanielMalede').isOwner).toBe(true);
+    expect(personByLogin(parsed, 'DanielBedrack').isOwner).toBe(false);
+    expect(serializeLedger(parsed)).toBe(sorted);
+  });
+
+  test('the owner-only header rule follows the role, whatever the row order', () => {
+    const head = sorted.replace('1. A rule.', '1. A different rule.');
+    expect(ledgerGuard({ baseText: sorted, headText: head, branch: 'feat/m', login: 'DanielMalede' })).toEqual([]);
+    expect(ledgerGuard({ baseText: sorted, headText: head, branch: 'feat/b', login: 'DanielBedrack' }).map((v) => v.kind)).toEqual(['header']);
+  });
+
+  test('two owners, no owner, an unknown role, or no role column at all is an error', () => {
+    const twoOwners = ledgerText().replace('| Bedrack | partner |', '| Bedrack | owner |');
+    expect(parseLedger(twoOwners).errors.join('\n')).toMatch(/exactly one owner/);
+    const noOwner = ledgerText().replace('| Malede | owner |', '| Malede | partner |');
+    expect(parseLedger(noOwner).errors.join('\n')).toMatch(/exactly one owner/);
+    const unknown = ledgerText().replace('| Bedrack | partner |', '| Bedrack | admin |');
+    expect(parseLedger(unknown).errors.join('\n')).toMatch(/People row 2 .*role/);
+    const noColumn = ledgerText()
+      .replace('| login | name | role | section |', '| login | name | section |')
+      .replace('|---|---|---|---|---|---|', '|---|---|---|---|---|')
+      .replace('| Malede | owner |', '| Malede |')
+      .replace('| Bedrack | partner |', '| Bedrack |');
+    expect(parseLedger(noColumn).errors.join('\n')).toMatch(/role/);
+    expect(parseLedger(noColumn).people.some((p) => p.isOwner)).toBe(false);
+  });
+
+  test('a role may be written plain or in backticks, in any case', () => {
+    const ticked = ledgerText().replace('| Malede | owner |', '| Malede | `Owner` |');
+    const parsed = parseLedger(ticked);
+    expect(parsed.errors).toEqual([]);
+    expect(personByLogin(parsed, 'DanielMalede').isOwner).toBe(true);
+  });
+});
+
 describe('OPS-152 · ledger — a header row that does not parse is an error, never a silent drop', () => {
   test('a bad path or an empty cell in Exclusive files, and a People row with no login, are reported', () => {
     const bad = ledgerText()
@@ -405,6 +450,9 @@ describe('OPS-152 · ledger — live pin on the real WORK_LEDGER.md', () => {
 
   test('two people, twelve Malede slots, six Bedrack slots', () => {
     expect(ledger.people.map((p) => p.login)).toEqual(['DanielMalede', 'DanielBedrack']);
+    // N15: the owner is named by the role column, and there is exactly one
+    expect(real).toMatch(/^\| login \| name \| role \| section \| git author \| TASKS ids \|$/m);
+    expect(ledger.people.map((p) => [p.login, p.isOwner])).toEqual([['DanielMalede', true], ['DanielBedrack', false]]);
     expect(ledger.slots.filter((s) => s.section === 'M')).toHaveLength(12);
     expect(ledger.slots.filter((s) => s.section === 'B')).toHaveLength(6);
   });

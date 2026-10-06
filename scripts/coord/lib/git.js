@@ -73,13 +73,19 @@ function roots(cwd, ref) {
   return must(cwd, ['rev-list', '--max-parents=0', ref]).split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
-// The last time this clone saw origin/<branch> move (the remote-tracking ref's reflog), in seconds.
+// The last time this clone saw origin/<branch> MOVE (the remote-tracking ref's reflog), in seconds,
+// or null. The entry that CREATED the ref (old id all zeros, "storing head") is not a move: a fresh
+// `git init` + fetch — how CI checks out — creates every ref at fetch time, which would make every
+// branch look recent. Only a later update ("fast-forward", "forced-update") counts.
 function reflogTime(gitCommonDir, branch) {
   try {
     const file = path.join(gitCommonDir, 'logs', 'refs', 'remotes', 'origin', ...branch.split('/'));
-    const last = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).pop() || '';
-    const m = />\s(\d+)\s[+-]\d{4}\t/.exec(last);
-    return m ? Number(m[1]) : null;
+    const entries = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).reverse();
+    for (const entry of entries) {
+      const m = /^([0-9a-f]+) ([0-9a-f]+) .*>\s(\d+)\s[+-]\d{4}\t/.exec(entry);
+      if (m && !/^0+$/.test(m[1]) && m[1] !== m[2]) return Number(m[3]);
+    }
+    return null;
   } catch {
     return null;
   }
@@ -92,24 +98,27 @@ function showFile(cwd, ref, rel) {
   return res.code === 0 ? res.stdout : null;
 }
 
-// → [{ name, tipTime, author: { name, email }, sha }] for every branch on origin except HEAD.
+// → [{ name, tipTime, author: { name, email }, committer: { name, email }, sha }] for every branch
+// on origin except HEAD.
 function remoteBranches(cwd) {
   const out = must(cwd, [
     'for-each-ref',
-    '--format=%(refname)%00%(committerdate:unix)%00%(authorname)%00%(authoremail)%00%(objectname)%00',
+    '--format=%(refname)%00%(committerdate:unix)%00%(authorname)%00%(authoremail)%00%(committername)%00%(committeremail)%00%(objectname)%00',
     'refs/remotes/origin/',
   ]);
   const fields = out.split('\0');
+  const email = (s) => s.replace(/^<|>$/g, '');
   const branches = [];
-  for (let i = 0; i + 4 < fields.length; i += 5) {
+  for (let i = 0; i + 6 < fields.length; i += 7) {
     const refname = fields[i].replace(/^\s+/, '');
     const name = refname.replace(/^refs\/remotes\/origin\//, '');
     if (!refname || name === 'HEAD') continue;
     branches.push({
       name,
       tipTime: Number(fields[i + 1]),
-      author: { name: fields[i + 2], email: fields[i + 3].replace(/^<|>$/g, '') },
-      sha: fields[i + 4],
+      author: { name: fields[i + 2], email: email(fields[i + 3]) },
+      committer: { name: fields[i + 4], email: email(fields[i + 5]) },
+      sha: fields[i + 6],
     });
   }
   return branches;

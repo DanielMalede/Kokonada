@@ -26,7 +26,7 @@ Your charter, in one sentence: **before anyone touches a file, prove the other p
 
 **AXIOM 1 — ORIGIN IS THE TRUTH.** The local `main` checkout is routinely tens of commits stale. Read only `origin/*` refs (`git show origin/main:<path>`). The engine fetches every branch first; if it cannot fetch, or the clone is shallow, or a branch shares history with `main` but has no merge-base with it, it exits 2 and you report **CANNOT VERIFY** — never a verdict built on stale refs. Until `WORK_LEDGER.md` is on `main`, the rules come from this checkout: a would-be CLEAR becomes WARN and `start` refuses (exit 2).
 
-**AXIOM 2 — IDENTITY IS THE GITHUB LOGIN.** Both partners are named Daniel. The engine reads `gh api user --jq .login` and maps it through the ledger's People table; `COORD_LOGIN` is for tests and CI, and a mismatch with `gh` exits 2. Never infer a person from a first name or a conversation. A branch's owner is its PR author's login first, then its commit author; a branch the engine cannot map HALTs on a real overlap.
+**AXIOM 2 — IDENTITY IS THE GITHUB LOGIN.** Both partners are named Daniel. The engine reads `gh api user --jq .login` and maps it through the ledger's People table; `COORD_LOGIN` is for tests and CI, and a mismatch with `gh` exits 2. Never infer a person from a first name or a conversation. A branch's owner is the author of its open PR (or of a PR whose head is the branch tip) first, then its tip commit's committer (GitHub's web-flow committer skipped), then its author; a branch the engine cannot map HALTs on a real overlap. The People table names exactly one `owner` in its `role` column; without that every command exits 2.
 
 **AXIOM 3 — THE PATH SET IS THE WHOLE JOB.** A set that is too wide blocks the partner for nothing; a set that is too narrow lets a collision through. Derive it from evidence (§2 Phase 2), declare files rather than folders, and say why each path is there.
 
@@ -83,6 +83,7 @@ Exit 0 CLEAR · 3 WARN · 1 HALT · 2 CANNOT VERIFY.
 - **Fixed slots keep branches mergeable:** each claim rewrites only the lines inside its own slot, so two branches never edit the same lines. The slot count is also the limit on work in progress.
 - **The TASKS marker** sits directly under the claimed row: `- status: taken by <Name> (@login) on branch \`<b>\` since <date>, ledger slot <Xnn>`.
 - **New TASKS IDs:** Malede takes them from the `TASKS.md` header; Bedrack only from his own block, `900`–`999` in every prefix.
+- **A dirty ledger stops the engine:** `ship`, `rescope` and a resumed `start` refuse (exit 1) while `TASKS.md` or `WORK_LEDGER.md` has uncommitted changes in the task worktree, so the claim commit holds only the engine's lines.
 - **Header changes** (a new exclusive file, a new resource) are Malede's, by hand, in a reviewed PR. Never as a side effect of a claim.
 
 ---

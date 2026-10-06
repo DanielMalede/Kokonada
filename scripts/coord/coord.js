@@ -28,6 +28,12 @@ const R = require('./lib/render');
 
 const LOCK_STALE_MS = 10 * 60 * 1000;
 
+// Every ref handed to git is a FULL refname. git resolves a short `origin/main` as a tag, then a
+// local branch, before the remote-tracking ref, so a stray `git branch origin/main` (or a tag of
+// that name, or of `origin/<b>`) would silently change every verdict.
+const MAIN = 'refs/remotes/origin/main';
+const remoteRef = (b) => `refs/remotes/origin/${b}`;
+
 class Exit extends Error {
   constructor(exitCode, message) {
     super(message);
@@ -138,9 +144,14 @@ function fetchOrStop(root) {
 }
 
 // The rules (People, exclusive rows, shared, owner-only, resources) come from origin/main. Until the
-// ledger itself has landed there, they come from this checkout, and every command says so.
-function loadRules(root) {
-  const mainText = git.showFile(root, 'origin/main', L.LEDGER_PATH);
+// ledger itself has landed there, they come from this checkout, and every command says so — except
+// `ci` (fromCheckout: false): the checkout it runs in IS the branch under test, whose own ledger
+// would grade itself.
+function loadRules(root, { fromCheckout = true } = {}) {
+  const mainText = git.showFile(root, MAIN, L.LEDGER_PATH);
+  if (mainText === null && !fromCheckout) {
+    throw cannotVerify(`cannot verify: origin/main has no ${L.LEDGER_PATH}; ci takes its rules only from main, never from the branch it checks`);
+  }
   const text = mainText !== null ? mainText : git.readWorktreeFile(root, L.LEDGER_PATH);
   if (text === null) throw cannotVerify(`cannot verify: no ${L.LEDGER_PATH} on origin/main or in this checkout`);
   const rules = L.parseLedger(text);
@@ -161,11 +172,11 @@ function personOf(rules, login) {
   return person;
 }
 
-function context(cwd, { identity = true } = {}) {
+function context(cwd, { identity = true, rulesFromCheckout = true } = {}) {
   const root = repoRoot(cwd);
   const who = identity ? identify(root) : null;
   fetchOrStop(root);
-  const { rules, mainLedger, note } = loadRules(root);
+  const { rules, mainLedger, note } = loadRules(root, { fromCheckout: rulesFromCheckout });
   return {
     cwd,
     root,
@@ -201,18 +212,18 @@ function gather(ctx, { useGh = true, requireGh = false } = {}) {
   }
   const stats = {};
   const common = git.commonDir(root);
-  const mainBlobs = memo(() => git.treeBlobs(root, 'origin/main'));
-  const mainRoots = memo(() => git.roots(root, 'origin/main'));
+  const mainBlobs = memo(() => git.treeBlobs(root, MAIN));
+  const mainRoots = memo(() => git.roots(root, MAIN));
   const remote = git.remoteBranches(root);
   const branches = remote.filter((b) => b.name !== 'main').map((b) => {
-    const ref = `origin/${b.name}`;
+    const ref = remoteRef(b.name);
     // No merge-base: an orphan branch (no root in common with main) is all footprint; anything else
     // means the clone is missing history, and nothing is decided on it.
     const base = memo(() => {
-      const mb = git.mergeBase(root, 'origin/main', ref);
+      const mb = git.mergeBase(root, MAIN, ref);
       if (mb) return mb;
       if (git.roots(root, ref).some((r) => mainRoots().includes(r))) {
-        throw cannotVerify(`cannot verify: ${ref} shares history with origin/main but git finds no merge-base — the clone is incomplete; run \`git fetch --unshallow\``);
+        throw cannotVerify(`cannot verify: origin/${b.name} shares history with origin/main but git finds no merge-base — the clone is incomplete; run \`git fetch --unshallow\``);
       }
       return null;
     });
@@ -224,13 +235,14 @@ function gather(ctx, { useGh = true, requireGh = false } = {}) {
       tipTime: b.tipTime,
       seenTime: memo(() => git.reflogTime(common, b.name)),
       author: b.author,
+      committer: b.committer,
       headLedgerText,
       baseLedgerText: headLedgerText === null || !base() ? null : git.showFile(root, base(), L.LEDGER_PATH),
       changed,
       prDone: () => C.prDoneFor(prs, b.name, b.sha),
       prOpen: () => C.prOpenFor(prs, b.name),
       prAuthor: () => C.prAuthorFor(prs, b.name, b.sha),
-      merged: memo(() => git.isAncestor(root, ref, 'origin/main')),
+      merged: memo(() => git.isAncestor(root, ref, MAIN)),
       contentMerged: memo(() => C.mergedByContent(changed(), git.treeBlobs(root, ref), mainBlobs())),
       firstLedgerTime: memo(() => (base() ? git.firstLedgerTime(root, base(), ref, L.LEDGER_PATH) : null)),
     };
@@ -248,7 +260,7 @@ function testMentionsFor(ctx, declared) {
   const mentions = {};
   for (const p of declared) {
     if (p.includes('*')) continue;
-    const hits = git.grepTests(ctx.root, 'origin/main', path.posix.basename(p))
+    const hits = git.grepTests(ctx.root, MAIN, path.posix.basename(p))
       .filter((t) => !declared.some((d) => d.toLowerCase() === t.toLowerCase()));
     if (hits.length) mentions[p] = hits;
   }
@@ -266,8 +278,7 @@ function runCheck(ctx, { declared, resources, task, taskKind, branch }) {
     me: ctx.me,
     mine: { declared, resources, task, taskKind, branch },
     footprints: relevant,
-    mainTasks: git.showFile(ctx.root, 'origin/main', T.TASKS_PATH) || '',
-    remoteBranches: remoteNames,
+    mainTasks: git.showFile(ctx.root, MAIN, T.TASKS_PATH) || '',
     testMentions: others.length ? testMentionsFor(ctx, declared) : {},
     now: ctx.now,
   });
@@ -281,6 +292,22 @@ const otherName = (ctx) => (L.otherPerson(ctx.rules, ctx.me) || { name: 'the oth
 const counts = (others) => ({ claims: others.filter((f) => f.kind === 'claim').length, unclaimed: others.filter((f) => f.kind !== 'claim').length });
 
 // ---- check ------------------------------------------------------------------------------------
+
+// Every file a PR changes, listed by git after the fetch: from its merge-base with main to its head,
+// with renames as a delete plus an add, so a rename's SOURCE path counts (gh, like GitHub, names a
+// rename by its new path only). Someone else's PR is refused whatever it changes, so its files are
+// not needed; for mine, a head that is not on origin cannot be listed, and nothing is decided.
+function prFiles(ctx, pr, number) {
+  const author = String((pr.author && pr.author.login) || '').toLowerCase();
+  if (author !== ctx.me.login.toLowerCase()) return [];
+  const b = String(pr.headRefName || '');
+  if (!b || !git.refExists(ctx.root, remoteRef(b))) {
+    throw cannotVerify(`cannot verify: PR #${number}'s head branch ${b || '(none)'} is not on origin after the fetch, so its files cannot be listed`);
+  }
+  const base = git.mergeBase(ctx.root, MAIN, remoteRef(b));
+  if (!base) throw cannotVerify(`cannot verify: origin/${b} has no merge-base with origin/main, so PR #${number}'s files cannot be listed`);
+  return git.diffNames(ctx.root, base, remoteRef(b));
+}
 
 function cmdCheck(cwd, flags) {
   if (!flags.paths && !flags.merge) throw new Exit(2, `check needs --paths a,b,c (or --merge N)\n\n${R.USAGE}`);
@@ -304,9 +331,8 @@ function cmdCheck(cwd, flags) {
   }
   if (flags.merge) {
     const pr = gh.prView(ctx.root, flags.merge, 'author,headRefName');
-    const files = gh.prFiles(ctx.root, flags.merge);
-    if (!pr || !files) throw cannotVerify(`cannot verify: gh could not read PR #${flags.merge}`);
-    pr.files = files.map((p) => ({ path: p }));
+    if (!pr) throw cannotVerify(`cannot verify: gh could not read PR #${flags.merge}`);
+    pr.files = prFiles(ctx, pr, flags.merge).map((p) => ({ path: p }));
     const runs = gh.runList(ctx.root);
     if (!runs) throw cannotVerify('cannot verify: gh could not list the push runs on main');
     if (!footprints) {
@@ -377,6 +403,21 @@ function prBody({ slotId, claim, declared }) {
   ].join('\n');
 }
 
+// N7 · start, ship and rescope commit whole files. So they write only into a TASKS.md and a
+// WORK_LEDGER.md that match HEAD: anything else in them would ride along in a [skip ci] commit
+// that claims to hold only the coordinator's lines.
+function refuseDirty(dir, who) {
+  const dirty = [];
+  for (const f of [T.TASKS_PATH, L.LEDGER_PATH]) {
+    const res = git.run(dir, ['diff', '--quiet', 'HEAD', '--', f]);
+    if (res.code === 1) dirty.push(f);
+    else if (res.code !== 0) throw cannotVerify(`cannot verify: git diff of ${f} in ${dir} failed (${redact((res.stderr || res.stdout).trim())})`);
+  }
+  if (dirty.length) {
+    throw halt(`HALT — ${dirty.join(' and ')} ${dirty.length === 1 ? 'has' : 'have'} uncommitted changes in ${dir}; ${who} commits only its own lines there, so commit or discard those changes first. Nothing was changed.`);
+  }
+}
+
 function filesDifferingFromHead(dir, files) {
   const res = git.run(dir, ['diff', '--name-only', '-z', 'HEAD', '--', ...files]);
   return res.code === 0 ? res.stdout.split('\0').filter(Boolean) : files;
@@ -391,7 +432,7 @@ function commitFiles(dir, files, message) {
 }
 
 function pushIfAhead(dir, branch, setUpstream, again) {
-  if (git.revParse(dir, 'HEAD') === git.revParse(dir, `refs/remotes/origin/${branch}`)) return false;
+  if (git.revParse(dir, 'HEAD') === git.revParse(dir, remoteRef(branch))) return false;
   const res = git.push(dir, branch, { setUpstream });
   if (res.code !== 0) {
     throw cannotVerify(`cannot verify: git push of ${branch} failed (${redact((res.stderr || res.stdout).trim())}); the claim is committed on ${branch} locally — ${again}`);
@@ -452,15 +493,15 @@ function startLocked(ctx, flags) {
   // on origin when the branch is there (origin decides), else in the branch's own ledger (a claim a
   // failed push left behind). Otherwise nothing is touched, origin/<b> least of all.
   const wt = git.worktrees(root).find((w) => w.branch === b) || null;
-  const onOrigin = git.refExists(root, `refs/remotes/origin/${b}`);
+  const onOrigin = git.refExists(root, remoteRef(b));
   const local = git.refExists(root, `refs/heads/${b}`);
   let slotId = null;
   let existing = null;
   if (wt || onOrigin || local) {
     let text = null;
-    if (onOrigin) text = git.showFile(root, `origin/${b}`, L.LEDGER_PATH);
+    if (onOrigin) text = git.showFile(root, remoteRef(b), L.LEDGER_PATH);
     else text = wt ? git.readWorktreeFile(wt.path, L.LEDGER_PATH) : git.showFile(root, `refs/heads/${b}`, L.LEDGER_PATH);
-    const slot = text ? L.parseLedger(text).slots.find((s) => s.section === me.section && s.claim && s.claim.branch === b) : null;
+    const slot = text ? L.parseLedger(text, { people: rules.people }).slots.find((s) => s.section === me.section && s.claim && s.claim.branch === b) : null;
     if (!slot) {
       const where = [wt ? `a worktree at ${wt.path}` : null, onOrigin ? 'on origin' : 'locally'].filter(Boolean).join(', ');
       const leftover = onOrigin ? '' : ` If it is left over from an interrupted start, remove it first (${wt ? `git worktree remove "${wt.path}", then ` : ''}git branch -D ${b}).`;
@@ -468,14 +509,16 @@ function startLocked(ctx, flags) {
     }
     slotId = slot.id;
     existing = slot.claim;
+    if (wt) refuseDirty(wt.path, 'a resumed start');
   }
   const already = () => [
     onOrigin ? `origin/${b} with your claim in ${slotId}` : `your claim in ${slotId} on the local branch ${b}, not yet on origin`,
     wt ? `the worktree ${wt.path}` : null,
   ].filter(Boolean).join(' and ');
 
-  const { result, footprints, remoteNames } = runCheck(ctx, { declared, resources, task, taskKind, branch: b });
+  const { result, footprints, remoteNames, stats } = runCheck(ctx, { declared, resources, task, taskKind, branch: b });
   if (result.reasons.length) out(R.renderReasons(result.reasons));
+  for (const n of recencyNotes(stats)) out(n);
   if (result.verdict === 'HALT') {
     throw halt(existing ? `HALT — this run changed nothing; what already exists: ${already()}` : 'HALT — nothing was changed: no branch, no worktree, no claim');
   }
@@ -509,8 +552,8 @@ function startLocked(ctx, flags) {
   if (!wt) {
     if (fs.existsSync(dir)) throw halt(`HALT — ${dir} already exists; pass --dir <path>`);
     if (local) git.must(root, ['worktree', 'add', dir, b]);
-    else if (onOrigin) git.must(root, ['worktree', 'add', '--no-track', '-b', b, dir, `origin/${b}`]);
-    else git.worktreeAdd(root, dir, b, 'origin/main');
+    else if (onOrigin) git.must(root, ['worktree', 'add', '--no-track', '-b', b, dir, remoteRef(b)]);
+    else git.worktreeAdd(root, dir, b, MAIN);
   }
 
   const ledgerText = git.readWorktreeFile(dir, L.LEDGER_PATH);
@@ -536,24 +579,37 @@ function startLocked(ctx, flags) {
   // The race window: overlapping work that reached origin between my check and my push. My check
   // passed, so ANY HALT now is that race — no timestamp decides it. The script never deletes: it
   // says what exists and how to release mine, and the two partners decide.
-  fetchOrStop(root);
-  const again = gather(ctx, { requireGh: true });
+  const pushed = `the claim is already pushed as origin/${b} in ${slotId}, with the worktree ${dir}; no PR was opened — run the same start again to re-check it and open the PR`;
+  let again;
+  try {
+    fetchOrStop(root);
+    again = gather(ctx, { requireGh: true });
+  } catch (err) {
+    // A4 · whatever stopped the re-check, the push already happened: say what exists.
+    throw cannotVerify(`${err instanceof Exit ? err.message : `cannot verify: ${err.message}`}\nNothing was decided after the push: ${pushed}.`);
+  }
   const recheck = C.assess({
     rules,
     me,
     mine: { declared, resources, task, taskKind, branch: b },
     footprints: C.dropSelf(again.footprints, b, me),
-    mainTasks: git.showFile(root, 'origin/main', T.TASKS_PATH) || '',
-    remoteBranches: again.remoteNames,
+    mainTasks: git.showFile(root, MAIN, T.TASKS_PATH) || '',
     testMentions: {},
     now: ctx.now,
   });
-  if (recheck.verdict === 'HALT') {
-    out(R.renderReasons(recheck.reasons.filter((r) => r.level === 'HALT')));
+  // N13 · the lock is per clone: two clones of mine (two sessions) can pick the same free slot.
+  // Another live claim of mine, on another branch, in this slot is that race.
+  const twins = again.footprints.filter((f) => f.kind === 'claim' && f.slot === slotId && f.branch !== b && f.person && f.person.section === me.section);
+  const lost = recheck.reasons.filter((r) => r.level === 'HALT').concat(twins.map((t) => ({
+    level: 'HALT', class: 'slot', message: `your own claim on branch ${t.branch} holds slot ${slotId} too — two of your clones took the same slot`,
+  })));
+  if (lost.length) {
+    const ownOnly = lost.length === twins.length;
+    out(R.renderReasons(lost));
     out([
-      'HALT — a race: the work above reached origin between your check and your push.',
+      `HALT — a race: the ${ownOnly ? 'claim' : 'work'} above reached origin between your check and your push.`,
       `What exists now: your claim in ${slotId} is pushed as origin/${b}, with the worktree ${dir}; no PR was opened.`,
-      'Decide together who goes on. To release yours, run (nothing is ever deleted automatically):',
+      `${ownOnly ? 'Decide which of your two claims goes on' : 'Decide together who goes on'}. To release this one, run (nothing is ever deleted automatically):`,
       `  git push origin --delete ${b}`,
       `  git worktree remove "${dir}"`,
       `  git branch -D ${b}`,
@@ -593,7 +649,7 @@ function ownSlotHere(ctx) {
   if (!b) throw halt('HALT — not on a branch; run this inside the task worktree');
   const text = git.readWorktreeFile(ctx.root, L.LEDGER_PATH);
   if (text === null) throw halt(`HALT — no ${L.LEDGER_PATH} in this checkout`);
-  const slot = L.parseLedger(text).slots.find((s) => s.claim && s.claim.branch === b);
+  const slot = L.parseLedger(text, { people: ctx.rules.people }).slots.find((s) => s.claim && s.claim.branch === b);
   if (!slot) throw halt(`HALT — no ledger slot names the branch ${b}`);
   if (slot.section !== ctx.me.section) {
     const owner = L.personBySection(ctx.rules, slot.section);
@@ -605,7 +661,7 @@ function ownSlotHere(ctx) {
 // ship and rescope change a claim that is on origin; they never re-create a branch that is gone
 // (deleted, merged, never pushed) or whose claim has already landed.
 function requireOnOrigin(ctx, b) {
-  if (!git.refExists(ctx.root, `refs/remotes/origin/${b}`)) {
+  if (!git.refExists(ctx.root, remoteRef(b))) {
     throw halt(`HALT — ${b} does not exist on origin (deleted, merged or never pushed); ship and rescope never re-create a branch`);
   }
   if (ctx.mainLedger && ctx.mainLedger.slots.some((s) => s.claim && s.claim.branch === b)) {
@@ -614,7 +670,7 @@ function requireOnOrigin(ctx, b) {
 }
 
 function driftOf(ctx, declared) {
-  const base = git.mergeBase(ctx.root, 'origin/main', 'HEAD');
+  const base = git.mergeBase(ctx.root, MAIN, 'HEAD');
   const actual = base ? git.diffNames(ctx.root, base, 'HEAD') : [];
   const cover = C.expandCoupled(declared, ctx.rules.exclusive).patterns.concat(ctx.rules.shared, C.IGNORED_SHARED);
   return actual.filter((f) => !covers(cover, f));
@@ -625,6 +681,7 @@ function cmdShip(cwd, flags) {
   const ctx = context(cwd);
   const { b, text, slot } = ownSlotHere(ctx);
   requireOnOrigin(ctx, b);
+  refuseDirty(ctx.root, 'ship');
   let n = flags.pr ? Number(flags.pr) : null;
   if (!n) {
     const pr = gh.openPrFor(ctx.root, b);
@@ -649,11 +706,13 @@ function cmdRescope(cwd, flags) {
   const ctx = context(cwd);
   const { b, text, slot } = ownSlotHere(ctx);
   requireOnOrigin(ctx, b);
+  refuseDirty(ctx.root, 'rescope');
   const declared = declaredPaths(flags.paths);
-  const { result } = runCheck(ctx, {
+  const { result, stats } = runCheck(ctx, {
     declared, resources: slot.claim.resources, task: slot.claim.task, taskKind: slot.claim.taskKind, branch: b,
   });
   if (result.reasons.length) out(R.renderReasons(result.reasons));
+  for (const n of recencyNotes(stats)) out(n);
   if (result.verdict === 'HALT') throw halt('HALT — the new paths collide; the claim was not changed');
   const rescoped = { ...slot.claim, paths: declared };
   assertRoundTrip(rescoped);
@@ -710,7 +769,7 @@ function cmdStatus(cwd, flags) {
         ageDays,
         age,
         drift: fp.actual.filter((f) => !covers(cover, f)),
-        behindMain: !git.isAncestor(ctx.root, 'origin/main', `origin/${fp.branch}`),
+        behindMain: !git.isAncestor(ctx.root, MAIN, remoteRef(fp.branch)),
         prInfo: prInfo(fp.branch),
       });
     } else if (person) {
@@ -736,12 +795,12 @@ function cmdCi(cwd, flags) {
   if (!flags.branch || !flags.author) throw new Exit(2, `ci needs --branch <b> --author <login>\n\n${R.USAGE}`);
   const mode = flags.mode || 'fail';
   if (mode !== 'warn' && mode !== 'fail') throw new Exit(2, '--mode is warn or fail');
-  const ctx = context(cwd, { identity: false });
+  const ctx = context(cwd, { identity: false, rulesFromCheckout: false });
   const author = personOf(ctx.rules, flags.author);
   const b = flags.branch;
-  const ref = `origin/${b}`;
-  if (!git.refExists(ctx.root, `refs/remotes/origin/${b}`)) throw cannotVerify(`cannot verify: ${ref} does not exist after the fetch`);
-  const base = git.mergeBase(ctx.root, 'origin/main', ref);
+  const ref = remoteRef(b);
+  if (!git.refExists(ctx.root, ref)) throw cannotVerify(`cannot verify: origin/${b} does not exist after the fetch`);
+  const base = git.mergeBase(ctx.root, MAIN, ref);
   const { footprints } = gather(ctx, { useGh: false });
   const result = C.ciEvaluate({
     rules: ctx.rules,
