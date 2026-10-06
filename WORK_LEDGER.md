@@ -72,7 +72,13 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 - started: 2026-10-06
 
 ### M02
-_free_
+- task: `OPS-153` (TASKS)
+- title: Coordination phase B: a pull-request check that runs the engine, its pin, the AGENTS.md section, and the secret scan over merge commits
+- branch: `feat/ops153-coordination-check`
+- paths: `.github/workflows/coordination.yml`, `.github/workflows/ci.yml`, `AGENTS.md`, `backend/tests/ciWorkflowPermissions.test.js`, `backend/tests/secretScanGates.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #230
+- started: 2026-10-06
 
 ### M03
 - task: `own:instruction-layer` (own)
