@@ -897,6 +897,21 @@ describe('garminWebhook', () => {
 describe('healthBatchIngest', () => {
   beforeEach(() => jest.clearAllMocks());
 
+  const v2Batch = {
+    schemaVersion: 2,
+    batchId: '550e8400-e29b-41d4-a716-446655440000',
+    platform: 'healthkit',
+    samples: [{
+      sampleId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',
+      operation: 'upsert',
+      type: 'heart_rate',
+      value: 72,
+      unit: 'bpm',
+      startDate: '2026-10-06T06:30:00.000Z',
+      endDate: '2026-10-06T06:30:00.000Z',
+    }],
+  };
+
   it('ingests the batch via the health-store service and returns its result', async () => {
     healthStore.ingestBatch.mockResolvedValue({ accepted: 3, profileMetrics: { restingHeartRate: 55 } });
     const user = buildUser({ wearableProvider: 'apple_health' });
@@ -919,6 +934,55 @@ describe('healthBatchIngest', () => {
     expect(User.findByIdAndUpdate).toHaveBeenCalledWith(user._id, { wearableProvider: 'health_connect' });
   });
 
+  it('ingests a valid v2 batch and adds only its operational identity to the response', async () => {
+    healthStore.ingestBatch.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
+    const user = buildUser({ wearableProvider: 'apple_health' });
+    const res = buildRes();
+
+    await ctrl.healthBatchIngest({ user, body: v2Batch }, res, jest.fn());
+
+    expect(healthStore.ingestBatch).toHaveBeenCalledWith(user._id, 'healthkit', v2Batch.samples);
+    expect(res.json).toHaveBeenCalledWith({
+      accepted: 1,
+      inserted: 1,
+      profileMetrics: {},
+      schemaVersion: 2,
+      batchId: v2Batch.batchId,
+    });
+  });
+
+  it('rejects an unsupported schema version before persistence', async () => {
+    const res = buildRes();
+
+    await ctrl.healthBatchIngest(
+      { user: buildUser(), body: { ...v2Batch, schemaVersion: 3 } },
+      res,
+      jest.fn(),
+    );
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({ error: 'unsupported_health_schema_version' });
+    expect(healthStore.ingestBatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a mixed delete batch before persistence', async () => {
+    const res = buildRes();
+    const deleted = {
+      sampleId: '6ba7b811-9dad-41d1-80b4-00c04fd430c8',
+      operation: 'delete',
+    };
+
+    await ctrl.healthBatchIngest(
+      { user: buildUser(), body: { ...v2Batch, samples: [...v2Batch.samples, deleted] } },
+      res,
+      jest.fn(),
+    );
+
+    expect(res.status).toHaveBeenCalledWith(501);
+    expect(res.json).toHaveBeenCalledWith({ error: 'health_delete_not_implemented' });
+    expect(healthStore.ingestBatch).not.toHaveBeenCalled();
+  });
+
   it('does not re-set wearableProvider when already on the same provider', async () => {
     healthStore.ingestBatch.mockResolvedValue({ accepted: 1 });
     const user = buildUser({ wearableProvider: 'apple_health' });
@@ -933,6 +997,9 @@ describe('healthBatchIngest', () => {
     await ctrl.healthBatchIngest({ user: buildUser(), body: { platform: 'fitbit', samples: [] } }, res, jest.fn());
 
     expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'platform must be "healthkit" or "health_connect"',
+    });
     expect(healthStore.ingestBatch).not.toHaveBeenCalled();
   });
 

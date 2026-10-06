@@ -6,6 +6,7 @@ const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
 const appleHealth = require('../services/wearable/appleHealth');
 const healthStore = require('../services/wearable/healthStore');
+const { parseHealthBatchRequest } = require('../services/wearable/healthBatchContract');
 const garminIngest = require('../services/wearable/garminIngest');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
 const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
@@ -639,12 +640,9 @@ exports.healthBatchIngest = async (req, res, next) => {
   const n = Array.isArray(req.body?.samples) ? req.body.samples.length : 'none';
   console.warn(`[healthBatch] recv platform=${req.body?.platform} samples=${n} user=${req.user?._id}`);
   try {
-    const { platform, samples } = req.body || {};
-    if (platform !== 'healthkit' && platform !== 'health_connect') {
-      return res.status(400).json({ error: 'platform must be "healthkit" or "health_connect"' });
-    }
+    const batch = parseHealthBatchRequest(req.body);
 
-    const result = await healthStore.ingestBatch(req.user._id, platform, samples);
+    const result = await healthStore.ingestBatch(req.user._id, batch.platform, batch.samples);
     // W4-D08: `rejected` is a count plus (path, validator-kind) pairs — never a submitted value.
     // W4-D10: this line used to serialise the whole `profileMetrics` object, i.e. write the median
     // resting HR / HRV / SpO2 / respiration and the night's sleep minutes to stdout on EVERY
@@ -660,13 +658,21 @@ exports.healthBatchIngest = async (req, res, next) => {
     );
 
     // Mark the wearable provider on first push so the web UI reflects the connection.
-    const provider = platform === 'healthkit' ? 'apple_health' : 'health_connect';
+    const provider = batch.platform === 'healthkit' ? 'apple_health' : 'health_connect';
     if (req.user.wearableProvider !== provider) {
       await User.findByIdAndUpdate(req.user._id, { wearableProvider: provider });
     }
 
-    res.json(result);
+    res.json(batch.version === 2
+      ? { ...result, schemaVersion: 2, batchId: batch.batchId }
+      : result);
   } catch (err) {
+    if (err?.code && Number.isInteger(err.statusCode)) {
+      const error = err.code === 'invalid_health_platform' && req.body?.schemaVersion == null
+        ? 'platform must be "healthkit" or "health_connect"'
+        : err.code;
+      return res.status(err.statusCode).json({ error });
+    }
     console.warn(`[healthBatch] FAILED user=${req.user?._id}: ${err.message}`);
     next(err);
   }

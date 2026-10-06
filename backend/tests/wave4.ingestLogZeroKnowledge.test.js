@@ -158,6 +158,37 @@ describe('[healthBatch] ok — the always-on ingest receipt', () => {
     expect(line).not.toMatch(/restingHeartRate"?\s*[:=]\s*\d/);
   });
 
+  it('does not log v2 sample identity, timestamps or values', async () => {
+    healthStore.ingestBatch.mockResolvedValue({
+      accepted: 1, inserted: 1, rejected: { count: 0, reasons: [] }, profileMetrics: {},
+    });
+    const sampleId = '6ba7b810-9dad-41d1-80b4-00c04fd430c8';
+    const timestamp = '2026-10-06T06:30:00.000Z';
+
+    await ctrl.healthBatchIngest({
+      user: buildUser(),
+      body: {
+        schemaVersion: 2,
+        batchId: '550e8400-e29b-41d4-a716-446655440000',
+        platform: 'healthkit',
+        samples: [{
+          sampleId,
+          operation: 'upsert',
+          type: 'heart_rate',
+          value: 173,
+          unit: 'bpm',
+          startDate: timestamp,
+          endDate: timestamp,
+        }],
+      },
+    }, buildRes(), jest.fn());
+
+    const allLines = warn.mock.calls.map((call) => call.join(' ')).join('\n');
+    expect(allLines).not.toContain(sampleId);
+    expect(allLines).not.toContain(timestamp);
+    expect(allLines).not.toMatch(/\b173\b/);
+  });
+
   it('says profileMetrics=0 profileMetricKeys=none when the batch updated no baseline', async () => {
     healthStore.ingestBatch.mockResolvedValue({ accepted: 2, inserted: 2, profileMetrics: {} });
 
