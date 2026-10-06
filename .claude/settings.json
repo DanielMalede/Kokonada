@@ -141,10 +141,11 @@
       "Bash(git -C /c/Users/danie/Videos/Kokonada symbolic-ref --short HEAD)",
       "Bash(git -C /c/Users/danie/Videos/Kokonada status --porcelain --untracked-files=no)",
       "Bash(git -C /c/Users/danie/Videos/Kokonada merge --ff-only origin/main)",
-      "Bash(git -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel status --porcelain --untracked-files=no)",
-      "Bash(git -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel checkout -- WEAKNESSES_AND_FAILURES.md)",
-      "Bash(git -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel checkout --detach origin/main)",
-      "Bash(git hash-object /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel/WEAKNESSES_AND_FAILURES.md)"
+      "Bash(git -c core.hooksPath=/dev/null --no-optional-locks -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel diff --quiet origin/main -- WEAKNESSES_AND_FAILURES.md)",
+      "Bash(git -c core.hooksPath=/dev/null --no-optional-locks -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel status --porcelain --untracked-files=no)",
+      "Bash(git -c core.hooksPath=/dev/null --no-optional-locks -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel diff --quiet HEAD origin/main -- WEAKNESSES_AND_FAILURES.md)",
+      "Bash(git -c core.hooksPath=/dev/null -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel checkout -- WEAKNESSES_AND_FAILURES.md)",
+      "Bash(git -c core.hooksPath=/dev/null -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel checkout --detach origin/main)"
     ],
     "ask": [],
     "deny": [
