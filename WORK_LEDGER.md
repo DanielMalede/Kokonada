@@ -75,7 +75,13 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 _free_
 
 ### M03
-_free_
+- task: `own:instruction-layer` (own)
+- title: Instruction-layer overhaul: CLAUDE.md as the one binding source
+- branch: `chore/instruction-layer`
+- paths: `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `docs/plans/DESIGN_V2_PLAN.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-155.md`, `.claude/agents/architect.md`, `.claude/agents/compliance-auditor.md`, `.claude/agents/designer.md`, `.claude/agents/developer.md`, `.claude/agents/merge-guard.md`, `.claude/agents/regulatory-researcher.md`, `.claude/agents/resilience-auditor.md`, `.claude/agents/sentinel.md`, `.claude/agents/security-auditor.md`, `.claude/commands/adr.md`, `.claude/commands/fix-bug.md`, `.claude/commands/kickoff.md`, `.claude/commands/merge.md`, `.claude/commands/page.md`, `.claude/commands/plan.md`, `.claude/commands/runtime-agent.md`, `.claude/commands/status.md`, `.claude/commands/review-pr.md`, `.claude/settings.json`, `TASKS.md`, `backend/tests/wave4.attributionGuard.test.js`
+- resources: none
+- state: claimed
+- started: 2026-10-06
 
 ### M04
 _free_
