@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="מרכז היכרות פנימי עם מוצר Kokonada, המערכת הטכנית ומצב הפיתוח.">
+    <title>Kokonada Project Explorer</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script defer src="./status-data.js"></script>
+    <script defer src="./current-commit.js"></script>
+    <script defer src="./app-core.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body data-learning-mode="on">
+    <a class="skip-link" href="#main-content">דלג לתוכן</a>
+
+    <header class="app-header">
+      <a class="brand" href="#overview" aria-label="Kokonada Project Explorer, חזרה להתחלה">
+        <span class="brand-mark" aria-hidden="true">K</span>
+        <span>
+          <strong>Kokonada</strong>
+          <small>Project Explorer</small>
+        </span>
+      </a>
+
+      <div class="header-actions">
+        <p class="snapshot-identity">
+          תמונת מצב: <time datetime="2026-10-05">05.10.2026</time>
+          <code dir="ltr">55d68cc</code>
+        </p>
+        <p class="snapshot-state status-label status-unknown" data-snapshot-state aria-live="polite">
+          מצב העדכניות אינו ידוע
+        </p>
+        <button class="learning-toggle" type="button" data-learning-toggle aria-pressed="true">
+          <span aria-hidden="true">?</span>
+          <span data-learning-label>מצב למידה פעיל</span>
+        </button>
+        <button class="mobile-nav-toggle" type="button" data-mobile-nav-toggle aria-expanded="false" aria-controls="project-navigation">
+          ניווט
+        </button>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <nav class="side-navigation" id="project-navigation" aria-label="ניווט בפרויקט">
+        <p class="nav-heading">מסלול ההיכרות</p>
+        <ol class="learning-path">
+          <li><a href="#overview"><span>1</span> להבין את הרעיון</a></li>
+          <li><a href="#journey"><span>2</span> לראות את המסע</a></li>
+          <li><a href="#architecture"><span>3</span> לפתוח את המנוע</a></li>
+          <li><a href="#status"><span>4</span> להבין את המצב</a></li>
+          <li><a href="#workflow"><span>5</span> להתחיל לעבוד</a></li>
+        </ol>
+
+        <div class="secondary-navigation">
+          <a href="#data-flow">זרימת מידע</a>
+          <a href="#deployment">החלטת פריסה</a>
+          <a href="#glossary">מילון מונחים</a>
+        </div>
+
+        <p class="nav-note">האתר פנימי ומקומי. הוא אינו מפעיל או משנה את מערכת הייצור.</p>
+      </nav>
+
+      <main id="main-content" tabindex="-1">
+        <noscript>
+          <p class="noscript-note">JavaScript כבוי. כל תוכן הליבה זמין לקריאה, אך מצב הלמידה ובדיקת עדכניות ה-commit אינם פעילים.</p>
+        </noscript>
+
+        <section class="hero-section learning-section" id="overview" data-learning-step="1" tabindex="-1">
+          <div class="learning-context">
+            <span class="step-number" aria-hidden="true">1</span>
+            <div>
+              <strong>להבין את הרעיון</strong>
+              <p>כאן בונים את המודל המנטלי לפני שנכנסים לקוד.</p>
+            </div>
+          </div>
+
+          <div class="hero-copy">
+            <p class="section-kicker">הרעיון המרכזי</p>
+            <h1>הרגש והגוף מגדירים את המוזיקה.</h1>
+            <p>Kokonada מפרשת את המצב הנוכחי ומתרגמת אותו ליעדי מוזיקה שניתנים להפעלה.</p>
+          </div>
+
+          <div class="technical-flow" dir="ltr" aria-label="Mind plus Body leads to State, Music and Spotify">
+            <div class="product-flow">
+              <div class="flow-node">
+                <strong>Mind</strong>
+                <span>Emotion, activity, intent</span>
+              </div>
+              <span class="flow-operator" aria-hidden="true">+</span>
+              <div class="flow-node">
+                <strong>Body</strong>
+                <span>HR, HRV, sleep, movement</span>
+              </div>
+              <span class="flow-operator" aria-hidden="true">→</span>
+              <div class="flow-node flow-node-accent">
+                <strong>State</strong>
+                <span>Interpretation</span>
+              </div>
+              <span class="flow-operator" aria-hidden="true">→</span>
+              <div class="flow-node">
+                <strong>Music</strong>
+                <span>Selection targets</span>
+              </div>
+              <span class="flow-operator" aria-hidden="true">→</span>
+              <div class="flow-node flow-node-provider">
+                <strong>Spotify</strong>
+                <span>Playback</span>
+              </div>
+            </div>
+          </div>
+          <p class="flow-summary" dir="ltr">Mind + Body → State → Music → Spotify</p>
+
+          <aside class="learning-note" aria-label="מה חשוב להבין">
+            <strong>מה חשוב להבין כאן?</strong>
+            <p>Kokonada אינה רק ממליצה על שיר. היא בונה תמונת מצב, מפיקה יעדי בחירה ומעבירה את הנגינה לשירות מוזיקה חיצוני.</p>
+          </aside>
+
+          <div class="boundary-grid">
+            <article>
+              <h2>מה היא כן</h2>
+              <p>חוויית wellness שמחברת קלט מודע ואותות זמינים כדי להתאים מוזיקה לרגע.</p>
+            </article>
+            <article>
+              <h2>מה היא לא</h2>
+              <p>Kokonada אינה כלי רפואי, אינה כלי לאבחון ואינה נותנת הוראות טיפול.</p>
+            </article>
+            <article>
+              <h2>גבול הספקים</h2>
+              <p>Spotify הוא נתיב בטא למשתמשים מורשים מראש בלבד. במצב הפיתוח שתועד ב-29.09.2026 הוא מוגבל לעד 5 משתמשים מאומתים ודורש חשבון Premium מבעל האפליקציה. הממשק ללא ספק מוזיקה עדיין עובד. YouTube אינו נתיב פעיל במוצר הנוכחי.</p>
+            </article>
+          </div>
+
+          <a class="next-step" href="#journey" data-next-step="2">המשך למסע המשתמש</a>
+        </section>
+
+        <section class="content-section learning-section" id="journey" data-learning-step="2" tabindex="-1">
+          <div class="learning-context">
+            <span class="step-number" aria-hidden="true">2</span>
+            <div>
+              <strong>לראות את המסע</strong>
+              <p>הקוד מתחיל להיות ברור כשמבינים קודם מה המשתמש מנסה להשיג.</p>
+            </div>
+          </div>
+
+          <div class="section-heading">
+            <h2>מה המשתמש חווה?</h2>
+            <p>מסע קצר שמתחיל בכוונה ומסתיים בנגינה, תוך שליטה בפרטיות ובלמידה.</p>
+          </div>
+
+          <ol class="journey-map">
+            <li>
+              <span class="journey-index">1</span>
+              <div><strong>מבטא מצב</strong><p>המשתמש בוחר רגש, פעילות או כותב כוונה במילים שלו.</p></div>
+            </li>
+            <li>
+              <span class="journey-index">2</span>
+              <div><strong>מחבר גוף</strong><p>אותות זמינים כמו דופק, HRV, שינה ותנועה מוסיפים הקשר.</p></div>
+            </li>
+            <li>
+              <span class="journey-index">3</span>
+              <div><strong>מקבל פירוש</strong><p>המערכת מסכמת מצב משוער בלי להציג אותו כאבחנה רפואית.</p></div>
+            </li>
+            <li>
+              <span class="journey-index">4</span>
+              <div><strong>שומע התאמה</strong><p>יעדי המוזיקה הופכים לבחירה ולנגינה דרך Spotify.</p></div>
+            </li>
+            <li>
+              <span class="journey-index">5</span>
+              <div><strong>שומר שליטה</strong><p>למשתמש יש שליטה על הסכמה, פרטיות, היסטוריה ולמידה.</p></div>
+            </li>
+          </ol>
+
+          <aside class="learning-note" aria-label="מה חשוב להבין">
+            <strong>מה חשוב להבין כאן?</strong>
+            <p>כל שכבה טכנית צריכה לשרת שלב ברור במסע, ולהישאר כנה כשאין מספיק מידע או כשהספק החיצוני מוגבל.</p>
+          </aside>
+          <a class="next-step" href="#architecture" data-next-step="3">המשך למפת המערכת</a>
+        </section>
+
+        <section class="content-section learning-section" id="architecture" data-learning-step="3" tabindex="-1">
+          <div class="learning-context">
+            <span class="step-number" aria-hidden="true">3</span>
+            <div>
+              <strong>לפתוח את המנוע</strong>
+              <p>עכשיו מחברים בין חוויית המשתמש לבין הרכיבים שמפעילים אותה.</p>
+            </div>
+          </div>
+
+          <div class="section-heading">
+            <h2>איך המערכת בנויה?</h2>
+            <p>מפה שכבתית שמפרידה בין האפליקציה, ה-API, מנועי העיבוד, הנתונים והספקים.</p>
+          </div>
+
+          <div class="architecture-map" aria-label="מפת הארכיטקטורה של Kokonada">
+            <article class="architecture-layer layer-client">
+              <p class="layer-label">Client</p>
+              <h3>React Native Mobile</h3>
+              <p>מסכים, קלט משתמש, חיבורי בריאות ופקדי נגינה.</p>
+            </article>
+            <article class="architecture-layer layer-api">
+              <p class="layer-label">API</p>
+              <h3>Node.js Backend</h3>
+              <p>אימות, הסכמה, sessions, orchestration ונקודות API.</p>
+            </article>
+            <article class="architecture-layer layer-runtime">
+              <p class="layer-label">Runtime</p>
+              <h3>State and Selection Pipeline</h3>
+              <p>רכיבי runtime מפרשים מצב, מייצרים יעדים ובוחרים מוזיקה.</p>
+            </article>
+            <article class="architecture-layer layer-data">
+              <p class="layer-label">Data and Jobs</p>
+              <h3>MongoDB, Redis, BullMQ</h3>
+              <p>מידע מתמשך, מידע קצר חיים ועבודות רקע.</p>
+            </article>
+            <article class="architecture-layer layer-provider">
+              <p class="layer-label">Provider</p>
+              <h3>Spotify</h3>
+              <p>קטלוג, חיבור חשבון ונגינה לפי המגבלות הפעילות.</p>
+            </article>
+            <article class="architecture-layer layer-hosting">
+              <p class="layer-label">Hosting</p>
+              <h3>Railway</h3>
+              <p>סביבת הרצת ה-backend, בכפוף לאימות התצורה בפועל.</p>
+            </article>
+          </div>
+
+          <aside class="learning-note" aria-label="מה חשוב להבין">
+            <strong>מה חשוב להבין כאן?</strong>
+            <p>Runtime agents הם שירותים בתוך האפליקציה. הם אינם סוכני הפיתוח שעוזרים לבנות את המאגר.</p>
+          </aside>
+          <a class="next-step" href="#data-flow" data-next-step="data-flow">לראות את זרימת המידע</a>
+        </section>
+
+        <section class="content-section" id="data-flow" tabindex="-1">
+          <div class="section-heading">
+            <h2>איפה המידע עובר?</h2>
+            <p>התרשים מראה את נקודות הכניסה, העיבוד, השמירה והמחיקה, בלי לטעון שכל נתון תמיד קיים.</p>
+          </div>
+
+          <ol class="data-lanes">
+            <li><strong>Input</strong><span>כוונה, רגש, פעילות ואותות גוף זמינים נכנסים דרך ה-mobile.</span></li>
+            <li><strong>Consent</strong><span>הרשאה והסכמה קובעות מה מותר לאסוף ולעבד.</span></li>
+            <li><strong>Interpret</strong><span>ה-backend ורכיבי ה-runtime מפיקים מצב ויעדי מוזיקה.</span></li>
+            <li><strong>Queue</strong><span>Redis ו-BullMQ מתזמנים עבודות רקע ומידע זמני.</span></li>
+            <li><strong>Persist</strong><span>MongoDB שומר מידע מתמשך בהתאם למודל ולכללי המחיקה.</span></li>
+            <li><strong>Playback</strong><span>Spotify מקבל את פעולות הנגינה המותרות והזמינות.</span></li>
+            <li><strong>Privacy</strong><span>ביטול הסכמה ומחיקה צריכים לעבור בכל השכבות הרלוונטיות.</span></li>
+          </ol>
+          <a class="next-step" href="#status" data-next-step="4">המשך למצב הפרויקט</a>
+        </section>
+
+        <section class="content-section learning-section" id="status" data-learning-step="4" tabindex="-1">
+          <div class="learning-context">
+            <span class="step-number" aria-hidden="true">4</span>
+            <div>
+              <strong>להבין את המצב</strong>
+              <p>המספרים מתארים snapshot שנבדק, לא ניטור חי ולא הבטחה שהכול תקין.</p>
+            </div>
+          </div>
+
+          <div class="section-heading">
+            <h2>איפה הפרויקט עומד?</h2>
+            <p>תוצאות מקומיות מה-05.10.2026 על commit <code dir="ltr">55d68cc</code>.</p>
+          </div>
+
+          <div class="evidence-grid">
+            <article class="evidence-card status-positive">
+              <p class="evidence-source">Backend, אומת מקומית</p>
+              <strong class="metric" dir="ltr">4,658</strong>
+              <p>בדיקות עברו בתוך 285 suites.</p>
+              <p class="evidence-caveat">3 suites ו-38 בדיקות דולגו. נותר todo אחד.</p>
+            </article>
+            <article class="evidence-card status-positive">
+              <p class="evidence-source">Mobile, אומת מקומית</p>
+              <strong class="metric" dir="ltr">2,689</strong>
+              <p>בדיקות עברו בתוך 200 suites.</p>
+              <p class="evidence-caveat">בדיקה אחת דולגה וקיימת אזהרת open handle.</p>
+            </article>
+            <article class="evidence-card status-warning">
+              <p class="evidence-source">Lint</p>
+              <strong class="metric">72 שגיאות</strong>
+              <p>ב-mobile, לצד 75 warnings.</p>
+              <p class="evidence-caveat">ב-backend: 0 שגיאות ו-21 warnings.</p>
+            </article>
+            <article class="evidence-card status-warning">
+              <p class="evidence-source">Production dependency audit</p>
+              <strong class="metric" dir="ltr">6 + 53</strong>
+              <p>6 findings ב-backend ו-53 ב-mobile.</p>
+              <p class="evidence-caveat">לא נמצאו findings ברמת critical בשני הצדדים.</p>
+            </article>
+          </div>
+
+          <aside class="learning-note" aria-label="מה חשוב להבין">
+            <strong>מה חשוב להבין כאן?</strong>
+            <p>בדיקות ירוקות אינן מוחקות skipped tests, lint errors, audit findings או תצורת production שלא אומתה.</p>
+          </aside>
+          <a class="next-step" href="#deployment" data-next-step="deployment">לבדוק את החלטת הפריסה</a>
+        </section>
+
+        <section class="content-section deployment-section" id="deployment" tabindex="-1">
+          <div class="decision-header">
+            <p class="status-label status-blocked">HOLD</p>
+            <div>
+              <h2>PR #217 אינו מוכן לפריסה</h2>
+              <p>אין למזג או לפרוס את PR #217 במצב שנבדק.</p>
+            </div>
+          </div>
+
+          <div class="decision-grid">
+            <article>
+              <h3>הבסיס המומלץ</h3>
+              <p>ה-main המתועד ב-commit <code dir="ltr">55d68cc</code>, ורק לאחר בדיקה מחודשת בבוקר הפריסה.</p>
+            </article>
+            <article>
+              <h3>מה עדיין חוסם</h3>
+              <p>פרטיות ומחיקה, תורים ו-compensation, תזמון worker, בדיקות Redis אמיתיות, snapshot של production ושערי פריסה חיצוניים.</p>
+            </article>
+            <article>
+              <h3>מה בודקים לפני deploy</h3>
+              <p>remote main, תוצאות CI, משתני תצורה, cron נדרש והגרסה שפועלת בפועל.</p>
+            </article>
+          </div>
+          <p class="decision-footnote">זהו סיכום של סקירה מתוארכת. שינוי חדש דורש סקירה ו-snapshot חדשים.</p>
+          <a class="next-step" href="#workflow" data-next-step="5">המשך לדרך העבודה</a>
+        </section>
+
+        <section class="content-section learning-section" id="workflow" data-learning-step="5" tabindex="-1">
+          <div class="learning-context">
+            <span class="step-number" aria-hidden="true">5</span>
+            <div>
+              <strong>להתחיל לעבוד</strong>
+              <p>היעד הוא שינוי קטן, מבודד, בדוק וקל לסקירה.</p>
+            </div>
+          </div>
+
+          <div class="section-heading">
+            <h2>איך עובדים בצורה מקצועית?</h2>
+            <p>כל משימה עוברת משורת בסיס נקייה עד אימות אמיתי אחרי הפריסה.</p>
+          </div>
+
+          <ol class="workflow-map" dir="ltr">
+            <li><strong>Clean main</strong><span>fetch and verify</span></li>
+            <li><strong>Scoped task</strong><span>one clear outcome</span></li>
+            <li><strong>Worktree</strong><span>isolated branch</span></li>
+            <li><strong>Tests first</strong><span>red then green</span></li>
+            <li><strong>Pull request</strong><span>independent review</span></li>
+            <li><strong>Green CI</strong><span>explicit merge</span></li>
+            <li><strong>Deploy</strong><span>approved version</span></li>
+            <li><strong>Verify</strong><span>production evidence</span></li>
+          </ol>
+
+          <div class="start-grid">
+            <article>
+              <h3>מסמכי סמכות</h3>
+              <ul>
+                <li><code>KOKONADA_ARCHITECTURE_MASTER.md</code></li>
+                <li><code>docs/ORCHESTRATOR_FABLE.md</code></li>
+                <li><code>docs/VISION.md</code></li>
+                <li><code>docs/SCREENS.md</code></li>
+              </ul>
+            </article>
+            <article>
+              <h3>כללי עבודה</h3>
+              <ul>
+                <li>פותחים worktree וענף ייעודיים.</li>
+                <li>נוגעים רק בקבצים ששייכים למשימה.</li>
+                <li>כותבים בדיקה לפני שינוי התנהגות.</li>
+                <li>לא ממזגים ולא פורסים בלי אישור מפורש.</li>
+              </ul>
+            </article>
+            <article>
+              <h3>שערי סיכון</h3>
+              <ul>
+                <li>שינויי ספק או store דורשים בדיקת compliance.</li>
+                <li>שינויי בריאות, פרטיות או חוק דורשים review מתאים.</li>
+                <li>תוצאה מקומית אינה מחליפה אימות production.</li>
+              </ul>
+            </article>
+          </div>
+
+          <aside class="learning-note" aria-label="מה חשוב להבין">
+            <strong>מה חשוב להבין כאן?</strong>
+            <p>Worktree מבודד את העבודה, אבל הוא אינו מחליף בדיקות, review, CI ואישור בעלים.</p>
+          </aside>
+          <a class="next-step" href="#glossary" data-next-step="glossary">לפתוח את מילון המונחים</a>
+        </section>
+
+        <section class="content-section" id="glossary" tabindex="-1">
+          <div class="section-heading">
+            <h2>מילון מהיר</h2>
+            <p>מונחים שחוזרים במסמכים, בקוד ובתהליך העבודה.</p>
+          </div>
+
+          <div class="glossary-grid">
+            <details data-glossary-term open><summary>POC</summary><p>הוכחת היתכנות שמראה שהרעיון המרכזי יכול לעבוד לפני שבונים מוצר מלא.</p></details>
+            <details data-glossary-term><summary>Frontend</summary><p>האפליקציה או הממשק שהמשתמש רואה ומפעיל.</p></details>
+            <details data-glossary-term><summary>Backend</summary><p>השירות שמפעיל לוגיקה, מנהל הרשאות ומדבר עם הנתונים.</p></details>
+            <details data-glossary-term><summary>Runtime agent</summary><p>רכיב תוכנה בתוך Kokonada שמבצע תפקיד בצינור העיבוד.</p></details>
+            <details data-glossary-term><summary>MongoDB</summary><p>מסד הנתונים הראשי למסמכים מתמשכים.</p></details>
+            <details data-glossary-term><summary>Redis</summary><p>מאגר מהיר למידע זמני, תורים ונעילות.</p></details>
+            <details data-glossary-term><summary>BullMQ</summary><p>ספרייה שמנהלת עבודות רקע מעל Redis.</p></details>
+            <details data-glossary-term><summary>PR</summary><p>הצעת שינוי בקוד שמחכה לסקירה ולמיזוג.</p></details>
+            <details data-glossary-term><summary>CI</summary><p>בדיקות אוטומטיות שרצות על השינוי לפני מיזוג.</p></details>
+            <details data-glossary-term><summary>Worktree</summary><p>עותק עבודה מבודד של אותו מאגר Git.</p></details>
+            <details data-glossary-term><summary>Deploy</summary><p>העברת גרסה בדוקה לסביבת הרצה.</p></details>
+            <details data-glossary-term><summary>Production verification</summary><p>אימות שהגרסה הנכונה עובדת באמת בסביבה החיה.</p></details>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer>
+      <p>Kokonada Project Explorer הוא כלי לימוד פנימי. הנתונים משקפים את הבדיקה המתוארכת שמופיעה בראש הדף.</p>
+      <a href="#overview">חזרה להתחלה</a>
+    </footer>
+  </body>
+</html>
