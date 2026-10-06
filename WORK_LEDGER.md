@@ -110,7 +110,7 @@ _free_
 - task: `own:healthkit-authoritative-store` (own)
 - title: HealthKit authoritative sample store foundation
 - branch: `feat/mb900-healthkit-store`
-- paths: `backend/app/models/MedicalProfile.js`, `backend/app/services/wearable/healthSampleReconciliation.js`, `backend/tests/healthSampleReconciliation.integration.test.js`, `backend/tests/sleepSemantics.test.js`
+- paths: `backend/app/models/MedicalProfile.js`, `backend/app/services/wearable/healthSampleReconciliation.js`, `backend/tests/healthSampleReconciliation.integration.test.js`, `backend/tests/sleepSemantics.test.js`, `backend/tests/stateVectorJob.test.js`, `backend/tests/userJobPurge.guards.test.js`
 - resources: none
 - state: claimed
 - started: 2026-10-06
