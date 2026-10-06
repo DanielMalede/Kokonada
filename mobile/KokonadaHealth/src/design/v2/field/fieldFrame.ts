@@ -100,6 +100,8 @@ const finite = (v: number, fallback: number) => (Number.isFinite(v) ? v : fallba
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const lab = (c: { readonly oklab: readonly number[] }): Oklab => ({ L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] });
 const QUADRANT = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
+/** The emotion tier each face draws (field.graph.nodeTier); graphConformance.test.ts holds it to the token. */
+export const NODE_TIER: Readonly<Record<Face, 'core' | 'deep'>> = { dark: 'core', light: 'deep' };
 
 /** The breath at a fixed time (captures, stills, sweeps): n(s) in JS, a whole number, and its phase. */
 export function fixedFieldBreath(id: DirectionId, stress: number, tMs: number): { n: number; phase: number } {
@@ -153,7 +155,7 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     a: colour.a * (1 - stress.chroma * s),
     b: colour.b * (1 - stress.chroma * s),
   });
-  const tier = face === 'dark' ? 'core' : 'deep';
+  const tier = NODE_TIER[face];
   const restGlow = lab(colours.field.restGlow);
 
   const placements = state.placements.slice(-3);

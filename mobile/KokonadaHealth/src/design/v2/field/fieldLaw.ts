@@ -157,9 +157,21 @@ export function haloWeight(distance: number, frame: FieldFrame): number {
   return frame.haloPeak * (1 - smoothstep(frame.beadRadius, frame.haloRadius, distance));
 }
 
-const isWaypoint = (a: number, b: number, restIntense: boolean) =>
-  (a === NODE.J && b === NODE.I) || (a === NODE.I && b === NODE.J) ||
-  (restIntense && ((a === NODE.R0 && b === NODE.I) || (a === NODE.I && b === NODE.R0)));
+/**
+ * The waypoint edges (designer §2.4, field.graph.edges): J–I always, and R0–I (`ROUTED_EDGES`) in a
+ * direction whose restIntenseRoute is "waypoint". The shader's isWaypoint is generated from these
+ * tables (fieldShader.ts), and graphConformance.test.ts holds them to the token graph.
+ */
+export const WAYPOINT_EDGES: ReadonlyArray<readonly [number, number]> = [[NODE.J, NODE.I]];
+export const ROUTED_EDGES: ReadonlyArray<readonly [number, number]> = [[NODE.R0, NODE.I]];
+
+const joins = (edges: ReadonlyArray<readonly [number, number]>, a: number, b: number) =>
+  edges.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+
+/** Does the unordered pair (a, b) mix through N? `routed`: the direction routes R0–I. */
+export function isWaypoint(a: number, b: number, routed: boolean): boolean {
+  return joins(WAYPOINT_EDGES, a, b) || (routed && joins(ROUTED_EDGES, a, b));
+}
 
 /**
  * topTwoSoft: the two strongest nodes, the second weighted by how far it leads the third.
