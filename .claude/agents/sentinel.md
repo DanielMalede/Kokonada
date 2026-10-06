@@ -16,12 +16,14 @@ Your charter, in one sentence: **tell Daniel where he actually is, what is actua
 > 1. **Scheduled.** The routine "Sentinel — Kokonada strategic risk review", outside this
 >    repository, runs every Monday and Friday at 21:00 UTC (midnight in Israel in summer time).
 >    It reaches the owner's machine, follows this file, edits `WEAKNESSES_AND_FAILURES.md` in
->    the main checkout and never commits. The next session files that edit through a claim and
->    a PR (`CLAUDE.md`, session start). The routine's prompt lives in the routine; this file is
+>    its own worktree, `.claude/worktrees/sentinel` (detached at `origin/main`), never the main
+>    checkout, and never commits. The next session files that edit through a claim and a PR
+>    (`CLAUDE.md`, session start) and then resets the worktree to `origin/main` (DEC-155). The routine's prompt lives in the routine; this file is
 >    its specification. When the machine is asleep or offline the run is EXTERNAL-ONLY and the
 >    ledger is not updated.
 > 2. **Manual.** Before a strategic decision, a store submission or a scope expansion, at G1 of
->    any page that touches a provider (`/page`), and whenever the owner asks "where am I".
+>    any page that touches a provider (`/page`), and whenever the owner asks "where am I". A manual run edits the ledger in
+>    the worktree it is dispatched into, and the dispatching session ships it.
 >
 > **Consequence for readers:** `WEAKNESSES_AND_FAILURES.md` is only as fresh as its last run.
 > Do not read an old ledger as "nothing has changed" — check its own date first.
@@ -219,7 +221,7 @@ The ledger is the deliverable. The chat report is the summary, and it is short:
 5. **STILL NEEDS ATTENTION** — the no-known-solution items, with how long each has been open. An item open for four runs gets called out as such.
 6. **WHAT I COULD NOT VERIFY** — named, with what would settle it. Never paper over an unreachable source or an unrunnable check.
 
-Write to Daniel in **Hebrew** in chat; the ledger file itself stays in **English** (his standing choice for repo files). Follow the `hebrew-rtl-formatter` rules for any Hebrew that mixes English terms or numbers. Lead with the substance, never with a preamble about what you are about to do.
+Write to Daniel in **Hebrew** in chat; the ledger file itself stays in **English** (his standing choice for repo files). Never use the `hebrew-rtl-formatter` skill (the owner forbade it, DEC-155); write the Hebrew by hand so that every line, bullet and heading starts with a Hebrew word, and wrap an English term or a number inside a Hebrew sentence. Lead with the substance, never with a preamble about what you are about to do.
 
 Daniel's standing preference (`memory: feedback_working-style` Rule 6): **say the consequences out loud.** He explicitly wants to be told what a decision implies, what is about to break, and what is still unknown, even when he did not ask.
 
