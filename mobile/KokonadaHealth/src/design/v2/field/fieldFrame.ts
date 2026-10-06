@@ -37,8 +37,11 @@ export interface Placement {
    */
   readonly x: number;
   readonly y: number;
-  /** Its lobe's and halo's fade in, 0..1 (placement settles in over motion.settle). Default 1. */
-  readonly fade?: number;
+  /**
+   * Its lobe's and halo's fade, 0..1, from the crossfade (crossfade.ts). Required on the runtime path:
+   * a missing or non-finite fade draws nothing (0), never everything (resilience QA-068 finding 4).
+   */
+  readonly fade: number;
   /**
    * How many placements came before it (placementLedger.ts): its drift table for its whole life,
    * its fade-out included (critic item 5). Default: its index in `placements`, a scene's order.
@@ -68,8 +71,12 @@ export interface FieldState {
   /** The breath phase in [0, 1), from the phaser (real time) or fixedFieldBreath (fixed time). */
   readonly breathPhase: number;
   readonly tier: MotionTier;
-  /** The rest lobes' fade while beads exist (the rest-to-placement transition). Default 0. */
-  readonly restFade?: number;
+  /**
+   * The rest lobes' fade, from the crossfade. Forced to 1 while no placement in the frame carries a
+   * lobe (nothing placed, or only neutral placements where neutralLobe is 0), placements still fading
+   * out included (designer 2.6). Required; a missing or non-finite value is 0.
+   */
+  readonly restFade: number;
   /** The node slot of each rest lobe, from the ledger. Default: the lowest free slots, after the placements. */
   readonly restSlots?: readonly number[];
 }
@@ -225,7 +232,7 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
       d.field.lobe.centreAlpha * bead[0] + d.field.lobe.centreBeta * unit[0] + ox,
       d.field.lobe.centreAlpha * bead[1] + d.field.lobe.centreBeta * unit[1] + oy,
     ];
-    const fade = clamp01(finite(placement.fade ?? 1, 1));
+    const fade = clamp01(finite(placement.fade, 0));
     if (node === 'neutral') {
       return { id: NODE.R0, fade, centre, radius: d.field.lobe.neutralLobe > 0 ? radius : 0, field: tense(restGlow), halo: restGlow, bead };
     }
@@ -238,9 +245,11 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
   };
 
   const items: Array<{ node: FieldNodeFrame; slot: number | undefined }> = entries.map((e) => ({ node: placed(e.placement, e.ordinal), slot: e.placement.slot }));
-  // Before any placement the rest glow shows on the rest lobes; once a bead is placed they fade out.
-  // Rest lobe i keeps drift table i. A rest lobe at fade 0 frees its slot.
-  const restFade = state.placements.length === 0 ? 1 : clamp01(finite(state.restFade ?? 0, 0));
+  // The rest glow shows while no placement in the frame carries a lobe, those still fading out
+  // included; otherwise the rest lobes take the crossfade's value (designer 2.6). Rest lobe i keeps
+  // drift table i. A rest lobe at fade 0 frees its slot.
+  const anyLobe = entries.some(({ placement }) => nodeAt(finite(placement.x, 0), finite(placement.y, 0)) !== 'neutral' || d.field.lobe.neutralLobe > 0);
+  const restFade = anyLobe ? clamp01(finite(state.restFade, 0)) : 1;
   if (restFade > 0) {
     statics.restLobes.forEach(([rx, ry], i) => {
       const [ox, oy] = offset(i);

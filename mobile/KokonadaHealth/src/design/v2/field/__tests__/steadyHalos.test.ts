@@ -34,8 +34,8 @@ const SHIMMER_PEAK_MS = BASE.field.clock.T / (4 * BASE.field.clock.shimmer.harmo
 
 /** Two moments of one scene that differ in everything a halo must not feel. */
 function pair(id: DirectionId, face: Face): [FieldFrame, FieldFrame, readonly Placement[]] {
-  const placements = [ringBead(id), ...three].map(({ x, y }) => ({ x, y }));
-  const base = { direction: id, face, placements, tier: 'full' as const };
+  const placements = [ringBead(id), ...three].map(({ x, y }) => ({ x, y, fade: 1 }));
+  const base = { direction: id, face, placements, tier: 'full' as const, restFade: 0 };
   // A: no tension, no inference, the shimmer at its positive peak (+deg: calm's b has crossed zero).
   const a: FieldState = { ...base, stress: 0, confidence: null, genesis: false, tMs: SHIMMER_PEAK_MS, breathPhase: 0.1 };
   // B: full tension, full confidence, genesis, another clock and another breath.

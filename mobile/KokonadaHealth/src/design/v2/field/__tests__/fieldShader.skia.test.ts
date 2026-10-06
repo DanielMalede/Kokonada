@@ -357,10 +357,10 @@ describe('what the shader’s pixels show', () => {
       const roots = EXTENSIONS as unknown as Record<string, { $root: { neverRedScenes?: Array<{ id: string; beads?: Array<{ x: number; y: number }> }>; hardest?: Array<{ id: string; node?: string; x?: number; y?: number }> } }>;
       const ring = roots[id].$root.neverRedScenes?.find((s) => s.id === 'ringHalo')?.beads?.[0]
         ?? (roots[id].$root.hardest?.find((h) => h.id === 'word.top' && h.node === 'I') as { x: number; y: number });
-      const placements = [{ x: ring.x, y: ring.y }, { x: 0.566, y: -0.566 }, { x: -0.566, y: -0.566 }];
+      const placements = [{ x: ring.x, y: ring.y, fade: 1 }, { x: 0.566, y: -0.566, fade: 1 }, { x: -0.566, y: -0.566, fade: 1 }];
       const statics = staticsFor(id, EXTENSIONS as never);
       const peak = BASE.field.clock.T / (4 * BASE.field.clock.shimmer.harmonic);
-      const base = { direction: id, face, placements, tier: 'full' as const };
+      const base = { direction: id, face, placements, tier: 'full' as const, restFade: 0 };
       const a = buildFieldFrame({ ...base, stress: 0, confidence: null, genesis: false, tMs: peak, breathPhase: 0.1 }, geometry, statics);
       const b = buildFieldFrame({ ...base, stress: 1, confidence: 1, genesis: true, tMs: 37000, breathPhase: 0.7 }, geometry, statics);
       const pa = render(a, effect, size, size);

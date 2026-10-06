@@ -53,7 +53,7 @@ describe('G8: the law routes through N exactly the token graph’s waypoint edge
 
   it.each(IDS)('%s: the builder routes R0–I exactly when the direction’s token says “waypoint”', (id) => {
     const frame = buildFieldFrame(
-      { direction: id, face: 'dark', placements: [], stress: 0, confidence: null, genesis: false, tMs: 0, breathPhase: 0, tier: 'full' },
+      { direction: id, face: 'dark', placements: [], stress: 0, confidence: null, genesis: false, tMs: 0, breathPhase: 0, tier: 'full', restFade: 1 },
       { centrePx: [100, 100], radiusPx: 80, pxPerDp: 0.5, fontScale: 1 },
       staticsFor(id, EXTENSIONS as never),
     );
@@ -77,7 +77,7 @@ describe('G9: each face draws the token’s node tier', () => {
   it.each(IDS.flatMap((id) => FACES.map((face) => [id, face] as const)))('%s, %s face: every quadrant’s halo is its tier’s anchor', (id, face) => {
     for (const [node, quadrant] of Object.entries(QUADRANTS) as Array<[keyof typeof QUADRANTS, (typeof QUADRANTS)[keyof typeof QUADRANTS]]>) {
       const frame = buildFieldFrame(
-        { direction: id, face, placements: [{ x: AT[node][0], y: AT[node][1] }], stress: 0, confidence: 1, genesis: false, tMs: 0, breathPhase: 0, tier: 'full' },
+        { direction: id, face, placements: [{ x: AT[node][0], y: AT[node][1], fade: 1 }], stress: 0, confidence: 1, genesis: false, tMs: 0, breathPhase: 0, tier: 'full', restFade: 0 },
         { centrePx: [100, 100], radiusPx: 80, pxPerDp: 0.5, fontScale: 1 },
         staticsFor(id, EXTENSIONS as never),
       );

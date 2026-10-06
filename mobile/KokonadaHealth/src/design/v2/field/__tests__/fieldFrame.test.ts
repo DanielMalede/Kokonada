@@ -16,18 +16,27 @@ const IDS = Object.keys(DIRECTIONS) as DirectionId[];
 const T = BASE.field.clock.T;
 const geometry = { centrePx: [200, 300] as [number, number], radiusPx: 150, pxPerDp: 1, fontScale: 1 };
 const statics = (id: DirectionId) => staticsFor(id, EXTENSIONS as never);
-const state = (id: DirectionId, face: Face, overrides: Partial<FieldState> = {}): FieldState => ({
-  direction: id,
-  face,
-  placements: [{ x: 0.5, y: -0.3 }], // calm: x ≥ 0 pleasant, y < 0 less energy
-  stress: 0,
-  confidence: null,
-  genesis: false,
-  tMs: 7000,
-  breathPhase: 0.3,
-  tier: 'full',
-  ...overrides,
-});
+type ScenePlacement = Omit<Placement, 'fade'> & { readonly fade?: number };
+/**
+ * A scene's state: every fade is given (fade is required on the runtime path). A scene's placements are
+ * fully faded in unless the case says otherwise, and its rest lobes are lit only when it places nothing.
+ */
+const state = (id: DirectionId, face: Face, overrides: Partial<Omit<FieldState, 'placements'>> & { placements?: readonly ScenePlacement[] } = {}): FieldState => {
+  const placements = (overrides.placements ?? [{ x: 0.5, y: -0.3 }]).map((p) => ({ ...p, fade: p.fade ?? 1 })); // default: calm
+  return {
+    direction: id,
+    face,
+    stress: 0,
+    confidence: null,
+    genesis: false,
+    tMs: 7000,
+    breathPhase: 0.3,
+    tier: 'full',
+    restFade: placements.length === 0 ? 1 : 0,
+    ...overrides,
+    placements,
+  };
+};
 
 describe('the statics come from the extensions the caller passes in', () => {
   it.each(IDS)('%s: rest lobes and drift harmonics, as the tokens hold them', (id) => {
@@ -197,7 +206,7 @@ describe('six node slots, one pool, and the ordinal', () => {
 
   it('more than NODE_SLOTS nodes, or a slot out of range or taken twice, throws a RangeError: the builder never slices', () => {
     const four = [at(0.5, 0.5), at(0.5, -0.5), at(-0.5, -0.5), at(-0.5, 0.5)];
-    const build = (more: Partial<FieldState>) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, statics('abyss'));
+    const build = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, statics('abyss'));
     expect(build({ placements: four, restFade: 1 })).not.toThrow(); // 4 + 2 = 6
     expect(build({ placements: [...four, at(0.3, 0.3)], restFade: 1 })).toThrow(RangeError); // 5 + 2 = 7
     expect(build({ placements: [...four, at(0.3, 0.3), at(-0.3, 0.3)], restFade: 0 })).not.toThrow(); // 6 + 0
@@ -208,7 +217,7 @@ describe('six node slots, one pool, and the ordinal', () => {
   });
 
   it('a lobe’s drift is its ordinal’s, mod the drift tables, wherever its slot', () => {
-    const centreOf = (placements: Placement[], id: number) =>
+    const centreOf = (placements: ScenePlacement[], id: number) =>
       buildFieldFrame(state('abyss', 'dark', { placements, tMs: 7000 }), geometry, statics('abyss')).nodes.find((n) => n.id === id && n.fade > 0)!.centre;
     const C = at(0.5, -0.5);
     const tables = statics('abyss').drift.harmonics.length;
@@ -343,6 +352,41 @@ describe('placement chroma and lightness, and the node from (x, y)', () => {
     walk(EXTENSIONS);
     expect(found.length).toBeGreaterThan(40);
     expect(found.filter((b) => nodeAt(b.x, b.y) !== b.node)).toEqual([]);
+  });
+});
+
+// Fades are required on the runtime path (architect admission §2, T5a; resilience QA-068 finding 4):
+// a defaulted fade is exactly what blinks when the placements and the fades land on different frames.
+// A missing or NaN fade draws nothing (0), never everything (1).
+describe('fades are required, and the rest lobes follow the rule (designer 2.6)', () => {
+  const raw = (id: DirectionId, placements: unknown[], restFade: unknown): FieldState =>
+    ({ ...state(id, 'dark'), placements, restFade }) as unknown as FieldState;
+
+  it('a placement with no fade, or a NaN fade, is drawn at 0, never at 1', () => {
+    for (const fade of [undefined, NaN, Infinity, -Infinity]) {
+      const f = buildFieldFrame(raw('abyss', [{ x: 0.5, y: -0.3, fade }], 0), geometry, statics('abyss'));
+      expect(f.nodes.filter((n) => n.id === NODE.C).map((n) => n.fade)).toEqual([0]);
+    }
+  });
+
+  it('a missing or NaN restFade is 0 where a placement carries a lobe', () => {
+    for (const restFade of [undefined, NaN]) {
+      const f = buildFieldFrame(raw('abyss', [{ x: 0.5, y: -0.3, fade: 1 }], restFade), geometry, statics('abyss'));
+      expect(f.nodes.filter((n) => n.bead === null && n.fade > 0)).toEqual([]);
+    }
+  });
+
+  // restFade is forced to 1 while no placement in the frame has a lobe: nothing placed, or only
+  // neutral placements where neutralLobe is 0 (Linen). Placements still fading out count.
+  it.each([
+    ['nothing placed', 'abyss', [], 0, 1],
+    ['Linen, a neutral placement (no lobe there): the glow stays lit', 'linen', [{ x: 0.05, y: 0.05, fade: 1 }], 0, 1],
+    ['Abyss, a neutral placement (it has a lobe): the caller’s value', 'abyss', [{ x: 0.05, y: 0.05, fade: 1 }], 0.3, 0.3],
+    ['a lobe placement still fading out counts: the caller’s value', 'abyss', [{ x: 0.5, y: -0.3, fade: 0.2, role: 'leaving' }], 0.4, 0.4],
+    ['a lobe placement entering at 0 counts: the caller’s value', 'linen', [{ x: 0.5, y: -0.3, fade: 0 }], 0.7, 0.7],
+  ] as const)('%s', (_name, id, placements, restFade, drawn) => {
+    const f = buildFieldFrame(raw(id, [...placements], restFade), geometry, statics(id));
+    expect([...new Set(f.nodes.filter((n) => n.bead === null && n.fade > 0).map((n) => n.fade))]).toEqual([drawn]);
   });
 });
 
