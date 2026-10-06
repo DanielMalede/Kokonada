@@ -110,7 +110,7 @@ _free_
 - task: `own:healthkit-authoritative-store` (own)
 - title: HealthKit authoritative sample store foundation
 - branch: `feat/mb900-healthkit-store`
-- paths: `backend/app/services/wearable/healthSampleRepository.js`, `backend/tests/healthSampleRepository.integration.test.js`
+- paths: `backend/app/models/BiometricLog.js`, `backend/app/models/VitalSample.js`, `backend/app/services/wearable/healthSampleProjection.js`, `backend/tests/healthSampleProjection.integration.test.js`, `backend/tests/biometricRetention.test.js`, `backend/tests/vitalSample.integration.test.js`
 - resources: none
 - state: claimed
 - started: 2026-10-06
