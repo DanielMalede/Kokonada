@@ -1223,6 +1223,7 @@ _(put anything you are unsure about here rather than losing it)_
   - where: `.claude/agents/custodian.md:15-16`, `:86` · done when: the owner approves both lines and they land in their own commit · related: `OPS-152`, `DEC-144` · src: the coordination plan's exploration, 2026-10-06 · added: 2026-10-06
 
 - [ ] `OPS-155` `P3` **Coordinator engine, small findings from its build (2026-10-06), none blocking.**
+  - status: taken by Malede (@DanielMalede) on branch `fix/ops155-coord-hardening` since 2026-10-06, ledger slot M01
   - **A personal email sits in a tracked file.** `WORK_LEDGER.md`'s People row for Malede lists `danielmalede@gmail.com`, so his commits made under that address map to him. It is already in every commit's metadata, but switching local commits to the noreply address (`git config user.email 102303436+DanielMalede@users.noreply.github.com`) makes the value unnecessary and it can be dropped from the row.
   - **The claim commit carries `[skip ci]`,** so the secret-scan gate does not scan it (the `OPS-131` class). It holds only ledger and TASKS lines, so the risk is low; the next commit on the branch runs the whole range.
   - **`gh pr list --limit 300`** stops seeing older PRs once the repository passes 300; the content-merge rule still covers those branches unless `main` has since edited the same files, and then a finished branch can reappear as unclaimed for up to 14 days.

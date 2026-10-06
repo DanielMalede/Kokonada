@@ -63,12 +63,12 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 ## Malede
 
 ### M01
-- task: `OPS-152` (TASKS)
-- title: The work ledger and the coordinator for two partners working in parallel
-- branch: `chore/work-ledger`
-- paths: `WORK_LEDGER.md`, `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.githooks/pre-push`, `.agents/skills/coordinate/**`, `.claude/agents/coordinator.md`, `.claude/agents/sentinel.md`, `.claude/commands/claim.md`, `.claude/commands/ship.md`, `.claude/commands/merge.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `.gitignore`, `TASKS.md`
+- task: `OPS-155` (TASKS)
+- title: Coordinator hardening: the audit residuals, the merge-guard trigger on the coordinator path, and custodian's two-partner preconditions
+- branch: `fix/ops155-coord-hardening`
+- paths: `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.claude/hooks/merge-guard-trigger.mjs`, `.claude/hooks/merge-guard-trigger.test.mjs`, `backend/tests/mergeGuardHook.test.js`, `.claude/commands/ship.md`, `.claude/agents/custodian.md`, `.claude/agents/coordinator.md`, `.agents/skills/coordinate/SKILL.md`, `WORK_LEDGER.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #228
+- state: claimed
 - started: 2026-10-06
 
 ### M02
