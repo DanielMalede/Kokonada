@@ -3,7 +3,8 @@ import { breathCycles, breathLevel } from '../../motion/breathLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE } from '../fieldLaw.ts';
-import { buildFieldFrame, fixedFieldBreath, staticsFor, type FieldState } from '../fieldFrame.ts';
+import { buildFieldFrame, fixedFieldBreath, type FieldState } from '../fieldFrame.ts';
+import { staticsFor } from '../statics.ts';
 import { packFrame } from '../uniforms.ts';
 
 // The uniform builder: tokens, the extensions the caller passes in (app code may not import them),

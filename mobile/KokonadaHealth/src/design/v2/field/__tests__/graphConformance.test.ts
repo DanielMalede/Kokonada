@@ -2,8 +2,9 @@ import { oklabToOklch } from '../../color/oklab.ts';
 import { tierFor } from '../../tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
-import { NODE_TIER, buildFieldFrame, staticsFor } from '../fieldFrame.ts';
+import { NODE_TIER, buildFieldFrame } from '../fieldFrame.ts';
 import { NODE, ROUTED_EDGES, WAYPOINT_EDGES, isWaypoint } from '../fieldLaw.ts';
+import { staticsFor } from '../statics.ts';
 
 // The blend graph has one source: the tokens (designer §2.4, field.graph). The never-red sweeps read
 // it from there; the law, the builder and the shader carry their own copy of two facts from it, the

@@ -12,8 +12,19 @@ import ts from 'typescript';
 
 const V2 = path.resolve(__dirname, '..');
 
-/** The modules whose functions B4 marks 'worklet': held to the rule before the directive lands. */
-const FUTURE_WORKLET_MODULES = ['motion/breathLaw.ts', 'motion/breathPhaser.ts', 'color/oklab.ts', 'color/mixSafe.ts'];
+/**
+ * The modules whose functions B4 marks 'worklet': held to the rule before the directive lands. The
+ * uniform builder and the packing join them (architect, B4 forks, adjacent finding 1): FieldView
+ * derives the uniforms on the UI thread, so everything the builder calls runs there.
+ */
+const FUTURE_WORKLET_MODULES = [
+  'motion/breathLaw.ts',
+  'motion/breathPhaser.ts',
+  'color/oklab.ts',
+  'color/mixSafe.ts',
+  'field/fieldFrame.ts',
+  'field/uniforms.ts',
+];
 
 const DESTRUCTURED = /\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*(?:Math|Number)\b/;
 /** `= Math.floor` or `= Number.isFinite` with no call: an alias of a host function. */

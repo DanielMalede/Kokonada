@@ -2,6 +2,9 @@
 // builder (TypeScript) and the shader (fieldShader.ts). fieldShader.skia.test.ts pins this list to
 // the compiled effect's own uniform names, sizes and slots.
 //
+// packFrame runs on the UI thread (FieldView derives the uniforms there), so every function here is
+// a worklet (workletSafe.test.ts).
+//
 // The nodes are unrolled (uNode0 … uNode4): SkSL's strict ES2 rules forbid indexing a uniform array
 // with a computed index, and separate uniforms keep each slot unambiguous.
 
@@ -12,12 +15,15 @@ export interface FieldUniform {
   readonly floats: number;
 }
 
-const NODE_UNIFORMS = (k: number): FieldUniform[] => [
-  { name: `uNode${k}`, floats: 4 }, // centre.x, centre.y, radius, fade
-  { name: `uNode${k}Bead`, floats: 4 }, // bead.x, bead.y, has a halo (0 or 1), node id
-  { name: `uNode${k}Field`, floats: 3 }, // OKLab
-  { name: `uNode${k}Halo`, floats: 3 }, // OKLab
-];
+const NODE_UNIFORMS = (k: number): FieldUniform[] => {
+  'worklet';
+  return [
+    { name: `uNode${k}`, floats: 4 }, // centre.x, centre.y, radius, fade
+    { name: `uNode${k}Bead`, floats: 4 }, // bead.x, bead.y, has a halo (0 or 1), node id
+    { name: `uNode${k}Field`, floats: 3 }, // OKLab
+    { name: `uNode${k}Halo`, floats: 3 }, // OKLab
+  ];
+};
 
 export const FIELD_UNIFORMS: readonly FieldUniform[] = [
   { name: 'uGeom', floats: 4 }, // centre.x, centre.y (px), R (px), ring inner edge
@@ -38,10 +44,14 @@ export const FIELD_UNIFORMS: readonly FieldUniform[] = [
 
 export const FIELD_UNIFORM_FLOATS = FIELD_UNIFORMS.reduce((sum, u) => sum + u.floats, 0);
 
-const finite = (v: number) => (Number.isFinite(v) ? v : 0);
+const finite = (v: number) => {
+  'worklet';
+  return Number.isFinite(v) ? v : 0;
+};
 
 /** The frame as the flat float list the effect takes, in FIELD_UNIFORMS order. A non-finite number packs as 0. */
 export function packFrame(frame: FieldFrame): number[] {
+  'worklet';
   if (frame.nodes.length !== NODE_SLOTS) {
     throw new RangeError(`a field frame has ${NODE_SLOTS} node slots, got ${frame.nodes.length}`);
   }

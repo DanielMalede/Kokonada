@@ -14,7 +14,10 @@
 //
 // The drift tables and the rest lobes live in the token extensions, which app code may not import
 // (extensionsBoundary.test.ts); the caller passes them in as FieldStatics, as the never-red sweeps
-// take the graph's edges.
+// take the graph's edges. statics.ts reads them on the JS thread, once per direction.
+//
+// Every function here is a worklet (workletSafe.test.ts): FieldView derives the uniforms on the UI
+// thread, and a worklet may call only worklets. Math.* and Number.* stay inline.
 
 import type { Oklab } from '../color/oklab.ts';
 import { breathCycles, breathLevel } from '../motion/breathLaw.ts';
@@ -76,35 +79,25 @@ export interface FieldStatics {
   };
 }
 
-interface ExtensionsShape {
-  readonly base: {
-    readonly 'field.clock': { readonly drift: { readonly harmonics: Record<string, readonly [number, number]>; readonly phases: Record<string, readonly [number, number]> } };
-    readonly 'field.fallback': { readonly stops: { readonly position: readonly number[]; readonly weight: readonly number[] } };
-  };
-}
-
-/** The statics for a direction, read from the extensions object the caller holds (the lab, a test). */
-export function staticsFor(id: DirectionId, extensions: ExtensionsShape): FieldStatics {
-  const drift = extensions.base['field.clock'].drift;
-  const stops = extensions.base['field.fallback'].stops;
-  const lobes = ['lobe0', 'lobe1', 'lobe2'];
-  const own = (extensions as unknown as Record<string, Record<string, { lobes: ReadonlyArray<readonly [number, number]> }>>)[id]['field.rest'];
-  return {
-    restLobes: own.lobes,
-    drift: { harmonics: lobes.map((l) => drift.harmonics[l]), phases: lobes.map((l) => drift.phases[l]) },
-    fallbackStops: { position: stops.position, weight: stops.weight },
-  };
-}
-
-const finite = (v: number, fallback: number) => (Number.isFinite(v) ? v : fallback);
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-const lab = (c: { readonly oklab: readonly number[] }): Oklab => ({ L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] });
+const finite = (v: number, fallback: number) => {
+  'worklet';
+  return Number.isFinite(v) ? v : fallback;
+};
+const clamp01 = (v: number) => {
+  'worklet';
+  return Math.min(1, Math.max(0, v));
+};
+const lab = (c: { readonly oklab: readonly number[] }): Oklab => {
+  'worklet';
+  return { L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] };
+};
 const QUADRANT = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
 /** The emotion tier each face draws (field.graph.nodeTier); graphConformance.test.ts holds it to the token. */
 export const NODE_TIER: Readonly<Record<Face, 'core' | 'deep'>> = { dark: 'core', light: 'deep' };
 
 /** The breath at a fixed time (captures, stills, sweeps): n(s) in JS, a whole number, and its phase. */
 export function fixedFieldBreath(id: DirectionId, stress: number, tMs: number): { n: number; phase: number } {
+  'worklet';
   const breath = DIRECTIONS[id].field.breath;
   const T = BASE.field.clock.T;
   const n = breathCycles({ masterPeriodMs: T, nRest: breath.nRest, nStress: breath.nStress, inhale: breath.inhale }, stress);
@@ -113,6 +106,7 @@ export function fixedFieldBreath(id: DirectionId, stress: number, tMs: number): 
 }
 
 export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, statics: FieldStatics): FieldFrame {
+  'worklet';
   const d = DIRECTIONS[state.direction];
   const face = state.face;
   const colours = d.color[face];
