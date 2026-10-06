@@ -18,6 +18,10 @@ const biometricLogSchema = new mongoose.Schema({
     required: true,
   },
   recordedAt: { type: Date, required: true, default: Date.now },
+  // Optional link back to the authoritative Apple Health / Health Connect row. Legacy
+  // Garmin rows intentionally have no key. The sparse unique index below makes projection
+  // retries idempotent without restricting the number of unlinked legacy rows per user.
+  healthSampleKey: { type: String, match: /^[0-9a-f]{64}$/ },
   // The wearer's own UTC offset at the moment of the reading (W4-004). Additive and OPTIONAL:
   // every row written before this field existed, and every client that does not send one, stays
   // null and the baseline engine falls back to server hour explicitly. Not encrypted — an offset
@@ -32,6 +36,7 @@ const biometricLogSchema = new mongoose.Schema({
 });
 
 biometricLogSchema.index({ userId: 1, recordedAt: -1 });
+biometricLogSchema.index({ healthSampleKey: 1 }, { unique: true, sparse: true });
 
 // Retention (T3.1): special-category health samples are kept only as long as the analytics
 // window needs them, then Mongo expires them (data-minimization). The longest reader is the
