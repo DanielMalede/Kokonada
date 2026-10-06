@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-151 · WORK_LEDGER.md — the parser contract.
+// OPS-152 · WORK_LEDGER.md — the parser contract.
 //
 // Two partners write claims into ONE markdown file, each on his own task branch, and those branches
 // merge into `main` in any order. That only works if an edit is surgical: filling a slot rewrites the
@@ -97,7 +97,7 @@ const claim = (over = {}) => ({
   ...over,
 });
 
-describe('OPS-151 · ledger — the slot body format', () => {
+describe('OPS-152 · ledger — the slot body format', () => {
   test('a filled slot is exactly seven bullet lines in a fixed order', () => {
     expect(renderSlotBody(claim())).toEqual([
       '- task: `BE-120` (TASKS)',
@@ -139,7 +139,7 @@ describe('OPS-151 · ledger — the slot body format', () => {
   });
 });
 
-describe('OPS-151 · ledger — N2 · what the ledger writes it reads back, for any input it accepts', () => {
+describe('OPS-152 · ledger — N2 · what the ledger writes it reads back, for any input it accepts', () => {
   const { normalizePath } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'lib', 'paths.js'));
 
   test('oneLine strips every line separator and control character', () => {
@@ -188,7 +188,7 @@ describe('OPS-151 · ledger — N2 · what the ledger writes it reads back, for 
   });
 });
 
-describe('OPS-151 · ledger — parsing the header tables', () => {
+describe('OPS-152 · ledger — parsing the header tables', () => {
   const ledger = parseLedger(ledgerText());
 
   test('People: login, name, section, git author, and the partner ID block', () => {
@@ -244,7 +244,7 @@ describe('OPS-151 · ledger — parsing the header tables', () => {
   });
 });
 
-describe('OPS-151 · ledger — a header row that does not parse is an error, never a silent drop', () => {
+describe('OPS-152 · ledger — a header row that does not parse is an error, never a silent drop', () => {
   test('a bad path or an empty cell in Exclusive files, and a People row with no login, are reported', () => {
     const bad = ledgerText()
       .replace('| `AGENTS.md` | |', '| `AGENTS.md` | |\n| `../outside.js` | |\n| no backticks here | |')
@@ -257,7 +257,7 @@ describe('OPS-151 · ledger — a header row that does not parse is an error, ne
   });
 });
 
-describe('OPS-151 · ledger — byte-stable edits', () => {
+describe('OPS-152 · ledger — byte-stable edits', () => {
   test('parse then serialize returns an untouched file unchanged', () => {
     const text = ledgerText({ M01: renderSlotBody(claim()) });
     expect(serializeLedger(parseLedger(text))).toBe(text);
@@ -309,7 +309,7 @@ describe('OPS-151 · ledger — byte-stable edits', () => {
   });
 });
 
-describe('OPS-151 · ledger — picking a slot', () => {
+describe('OPS-152 · ledger — picking a slot', () => {
   const remote = new Set(['main', 'feat/live-one']);
 
   test('the first free slot of my section', () => {
@@ -337,7 +337,7 @@ describe('OPS-151 · ledger — picking a slot', () => {
   });
 });
 
-describe('OPS-151 · ledger — the CI guard on a branch\'s ledger edit', () => {
+describe('OPS-152 · ledger — the CI guard on a branch\'s ledger edit', () => {
   const malede = 'DanielMalede';
   const bedrack = 'DanielBedrack';
   const base = ledgerText();
@@ -387,7 +387,7 @@ describe('OPS-151 · ledger — the CI guard on a branch\'s ledger edit', () => 
   });
 });
 
-describe('OPS-151 · ledger — live pin on the real WORK_LEDGER.md', () => {
+describe('OPS-152 · ledger — live pin on the real WORK_LEDGER.md', () => {
   const real = fs.readFileSync(path.join(REPO_ROOT, LEDGER_PATH), 'utf8');
   const ledger = parseLedger(real);
   const { tooBroadReason, normalizePath } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'lib', 'paths.js'));

@@ -63,7 +63,7 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 ## Malede
 
 ### M01
-- task: `OPS-151` (TASKS)
+- task: `OPS-152` (TASKS)
 - title: The work ledger and the coordinator for two partners working in parallel
 - branch: `chore/work-ledger`
 - paths: `WORK_LEDGER.md`, `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.githooks/pre-push`, `.agents/skills/coordinate/**`, `.claude/agents/coordinator.md`, `.claude/agents/sentinel.md`, `.claude/commands/claim.md`, `.claude/commands/ship.md`, `.claude/commands/merge.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `.gitignore`, `TASKS.md`

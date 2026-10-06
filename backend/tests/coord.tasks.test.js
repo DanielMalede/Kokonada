@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-151 · TASKS.md — the row a claim marks as taken.
+// OPS-152 · TASKS.md — the row a claim marks as taken.
 //
 // `start` writes one line directly under the task's own row: "taken by <Name> (@login) on branch
 // `b` since <date>, ledger slot <Xnn>". It must land under the REAL row — TASKS.md's "Row format"
@@ -51,7 +51,7 @@ const TASKS = `# TASKS
   - where: the owner's desk
 `;
 
-describe('OPS-151 · tasks — reading rows', () => {
+describe('OPS-152 · tasks — reading rows', () => {
   test('rows inside a code fence are not rows', () => {
     const rows = parseTaskRows(TASKS).filter((r) => r.id === 'BE-004');
     expect(rows).toHaveLength(1);
@@ -84,7 +84,7 @@ describe('OPS-151 · tasks — reading rows', () => {
   });
 });
 
-describe('OPS-151 · tasks — the status line', () => {
+describe('OPS-152 · tasks — the status line', () => {
   const line = statusLine({ name: 'Bedrack', login: 'DanielBedrack', branch: 'fix/be005-y', since: '2026-10-06', slot: 'B02' });
 
   test('its exact wording', () => {
@@ -125,10 +125,10 @@ describe('OPS-151 · tasks — the status line', () => {
   });
 });
 
-describe('OPS-151 · tasks — IDs a branch adds', () => {
+describe('OPS-152 · tasks — IDs a branch adds', () => {
   test('only ids that did not exist on the base count as added', () => {
-    const head = `${TASKS}- [ ] \`BE-905\` \`P2\` Partner row.\n  - where: x\n- [ ] \`OPS-151\` \`P1\` Owner row.\n  - where: y\n`;
-    expect(addedIds(TASKS, head).sort()).toEqual(['BE-905', 'OPS-151']);
+    const head = `${TASKS}- [ ] \`BE-905\` \`P2\` Partner row.\n  - where: x\n- [ ] \`OPS-152\` \`P1\` Owner row.\n  - where: y\n`;
+    expect(addedIds(TASKS, head).sort()).toEqual(['BE-905', 'OPS-152']);
     expect(addedIds(TASKS, TASKS)).toEqual([]);
   });
 
@@ -138,7 +138,7 @@ describe('OPS-151 · tasks — IDs a branch adds', () => {
   });
 });
 
-describe('OPS-151 · tasks — live pin on the real TASKS.md', () => {
+describe('OPS-152 · tasks — live pin on the real TASKS.md', () => {
   const real = fs.readFileSync(path.join(REPO_ROOT, TASKS_PATH), 'utf8');
 
   test('parses into many rows, and the fenced BE-004 example is not one of them', () => {

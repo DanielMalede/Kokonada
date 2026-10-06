@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-151 · .githooks/pre-push — nobody pushes to main.
+// OPS-152 · .githooks/pre-push — nobody pushes to main.
 //
 // A merge to `main` deploys the backend to production, and the repository has no branch protection
 // to stop a direct push. This hook is the local backstop: git feeds it one line per ref being pushed
@@ -46,7 +46,7 @@ function push(lines) {
   });
 }
 
-describe('OPS-151 · pre-push — refuses main', () => {
+describe('OPS-152 · pre-push — refuses main', () => {
   test('the hook is committed with LF line endings, so sh can run it on every OS', () => {
     const text = fs.readFileSync(HOOK, 'utf8');
     expect(text.startsWith('#!/bin/sh\n')).toBe(true);
@@ -94,7 +94,7 @@ describe('OPS-151 · pre-push — refuses main', () => {
   });
 });
 
-describe('OPS-151 · pre-push — through git itself', () => {
+describe('OPS-152 · pre-push — through git itself', () => {
   let tmp;
   let env;
   beforeAll(() => {

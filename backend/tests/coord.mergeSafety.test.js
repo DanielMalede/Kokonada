@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-151 · the ledger and TASKS edits merge on their own — proven with real git.
+// OPS-152 · the ledger and TASKS edits merge on their own — proven with real git.
 //
 // Claims ride inside each task's own PR, so two partners' claims always meet in a three-way merge:
 // when the second PR merges main in, or when GitHub squashes them in turn. If two claims on two
@@ -24,7 +24,7 @@ const seed = fs.readFileSync(path.join(REPO_ROOT, 'WORK_LEDGER.md'), 'utf8');
 const base = (() => {
   let text = seed;
   for (const slot of parseLedger(seed).slots) text = setSlot(text, slot.id, null);
-  return setSlot(text, 'M01', claim('chore/landed-long-ago', { task: 'OPS-151' }));
+  return setSlot(text, 'M01', claim('chore/landed-long-ago', { task: 'OPS-152' }));
 })();
 
 function claim(branch, over = {}) {
@@ -47,7 +47,7 @@ function merge3(baseText, ours, theirs) {
   return { code: res.status, text: res.stdout };
 }
 
-describe('OPS-151 · merge safety — WORK_LEDGER.md', () => {
+describe('OPS-152 · merge safety — WORK_LEDGER.md', () => {
   test('two fills of two DIFFERENT slots in the same section merge cleanly, both kept', () => {
     const a = setSlot(base, 'M02', claim('feat/a'));
     const b = setSlot(base, 'M03', claim('feat/b'));
@@ -90,7 +90,7 @@ describe('OPS-151 · merge safety — WORK_LEDGER.md', () => {
   });
 });
 
-describe('OPS-151 · merge safety — TASKS.md status lines', () => {
+describe('OPS-152 · merge safety — TASKS.md status lines', () => {
   const TASKS = `# TASKS
 
 ## Backend

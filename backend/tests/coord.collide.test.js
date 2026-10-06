@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-151 · the collision engine.
+// OPS-152 · the collision engine.
 //
 // Given what I am about to touch and what the other partner is touching on every branch of origin,
 // decide CLEAR / WARN / HALT and say exactly why: the person, the branch, the slot, the files and
@@ -104,7 +104,7 @@ const run = (me, mineOver, footprints, extra = {}) => assess({
 
 const classes = (res) => res.reasons.map((r) => `${r.level} ${r.class}`).sort();
 
-describe('OPS-151 · collide — coupled expansion', () => {
+describe('OPS-152 · collide — coupled expansion', () => {
   test('a workflow file claims its whole exclusive row', () => {
     const { patterns, groups } = expandCoupled(['.github/workflows/ci.yml'], rules.exclusive);
     // Row 0 directly; row 1 (the Dockerfile) through nodeRuntimePin.test.js, which both rows hold.
@@ -127,7 +127,7 @@ describe('OPS-151 · collide — coupled expansion', () => {
   });
 });
 
-describe('OPS-151 · collide — whose branch is it', () => {
+describe('OPS-152 · collide — whose branch is it', () => {
   test('the noreply email maps to a login', () => {
     expect(ownerOfAuthor(rules.people, { name: 'Anything', email: '111690772+DanielBedrack@users.noreply.github.com' })).toBe(bedrack);
     expect(ownerOfAuthor(rules.people, { name: 'x', email: 'DanielMalede@users.noreply.github.com' })).toBe(malede);
@@ -155,7 +155,7 @@ describe('OPS-151 · collide — whose branch is it', () => {
   });
 });
 
-describe('OPS-151 · collide — which claims are live', () => {
+describe('OPS-152 · collide — which claims are live', () => {
   const claim = (branch, over = {}) => ({
     task: 'own:x', taskKind: 'own', title: 't', branch, paths: ['project-explorer/app.js'], resources: [], state: 'claimed', pr: null, started: '2026-10-06', ...over,
   });
@@ -431,7 +431,7 @@ describe('OPS-151 · collide — which claims are live', () => {
   });
 });
 
-describe('OPS-151 · collide — check: HALT classes', () => {
+describe('OPS-152 · collide — check: HALT classes', () => {
   test('ci.yml against his workflow-permission test is ONE exclusive group → HALT', () => {
     const res = run(malede, { declared: ['.github/workflows/ci.yml'] }, [fp({ declared: ['backend/tests/ciWorkflowPermissions.test.js'] })]);
     expect(res.verdict).toBe('HALT');
@@ -511,7 +511,7 @@ describe('OPS-151 · collide — check: HALT classes', () => {
   });
 });
 
-describe('OPS-151 · collide — check: WARN and CLEAR', () => {
+describe('OPS-152 · collide — check: WARN and CLEAR', () => {
   test('TASKS.md and WORK_LEDGER.md overlap is ignored entirely', () => {
     const res = run(malede, { declared: ['TASKS.md', 'WORK_LEDGER.md'] }, [fp({ actual: ['TASKS.md', 'WORK_LEDGER.md'] })]);
     expect(res.verdict).toBe('CLEAR');
@@ -615,7 +615,7 @@ describe('OPS-151 · collide — check: WARN and CLEAR', () => {
   });
 });
 
-describe('OPS-151 · collide — overlaps() is shared by check, start, --merge and ci', () => {
+describe('OPS-152 · collide — overlaps() is shared by check, start, --merge and ci', () => {
   test('lists every class between two footprints', () => {
     const out = overlaps(
       { declared: ['AGENTS.md', 'project-explorer/src/a.js'], actual: [], resources: ['res:secrets'], task: 'BE-001' },
@@ -626,7 +626,7 @@ describe('OPS-151 · collide — overlaps() is shared by check, start, --merge a
   });
 });
 
-describe('OPS-151 · collide — check --merge', () => {
+describe('OPS-152 · collide — check --merge', () => {
   const pr = { number: 230, author: { login: 'DanielMalede' }, headRefName: 'feat/m', files: [{ path: 'AGENTS.md' }] };
 
   test('merging someone else\'s PR → HALT', () => {
@@ -672,7 +672,7 @@ describe('OPS-151 · collide — check --merge', () => {
   });
 });
 
-describe('OPS-151 · collide — ci', () => {
+describe('OPS-152 · collide — ci', () => {
   const claim = (branch, over = {}) => ({
     task: 'own:pe', taskKind: 'own', title: 't', branch, paths: ['project-explorer/src/**'], resources: [], state: 'claimed', pr: null, started: '2026-10-06', ...over,
   });
@@ -757,7 +757,7 @@ describe('OPS-151 · collide — ci', () => {
   });
 });
 
-describe('OPS-151 · collide — the race rule', () => {
+describe('OPS-152 · collide — the race rule', () => {
   test('the earlier first ledger commit wins; a tie is nobody\'s win', () => {
     expect(firstClaimWins(100, 200)).toBe('mine');
     expect(firstClaimWins(300, 200)).toBe('theirs');
@@ -774,7 +774,7 @@ describe('OPS-151 · collide — the race rule', () => {
   });
 });
 
-describe('OPS-151 · collide — a status line a real claim writes is read back as taken', () => {
+describe('OPS-152 · collide — a status line a real claim writes is read back as taken', () => {
   test('the coordinator\'s own status line on main names a live branch → the next claimant HALTs', () => {
     const line = statusLine({ name: 'Bedrack', login: 'DanielBedrack', branch: 'feat/b', since: '2026-10-06', slot: 'B01' });
     const tasks = setStatusLine(MAIN_TASKS, 'BE-001', line);

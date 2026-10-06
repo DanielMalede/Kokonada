@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-151 · the coordinator end to end, on real git.
+// OPS-152 · the coordinator end to end, on real git.
 //
 // A bare repository plays origin; two clones play the two partners. Everything runs through the
 // real CLI (scripts/coord/coord.js) against real git — fetch, worktrees, commits, pushes, a squash
@@ -247,7 +247,7 @@ afterAll(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('OPS-151 · coordinator end to end', () => {
+describe('OPS-152 · coordinator end to end', () => {
   test('--help prints the usage and needs no git at all', () => {
     const res = coord('malede', ['--help'], { cwd: root });
     expect(res.code).toBe(0);
@@ -1000,7 +1000,7 @@ describe('OPS-151 · coordinator end to end', () => {
   });
 });
 
-describe('OPS-151 · coordinator before the ledger is on main', () => {
+describe('OPS-152 · coordinator before the ledger is on main', () => {
   test('a would-be CLEAR is a WARN carrying the note; a header row that does not parse cannot verify', () => {
     const bare = path.join(root, 'pre ledger.git');
     const dir = path.join(root, 'pre ledger');

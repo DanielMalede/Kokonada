@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-151 · the coordinator's path engine.
+// OPS-152 · the coordinator's path engine.
 //
 // Two partners claim files before they touch them. Everything the coordinator decides about a
 // collision comes down to three questions this module answers: is this a path we accept at all
@@ -25,7 +25,7 @@ const {
   DENY_LIST,
 } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'lib', 'paths.js'));
 
-describe('OPS-151 · paths — normalisation', () => {
+describe('OPS-152 · paths — normalisation', () => {
   test.each([
     ['backend\\app\\index.js', 'backend/app/index.js'],
     ['./backend/app/index.js', 'backend/app/index.js'],
@@ -66,7 +66,7 @@ describe('OPS-151 · paths — normalisation', () => {
   });
 });
 
-describe('OPS-151 · paths — globs', () => {
+describe('OPS-152 · paths — globs', () => {
   test('only * is a wildcard; everything else is literal', () => {
     expect(isGlob('scripts/coord/**')).toBe(true);
     expect(isGlob('backend/tests/coord.*.test.js')).toBe(true);
@@ -101,7 +101,7 @@ describe('OPS-151 · paths — globs', () => {
   });
 });
 
-describe('OPS-151 · paths — too broad to claim', () => {
+describe('OPS-152 · paths — too broad to claim', () => {
   test.each([
     '**',
     'backend/**',
@@ -145,7 +145,7 @@ describe('OPS-151 · paths — too broad to claim', () => {
   });
 });
 
-describe('OPS-151 · paths — overlap classes', () => {
+describe('OPS-152 · paths — overlap classes', () => {
   test('the same file, whatever its case, is an exact overlap', () => {
     expect(overlapClass('AGENTS.md', 'agents.md')).toBe('exact');
     expect(overlapClass('backend/app/index.js', 'backend/app/index.js')).toBe('exact');
