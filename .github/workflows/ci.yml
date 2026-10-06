@@ -45,6 +45,39 @@ jobs:
           echo "$GITLEAKS_SHA256  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict -
           tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" version
+      # Proves, on this runner's git and this gitleaks, that the scan below sees what a merge commit
+      # wrote: a throwaway repository outside the checkout holds a real conflicted merge whose
+      # resolution carries a GitHub-token-shaped value made here at run time, never one written in this
+      # repository, and the scan's own gitleaks call must report it in the merge commit (under the
+      # b/<path> gitleaks gives a conflicted file under remerge). Anything else fails the job.
+      - name: gitleaks self-test
+        run: |
+          st="$RUNNER_TEMP/selftest"
+          git -c init.defaultBranch=main init -q "$st"
+          cd "$st"
+          git config user.name selftest
+          git config user.email selftest@example.invalid
+          printf 'one\ntwo\nthree\n' > f.txt
+          git add f.txt
+          git commit -qm base
+          git checkout -qb feat
+          printf 'one\ntwo on feat\nthree\n' > f.txt
+          git commit -qam feat
+          git checkout -q main
+          printf 'one\ntwo on main\nthree\n' > f.txt
+          git commit -qam main
+          git checkout -q feat
+          if git merge -q main > /dev/null 2>&1; then echo "::error::the self-test merge did not conflict"; exit 1; fi
+          value="ghp_$(openssl rand -base64 96 | tr -dc 'A-Za-z0-9' | cut -c1-36)"
+          test "${#value}" -eq 40
+          printf 'one\ntwo on feat\nvalue = "%s"\nthree\n' "$value" > f.txt
+          git add f.txt
+          git commit -qm "merge main into feat"
+          range="$(git rev-parse main)..$(git rev-parse feat)"
+          rc=0
+          "$RUNNER_TEMP/gitleaks" git --log-opts="--diff-merges=remerge $range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner --report-format=json --report-path="$RUNNER_TEMP/selftest.json" . || rc=$?
+          if [ "$rc" -ne 1 ]; then echo "::error::gitleaks exited $rc on a value written in a merge resolution, so the scan below would miss one"; exit 1; fi
+          if ! grep -qF '"File": "b/f.txt"' "$RUNNER_TEMP/selftest.json" || ! grep -qF "\"Commit\": \"$(git rev-parse feat)\"" "$RUNNER_TEMP/selftest.json"; then echo "::error::gitleaks did not report the value in the merge commit"; exit 1; fi
       # Every commit this event adds, as an explicit range:
       #   · pull_request: base..head, every commit of the PR, however many;
       #   · push: before..sha, every pushed commit. `before` is all zeros when the push created the

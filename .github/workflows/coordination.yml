@@ -40,30 +40,48 @@ jobs:
           # The engine needs merge-bases with main for every branch, and refuses a shallow clone.
           fetch-depth: 0
       # Every branch on origin, under the refspec the engine reads, whatever the checkout fetched.
+      # No tag is kept, and none is fetched again: the checkout fetched every tag, and git resolves
+      # `origin/main` as refs/tags/origin/main before refs/remotes/origin/main, so a pushed tag named
+      # origin/main, or origin/<branch>, would hand the check another engine, other rules or another
+      # branch. tagOpt stops the engine's own fetch from following such a tag back in.
+      # The checkout's fetch also wrote every remote-tracking reflog just now, and the engine reads a
+      # branch's last movement from that reflog: kept, every unmerged branch would look as if it moved
+      # a moment ago. Without them the engine judges recency by commit dates, as on any fresh clone.
       - name: Fetch every branch on origin
-        run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+        run: |
+          set -o pipefail
+          git config remote.origin.tagOpt --no-tags
+          git for-each-ref --format='delete %(refname)' refs/tags | git update-ref --stdin
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          rm -rf .git/logs/refs/remotes
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      # Named in full, so nothing but the remote-tracking branch can answer for it.
       - name: Take the engine from origin/main
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/coord"
-          git archive origin/main scripts/coord | tar -x -C "$RUNNER_TEMP/coord"
+          git archive refs/remotes/origin/main scripts/coord | tar -x -C "$RUNNER_TEMP/coord"
       # The engine appends its report to $GITHUB_STEP_SUMMARY itself; a failure adds a line there too.
+      # Its output is fenced by a token made for this run, so nothing it prints (a branch name, a title
+      # read from the ledger) is taken by the runner as a workflow command. Any exit but 0 and 3 fails.
       - name: Work ledger check
         env:
           HEAD_REF: ${{ github.head_ref }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           rc=0
+          t=$(openssl rand -hex 16)
+          echo "::stop-commands::$t"
           node "$RUNNER_TEMP/coord/scripts/coord/coord.js" ci --branch "$HEAD_REF" --author "$PR_AUTHOR" --mode warn || rc=$?
+          echo "::$t::"
           case "$rc" in
             0) ;;
             3) echo "::warning title=Coordination::the work ledger check reports a WARN; read the job summary" ;;
             *)
-              echo "::error title=Coordination::the work ledger check exited $rc (1 FAIL, 2 cannot verify); read the log above"
-              echo "**Work ledger check: exit $rc** (1 FAIL, 2 cannot verify). The reason is in the job log." >> "$GITHUB_STEP_SUMMARY"
+              echo "::error title=Coordination::the work ledger check exited $rc (1 FAIL, 2 cannot verify, any other: it did not finish); read the log above"
+              echo "**Work ledger check: exit $rc** (1 FAIL, 2 cannot verify, any other: it did not finish). The reason is in the job log." >> "$GITHUB_STEP_SUMMARY"
               exit "$rc"
               ;;
           esac

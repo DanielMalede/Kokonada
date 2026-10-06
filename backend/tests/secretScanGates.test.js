@@ -38,6 +38,14 @@
 // does not read: run against the release binary, neither caught a token written into a resolution.
 // The last tests run git with the workflow's own options over a real conflicted merge.
 //
+// THE SELF-TEST. Before the scan, the job builds a throwaway repository in $RUNNER_TEMP holding a real
+// conflicted merge whose resolution carries a GitHub-token-shaped value made at run time, runs the
+// scan's own gitleaks call over it, and requires exit 1 with the finding in the merge commit. A git or
+// gitleaks on the runner that stops showing merge resolutions then fails the job instead of quietly
+// passing every PR. The value is generated each run, so no token is written anywhere in this repository
+// and no .gitleaksignore fingerprint can match it; it runs outside the checkout, so no file a PR adds
+// is read.
+//
 // THE OTHER WAYS TO SKIP A FINDING. `.gitleaksignore` is not the only channel, and a PR is scanned
 // with its own checkout, so whatever it adds there applies to its own scan. Checked against the
 // 8.24.3 release binary:
@@ -86,6 +94,38 @@ const SCAN_COMMANDS = [
   'commits=$(git rev-list --count "$range")',
   'echo "gitleaks scans $range: $commits commits"',
   '"$RUNNER_TEMP/gitleaks" git --log-opts="--diff-merges=remerge $range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .',
+];
+
+// The self-test, whole: a pull request's shape in a throwaway repository, a resolution holding a
+// GitHub-token-shaped value made at run time, the scan's own gitleaks call over it, and the finding
+// required in the merge commit, under the b/ path gitleaks gives a conflicted file under remerge.
+const SELF_TEST_COMMANDS = [
+  'st="$RUNNER_TEMP/selftest"',
+  'git -c init.defaultBranch=main init -q "$st"',
+  'cd "$st"',
+  'git config user.name selftest',
+  'git config user.email selftest@example.invalid',
+  "printf 'one\\ntwo\\nthree\\n' > f.txt",
+  'git add f.txt',
+  'git commit -qm base',
+  'git checkout -qb feat',
+  "printf 'one\\ntwo on feat\\nthree\\n' > f.txt",
+  'git commit -qam feat',
+  'git checkout -q main',
+  "printf 'one\\ntwo on main\\nthree\\n' > f.txt",
+  'git commit -qam main',
+  'git checkout -q feat',
+  'if git merge -q main > /dev/null 2>&1; then echo "::error::the self-test merge did not conflict"; exit 1; fi',
+  'value="ghp_$(openssl rand -base64 96 | tr -dc \'A-Za-z0-9\' | cut -c1-36)"',
+  'test "${#value}" -eq 40',
+  'printf \'one\\ntwo on feat\\nvalue = "%s"\\nthree\\n\' "$value" > f.txt',
+  'git add f.txt',
+  'git commit -qm "merge main into feat"',
+  'range="$(git rev-parse main)..$(git rev-parse feat)"',
+  'rc=0',
+  '"$RUNNER_TEMP/gitleaks" git --log-opts="--diff-merges=remerge $range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner --report-format=json --report-path="$RUNNER_TEMP/selftest.json" . || rc=$?',
+  'if [ "$rc" -ne 1 ]; then echo "::error::gitleaks exited $rc on a value written in a merge resolution, so the scan below would miss one"; exit 1; fi',
+  'if ! grep -qF \'"File": "b/f.txt"\' "$RUNNER_TEMP/selftest.json" || ! grep -qF "\\"Commit\\": \\"$(git rev-parse feat)\\"" "$RUNNER_TEMP/selftest.json"; then echo "::error::gitleaks did not report the value in the merge commit"; exit 1; fi',
 ];
 
 // gitleaks reads its config from `<checkout>/.gitleaks.<ext>`. `.gitleaksignore` has no dot after
@@ -179,6 +219,7 @@ function secretScanJob() {
 }
 
 const commandsOf = (script) => script.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#'));
+const stepNamed = (job, name) => (job ? job.steps.find((s) => s.name === name && typeof s.run === 'string') : undefined);
 
 describe('.gitleaksignore (OPS-107)', () => {
   it('exists at the repository root, where gitleaks reads it', () => {
@@ -198,13 +239,12 @@ describe('.gitleaksignore (OPS-107)', () => {
 
 describe('the PR and push secret scan (ci.yml, job secret-scan)', () => {
   const job = secretScanJob();
-  const stepRunning = (re) => (job ? job.steps.find((s) => typeof s.run === 'string' && re.test(s.run)) : undefined);
-  const install = stepRunning(/sha256sum/);
-  const scan = stepRunning(/gitleaks" git /);
+  const install = stepNamed(job, 'Install gitleaks');
+  const scan = stepNamed(job, 'gitleaks');
 
-  it('finds the real job and its checkout, install and scan steps, so no pin below passes on nothing', () => {
+  it('finds the real job and its checkout, install, self-test and scan steps, so no pin below passes on nothing', () => {
     expect(job).not.toBeNull();
-    expect(job.steps.map((s) => s.uses || s.name)).toEqual(['actions/checkout@v4', 'Install gitleaks', 'gitleaks']);
+    expect(job.steps.map((s) => s.uses || s.name)).toEqual(['actions/checkout@v4', 'Install gitleaks', 'gitleaks self-test', 'gitleaks']);
     expect(install).toBeDefined();
     expect(scan).toBeDefined();
   });
@@ -258,7 +298,7 @@ describe('the PR and push secret scan (ci.yml, job secret-scan)', () => {
     // directory moves where it reads .gitleaksignore.
     expect(job.keys).toEqual(['name', 'runs-on', 'permissions', 'steps']);
     expect(job.steps.map((s) => Object.keys(s).sort())).toEqual([
-      ['uses', 'with'], ['env', 'name', 'run'], ['env', 'name', 'run'],
+      ['uses', 'with'], ['env', 'name', 'run'], ['name', 'run'], ['env', 'name', 'run'],
     ]);
     expect(Object.keys(job.steps[0].with)).toEqual(['fetch-depth']);
     expect(job.workflowKeys).toEqual(['name', 'on', 'permissions', 'jobs']);
@@ -269,7 +309,7 @@ describe('the PR and push secret scan (ci.yml, job secret-scan)', () => {
 
 describe('merge commits in the PR and push scan (OPS-157)', () => {
   const job = secretScanJob();
-  const scan = job ? job.steps.find((s) => typeof s.run === 'string' && /gitleaks" git /.test(s.run)) : undefined;
+  const scan = stepNamed(job, 'gitleaks');
   const gitleaksCall = (scan && commandsOf(scan.run).find((c) => c.startsWith('"$RUNNER_TEMP/gitleaks" git '))) || '';
   const logOpts = (gitleaksCall.match(/ --log-opts="([^"]*)" /) || [])[1];
 
@@ -367,6 +407,35 @@ describe('merge commits in the PR and push scan (OPS-157)', () => {
     expect(log).not.toContain(FROM_MAIN);
     // The branch's own commit is still scanned as before.
     expect(log).toContain('+two on the branch');
+  });
+});
+
+describe('the gitleaks self-test before the scan (ci.yml, job secret-scan)', () => {
+  const job = secretScanJob();
+  const selfTest = stepNamed(job, 'gitleaks self-test');
+  const scan = stepNamed(job, 'gitleaks');
+  const callOf = (step) => (step && commandsOf(step.run).find((c) => c.startsWith('"$RUNNER_TEMP/gitleaks" git '))) || '';
+
+  it('runs right after the install and right before the scan', () => {
+    const names = job.steps.map((s) => s.name);
+    expect(names.indexOf('gitleaks self-test')).toBe(names.indexOf('Install gitleaks') + 1);
+    expect(names.indexOf('gitleaks')).toBe(names.indexOf('gitleaks self-test') + 1);
+  });
+
+  it('builds a real conflicted merge with a value made at run time, and requires the finding in the merge commit', () => {
+    expect(selfTest).toBeDefined();
+    expect(commandsOf(selfTest.run)).toEqual(SELF_TEST_COMMANDS);
+  });
+
+  it("calls gitleaks with exactly the scan's log options and flags, plus a report file to read the finding from", () => {
+    const plain = (call) => call.replace(/ --report-format=json --report-path="[^"]*"/, '').replace(/ \|\| rc=\$\?$/, '');
+    expect(callOf(selfTest)).not.toBe('');
+    expect(plain(callOf(selfTest))).toBe(callOf(scan));
+  });
+
+  it('holds no token in the repository: the value is generated each run', () => {
+    expect(selfTest.run).not.toMatch(/ghp_[0-9A-Za-z]{36}/);
+    expect(selfTest.env).toBeUndefined();
   });
 });
 
