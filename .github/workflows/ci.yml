@@ -51,6 +51,15 @@ jobs:
       #     branch, and then every commit reachable from sha is new.
       # Any other event fails instead of scanning nothing. The range goes to gitleaks as it is: no
       # --first-parent, which would drop the commits a PR brings in by merging another branch.
+      # --diff-merges=remerge (OPS-157): gitleaks scans `git log -p -U0 <log-opts>`, which prints no
+      # patch for a merge commit, so a line written while resolving a conflict was never scanned.
+      # remerge shows each merge as the diff from git's own re-merge of its parents to the commit as
+      # recorded: only what the person merging wrote. Not -m: it diffs against each parent in full, so
+      # main's content is scanned again under the merge's SHA and any finding main carries comes back
+      # under a fingerprint .gitleaksignore cannot hold. Not --cc or -c: gitleaks 8.24.3 does not read
+      # the combined format and missed a token in a resolution with either. A conflicted file is
+      # reported as b/<path>. A git too old for the option fails the scan; it does not skip it.
+      # remerge covers two-parent merges only: an octopus merge's own edits are still not shown.
       # gitleaks exits 1 on any finding, and on a range git cannot resolve; either fails the job.
       # It reads .gitleaksignore from the checkout root. --ignore-gitleaks-allow: an inline
       # `gitleaks:allow` comment does not hide its line, so a PR cannot exempt its own secret.
@@ -68,7 +77,7 @@ jobs:
           esac
           commits=$(git rev-list --count "$range")
           echo "gitleaks scans $range: $commits commits"
-          "$RUNNER_TEMP/gitleaks" git --log-opts="$range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .
+          "$RUNNER_TEMP/gitleaks" git --log-opts="--diff-merges=remerge $range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .
 
   backend:
     name: Backend — lint & test

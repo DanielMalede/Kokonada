@@ -1,0 +1,69 @@
+name: Coordination
+
+# The work-ledger check (OPS-153). Two partners push to this repository, which has no branch
+# protection, and a merge to main deploys production. `node scripts/coord/coord.js ci` checks a
+# pull request's branch against WORK_LEDGER.md: it holds a live claim, stays inside it, and meets
+# nobody else's work. It is git only: no PR API, no write scope, no secret.
+#
+# Not a job in ci.yml: that file is in the Android compile job's path filter and runs on push to
+# main, where this check means nothing.
+#
+# The engine run is origin/main's copy, extracted to $RUNNER_TEMP, never the one in the checkout,
+# so a pull request that edits scripts/coord cannot weaken the check it is judged by. The branch
+# name and the author reach the script only through env: a branch name can hold `$(...)` and
+# backticks, and an expression written inside `run:` is pasted into the script before bash reads it.
+#
+# It starts in --mode warn, where every FAIL is reported as a WARN, and moves to --mode fail after a
+# week with no false HALT. Exit 0 CLEAR and 3 WARN pass the job; 1 FAIL and 2 cannot verify fail it.
+# Pinned, and run under bash on real git, by backend/tests/ciWorkflowPermissions.test.js.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  coordination:
+    name: Coordination — work ledger check
+    runs-on: ubuntu-latest
+    # A draft is checked once it is marked ready (ready_for_review above). A fork's branch is not on
+    # origin, so the engine could not read it.
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    # The engine spawns a few git processes per branch on origin; a hung fetch must not burn the
+    # Actions allowance for six hours.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The engine needs merge-bases with main for every branch, and refuses a shallow clone.
+          fetch-depth: 0
+      # Every branch on origin, under the refspec the engine reads, whatever the checkout fetched.
+      - name: Fetch every branch on origin
+        run: git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Take the engine from origin/main
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/coord"
+          git archive origin/main scripts/coord | tar -x -C "$RUNNER_TEMP/coord"
+      # The engine appends its report to $GITHUB_STEP_SUMMARY itself; a failure adds a line there too.
+      - name: Work ledger check
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          rc=0
+          node "$RUNNER_TEMP/coord/scripts/coord/coord.js" ci --branch "$HEAD_REF" --author "$PR_AUTHOR" --mode warn || rc=$?
+          case "$rc" in
+            0) ;;
+            3) echo "::warning title=Coordination::the work ledger check reports a WARN; read the job summary" ;;
+            *)
+              echo "::error title=Coordination::the work ledger check exited $rc (1 FAIL, 2 cannot verify); read the log above"
+              echo "**Work ledger check: exit $rc** (1 FAIL, 2 cannot verify). The reason is in the job log." >> "$GITHUB_STEP_SUMMARY"
+              exit "$rc"
+              ;;
+          esac

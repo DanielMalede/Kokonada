@@ -26,6 +26,18 @@
 // The binary is a pinned release whose SHA-256 is checked before anything in the archive runs.
 // The pins hold the exact commands, because a scan step that quietly narrows still reports green.
 //
+// MERGE COMMITS (OPS-157). gitleaks scans what `git log -p -U0 <log-opts>` prints, and `git log -p`
+// prints no patch for a merge commit unless asked. So a line written while resolving a conflict, or
+// any other change made in the merge commit itself, was inside the range and never scanned: PR #228's
+// range held 6 commits and gitleaks logged "4 commits scanned", the two merges of main being the
+// difference. `--diff-merges=remerge` shows a merge as the diff between git's own re-merge of its
+// parents, conflict markers included, and the commit as recorded: what the person merging wrote, and
+// nothing else. `-m` shows that too, but against each parent in full, so everything main brought in is
+// scanned again under the merge's SHA, re-raising any finding main carries under a fingerprint that
+// .gitleaksignore cannot hold in advance. `--cc` and `-c` print a combined diff that gitleaks 8.24.3
+// does not read: run against the release binary, neither caught a token written into a resolution.
+// The last tests run git with the workflow's own options over a real conflicted merge.
+//
 // THE OTHER WAYS TO SKIP A FINDING. `.gitleaksignore` is not the only channel, and a PR is scanned
 // with its own checkout, so whatever it adds there applies to its own scan. Checked against the
 // 8.24.3 release binary:
@@ -37,8 +49,9 @@
 //     history, so the flag changes no current result.
 // So no `.gitleaks.<ext>` config may exist, and the PR and push scan ignores inline markers.
 
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
@@ -72,7 +85,7 @@ const SCAN_COMMANDS = [
   'esac',
   'commits=$(git rev-list --count "$range")',
   'echo "gitleaks scans $range: $commits commits"',
-  '"$RUNNER_TEMP/gitleaks" git --log-opts="$range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .',
+  '"$RUNNER_TEMP/gitleaks" git --log-opts="--diff-merges=remerge $range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .',
 ];
 
 // gitleaks reads its config from `<checkout>/.gitleaks.<ext>`. `.gitleaksignore` has no dot after
@@ -251,6 +264,109 @@ describe('the PR and push secret scan (ci.yml, job secret-scan)', () => {
     expect(job.workflowKeys).toEqual(['name', 'on', 'permissions', 'jobs']);
     // A paths, paths-ignore, branches-ignore or types filter would exempt whole pushes or PR updates.
     expect(job.triggers).toEqual({ push: ['branches'], pull_request: ['branches'] });
+  });
+});
+
+describe('merge commits in the PR and push scan (OPS-157)', () => {
+  const job = secretScanJob();
+  const scan = job ? job.steps.find((s) => typeof s.run === 'string' && /gitleaks" git /.test(s.run)) : undefined;
+  const gitleaksCall = (scan && commandsOf(scan.run).find((c) => c.startsWith('"$RUNNER_TEMP/gitleaks" git '))) || '';
+  const logOpts = (gitleaksCall.match(/ --log-opts="([^"]*)" /) || [])[1];
+
+  const RESOLVED = 'a line written while resolving the conflict';
+  const ADDED_BY_MERGE = 'a line of a file the merge commit itself adds';
+  const FROM_MAIN = 'a line main brought in, scanned when it was pushed to main';
+
+  let sandbox;
+  let env;
+  let repo;
+  let range;
+  let mergeSha;
+
+  function git(args, { allow = [0] } = {}) {
+    const res = spawnSync('git', args, { cwd: repo, env, encoding: 'utf8', windowsHide: true });
+    if (!allow.includes(res.status)) throw new Error(`git ${args.join(' ')} exited ${res.status}:\n${res.stdout}${res.stderr}`);
+    return res.stdout;
+  }
+  const write = (rel, text) => fs.writeFileSync(path.join(repo, rel), text, 'utf8');
+
+  // gitleaks 8.24.3 (sources/git.go) runs `git -C <source> log -p -U0` followed by --log-opts split on
+  // single spaces. The same command, over a range shaped like a pull request's.
+  const gitleaksLog = (opts) => git(['-C', repo, 'log', '-p', '-U0', ...opts.replace('$range', range).split(' ')]);
+
+  // → the added lines of one commit's patch in `git log -p` output.
+  function addedLines(log, sha) {
+    const sections = log.split(/^(?=commit [0-9a-f]{40}\b)/m);
+    const own = sections.find((s) => s.startsWith(`commit ${sha}`)) || '';
+    return own.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).map((l) => l.slice(1));
+  }
+
+  beforeAll(() => {
+    sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'merge scan '));
+    const emptyConfig = path.join(sandbox, 'empty gitconfig');
+    fs.writeFileSync(emptyConfig, '');
+    env = { ...process.env };
+    for (const k of Object.keys(env)) if (/^GIT_/.test(k)) delete env[k];
+    Object.assign(env, {
+      GIT_CONFIG_GLOBAL: emptyConfig,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 'Probe',
+      GIT_AUTHOR_EMAIL: 'probe@example.com',
+      GIT_COMMITTER_NAME: 'Probe',
+      GIT_COMMITTER_EMAIL: 'probe@example.com',
+    });
+    repo = path.join(sandbox, 'repo');
+    fs.mkdirSync(repo);
+    git(['-c', 'init.defaultBranch=main', 'init', '--quiet']);
+    write('f.txt', 'one\ntwo\nthree\n');
+    git(['add', '--', 'f.txt']);
+    git(['commit', '--quiet', '-m', 'base']);
+    git(['checkout', '--quiet', '-b', 'feat']);
+    write('f.txt', 'one\ntwo on the branch\nthree\n');
+    git(['commit', '--quiet', '-am', 'the branch edits line two']);
+    git(['checkout', '--quiet', 'main']);
+    write('f.txt', 'one\ntwo on main\nthree\n');
+    write('main.txt', `${FROM_MAIN}\n`);
+    git(['add', '--', 'f.txt', 'main.txt']);
+    git(['commit', '--quiet', '-m', 'main edits line two and adds a file']);
+    git(['checkout', '--quiet', 'feat']);
+    // A real conflict: the merge stops on f.txt, and the person merging writes the resolution.
+    git(['merge', '--quiet', 'main'], { allow: [1] });
+    expect(git(['diff', '--name-only', '--diff-filter=U']).trim()).toBe('f.txt');
+    write('f.txt', `one\ntwo on the branch\n${RESOLVED}\nthree\n`);
+    write('merged.txt', `${ADDED_BY_MERGE}\n`);
+    git(['add', '--', 'f.txt', 'merged.txt']);
+    git(['commit', '--quiet', '-m', 'merge main into feat']);
+    mergeSha = git(['rev-parse', 'HEAD']).trim();
+    // base.sha..head.sha of a pull request from feat to main.
+    range = `${git(['rev-parse', 'main']).trim()}..${mergeSha}`;
+  }, 60000);
+
+  afterAll(() => {
+    if (sandbox) fs.rmSync(sandbox, { recursive: true, force: true });
+  });
+
+  it('asks git for each merge commit\'s own changes: --diff-merges=remerge, then the range', () => {
+    expect(logOpts).toBeDefined();
+    expect(logOpts.split(' ')).toEqual(['--diff-merges=remerge', '$range']);
+  });
+
+  it('on real git, the range alone shows no patch for the merge commit (the gap this closes)', () => {
+    expect(git(['rev-list', '--count', range]).trim()).toBe('2');
+    const log = gitleaksLog('$range');
+    expect(log).toContain(`commit ${mergeSha}`);
+    expect(addedLines(log, mergeSha)).toEqual([]);
+    expect(log).not.toContain(RESOLVED);
+  });
+
+  it("on real git, the workflow's options show what the merge commit itself wrote, and only that", () => {
+    const log = gitleaksLog(logOpts);
+    // The conflict resolution and the file added in the merge commit both reach the scan.
+    expect(addedLines(log, mergeSha)).toEqual(expect.arrayContaining([RESOLVED, ADDED_BY_MERGE]));
+    // What main brought in is not shown again under the merge's SHA.
+    expect(log).not.toContain(FROM_MAIN);
+    // The branch's own commit is still scanned as before.
+    expect(log).toContain('+two on the branch');
   });
 });
 
