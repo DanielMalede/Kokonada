@@ -1,4 +1,5 @@
-import { LIVE_SLOTS, NODE, NODE_SLOTS, SHARED_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import * as law from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
 // The uniform layout is the contract between the uniform builder (TypeScript) and the shader
@@ -42,10 +43,11 @@ const frame = (overrides: Partial<FieldFrame> = {}): FieldFrame => ({
 });
 
 describe('the field uniform layout', () => {
-  // Architect re-rule §2: three live slots and three shared by leaving placements and rest lobes
-  // (critic item 6 with the designer's sentence); each slot is 14 floats in 4 declarations.
-  it('has six node slots, three live and three shared: 122 floats in 37 declarations', () => {
-    expect([NODE_SLOTS, LIVE_SLOTS, SHARED_SLOTS]).toEqual([6, 3, 3]);
+  // Architect re-rule §2 and the designer's final ruling (1): one pool of six node slots, with no
+  // fixed live/shared split; each slot is 14 floats in 4 declarations.
+  it('has one pool of six node slots, no live/shared split: 122 floats in 37 declarations', () => {
+    expect(NODE_SLOTS).toBe(6);
+    expect(Object.keys(law).filter((k) => /LIVE_SLOTS|SHARED_SLOTS/.test(k))).toEqual([]);
     expect(FIELD_UNIFORMS).toHaveLength(13 + 4 * NODE_SLOTS);
     expect(FIELD_UNIFORMS.length).toBe(37);
     expect(FIELD_UNIFORM_FLOATS).toBe(38 + 14 * NODE_SLOTS);

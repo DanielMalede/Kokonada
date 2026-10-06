@@ -2,7 +2,7 @@ import { oklabToOklch } from '../../color/oklab.ts';
 import { breathCycles, breathLevel } from '../../motion/breathLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
-import { LIVE_SLOTS, NODE, NODE_SLOTS, inertNode } from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, inertNode } from '../fieldLaw.ts';
 import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState, type Placement } from '../fieldFrame.ts';
 import { emptyLedger, placementsOf, reconcile } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
@@ -127,14 +127,16 @@ describe('the frame for a moment', () => {
   });
 });
 
-// Architect re-rule §4 T4 (critic items 5 and 6, with the designer's sentence): six node slots, three
-// for live placements and three shared by rest lobes and leaving placements; slots are assigned
-// deterministically (live by ordinal to 0–2; rest lobes by index, then leaving by ordinal, to 3–5), and
-// a lobe's drift belongs to its placement's ordinal, mod the drift tables, for its whole life.
-describe('six node slots and the ordinal', () => {
+// Designer final ruling (1), on the architect's counter: node slots are ONE pool of NODE_SLOTS = 6
+// stable per-node slots, at most 3 of them live (the ledger's bound); there is no fixed live/shared
+// split. The builder draws every placement it is given, live or leaving, at its fade, plus the rest
+// lobes, each in the slot the ledger gives it (or, for a scene, the lowest free slot: placements by
+// ordinal, then rest lobes by index); more than NODE_SLOTS nodes throws, and nothing is ever cut. A
+// lobe's drift belongs to its placement's ordinal, mod the drift tables, for its whole life.
+describe('six node slots, one pool, and the ordinal', () => {
   const at = (x: number, y: number, more: Record<string, unknown> = {}) => ({ x, y, ...more });
 
-  it('live placements take slots 0–2 by ordinal; rest lobes, then leaving placements by ordinal, take 3–5; the rest is inert', () => {
+  it('a scene with no slots: placements by ordinal, live or leaving, then the rest lobes, take the lowest slots; the rest is inert', () => {
     const f = buildFieldFrame(
       state('abyss', 'dark', {
         placements: [at(0.5, 0.5, { ordinal: 5 }), at(-0.5, -0.5, { ordinal: 2, role: 'leaving', fade: 0.4 }), at(0.5, -0.5, { ordinal: 3 })],
@@ -145,20 +147,64 @@ describe('six node slots and the ordinal', () => {
     );
     expect(f.nodes).toHaveLength(NODE_SLOTS);
     expect(f.nodes.map((n) => [n.id, n.fade])).toEqual([
+      [NODE.R, 0.4], // ordinal 2, leaving
       [NODE.C, 1], // ordinal 3
       [NODE.J, 1], // ordinal 5
-      [NODE.R0, 0], // no third live placement
       [NODE.R0, 0.5], // rest lobe 0
       [NODE.R0, 0.5], // rest lobe 1
-      [NODE.R, 0.4], // leaving, ordinal 2
+      [NODE.R0, 0], // unused
     ]);
-    expect(f.nodes[2]).toEqual(inertNode());
+    expect(f.nodes[5]).toEqual(inertNode());
   });
 
-  it('more than three live placements: the oldest beyond three take shared slots, as leaving, with their fades', () => {
+  it('the slots the ledger gives are kept: each node is drawn in its own slot, the rest inert', () => {
+    const f = buildFieldFrame(
+      state('abyss', 'dark', {
+        placements: [at(0.5, 0.5, { ordinal: 0, slot: 4, fade: 0.25 }), at(0.5, -0.5, { ordinal: 1, slot: 0 })],
+        restFade: 0.6,
+        restSlots: [5, 2],
+      }),
+      geometry,
+      statics('abyss'),
+    );
+    expect(f.nodes.map((n) => [n.id, n.fade])).toEqual([[NODE.C, 1], [NODE.R0, 0], [NODE.R0, 0.6], [NODE.R0, 0], [NODE.J, 0.25], [NODE.R0, 0.6]]);
+    expect(f.nodes[2].centre).not.toEqual(f.nodes[5].centre); // rest lobe 1 in slot 2, rest lobe 0 in slot 5
+  });
+
+  // The architect's counter, the case that proves it (mutant L13): Linen, neutral placements only,
+  // rest lobes lit. Two quick undos, or a clear's first crossfade, leave 1 live, 2 leaving and 2 rest
+  // lobes: 5 nodes that fit 6 slots, but 4 of them non-live, which a 3/3 split cannot hold.
+  it('Linen’s double undo (or a clear’s first crossfade): 1 live, 2 leaving and 2 rest lobes are all drawn, none cut', () => {
+    const neutral = (ordinal: number, fade: number, role: 'live' | 'leaving') => at(0.03 * (ordinal + 1), 0.03, { ordinal, fade, role }); // r < 0.15: neutral
+    const f = buildFieldFrame(
+      state('linen', 'dark', { placements: [neutral(0, 1, 'live'), neutral(1, 0.5, 'leaving'), neutral(2, 0.5, 'leaving')], restFade: 1 }),
+      geometry,
+      statics('linen'),
+    );
+    expect(f.nodes.filter((n) => n.fade > 0).map((n) => [n.id, n.fade, n.bead === null ? 'rest' : 'bead'])).toEqual([
+      [NODE.R0, 1, 'bead'],
+      [NODE.R0, 0.5, 'bead'],
+      [NODE.R0, 0.5, 'bead'],
+      [NODE.R0, 1, 'rest'],
+      [NODE.R0, 1, 'rest'],
+    ]);
+  });
+
+  it('a raw scene list of four is drawn as four placements: nothing is cut', () => {
     const f = buildFieldFrame(state('abyss', 'dark', { placements: [at(0.5, 0.5, { fade: 0.2 }), at(0.5, -0.5), at(-0.5, -0.5), at(-0.5, 0.5)] }), geometry, statics('abyss'));
-    expect(f.nodes.slice(0, LIVE_SLOTS).map((n) => n.id)).toEqual([NODE.C, NODE.R, NODE.I]);
-    expect(f.nodes.slice(LIVE_SLOTS).map((n) => [n.id, n.fade])).toEqual([[NODE.J, 0.2], [NODE.R0, 0], [NODE.R0, 0]]);
+    expect(f.nodes.slice(0, 4).map((n) => [n.id, n.fade])).toEqual([[NODE.J, 0.2], [NODE.C, 1], [NODE.R, 1], [NODE.I, 1]]);
+  });
+
+  it('more than NODE_SLOTS nodes, or a slot out of range or taken twice, throws a RangeError: the builder never slices', () => {
+    const four = [at(0.5, 0.5), at(0.5, -0.5), at(-0.5, -0.5), at(-0.5, 0.5)];
+    const build = (more: Partial<FieldState>) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, statics('abyss'));
+    expect(build({ placements: four, restFade: 1 })).not.toThrow(); // 4 + 2 = 6
+    expect(build({ placements: [...four, at(0.3, 0.3)], restFade: 1 })).toThrow(RangeError); // 5 + 2 = 7
+    expect(build({ placements: [...four, at(0.3, 0.3), at(-0.3, 0.3)], restFade: 0 })).not.toThrow(); // 6 + 0
+    expect(build({ placements: [at(0.5, 0.5, { slot: 6 })], restFade: 0 })).toThrow(RangeError);
+    expect(build({ placements: [at(0.5, 0.5, { slot: 1.5 })], restFade: 0 })).toThrow(RangeError);
+    expect(build({ placements: [at(0.5, 0.5, { slot: 2 }), at(0.5, -0.5, { slot: 2 })], restFade: 0 })).toThrow(RangeError);
+    expect(build({ placements: [at(0.5, 0.5, { slot: 0 })], restFade: 1, restSlots: [0, 1] })).toThrow(RangeError);
   });
 
   it('a lobe’s drift is its ordinal’s, mod the drift tables, wherever its slot', () => {

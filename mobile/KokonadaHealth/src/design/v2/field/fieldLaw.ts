@@ -27,13 +27,12 @@ import { blueNoiseValue } from './blueNoise.ts';
 /** Node ids: the four quadrants and the rest glow. */
 export const NODE = { J: 0, C: 1, R: 2, I: 3, R0: 4 } as const;
 /**
- * Node slots (critic item 6 with the designer's sentence; architect re-rule §2): three for live
- * placements, and three shared by rest lobes and leaving placements (a rest lobe at fade 0 frees its
- * slot). A slot whose fade is 0 is skipped by a uniform branch in the shader; no value changes.
+ * Node slots (designer final ruling (1), on the architect's counter): one pool of six stable per-node
+ * slots, at most three of them live (the ledger's bound), with no fixed live/shared split. A node
+ * keeps its slot from the frame it enters until its fade reaches 0. A slot whose fade is 0 is skipped
+ * by a uniform branch in the shader; no value changes.
  */
-export const LIVE_SLOTS = 3;
-export const SHARED_SLOTS = 3;
-export const NODE_SLOTS = LIVE_SLOTS + SHARED_SLOTS;
+export const NODE_SLOTS = 6;
 
 export interface FieldNodeFrame {
   /** A NODE id. */

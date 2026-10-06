@@ -26,7 +26,7 @@ import type { Oklab } from '../color/oklab.ts';
 import { breathCycles, breathLevel } from '../motion/breathLaw.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
-import { LIVE_SLOTS, NODE, SHARED_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from './fieldLaw.ts';
+import { NODE, NODE_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from './fieldLaw.ts';
 
 export type PlacementNode = 'J' | 'C' | 'R' | 'I' | 'neutral';
 
@@ -44,17 +44,19 @@ export interface Placement {
    * its fade-out included (critic item 5). Default: its index in `placements`, a scene's order.
    */
   readonly ordinal?: number;
-  /** 'leaving' while it fades out after a replace, a removal or a clear. Default 'live'. */
+  /**
+   * The ledger's role, carried for the caller: the builder draws every placement it is given, live or
+   * leaving, at its fade. At most three are live; that bound is the ledger's.
+   */
   readonly role?: 'live' | 'leaving';
+  /** The node slot the ledger gave it, 0..NODE_SLOTS − 1, kept from entering to fade 0. Default: the lowest free slot. */
+  readonly slot?: number;
 }
 
 export interface FieldState {
   readonly direction: DirectionId;
   readonly face: Face;
-  /**
-   * Live and leaving placements. The three latest live ones by ordinal are live; an older one (a
-   * scene that lists four) is drawn as leaving, with its fade, until the ledger removes it.
-   */
+  /** Live and leaving placements, every one drawn at its fade, each in its own node slot. */
   readonly placements: readonly Placement[];
   /** Tension s in [0, 1]. */
   readonly stress: number;
@@ -68,6 +70,8 @@ export interface FieldState {
   readonly tier: MotionTier;
   /** The rest lobes' fade while beads exist (the rest-to-placement transition). Default 0. */
   readonly restFade?: number;
+  /** The node slot of each rest lobe, from the ledger. Default: the lowest free slots, after the placements. */
+  readonly restSlots?: readonly number[];
 }
 
 export interface FieldGeometry {
@@ -194,14 +198,13 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
   const tier = NODE_TIER[face];
   const restGlow = lab(colours.field.restGlow);
 
-  // Slots (architect re-rule §4 T4): live placements by ordinal take slots 0–2; rest lobes by index
-  // (while their fade is above 0), then leaving placements by ordinal, take the shared slots 3–5.
-  const entries = state.placements.map((placement, index) => ({ placement, ordinal: ordinalOf(placement.ordinal, index), leaving: placement.role === 'leaving' }));
-  const byOrdinal = (p: { ordinal: number }, q: { ordinal: number }) => p.ordinal - q.ordinal;
-  const staying = entries.filter((e) => !e.leaving).sort(byOrdinal);
-  const cut = Math.max(0, staying.length - LIVE_SLOTS);
-  const live = staying.slice(cut);
-  const leaving = [...staying.slice(0, cut), ...entries.filter((e) => e.leaving)].sort(byOrdinal);
+  // Slots (designer final ruling (1)): one pool. Every placement, live or leaving, and every rest lobe
+  // whose fade is above 0 takes a node slot: the one the ledger gave it, or else the lowest free one
+  // (placements by ordinal, then rest lobes by index). More than NODE_SLOTS nodes, or a slot out of
+  // range or taken twice, throws: the builder never cuts a node (the ledger's admission bounds demand).
+  const entries = state.placements
+    .map((placement, index) => ({ placement, ordinal: ordinalOf(placement.ordinal, index) }))
+    .sort((p, q) => p.ordinal - q.ordinal);
 
   // A placement's lobe and halo; its drift is its ordinal's, never its slot's.
   const placed = (placement: Placement, ordinal: number): FieldNodeFrame => {
@@ -234,22 +237,34 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     return { id: NODE[node], fade, centre, radius, field: tense(halo), halo, bead };
   };
 
-  const nodes: FieldNodeFrame[] = [];
-  for (let i = 0; i < LIVE_SLOTS; i++) nodes.push(i < live.length ? placed(live[i].placement, live[i].ordinal) : inertNode());
+  const items: Array<{ node: FieldNodeFrame; slot: number | undefined }> = entries.map((e) => ({ node: placed(e.placement, e.ordinal), slot: e.placement.slot }));
   // Before any placement the rest glow shows on the rest lobes; once a bead is placed they fade out.
   // Rest lobe i keeps drift table i. A rest lobe at fade 0 frees its slot.
   const restFade = state.placements.length === 0 ? 1 : clamp01(finite(state.restFade ?? 0, 0));
-  const shared: FieldNodeFrame[] = [];
   if (restFade > 0) {
     statics.restLobes.forEach(([rx, ry], i) => {
       const [ox, oy] = offset(i);
-      shared.push({ id: NODE.R0, fade: restFade, centre: [rx + ox, ry + oy], radius, field: tense(restGlow), halo: restGlow, bead: null });
+      const node = { id: NODE.R0, fade: restFade, centre: [rx + ox, ry + oy] as [number, number], radius, field: tense(restGlow), halo: restGlow, bead: null };
+      items.push({ node, slot: state.restSlots === undefined ? undefined : state.restSlots[i] });
     });
   }
-  for (const e of leaving) shared.push(placed(e.placement, e.ordinal));
-  // The ledger admits no more than the shared slots hold (designer, admission DEC; T5's E3 pins it):
-  // beyond them nothing is drawn, so this never cuts a node on the ruled path.
-  for (let i = 0; i < SHARED_SLOTS; i++) nodes.push(i < shared.length ? shared[i] : inertNode());
+  if (items.length > NODE_SLOTS) {
+    throw new RangeError(`a field frame holds at most ${NODE_SLOTS} nodes, got ${items.length}`);
+  }
+  const slots: Array<FieldNodeFrame | null> = [];
+  for (let i = 0; i < NODE_SLOTS; i++) slots.push(null);
+  for (const item of items) {
+    if (item.slot === undefined) continue;
+    if (!(Number.isInteger(item.slot) && item.slot >= 0 && item.slot < NODE_SLOTS) || slots[item.slot] !== null) {
+      throw new RangeError(`node slot ${item.slot} is out of range or taken twice`);
+    }
+    slots[item.slot] = item.node;
+  }
+  for (const item of items) {
+    if (item.slot !== undefined) continue;
+    slots[slots.indexOf(null)] = item.node;
+  }
+  const nodes: FieldNodeFrame[] = slots.map((node) => (node === null ? inertNode() : node));
 
   return {
     centrePx: [finite(geometry.centrePx[0], 0), finite(geometry.centrePx[1], 0)],
