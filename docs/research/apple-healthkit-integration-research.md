@@ -1,9 +1,9 @@
 # Apple HealthKit Integration Research
 
-**Status:** research recommendation; no dependency, entitlement, permission, or data collection was added
+**Status:** server authoritative-store prerequisite implemented in draft PR #232; no iOS dependency, entitlement, permission, or HealthKit reader was added
 
 **Date:** 2026-10-06
-**Task:** MB-105
+**Task:** MB-900 (`MB-105` is a separate Health Connect history-window task)
 
 ## Executive recommendation
 
@@ -31,7 +31,9 @@ The mobile app is a bare React Native application, not Expo managed:
 - no HealthKit usage description exists in `Info.plist`;
 - Android already uses `react-native-health-connect` and reads six months of heart rate, resting heart rate, RMSSD HRV, and sleep.
 
-The server now has an additive v2 batch envelope for future HealthKit clients. It validates HealthKit UUID identity and SDNN semantics but does not yet persist sample identity or implement deletions.
+The server now has the complete additive v2 storage prerequisite for a future HealthKit client. It persists keyed sample identity in the encrypted `HealthSample` collection, applies idempotent upserts and deletion tombstones, keeps SDNN distinct from RMSSD in the read model, rebuilds supported derived values, repairs interrupted projections, and covers account/provider erasure, owner export and 90-day retention. The legacy Health Connect v1 path remains unchanged; Health Connect v2 is explicitly rejected until it receives its own implementation decision.
+
+The three production indexes required by this collection are documented in `docs/runbooks/health-sample-index-rollout.md`. Creating and visually verifying them in MongoDB Atlas is an owner action; this PR does not mutate production.
 
 ## HealthKit is a store, not an Apple Watch API
 
@@ -54,7 +56,7 @@ The server contract should receive a normalized, privacy-minimized representatio
 |---|---|---|---|---|---|
 | Heart rate | `HKQuantityTypeIdentifierHeartRate` | quantity, count/min | Apple Watch, external sensor, apps | supported as `heart_rate` | MVP |
 | Resting heart rate | `HKQuantityTypeIdentifierRestingHeartRate` | quantity, count/min | Apple-computed or other source | supported as `resting_heart_rate` | MVP |
-| HRV | `HKQuantityTypeIdentifierHeartRateVariabilitySDNN` | quantity, ms, SDNN | Apple Watch/HealthKit sources | wire contract supports SDNN; storage model still labels generic `hrv` | MVP only with method preserved; storage follow-up required |
+| HRV | `HKQuantityTypeIdentifierHeartRateVariabilitySDNN` | quantity, ms, SDNN | Apple Watch/HealthKit sources | authoritative and projected rows preserve `sdnn`; RMSSD baselines remain separate | MVP server prerequisite complete; native reader pending |
 | Sleep | `HKCategoryTypeIdentifierSleepAnalysis` | category intervals | Apple Watch, apps, manual data | deep/light/REM supported | MVP; map `asleepCore` to light and ignore awake/in-bed/unspecified initially |
 | Respiratory rate | `HKQuantityTypeIdentifierRespiratoryRate` | quantity, count/min | automatically recorded on Apple Watch when available | not accepted by v2 contract | next candidate |
 | Workout | shared `HKWorkoutType` | activity, duration, statistics | Apple Watch and apps | no storage model | next candidate, separate contract |
@@ -108,7 +110,7 @@ Use one persisted anchor per HealthKit type and authorization context.
 
 5. On later syncs, reuse the anchor to receive only added and deleted objects.
 
-6. Do not enable production anchored sync until the server persists sample identity, supports retry idempotency, and processes tombstones. The current server correctly rejects any delete-bearing batch.
+6. The server prerequisite is now implemented: it persists sample identity, makes retries idempotent, and processes tombstones. Production anchored sync must still wait for the Atlas index rollout and the native outbox/anchor implementation and real-device verification.
 
 Deleted HealthKit objects are not permanent history. Apple may eventually remove deletion records, so background observation plus anchored follow-up is required if Kokonada promises deletion fidelity.
 
@@ -167,9 +169,9 @@ This costs more maintenance but gives Kokonada control over the exact contract a
 
 ## Recommended delivery sequence
 
-1. Finish server identity storage and idempotent upsert semantics.
+1. **Complete in PR #232:** server identity storage and idempotent upsert semantics.
 
-2. Implement tombstones and aggregate recomputation, then enable delete operations in v2.
+2. **Complete in PR #232:** tombstones, aggregate recomputation, repair worker, v2 delete operations and privacy lifecycle coverage. Before deployment, Daniel or Malede creates and verifies the production indexes using the runbook.
 
 3. Run the bridge spike on a temporary branch without changing production screens.
 
@@ -206,9 +208,10 @@ No native implementation should begin until these decisions are approved:
 - whether the product accepts a possible increase in minimum iOS version;
 - final read-only permission copy and privacy disclosure;
 - whether samples from non-Apple sources are accepted, filtered, or labeled;
-- whether generic server `hrv` storage is migrated to preserve SDNN versus RMSSD;
-- retention and deletion behavior for raw samples and derived aggregates;
+- whether the first iOS release accepts non-Apple HealthKit sources, filters them, or labels them;
 - whether respiratory rate and workouts belong in the first product release or a later contract.
+
+Resolved on the server side in PR #232: Apple HRV is preserved as SDNN rather than mixed into RMSSD baselines; authoritative samples and tombstones use a 90-day expiry; deletes rebuild the supported read models; provider/account erasure and owner export include the new collection.
 
 ## Primary sources
 
