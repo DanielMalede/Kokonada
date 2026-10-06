@@ -104,6 +104,22 @@ function blindIndexAll(value) {
 }
 
 /**
+ * J2 (BE-084, DT-1): a keyed pseudonym of `value` for ONE named purpose. HMAC-SHA256 under a subkey that
+ * HKDF derives from the primary key and `info` (no salt), as base64url. Deterministic (the same value
+ * gives the same pseudonym on every replica), not computable without the key, and never equal to the
+ * blind index or to a pseudonym for another purpose. Rotating ENCRYPTION_KEY changes every pseudonym.
+ * Throws without a usable ENCRYPTION_KEY.
+ * @param {string} info  the purpose, e.g. 'kokonada:job-id:state-vector-recompute:v1'
+ * @param {*} value
+ * @returns {string} base64url digest (43 characters)
+ */
+function keyedPseudonym(info, value) {
+  if (typeof info !== 'string' || info === '') throw new Error('keyedPseudonym needs a purpose');
+  const subkey = Buffer.from(crypto.hkdfSync('sha256', getKeys()[0], Buffer.alloc(0), info, 32));
+  return crypto.createHmac('sha256', subkey).update(String(value)).digest('base64url');
+}
+
+/**
  * Structural check: is `blob` shaped like one of OUR ciphertexts (base64 of iv + authTag + >=1
  * ciphertext byte)? This is about FORMAT, not authenticity — a tampered blob still returns true.
  * Lets a caller tell "well-formed blob that failed to decrypt" (real tamper/wrong-key/AAD alarm)
@@ -118,4 +134,4 @@ function isCiphertextFormat(blob) {
   return buf.length >= IV_LENGTH + AUTH_TAG_LENGTH + 1;
 }
 
-module.exports = { encrypt, decrypt, blindIndex, blindIndexAll, isCiphertextFormat };
+module.exports = { encrypt, decrypt, blindIndex, blindIndexAll, keyedPseudonym, isCiphertextFormat };

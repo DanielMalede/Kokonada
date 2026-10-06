@@ -30,10 +30,11 @@ const { connectRedis, getRedis } = require('../app/config/redis');
 const { purgeUserKeys } = require('../app/utils/userRedisPurge');
 const { purgeUserJobs, countUserJobs } = require('../app/queues/userJobPurge');
 const { closeQueues } = require('../app/queues/queue');
+const { revokeHealthConsentForDeletion, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
 
 // An error's class name, or 'Error': never its message (a driver message can quote values).
 const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
-const JOB_QUEUE = 'Job queue (bull:reward-ingest:)';
+const JOB_QUEUE = 'Job queue (bull:reward-ingest:, bull:state-vector-recompute:)';
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -101,9 +102,9 @@ async function main() {
       } else {
         try {
           const jobs = await countUserJobs(userId);
-          console.log(`  ${JOB_QUEUE}: ${jobs.jobs} learning job(s) would be deleted; ${jobs.inFlight} running`);
+          console.log(`  ${JOB_QUEUE}: ${jobs.jobs} learning or state-recompute job(s) would be deleted; ${jobs.inFlight} running`);
         } catch (e) {
-          console.log(`  ${JOB_QUEUE}: learning jobs could not be counted (${errorType(e)})`);
+          console.log(`  ${JOB_QUEUE}: the jobs could not be counted (${errorType(e)})`);
         }
       }
 
@@ -120,6 +121,7 @@ async function main() {
       const refreshCount      = await RefreshToken.countDocuments({ userId });
       const unclassifiedCount = await UnclassifiedTrack.countDocuments({ userId });
       const consentCount      = await ConsentRecord.countDocuments({ userId });
+      const latestConsent     = await ConsentRecord.latestFor(userId, HEALTH_CONSENT_PURPOSE);
       const userExists        = await User.findById(userId).lean();
 
       console.log(`  BiometricLog: ${biometricCount} document(s) would be deleted`);
@@ -134,7 +136,7 @@ async function main() {
       console.log(`  Identity: ${identityCount} document(s) would be deleted`);
       console.log(`  RefreshToken: ${refreshCount} document(s) would be deleted`);
       console.log(`  UnclassifiedTrack: ${unclassifiedCount} document(s) would be deleted`);
-      console.log(`  ConsentRecord: ${consentCount} document(s) would be deleted`);
+      console.log(`  ConsentRecord: ${latestConsent?.status === 'granted' ? 'a withdrawal of health-data consent would be recorded first; ' : ''}${consentCount} document(s) would be deleted`);
       console.log(`  User: ${userExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
       console.log('  Redis: user-scoped ledger/pool/baseline keys would be purged');
       console.log('[DRY RUN] No changes made.');
@@ -144,21 +146,38 @@ async function main() {
       // J1 (BE-074): FIRST, as in services/privacy/erasure.js, so a waiting learning job cannot run after
       // the deletes below and write learned preferences back. Best-effort: a failure is reported and
       // audited, and the deletion carries on. A running job is deleted by the queue once it has run.
+      // J2 (T4): the purge also reaches the state-recompute jobs; each queue is reported and audited on its own.
       let learningJobs;
+      let stateJobs;
       if (!process.env.REDIS_URL) {
         // The purge answers zero without REDIS_URL because the app then enqueues nothing; this script runs
         // elsewhere, so here it only means the job queue was never looked at.
         learningJobs = 'not-reached';
+        stateJobs = 'not-reached';
         console.log(`  ${JOB_QUEUE}: not reached (REDIS_URL is not set)`);
       } else {
         try {
           const jobs = await purgeUserJobs(userId);
-          learningJobs = jobs.removed;
-          console.log(`  ${JOB_QUEUE}: deleted ${jobs.removed} learning job(s); ${jobs.inFlight} running, deleted by the queue once run`);
+          learningJobs = jobs.byQueue['reward-ingest'].removed;
+          stateJobs = jobs.byQueue['state-vector-recompute'].removed;
+          console.log(`  ${JOB_QUEUE}: deleted ${learningJobs} learning job(s) and ${stateJobs} state-recompute job(s); ${jobs.inFlight} running, deleted by the queue once run`);
         } catch (e) {
           learningJobs = 'failed';
+          stateJobs = 'failed';
           console.log(`  ${JOB_QUEUE}: learning-jobs purge failed (${errorType(e)})`);
         }
+      }
+
+      // J2 (BE-087, DT-6 M1′): then, as in services/privacy/erasure.js, the mark BEFORE any delete: a
+      // withdrawal row when the latest health-consent row is a grant, so a step that re-checks consent
+      // mid-deletion stops processing the account's health data. Best-effort: reported and audited.
+      let consentRevoked;
+      try {
+        consentRevoked = await revokeHealthConsentForDeletion(userId);
+        console.log(`  ConsentRecord: ${consentRevoked === 'revoked' ? 'recorded a withdrawal of health-data consent first' : 'no grant on file, no withdrawal recorded'}`);
+      } catch (e) {
+        consentRevoked = 'failed';
+        console.log(`  ConsentRecord: the withdrawal could not be recorded (${errorType(e)})`);
       }
 
       const biometricResult = await BiometricLog.deleteMany({ userId });
@@ -228,6 +247,8 @@ async function main() {
         userId,
         deleted: {
           learningJobs,
+          stateJobs,
+          consentRevoked,
           biometricLogs:    biometricResult.deletedCount,
           medicalProfile:   medicalResult.deletedCount,
           morningStates:    morningResult.deletedCount,

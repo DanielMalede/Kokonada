@@ -42,6 +42,10 @@ const { encrypt, decrypt } = require('../app/utils/encryption');
 const { translate } = require('../app/services/biosonic/translate');
 const baselines = require('../app/services/biosonic/baselines');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
+const { stateVectorJobId } = require('../app/queues/stateVectorJob');
+const fs = require('fs');
+const path = require('path');
+const espree = require('espree');
 
 const sleepMetric = (metric, value) => ({ metric, value, unit: 'min', recordedAt: new Date('2026-07-01T06:00:00Z'), source: 'health_connect' });
 
@@ -63,24 +67,74 @@ describe('ATTACK 1 — full-system regression boundaries', () => {
       // Deterministic jobId + delay = BullMQ coalesces the burst into ONE run;
       // removeOnComplete frees the id so the NEXT batch can re-queue.
       expect(opts).toEqual(expect.objectContaining({
-        jobId: 'state-vector-u1', // BullMQ forbids ':' in custom job ids
+        jobId: stateVectorJobId('u1'),
         delay: expect.any(Number),
         removeOnComplete: true,
         removeOnFail: true,
       }));
+      expect(opts.jobId).toMatch(/^sv-[A-Za-z0-9_-]{22}$/);
     }
   });
 
+  // P15 (J2 round 1, signed): the assertion is unchanged; it now measures. The old body diffed `require.cache`
+  // around a require inside `jest.isolateModules`, and that proxy reads the main module registry, not the
+  // isolated one, so `loaded` was always empty: a planted `require('../models/ServeEvent')` in the worker still
+  // passed. Now a static walk, with espree, of every relative `require('./…')` the worker reaches, lazy ones
+  // included.
   it('the stateVector worker imports touch no other phase (identity/features/ledger stay isolated)', () => {
-    jest.isolateModules(() => {
-      const before = Object.keys(require.cache).length;
-      require('../app/workers/stateVector.worker');
-      const loaded = Object.keys(require.cache).slice(before);
-      const forbidden = loaded.filter(p => /AudioFeature|ServeEvent|trackIdentity|serveLedger|featureService/.test(p));
-      expect(forbidden).toEqual([]);
-    });
+    const loaded = relativeRequireClosure(WORKER_FILE);
+    const forbidden = loaded.filter(p => /AudioFeature|ServeEvent|trackIdentity|serveLedger|featureService/.test(p));
+    expect(forbidden).toEqual([]);
+  });
+
+  it('the walk is not vacuous: it reaches every import of the worker, and it sees a planted forbidden edge', () => {
+    const loaded = relativeRequireClosure(WORKER_FILE).map((p) => path.relative(APP_DIR, p).split(path.sep).join('/'));
+    expect(loaded).toEqual(expect.arrayContaining([
+      'services/biosonic/baselines.js', 'services/medicalProfileService.js', 'services/biosonic/affectService.js',
+      'repositories/sleepHistoryRepo.js', 'utils/userRedisPurge.js', 'queues/stateVectorJob.js', 'models/MedicalProfile.js',
+    ]));
+    const planted = relativeRequireClosure(WORKER_FILE, { [WORKER_FILE]: "const x = require('../models/ServeEvent');\nfunction later() { return require('../services/features/featureService'); }" })
+      .filter(p => /ServeEvent|featureService/.test(p));
+    expect(planted.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// P15: every file reachable from `entry` through relative `require('./…')` calls, anywhere in a file (a lazy
+// require inside a function counts). Read with espree, never executed. `overrides` replaces a file's source.
+const APP_DIR = path.join(__dirname, '../app');
+const WORKER_FILE = path.join(APP_DIR, 'workers/stateVector.worker.js');
+function relativeRequireClosure(entry, overrides = {}) {
+  const seen = new Set();
+  const queue = [entry];
+  const resolve = (from, spec) => {
+    const base = path.resolve(path.dirname(from), spec);
+    return [base, `${base}.js`, path.join(base, 'index.js')].find((p) => p.endsWith('.js') && fs.existsSync(p));
+  };
+  const requiresIn = (node, out) => {
+    if (!node || typeof node.type !== 'string') return out;
+    if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'require'
+      && node.arguments[0]?.type === 'Literal' && typeof node.arguments[0].value === 'string') out.push(node.arguments[0].value);
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach((v) => requiresIn(v, out));
+      else if (value && typeof value.type === 'string') requiresIn(value, out);
+    }
+    return out;
+  };
+  while (queue.length) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const src = overrides[file] ?? fs.readFileSync(file, 'utf8');
+    const ast = espree.parse(src, { ecmaVersion: 'latest', sourceType: 'script' });
+    for (const spec of requiresIn(ast, [])) {
+      if (!spec.startsWith('.')) continue;
+      const target = resolve(file, spec);
+      if (target && !seen.has(target)) queue.push(target);
+    }
+  }
+  seen.delete(entry);
+  return [...seen];
+}
 
 describe('ATTACK 2 — baseline math chaos', () => {
   it('one hour of sleep skews the ceiling DOWN but never breaks the floor or the ranges', () => {

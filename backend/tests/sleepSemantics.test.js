@@ -25,6 +25,7 @@ const MedicalProfile = require('../app/models/MedicalProfile');
 const { enqueue } = require('../app/queues/queue');
 const { computeLastNightSleep } = require('../app/services/medicalProfileService');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
+const { stateVectorJobId } = require('../app/queues/stateVectorJob');
 
 const sleep = (metric, value, iso) => ({ metric, value, unit: 'min', recordedAt: new Date(iso), source: 'health_connect' });
 
@@ -106,7 +107,7 @@ describe('persistMetrics — lastNightSleep persistence', () => {
     expect(enqueue).toHaveBeenCalledWith(
       'state-vector-recompute',
       { userId: 'u1' },
-      expect.objectContaining({ jobId: 'state-vector-u1' })
+      expect.objectContaining({ jobId: stateVectorJobId('u1') })
     );
   });
 

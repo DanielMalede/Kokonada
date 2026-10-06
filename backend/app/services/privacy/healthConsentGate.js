@@ -1,20 +1,18 @@
 'use strict';
 
-// H3a — ONE definition of "a CURRENT Art.9 grant" for every server boundary that admits or persists
-// a biometric value: the requireConsent middleware, the inline REST gates (device-token and
-// server-to-server routes have no req.user for the middleware) and the socket events. The rule used
-// to be copied by hand in five places; the P5 consent-version transition window edits only this.
+// The gates every server boundary that admits or persists a biometric value asks: the requireConsent
+// middleware's 403 reason, the socket forms, and (re-exported) the state-recompute job's fence. H3a's ONE
+// definition of "a CURRENT Art.9 grant" lives in consentState.js (J2 round 1, M1) and is used from there.
 //
 // The consent service is read at CALL time through the module object, never destructured at load:
 // several suites jest.mock it with a partial surface (requireConsent.test.js mocks getConsentStatus
 // only), and a load-time destructure would freeze whatever that suite's mock happened to export.
 
 const consent = require('./consent');
-
-/** THE definition. Fails closed on anything unshaped (mirrors the mobile healthLane.isCurrentGrant). */
-function isCurrentGrant(status) {
-  return !!status && status.granted === true && status.staleVersion === false;
-}
+// H3a's one definition of a current grant, and the verdict mapping, live in consentState.js (J2 round 1, M1);
+// the state-recompute job's fence lives in healthWriteFence.js. Both are re-exported below unchanged.
+const { isCurrentGrant, verdictOf } = require('./consentState');
+const { healthWriteFence } = require('./healthWriteFence');
 
 /** The machine-readable 403 reason for a status that is not current; null when it is. */
 function denialReason(status) {
@@ -37,9 +35,7 @@ async function healthProcessingVerdict(userId) {
   } catch {
     return { admitted: false, reason: 'consent_read_error' };
   }
-  return isCurrentGrant(status)
-    ? { admitted: true, reason: null }
-    : { admitted: false, reason: 'consent_not_current' };
+  return verdictOf(status);
 }
 
 /** The socket form: the verdict's admitted bit. Never throws; fails closed (see above). */
@@ -47,4 +43,6 @@ async function admitHealthProcessing(userId) {
   return (await healthProcessingVerdict(userId)).admitted;
 }
 
-module.exports = { isCurrentGrant, denialReason, healthProcessingVerdict, admitHealthProcessing };
+module.exports = {
+  isCurrentGrant, denialReason, healthProcessingVerdict, admitHealthProcessing, healthWriteFence,
+};

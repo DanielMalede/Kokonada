@@ -171,4 +171,58 @@ describeRealRedis('POST /api/consent/withdraw and the job queue', (url) => {
     expect(withdrawalLine()).toContain(' providerErasureFailures=0 learningJobs=failed learning=purged ');
     expect(await jobsOf(a)).toHaveLength(1); // it could not be reached: it runs, then the queue deletes it
   });
+
+  // J2 (BE-087; Plan B T7, DT-8 L3): the state-recompute jobs go under the same gate, and the line ends with
+  // their own count, so `learningJobs=` still counts learning jobs only.
+  describe('the state-recompute jobs (J2, T7)', () => {
+    const { stateVectorJobOptions } = require('../app/queues/stateVectorJob');
+    const { enqueue } = require('../app/queues/queue');
+    const { QUEUES } = require('../app/queues/definitions');
+    const S = `bull:${QUEUES.STATE_VECTOR_RECOMPUTE}:`;
+    const queueState = (user) => enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId: String(user._id) }, stateVectorJobOptions(user._id, 60_000));
+    const stateJobOf = async (user) => redis.zscore(`${S}delayed`, stateVectorJobOptions(user._id, 60_000).jobId);
+
+    it('A\'s waiting state job is gone before the response, B\'s stays, and the line ends stateJobs=1', async () => {
+      const a = await listener('a');
+      const b = await listener('b');
+      await grant(a);
+      await grant(b);
+      await seedLearning(a);
+      for (const user of [a, b]) await expect(queueState(user)).resolves.toEqual({ queued: true });
+
+      const res = await withdrawOverHttp(a);
+
+      expect(res.status).toBe(200);
+      expect(await stateJobOf(a)).toBeNull();
+      expect(await stateJobOf(b)).not.toBeNull();
+      expect(withdrawalLine()).toContain(' learningJobs=1 learning=purged ');
+      expect(withdrawalLine()).toMatch(/ stateJobs=1$/);
+    });
+
+    it('a mood-only listener keeps the state job: stateJobs=skipped', async () => {
+      const m = await listener('mood');
+      await queueState(m);
+
+      expect((await withdrawOverHttp(m)).status).toBe(200);
+
+      expect(await stateJobOf(m)).not.toBeNull();
+      expect(withdrawalLine()).toMatch(/ learningJobs=skipped .* stateJobs=skipped$/);
+    });
+
+    it('with the job queue unreachable: stateJobs=failed, and one learning-jobs entry for the one call', async () => {
+      const a = await listener('a');
+      await grant(a);
+      process.env.REDIS_URL = 'redis://127.0.0.1:1';
+
+      let out;
+      try {
+        out = await withdrawConsent(a._id, HEALTH_CONSENT_PURPOSE);
+      } finally {
+        process.env.REDIS_URL = url;
+      }
+
+      expect(out.erasureFailures).toEqual(['learning-jobs']);
+      expect(withdrawalLine()).toMatch(/ learningJobs=failed .* stateJobs=failed$/);
+    });
+  });
 });
