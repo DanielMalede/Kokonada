@@ -193,6 +193,9 @@ jobs:
       # release declares and compiles no Design Lab, and that the lab declares none of the real app
       # (no MainActivity, network, health or Bluetooth permission, or real-app scheme). The scripts
       # exit 2 when there is nothing to check, so a skipped merge cannot pass.
+      # MB-093: assertManifests.mjs also holds every uploadable variant's merged permissions (release,
+      # and debug, merged by the step above) to scripts/lab/uploadPermissions.mjs: no location for API
+      # 23+, FINE and legacy Bluetooth only up to API 30, a neverForLocation scan, and an allow-list.
       - name: Design Lab — merged manifests and release classes
         if: steps.changes.outputs.android == 'true'
         run: |

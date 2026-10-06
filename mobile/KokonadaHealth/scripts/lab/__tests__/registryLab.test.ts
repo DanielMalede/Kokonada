@@ -35,9 +35,15 @@ describe('QA-077: the restated pass rule (resilience-auditor, V1 lab round 1, se
     expect(qa).toMatch(/added: 'pass rule clause B 6a: [^']+' source: 'V1 lab round-2 review, architect/);
   });
 
-  it('says that lab evidence never stands for release evidence, and what controls iOS until its guard lands', () => {
+  it('says that lab evidence never stands for release evidence, and what controls iOS: the wrapper\'s refusals, and the IPA scan for the whole class (MB-093)', () => {
     expect(qa).toContain('Lab-variant evidence (`buildType: lab`) never satisfies a release-evidence clause (QA-031).');
-    expect(qa).toContain("Clause A1's iOS part closes with the store-gate PR; until then clause D9's IPA scan is the iOS control.");
+    expect(qa).toContain("Clause A1's iOS part is built by MB-093 (`ios/scripts/bundle-react-native.sh`, pinned and run by `scripts/ios/__tests__/bundlePhase.test.ts`) and closes on that PR's green macOS CI log. The refusals are not exhaustive. Refused by the wrapper: `ENTRY_FILE`, `index.ios.js`, `EXTRA_PACKAGER_ARGS`, `CLI_PATH`, `BUNDLE_COMMAND`, `BUNDLE_CONFIG`, `CONFIG_JSON`, `CONFIG_CMD`, `NODE_ARGS`, `BUNDLE_NAME`, a foreign `PROJECT_ROOT`, and `SKIP_BUNDLING` outside Debug. IPA scan only: `NODE_BINARY` and `HERMES_CLI_PATH` (set legitimately by `.xcode.env` and React Native's pods), any variable dropped after the macOS run (named in the wrapper), and any other input that alters the bundler. Clause D9's IPA scan remains the control for the whole class.");
+    expect(qa).not.toContain('closes with the store-gate PR; until then');
+  });
+
+  it('clause A1 names every input the iOS bundle phase refuses, recorded as an amendment (MB-093)', () => {
+    expect(qa).toContain('- the iOS bundle phase, after sourcing `.xcode.env` and `.xcode.env.local`, refuses: a non-empty `ENTRY_FILE` other than `index.js`; an `index.ios.js`; a non-empty `EXTRA_PACKAGER_ARGS`, `CLI_PATH`, `BUNDLE_COMMAND`, `BUNDLE_CONFIG`, `CONFIG_JSON`, `CONFIG_CMD`, `NODE_ARGS` or `BUNDLE_NAME`; a `PROJECT_ROOT` other than the app root; and `SKIP_BUNDLING` outside Debug (MB-093, `ios/scripts/bundle-react-native.sh`).');
+    expect(qa).toMatch(/- field: 'pass rule' added: '[^']+' source: 'MB-093, compliance-auditor and resilience-auditor round 1, 2026-10-04'/);
   });
 });
 
@@ -52,11 +58,14 @@ describe('CMP-141: the Design Lab is absent from every uploaded build (complianc
     expect(cmp()).toContain('- severity if broken: P0');
   });
 
-  it('is verified where the checks really run, with the iOS control until the store-gate PR', () => {
+  it('is verified where the checks really run, with the iOS wrapper for the refused inputs and the exact-IPA scan for every input (MB-093)', () => {
     for (const check of ['node scripts/lab/assertLabExcluded.mjs', 'node scripts/lab/assertManifests.mjs', 'positive control', 'createBundleReleaseJsAndAssets', '--scan']) {
       expect(cmp()).toContain(check);
     }
-    expect(cmp()).toContain('No iOS archive is exported for upload, and nothing goes to TestFlight or App Store Connect, until the store-gate PR is merged and the IPA scan exits 0.');
+    expect(cmp()).toContain("Nothing goes to TestFlight or App Store Connect unless MB-093 is merged and the exact IPA's scan exits 0.");
+    expect(cmp()).toContain('The list is not exhaustive; the exact-IPA scan is the control for the whole class;');
+    expect(cmp()).toContain('and for iOS, the bundle-phase wrapper `ios/scripts/bundle-react-native.sh` (MB-093; pinned and run by `scripts/ios/__tests__/bundlePhase.test.ts`, and run for real by the macOS CI job) for the refused inputs, with the exact-IPA scan as the control for every input');
+    expect(cmp()).not.toContain('the store-gate PR');
   });
 
   it('quotes Apple 2.2 as it reads today ("should be intended")', () => {
