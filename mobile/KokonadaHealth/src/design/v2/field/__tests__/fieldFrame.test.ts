@@ -5,7 +5,7 @@ import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/toke
 import { NODE } from '../fieldLaw.ts';
 import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState } from '../fieldFrame.ts';
 import { staticsFor } from '../statics.ts';
-import { packFrame } from '../uniforms.ts';
+import { FIELD_UNIFORMS, packFrame } from '../uniforms.ts';
 
 // The uniform builder: tokens, the extensions the caller passes in (app code may not import them),
 // and the state of the moment, to one FieldFrame. Everything that moves with t, s, c, the breath or
@@ -287,19 +287,66 @@ describe('the builder clamps what it is given', () => {
   });
 });
 
-// QA-068: nothing in the field moves faster than a 3 Hz oscillation of the same amplitude would.
-describe('no uniform moves faster than 3 Hz', () => {
-  it.each(IDS)('%s: over a whole period, sampled every 5 ms', (id) => {
-    const samples: number[][] = [];
-    for (let t = 0; t < T; t += 5) samples.push(packFrame(buildFieldFrame(state(id, 'dark', { tMs: t }), geometry, statics(id))));
-    const width = samples[0].length;
-    for (let u = 0; u < width; u++) {
-      const values = samples.map((s) => s[u]);
-      const amplitude = (Math.max(...values) - Math.min(...values)) / 2;
-      if (amplitude === 0) continue;
-      let fastest = 0;
-      for (let i = 1; i < values.length; i++) fastest = Math.max(fastest, Math.abs(values[i] - values[i - 1]) / 0.005);
-      expect(fastest).toBeLessThanOrEqual(2 * Math.PI * 3 * amplitude);
+// QA-068 (P0, WCAG 2.3.1): no luminance modulation at 3 Hz or faster. DSN-032: nothing periodic is
+// faster than 0.2 Hz (no period under 5.0 s). This block is the PERIODIC path: the clock and the
+// breath move; every event input (placements, fades, restFade, stress, confidence) is held still.
+// It is scoped by input, never by skipping a uniform. One-shot crossfades: 'QA-068, the event path'.
+const STEP = 10; // ms
+const THREE = [
+  { node: 'J' as const, x: 0.566, y: 0.566 },
+  { node: 'C' as const, x: 0.566, y: -0.566 },
+  { node: 'R' as const, x: -0.566, y: -0.566 },
+];
+const offsetOf = (name: string) => { let o = 0; for (const u of FIELD_UNIFORMS) { if (u.name === name) return o; o += u.floats; } throw new Error(name); };
+const K_FIELD = offsetOf('uWeight'); // kField is uWeight.x: it carries the breath
+/** Sample index of each turning point; a turn counts once the value has come back more than `hold` from its running extreme. */
+function turningPoints(values: readonly number[], hold: number): number[] {
+  const turns: number[] = [];
+  let dir = 0;
+  let extreme = values[0];
+  let at = 0;
+  for (let i = 1; i < values.length; i++) {
+    const v = values[i];
+    if (dir === 0) {
+      if (Math.abs(v - extreme) > hold) { dir = Math.sign(v - extreme); extreme = v; at = i; }
+    } else if (dir * (v - extreme) >= 0) {
+      extreme = v; at = i;
+    } else if (Math.abs(v - extreme) > hold) {
+      turns.push(at); dir = -dir; extreme = v; at = i;
     }
+  }
+  return turns;
+}
+
+describe('QA-068, the periodic path: nothing modulates at 3 Hz, nothing periodic is faster than 0.2 Hz', () => {
+  const ROWS = IDS.flatMap((id) => (['dark', 'light'] as Face[]).flatMap((face) => [0, 0.5, 1].flatMap((s) =>
+    (['full', 'low'] as const).flatMap((tier) => (['rest', 'three'] as const).map((scene) => [id, face, s, tier, scene] as const)))));
+
+  it.each(ROWS)('%s %s, s %s, tier %s, %s: every uniform over T and across the wrap', (id, face, s, tier, scene) => {
+    const samples: number[][] = [];
+    for (let t = 0; t <= T; t += STEP) { // t = T wraps to 0, so the last step crosses the seam
+      const breathPhase = fixedFieldBreath(id, s, t).phase; // the breath moves (it was held at 0.3)
+      samples.push(packFrame(buildFieldFrame(state(id, face, { tMs: t, stress: s, tier, breathPhase, placements: scene === 'rest' ? [] : THREE }), geometry, statics(id))));
+    }
+    const k = samples.map((v) => v[K_FIELD]);
+    expect(Math.max(...k) - Math.min(...k)).toBeGreaterThan(0); // the breath really reached the frame
+    for (let u = 0; u < samples[0].length; u++) {
+      const values = samples.map((v) => v[u]);
+      const range = Math.max(...values) - Math.min(...values);
+      if (range === 0) continue;
+      // No step: no change faster than a 3 Hz sine of the same amplitude (catches jumps, the seam included).
+      let fastest = 0;
+      for (let i = 1; i < values.length; i++) fastest = Math.max(fastest, Math.abs(values[i] - values[i - 1]) / (STEP / 1000));
+      expect(fastest).toBeLessThanOrEqual(2 * Math.PI * 3 * (range / 2));
+      // Frequency, whatever the waveform: like turns (max to max, min to min) at least 5.0 s apart.
+      const turns = turningPoints(values, range * 1e-6);
+      for (let i = 2; i < turns.length; i++) expect((turns[i] - turns[i - 2]) * STEP).toBeGreaterThanOrEqual(5000 - STEP);
+    }
+  });
+
+  it.each(IDS)('%s: the still tier moves nothing over T', (id) => {
+    const at = (t: number) => packFrame(buildFieldFrame(state(id, 'dark', { tier: 'still', tMs: t, breathPhase: fixedFieldBreath(id, 0, t).phase }), geometry, statics(id)));
+    const first = at(0);
+    for (let t = 997; t <= T; t += 997) expect(at(t)).toEqual(first);
   });
 });
