@@ -1,0 +1,459 @@
+# HealthKit Authoritative Sample Store Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Persist versioned HealthKit samples as an idempotent, deletion-aware source of truth and safely rebuild the existing health projections.
+
+**Architecture:** A new encrypted `HealthSample` collection owns v2 sample identity, active/deleted state and repair status. Existing health collections remain read-optimized projections. Writes are source-first and projections are idempotently reconciled, so correctness does not depend on a multi-document MongoDB transaction.
+
+**Tech Stack:** Node.js 24, Express 5, Mongoose 9, MongoDB, Jest 29, mongodb-memory-server, BullMQ/Redis, AES-256-GCM encrypted fields, rotation-aware HMAC blind indexes.
+
+**Spec:** `docs/superpowers/specs/2026-10-06-healthkit-authoritative-sample-store-design.md`
+
+## Global Constraints
+
+- Do not install an iOS package, change HealthKit entitlements, or request device permission in this plan.
+- Legacy unversioned Health Connect behavior and response shape must remain unchanged.
+- Only v2 HealthKit uses the new authoritative lane in this increment.
+- Do not store or log raw HealthKit `sampleId`; persist only a namespaced, user-scoped HMAC.
+- Physiological values remain AES-256-GCM encrypted and AAD-bound to `userId`.
+- Health samples and tombstones have a 90-day retention boundary.
+- SDNN and RMSSD remain labeled and must never share an unlabeled baseline calculation.
+- A delete wins over an upsert for the same sample identity and cannot be undone by retry.
+- Production Atlas index creation is a human-run Pause & Guide action.
+- Do not edit `TASKS.md` until Malede's PR #222 is integrated and the branch is rebased.
+- Every commit requires its targeted tests plus the full local CI-equivalent gate below. A pushed commit is not mergeable until all GitHub Actions checks are green.
+
+### Full local CI-equivalent gate before every commit
+
+Run from the repository root:
+
+```powershell
+node --version # must report v24.x, matching .github/workflows/ci.yml
+
+Push-Location backend
+npm test
+npm run lint
+Pop-Location
+
+Push-Location mobile/KokonadaHealth
+./node_modules/.bin/jest --ci
+npm run lint:design-system
+node scripts/lab/assertLabExcluded.mjs
+node scripts/lab/assertLabExcluded.mjs --platform ios
+Pop-Location
+
+git diff --check
+git diff --cached --check
+```
+
+Expected: Node reports v24.x; backend and mobile tests pass; both Design Lab exclusion checks pass; design-system lint does not exceed its baseline; backend lint has zero errors; and both Git whitespace checks print nothing. GitHub's gitleaks job remains the authoritative secret scan; inspect its result before merge.
+
+## Review Focus
+
+- Two requests insert the same new UUID concurrently: one authoritative row and one projection must remain.
+- A delete arrives before the corresponding upsert: the tombstone must block later resurrection.
+- One batch contains both operations for one UUID in either order: delete must win in both orders.
+- Projection or Redis/queue work fails after the authoritative write: the row remains pending, the response is retryable, and reconciliation repairs it without duplication.
+- A user has labeled SDNN, labeled RMSSD and unlabeled legacy HRV: the legacy baseline must exclude SDNN and the method-aware output must keep both labeled populations separate.
+
+---
+
+### Task 1: Safe HealthKit identity and authoritative model
+
+**Files:**
+- Create: `backend/app/services/wearable/healthSampleIdentity.js`
+- Create: `backend/app/models/HealthSample.js`
+- Create: `backend/tests/healthSampleIdentity.test.js`
+- Create: `backend/tests/healthSampleModel.integration.test.js`
+
+**Interfaces:**
+- Consumes: `blindIndex(value)` and `blindIndexAll(value)` from `backend/app/utils/encryption.js`; `encryptedNumber` and `bindEncryptedAadOnUpdate` from `backend/app/models/encryptedField.js`.
+- Produces: `healthSampleIdentityInput(userId, source, sampleId) -> string`, `healthSampleKey(userId, source, sampleId) -> string`, `healthSampleKeyCandidates(userId, source, sampleId) -> string[]`, and the `HealthSample` Mongoose model/constants.
+
+- [ ] **Step 1: Write failing identity tests**
+
+Add tests proving the key is deterministic, differs across users/sources/UUIDs, contains neither the UUID nor user ID, and that candidates include old- and current-key results during `ENCRYPTION_KEY_PREVIOUS` rotation.
+
+- [ ] **Step 2: Run the identity tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/healthSampleIdentity.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because `healthSampleIdentity.js` does not exist.
+
+- [ ] **Step 3: Implement the identity helper**
+
+Use the exact namespace `kokonada:health-sample:v1` and serialize `<namespace>|<userId>|<source>|<sampleId>` before calling the existing blind-index functions. Export only the three named functions.
+
+- [ ] **Step 4: Write failing model tests**
+
+Pin these assertions: encrypted value round-trip is AAD-bound; raw Mongo never contains plaintext; active HRV requires a method; non-HRV rejects a method; an unseen-deletion tombstone may omit metric/value/unit/dates; the unique compound, pending-scan and absolute TTL indexes exist; `expiresAt` is required.
+
+- [ ] **Step 5: Run the model tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/healthSampleModel.integration.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because `HealthSample` does not exist.
+
+- [ ] **Step 6: Implement `HealthSample`**
+
+Define schema version `1`, the exact fields and indexes from the spec, metric/source/method/state enums, validation for active versus tombstone rows, timestamps, JSON/object getters, and the encrypted-field update guard.
+
+- [ ] **Step 7: Run targeted tests and the full gate**
+
+Run the two Jest files together, then run the global gate.
+
+Expected: all commands pass with zero new lint errors.
+
+- [ ] **Step 8: Commit**
+
+```powershell
+git add backend/app/services/wearable/healthSampleIdentity.js backend/app/models/HealthSample.js backend/tests/healthSampleIdentity.test.js backend/tests/healthSampleModel.integration.test.js
+git commit -m "feat: add authoritative health sample model"
+```
+
+### Task 2: Idempotent operation repository and tombstones
+
+**Files:**
+- Create: `backend/app/services/wearable/healthSampleRepository.js`
+- Create: `backend/tests/healthSampleRepository.integration.test.js`
+
+**Interfaces:**
+- Consumes: Task 1 identity helpers and `HealthSample`.
+- Produces: `applyHealthOperations(userId, source, samples, { now } = {}) -> Promise<{ accepted, created, replayed, deleted, pendingKeys }>` and error codes `health_sample_identity_conflict` / `health_sample_outside_retention`.
+
+- [ ] **Step 1: Write failing repository tests**
+
+Cover new upsert, identical replay with a different batch context, conflicting immutable content, active delete, repeated delete, unknown delete, delete-before-upsert, both same-identity operation orders, stale upsert rejection, and two concurrent identical upserts producing one row.
+
+- [ ] **Step 2: Run the repository tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/healthSampleRepository.integration.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because the repository does not exist.
+
+- [ ] **Step 3: Implement operation reduction and persistence**
+
+Normalize each identity through Task 1, collapse duplicates before writing, make delete dominant, query through all rotation candidates, create/update using the unique index as the race guard, and reread after duplicate-key errors. Never include a submitted value, UUID, HMAC, or timestamp in an error/log.
+
+- [ ] **Step 4: Run targeted tests and the full gate**
+
+Expected: repository tests and the global gate pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add backend/app/services/wearable/healthSampleRepository.js backend/tests/healthSampleRepository.integration.test.js
+git commit -m "feat: persist idempotent health sample operations"
+```
+
+### Task 3: Idempotent heart-rate and vital projections
+
+**Files:**
+- Modify: `backend/app/models/BiometricLog.js`
+- Modify: `backend/app/models/VitalSample.js`
+- Create: `backend/app/services/wearable/healthSampleProjection.js`
+- Create: `backend/tests/healthSampleProjection.integration.test.js`
+- Modify: `backend/tests/biometricRetention.test.js`
+- Modify: `backend/tests/vitalSample.integration.test.js`
+
+**Interfaces:**
+- Consumes: active/deleted `HealthSample` documents.
+- Produces: `projectTimeSeriesSample(sample) -> Promise<{ inserted, removed }>` and `removeTimeSeriesProjection(sampleKey, userId) -> Promise<number>`.
+
+- [ ] **Step 1: Write failing projection/model tests**
+
+Assert sparse unique `healthSampleKey` indexes on both projections, optional compatibility for legacy rows, required `hrvMethod` for linked HRV, `sdnn` preservation, one projection after repeated calls, and removal of either projection by an authoritative tombstone.
+
+- [ ] **Step 2: Run the projection tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/healthSampleProjection.integration.test.js tests/biometricRetention.test.js tests/vitalSample.integration.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL on the missing fields and service.
+
+- [ ] **Step 3: Extend projection schemas**
+
+Add optional internal `healthSampleKey` to both models, sparse unique indexes, and optional `hrvMethod` to `VitalSample`. Require the method only when a linked row has metric `hrv`; leave legacy unlabeled rows valid.
+
+- [ ] **Step 4: Implement time-series projection**
+
+Project `heart_rate` to `BiometricLog`, `resting_heart_rate`/`hrv` to `VitalSample`, and make the `healthSampleKey` unique index the idempotency guard. Deleted/unknown tombstones remove matching linked rows without scanning by physiological value.
+
+- [ ] **Step 5: Run targeted tests and the full gate**
+
+Expected: all pass.
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add backend/app/models/BiometricLog.js backend/app/models/VitalSample.js backend/app/services/wearable/healthSampleProjection.js backend/tests/healthSampleProjection.integration.test.js backend/tests/biometricRetention.test.js backend/tests/vitalSample.integration.test.js
+git commit -m "feat: project authoritative health time series"
+```
+
+### Task 4: Method-aware HRV baselines
+
+**Files:**
+- Modify: `backend/app/agents/runtime/physiology/baselineEngine.js`
+- Modify: `backend/app/services/biosonic/baselines.js`
+- Modify: `backend/tests/baselineEngine.test.js`
+- Modify: `backend/tests/baselines.test.js`
+
+**Interfaces:**
+- Consumes: `VitalSample` rows with optional `hrvMethod`.
+- Produces: baseline blob `hrvByMethod: { rmssd, sdnn }`; preserves top-level `hrvMedian` / `hrvMAD` as RMSSD plus unlabeled legacy rows only.
+
+- [ ] **Step 1: Write failing mixed-method baseline tests**
+
+Use deliberately different SDNN/RMSSD values and assert they produce separate medians/MADs. Assert labeled SDNN cannot change legacy top-level keys, unlabeled legacy rows stay in the legacy calculation, and cache serialization/readback preserves `hrvByMethod`.
+
+- [ ] **Step 2: Run baseline tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/baselineEngine.test.js tests/baselines.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because method-aware output is absent.
+
+- [ ] **Step 3: Implement method partitioning**
+
+Partition HRV rows before `estimateMetricBaseline`. Add `hrvByMethod` without changing existing consumers or feeding SDNN into the legacy top-level values.
+
+- [ ] **Step 4: Run targeted tests and the full gate**
+
+Expected: all pass and existing translation behavior remains unchanged.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add backend/app/agents/runtime/physiology/baselineEngine.js backend/app/services/biosonic/baselines.js backend/tests/baselineEngine.test.js backend/tests/baselines.test.js
+git commit -m "feat: separate SDNN and RMSSD baselines"
+```
+
+### Task 5: Sleep/profile recomputation and reconciliation service
+
+**Files:**
+- Modify: `backend/app/models/MedicalProfile.js`
+- Create: `backend/app/services/wearable/healthSampleReconciliation.js`
+- Create: `backend/tests/healthSampleReconciliation.integration.test.js`
+- Modify: `backend/tests/sleepSemantics.test.js`
+
+**Interfaces:**
+- Consumes: Task 2 pending authoritative rows, Task 3 projection functions, `User.wearableProvider`, existing cache invalidation and state-vector enqueue utilities.
+- Produces: `reconcileHealthSamples(userId, source) -> Promise<{ projected, removed, profileUpdated }>`.
+
+- [ ] **Step 1: Write failing reconciliation tests**
+
+Assert that active sleep intervals are grouped into stage totals per night, long-run medians and latest night are rebuilt, deletion removes one interval and recomputes from the rest, another provider's active profile is not overwritten, time-series projection is invoked, cache invalidation/state recompute occur, and `projectionState` changes to `applied` only after all required writes succeed.
+
+- [ ] **Step 2: Add a projection-failure test**
+
+Force a projection write to reject and assert the authoritative rows remain `pending`, no false applied state is recorded, and a second reconciliation call repairs the state without duplicates.
+
+- [ ] **Step 3: Run reconciliation tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/healthSampleReconciliation.integration.test.js tests/sleepSemantics.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because the service and profile provenance are absent.
+
+- [ ] **Step 4: Add profile provenance**
+
+Add a provider field for the supported health projection. Do not migrate or relabel existing profile data. A HealthKit recompute writes supported fields only when `apple_health` is active.
+
+- [ ] **Step 5: Implement reconciliation**
+
+Process pending rows idempotently, rebuild sleep from active authoritative intervals rather than subtracting durations, preserve SDNN as method-aware data without assigning it to the legacy generic profile HRV, invalidate derived caches, enqueue the existing debounced state job, then mark the processed set applied.
+
+- [ ] **Step 6: Run targeted tests and the full gate**
+
+Expected: all pass.
+
+- [ ] **Step 7: Commit**
+
+```powershell
+git add backend/app/models/MedicalProfile.js backend/app/services/wearable/healthSampleReconciliation.js backend/tests/healthSampleReconciliation.integration.test.js backend/tests/sleepSemantics.test.js
+git commit -m "feat: reconcile health samples into derived profiles"
+```
+
+### Task 6: Crash-repair worker
+
+**Files:**
+- Modify: `backend/app/queues/definitions.js`
+- Modify: `backend/app/queues/queue.js`
+- Create: `backend/app/workers/healthSampleReconciliation.worker.js`
+- Modify: `backend/app/workers/index.js`
+- Modify: `backend/app/index.js`
+- Create: `backend/tests/healthSampleReconciliation.worker.test.js`
+- Modify: `backend/tests/queues.test.js`
+- Modify: `backend/tests/userJobPurge.guards.test.js`
+
+**Interfaces:**
+- Consumes: `reconcileHealthSamples(userId, source)` from Task 5 and pending rows ordered by oldest `updatedAt`.
+- Produces: `process() -> Promise<{ groups, repaired }>` for a global queue job with no user identifier in its payload.
+
+- [ ] **Step 1: Write failing worker tests**
+
+Assert a scan is bounded to 100 oldest pending rows, identities are grouped by user/source, one failing group does not skip later groups, the registered queue payload is empty, and account-erasure job guards do not misclassify the global job as user-owned.
+
+- [ ] **Step 2: Run worker/queue tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/healthSampleReconciliation.worker.test.js tests/queues.test.js tests/userJobPurge.guards.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because the queue and worker are not registered.
+
+- [ ] **Step 3: Implement and schedule bounded repair**
+
+Add `HEALTH_SAMPLE_RECONCILE`, register the worker, and schedule one global repeatable job every five minutes. Do not place a user ID, sample identity, value, or timestamp in the queue payload or logs.
+
+- [ ] **Step 4: Run targeted tests and the full gate**
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add backend/app/queues/definitions.js backend/app/queues/queue.js backend/app/workers/healthSampleReconciliation.worker.js backend/app/workers/index.js backend/app/index.js backend/tests/healthSampleReconciliation.worker.test.js backend/tests/queues.test.js backend/tests/userJobPurge.guards.test.js
+git commit -m "feat: repair pending health projections"
+```
+
+### Task 7: Route v2 HealthKit through the authoritative lane
+
+**Files:**
+- Modify: `backend/app/services/wearable/healthBatchContract.js`
+- Create: `backend/app/services/wearable/healthStoreV2.js`
+- Modify: `backend/app/controllers/integrationsController.js`
+- Modify: `backend/tests/healthBatchContract.test.js`
+- Modify: `backend/tests/integrations.test.js`
+- Modify: `backend/tests/wave4.ingestLogZeroKnowledge.test.js`
+- Create: `backend/tests/healthStoreV2.integration.test.js`
+
+**Interfaces:**
+- Consumes: `applyHealthOperations` and `reconcileHealthSamples`.
+- Produces: `ingestV2Batch(userId, platform, samples, options = {}) -> Promise<{ accepted, created, replayed, deleted, projected }>`.
+
+- [ ] **Step 1: Replace delete-refusal tests with failing delete-semantic tests**
+
+Keep whole-envelope validation atomic. Allow a delete to contain only UUID and operation. Assert v2 HealthKit uses the new service, mixed upsert/delete succeeds with delete dominance, conflicts return `409`, pending projection returns `503`, and no submitted identity/value appears in logs or errors.
+
+- [ ] **Step 2: Add legacy compatibility controls**
+
+Assert unversioned Health Connect still calls the existing `healthStore.ingestBatch`, has the same result shape, and never creates `HealthSample` rows.
+
+- [ ] **Step 3: Run contract/controller/store tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/healthBatchContract.test.js tests/integrations.test.js tests/healthStoreV2.integration.test.js tests/wave4.ingestLogZeroKnowledge.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because delete still returns `501` and no v2 store exists.
+
+- [ ] **Step 4: Implement the v2 orchestration service**
+
+Map `healthkit` to `apple_health`, persist the full operation set, reconcile synchronously, return only operational counts, and translate fixed repository/reconciliation errors to the contract status codes.
+
+- [ ] **Step 5: Dispatch by parsed contract version in the controller**
+
+Keep v1 on the existing service. Send v2 HealthKit to `ingestV2Batch`. Preserve consent middleware and provider marking. Do not enable v2 Health Connect yet.
+
+- [ ] **Step 6: Run targeted tests and the full gate**
+
+Expected: all pass, including all pre-existing health-store and consent suites.
+
+- [ ] **Step 7: Commit**
+
+```powershell
+git add backend/app/services/wearable/healthBatchContract.js backend/app/services/wearable/healthStoreV2.js backend/app/controllers/integrationsController.js backend/tests/healthBatchContract.test.js backend/tests/integrations.test.js backend/tests/wave4.ingestLogZeroKnowledge.test.js backend/tests/healthStoreV2.integration.test.js
+git commit -m "feat: enable idempotent HealthKit v2 sync"
+```
+
+### Task 8: Complete privacy, erasure, export and retention registration
+
+**Files:**
+- Modify: `backend/app/services/privacy/erasure.js`
+- Modify: `backend/scripts/gdpr-delete.js`
+- Modify: `backend/app/services/privacy/userDataExport.js`
+- Modify: `backend/app/services/privacy/wearableErasure.js`
+- Modify: `backend/tests/shadow.qa4.crypto.test.js`
+- Modify: `backend/tests/accountDeletion.test.js`
+- Modify: `backend/tests/userDataExport.test.js`
+- Modify: `backend/tests/wearableErasure.test.js`
+- Modify: `backend/tests/wave4.retentionDocs.test.js`
+- Modify: the retention inventory file identified by `wave4.retentionDocs.test.js`
+
+**Interfaces:**
+- Consumes: `HealthSample` and Task 5 reconciliation/cache behavior.
+- Produces: complete lifecycle coverage for the new user-owned wearable collection.
+
+- [ ] **Step 1: Write failing lifecycle tests**
+
+Assert account erasure and the CLI script include `HealthSample`, export returns decrypted owner data but redacts `sampleKey`, provider disconnect deletes only matching source rows, derived profile/cache cleanup runs, and structural discovery recognizes the new model as wearable-derived without depending only on a `'garmin'` literal.
+
+- [ ] **Step 2: Run privacy tests and verify RED**
+
+Run: `Push-Location backend; npx jest tests/shadow.qa4.crypto.test.js tests/accountDeletion.test.js tests/userDataExport.test.js tests/wearableErasure.test.js tests/wave4.retentionDocs.test.js --runInBand --forceExit; Pop-Location`
+
+Expected: FAIL because the new model is not registered.
+
+- [ ] **Step 3: Register the collection in every lifecycle surface**
+
+Keep account erasure and the operator script in lockstep. Add export redaction, source-scoped provider deletion and truthful 90-day retention documentation. Update structural discovery so future Apple/Android-only wearable models cannot evade it.
+
+- [ ] **Step 4: Run targeted tests and the full gate**
+
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add backend/app/services/privacy/erasure.js backend/scripts/gdpr-delete.js backend/app/services/privacy/userDataExport.js backend/app/services/privacy/wearableErasure.js backend/tests/shadow.qa4.crypto.test.js backend/tests/accountDeletion.test.js backend/tests/userDataExport.test.js backend/tests/wearableErasure.test.js backend/tests/wave4.retentionDocs.test.js docs
+git commit -m "feat: cover health samples across privacy lifecycle"
+```
+
+### Task 9: Final verification and human-gated rollout notes
+
+**Files:**
+- Modify: `docs/research/apple-healthkit-integration-research.md`
+- Create: `docs/runbooks/health-sample-index-rollout.md`
+- Modify after PR #222 rebase only: `TASKS.md`
+
+**Interfaces:**
+- Consumes: completed Tasks 1-8.
+- Produces: operator instructions and verified MB-105 status without mutating production.
+
+- [ ] **Step 1: Add a production index runbook**
+
+Document the expected unique, pending-scan and TTL indexes; Atlas UI verification; duplicate preflight; rollback/stop conditions; and the rule that Daniel or Malede performs and visually verifies production index creation.
+
+- [ ] **Step 2: Update research status and task tracking**
+
+Mark the server storage prerequisite complete in the research document. After fetching/rebasing Malede's merged PR #222, add/update `MB-105` in `TASKS.md` while preserving both ID reservations and resolving its known small conflict.
+
+- [ ] **Step 3: Run focused acceptance suites**
+
+Run:
+
+```powershell
+Push-Location backend
+npx jest tests/healthSampleIdentity.test.js tests/healthSampleModel.integration.test.js tests/healthSampleRepository.integration.test.js tests/healthSampleProjection.integration.test.js tests/healthSampleReconciliation.integration.test.js tests/healthSampleReconciliation.worker.test.js tests/healthStoreV2.integration.test.js tests/healthBatchContract.test.js tests/integrations.test.js tests/shadow.qa4.crypto.test.js --runInBand --forceExit
+Pop-Location
+```
+
+Expected: all authoritative-store, deletion, projection, endpoint and privacy acceptance suites pass.
+
+- [ ] **Step 4: Run the full gate and inspect the final diff**
+
+Run the global gate, then:
+
+```powershell
+git status --short
+git diff --stat origin/main...HEAD
+git log --oneline origin/main..HEAD
+```
+
+Expected: only scoped HealthKit storage/research changes, no secrets, no unrelated mobile/native change, and every commit represented by a green local gate.
+
+- [ ] **Step 5: Commit the rollout documentation**
+
+```powershell
+git add docs/research/apple-healthkit-integration-research.md docs/runbooks/health-sample-index-rollout.md TASKS.md
+git commit -m "docs: add HealthKit storage rollout guide"
+```
+
+- [ ] **Step 6: Push only after coordination**
+
+Fetch Malede's latest remote work, rebase this branch, resolve the known `TASKS.md` reservation conflict while preserving both sides, rerun the full gate, then push. Open a PR and require all GitHub Actions checks to be green before merge.
