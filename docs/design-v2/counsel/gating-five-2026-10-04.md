@@ -207,6 +207,7 @@
 - **EU** = `docs/design-v2/counsel/eu-questions-for-counsel-2026-09-29.md`.
 - **HX** = `docs/design-v2/counsel/hx-questions-for-counsel-2026-09-30.md`.
 - **J1** = `docs/design-v2/counsel/j1-questions-for-counsel-2026-10-02.md`.
+- **PJ2** = `docs/design-v2/counsel/post-j2-privacy-questions-2026-10-06.md` (added 2026-10-06: the privacy page after J2, four questions; not yet mapped below).
 - **RR** = `docs/design-v2/research/2026-09-23/r_regulatory.md` §7.
 - **BR** = `docs/design-v2/research/2026-09-23/track-h/brief_regulatory.md`.
 - **T** = `TASKS.md` row `DAN-014`, dated updates.
