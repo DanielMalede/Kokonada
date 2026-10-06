@@ -4,7 +4,7 @@ The single running list of everything still open in this repo. **If it is not wr
 A task that lives only in a conversation is already lost — that is what this file exists to stop.
 
 **Last updated:** 2026-10-06
-**Next free IDs:** `BE-122` · `MB-105` · `UI-090` · `OPS-156` · `ARCH-017` · `DAN-064`
+**Next free IDs:** `BE-122` · `MB-105` · `UI-090` · `OPS-158` · `ARCH-017` · `DAN-064`
 Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, OPS-136–145 (the next scribe PR), ARCH-013–016, DAN-050–062, DEC-128–154; each branch writes its own rows.
 Bedrack's block (`WORK_LEDGER.md`): `900`–`999` in every prefix (`BE-900`, `MB-900`, …). Bedrack takes new IDs only from it; the next free IDs above never enter it.
 
@@ -1247,6 +1247,11 @@ _(put anything you are unsure about here rather than losing it)_
     - *A partly broken claim gives no warning of its own;* the dropped tokens show only inside another collision's text.
     - *Help text:* `render.js` still says a branch name is reused only to resume a claim on origin (a local-only claim also resumes), and that `gh` is required only for `start` (`check`, `--merge` and `rescope` need it too); the header of `gh.js` says the same.
   - where: `WORK_LEDGER.md` (People table) · `scripts/coord/lib/git.js`, `scripts/coord/coord.js` · done when: each is fixed or the owner accepts it, recorded here · related: `OPS-152`, `OPS-153`, `OPS-131` · src: the coordinator's `developer` report, 2026-10-06 · added: 2026-10-06
+- [ ] `OPS-156` `P2` **On the coordinator's path, the automatic `merge-guard` dispatch never fires.** `.claude/hooks/merge-guard-trigger.mjs` matches only a Bash command that literally contains `gh pr create`, `git push`, `gh pr merge` or `gh pr update-branch`. `coord.js start` opens the draft PR inside a child process (`scripts/coord/lib/gh.js`), `coord.js ship` pushes inside a child process (`scripts/coord/lib/git.js`), and `/ship` then runs `gh pr edit` and `gh pr ready`, which the hook does not match. Only `/merge`'s explicit pre-merge run is left.
+  - where: `.claude/hooks/merge-guard-trigger.mjs` (the matcher) · `scripts/coord/coord.js` (`start`, `ship`, `rescope`) · `.claude/commands/ship.md` · done when: the trigger also fires on `node scripts/coord/coord.js start|ship|rescope` and on `gh pr ready`, or `/ship` dispatches `merge-guard` itself, pinned by the trigger's tests; a `resilience-auditor` pass on the hook change · related: `OPS-152`, `DEC-143` · src: `merge-guard`, PR #228 pre-merge (NEW-FINDING 1), 2026-10-06 · added: 2026-10-06
+
+- [ ] `OPS-157` `P2` **The PR secret scan skips merge-commit patches, and the coordinator makes merge commits routine.** On PR #228 the gitleaks range held 6 commits and the log said "4 commits scanned": the two merges of `main` into the branch were not scanned, so content added only while resolving a conflict passes the PR gate and is caught only by the push scan on `main`, after it is deploying. "Merge main in, never rebase" (`/merge`, `/page`, the coordinator) makes such merges ordinary.
+  - where: `.github/workflows/ci.yml` (the `secret-scan` job) · done when: the PR scan covers merge-commit patches (for example `--log-opts="-m"`, or scanning `git diff <base>...<head>`) and a test pins it · related: `OPS-131`, `OPS-155` · src: `merge-guard`, PR #228 pre-merge (NEW-FINDING 2), 2026-10-06 · added: 2026-10-06
 
 - [ ] `OPS-001` `P1` **OWNED BY A SEPARATE SESSION — see the block below before acting.** The Wave-4 mission loop is not running. ~~`docs/plans/WAVE4_HALT` is present (2026-08-25 16:05) and no session has run since.~~ **The halt file is now ABSENT — see the finding below; the loop is stopped because no process is running it, not because of the flag.** `W4-015` (soak, closeout & package) is the **only remaining MUST** and has never seriously started; the 24 h `RUN_SOAK=1` run has never executed. `#verify`
   - ### 🔒 OWNED BY ANOTHER SESSION — DO NOT TOUCH, DO NOT RESTART, DO NOT ARCHIVE
