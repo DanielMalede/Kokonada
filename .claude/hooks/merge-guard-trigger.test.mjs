@@ -1,6 +1,6 @@
 // Tests for the merge-guard trigger, a PostToolUse and PostToolUseFailure hook (DEC-143).
 // Run from the repository root:  node --test .claude/hooks/merge-guard-trigger.test.mjs
-// The backend suite runs this file too (backend/tests/mergeGuardHook.test.js, OPS-126).
+// The backend suite runs this file too (backend/tests/mergeGuardHook.test.js, OPS-146).
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';

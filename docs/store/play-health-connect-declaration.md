@@ -90,8 +90,11 @@ not a Health Connect permission), but is consent-gated identically.
 **Related biometric inputs (declare consistently so the form is complete):** heart rate is also
 read live over Bluetooth LE from a Garmin "Broadcast Heart Rate" device (`BLUETOOTH_SCAN`
 `neverForLocation` / `BLUETOOTH_CONNECT`), feeding the same biometric pipeline. `ACCESS_FINE_LOCATION`
-is declared **only on Android ≤11** solely to enable BLE scanning — **no location is read,
-stored, or transmitted.** <!-- verified: mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:16-23 -->
+is declared **only up to Android 11** (`maxSdkVersion="30"`), solely to enable BLE scanning there; on
+Android 12+ no location permission is declared, and `ACCESS_COARSE_LOCATION` and background location
+are declared on no Android version. The Bluetooth library's own API 23+ location entries
+(rxandroidble, with no cap) are removed in the app's manifest, and CI checks the merged manifest that
+the uploaded build declares (MB-093) — **no location is read, stored, or transmitted.** <!-- verified: the merged release manifest (android/app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml, a build output), checked by mobile/KokonadaHealth/scripts/lab/assertManifests.mjs with scripts/lab/uploadPermissions.mjs; the cap and the removal: mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:28-33 -->
 
 ## 5. In-app rationale copy — single source of truth (requirement, not drafted here)
 

@@ -1,6 +1,6 @@
 'use strict';
 
-// OPS-126 - the merge-guard trigger (`.claude/hooks/merge-guard-trigger.mjs`, DEC-143) tells every
+// OPS-146 - the merge-guard trigger (`.claude/hooks/merge-guard-trigger.mjs`, DEC-143) tells every
 // session to dispatch the `merge-guard` agent after a PR create, a push to an open PR and a merge.
 // Its tests are `node --test`, outside every jest root, and no CI step ran them: a change that broke
 // the hook turned nothing red, and the hook then went quiet without a sound.
@@ -20,7 +20,7 @@ const MIN_PASS = 110;
 
 jest.setTimeout(60000);
 
-describe('merge-guard trigger tests (OPS-126)', () => {
+describe('merge-guard trigger tests (OPS-146)', () => {
   it('node --test runs every hook test and none fails', () => {
     const r = spawnSync(process.execPath, ['--test', '--test-reporter=tap', HOOK_TESTS], {
       cwd: REPO_ROOT,

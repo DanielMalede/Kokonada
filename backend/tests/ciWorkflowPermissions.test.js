@@ -153,11 +153,13 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     // filter now lives in the cheap `ios-changes` job so the 10x macOS runner is gated by
     // `needs`+`if` and never allocated on a non-iOS PR — so the PR-API scope moved with it.
     // The macOS job no longer touches the PR API at all, which is why it drops out here.
+    // `secret-scan` dropped out the same way: it runs the gitleaks CLI over a range taken from the
+    // event payload (secretScanGates.test.js), not gitleaks-action, so it holds no PR scope.
     const prApiJobs = ci.jobs
       .filter((j) => j.uses.some((u) => PR_API_ACTIONS.some((a) => a.match.test(u))))
       .map((j) => j.id)
       .sort();
-    expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile', 'secret-scan']);
+    expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile']);
   });
 
   it.each(WORKFLOWS.map((w) => [w.file]))(

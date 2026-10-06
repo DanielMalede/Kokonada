@@ -54,8 +54,13 @@ const ancestor = (el: El, tagName: string): El | null => {
 };
 const nameOf = (el: El | null) => el?.attrs['android:name'];
 
-// The health and Bluetooth permissions shipped today — HX-5 adds none and removes none.
-const PERMISSIONS = [
+// The <uses-permission> entries the app's own SOURCE manifest declares, which the copy-me snippet
+// mirrors; HX-5 adds none and removes none. This is not the list a build ships: the merged manifest
+// also carries what libraries add (USE_BIOMETRIC, USE_FINGERPRINT, VIBRATE, androidx.core's receiver
+// permission), and before MB-093 it also carried rxandroidble's uncapped API 23+ location. What ships
+// is checked on the merged manifest, in CI's Android job, by scripts/lab/assertManifests.mjs against
+// the allow-list in scripts/lab/uploadPermissions.mjs (MB-093).
+const SOURCE_PERMISSIONS = [
   'android.permission.INTERNET',
   'android.permission.health.READ_HEART_RATE',
   'android.permission.health.READ_HEART_RATE_VARIABILITY',
@@ -116,8 +121,8 @@ describe.each([
     expect(activity!.order).toBeLessThan(aliases[0].order);
   });
 
-  it('the permission list is today’s, exactly — none added, none removed', () => {
-    expect(permissionsOf(root)).toEqual(PERMISSIONS);
+  it('its own <uses-permission> entries are unchanged, none added and none removed (a source list: what ships is checked on the merged manifest)', () => {
+    expect(permissionsOf(root)).toEqual(SOURCE_PERMISSIONS);
   });
 });
 
@@ -136,5 +141,35 @@ describe('AndroidManifest.xml — MainActivity no longer answers Health Connect'
       .filter((e) => e.attrs['android:exported'] === 'true')
       .map(nameOf);
     expect(exported).toEqual(['.MainActivity', RATIONALE_ACTIVITY, 'ViewPermissionUsageActivity']);
+  });
+});
+
+// MB-093. Both the app manifest and the copy-me snippet remove rxandroidble's uncapped API 23+ COARSE
+// and FINE location, so a setup copied from the snippet does not bring them back. These pin the
+// source; what ships is checked on the merged manifest by scripts/lab/assertManifests.mjs.
+describe.each([
+  ['AndroidManifest.xml', MANIFEST],
+  ['native-snippets/AndroidManifest.additions.xml', SNIPPET],
+])('%s — no location beyond the capped FINE entry (MB-093)', (_label, file) => {
+  const root = parse(`<fragment>${fs.readFileSync(file, 'utf8')}</fragment>`);
+
+  it('removes rxandroidble’s two uncapped API 23+ location entries', () => {
+    const sdk23 = named(root, 'uses-permission-sdk-23').map((p) => `${nameOf(p)} tools:node=${p.attrs['tools:node']}`);
+    expect(sdk23).toEqual([
+      'android.permission.ACCESS_FINE_LOCATION tools:node=remove',
+      'android.permission.ACCESS_COARSE_LOCATION tools:node=remove',
+    ]);
+  });
+
+  // The capped legacy BLE permissions imply required classic Bluetooth and location hardware, which
+  // Play filters devices on; the app requires neither (it works mood-only, with no wearable). The
+  // artifact check is `aapt2 dump badging`: both show as uses-feature-not-required.
+  it('declares Bluetooth LE, classic Bluetooth and location hardware as not required', () => {
+    const features = named(root, 'uses-feature').map((f) => `${nameOf(f)} required=${f.attrs['android:required']}`);
+    expect(features).toEqual([
+      'android.hardware.bluetooth_le required=false',
+      'android.hardware.bluetooth required=false',
+      'android.hardware.location required=false',
+    ]);
   });
 });

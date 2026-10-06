@@ -1,0 +1,5 @@
+# OPS-107: one false positive, ignored by its exact fingerprint (commit:file:rule:line).
+# A public Spotify track ID used as a test fixture in the deleted web frontend matches gitleaks'
+# generic-api-key rule. It is not a secret. Never ignore by rule or by path.
+# backend/tests/secretScanGates.test.js keeps this file to this one entry.
+3459263a3431e29accccf3d674774be43d1f608f:frontend/src/__tests__/SpotifyAttribution.test.tsx:generic-api-key:33
