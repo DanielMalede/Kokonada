@@ -110,7 +110,7 @@ _free_
 - task: `own:healthkit-authoritative-store` (own)
 - title: HealthKit authoritative sample store foundation
 - branch: `feat/mb900-healthkit-store`
-- paths: `TASKS.md`, `backend/app/controllers/integrationsController.js`, `backend/app/services/wearable/healthBatchContract.js`, `backend/tests/healthBatchContract.test.js`, `backend/tests/healthStore.test.js`, `backend/tests/integrations.test.js`, `backend/tests/wave4.ingestLogZeroKnowledge.test.js`, `docs/research/apple-healthkit-integration-research.md`, `docs/superpowers/plans/2026-10-06-healthkit-authoritative-sample-store.md`, `docs/superpowers/plans/2026-10-06-healthkit-contract-foundation.md`, `docs/superpowers/specs/2026-10-06-healthkit-authoritative-sample-store-design.md`, `docs/superpowers/specs/2026-10-06-healthkit-data-contract-design.md`, `backend/app/services/wearable/healthSampleIdentity.js`, `backend/app/models/HealthSample.js`, `backend/tests/healthSampleIdentity.test.js`, `backend/tests/healthSampleModel.integration.test.js`
+- paths: `backend/app/models/HealthSample.js`, `backend/app/services/wearable/healthSampleIdentity.js`, `backend/tests/healthSampleIdentity.test.js`, `backend/tests/healthSampleModel.integration.test.js`, `backend/app/services/privacy/erasure.js`, `backend/scripts/gdpr-delete.js`, `backend/app/services/privacy/userDataExport.js`, `backend/tests/wave4.aadUpdateBinding.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `backend/tests/shadow.qa4.crypto.test.js`, `backend/tests/accountDeletion.test.js`, `backend/tests/userDataExport.test.js`, `docs/PRIVACY_DECLARATIONS.md`
 - resources: none
 - state: claimed
 - started: 2026-10-06
