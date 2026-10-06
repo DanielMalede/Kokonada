@@ -437,7 +437,7 @@ const defaultDeps = () => ({ lookupOpenPr: makeLookupOpenPr(), currentBranch: ma
 // The decision and the instruction.
 
 const UNRESOLVED = 'the pushed branch could not be resolved, so this fires to fail toward checking';
-const PHASE = { merge: 'post-merge', create: 'pre-merge', push: 'pre-merge' };
+const PHASE = { merge: 'pre-merge', create: 'pre-merge', push: 'pre-merge' };
 const RAN = { merge: 'a PR merge ran', create: 'a PR create ran', push: 'a push to a PR branch ran' };
 
 function stringify(value) {
