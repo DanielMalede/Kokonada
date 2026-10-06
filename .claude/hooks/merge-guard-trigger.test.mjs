@@ -751,6 +751,60 @@ describe('wiring - the committed settings', () => {
     }
   });
 
+  // A model of the permission glob: * matches any run of characters and the whole command must match.
+  const globMatch = (glob, cmd) => {
+    const parts = glob.split('*');
+    if (parts.length === 1) return glob === cmd;
+    if (!cmd.startsWith(parts[0])) return false;
+    let pos = parts[0].length;
+    for (const mid of parts.slice(1, -1)) {
+      const at = cmd.indexOf(mid, pos);
+      if (at < 0) return false;
+      pos = at + mid.length;
+    }
+    const last = parts[parts.length - 1];
+    return cmd.length - last.length >= pos && cmd.endsWith(last);
+  };
+  const denied = (cmd) =>
+    settings.permissions.deny.some((rule) => {
+      const open = rule.indexOf('(');
+      return globMatch(rule.slice(open + 1, -1), cmd);
+    });
+
+  test('H-5: a direct push to main is denied when arguments follow the bare word main', () => {
+    for (const cmd of [
+      'git push -u origin main',
+      'git push -u origin main --no-verify',
+      'git push -u origin main --follow-tags',
+      'git push upstream main -q',
+      'git push origin -d main -q',
+      'git push -u origin main 2>&1',
+      'git -C wt push -u origin main --no-verify',
+      'git push origin +feat/x',
+      'git push origin HEAD:refs/heads/main',
+    ]) assert.ok(denied(cmd), `not denied: ${cmd}`);
+  });
+
+  test('H-5: everyday commands in this repository are not denied', () => {
+    for (const cmd of [
+      'git push -u origin feat/x',
+      'git push origin HEAD',
+      'git push -u origin chore/merge-guard-agent 2>&1',
+      'git push origin feat/main-fix',
+      'gh pr merge 5 --squash --delete-branch --match-head-commit abc123',
+      'git -C wt log --oneline',
+      'git -C wt commit -m "fix: tidy"',
+    ]) assert.ok(!denied(cmd), `denied: ${cmd}`);
+  });
+
+  test('N-1: the instruction asks the session to act on the verdict, not to wait for a GREEN that may never come', () => {
+    const h = context(run(bash('gh pr merge 222 --squash'), deps()));
+    assert.ok(h.additionalContext.includes('acted on its verdict: on VERDICT: GREEN, continue.'));
+    assert.ok(h.additionalContext.includes('follow its SESSION MUST'));
+    assert.ok(h.additionalContext.includes('not retried in a loop'));
+    assert.ok(!h.additionalContext.includes('until it returns VERDICT: GREEN'));
+  });
+
   test('the agent it dispatches exists', () => {
     const agent = readFileSync(path.join(REPO_ROOT, '.claude', 'agents', 'merge-guard.md'), 'utf8');
     assert.match(agent, /^---\r?\nname: merge-guard\r?\n/);

@@ -505,8 +505,8 @@ function message(kind, failed, targets, notes) {
   return [
     `merge-guard trigger: ${RAN[kind]}${failed ? ' and exited with an error, which does not mean nothing changed on GitHub' : ''}.`,
     `Dispatch the merge-guard agent now on ${targets.join(', ')}, phase ${phase}.`,
-    'Do not start the next merge or the next task until it returns VERDICT: GREEN.',
-    'On VERDICT: RED, follow its instructions: record each finding as a TASKS.md row, fix it before the next task (DEC-143), and re-run merge-guard on the fixed state.',
+    'Do not start the next merge or the next task until it has returned and you have acted on its verdict: on VERDICT: GREEN, continue.',
+    'On VERDICT: RED, follow its SESSION MUST: record each finding as a TASKS.md row, fix it before the next task (DEC-143), and re-run merge-guard on the fixed state. A RED it says cannot be fixed from here (environment only, a merge window, equal patch-ids with CI on the merge commit green) is recorded or waited out as it says, not retried in a loop.',
     `If you cannot dispatch agents (you are a sub-agent), make the first line of your final report: \`merge-guard required: ${named}, ${phase}\`.`,
     ...notes.map((note) => `Note: ${note}.`),
   ].join(' ');
