@@ -77,7 +77,7 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 - branch: `feat/ops153-coordination-check`
 - paths: `.github/workflows/coordination.yml`, `.github/workflows/ci.yml`, `AGENTS.md`, `backend/tests/ciWorkflowPermissions.test.js`, `backend/tests/secretScanGates.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #230
 - started: 2026-10-06
 
 ### M03
