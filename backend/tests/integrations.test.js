@@ -73,6 +73,9 @@ jest.mock('../app/services/wearable/appleHealth', () => ({
 jest.mock('../app/services/wearable/healthStore', () => ({
   ingestBatch: jest.fn(),
 }));
+jest.mock('../app/services/wearable/healthStoreV2', () => ({
+  ingestV2Batch: jest.fn(),
+}));
 // suunto mock — only handleWebhook and getWorkouts need mocking here;
 // verifyWebhookSignature is tested via its real crypto logic below
 jest.mock('../app/services/wearable/suunto', () => ({
@@ -121,6 +124,7 @@ const spotify     = require('../app/services/spotify');
 const youtube     = require('../app/services/youtube');
 const garmin      = require('../app/services/wearable/garmin');
 const healthStore = require('../app/services/wearable/healthStore');
+const { ingestV2Batch } = require('../app/services/wearable/healthStoreV2');
 const garminIngest = require('../app/services/wearable/garminIngest');
 const { resolveGarminUser } = require('../app/services/wearable/garminUserLookup');
 const User        = require('../app/models/User');
@@ -934,21 +938,37 @@ describe('healthBatchIngest', () => {
     expect(User.findByIdAndUpdate).toHaveBeenCalledWith(user._id, { wearableProvider: 'health_connect' });
   });
 
-  it('ingests a valid v2 batch and adds only its operational identity to the response', async () => {
-    healthStore.ingestBatch.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
+  it('routes a valid v2 HealthKit batch through the authoritative store', async () => {
+    ingestV2Batch.mockResolvedValue({ accepted: 1, created: 1, replayed: 0, deleted: 0, projected: 1 });
     const user = buildUser({ wearableProvider: 'apple_health' });
     const res = buildRes();
 
     await ctrl.healthBatchIngest({ user, body: v2Batch }, res, jest.fn());
 
-    expect(healthStore.ingestBatch).toHaveBeenCalledWith(user._id, 'healthkit', v2Batch.samples);
+    expect(ingestV2Batch).toHaveBeenCalledWith(user._id, 'healthkit', v2Batch.samples);
+    expect(healthStore.ingestBatch).not.toHaveBeenCalled();
     expect(res.json).toHaveBeenCalledWith({
       accepted: 1,
-      inserted: 1,
-      profileMetrics: {},
+      created: 1,
+      replayed: 0,
+      deleted: 0,
+      projected: 1,
       schemaVersion: 2,
       batchId: v2Batch.batchId,
     });
+  });
+
+  it('activates Apple before the first v2 reconciliation pass', async () => {
+    const user = buildUser({ wearableProvider: null });
+    ingestV2Batch.mockImplementation(async () => {
+      expect(User.findByIdAndUpdate).toHaveBeenCalledWith(user._id, { wearableProvider: 'apple_health' });
+      return { accepted: 1, created: 1, replayed: 0, deleted: 0, projected: 1 };
+    });
+
+    await ctrl.healthBatchIngest({ user, body: v2Batch }, buildRes(), jest.fn());
+
+    expect(User.findByIdAndUpdate).toHaveBeenCalledTimes(1);
+    expect(user.wearableProvider).toBe('apple_health');
   });
 
   it('rejects an unsupported schema version before persistence', async () => {
@@ -965,22 +985,53 @@ describe('healthBatchIngest', () => {
     expect(healthStore.ingestBatch).not.toHaveBeenCalled();
   });
 
-  it('refuses a mixed delete batch before persistence', async () => {
+  it('accepts a mixed v2 delete batch through the authoritative store', async () => {
     const res = buildRes();
     const deleted = {
       sampleId: '6ba7b811-9dad-41d1-80b4-00c04fd430c8',
       operation: 'delete',
     };
 
+    ingestV2Batch.mockResolvedValue({ accepted: 2, created: 1, replayed: 0, deleted: 1, projected: 1 });
     await ctrl.healthBatchIngest(
       { user: buildUser(), body: { ...v2Batch, samples: [...v2Batch.samples, deleted] } },
       res,
       jest.fn(),
     );
 
-    expect(res.status).toHaveBeenCalledWith(501);
-    expect(res.json).toHaveBeenCalledWith({ error: 'health_delete_not_implemented' });
+    expect(ingestV2Batch).toHaveBeenCalledWith(
+      expect.anything(),
+      'healthkit',
+      [...v2Batch.samples, deleted],
+    );
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ deleted: 1, schemaVersion: 2 }));
     expect(healthStore.ingestBatch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['health_sample_identity_conflict', 409],
+    ['health_projection_pending', 503],
+  ])('returns fixed v2 error %s with status %i', async (code, statusCode) => {
+    ingestV2Batch.mockRejectedValue(Object.assign(new Error(code), { code, statusCode }));
+    const res = buildRes();
+
+    await ctrl.healthBatchIngest({ user: buildUser(), body: v2Batch }, res, jest.fn());
+
+    expect(res.status).toHaveBeenCalledWith(statusCode);
+    expect(res.json).toHaveBeenCalledWith({ error: code });
+  });
+
+  it('keeps unversioned Health Connect on the legacy store only', async () => {
+    healthStore.ingestBatch.mockResolvedValue({ accepted: 1, inserted: 1, profileMetrics: {} });
+    const user = buildUser({ wearableProvider: 'health_connect' });
+    const samples = [{ type: 'heart_rate', value: 64, startDate: '2026-10-06T06:30:00.000Z' }];
+    const res = buildRes();
+
+    await ctrl.healthBatchIngest({ user, body: { platform: 'health_connect', samples } }, res, jest.fn());
+
+    expect(healthStore.ingestBatch).toHaveBeenCalledWith(user._id, 'health_connect', samples);
+    expect(ingestV2Batch).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith({ accepted: 1, inserted: 1, profileMetrics: {} });
   });
 
   it('does not re-set wearableProvider when already on the same provider', async () => {

@@ -156,20 +156,20 @@ describe('parseHealthBatchRequest', () => {
     );
   });
 
-  it('refuses a mixed batch atomically when any sample is a delete', () => {
+  it('accepts a mixed batch whose delete carries only identity and operation', () => {
     const samples = [
       v2Sample(),
-      v2Sample({
+      {
         sampleId: '6ba7b812-9dad-41d1-80b4-00c04fd430c8',
         operation: 'delete',
-        value: undefined,
-      }),
+      },
     ];
 
-    expectContractError(
-      v2Body({ samples }),
-      'health_delete_not_implemented',
-      501,
-    );
+    expect(parseHealthBatchRequest(v2Body({ samples }))).toEqual({
+      version: 2,
+      platform: 'healthkit',
+      batchId,
+      samples,
+    });
   });
 });

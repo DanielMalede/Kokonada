@@ -50,21 +50,16 @@ function parseHealthBatchRequest(body) {
     throw contractError('health_batch_too_large');
   }
 
-  let containsDelete = false;
   for (const sample of input.samples) {
     if (!sample || typeof sample !== 'object'
       || !UUID_RE.test(sample.sampleId || '')
       || (sample.operation !== 'upsert' && sample.operation !== 'delete')) {
       throw contractError('invalid_health_sample');
     }
-    if (sample.operation === 'delete') containsDelete = true;
-  }
-
-  if (containsDelete) {
-    throw contractError('health_delete_not_implemented', 501);
   }
 
   for (const sample of input.samples) {
+    if (sample.operation === 'delete') continue;
     if (!TYPES.has(sample.type)
       || sample.value == null
       || !Number.isFinite(Number(sample.value))

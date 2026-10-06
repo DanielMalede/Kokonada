@@ -6,6 +6,7 @@ const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
 const appleHealth = require('../services/wearable/appleHealth');
 const healthStore = require('../services/wearable/healthStore');
+const { ingestV2Batch } = require('../services/wearable/healthStoreV2');
 const { parseHealthBatchRequest } = require('../services/wearable/healthBatchContract');
 const garminIngest = require('../services/wearable/garminIngest');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
@@ -641,8 +642,19 @@ exports.healthBatchIngest = async (req, res, next) => {
   console.warn(`[healthBatch] recv platform=${req.body?.platform} samples=${n} user=${req.user?._id}`);
   try {
     const batch = parseHealthBatchRequest(req.body);
+    const provider = batch.platform === 'healthkit' ? 'apple_health' : 'health_connect';
 
-    const result = await healthStore.ingestBatch(req.user._id, batch.platform, batch.samples);
+    // HealthKit profile reconciliation is provider-scoped. Activate the validated provider before
+    // the synchronous v2 projection so the first successful batch can rebuild its profile too.
+    if (batch.version === 2 && batch.platform === 'healthkit'
+      && req.user.wearableProvider !== provider) {
+      await User.findByIdAndUpdate(req.user._id, { wearableProvider: provider });
+      req.user.wearableProvider = provider;
+    }
+
+    const result = batch.version === 2
+      ? await ingestV2Batch(req.user._id, batch.platform, batch.samples)
+      : await healthStore.ingestBatch(req.user._id, batch.platform, batch.samples);
     // W4-D08: `rejected` is a count plus (path, validator-kind) pairs — never a submitted value.
     // W4-D10: this line used to serialise the whole `profileMetrics` object, i.e. write the median
     // resting HR / HRV / SpO2 / respiration and the night's sleep minutes to stdout on EVERY
@@ -650,15 +662,21 @@ exports.healthBatchIngest = async (req, res, next) => {
     // receipt's job (#90: "did it reach the server, did it persist?") needs how many baselines
     // moved and which metrics they were, not what they said. Values stay in `res.json` below,
     // where they go to the authenticated owner over TLS rather than to the log stream.
-    const pm = summarizeMetricKeys(result.profileMetrics, PROFILE_SCALAR_METRICS);
-    console.warn(
-      `[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} `
-      + `rejected=${result.rejected?.count || 0} profileMetrics=${pm.count} profileMetricKeys=${pm.keys}`
-      + (pm.unknown ? ` unknownProfileKeys=${pm.unknown}` : ''),
-    );
+    if (batch.version === 2) {
+      console.warn(
+        `[healthBatch] ok accepted=${result.accepted} created=${result.created} replayed=${result.replayed} `
+        + `deleted=${result.deleted} projected=${result.projected}`,
+      );
+    } else {
+      const pm = summarizeMetricKeys(result.profileMetrics, PROFILE_SCALAR_METRICS);
+      console.warn(
+        `[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} `
+        + `rejected=${result.rejected?.count || 0} profileMetrics=${pm.count} profileMetricKeys=${pm.keys}`
+        + (pm.unknown ? ` unknownProfileKeys=${pm.unknown}` : ''),
+      );
+    }
 
     // Mark the wearable provider on first push so the web UI reflects the connection.
-    const provider = batch.platform === 'healthkit' ? 'apple_health' : 'health_connect';
     if (req.user.wearableProvider !== provider) {
       await User.findByIdAndUpdate(req.user._id, { wearableProvider: provider });
     }
@@ -673,7 +691,8 @@ exports.healthBatchIngest = async (req, res, next) => {
         : err.code;
       return res.status(err.statusCode).json({ error });
     }
-    console.warn(`[healthBatch] FAILED user=${req.user?._id}: ${err.message}`);
+    if (req.body?.schemaVersion === 2) console.warn('[healthBatch] FAILED v2');
+    else console.warn(`[healthBatch] FAILED user=${req.user?._id}: ${err.message}`);
     next(err);
   }
 };
