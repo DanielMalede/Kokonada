@@ -4,8 +4,9 @@ The single running list of everything still open in this repo. **If it is not wr
 A task that lives only in a conversation is already lost — that is what this file exists to stop.
 
 **Last updated:** 2026-10-06
-**Next free IDs:** `BE-120` · `MB-105` · `UI-090` · `OPS-146` · `ARCH-017` · `DAN-063`
+**Next free IDs:** `BE-120` · `MB-105` · `UI-090` · `OPS-149` · `ARCH-017` · `DAN-064`
 Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, OPS-136–145 (the next scribe PR), ARCH-013–016, DAN-050–062, DEC-128–154; each branch writes its own rows.
+Bedrack's block (`WORK_LEDGER.md`): `900`–`999` in every prefix (`BE-900`, `MB-900`, …). Bedrack takes new IDs only from it; the next free IDs above never enter it.
 
 ---
 
@@ -1200,6 +1201,22 @@ _(put anything you are unsure about here rather than losing it)_
   - **Output format:** IN FORCE NOW / APPLIES FROM · THE PIVOT · OBLIGATIONS THAT ATTACH REGARDLESS · BRANCH MAP · THE COUNTER-CASE · UNRETRIEVED · QUESTIONS FOR COUNSEL · WHAT I AM NOT SAYING. The *attach-regardless* section is deliberately first-class: it is the only part the build may act on before counsel replies.
   - where: `.claude/agents/regulatory-researcher.md` · rostered in `CLAUDE.md` and `docs/ORCHESTRATOR_FABLE.md` · done when: nothing to build — this row exists so the agent is discoverable and its boundary is not re-litigated. Close it once `DAN-010` has counsel's answer. · src: Daniel, 2026-08-28 · added: 2026-08-28
 
+- [ ] `OPS-146` `P1` **`coordinator` — a ninth build agent, created 2026-10-06, because a second human now works in this repository.** Daniel Bedrack (`DanielBedrack`, role `write`, works in Codex) joined; the owner and he change the repository in parallel, with no branch protection (the free private plan answers 403) and a merge to `main` that deploys production.
+  - status: taken by Malede (@DanielMalede) on branch `chore/work-ledger` since 2026-10-06, ledger slot M01
+  - **Why it exists.** #218 (Bedrack) landed on `main` by mistake and #220 reverted it. On 2026-10-06 the owner's #222 and Bedrack's open #223 both edited `.github/workflows/ci.yml` and `backend/tests/ciWorkflowPermissions.test.js`, and nothing noticed. Every guardrail the owner relies on (the local deny list, stage by path, a worktree per task, read `origin/main`) lives on his machine or in his private notes, where Bedrack's tools never see it.
+  - **What it is.** One engine both tools run, `scripts/coord/coord.js`: `check` the partner's live work on origin, `start` a task (a worktree from `origin/main`, a slot in `WORK_LEDGER.md`, the TASKS marker, a draft PR), `status`, `ship`, `rescope`, `release`, and `ci`. The owner's side is `.claude/agents/coordinator.md` and `/claim`; Bedrack's is `.agents/skills/coordinate/SKILL.md` (`$coordinate`). The ledger copy on `main` is history; live claims are read from every branch on origin. Fixed slots (`M01`–`M12`, `B01`–`B06`) keep concurrent branches free of ledger conflicts. A `.githooks/pre-push` guard refuses pushes to `main`.
+  - **THE BOUNDARY:** it never resolves a collision. On HALT it reports who holds what; the two partners decide.
+  - where: `scripts/coord/`, `WORK_LEDGER.md`, `.claude/agents/coordinator.md`, `.agents/skills/coordinate/SKILL.md`, `.githooks/pre-push`, `backend/tests/coord.*.test.js` · rostered in `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md` and `.claude/agents/sentinel.md` · done when: the engine's suite is green in CI, the real-repo check names Bedrack's unclaimed `feat/project-explorer-ci` on the workflows group, and Bedrack runs `$coordinate` once in Codex and gets the same verdict · src: the owner, 2026-10-06 · added: 2026-10-06
+
+- [ ] `OPS-147` `P1` **Coordination, phase B: the CI check and Bedrack's `AGENTS.md` section — only after #223 has merged and `coord check` on these files is CLEAR.** #223 owns `.github/workflows/ci.yml`, `backend/tests/ciWorkflowPermissions.test.js` and `AGENTS.md` today. `#blocked` on #223.
+  - **The check:** a separate `.github/workflows/coordination.yml`, `on: pull_request` to `main`, top-level `permissions: contents: read` only, one job `coordination` skipped on drafts, git only (no PR API), running `origin/main`'s copy of `node scripts/coord/coord.js ci` so a PR cannot weaken its own check. It starts in `--mode warn` and moves to `fail` after a week with no false HALT. Not inside `ci.yml`: that file is in the Android compile path filter and runs on push to `main`.
+  - **The pin:** `ciWorkflowPermissions.test.js` line 136 becomes `['ci.yml', 'coordination.yml', 'secret-scan-history.yml']`, plus a pin that the new workflow has only the `pull_request` trigger, only the `coordination` job, and no `pull-requests` grant.
+  - **`AGENTS.md`:** a coordination section (start with `$coordinate`, never push to `main`, stage by path, a worktree per task, read `origin/main`, merge only your own PRs). Bedrack writes it or approves it.
+  - where: `.github/workflows/coordination.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `AGENTS.md` · done when: the check runs on a real PR, reports in its job summary, and has been in `fail` mode for a week · related: `OPS-146` · src: the coordination plan, 2026-10-06 · added: 2026-10-06
+
+- [ ] `OPS-148` `P3` **`custodian.md` still assumes one human.** Line 86 says "Do NOT propose CODEOWNERS — solo repo, pure ceremony", and its run preconditions check only for a second session on the same working tree, not for the partner's live branches on origin. A custodian batch should also be disjoint from every live claim (`coord check` on the batch's files), as `DEC-144` already asks of open branches.
+  - where: `.claude/agents/custodian.md:15-16`, `:86` · done when: the owner approves both lines and they land in their own commit · related: `OPS-146`, `DEC-144` · src: the coordination plan's exploration, 2026-10-06 · added: 2026-10-06
+
 - [ ] `OPS-001` `P1` **OWNED BY A SEPARATE SESSION — see the block below before acting.** The Wave-4 mission loop is not running. ~~`docs/plans/WAVE4_HALT` is present (2026-08-25 16:05) and no session has run since.~~ **The halt file is now ABSENT — see the finding below; the loop is stopped because no process is running it, not because of the flag.** `W4-015` (soak, closeout & package) is the **only remaining MUST** and has never seriously started; the 24 h `RUN_SOAK=1` run has never executed. `#verify`
   - ### 🔒 OWNED BY ANOTHER SESSION — DO NOT TOUCH, DO NOT RESTART, DO NOT ARCHIVE
     **Recorded 2026-09-02 by Daniel.** A **separate session owns the Wave-4 mission loop** and is pushing its work to git. This row exists so nobody picks it up twice — that is its whole purpose now. Concretely, for any session that is not that one:
@@ -2240,6 +2257,11 @@ _(put anything you are unsure about here rather than losing it)_
   - `compliance-auditor`, round 2: for PR #A, N3 is already satisfied by the two checklist lines and `CMP-141`. This line is extra protection, not a precondition.
   - **The proposed text:** "Before any store submission, require `node scripts/lab/assertLabExcluded.mjs --scan <the exact .aab, .apk or .ipa>` run from `mobile/KokonadaHealth`, recorded with the artifact's name, its SHA-256 and exit 0; exit 1 or 2 is a HALT (QA-077, CMP-141)."
   - where: `.claude/agents/compliance-auditor.md` (the submission gate) · done when: the owner approves or declines the line, and an approved line is added in its own commit · related: `CMP-141`, `QA-077`, `OPS-103` · src: `v1lab-r1-reconciliation.md` N3; the V1 lab developer's fix-batch report (the deviation); `compliance-auditor`, V1 lab round 2 · added: 2026-10-04
+- [ ] `DAN-063` `P1` **Set up the two-partner protocol (Pause & Guide).** The coordinator (`OPS-146`) works only if both machines and the repository settings agree with it.
+  - **Repository settings (free on this plan, off today):** delete the head branch on merge, and allow squash merges only. #218 landed as a merge commit. Command: `gh api -X PATCH repos/DanielMalede/Kokonada -F delete_branch_on_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false`.
+  - **Both machines, once:** `git config core.hooksPath .githooks`, which turns on the pre-push guard against pushes to `main` (and the existing pre-commit secret scan).
+  - **With Bedrack:** walk through `WORK_LEDGER.md`'s rules, his ID block (`900`–`999`), the owner-only paths, and the rule that each partner merges only his own PRs. Confirm that his commits use his GitHub noreply email, so his unclaimed branches are attributed to him.
+  - where: GitHub repository settings; both clones · done when: `gh api repos/DanielMalede/Kokonada --jq '[.delete_branch_on_merge,.allow_merge_commit,.allow_rebase_merge]'` prints `[true,false,false]`, and `git config core.hooksPath` prints `.githooks` on both machines · related: `OPS-146`, `OPS-110` · src: the coordination plan, 2026-10-06 · added: 2026-10-06
 
 ---
 
