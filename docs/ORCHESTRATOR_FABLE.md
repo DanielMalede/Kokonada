@@ -2,7 +2,7 @@
 
 > **This file holds detail only.** `CLAUDE.md` is binding: the session start, the agents, the task lifecycle, the merge rule and the working rules (attribution included) live there and nowhere else. Where this file and `CLAUDE.md` disagree, `CLAUDE.md` wins and this file is the defect to fix.
 >
-> Attribution: never add any, anywhere — the full rule is `CLAUDE.md` § Working rules.
+> Never add attribution of any kind, anywhere — the full rule is `CLAUDE.md` § Working rules.
 
 Repository: `C:\Users\danie\Videos\Kokonada` on the owner's machine, `DanielMalede/Kokonada` on GitHub. A merge to `main` deploys the backend to Railway.
 
