@@ -2,7 +2,7 @@ import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRu
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
-import { NODE, fieldPixel, isWaypoint, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { NODE, fieldOklab, fieldPixel, isWaypoint, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
@@ -264,38 +264,65 @@ describe('what the shader’s pixels show', () => {
     expect(Array.from(render(b))).toEqual(Array.from(render(a)));
   });
 
-  // The dither against the undithered field, per 8-bit channel, over a lit 64×64 frame.
-  const ditherEffect = () => {
-    const r = DIRECTIONS.abyss.field.lobe.radius;
-    const nodes = [bead(NODE.C, 'calm', 'dark', [0.3, 0.2], r), bead(NODE.R, 'reflective', 'dark', [-0.4, -0.3], r)];
-    const clean = render(frameFor('abyss', 'dark', nodes, { grain: { inside: 0, ground: 0 }, dither: 0 }));
-    const dithered = render(frameFor('abyss', 'dark', nodes, { grain: { inside: 0, ground: 0 } }));
-    let worst = 0;
-    let sum = 0;
-    for (let i = 0; i < W * H; i++) {
-      for (let c = 0; c < 3; c++) {
-        const delta = dithered[4 * i + c] - clean[4 * i + c];
-        worst = Math.max(worst, Math.abs(delta));
-        sum += delta;
-      }
-    }
-    return { worst, bias: sum / (W * H * 3) };
+  // The field dither (designer ruling 1, option (a)): ±1/255 on OKLab L, one scalar per pixel,
+  // added before the sRGB encode and rounded once. Its 8-bit footprint per channel is at most ⌈σ⌉,
+  // σ being the channel's unrounded 8-bit change over ±amplitude of L at the undithered colour.
+  // σ_c at an undithered colour c0.
+  const sigma = (c0: Oklab, A: number): number[] => {
+    const enc = (L: number) => oklabToSrgb({ L, a: c0.a, b: c0.b }).map((v) => Math.min(1, Math.max(0, v)) * 255);
+    const lo = enc(c0.L - A);
+    const mid = enc(c0.L);
+    const hi = enc(c0.L + A);
+    return [0, 1, 2].map((c) => Math.max(Math.abs(hi[c] - mid[c]), Math.abs(mid[c] - lo[c])));
   };
 
-  it('the dither (±1/255 on OKLab L, the token) moves a channel by at most 2 LSB, with a bias under 0.1 LSB', () => {
-    const { worst, bias } = ditherEffect();
+  it('the dither is ±1/255 on OKLab L: each channel moves at most ⌈σ⌉, its total matches the law within 5%, unbiased', () => {
+    const A = BASE.field.dither.amplitude;
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const nodes = [bead(NODE.C, 'calm', 'dark', [0.3, 0.2], r), bead(NODE.R, 'reflective', 'dark', [-0.4, -0.3], r)];
+    const clean = frameFor('abyss', 'dark', nodes, { grain: { inside: 0, ground: 0 }, dither: 0 });
+    const dithered = frameFor('abyss', 'dark', nodes, { grain: { inside: 0, ground: 0 } });
+    const a = render(clean);
+    const b = render(dithered);
+    let over = 0;
+    let worst = 0;
+    let sum = 0;
+    let drawn = 0;
+    let law = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const s = sigma(fieldOklab(clean, x + 0.5, y + 0.5), A);
+        const l0 = fieldPixel(clean, x + 0.5, y + 0.5);
+        const l1 = fieldPixel(dithered, x + 0.5, y + 0.5);
+        for (let c = 0; c < 3; c++) {
+          const d = b[4 * (y * W + x) + c] - a[4 * (y * W + x) + c];
+          if (Math.abs(d) > Math.ceil(s[c])) over++;
+          worst = Math.max(worst, Math.abs(d));
+          sum += d;
+          drawn += Math.abs(d);
+          law += Math.abs(l1[c] - l0[c]);
+        }
+      }
+    }
+    expect(over).toBe(0);
     expect(worst).toBeGreaterThan(0);
-    expect(worst).toBeLessThanOrEqual(2);
-    expect(Math.abs(bias)).toBeLessThan(0.1);
+    expect(Math.abs(drawn / law - 1)).toBeLessThan(0.05);
+    expect(Math.abs(sum / (W * H * 3))).toBeLessThan(0.1);
   });
 
-  // KNOWN CONFLICT, for the designer: plan §B4 asks for "within ±1 LSB", but ±1/255 on OKLab L moves
-  // an sRGB channel by more than 1 LSB wherever the channel's slope exceeds 1 (bright greys, and
-  // chromatic colours whose weakest channel is near 0), so after rounding a channel can move by 2.
-  // This test fails today on purpose (jest's it.failing); it turns red the day the conflict is
-  // resolved either way, so the marker cannot outlive it.
-  it.failing('the dither stays within ±1 LSB of the undithered field (plan §B4)', () => {
-    expect(ditherEffect().worst).toBeLessThanOrEqual(1);
+  // The premise (σ < 1 on every dark-face ground) is a guard: if a token change breaks it, stop and
+  // report to the designer; never relax this test.
+  it.each(['abyss', 'linen', 'basin'] as DirectionId[])('%s dark: on every calm ground the dither moves a channel by at most 1 LSB, and moves some', (id) => {
+    const c = DIRECTIONS[id].color.dark;
+    for (const g of [lab(c.ground), lab(c.plate.face), lab(c.plate.ring)]) {
+      expect(Math.max(...sigma(g, BASE.field.dither.amplitude))).toBeLessThan(1); // the premise
+      const flat = { grounds: { outside: g, face: g, ring: g }, vignette: 0, centreLift: 0, grain: { inside: 0, ground: 0 } };
+      const a = render(frameFor(id, 'dark', [], { ...flat, dither: 0 }));
+      const b = render(frameFor(id, 'dark', [], flat));
+      let worst = 0;
+      for (let i = 0; i < W * H; i++) for (let ch = 0; ch < 3; ch++) worst = Math.max(worst, Math.abs(b[4 * i + ch] - a[4 * i + ch]));
+      expect(worst).toBe(1);
+    }
   });
 
   // Marks never shimmer (designer rulings, QA-064): in the ring, where only the halo shows, the
