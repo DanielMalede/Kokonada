@@ -3,7 +3,10 @@ import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
 import { NODE, fieldOklab, fieldPixel, isWaypoint, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
+import { buildFieldFrame } from '../fieldFrame.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
+import { staticsFor } from '../statics.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
 // The field shader in real Skia (CanvasKit), held to the TypeScript law (fieldLaw.ts) pixel for
@@ -323,6 +326,97 @@ describe('what the shader’s pixels show', () => {
       for (let i = 0; i < W * H; i++) for (let ch = 0; ch < 3; ch++) worst = Math.max(worst, Math.abs(b[4 * i + ch] - a[4 * i + ch]));
       expect(worst).toBe(1);
     }
+  });
+
+  // Designer 2.1: wherever the field is absent (extent 0 by the direction's mask: the ring and the
+  // moat everywhere, Linen's dish, Basin's screen ground), a pixel depends on the halos alone, so the
+  // shader draws it byte for byte the same across s 0 and 1, two clocks, c, genesis and the breath.
+  it.each((['abyss', 'linen', 'basin'] as DirectionId[]).flatMap((id) => (['dark', 'light'] as Face[]).map((face) => [id, face] as const)))(
+    '%s, %s face: where the field is absent, the halos alone draw it, byte for byte steady',
+    (id, face) => {
+      const R = 48;
+      const size = 112;
+      const geometry = { centrePx: [size / 2 + 0.3, size / 2 - 0.4] as [number, number], radiusPx: R, pxPerDp: R / (BASE.plate.maxDiameter / 2), fontScale: 1 };
+      const roots = EXTENSIONS as unknown as Record<string, { $root: { neverRedScenes?: Array<{ id: string; beads?: Array<{ x: number; y: number }> }>; hardest?: Array<{ id: string; node?: string; x?: number; y?: number }> } }>;
+      const ring = roots[id].$root.neverRedScenes?.find((s) => s.id === 'ringHalo')?.beads?.[0]
+        ?? (roots[id].$root.hardest?.find((h) => h.id === 'word.top' && h.node === 'I') as { x: number; y: number });
+      const placements = [{ x: ring.x, y: ring.y }, { x: 0.566, y: -0.566 }, { x: -0.566, y: -0.566 }];
+      const statics = staticsFor(id, EXTENSIONS as never);
+      const peak = BASE.field.clock.T / (4 * BASE.field.clock.shimmer.harmonic);
+      const base = { direction: id, face, placements, tier: 'full' as const };
+      const a = buildFieldFrame({ ...base, stress: 0, confidence: null, genesis: false, tMs: peak, breathPhase: 0.1 }, geometry, statics);
+      const b = buildFieldFrame({ ...base, stress: 1, confidence: 1, genesis: true, tMs: 37000, breathPhase: 0.7 }, geometry, statics);
+      const pa = render(a, effect, size, size);
+      const pb = render(b, effect, size, size);
+      let fieldFree = 0;
+      let lit = 0;
+      const moved: string[] = [];
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const qx = (x + 0.5 - a.centrePx[0]) / R;
+          const qy = -(y + 0.5 - a.centrePx[1]) / R;
+          const d = Math.hypot(qx, qy);
+          const region = d < a.ringInner ? 'face' : d <= 1 ? 'ring' : d < a.moatOuter ? 'moat' : 'outside';
+          const maskOf = { face: a.mask.face, ring: a.mask.ring, moat: 0, outside: a.mask.outside }[region];
+          if (maskOf !== 0) continue;
+          fieldFree++;
+          if (d <= 1 && a.nodes.some((n) => n.bead && Math.hypot(qx - n.bead[0], qy - n.bead[1]) < a.haloRadius)) lit++;
+          const i = 4 * (y * size + x);
+          if (pa[i] !== pb[i] || pa[i + 1] !== pb[i + 1] || pa[i + 2] !== pb[i + 2]) moved.push(`(${x}, ${y}) ${region}`);
+        }
+      }
+      expect(lit).toBeGreaterThan(20);
+      expect(fieldFree).toBeGreaterThan(lit);
+      expect(moved).toEqual([]);
+      // Not vacuous: where the field is present, the two moments do differ.
+      expect(Array.from(pa)).not.toEqual(Array.from(pb));
+    },
+  );
+
+  // The critic's clause in the shader itself. One float32 ULP is invisible in an 8-bit render except
+  // at a rounding tie, so the shader's own nodeColour (cut from FIELD_SKSL's text) is compiled alone,
+  // and its residual against the halo is drawn ×1e9: any residual at all moves the byte off 64.
+  it('the shader’s nodeColour is the halo bit for bit where w = 1, for every anchor turned and under tension', () => {
+    const cut = (re: RegExp) => {
+      const m = FIELD_SKSL.match(re);
+      if (!m) throw new Error(`not in FIELD_SKSL: ${re}`);
+      return m[0];
+    };
+    const probe = Skia.RuntimeEffect.Make(`uniform float2 uShimmer;
+uniform float3 uField;
+uniform float3 uHalo;
+${cut(/float sstep\([^)]*\) \{[\s\S]*?\n\}/)}
+${cut(/float3 nodeColour\([^)]*\) \{[\s\S]*?\n\}/)}
+half4 main(float2 p) {
+  float3 d = (nodeColour(uField, uHalo, 1.0, 0.2, 0.0) - uHalo) * 1.0e9;
+  return half4(0.25 + d.x, 0.25 + d.y, 0.25 + d.z, 1.0);
+}`);
+    if (!probe) throw new Error('the nodeColour probe did not compile');
+    const off: string[] = [];
+    let cases = 0;
+    for (const q of ['joy', 'calm', 'reflective', 'intense'] as const) {
+      for (const tier of ['core', 'deep'] as const) {
+        const halo = lab(BASE.emotion[q][tier]);
+        for (const s of [0, 1]) {
+          const field = { L: halo.L * (1 - 0.15 * s), a: halo.a * (1 - 0.35 * s), b: halo.b * (1 - 0.35 * s) };
+          for (const deg of [-6, -3, 3, 6]) {
+            const phi = (deg * Math.PI) / 180;
+            const surface = Skia.Surface.Make(1, 1);
+            if (!surface) throw new Error('no surface');
+            const paint = Skia.Paint();
+            paint.setDither(false);
+            paint.setShader(probe.makeShader([Math.cos(phi), Math.sin(phi), field.L, field.a, field.b, halo.L, halo.a, halo.b]));
+            surface.getCanvas().drawPaint(paint);
+            surface.flush();
+            const px = surface.makeImageSnapshot().readPixels(0, 0, { width: 1, height: 1, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul }) as Uint8Array;
+            cases++;
+            if (px[0] !== 64 || px[1] !== 64 || px[2] !== 64) off.push(`${q} ${tier} s ${s} at ${deg}°: (${px[0]}, ${px[1]}, ${px[2]})`);
+          }
+        }
+      }
+    }
+    expect(cases).toBe(64);
+    expect(off).toEqual([]);
   });
 
   // Marks never shimmer (designer rulings, QA-064): in the ring, where only the halo shows, the

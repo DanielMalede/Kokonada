@@ -10,9 +10,10 @@
 //   lobes      f_i = fade_i·r_i²/|q' − c_i|², m = smoothstep(0.55, 1.6, Σ f_i);
 //   halos      h_i = fade_i·peak·(1 − smoothstep(r_bead, r_halo, |q − b_i|)), inside the rim only;
 //   k_field    kField·m·extent; H = max h_i; k = min(max(k_field, H), max(cap, peak));
-//   a node     its turned field colour, giving way to its steady halo colour where the halo
-//              outweighs the field: w_i = smoothstep(−0.05, 0.05, h_i − k_field) (marks never shimmer);
-//   selection  topTwoSoft over e_i = f_i + λ·h_i: (e1·a1 + max(0, e2 − e3)·a2)/(e1 + max(0, e2 − e3)),
+//   a node     a bead node: (1 − w_i)·turned field colour + w_i·steady halo colour,
+//              w_i = smoothstep(−0.05, 0, h_i − k_field); a rest lobe: its turned field colour
+//              (designer 2.1, with the critic's exact mix: where w_i = 1 it is the halo bit for bit);
+//   selection  topTwoSoft over e_i = extent·f_i + λ·h_i: (e1·a1 + max(0, e2 − e3)·a2)/(e1 + max(0, e2 − e3)),
 //              through N = (mid L, 0, 0) on a waypoint edge (J–I, and R0–I where the direction says);
 //   composite  route R4: L = mix(G.L, col.L, k); ab = k·col.ab + (1 − k)·(1 − smoothstep(0, kp, k))·G.ab;
 //   noise      static grain and blue-noise dither, on L only;
@@ -197,6 +198,19 @@ export function selectColour(e: readonly number[], colours: readonly Oklab[], id
   return { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
 }
 
+/**
+ * A node's colour (designer 2.1): a bead node's field colour turned by the shimmer gives way to its
+ * steady halo colour where its halo reaches the field's weight, w = smoothstep(−0.05, 0, h − kField);
+ * a rest lobe is its turned field colour. Written (1 − w)·turned + w·halo, so where w = 1 the node is
+ * the halo bit for bit, in the law and in the shader (marks never shimmer, never feel s, c or t).
+ */
+export function nodeColour(node: FieldNodeFrame, h: number, kField: number, shimmer: { readonly cos: number; readonly sin: number }): Oklab {
+  const turned = { L: node.field.L, a: node.field.a * shimmer.cos - node.field.b * shimmer.sin, b: node.field.a * shimmer.sin + node.field.b * shimmer.cos };
+  if (node.bead === null) return turned;
+  const w = smoothstep(-0.05, 0, h - kField);
+  return { L: (1 - w) * turned.L + w * node.halo.L, a: (1 - w) * turned.a + w * node.halo.a, b: (1 - w) * turned.b + w * node.halo.b };
+}
+
 // ---------------------------------------------------------------------------------- the pixel
 
 /** The pixel's OKLab colour, grain and dither included, before encoding. (x, y) in pixels. */
@@ -231,22 +245,15 @@ export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
     }
     H = Math.max(H, h[i]);
   }
-  const kFieldHere = frame.kField * smoothstep(0.55, 1.6, fSum) * extentAt(region, d, frame);
+  const extent = extentAt(region, d, frame);
+  const kFieldHere = frame.kField * smoothstep(0.55, 1.6, fSum) * extent;
   const k = Math.min(Math.max(kFieldHere, H), frame.kMax);
 
   let colour = ground;
-  const e = f.map((fi, i) => fi + frame.lambda * h[i]);
+  // Selection is gated by the extent: where the field is absent, only the halos compete.
+  const e = f.map((fi, i) => extent * fi + frame.lambda * h[i]);
   if (Math.max(...e) > 0) {
-    const s = frame.shimmer;
-    const colours = frame.nodes.map((node, i) => {
-      const turned = { L: node.field.L, a: node.field.a * s.cos - node.field.b * s.sin, b: node.field.a * s.sin + node.field.b * s.cos };
-      const toHalo = node.bead === null ? 0 : smoothstep(-0.05, 0.05, h[i] - kFieldHere);
-      return {
-        L: turned.L + (node.halo.L - turned.L) * toHalo,
-        a: turned.a + (node.halo.a - turned.a) * toHalo,
-        b: turned.b + (node.halo.b - turned.b) * toHalo,
-      };
-    });
+    const colours = frame.nodes.map((node, i) => nodeColour(node, h[i], kFieldHere, frame.shimmer));
     colour = selectColour(e, colours, frame.nodes.map((node) => node.id), frame.restIntenseWaypoint);
   }
 

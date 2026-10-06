@@ -86,7 +86,8 @@
           },
           "restIntenseRule": "R0-I is a waypoint edge when field.graph.restIntenseRoute is \"waypoint\", and a straight edge when it is \"straight\"",
           "waypoint": "N = (lerp(L_a, L_b, 0.5), 0, 0): two straight OKLab segments a→N→b",
-          "selection": "per bead weight e_i = f_i + λ·h_i (λ = 1000); e1 ≥ e2 ≥ e3; colour = (e1·a1 + max(0, e2 − e3)·a2) / (e1 + max(0, e2 − e3)); if (a1, a2) is a waypoint edge, mix along a→N→b",
+          "selection": "per node weight e_i = extent(x)·f_i + λ·h_i (λ = 1000); e1 ≥ e2 ≥ e3; colour = (e1·a1 + max(0, e2 − e3)·a2) / (e1 + max(0, e2 − e3)); if (a1, a2) is a waypoint edge, mix along a→N→b",
+          "nodeColour": "A bead node's colour is mix(its field colour turned by the shimmer, its steady halo colour, smoothstep(−0.05, 0, h_i − k_field)). A rest lobe's colour is its turned field colour. Selection weights are e_i = extent(x)·f_i + λ·h_i. So wherever the field is absent (extent = 0: the ring and moat in every direction, Linen's dish face, Basin's screen ground), a pixel depends only on the halos and is identical across t, s, c and the shimmer.",
           "sameNode": "straight: two beads of one quadrant differ only in chroma",
           "groundComposite": "every node, and N, to the local ground (ground / plate.face / plate.ring), with pivot kp",
           "pixelK": "k = max(k_field, H), where H = max over beads of halo h_j"
@@ -134,6 +135,7 @@
       "clipToRim": {"$type":"number","$value":1}
     },
     "dither": {
+      "$extensions":{"com.kokonada":{"rule":"± amplitude on OKLab L, one scalar per pixel, added before the sRGB encode and rounded once; per channel the 8-bit change is at most ceil(sigma), sigma = that channel's unrounded 8-bit change over ±amplitude of L at the pixel's colour (under 1 on every dark-face ground). Never per channel in sRGB."}},
       "amplitude": {"$type":"number","$value":0.003922},
       "pattern": {"$type":"string","$value":"blueNoise64.static"}
     },

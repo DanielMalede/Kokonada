@@ -79,12 +79,13 @@ float halo(float4 bead, float fade, float2 q, float d) {
   return fade * (uWeight.z * (1.0 - sstep(uGeom2.z, uGeom2.w, sqrt(dv.x * dv.x + dv.y * dv.y))));
 }
 
-// A node's colour: its field colour turned by the shimmer, giving way to its steady halo colour
-// where the halo outweighs the field (marks never shimmer).
+// A node's colour (designer 2.1): a bead node's field colour turned by the shimmer gives way to its
+// steady halo colour where its halo reaches the field's weight; a rest lobe is its turned field
+// colour. Written (1 − w)·turned + w·halo, so where w = 1 it is the halo bit for bit.
 float3 nodeColour(float3 field, float3 haloColour, float hasHalo, float h, float kField) {
   float3 turned = float3(field.x, field.y * uShimmer.x - field.z * uShimmer.y, field.y * uShimmer.y + field.z * uShimmer.x);
-  float toHalo = hasHalo > 0.5 ? sstep(-0.05, 0.05, h - kField) : 0.0;
-  return turned + (haloColour - turned) * toHalo;
+  float w = hasHalo > 0.5 ? sstep(-0.05, 0.0, h - kField) : 0.0;
+  return (1.0 - w) * turned + w * haloColour;
 }
 
 bool isWaypoint(float a, float b) {
@@ -127,7 +128,7 @@ ${nodes.slice(1).map((k) => `  H = max(H, h${k});`).join('\n')}
 
   float3 colour = ground;
   float e[${NODE_SLOTS}];
-${nodes.map((k) => `  e[${k}] = f${k} + uSelect.x * h${k};`).join('\n')}
+${nodes.map((k) => `  e[${k}] = extent * f${k} + uSelect.x * h${k};`).join('\n')}
   float eMax = e[0];
   for (int i = 1; i < ${NODE_SLOTS}; i++) { eMax = max(eMax, e[i]); }
   if (eMax > 0.0) {

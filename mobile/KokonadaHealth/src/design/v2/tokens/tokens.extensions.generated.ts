@@ -4,7 +4,7 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  'base.tokens.json': 'e3ad1585fc45ea26e7f4f1352dbc4d009554feefb15fffc82eb47c5990b6be0b',
+  'base.tokens.json': '95acdf8a361dd98d71a1faaa85eec649f95282e5e18caa5d814c51172e75a0e2',
   'direction.abyss.tokens.json': '68304fe7c114ff6675fc3c7b7bffd257b633b673128a26e4c42b27ab9c72aa16',
   'direction.basin.tokens.json': 'b4709270720236c5ee29a3409289c6b3765e4d8e73540fe73de8b327de109827',
   'direction.linen.tokens.json': 'bb370e06c54bc076182122fe6b673e6f9d8b378054aa69f7a5fd3570ddabf880',
@@ -211,7 +211,8 @@ export const EXTENSIONS = {
       },
       restIntenseRule: 'R0-I is a waypoint edge when field.graph.restIntenseRoute is "waypoint", and a straight edge when it is "straight"',
       waypoint: 'N = (lerp(L_a, L_b, 0.5), 0, 0): two straight OKLab segments a→N→b',
-      selection: 'per bead weight e_i = f_i + λ·h_i (λ = 1000); e1 ≥ e2 ≥ e3; colour = (e1·a1 + max(0, e2 − e3)·a2) / (e1 + max(0, e2 − e3)); if (a1, a2) is a waypoint edge, mix along a→N→b',
+      selection: 'per node weight e_i = extent(x)·f_i + λ·h_i (λ = 1000); e1 ≥ e2 ≥ e3; colour = (e1·a1 + max(0, e2 − e3)·a2) / (e1 + max(0, e2 − e3)); if (a1, a2) is a waypoint edge, mix along a→N→b',
+      nodeColour: 'A bead node\'s colour is mix(its field colour turned by the shimmer, its steady halo colour, smoothstep(−0.05, 0, h_i − k_field)). A rest lobe\'s colour is its turned field colour. Selection weights are e_i = extent(x)·f_i + λ·h_i. So wherever the field is absent (extent = 0: the ring and moat in every direction, Linen\'s dish face, Basin\'s screen ground), a pixel depends only on the halos and is identical across t, s, c and the shimmer.',
       sameNode: 'straight: two beads of one quadrant differ only in chroma',
       groundComposite: 'every node, and N, to the local ground (ground / plate.face / plate.ring), with pivot kp',
       pixelK: 'k = max(k_field, H), where H = max over beads of halo h_j',
@@ -226,6 +227,9 @@ export const EXTENSIONS = {
       warp: 'q\' = q + W(s)·(fbm(1.4q + orbit·(cos 2πt/T, sin 2πt/T)) − 0.5, fbm(1.4q + (5.2, 1.3) + orbit·(sin 2πt/T, cos 2πt/T)) − 0.5); W(s) = W0·(1 − 0.4s)',
       shimmer: 'hue rotates by deg·(1 − s)·sin(6πt/T), common-mode',
       still: 't = t* with b = 0.5; reduced motion and tier L both draw it once',
+    },
+    'field.dither': {
+      rule: '± amplitude on OKLab L, one scalar per pixel, added before the sRGB encode and rounded once; per channel the 8-bit change is at most ceil(sigma), sigma = that channel\'s unrounded 8-bit change over ±amplitude of L at the pixel\'s colour (under 1 on every dark-face ground). Never per channel in sRGB.',
     },
     'field.tiers': { status: 'proposed' },
     'field.fallback': {
