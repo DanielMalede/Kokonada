@@ -68,7 +68,7 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 - branch: `chore/work-ledger`
 - paths: `WORK_LEDGER.md`, `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.githooks/pre-push`, `.agents/skills/coordinate/**`, `.claude/agents/coordinator.md`, `.claude/agents/sentinel.md`, `.claude/commands/claim.md`, `.claude/commands/ship.md`, `.claude/commands/merge.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `.gitignore`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #228
 - started: 2026-10-06
 
 ### M02
