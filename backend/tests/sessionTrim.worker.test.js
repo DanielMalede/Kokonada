@@ -18,13 +18,25 @@ process.env.NODE_ENV = 'test';
 // lines 38-42). Past 29 days they are provider content and are stripped; Kokonada's own fields stay.
 
 jest.mock('../app/config/redis', () => ({ getRedis: () => null }));
+// J2: the real sweep and the real trim, observed, so one test can make a step throw (§D, §F 11).
+jest.mock('../app/services/privacy/orphanSweep', () => {
+  const actual = jest.requireActual('../app/services/privacy/orphanSweep');
+  return { ...actual, sweepDeletedAccountOrphans: jest.fn(actual.sweepDeletedAccountOrphans) };
+});
+jest.mock('../app/queues/stateVectorJob', () => {
+  const actual = jest.requireActual('../app/queues/stateVectorJob');
+  return { ...actual, trimStateEvents: jest.fn(actual.trimStateEvents) };
+});
 
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const PlaylistSession   = require('../app/models/PlaylistSession');
 const ServeEvent        = require('../app/models/ServeEvent');
 const UnclassifiedTrack = require('../app/models/UnclassifiedTrack');
+const User              = require('../app/models/User');
 const { process: runJob } = require('../app/workers/sessionTrim.worker');
+const { sweepDeletedAccountOrphans, armOrphanSweep, disarmOrphanSweep } = require('../app/services/privacy/orphanSweep');
+const { trimStateEvents } = require('../app/queues/stateVectorJob');
 
 jest.setTimeout(120000);
 
@@ -34,7 +46,8 @@ const ago = (ms) => new Date(Date.now() - ms);
 
 let mem;
 beforeAll(async () => {
-  mem = await MongoMemoryServer.create();
+  // Test commands on: the J2 tests make one read fail on the server (a `failCommand` fail point).
+  mem = await MongoMemoryServer.create({ instance: { args: ['--setParameter', 'enableTestCommands=1'] } });
   await mongoose.connect(mem.getUri(), { dbName: 'kokonada_session_trim_it' });
 });
 afterAll(async () => {
@@ -44,7 +57,13 @@ afterAll(async () => {
 beforeEach(async () => {
   delete process.env.SESSION_SENSITIVE_RETENTION_DAYS;
   delete process.env.PROVIDER_CONTENT_RETENTION_DAYS;
-  await Promise.all([PlaylistSession.deleteMany({}), ServeEvent.deleteMany({}), UnclassifiedTrack.deleteMany({})]);
+  await Promise.all([PlaylistSession.deleteMany({}), ServeEvent.deleteMany({}), UnclassifiedTrack.deleteMany({}), User.deleteMany({})]);
+  // J2 (BE-094; fixture F4): the job now also sweeps the data of ids no account carries, so the user these
+  // rows belong to is a real account, as every real user is: one with Spotify linked, since its sessions are
+  // Spotify sessions (an account with them and no link is a disconnect the HX-2 sweep finishes).
+  const account = new User({ _id: userId, ssoProvider: 'google', ssoId: 'sso-session-trim', email: 'session-trim@example.com' });
+  account.setToken('spotifyToken', { accessToken: 'access', refreshToken: 'refresh' });
+  await account.save();
 });
 
 const userId = new mongoose.Types.ObjectId();
@@ -283,7 +302,7 @@ describe('sessionTrim — the [sessionTrim] line is the production check, and ca
     // `... unclassifiedExpired=\d+ spotifyErasures=\d+ failures=\d+$`. The new token sits before
     // `spotifyErasures=`, so the line still ends `spotifyErasures=N failures=N`, which
     // spotifyDisconnectErasure.integration.test.js pins and DEC-119 does not reverse. Still counts only.
-    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ healthErasures=\d+ spotifyErasures=\d+ failures=\d+$/);
+    expect(trim[0]).toMatch(/^\[sessionTrim\] trimmed=\d+ stripped=\d+ serveEvents=\d+ unclassifiedBackfilled=\d+ unclassifiedExpired=\d+ orphanErasures=(?:\d+|refused|disabled) orphanBacklog=(?:\d+|unknown) stateEvents=(?:\d+|failed) healthErasures=\d+ spotifyErasures=\d+ failures=\d+$/);
     const all = lines.join('\n');
     for (const secret of ['Song A', 'Artist A', 'trk1', 'isrc:', 'hidden-playlist-1', String(userId)]) {
       expect(all).not.toContain(secret);
@@ -302,5 +321,132 @@ describe('sessionTrim — the [sessionTrim] line is the production check, and ca
     spy.mockRestore(); logSpy.mockRestore(); errSpy.mockRestore();
     expect(await raw(old.id)).toMatchObject(PROVIDER_FIELDS_STRIPPED); // the other steps still ran
     expect(lines.find((l) => l.startsWith('[sessionTrim]'))).toMatch(/failures=1$/);
+  });
+});
+
+// J2 (BE-094, BE-084; Plan B T9 and T10, DT-13 FINAL §D). Two more daily steps, between the provider-content
+// clock and the health sweep. The sweep of deleted accounts' data (services/privacy/orphanSweep.js) fills
+// two tokens from one result: `orphanErasures=` a count, or `disabled` (not armed: no marker, a malformed one,
+// or the override) or `refused` (its guard refused, or a read failed), and `orphanBacklog=` the deleted
+// accounts left, a real count, or `unknown` when it could not be counted. The 24-hour trim of the
+// state-recompute event log is `stateEvents=` a count, or `failed`. A failure in one step never changes
+// another step's tokens.
+describe('sessionTrim — the sweep of deleted accounts\' data and the state-recompute log trim (J2)', () => {
+  const ARM = { confirm: 'arm-orphan-sweep', recordSha256: 'f'.repeat(64), deployedCommit: 'c'.repeat(40) };
+  let lines;
+  beforeEach(() => {
+    delete process.env.ORPHAN_SWEEP_DISABLED;
+    lines = [];
+    for (const level of ['log', 'info', 'warn', 'error']) {
+      jest.spyOn(console, level).mockImplementation((...a) => { lines.push(a.map(String).join(' ')); });
+    }
+  });
+  afterEach(async () => {
+    jest.restoreAllMocks();
+    delete process.env.ORPHAN_SWEEP_DISABLED;
+    await disarmOrphanSweep();
+    await mongoose.connection.db.admin().command({ configureFailPoint: 'failCommand', mode: 'off' });
+  });
+  const trimLine = () => lines.filter((l) => l.startsWith('[sessionTrim] trimmed='));
+  const leftover = (id) => PlaylistSession.collection.insertOne({ userId: id, moodKey: 'calm', createdAt: new Date() });
+  const failNext = (command, collection) => mongoose.connection.db.admin().command({
+    configureFailPoint: 'failCommand', mode: { times: 1 }, data: { failCommands: [command], errorCode: 2, namespace: `kokonada_session_trim_it.${collection}` },
+  });
+
+  it('armed: a deleted account\'s rows are erased in the run; the live account\'s are not; the line counts it', async () => {
+    await armOrphanSweep(ARM);
+    const gone = new mongoose.Types.ObjectId();
+    await session(5 * DAY);
+    await leftover(gone);
+
+    const res = await runJob();
+
+    expect(res).toEqual(expect.objectContaining({ orphanErasures: 1, orphanBacklog: 0, stateEvents: 0, failures: 0 }));
+    expect(await PlaylistSession.countDocuments({ userId: gone })).toBe(0);
+    expect(await PlaylistSession.countDocuments({ userId })).toBe(1);
+    expect(trimLine()).toHaveLength(1);
+    expect(trimLine()[0]).toContain(' unclassifiedExpired=0 orphanErasures=1 orphanBacklog=0 stateEvents=0 healthErasures=');
+    expect(lines.join('\n')).not.toContain(String(gone));
+  });
+
+  it.each([
+    ['no marker', async () => {}, 'absent'],
+    ['the override', async () => { await armOrphanSweep(ARM); process.env.ORPHAN_SWEEP_DISABLED = 'true'; }, 'override'],
+  ])('disarmed (%s): orphanErasures=disabled with the real backlog; nothing is erased; not a failure', async (_state, setUp, reason) => {
+    await setUp();
+    await session(5 * DAY);
+    await leftover(new mongoose.Types.ObjectId());
+
+    const res = await runJob();
+
+    expect(res).toEqual(expect.objectContaining({ orphanErasures: 'disabled', orphanBacklog: 1, failures: 0 }));
+    expect(await PlaylistSession.countDocuments({})).toBe(2);
+    expect(trimLine()[0]).toContain(' orphanErasures=disabled orphanBacklog=1 stateEvents=0 ');
+    expect(lines).toContain(`[orphanSweep] disarmed reason=${reason} backlog=1`);
+  });
+
+  it('refused: orphanErasures=refused with the real backlog, nothing is erased, and the run fails loudly', async () => {
+    await armOrphanSweep(ARM);
+    await session(5 * DAY);
+    for (let i = 0; i < 6; i += 1) await leftover(new mongoose.Types.ObjectId());
+
+    await expect(runJob()).rejects.toThrow(/1 step/);
+
+    expect(await PlaylistSession.countDocuments({})).toBe(7);
+    expect(trimLine()[0]).toContain(' orphanErasures=refused orphanBacklog=6 stateEvents=0 ');
+    expect(trimLine()[0]).toMatch(/ failures=1$/);
+  });
+
+  // §F 3: a read the sweep cannot make is never a zero.
+  it.each([
+    ['the discovery', 'distinct', 'serveevents'],
+    ['the marker', 'find', 'opsmarkers'],
+  ])('%s read fails: orphanErasures=refused orphanBacklog=unknown, and the run fails', async (_what, command, collection) => {
+    await armOrphanSweep(ARM);
+    await session(5 * DAY);
+    await leftover(new mongoose.Types.ObjectId());
+    await failNext(command, collection);
+
+    await expect(runJob()).rejects.toThrow(/step/);
+
+    expect(await PlaylistSession.countDocuments({})).toBe(2);
+    expect(trimLine()[0]).toContain(' orphanErasures=refused orphanBacklog=unknown stateEvents=0 ');
+    expect(trimLine()[0]).not.toMatch(/ failures=0$/);
+  });
+
+  // §F 11: one step's failure is that step's tokens only.
+  it('the event-log trim fails alone: stateEvents=failed, and the orphan tokens keep their real values', async () => {
+    await armOrphanSweep(ARM);
+    await session(5 * DAY);
+    await leftover(new mongoose.Types.ObjectId());
+    trimStateEvents.mockRejectedValueOnce(Object.assign(new Error('READONLY'), { name: 'ReplyError' }));
+
+    await expect(runJob()).rejects.toThrow(/1 step/);
+
+    expect(trimLine()[0]).toContain(' orphanErasures=1 orphanBacklog=0 stateEvents=failed healthErasures=');
+    expect(trimLine()[0]).toMatch(/ failures=1$/);
+    expect(lines).toContain('[sessionTrim] step stateEvents failed (ReplyError)');
+  });
+
+  // J2 round 1 (L1, the architect's required line): a result that lacks a token is not a count. A J2 token
+  // reads its failure word, never 0, whether its step threw or simply did not say.
+  it('a sweep result that carries only { failed: 1 }: orphanErasures=refused orphanBacklog=unknown, never 0', async () => {
+    await session(5 * DAY);
+    sweepDeletedAccountOrphans.mockResolvedValueOnce({ failed: 1 });
+
+    await expect(runJob()).rejects.toThrow(/1 step/);
+
+    expect(trimLine()[0]).toContain(' orphanErasures=refused orphanBacklog=unknown stateEvents=0 ');
+  });
+
+  // §D: the sweep never throws, but if its step ever did, the worker's catch still writes its failure words.
+  it('a sweep step that throws: orphanErasures=refused orphanBacklog=unknown, never 0', async () => {
+    await session(5 * DAY);
+    sweepDeletedAccountOrphans.mockRejectedValueOnce(new Error('unexpected'));
+
+    await expect(runJob()).rejects.toThrow(/1 step/);
+
+    expect(trimLine()[0]).toContain(' orphanErasures=refused orphanBacklog=unknown stateEvents=0 ');
+    expect(lines).toContain('[sessionTrim] step orphanErasures failed (Error)');
   });
 });

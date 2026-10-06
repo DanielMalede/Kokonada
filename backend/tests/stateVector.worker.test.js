@@ -29,12 +29,20 @@ jest.mock('../app/services/biosonic/affectService', () => ({
   resolveHourContext: jest.requireActual('../app/services/biosonic/affectService').resolveHourContext,
 }));
 
+// J2 (BE-087; fixture F2): the worker asks the consent gate before it reads and again after it writes.
+// This unit suite pins the refresh itself, so the gate admits; the gate, the refusals and the undo run for
+// real in stateVectorFence.integration.test.js.
+jest.mock('../app/services/privacy/healthWriteFence', () => ({
+  healthWriteFence: jest.fn().mockResolvedValue({ admitted: true, reason: null, fence: 'f1' }),
+}));
+
 const baselines = require('../app/services/biosonic/baselines');
 const { upsertStateVector } = require('../app/services/medicalProfileService');
 const { resolveAffect } = require('../app/services/biosonic/affectService');
 const worker = require('../app/workers/stateVector.worker');
 const { DEFAULT_PROCESSORS } = require('../app/workers');
 const { QUEUES } = require('../app/queues/definitions');
+const { STATE_JOB_RESULT } = require('../app/queues/stateVectorJob');
 
 describe('stateVector worker', () => {
   it('recomputes baselines fresh, refreshes the encrypted cache, and upserts the state vector', async () => {
@@ -67,7 +75,7 @@ describe('stateVector worker', () => {
     const flat = JSON.stringify(out);
     expect(flat).not.toContain('"rhrMedian"');
     expect(flat).not.toContain('60');
-    expect(out).toEqual(expect.objectContaining({ userId: 'u1', recomputed: true }));
+    expect(out).toEqual(STATE_JOB_RESULT);
   });
 
   it('is registered as the default processor for state-vector-recompute', () => {
@@ -78,9 +86,8 @@ describe('stateVector worker', () => {
     const MedicalProfile = require('../app/models/MedicalProfile');
     MedicalProfile.findOne.mockResolvedValueOnce(null);
 
-    await expect(worker.process({ data: { userId: 'ghost' } })).resolves.toEqual(
-      expect.objectContaining({ recomputed: true })
-    );
+    await expect(worker.process({ data: { userId: 'ghost' } })).resolves.toEqual(STATE_JOB_RESULT);
+    expect(baselines.cacheBaselines).toHaveBeenCalled();
   });
 
   // ── W4-006 seam half ──────────────────────────────────────────────────────────────────────

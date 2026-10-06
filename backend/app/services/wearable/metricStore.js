@@ -14,6 +14,7 @@ const { enqueue } = require('../../queues/queue');
 const { insertManyAccounted, NO_REJECTS } = require('./insertAccounted');
 const { consentV2Enabled, sanitizeTzOffset } = require('./adapter');
 const { QUEUES } = require('../../queues/definitions');
+const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
 
 // ── VitalSample writers (W4-004) ────────────────────────────────────────────────
 //
@@ -187,12 +188,8 @@ async function persistMetrics(userId, metrics) {
   // "new data arrived" signal, and re-gating it on `inserted` would be an unrelated change.
   if (hrDocs.length || Object.keys($set).length) {
     try {
-      await enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
-        jobId: `state-vector-${userId}`, // BullMQ forbids ':' in custom job ids
-        delay: 60_000,
-        removeOnComplete: true,
-        removeOnFail: true,
-      });
+      // J2 (BE-084): the job id is a keyed pseudonym of the user id, never the id itself (queues/stateVectorJob.js).
+      await enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, stateVectorJobOptions(userId, 60_000));
     } catch (e) {
       console.error('[metricStore] recompute enqueue failed:', e.message);
     }

@@ -9,11 +9,15 @@ process.env.NODE_ENV = 'test';
 
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
+const { describeRealRedis, openTestRedis, flushTestDb } = require('./helpers/realRedis');
+const { connectRedis, getRedis } = require('../app/config/redis');
 
+const DB = 'kokonada_wave4_dailyanalysis_worker';
 let mem;
 beforeAll(async () => {
-  mem = await MongoMemoryServer.create();
-  await mongoose.connect(mem.getUri(), { dbName: 'kokonada_wave4_dailyanalysis_worker' });
+  // Test commands on: J2's S1 test makes the users read fail on the server (a `failCommand` fail point).
+  mem = await MongoMemoryServer.create({ instance: { args: ['--setParameter', 'enableTestCommands=1'] } });
+  await mongoose.connect(mem.getUri(), { dbName: DB });
 });
 afterAll(async () => {
   await mongoose.disconnect();
@@ -23,22 +27,28 @@ afterAll(async () => {
 const MedicalProfile = require('../app/models/MedicalProfile');
 const VitalSample = require('../app/models/VitalSample');
 const MorningState = require('../app/models/MorningState');
+const User = require('../app/models/User');
 const { process: runDailyAnalysis } = require('../app/workers/dailyAnalysis.worker');
 const { localDayIndex } = require('../app/agents/runtime/physiology/baselineEngine');
 const baselinesService = require('../app/services/biosonic/baselines');
 
 beforeEach(async () => {
   await Promise.all([
-    MedicalProfile.deleteMany({}), VitalSample.deleteMany({}), MorningState.deleteMany({}),
+    MedicalProfile.deleteMany({}), VitalSample.deleteMany({}), MorningState.deleteMany({}), User.deleteMany({}),
   ]);
 });
 
 const uid = () => new mongoose.Types.ObjectId();
 const DAY = 86400000;
 
+// J2 (BE-094, S1; fixture F3): the job processes a profile only while its account exists, so every user
+// these tests mean to be processed has a User doc, as every real user does.
+const account = (userId) => User.create({ _id: userId, ssoProvider: 'google', ssoId: `sso-${userId}`, email: `${userId}@example.com` });
+
 // Seed N days of plausible restingHeartRate + hrv VitalSample rows ending "yesterday" relative
 // to `now`, plus a MedicalProfile whose lastNightSleep buckets to yesterday.
 async function seedUser(userId, now, { days = 20, rhr = 60, hrv = 55, tzOffsetMinutes = 0 } = {}) {
+  await account(userId);
   const rows = [];
   for (let d = days; d >= 1; d--) {
     const at = new Date(now - d * DAY);
@@ -126,6 +136,7 @@ describe('dailyAnalysis.worker — wiring', () => {
     const bad = uid();
     const now = Date.now();
     await seedUser(good, now);
+    await account(bad);
     await MedicalProfile.create({ userId: bad });
 
     const real = baselinesService.computeBaselines.bind(baselinesService);
@@ -157,5 +168,112 @@ describe('dailyAnalysis.worker — wiring', () => {
     expect(json).not.toMatch(/readiness/);
     expect(json).not.toMatch(/rhr|hrv|cusum|cosinor/i);
     expect(Object.keys(summary).sort()).toEqual(['eligible', 'failed', 'flagged', 'processed']);
+  });
+});
+
+// J2 (BE-094; Plan B T8, DT-11 S1). A MedicalProfile whose account is gone is a deleted account's
+// leftover: a recompute or a health-data sync that wrote it after the deletion. The nightly job picked it
+// up like any other profile, so every night it re-wrote the `bio:baseline:` key of the deleted ID, added a
+// MorningState row for it and logged a [biometric-access] line naming it, for good. It now skips such a
+// profile, whose removal is the daily sweep's job, not this one's.
+describe('S1: a profile whose account is gone is skipped (BE-094)', () => {
+  /** A deleted account's leftovers: everything seedUser writes, then the User doc is gone. */
+  async function seedLeftover(userId, now) {
+    await seedUser(userId, now);
+    await User.deleteOne({ _id: userId });
+  }
+  async function failUsersRead() {
+    await mongoose.connection.db.admin().command({
+      configureFailPoint: 'failCommand',
+      mode: 'alwaysOn',
+      data: { failCommands: ['find'], errorCode: 2, namespace: `${DB}.users` },
+    });
+  }
+  const failPointOff = () => mongoose.connection.db.admin().command({ configureFailPoint: 'failCommand', mode: 'off' });
+
+  it('gets no MorningState, no baseline write and no [biometric-access] line; a real user is processed as before', async () => {
+    const real = uid();
+    const gone = uid();
+    const now = Date.now();
+    await seedUser(real, now);
+    await seedLeftover(gone, now);
+    const cached = [];
+    const cache = baselinesService.cacheBaselines.bind(baselinesService);
+    const cacheSpy = jest.spyOn(baselinesService, 'cacheBaselines').mockImplementation((id, stats) => {
+      cached.push(String(id));
+      return cache(id, stats);
+    });
+    const lines = [];
+    const logSpy = jest.spyOn(console, 'info').mockImplementation((...a) => { lines.push(a.map(String).join(' ')); });
+
+    let summary;
+    try {
+      summary = await runDailyAnalysis({ data: {} });
+    } finally {
+      cacheSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+
+    expect(summary).toEqual(expect.objectContaining({ eligible: 1, processed: 1, failed: 0 }));
+    expect(await MorningState.countDocuments({ userId: gone })).toBe(0);
+    expect(await MorningState.countDocuments({ userId: real })).toBe(1);
+    expect(cached).toEqual([String(real)]);
+    // Not vacuous: the real user's lines are there (its baseline read and the analysis' own).
+    expect(lines.filter((l) => l.startsWith(`[biometric-access] user=${real} purpose=daily-analysis `))).toHaveLength(1);
+    expect(lines.join('\n')).not.toContain(String(gone));
+    expect(await MedicalProfile.countDocuments({ userId: gone })).toBe(1); // left for the sweep, never deleted here
+  });
+
+  it('a users read that fails fails the run with no ID or driver text, and processes nobody (fails closed)', async () => {
+    const real = uid();
+    const now = Date.now();
+    await seedUser(real, now);
+    await failUsersRead();
+
+    let rejection;
+    try {
+      rejection = await runDailyAnalysis({ data: {} }).then(() => null, (e) => e);
+    } finally {
+      await failPointOff();
+    }
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect(rejection.message).toBe('[dailyAnalysis] account read failed (MongoServerError)');
+    expect(await MorningState.countDocuments({})).toBe(0);
+  });
+});
+
+describeRealRedis('S1 on a real Redis: a deleted account\'s bio:baseline: key is never written (BE-094)', (url) => {
+  let redis;
+
+  beforeAll(async () => {
+    redis = await openTestRedis(url);
+    process.env.REDIS_URL = url; // the app's own client (config/redis.connectRedis) writes the baseline cache here
+    await connectRedis();
+  });
+  beforeEach(() => flushTestDb(redis));
+  afterAll(() => {
+    getRedis()?.disconnect();
+    redis?.disconnect();
+    delete process.env.REDIS_URL;
+  });
+
+  it('the real user\'s key is written and the deleted account\'s is not', async () => {
+    const real = uid();
+    const gone = uid();
+    const now = Date.now();
+    await seedUser(real, now);
+    await seedUser(gone, now);
+    await User.deleteOne({ _id: gone });
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {}); // 'Redis connected'
+
+    try {
+      await runDailyAnalysis({ data: {} });
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    expect(await redis.exists(`bio:baseline:${real}`)).toBe(1);
+    expect(await redis.exists(`bio:baseline:${gone}`)).toBe(0);
   });
 });

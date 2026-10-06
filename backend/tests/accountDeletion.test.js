@@ -25,6 +25,10 @@ jest.mock('../app/utils/userRedisPurge',   () => ({ purgeUserKeys: jest.fn().moc
 // J1 (BE-074): the account's learning jobs in the job queue. Mocked like the Redis purge above; the
 // jobs are proven gone on real Redis and real Mongo in accountDeletionJobs.redis.test.js.
 jest.mock('../app/queues/userJobPurge',    () => ({ purgeUserJobs: jest.fn().mockResolvedValue({ removed: 2, inFlight: 0 }) }));
+// J2 (BE-087, M1′; fixture F7): the cascade records a withdrawal of the health-data consent before it deletes
+// anything. Mocked like the purge above (this suite has no Mongo, and the mocked ConsentRecord has no read);
+// the mark is proven on real Mongo in accountDeletionConsentMark.integration.test.js.
+jest.mock('../app/services/privacy/consent', () => ({ revokeHealthConsentForDeletion: jest.fn().mockResolvedValue('revoked') }));
 const mockDisconnectSockets = jest.fn();
 jest.mock('../app/sockets/index', () => ({
   getIo: jest.fn(() => ({ in: jest.fn(() => ({ disconnectSockets: mockDisconnectSockets })) })),

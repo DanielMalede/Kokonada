@@ -112,3 +112,44 @@ describe('USER_KEY_NAMESPACES registry', () => {
     }
   });
 });
+
+// J2 round 1 (L2): the best-effort purge builds the same patterns, so a glob id is refused there too. It never
+// throws (its contract), so it answers 0 and touches nothing.
+describe('purgeUserKeys answers 0 for an id that holds a glob character', () => {
+  it.each([['*'], ['a*'], ['?'], ['[ab]']])('%p: 0, and Redis is sent nothing', async (id) => {
+    __fake.__keys.add('ledger:u1:served');
+    __fake.__keys.add('pool:u2:calm');
+
+    await expect(purgeUserKeys(id)).resolves.toBe(0);
+
+    expect(__fake.scan).not.toHaveBeenCalled();
+    expect(__fake.del).not.toHaveBeenCalled();
+    expect([...__fake.__keys].sort()).toEqual(['ledger:u1:served', 'pool:u2:calm']);
+  });
+});
+
+// J2 (resilience §7 on T12 v2): the strict purge builds SCAN patterns from the id. An id holding a glob
+// character (`*`, `?`, `[`, `]`, `\`) would turn `ledger:<id>:*` into a pattern that reaches every user's keys,
+// so it is refused before Redis is touched.
+describe('purgeUserKeysStrict refuses an id that holds a glob character', () => {
+  const { purgeUserKeysStrict } = require('../app/utils/userRedisPurge');
+
+  it.each([['*'], ['a*'], ['?'], ['[ab]'], ['x]'], [String.raw`back\slash`]])('%p: throws, and sends Redis nothing', async (id) => {
+    __fake.__keys.add('ledger:u1:served');
+    __fake.__keys.add('pool:u2:calm');
+
+    await expect(purgeUserKeysStrict(id)).rejects.toThrow(/glob/);
+
+    expect(__fake.scan).not.toHaveBeenCalled();
+    expect(__fake.del).not.toHaveBeenCalled();
+    expect([...__fake.__keys].sort()).toEqual(['ledger:u1:served', 'pool:u2:calm']);
+  });
+
+  it('a plain id is still purged (not vacuous)', async () => {
+    __fake.__keys.add('ledger:u1:served');
+    __fake.__keys.add('pool:u2:calm');
+
+    await expect(purgeUserKeysStrict('u1')).resolves.toBe(1);
+    expect([...__fake.__keys]).toEqual(['pool:u2:calm']);
+  });
+});

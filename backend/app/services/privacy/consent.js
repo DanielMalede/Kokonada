@@ -10,11 +10,11 @@ const { WEARABLE_PROVIDERS, eraseWearableProvider } = require('./wearableErasure
 const { purgeLearnedPersonalization } = require('./learningErasure');
 const { purgeUserJobs } = require('../../queues/userJobPurge');
 const { eraseSessionHealthOnWithdrawal } = require('./sessionHealthErasure');
-
-// CROSS-PACKAGE CONTRACT: the mobile client reads this to decide whether an on-file grant is
-// still current (a bump re-prompts before the OS health sheet). Bump this — and update the
-// consent copy / dataCategories it stands for — whenever the terms materially change.
-const CURRENT_CONSENT_VERSION = 1;
+// The version, the purpose and the status read live in the import-light consentState.js (J2 round 1, M1);
+// they are re-exported below as the same objects.
+const {
+  CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE, getConsentState, getConsentStatus,
+} = require('./consentState');
 
 // ENFORCED go-live gate for the Garmin server-to-server lane's special-category (GDPR Art.9)
 // types — spo2 / respiratory_rate / body_battery (mobile consentApi.ts GARMIN_ONLY_DATA_CATEGORIES).
@@ -27,11 +27,6 @@ const CURRENT_CONSENT_VERSION = 1;
 // re-consent before any of the three is ever persisted. The tripwire test fails if the two drift
 // into alignment without a conscious bump.
 const GARMIN_CONSENT_MIN_VERSION = 2;
-
-// The one purpose enum value in use today (ConsentRecord.js schema). Exported so every call
-// site (routes/integrations.js's requireConsent mounts, watchHrIngest's inline gate, the mobile
-// CONSENT_PURPOSE contract) shares ONE literal instead of drifting copies.
-const HEALTH_CONSENT_PURPOSE = 'health_biometric_processing';
 
 // Records a granted consent at the current version. `dataCategories` is the special-category
 // data the user agreed to; kept as sent so the record reflects exactly what was shown.
@@ -168,11 +163,19 @@ async function withdrawConsent(userId, purpose) {
   // queue that cannot be reached is reported (`learningJobs=failed`, 'learning-jobs'), never thrown.
   // A job a worker is already running is deleted by the queue once it has run (queues/userJobPurge.js).
   let learningJobs = 'skipped';
+  // J2 (BE-087, DT-8 L3): the same purge removes the state-recompute jobs (`bull:state-vector-recompute:`),
+  // which would read the health data and write the baseline, the state estimate and the profile again. Each
+  // queue's own count goes on the line, so `learningJobs=` never counts a state job; `stateJobs=` ends the
+  // line. One call, so a failure is still the one 'learning-jobs' entry.
+  let stateJobs = 'skipped';
   if (hadGrantOnFile) {
     try {
-      learningJobs = String((await purgeUserJobs(userId)).removed);
+      const { byQueue } = await purgeUserJobs(userId);
+      learningJobs = String(byQueue['reward-ingest'].removed);
+      stateJobs = String(byQueue['state-vector-recompute'].removed);
     } catch {
       learningJobs = 'failed';
+      stateJobs = 'failed';
       erasureFailures.push('learning-jobs');
     }
     try {
@@ -224,13 +227,36 @@ async function withdrawConsent(userId, purpose) {
     + `providerErasureFailures=${providerErasureFailures} learningJobs=${learningJobs} learning=${learning} `
     + `rewardEvents=${learningPurged.rewardEvents} personalWeights=${learningPurged.personalWeights} `
     + `sessionHealth=${sessionHealth} sessions=${sessionCounts.sessions} sessionTargets=${sessionCounts.sessionTargets} `
-    + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys} sessionHealthFailed=${sessionHealthFailed}`,
+    + `serveEvents=${sessionCounts.serveEvents} redisKeys=${sessionCounts.redisKeys} sessionHealthFailed=${sessionHealthFailed} `
+    + `stateJobs=${stateJobs}`,
   );
 
   // Explicit shape (not a spread of the Mongoose document — `create()` returns a real Document
   // whose getters/virtuals don't survive `{...record}`; no current caller reads the return
   // value beyond `record`/`erasureFailures`, but keep the contract unambiguous for the next one).
   return { record, erasureFailures };
+}
+
+// J2 (BE-087, DT-6 M1′): account deletion's mark. Both deletion doors (services/privacy/erasure.js,
+// scripts/gdpr-delete.js) call this after the job purge and before they delete anything. When the latest
+// health-consent row is a grant, it appends a withdrawal row, the same "row first" rule withdrawConsent
+// follows, so every step that re-checks consent (the state-recompute job's fence, the live lane's HX-1 and
+// BE-016 compensations) stops processing the account's health data while it is deleted. The cascade then
+// erases the row with the rest of the history; if the deletion does not finish, the account stays, with
+// its consent withdrawn, until the user grants it again. Returns 'revoked' when it wrote the row, 'none'
+// when the latest row is not a grant (never granted, or already withdrawn). Throws on a read or write
+// error; the caller reports it and carries on.
+async function revokeHealthConsentForDeletion(userId) {
+  const latest = await ConsentRecord.latestFor(userId, HEALTH_CONSENT_PURPOSE);
+  if (latest?.status !== 'granted') return 'none';
+  await ConsentRecord.create({
+    userId,
+    purpose: HEALTH_CONSENT_PURPOSE,
+    consentVersion: CURRENT_CONSENT_VERSION,
+    status: 'withdrawn',
+    withdrawnAt: new Date(),
+  });
+  return 'revoked';
 }
 
 // TRUE once the user has re-consented at (or above) the version where the Garmin lane's
@@ -249,19 +275,6 @@ async function getGrantedConsentVersion(userId, purpose) {
   return latest && latest.status === 'granted' ? latest.consentVersion : 0;
 }
 
-// The read the server gate and the client both consume. staleVersion means the user IS granted
-// but at an older contract version — the client should re-prompt, and the server treats it as
-// not-current (distinct from a first-time "no record" case).
-async function getConsentStatus(userId, purpose) {
-  const latest = await ConsentRecord.latestFor(userId, purpose);
-  const granted = !!latest && latest.status === 'granted';
-  return {
-    granted,
-    currentVersion: CURRENT_CONSENT_VERSION,
-    staleVersion: granted && latest.consentVersion < CURRENT_CONSENT_VERSION,
-  };
-}
-
 module.exports = {
   CURRENT_CONSENT_VERSION,
   GARMIN_CONSENT_MIN_VERSION,
@@ -269,6 +282,8 @@ module.exports = {
   recordConsent,
   withdrawConsent,
   getConsentStatus,
+  getConsentState,
+  revokeHealthConsentForDeletion,
   garminSpecialCategoryAllowed,
   getGrantedConsentVersion,
 };

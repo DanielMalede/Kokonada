@@ -23,7 +23,8 @@ const { MongoMemoryReplSet } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const ConsentRecord = require('../app/models/ConsentRecord');
 const { getConsentStatus, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
-const { healthProcessingVerdict } = require('../app/services/privacy/healthConsentGate');
+const { healthProcessingVerdict, healthWriteFence } = require('../app/services/privacy/healthConsentGate');
+const User = require('../app/models/User');
 const BiometricLog = require('../app/models/BiometricLog');
 const VitalSample = require('../app/models/VitalSample');
 const { purgeOrphanedAggregates } = require('../app/services/privacy/wearableErasure');
@@ -36,7 +37,11 @@ const finds = []; // { collection, address } for every `find` the driver sends
 const aggregates = []; // { collection, address } for every `aggregate` (countDocuments) it sends
 
 beforeAll(async () => {
-  rs = await MongoMemoryReplSet.create({ replSet: { count: 2, storageEngine: 'wiredTiger' } });
+  // The second member can never be elected (priority 0), so the primary recorded below stays the primary.
+  rs = await MongoMemoryReplSet.create({
+    replSet: { count: 2, storageEngine: 'wiredTiger' },
+    instanceOpts: [{ replicaMemberConfig: { priority: 1 } }, { replicaMemberConfig: { priority: 0 } }],
+  });
   await mongoose.connect(rs.getUri(), {
     dbName: 'kokonada_consent_primary_read_it',
     readPreference: 'secondaryPreferred',
@@ -71,6 +76,15 @@ beforeEach(async () => {
 const consentFinds = () => finds.filter((f) => f.collection === ConsentRecord.collection.collectionName);
 
 describe('the consent read goes to the primary even when the connection prefers a secondary', () => {
+  // Every assertion compares against the primary recorded in beforeAll. If the set could elect another
+  // member mid-suite (a missed heartbeat on a loaded machine), every test would fail at once with the roles
+  // swapped — seen once in five runs (J2). Only the recorded primary may be electable.
+  it('the setup is stable: no member but the recorded primary can be elected', async () => {
+    const { config } = await mongoose.connection.db.admin().command({ replSetGetConfig: 1 });
+    const electable = config.members.filter((m) => m.priority > 0).map((m) => m.host);
+    expect(electable).toEqual([primary]);
+  });
+
   it('the setup is not vacuous: an unpinned read on this connection goes to the secondary', async () => {
     await ConsentRecord.find({}).exec();
     expect(consentFinds()).toHaveLength(1);
@@ -103,6 +117,61 @@ describe('the consent read goes to the primary even when the connection prefers 
     expect(history).toHaveLength(1);
     expect(consentFinds()).toHaveLength(1);
     expect(consentFinds()[0].address).toBe(primary);
+  });
+
+  // J2 (BE-087, Plan B T1): the state-recompute job asks this gate again right after it has written.
+  // A secondary that has not seen the account's deletion (the User doc goes last) or the withdrawal row
+  // would answer "still there, still granted", and the job would keep what it wrote.
+  it('healthWriteFence reads the account and the consent from the primary', async () => {
+    const user = await User.create({ ssoProvider: 'google', ssoId: 'sso-fence-primary', email: 'fence-primary@example.com' });
+    await ConsentRecord.create({ userId: user._id, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: 1, status: 'granted', grantedAt: new Date() });
+    finds.length = 0;
+    await User.find({}).exec();
+    expect(finds.filter((f) => f.collection === User.collection.collectionName)[0].address).not.toBe(primary); // not vacuous
+    finds.length = 0;
+
+    const out = await healthWriteFence(user._id);
+
+    expect(out.admitted).toBe(true);
+    const userFinds = finds.filter((f) => f.collection === User.collection.collectionName);
+    expect(userFinds).toHaveLength(1);
+    expect(consentFinds().length).toBeGreaterThanOrEqual(1);
+    expect([...userFinds, ...consentFinds()].map((f) => f.address)).toEqual([...userFinds, ...consentFinds()].map(() => primary));
+  });
+
+  // J2 (BE-094, S1): the nightly analysis skips a profile whose account is gone. A secondary that has not
+  // yet seen a new account would report it gone, and that user would be skipped as a deleted account.
+  it('existingAccountIds reads the accounts from the primary', async () => {
+    const { existingAccountIds } = require('../app/services/privacy/accountExistence');
+    const user = await User.create({ ssoProvider: 'google', ssoId: 'sso-existence-primary', email: 'existence-primary@example.com' });
+    const gone = new mongoose.Types.ObjectId();
+    finds.length = 0;
+
+    const existing = await existingAccountIds([user._id, gone]);
+
+    expect([...existing]).toEqual([String(user._id)]);
+    const userFinds = finds.filter((f) => f.collection === User.collection.collectionName);
+    expect(userFinds).toHaveLength(1);
+    expect(userFinds[0].address).toBe(primary);
+  });
+
+  // J2 (BE-094, DT-13 FINAL §A, §F 6): the orphan sweep erases only while its marker says it is armed. A
+  // secondary that has not seen a disarm would keep it erasing.
+  it('the orphan sweep\'s arming marker is read from the primary', async () => {
+    const { isArmed } = require('../app/services/privacy/orphanSweep');
+    await mongoose.connection.db.collection('opsmarkers').insertOne(
+      { _id: 'orphan-sweep', v: 1, kind: 'orphan-sweep', armedAt: new Date(), recordSha256: 'f'.repeat(64), recountOrphans: 0, deployedCommit: 'c'.repeat(40) },
+      { writeConcern: { w: 'majority' } },
+    );
+    await mongoose.connection.db.collection('opsmarkers').find({}).toArray();
+    expect(finds.filter((f) => f.collection === 'opsmarkers').at(-1).address).not.toBe(primary); // not vacuous
+    finds.length = 0;
+
+    await expect(isArmed()).resolves.toEqual({ armed: true, reason: null });
+
+    const markerFinds = finds.filter((f) => f.collection === 'opsmarkers');
+    expect(markerFinds).toHaveLength(1);
+    expect(markerFinds[0].address).toBe(primary);
   });
 
   it('the tie read (a full window of rows in one millisecond) reads the primary too', async () => {

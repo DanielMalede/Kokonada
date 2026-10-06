@@ -5,7 +5,9 @@
 // A BullMQ job is a copy of its payload in an unencrypted Redis blob. The learning jobs carry the user
 // id and values derived from the heart rate (services/learning/rewardDispatch.js), so account deletion
 // and a health-consent withdrawal remove the account's jobs that have not run yet, plus any finished
-// job the code before J1 kept. Every job is now deleted once it has run (queues/queue.js and
+// job the code before J1 kept. J2 (BE-087): so are the state-recompute jobs, which hold only the user id
+// but, when they run, read the health data and write the resting baseline, the carried state estimate and
+// the stored profile again; their worker also re-checks consent itself (workers/stateVector.worker.js). Every job is now deleted once it has run (queues/queue.js and
 // workers/index.js), so after the one-off clean (scripts/rewardJobs.js) this normally finds nothing.
 //
 // Who calls it, and who must not (ADR-0015, pinned in tests/userJobPurge.guards.test.js):
@@ -35,7 +37,13 @@ const { createConnection } = require('../config/redis');
  */
 const USER_JOB_QUEUES = Object.freeze([
   Object.freeze({ name: QUEUES.REWARD_INGEST, ownerOf: (data) => data?.userId }),
+  // J2 (DT-7): the owner from the payload, not the job id, so a job queued under the old id
+  // (`state-vector-<userId>`, before the pseudonym) or under none is found too.
+  Object.freeze({ name: QUEUES.STATE_VECTOR_RECOMPUTE, ownerOf: (data) => data?.userId }),
 ]);
+
+/** Every registered queue at zero: the no-Redis answer, and the start of every count. */
+const zeroByQueue = () => Object.fromEntries(USER_JOB_QUEUES.map((q) => [q.name, { removed: 0, inFlight: 0 }]));
 
 // Every state a job can be removed from: all but running ('active'), which BullMQ locks.
 const REMOVABLE_STATES = Object.freeze(['wait', 'paused', 'prioritized', 'delayed', 'waiting-children', 'completed', 'failed']);
@@ -117,27 +125,29 @@ async function findUserJobs({ entry, queue }, id) {
 }
 
 /**
- * Removes the account's jobs that are not running. Returns `{removed, inFlight}`: `inFlight` counts
- * the jobs a worker held, which run to the end and are then deleted by the queue. Without REDIS_URL
- * nothing can have been queued (enqueue is a no-op), so there is nothing to remove. Throws on a blank
- * id, on any Redis failure, and when the budget is spent.
+ * Removes the account's jobs that are not running. Returns `{removed, inFlight, byQueue}`: `inFlight`
+ * counts the jobs a worker held, which run to the end and are then deleted by the queue; `byQueue` gives
+ * the same two counts for each registered queue (J2, P13), so a caller can report each kind of job on its
+ * own. Without REDIS_URL nothing can have been queued (enqueue is a no-op), so there is nothing to
+ * remove. Throws on a blank id, on any Redis failure, and when the budget is spent.
  */
 async function purgeUserJobs(userId) {
   const id = ownerId(userId);
-  if (!process.env.REDIS_URL) return { removed: 0, inFlight: 0 };
+  if (!process.env.REDIS_URL) return { removed: 0, inFlight: 0, byQueue: zeroByQueue() };
   return withUserJobQueues(async (queues) => {
-    let removed = 0;
-    let inFlight = 0;
+    const byQueue = zeroByQueue();
     for (const registered of queues) {
+      const counts = byQueue[registered.entry.name];
       const { removable, running } = await findUserJobs(registered, id);
-      inFlight += running;
+      counts.inFlight += running;
       for (const jobId of removable) {
         // 0: a worker took the job after it was listed, so it holds the lock.
-        if ((await registered.queue.remove(jobId)) === 1) removed += 1;
-        else inFlight += 1;
+        if ((await registered.queue.remove(jobId)) === 1) counts.removed += 1;
+        else counts.inFlight += 1;
       }
     }
-    return { removed, inFlight };
+    const total = (key) => Object.values(byQueue).reduce((n, c) => n + c[key], 0);
+    return { removed: total('removed'), inFlight: total('inFlight'), byQueue };
   });
 }
 
