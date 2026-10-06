@@ -68,7 +68,7 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 - branch: `fix/ops155-coord-hardening`
 - paths: `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.claude/hooks/merge-guard-trigger.mjs`, `.claude/hooks/merge-guard-trigger.test.mjs`, `backend/tests/mergeGuardHook.test.js`, `.claude/commands/ship.md`, `.claude/agents/custodian.md`, `.claude/agents/coordinator.md`, `.agents/skills/coordinate/SKILL.md`, `WORK_LEDGER.md`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #229
 - started: 2026-10-06
 
 ### M02
