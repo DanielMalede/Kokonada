@@ -1,126 +1,340 @@
 /// <reference types="node" />
 import * as fs from 'fs';
 import * as path from 'path';
-import { emptyLedger, placementsOf, reconcile, type Ledger } from '../placementLedger.ts';
+import { BASE } from '../../tokens/tokens.generated.ts';
+import { progress, crossfade } from '../crossfade.ts';
+import { NODE_SLOTS } from '../fieldLaw.ts';
+import { ADMISSION, emptyLedger, fades, needsFrames, reconcile, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from '../placementLedger.ts';
 
-// The placement ledger (architect re-rule §3): the visual layer's own record of the placements,
-// derived from successive tap arrays and nothing else. A placement's ordinal (how many placements came
-// before it) keys its drift for its whole life, its fade-out included, so a fourth tap never re-indexes
-// the survivors (critic item 5, accepted). The cold-lane Tap stays exactly {x, y}: the ledger reads
-// taps structurally, never imports src/state, and is never persisted.
-//
-// T4 builds the classification only: which taps arrived, which leave, and their ordinals and roles.
-// Fades, crossfades, admission and pruning are T5.
+// The placement ledger (architect admission §1, designer final rulings (1) and (2), resilience
+// admission §1): the visual layer's record of the placements, derived from the cold-lane taps alone.
+//   · reconcile(prev, {seq, taps}, nowMs, mode) runs once per frame on the UI thread;
+//   · a fresh ledger's first input is a reset: its taps are shown at once, with no animation (a mount,
+//     or a lab scene, whose order is its ordinal). After that a change is detected by seq and read by
+//     value, as the pops and adds that keep the most taps; several store changes seen in one frame
+//     are read as their events, so nothing steps. Only a seq that goes backwards (a restart) resets;
+//   · pending changes are netted, never queued raw: an enter followed by a leave of the same
+//     placement cancels, so what waits is the difference between the field and the store. The
+//     waiting leaves and enters, each in arrival order, pair into swaps;
+//   · crossfades are serialized: none restarts or interrupts another, every fade starts from 0 or 1,
+//     and starts are at least motion.settle.duration apart in every mode;
+//   · admission is the arrival-order prefix of those swaps (then any lone leaves or enters), stopping
+//     at the first that does not fit: at most 2 entering and 2 leaving, at most 3 live after, and live +
+//     entering + leaving + rest lobes (above 0 or rising) within NODE_SLOTS; every start admits one;
+//   · one pool of NODE_SLOTS stable slots: a node keeps its slot from entering until its fade reaches
+//     0, and freed slots are reused lowest first. There is no eviction.
 
-const tap = (x: number, y: number) => ({ x, y });
-const live = (l: Ledger) => l.entries.filter((e) => e.role === 'live');
-const leaving = (l: Ledger) => l.entries.filter((e) => e.role === 'leaving');
-const ordinals = (es: Ledger['entries']) => es.map((e) => e.ordinal);
+const SETTLE = BASE.motion.settle.duration;
+const ABYSS: LedgerConfig = { restLobes: 2, neutralLobe: true };
+const LINEN: LedgerConfig = { restLobes: 2, neutralLobe: false };
+const tap = (x: number, y: number): Tap => ({ x, y });
+const J = tap(0.566, 0.566);
+const C = tap(0.566, -0.566);
+const R = tap(-0.566, -0.566);
+const I = tap(-0.566, 0.566);
+const n = (k: number) => tap(0.02 * k, 0.03); // neutral: r < 0.15
 
-describe('reconcile: classifying a new taps array, by reference', () => {
-  const a = tap(0.5, 0.5);
-  const b = tap(0.5, -0.5);
-  const c = tap(-0.5, -0.5);
-  const d = tap(-0.5, 0.5);
+/** A stateful store with the cold lane's semantics (emotionSlice): a new array and a new seq per change. */
+function store(initial: Tap[] = []) {
+  let taps = initial;
+  let seq = initial.length > 0 ? 1 : 0;
+  return {
+    add(t: Tap) { taps = [...taps, t].slice(-3); seq++; },
+    undo() { taps = taps.slice(0, -1); seq++; },
+    clear() { taps = []; seq++; },
+    input: () => ({ seq, taps }),
+  };
+}
 
-  it('starts empty', () => {
-    expect(emptyLedger()).toEqual({ taps: [], next: 0, entries: [], change: 'none' });
+/** Run a ledger over 1 ms frames from `from` to `to`, applying the store's actions at their times. */
+function run(ledger: Ledger, s: ReturnType<typeof store>, from: number, to: number, mode: 'settle' | 'reduced', actions: Record<number, () => void> = {}) {
+  const frames: Array<{ t: number; f: LedgerFades; ledger: Ledger }> = [];
+  for (let t = from; t <= to; t++) {
+    actions[t]?.();
+    ledger = reconcile(ledger, s.input(), t, mode);
+    frames.push({ t, f: fades(ledger), ledger });
+  }
+  return { ledger, frames, at: (t: number) => frames.find((x) => x.t === t)! };
+}
+
+const shown = (f: LedgerFades) => f.placements.map((p) => [p.x, p.y, p.role, Math.round(p.fade * 1000) / 1000]);
+
+describe('the ledger at rest', () => {
+  it('starts with nothing placed and the rest lobes lit, in the lowest slots', () => {
+    const f = fades(emptyLedger(ABYSS));
+    expect(f).toEqual({ placements: [], ended: [], restFade: 1, restSlots: [0, 1], demand: 2 });
+    expect(needsFrames(emptyLedger(ABYSS))).toBe(false);
   });
 
-  it('a push: the new tap is live with the next ordinal, stamped now', () => {
-    const one = reconcile(emptyLedger(), [a], 100);
-    expect(one.change).toBe('push');
-    expect(one.entries).toEqual([{ ordinal: 0, x: 0.5, y: 0.5, role: 'live', sinceMs: 100 }]);
-    const two = reconcile(one, [a, b], 250);
-    expect(two.change).toBe('push');
-    expect(two.entries).toEqual([
-      { ordinal: 0, x: 0.5, y: 0.5, role: 'live', sinceMs: 100 },
-      { ordinal: 1, x: 0.5, y: -0.5, role: 'live', sinceMs: 250 },
-    ]);
-    expect(two.next).toBe(2);
-  });
-
-  it('a push with a shift (a fourth tap): the oldest leaves, the survivors keep their ordinals', () => {
-    let l = reconcile(emptyLedger(), [a], 0);
-    l = reconcile(l, [a, b], 10);
-    l = reconcile(l, [a, b, c], 20);
-    l = reconcile(l, [b, c, d], 30);
-    expect(l.change).toBe('replace');
-    expect(ordinals(live(l))).toEqual([1, 2, 3]);
-    expect(leaving(l)).toEqual([{ ordinal: 0, x: 0.5, y: 0.5, role: 'leaving', sinceMs: 30 }]);
-    expect(live(l).map((e) => e.sinceMs)).toEqual([10, 20, 30]);
-  });
-
-  it('a pop (the latest removed): it leaves, the rest stay', () => {
-    let l = reconcile(reconcile(emptyLedger(), [a], 0), [a, b], 10);
-    l = reconcile(l, [a], 40);
-    expect(l.change).toBe('pop');
-    expect(ordinals(live(l))).toEqual([0]);
-    expect(leaving(l)).toEqual([{ ordinal: 1, x: 0.5, y: -0.5, role: 'leaving', sinceMs: 40 }]);
-  });
-
-  it('a clear: every live placement leaves', () => {
-    let l = reconcile(reconcile(emptyLedger(), [a], 0), [a, b], 10);
-    l = reconcile(l, [], 50);
-    expect(l.change).toBe('clear');
-    expect(live(l)).toEqual([]);
-    expect(ordinals(leaving(l))).toEqual([0, 1]);
-    expect(leaving(l).every((e) => e.sinceMs === 50)).toBe(true);
-  });
-
-  it('an ordinal is never reused: a pop then a push takes a new one', () => {
-    let l = reconcile(reconcile(emptyLedger(), [a], 0), [a, b], 10);
-    l = reconcile(l, [a], 20);
-    const e = tap(0.1, 0.9);
-    l = reconcile(l, [a, e], 30);
-    expect(l.change).toBe('push');
-    expect(ordinals(live(l))).toEqual([0, 2]);
-    expect(ordinals(leaving(l))).toEqual([1]);
-  });
-
-  it('the same taps again (the same array, or a new array of the same taps) change nothing', () => {
-    const l = reconcile(reconcile(emptyLedger(), [a], 0), [a, b], 10);
-    const same = reconcile(l, l.taps, 999);
-    expect(same.change).toBe('none');
-    expect(same.entries).toBe(l.entries);
-    const copy = reconcile(l, [a, b], 999);
-    expect(copy.change).toBe('none');
-    expect(copy.entries).toBe(l.entries);
-  });
-
-  it('anything else resets (a hydrate, a restart): ordinals 0..n−1, all live, nothing leaving', () => {
-    const l = reconcile(reconcile(emptyLedger(), [a], 0), [a, b], 10);
-    const hydrated = [tap(0.5, 0.5), tap(0.5, -0.5)]; // equal values, new objects: not the same taps
-    const r = reconcile(l, hydrated, 70);
-    expect(r.change).toBe('reset');
-    expect(r.entries).toEqual([
-      { ordinal: 0, x: 0.5, y: 0.5, role: 'live', sinceMs: 70 },
-      { ordinal: 1, x: 0.5, y: -0.5, role: 'live', sinceMs: 70 },
-    ]);
-    expect(r.next).toBe(2);
-    expect(reconcile(l, [b, a], 80).change).toBe('reset'); // reordered
-    expect(reconcile(l, [a, b, c, d], 80).change).toBe('reset'); // more than one new tap
-  });
-
-  it('reads taps structurally: only x and y are kept', () => {
-    const extra = { x: 0.2, y: 0.3, persistedSomething: true } as { x: number; y: number };
-    expect(reconcile(emptyLedger(), [extra], 5).entries[0]).toEqual({ ordinal: 0, x: 0.2, y: 0.3, role: 'live', sinceMs: 5 });
+  it('the admission limits are the ruled ones', () => {
+    expect(ADMISSION).toEqual({ entering: 2, leaving: 2, live: 3, nodes: NODE_SLOTS, netting: true });
   });
 });
 
-describe('placementsOf: the ledger as the builder’s placements, with every fade given', () => {
-  it('each entry keeps its ordinal and role, and takes its fade from the caller', () => {
-    let l = reconcile(emptyLedger(), [tap(0.5, 0.5)], 0);
-    l = reconcile(l, [...l.taps, tap(0.5, -0.5)], 10);
-    l = reconcile(l, [...l.taps, tap(-0.5, -0.5)], 20);
-    l = reconcile(l, [l.taps[1], l.taps[2], tap(-0.5, 0.5)], 30);
-    const fades: Record<number, number> = { 0: 0.3, 1: 1, 2: 1, 3: 0.7 };
-    expect(placementsOf(l, (e) => fades[e.ordinal])).toEqual([
-      { x: 0.5, y: 0.5, ordinal: 0, role: 'leaving', fade: 0.3 },
-      { x: 0.5, y: -0.5, ordinal: 1, role: 'live', fade: 1 },
-      { x: -0.5, y: -0.5, ordinal: 2, role: 'live', fade: 1 },
-      { x: -0.5, y: 0.5, ordinal: 3, role: 'live', fade: 0.7 },
-    ]);
+describe('a push: the first placement crossfades in, the rest glow out (designer 2.6)', () => {
+  it('starts on the frame it arrives, stamped there: u 0, then the settle curve; the rest lobes fall as 1 − u²', () => {
+    const s = store();
+    const { frames, at } = run(emptyLedger(ABYSS), s, 0, 700, 'settle', { 100: () => s.add(C) });
+    expect(at(99).f.placements).toEqual([]);
+    expect(at(100).f.placements.map((p) => [p.id, p.fade, p.role, p.slot])).toEqual([[0, 0, 'live', 2]]);
+    expect(at(100).f.restFade).toBe(1);
+    expect(at(400).f.placements[0].fade).toBe(crossfade(progress('settle', 300)).in);
+    expect(at(400).f.restFade).toBe(crossfade(progress('settle', 300)).out);
+    expect(at(700).f.placements[0].fade).toBe(1);
+    expect(at(700).f.restFade).toBe(0);
+    expect(at(700).f.restSlots).toEqual([]);
+    expect(frames.filter((x) => x.ledger.starts !== frames[0].ledger.starts).length).toBeGreaterThan(0);
+    expect(at(700).ledger.starts).toBe(1);
+  });
+
+  it('under reduced motion the ramp is 150 ms, linear', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, 0, 300, 'reduced', { 10: () => s.add(C) });
+    expect(at(85).f.placements[0].fade).toBeCloseTo(0.5, 12);
+    expect(at(160).f.placements[0].fade).toBe(1);
+  });
+
+  it('Linen: a neutral first tap keeps the glow lit (it has no lobe there)', () => {
+    const s = store();
+    const { at } = run(emptyLedger(LINEN), s, -1, 700, 'settle', { 0: () => s.add(n(1)) });
+    for (const t of [0, 300, 700]) expect(at(t).f.restFade).toBe(1);
+  });
+
+  it('needsFrames while a crossfade runs or a change waits, and not after', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 1300, 'settle', { 0: () => s.add(C), 100: () => s.add(R) });
+    expect(needsFrames(at(300).ledger)).toBe(true);
+    expect(needsFrames(at(599).ledger)).toBe(true); // R waits for its start, due at 600
+    expect(needsFrames(at(650).ledger)).toBe(true);
+    expect(needsFrames(at(1300).ledger)).toBe(false);
+  });
+});
+
+describe('serialized crossfades: starts at least motion.settle.duration apart, in every mode', () => {
+  it.each(['settle', 'reduced'] as const)('%s: a second tap waits for the spacing, then starts from 0', (mode) => {
+    const s = store();
+    const { frames, at } = run(emptyLedger(ABYSS), s, -1, 2000, mode, { 0: () => s.add(C), 50: () => s.add(R) });
+    const starts = frames.filter((x, i) => i > 0 && x.ledger.starts !== frames[i - 1].ledger.starts).map((x) => x.t);
+    expect(starts).toEqual([0, SETTLE]);
+    const r = (t: number) => at(t).f.placements.find((p) => p.id === 1);
+    expect(r(SETTLE - 1)).toBeUndefined();
+    expect(r(SETTLE)!.fade).toBe(0);
+  });
+});
+
+describe('change detection by seq, classification by value', () => {
+  it('the same seq again, or a new seq with the same taps, is no change: one start, the same fades', () => {
+    const s = store();
+    const plain = run(emptyLedger(ABYSS), s, 0, 700, 'settle', { 1: () => s.add(C) });
+    let ledger = emptyLedger(ABYSS);
+    const t2 = store();
+    const series: LedgerFades[] = [];
+    for (let t = 0; t <= 700; t++) {
+      if (t === 1) t2.add(C);
+      const { seq, taps } = t2.input();
+      // even frames: the same seq, a fresh array of equal taps; odd frames: a new seq, equal taps.
+      const input = t % 2 === 0 ? { seq, taps: taps.map((x) => ({ ...x })) } : { seq: seq + Math.floor(t / 2), taps: taps.map((x) => ({ ...x })) };
+      ledger = reconcile(ledger, input, t, 'settle');
+      series.push(fades(ledger));
+    }
+    expect(ledger.starts).toBe(1);
+    expect(series).toEqual(plain.frames.map((x) => x.f));
+  });
+
+  it('a fourth tap (push with shift): the oldest leaves as the new one enters, in one crossfade; the survivors keep id, slot and fade', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 3000, 'settle', { 0: () => s.add(J), 600: () => s.add(C), 1200: () => s.add(R), 1800: () => s.add(I) });
+    const before = at(1799).f.placements;
+    const mid = at(2100).f.placements;
+    // J entered while the rest lobes held slots 0 and 1; they freed them as J's crossfade ended.
+    expect(before.map((p) => [p.id, p.slot])).toEqual([[0, 2], [1, 0], [2, 1]]);
+    expect(before.map((p) => p.fade).every((v) => v > 0.999)).toBe(true); // R's own ramp ends at 1800 ms
+    expect(mid.map((p) => [p.id, p.role, p.slot])).toEqual([[0, 'leaving', 2], [1, 'live', 0], [2, 'live', 1], [3, 'live', 3]]);
+    expect(mid[0].fade).toBe(crossfade(progress('settle', 300)).out);
+    expect(mid[3].fade).toBe(crossfade(progress('settle', 300)).in);
+    expect(at(2400).f.ended).toEqual([0]);
+    expect(at(2401).f.placements.map((p) => p.id)).toEqual([1, 2, 3]);
+  });
+
+  it('a pop: the latest leaves', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 3000, 'settle', { 0: () => s.add(J), 600: () => s.add(C), 1200: () => s.add(R), 1900: () => s.undo() });
+    expect(shown(at(2000).f).map((x) => x[2])).toEqual(['live', 'live', 'leaving']);
+    expect(at(2500).f.ended).toEqual([2]);
+  });
+
+  it('a clear: every placement leaves, at most two per crossfade, oldest first', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 4000, 'settle', { 0: () => s.add(J), 600: () => s.add(C), 1200: () => s.add(R), 1900: () => s.clear() });
+    expect(at(1900).f.placements.filter((p) => p.role === 'leaving').map((p) => p.id)).toEqual([0, 1]);
+    expect(at(2500).f.ended).toEqual([0, 1]);
+    expect(at(2500).f.placements.filter((p) => p.role === 'leaving').map((p) => p.id)).toEqual([2]);
+    expect(at(3100).f.ended).toEqual([2]);
+    expect(at(3100).f.restFade).toBe(1);
+  });
+
+  it('several store changes seen in one frame read as their events, never as a reset', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 3000, 'settle', { 0: () => s.add(J), 600: () => s.add(C), 1200: () => { s.undo(); s.add(R); } });
+    expect(at(1200).f.placements.map((p) => [p.id, p.role, p.fade])).toEqual([[0, 'live', 1], [1, 'leaving', 1], [2, 'live', 0]]);
+  });
+
+  it('a seq that goes backwards (the root restarted) is a reset: no animation, all live at fade 1, ids never reused', () => {
+    const s = store();
+    const { ledger } = run(emptyLedger(ABYSS), s, -1, 700, 'settle', { 0: () => s.add(J) });
+    const restarted = reconcile(ledger, { seq: 0, taps: [C, R] }, 701, 'settle');
+    expect(fades(restarted).placements.map((p) => [p.id, p.role, p.fade])).toEqual([[1, 'live', 1], [2, 'live', 1]]);
+    expect(fades(restarted).ended).toEqual([0]);
+    expect(fades(restarted).restFade).toBe(0);
+    expect(needsFrames(restarted)).toBe(false);
+  });
+
+  it('a forward change no single store operation explains is still animated: the most taps kept, the rest leave and enter', () => {
+    const s = store();
+    const { ledger } = run(emptyLedger(ABYSS), s, -1, 1300, 'settle', { 0: () => s.add(J), 600: () => s.add(C) });
+    const next = reconcile(ledger, { seq: 3, taps: [C, R, I] }, 1301, 'settle');
+    expect(fades(next).placements.map((p) => [p.id, p.node, p.role, p.fade])).toEqual([[0, 'J', 'leaving', 1], [1, 'C', 'live', 1], [2, 'R', 'live', 0], [3, 'I', 'live', 0]]);
+  });
+
+  it('a fresh ledger given a scene’s taps reads them as a reset: the scene order is the ordinal', () => {
+    const f = fades(reconcile(emptyLedger(ABYSS), { seq: 1, taps: [J, C, R] }, 0, 'settle'));
+    expect(f.placements.map((p) => [p.id, p.ordinal, p.node, p.fade])).toEqual([[0, 0, 'J', 1], [1, 1, 'C', 1], [2, 2, 'R', 1]]);
+  });
+});
+
+describe('netting: pending changes are netted against the store, never queued raw', () => {
+  it('a tap undone before it is admitted never appears', () => {
+    const s = store();
+    const { frames } = run(emptyLedger(ABYSS), s, -1, 2000, 'settle', { 0: () => s.add(J), 100: () => s.add(C), 200: () => s.undo() });
+    expect(frames.some((x) => x.f.placements.some((p) => p.id === 1))).toBe(false);
+    expect(frames[frames.length - 1].ledger.starts).toBe(1);
+  });
+
+  it('a replace queues its leave before its enter: never four live', () => {
+    const s = store([J, C, R]);
+    let ledger = reconcile(emptyLedger(ABYSS), s.input(), 0, 'settle');
+    const { frames } = run(ledger, s, 1, 2000, 'settle', { 10: () => s.add(I) });
+    ledger = frames[frames.length - 1].ledger;
+    for (const x of frames) expect(x.f.placements.filter((p) => p.role === 'live').length).toBeLessThanOrEqual(3);
+    expect(fades(ledger).placements.map((p) => p.node)).toEqual(['C', 'R', 'I']);
+  });
+});
+
+describe('admission (designer final ruling (1)): the arrival-order prefix that fits, no eviction', () => {
+  // The planted case (designer): Linen, three neutral placements, rest lobes lit; two taps inside one
+  // settle window are admitted as one swap and then one swap (two swaps would need 7 nodes).
+  it('Linen neutral3: one swap, then one swap; never more than NODE_SLOTS nodes', () => {
+    const s = store([n(1), n(2), n(3)]);
+    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    expect(fades(ledger).restFade).toBe(1);
+    const { frames } = run(ledger, s, 1, 3000, 'settle', { 1000: () => s.add(n(4)), 1100: () => s.add(n(5)), 1200: () => s.add(n(6)) });
+    const startFrames = frames.filter((x, i) => i > 0 && x.ledger.starts !== frames[i - 1].ledger.starts);
+    expect(startFrames.map((x) => x.t)).toEqual([1000, 1600, 2200]);
+    expect(startFrames.map((x) => [x.f.placements.filter((p) => p.role === 'leaving').length, x.f.placements.filter((p) => p.fade === 0).length])).toEqual([[1, 1], [1, 1], [1, 1]]);
+    for (const x of frames) expect(x.f.demand).toBeLessThanOrEqual(NODE_SLOTS);
+    expect(frames.some((x) => x.f.demand === NODE_SLOTS)).toBe(true);
+  });
+
+  it('every start admits at least one pending change', () => {
+    const s = store();
+    const { frames } = run(emptyLedger(LINEN), s, -1, 4000, 'settle', Object.fromEntries([0, 30, 60, 90, 120, 150].map((t, k) => [t, () => s.add(k % 2 ? n(k) : [J, C, R, I][k % 4])])));
+    for (let i = 1; i < frames.length; i++) {
+      if (frames[i].ledger.starts !== frames[i - 1].ledger.starts) expect(frames[i].ledger.admitted).toBeGreaterThan(0);
+    }
+  });
+
+  // L1: the prefix stops at the first change that does not fit, even where a later one would. Linen,
+  // three neutrals, rest lobes lit; a clear, then two new neutral taps, in one settle window. The
+  // waiting change is three leaves and two enters: swaps (n1, n4), (n2, n5), then n3 alone. One swap
+  // fits (6 nodes); the second would make 7, so the start stops there, though n3's leave alone fits.
+  it('the prefix stops at the first change that does not fit (Linen: a clear and two taps admit one swap)', () => {
+    const s = store([n(1), n(2), n(3)]);
+    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    const { at } = run(ledger, s, 1, 2000, 'settle', { 1000: () => { s.clear(); s.add(n(4)); s.add(n(5)); } });
+    expect(at(1000).ledger.admitted).toBe(1);
+    expect(at(1000).f.placements.map((p) => [p.id, p.role, p.fade])).toEqual([[0, 'leaving', 1], [1, 'live', 1], [2, 'live', 1], [3, 'live', 0]]);
+    expect(at(1600).f.placements.filter((p) => p.role === 'leaving').map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  // L2: rest lobes count while they rise. Linen [n1, n2, J]: the undo of J brings the glow back, so the
+  // rest lobes rise in the same crossfade; with n3 entering that is 3 + 1 + 2 = 6, and the next swap
+  // (n1 for n4) would make 7, so it waits.
+  it('rest lobes count while they rise: Linen, an undo of the only lobe and two taps admit the undo and one tap', () => {
+    const s = store([n(1), n(2), J]);
+    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    expect(fades(ledger).restFade).toBe(0);
+    const { at } = run(ledger, s, 1, 2000, 'settle', { 1000: () => { s.undo(); s.add(n(3)); s.add(n(4)); } });
+    const f = at(1000).f;
+    expect(f.placements.map((p) => [p.id, p.role, p.fade])).toEqual([[0, 'live', 1], [1, 'live', 1], [2, 'leaving', 1], [3, 'live', 0]]);
+    expect([f.restFade, f.restSlots.length, f.demand]).toEqual([0, 2, 6]);
+    expect(at(1600).f.placements.find((p) => p.id === 4)!.fade).toBe(0);
+  });
+
+  // The architect's counter (L13): Linen with neutrals only and the rest lobes lit. Two quick undos,
+  // or a clear's first crossfade, leave 1 live + 2 leaving + 2 rest lobes: 5 nodes, 4 not live.
+  it.each([
+    ['two quick undos, seen in one frame', (s: ReturnType<typeof store>) => ({ 1000: () => { s.undo(); s.undo(); } })],
+    ['a clear', (s: ReturnType<typeof store>) => ({ 1000: () => s.clear() })],
+  ])('Linen, %s: two leave together, each keeping its slot, with the rest lobes lit beside them', (_name, acts) => {
+    const s = store([n(1), n(2), n(3)]);
+    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    const slotsBefore = fades(ledger).placements.map((p) => p.slot);
+    const { at } = run(ledger, s, 1, 2000, 'settle', acts(s));
+    const mid = at(1300).f;
+    expect(mid.placements.filter((p) => p.role === 'leaving').length).toBe(2);
+    expect(mid.placements.length + mid.restSlots.length).toBe(5);
+    expect(mid.placements.map((p) => p.slot)).toEqual(slotsBefore);
+    expect(mid.restFade).toBe(1);
+  });
+});
+
+describe('slots: one pool, stable from entering to fade 0, reused lowest first', () => {
+  it('no node changes slot while it is shown, and no two share one', () => {
+    const s = store();
+    const acts: Record<number, () => void> = {};
+    [J, C, R, I, J, C, R].forEach((t, k) => { acts[k * 250] = () => s.add(t); });
+    acts[2000] = () => s.undo();
+    acts[2600] = () => s.clear();
+    const { frames } = run(emptyLedger(ABYSS), s, -1, 5000, 'reduced', acts);
+    const slotOf = new Map<number, number>();
+    for (const x of frames) {
+      const used = [...x.f.placements.map((p) => p.slot), ...x.f.restSlots];
+      expect(new Set(used).size).toBe(used.length);
+      for (const p of x.f.placements) {
+        if (slotOf.has(p.id)) expect(p.slot).toBe(slotOf.get(p.id));
+        slotOf.set(p.id, p.slot);
+      }
+    }
+  });
+});
+
+describe('the clock behind u (resilience finding 9)', () => {
+  it('a long frame advances u by at most motion.dtClamp; time running backwards never lowers it', () => {
+    const s = store();
+    let ledger = reconcile(emptyLedger(ABYSS), s.input(), 0, 'settle');
+    s.add(C);
+    ledger = reconcile(ledger, s.input(), 10, 'settle'); // the start, stamped: u 0
+    expect(fades(ledger).placements[0].fade).toBe(0);
+    ledger = reconcile(ledger, s.input(), 60_000, 'settle'); // a minute away: one clamped step
+    expect(fades(ledger).placements[0].fade).toBe(crossfade(progress('settle', BASE.motion.dtClamp)).in);
+    const before = fades(ledger).placements[0].fade;
+    ledger = reconcile(ledger, s.input(), 5, 'settle'); // backwards
+    expect(fades(ledger).placements[0].fade).toBe(before);
+  });
+
+  // L4: spacing is kept on the ledger's own clamped clock, the one the ramp runs on, so a long frame
+  // cannot let a second crossfade start while the first still runs.
+  it('a long frame never lets a second crossfade start while the first runs', () => {
+    const s = store();
+    let ledger = reconcile(emptyLedger(ABYSS), s.input(), 0, 'settle');
+    s.add(C);
+    ledger = reconcile(ledger, s.input(), 10, 'settle');
+    s.add(R);
+    ledger = reconcile(ledger, s.input(), 60_000, 'settle');
+    expect(ledger.starts).toBe(1);
+    expect(fades(ledger).placements.map((p) => p.id)).toEqual([0]);
+    for (let t = 60_001; t <= 60_600; t++) ledger = reconcile(ledger, s.input(), t, 'settle');
+    expect(ledger.starts).toBe(2);
   });
 });
 

@@ -25,6 +25,7 @@ const FUTURE_WORKLET_MODULES = [
   'field/fieldFrame.ts',
   'field/uniforms.ts',
   'field/crossfade.ts',
+  'field/placementLedger.ts',
 ];
 
 const DESTRUCTURED = /\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*(?:Math|Number)\b/;

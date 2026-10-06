@@ -4,7 +4,7 @@ import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE, NODE_SLOTS, inertNode } from '../fieldLaw.ts';
 import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState, type Placement } from '../fieldFrame.ts';
-import { emptyLedger, placementsOf, reconcile } from '../placementLedger.ts';
+import { emptyLedger, fades as ledgerFades, reconcile } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { FIELD_UNIFORMS, packFrame } from '../uniforms.ts';
 
@@ -246,22 +246,34 @@ describe('six node slots, one pool, and the ordinal', () => {
     });
   });
 
-  it('through the ledger: after a fourth tap every surviving placement keeps its centre, and the same ledger packs the same uniforms', () => {
+  // Resilience change 3 through the ledger: mid-dissolve, the replaced bead is still drawn at its fade,
+  // and every survivor keeps its centre and its slot; the same ledger output packs the same uniforms.
+  it('through the ledger: a fourth tap dissolves the oldest while every survivor keeps its centre and slot', () => {
     const [J, C, R, I] = [[0.566, 0.566], [0.566, -0.566], [-0.566, -0.566], [-0.566, 0.566]].map(([x, y]) => ({ x, y }));
-    let l = reconcile(emptyLedger(), [J], 0);
-    l = reconcile(l, [J, C], 10);
-    l = reconcile(l, [J, C, R], 20);
-    const frameOf = (fades: Record<number, number>) =>
-      buildFieldFrame(state('abyss', 'dark', { placements: placementsOf(l, (e) => fades[e.ordinal] ?? 1), tMs: 7000 }), geometry, statics('abyss'));
-    const before = frameOf({});
-    l = reconcile(l, [C, R, I], 30);
-    expect(l.change).toBe('replace');
-    const after = frameOf({ 0: 0.6, 3: 0.4 });
+    const config = { restLobes: statics('abyss').restLobes.length, neutralLobe: true };
+    let l = reconcile(emptyLedger(config), { seq: 1, taps: [J, C, R] }, 0, 'settle');
+    const frameOf = () => {
+      const f = ledgerFades(l);
+      return buildFieldFrame(
+        state('abyss', 'dark', { placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot })), restFade: f.restFade, restSlots: f.restSlots, tMs: 7000 }),
+        geometry,
+        statics('abyss'),
+      );
+    };
+    const before = frameOf();
+    l = reconcile(l, { seq: 2, taps: [C, R, I] }, 10, 'settle');
+    l = reconcile(l, { seq: 2, taps: [C, R, I] }, 310, 'settle');
+    const after = frameOf();
     for (const id of [NODE.C, NODE.R]) {
-      expect(after.nodes.find((n) => n.id === id)!.centre).toEqual(before.nodes.find((n) => n.id === id)!.centre);
+      const k = before.nodes.findIndex((n) => n.id === id);
+      expect(after.nodes[k].id).toBe(id);
+      expect(after.nodes[k].centre).toEqual(before.nodes[k].centre);
     }
-    expect(after.nodes.find((n) => n.id === NODE.J)!.fade).toBe(0.6);
-    expect(packFrame(frameOf({ 0: 0.6, 3: 0.4 }))).toEqual(packFrame(after));
+    const J0 = after.nodes.find((n) => n.id === NODE.J)!;
+    expect(J0.fade).toBeGreaterThan(0);
+    expect(J0.fade).toBeLessThan(1);
+    expect(after.nodes.filter((n) => n.fade > 0)).toHaveLength(4);
+    expect(packFrame(frameOf())).toEqual(packFrame(after));
   });
 });
 

@@ -6,6 +6,7 @@ import { NODE, NODE_SLOTS, fieldOklab, fieldPixel, inertNode, isWaypoint, type F
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
+import { emptyLedger, fades as ledgerFades, reconcile } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
@@ -434,6 +435,34 @@ half4 main(float2 p) {
     }
     expect(cases).toBe(64);
     expect(off).toEqual([]);
+  });
+
+  // E5 in real Skia (resilience admission §3, adopted by the designer): the halo is bound to the
+  // ledger. Two frames with the same ledger output, one built while the store holds an extra tap the
+  // ledger has not admitted, draw byte for byte the same field. The tap's halo appears only when its
+  // crossfade starts, at fade 0.
+  // Under reduced motion the first ramp ends at 150 ms, so only the spacing keeps the second tap out.
+  it.each((['abyss', 'linen', 'basin'] as DirectionId[]).flatMap((id) => (['settle', 'reduced'] as const).map((mode) => [id, mode] as const)))('%s, %s: a tap the ledger has not admitted draws nothing, byte for byte', (id, mode) => {
+    const config = { restLobes: staticsFor(id, EXTENSIONS as never).restLobes.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 };
+    const geometry = { centrePx: [32.3, 31.6] as [number, number], radiusPx: 24, pxPerDp: 24 / (BASE.plate.maxDiameter / 2), fontScale: 1 };
+    const frameAt = (taps: Array<{ x: number; y: number }>[], at: number) => {
+      let l = emptyLedger(config);
+      for (let t = 0; t <= at; t++) l = reconcile(l, { seq: t === 0 ? 0 : t < 100 ? 1 : taps.length, taps: t === 0 ? [] : t < 100 ? taps[0] : taps[taps.length - 1] }, t, mode);
+      const f = ledgerFades(l);
+      return buildFieldFrame(
+        { direction: id, face: 'dark', placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot })), restFade: f.restFade, restSlots: f.restSlots, stress: 0, confidence: 1, genesis: false, tMs: 7000, breathPhase: 0.3, tier: 'full' },
+        geometry,
+        staticsFor(id, EXTENSIONS as never),
+      );
+    };
+    const one = [{ x: -0.566, y: 0.566 }];
+    const two = [...one, { x: 0.566, y: -0.566 }];
+    // The second tap lands at 100 ms; its start waits for the spacing, due at 601 ms.
+    const without = frameAt([one], 400);
+    const withPending = frameAt([one, two], 400);
+    expect(Array.from(render(withPending))).toEqual(Array.from(render(without)));
+    // Not vacuous: once admitted and part-way in, it does draw.
+    expect(Array.from(render(frameAt([one, two], 640)))).not.toEqual(Array.from(render(frameAt([one], 640))));
   });
 
   // Marks never shimmer (designer rulings, QA-064): in the ring, where only the halo shows, the
