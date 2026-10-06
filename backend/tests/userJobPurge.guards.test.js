@@ -61,9 +61,7 @@ function enqueueCalls() {
 }
 
 // Queues whose jobs carry a user id but are NOT erased by the purge, each with its reason.
-const NOT_PURGED = Object.freeze({
-  [QUEUES.STATE_VECTOR_RECOMPUTE]: 'BE-084 and BE-087 (DEC-126, J2): the payload is only {userId} and the job is deleted once it has run, but a job still delayed (5 s, baselines.js; 60 s, metricStore.js) is not purged by account deletion or withdrawal and, when it runs, re-creates MedicalProfile (upsert, no TTL) and the bio:baseline: (24 h) and bio:affect: (2 h) keys; its job id and return value reach the events stream (BE-084)',
-});
+const NOT_PURGED = Object.freeze({});
 
 describe('every job that carries a user id is on a queue the purge erases', () => {
   const calls = enqueueCalls();
@@ -84,6 +82,13 @@ describe('every job that carries a user id is on a queue the purge erases', () =
       .map((c) => ({ file: c.file, queue: QUEUES[c.queueArg.replace('QUEUES.', '')] }))
       .filter((c) => !purged.has(c.queue) && !NOT_PURGED[c.queue]);
     expect(unregistered).toEqual([]);
+  });
+
+  // J2 (P2): an exemption must name a queue the purge does NOT erase; one left behind after its queue was
+  // registered would hide the next unregistered producer on that name.
+  it('no exemption names a queue the purge erases', () => {
+    const purged = new Set(USER_JOB_QUEUES.map((q) => q.name));
+    expect(Object.keys(NOT_PURGED).filter((name) => purged.has(name))).toEqual([]);
   });
 
   it('the learning jobs are among the queued jobs that carry a user id', () => {
@@ -176,7 +181,7 @@ describe('ADR-0015: no disconnect-side module purges learning jobs', () => {
       .sort();
     expect(importers).toEqual(['services/privacy/consent.js', 'services/privacy/erasure.js']);
     const callers = (name) => sourceFiles(APP).filter((f) => new RegExp(`\\b${name}\\b`).test(stripComments(read(f)))).map(rel).sort();
-    expect(callers('eraseUserChildData')).toEqual(['controllers/authController.js', 'services/privacy/erasure.js']);
+    expect(callers('eraseUserChildData')).toEqual(['controllers/authController.js', 'services/privacy/erasure.js', 'services/privacy/orphanSweep.js']);
     expect(callers('withdrawConsent')).toEqual(['controllers/consentController.js', 'services/privacy/consent.js']);
   });
 });

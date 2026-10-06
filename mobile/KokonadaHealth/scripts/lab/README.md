@@ -37,6 +37,9 @@ Every command below is a direct `node scripts/lab/<name>.mjs` call.
 - **`node scripts/lab/assertManifests.mjs`** (CI, job "Mobile — Android compile check"):
   - Every merged manifest Gradle wrote is checked.
   - `release`, and any other variant that is not the lab, declares no lab component.
+  - The same variants pass the upload permission gate (`scripts/lab/uploadPermissions.mjs`, MB-093):
+    no location for API 23 and up, no COARSE or BACKGROUND location, FINE and the legacy Bluetooth
+    permissions only up to API 30, a `neverForLocation` scan, and no permission off the allow-list.
   - The lab declares none of the real app.
 - **Gradle refuses:**
   - to configure while `ENTRY_FILE` is set. The React Native plugin applies that variable to every
@@ -100,10 +103,16 @@ cannot prove.
 
 ## iOS
 
-There is no lab target on iOS. The Xcode bundle phase builds `index.js` unless `ENTRY_FILE` is set in
-the environment, in `ios/.xcode.env` or in `ios/.xcode.env.local`, or an `index.ios.js` exists; any
-of these would put another entry into an archive that can go to TestFlight. Until the bundle-phase
-guard lands, scan the `.ipa` before every App Store Connect upload.
+There is no lab target on iOS. The Xcode bundle phase refuses any entry but `index.js`: it runs
+`ios/scripts/bundle-react-native.sh` through React Native's `with-environment.sh`, which sources
+`ios/.xcode.env` and `ios/.xcode.env.local` first, and that script stops the build if `ENTRY_FILE` is
+set to anything other than `index.js` or an `index.ios.js` exists, before `react-native-xcode.sh` runs
+(MB-093, pinned by `scripts/ios/__tests__/bundlePhase.test.ts`). It also stops the build if any of
+`EXTRA_PACKAGER_ARGS`, `CLI_PATH`, `BUNDLE_COMMAND`, `BUNDLE_CONFIG`, `CONFIG_JSON`, `CONFIG_CMD`,
+`NODE_ARGS` or `BUNDLE_NAME` is set, if `PROJECT_ROOT` is not this app's root, or if `SKIP_BUNDLING` is
+set outside Debug. These refusals are not exhaustive (`NODE_BINARY` and `HERMES_CLI_PATH` are set
+legitimately and left alone), so scan the `.ipa` before every App Store Connect upload all the same:
+the scan reads the archive itself, whatever built it.
 
 If an iOS lab target is ever added:
 

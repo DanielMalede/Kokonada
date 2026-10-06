@@ -20,16 +20,30 @@ const { getRedis } = require('../config/redis');
 // AudioFeature cache (`af:<recordingKey>`), the LLM cache (`gemini:<model>:<hash>`) and the
 // token denylist (`revoked:jti:<jti>`, self-expiring revocation records). Purging any
 // of these on a single user's erasure would evict every other user's rows.
+//
+// J2 (BE-094, DT-14): each entry also says how to FIND every user's keys (`scan`, a SCAN MATCH pattern
+// over all users) and whose a found key is (`idOf`). The daily sweep of deleted accounts' data
+// (services/privacy/orphanSweep.js) discovers ids this way, so a key left under a deleted account's id is
+// found even when no Mongo row is.
 const USER_KEY_NAMESPACES = Object.freeze([
-  { name: 'serve-ledger',   pattern: (id) => `ledger:${id}:*` },   // serve-ledger hot windows (global + per-mood)
-  { name: 'candidate-pool', pattern: (id) => `pool:${id}:*` },     // candidate-pool partitions
-  { name: 'live-buffer',    pattern: (id) => `buffer:${id}:*` },   // precompiled live-biometric playlists
-  { name: 'bio-baseline',   pattern: (id) => `bio:baseline:${id}` }, // AAD-bound encrypted baseline blob
+  // serve-ledger hot windows (global + per-mood)
+  { name: 'serve-ledger',   pattern: (id) => `ledger:${id}:*`, scan: 'ledger:*', idOf: (key) => key.split(':')[1] },
+  // candidate-pool partitions
+  { name: 'candidate-pool', pattern: (id) => `pool:${id}:*`, scan: 'pool:*', idOf: (key) => key.split(':')[1] },
+  // precompiled live-biometric playlists
+  { name: 'live-buffer',    pattern: (id) => `buffer:${id}:*`, scan: 'buffer:*', idOf: (key) => key.split(':')[1] },
+  // AAD-bound encrypted baseline blob
+  { name: 'bio-baseline',   pattern: (id) => `bio:baseline:${id}`, scan: 'bio:baseline:*', idOf: (key) => key.slice('bio:baseline:'.length) },
   // W4-006 (§0.4 S5): the carried affect posterior — an AAD-bound encrypted HMM state whose
   // `label` is an INFERRED emotional/physiological state. Self-expires in 2 h, but right-to-
   // erasure means an inference about a person goes when they ask, not when a TTL gets round to it.
-  { name: 'bio-affect',     pattern: (id) => `bio:affect:${id}` },
+  { name: 'bio-affect',     pattern: (id) => `bio:affect:${id}`, scan: 'bio:affect:*', idOf: (key) => key.slice('bio:affect:'.length) },
 ]);
+
+// J2 (resilience §7 on T12 v2; round 1, L2): both purges build their patterns from the id, so an id holding a
+// SCAN glob character would match other users' keys (`ledger:*:*` reaches everyone). The strict purge throws;
+// the best-effort one, which never throws, answers 0. Either way Redis is sent nothing.
+const GLOB_CHARACTER = /[*?[\]\\]/;
 
 function patternsFor(userId) {
   return USER_KEY_NAMESPACES.map((ns) => ns.pattern(userId));
@@ -39,6 +53,7 @@ async function purgeUserKeys(userId) {
   const redis = getRedis();
   const id = typeof userId === 'string' ? userId : String(userId || '');
   if (!redis || !id.trim()) return 0;
+  if (GLOB_CHARACTER.test(id)) return 0;
 
   let deleted = 0;
   try {
@@ -60,9 +75,11 @@ async function purgeUserKeys(userId) {
 // which would let an erasure report itself finished while an 8-day ledger window outlived its promise.
 // A Redis that is configured but unusable is a failed step; a deployment with no Redis has nothing to
 // purge. Callers: spotifyErasure.purgeSpotifyData and sessionHealthErasure.
+
 async function purgeUserKeysStrict(userId) {
   const id = String(userId || '').trim();
   if (!id) throw new Error('refusing a Redis purge without a user id');
+  if (GLOB_CHARACTER.test(id)) throw new Error('refusing a Redis purge for an id that holds a glob character');
   const redis = getRedis();
   if (!redis) {
     if (process.env.REDIS_URL) throw new Error('Redis is configured but unavailable');

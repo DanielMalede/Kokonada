@@ -21,23 +21,54 @@ jobs:
   secret-scan:
     name: Security — gitleaks secret scan
     runs-on: ubuntu-latest
+    # The gitleaks CLI, not gitleaks-action. The action built a PR's range from the PR's commit
+    # list (GET /pulls/:number/commits) and read only its first page, 30 commits, so a longer PR
+    # was scanned in part and still passed: run 37199191703 (PR #216) logged "30 commits scanned".
+    # The range now comes from the event payload, so no API call is made and no scope beyond
+    # contents is needed. Pinned by backend/tests/secretScanGates.test.js.
     permissions:
       contents: read
-      # gitleaks-action needs pull-requests READ to enumerate the PR's commit range
-      # (GET /repos/:owner/:repo/pulls/:number/commits) and WRITE to annotate the finding
-      # (src/gitleaks.js → octokit.rest.pulls.createReviewComment). With read only, a real
-      # leak surfaces as an opaque 403 instead of as the leak.
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
-          # On push/PR gitleaks-action scans only THIS event's commit range — not the
-          # whole repo. The full-history sweep runs weekly in secret-scan-history.yml.
+          # Both ends of the range must be in the clone. This job scans only THIS event's
+          # commits; the full-history sweep runs weekly in secret-scan-history.yml.
           fetch-depth: 0
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+      # A pinned release, and the archive's SHA-256 is checked before anything in it runs. The hash
+      # is the one in the release's gitleaks_8.24.3_checksums.txt; a new version changes both.
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.24.3
+          GITLEAKS_SHA256: 9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" version
+      # Every commit this event adds, as an explicit range:
+      #   · pull_request: base..head, every commit of the PR, however many;
+      #   · push: before..sha, every pushed commit. `before` is all zeros when the push created the
+      #     branch, and then every commit reachable from sha is new.
+      # Any other event fails instead of scanning nothing. The range goes to gitleaks as it is: no
+      # --first-parent, which would drop the commits a PR brings in by merging another branch.
+      # gitleaks exits 1 on any finding, and on a range git cannot resolve; either fails the job.
+      # It reads .gitleaksignore from the checkout root. --ignore-gitleaks-allow: an inline
+      # `gitleaks:allow` comment does not hide its line, so a PR cannot exempt its own secret.
+      - name: gitleaks
+        env:
+          PR_RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_RANGE: ${{ github.event.before }}..${{ github.sha }}
+        run: |
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) range="$PR_RANGE" ;;
+            push)
+              if [ "$PUSH_BEFORE" = 0000000000000000000000000000000000000000 ]; then range="$GITHUB_SHA"; else range="$PUSH_RANGE"; fi ;;
+            *) echo "::error::secret-scan has no commit range for a $GITHUB_EVENT_NAME event"; exit 1 ;;
+          esac
+          commits=$(git rev-list --count "$range")
+          echo "gitleaks scans $range: $commits commits"
+          "$RUNNER_TEMP/gitleaks" git --log-opts="$range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .
 
   backend:
     name: Backend — lint & test
@@ -162,6 +193,9 @@ jobs:
       # release declares and compiles no Design Lab, and that the lab declares none of the real app
       # (no MainActivity, network, health or Bluetooth permission, or real-app scheme). The scripts
       # exit 2 when there is nothing to check, so a skipped merge cannot pass.
+      # MB-093: assertManifests.mjs also holds every uploadable variant's merged permissions (release,
+      # and debug, merged by the step above) to scripts/lab/uploadPermissions.mjs: no location for API
+      # 23+, FINE and legacy Bluetooth only up to API 30, a neverForLocation scan, and an allow-list.
       - name: Design Lab — merged manifests and release classes
         if: steps.changes.outputs.android == 'true'
         run: |

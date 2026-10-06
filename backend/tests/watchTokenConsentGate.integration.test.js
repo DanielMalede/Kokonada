@@ -44,8 +44,11 @@ jest.mock('../app/utils/tokenDenylist', () => ({
 // J1 (BE-074): the withdrawal below purges the job queue. Loading app/index.js applies backend/.env with
 // override:true, which sets REDIS_URL whatever this file deletes, so the purge is mocked like the Redis
 // client above. The purge is proven on real Redis in consentWithdrawalJobs.redis.test.js.
+// J2 (P13; fixture F1): the purge's result also names each queue's count, as the real one does.
 jest.mock('../app/queues/userJobPurge', () => ({
-  purgeUserJobs: jest.fn().mockResolvedValue({ removed: 0, inFlight: 0 }),
+  purgeUserJobs: jest.fn().mockResolvedValue({
+    removed: 0, inFlight: 0, byQueue: { 'reward-ingest': { removed: 0, inFlight: 0 }, 'state-vector-recompute': { removed: 0, inFlight: 0 } },
+  }),
 }));
 
 const { app } = require('../app/index');

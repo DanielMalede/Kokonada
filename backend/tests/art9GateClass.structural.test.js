@@ -197,8 +197,8 @@ describe('Art.9 gate — the whole class of biometric boundaries', () => {
     expect(callers).toEqual(['controllers/integrationsController.js', 'sockets/biometricHandler.js']);
   });
 
-  it('one definition of a current grant: staleVersion is read only in consent.js and healthConsentGate.js', () => {
+  it('one definition of a current grant: staleVersion is read only in consentState.js', () => {
     const readers = ALL.filter((f) => /\bstaleVersion\b/.test(f.code)).map((f) => f.file).sort();
-    expect(readers).toEqual(['services/privacy/consent.js', 'services/privacy/healthConsentGate.js']);
+    expect(readers).toEqual(['services/privacy/consentState.js']);
   });
 });

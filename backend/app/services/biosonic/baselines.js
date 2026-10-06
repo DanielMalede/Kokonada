@@ -346,13 +346,10 @@ function _scheduleRefresh(userId, nowMs = Date.now()) {
   try {
     const { enqueue } = require('../../queues/queue');
     const { QUEUES } = require('../../queues/definitions');
-    enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, {
-      jobId: `state-vector-${userId}`, // BullMQ forbids ':' in custom job ids
-      delay: 5000,
-      removeOnComplete: true,
-      removeOnFail: true,
-    }).catch(() => {});
-  } catch { /* queue seam unavailable — fine */ }
+    // J2 (BE-084): the job id is a keyed pseudonym of the user id, never the id itself (queues/stateVectorJob.js).
+    const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
+    enqueue(QUEUES.STATE_VECTOR_RECOMPUTE, { userId }, stateVectorJobOptions(userId, 5000)).catch(() => {});
+  } catch { /* queue seam unavailable (or no ENCRYPTION_KEY) — fine */ }
   return true;
 }
 

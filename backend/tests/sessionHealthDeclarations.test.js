@@ -236,7 +236,7 @@ describe('J1: the learning jobs in the job queue', () => {
   it('names what a deletion or a withdrawal does not reach: the running job, a play that ends meanwhile, an unreachable queue', () => {
     const row = jobsRow();
     expect(row).toContain('A job already running when the account is deleted or the consent is withdrawn, queued by a play that ends while either request is processed, or waiting while the job queue cannot be reached or does not answer in time, is deleted once it has run');
-    expect(row).toContain('what it writes to the learned preferences is not removed by that request: it follows the `RewardEvent` and `PersonalWeights` rows above, so for a deleted account it stays under the deleted account\'s ID until it expires, 365 days after the play by default (`BE-028`).');
+    expect(row).toContain('what it writes to the learned preferences is not removed by that request: after a withdrawal it follows the `RewardEvent` and `PersonalWeights` rows above, and for a deleted account it stays under the deleted account\'s ID until the daily sweep of deleted accounts\' data removes it, within a day (`BE-028`, `BE-094`).');
   });
 
   // J1 round 1 (R5): the health bullet points at Retention for every job deletion does not reach, not only a running one.
@@ -264,7 +264,7 @@ describe('J1: the learning jobs in the job queue', () => {
     const line = doc().split('\n').find((l) => l.includes('Users can request data deletion'));
     expect(line).toContain('user-scoped Redis state and the account\'s learning jobs waiting in the job queue (`bull:reward-ingest:`)');
     expect(line).toContain('Once a learning job has run, the job queue deletes it.');
-    expect(line).toContain('but what it writes to the learned preferences is not deleted with the account: it stays under the deleted account\'s ID until it expires, 365 days after the play by default (see **Retention**; `BE-028`).');
+    expect(line).toContain('but what it writes to the learned preferences is not deleted with the account: it stays under the deleted account\'s ID until the daily sweep of deleted accounts\' data removes it, within a day (see **Retention**; `BE-028`, `BE-094`).');
     expect(line).not.toContain('keeps no job'); // J1 round 1 (R6′): no completeness word
     expect(line).not.toMatch(/not yet deleted|J1\) lands/);
   });
@@ -281,5 +281,63 @@ describe('J1: the learning jobs in the job queue', () => {
 
   it('no statement still says the jobs wait for J1', () => {
     expect(doc()).not.toMatch(/until BE-074 \(J1\) lands|not yet deleted with the account|completed learning jobs the job queue keeps/);
+  });
+});
+
+// J2 (T14): the state recompute jobs, the daily trim of their event log and the sweep of deleted accounts'
+// data. The texts are the set compliance and regulatory reconciled (j2-T14-declarations-final-draft.md),
+// pinned verbatim; the numbers the row gives are read from the code here, so neither can drift alone.
+describe('J2: the state recompute jobs and the sweep of deleted accounts\' data', () => {
+  const stateRow = () => retentionRows().find((l) => l.startsWith('| State recompute jobs'));
+  const jobsRow = () => retentionRows().find((l) => l.startsWith('| Learning jobs waiting to be written'));
+  const playLine = () => doc().split('\n').find((l) => l.includes('Users can request data deletion'));
+  const GATE = '<!-- NEEDS VERIFICATION: "within a day" holds only once DAN-050 records the sweep armed (the opsmarkers arming) and a sweep run: a [sessionTrim] line with orphanErasures= a number, not refused or disabled, orphanBacklog=0, stateEvents= a number, and failures=0; until then no store answer may rely on it. -->';
+
+  it('has its own Retention row, right after the learning jobs row', () => {
+    const rows = retentionRows();
+    expect(stateRow()).toBeDefined();
+    expect(rows.indexOf(stateRow())).toBe(rows.indexOf(jobsRow()) + 1);
+  });
+
+  it('R-a: the limits that rest on the daily job, and the line that is the check that it ran', () => {
+    expect(stateRow()).toContain('The limits in this row that rest on the daily `sessionTrim` job hold only on a day it runs in full, with its sweep armed, neither refused nor disabled, and leaving no backlog. Each run logs one `[sessionTrim]` line, which is the check that it ran: `orphanErasures=` gives the deleted accounts erased, or reads `disabled` when the sweep is not armed and `refused` when it would not or could not run; `orphanBacklog=` gives the deleted accounts left, or `unknown` when they could not be counted; `stateEvents=` gives the event-log entries deleted, or `failed`; and `failures=0` shows that no step failed.');
+  });
+
+  it('the row\'s own NEEDS VERIFICATION comment gates it on DAN-050 and the arming', () => {
+    expect(stateRow()).toContain('<!-- NEEDS VERIFICATION: not yet run. Change to "were removed by <date>, after a count taken on <date>" only when DAN-050 records the pre-merge count, the deploy, the 48-hour recount with the deployed commit, and the sweep armed (DAN-050 records the `opsmarkers` arming and a `[sessionTrim]` line whose `orphanErasures=` is a number, with `orphanBacklog=0` and `failures=0`); until then no store answer may rely on this row. -->');
+  });
+
+  it('the tokens the row names are the ones the code prints', () => {
+    for (const token of ['`stateJobs=`', '`stateEvents=`', '`orphanErasures=`', '`orphanBacklog=`', '`failures=0`']) expect(stateRow()).toContain(token);
+    expect(fs.readFileSync(path.join(APP, 'services/privacy/consent.js'), 'utf8')).toMatch(/stateJobs=\$\{stateJobs\}/);
+    const trim = fs.readFileSync(path.join(APP, 'workers/sessionTrim.worker.js'), 'utf8');
+    expect(trim).toContain("[['orphanErasures', 'orphanBacklog'],");
+    expect(trim).toContain("['stateEvents', () => trimStateEvents()]");
+  });
+
+  it('the bounds the row states are the code\'s: the log size, its 24 hours, and the two delays', () => {
+    const { QUEUE_EVENTS_MAX_LEN } = require('../app/queues/queue');
+    const { STATE_EVENTS_MAX_AGE_MS } = require('../app/queues/stateVectorJob');
+    const n = QUEUE_EVENTS_MAX_LEN['state-vector-recompute'];
+    expect(stateRow()).toContain(`keeps only about its last ${n} to ${2 * n} entries`);
+    expect(stateRow()).toContain(`deletes every entry more than ${STATE_EVENTS_MAX_AGE_MS / 3600000} hours old`);
+    const delay = (file) => Number(fs.readFileSync(path.join(APP, file), 'utf8').match(/stateVectorJobOptions\(userId, ([\d_]+)\)/)[1].replace(/_/g, '')) / 1000;
+    expect(stateRow()).toContain(`(the job runs ${delay('services/wearable/metricStore.js')} seconds later)`);
+    expect(stateRow()).toContain(`(${delay('services/biosonic/baselines.js')} seconds later)`);
+  });
+
+  it('the gate comment stands twice: after the learning jobs row\'s deleted-account sentence and after the deletion line\'s sweep sentence', () => {
+    expect(doc().split(GATE)).toHaveLength(3);
+    expect(jobsRow()).toContain(`${'what it writes to the learned preferences is not removed by that request: after a withdrawal it follows the `RewardEvent` and `PersonalWeights` rows above, and for a deleted account it stays under the deleted account\'s ID until the daily sweep of deleted accounts\' data removes it, within a day (`BE-028`, `BE-094`).'} ${GATE}`);
+    expect(playLine()).toContain(`${'Rows that a request already in progress writes for the account after the deletion, such as a health-data sync, are removed by the same daily sweep, within a day (`BE-028`, `BE-094`).'} ${GATE}`);
+  });
+
+  it('(d2): both deletion doors try the job purge, then the consent withdrawal, before anything else', () => {
+    expect(playLine()).toContain('Account deletion, in the app and in the script, first tries to delete the account\'s waiting jobs and then, if the latest consent record is a grant, tries to record a withdrawal of the account\'s health-data consent before it deletes anything else, so that the steps that check consent stop processing the account\'s health data while it is deleted; if the deletion stops before it has erased the account\'s data, the account stays, with that consent withdrawn if the withdrawal was recorded.');
+  });
+
+  it('(g): the consent records row says what a deletion that stops part-way leaves', () => {
+    const row = retentionRows().find((l) => l.startsWith('| Consent records'));
+    expect(row).toContain('Account deletion first tries to add a withdrawal row when the latest row is a grant; if the deletion stops before it erases this history, a row it added stays and the account reads as withdrawn until the user grants consent again.');
   });
 });
