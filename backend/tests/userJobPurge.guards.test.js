@@ -110,6 +110,7 @@ describe('every job that carries a user id is on a queue the purge erases', () =
       'services/discovery/corpusIngest.js',
       'services/features/featureService.js',
       'services/learning/rewardDispatch.js',
+      'services/wearable/healthSampleReconciliation.js',
       'services/wearable/metricStore.js',
       'worker.js',
     ]);
