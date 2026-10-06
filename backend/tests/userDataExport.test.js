@@ -9,6 +9,7 @@ process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 jest.mock('../app/utils/biometricAudit', () => ({ logBiometricAccess: jest.fn(), auditedDecrypt: jest.fn() }));
 const { logBiometricAccess } = require('../app/utils/biometricAudit');
 const BiometricLog    = require('../app/models/BiometricLog');
+const HealthSample    = require('../app/models/HealthSample');
 const VitalSample     = require('../app/models/VitalSample');
 const MedicalProfile  = require('../app/models/MedicalProfile');
 const MorningState    = require('../app/models/MorningState');
@@ -34,6 +35,17 @@ beforeEach(() => {
   jest.restoreAllMocks();
   // Real model instances so the encrypted getters actually run (real decryption semantics).
   stubFind(BiometricLog, [new BiometricLog({ userId: OID, heartRate: 72, source: 'garmin', recordedAt: new Date() })]);
+  stubFind(HealthSample, [new HealthSample({
+    userId: OID,
+    sampleKey: 'b'.repeat(64),
+    source: 'apple_health',
+    metric: 'heart_rate',
+    value: 71,
+    unit: 'count/min',
+    startAt: new Date(),
+    endAt: new Date(),
+    expiresAt: new Date(Date.now() + 86400000),
+  })]);
   stubFind(VitalSample, [new VitalSample({ userId: OID, metric: 'hrv', value: 63, source: 'garmin', recordedAt: new Date() })]);
   stubFind(MedicalProfile, []);
   stubFind(MorningState, []);
@@ -63,7 +75,7 @@ afterEach(() => jest.restoreAllMocks());
 describe('exportUserData', () => {
   it('scopes every collection query to the subject userId (never another user)', async () => {
     await exportUserData(OID);
-    for (const model of [BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
+    for (const model of [BiometricLog, HealthSample, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord]) {
       expect(model.find).toHaveBeenCalledWith({ userId: OID });
     }
     expect(User.findById).toHaveBeenCalledWith(OID);
@@ -72,6 +84,7 @@ describe('exportUserData', () => {
   it('decrypts the subject\'s own special-category data', async () => {
     const out = await exportUserData(OID);
     expect(out.collections.biometriclogs[0].heartRate).toBe(72);       // decrypted
+    expect(out.collections.healthsamples[0].value).toBe(71);           // decrypted authoritative sample
     expect(out.collections.vitalsamples[0].value).toBe(63);            // decrypted (W4-004, S5)
     expect(out.collections.playlistsessions[0].contextPrompt).toBe('private note'); // decrypted
   });
@@ -81,6 +94,7 @@ describe('exportUserData', () => {
     expect(out.collections.identities[0]).not.toHaveProperty('passwordHash');
     expect(out.collections.identities[0].provider).toBe('password'); // non-secret metadata kept
     expect(out.collections.refreshtokens[0]).not.toHaveProperty('tokenHash');
+    expect(out.collections.healthsamples[0]).not.toHaveProperty('sampleKey');
   });
 
   it('exports a curated user profile without OAuth blobs / device secrets / internal index', async () => {
@@ -96,7 +110,7 @@ describe('exportUserData', () => {
   it('reuses the full account-erasure collection list (completeness)', async () => {
     const out = await exportUserData(OID);
     expect(Object.keys(out.collections).sort()).toEqual([
-      'biometriclogs', 'consentrecords', 'identities', 'medicalprofiles', 'morningstates', 'musicprofiles',
+      'biometriclogs', 'consentrecords', 'healthsamples', 'identities', 'medicalprofiles', 'morningstates', 'musicprofiles',
       'vitalsamples', 'rewardevents', 'personalweights',
       'playlistsessions', 'refreshtokens', 'serveevents', 'unclassifiedtracks',
     ].sort());

@@ -10,6 +10,7 @@
 // single registry is deferred to the post-Wave-1 rebase — until then keep them in lockstep.
 
 const BiometricLog      = require('../../models/BiometricLog');
+const HealthSample      = require('../../models/HealthSample');
 const VitalSample       = require('../../models/VitalSample');
 const MedicalProfile    = require('../../models/MedicalProfile');
 const MorningState      = require('../../models/MorningState');
@@ -29,6 +30,8 @@ const { logBiometricAccess } = require('../../utils/biometricAudit');
 // (the row is still represented — only the secret field is removed).
 const COLLECTIONS = [
   { model: BiometricLog },
+  // The physiological value belongs in the subject's export; the HMAC identity does not.
+  { model: HealthSample, redact: ['sampleKey'] },
   { model: VitalSample },                              // per-metric vitals (W4-004, S5)
   { model: MedicalProfile },
   { model: MorningState },                             // nightly consolidation history (W4-012, S5)
