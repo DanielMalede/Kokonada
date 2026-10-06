@@ -14,19 +14,13 @@
 import { useCallback, useEffect } from 'react';
 import { useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
 import { advanceBreath, type BreathClock, type BreathState } from '../motion/breathPhaser';
-import { BASE } from '../tokens/tokens.generated';
+import { clampFrameDt, MAX_FRAME_DT_MS } from './frameDt';
 
-// One dt law (B4 item 6): the clamp is motion.dtClamp in the V1 tokens (designer ruling DSN-039),
-// read here and nowhere else, and everything that moves with real time takes the same clamped dt.
-export const MAX_FRAME_DT_MS = BASE.motion.dtClamp;
+// One dt law (B4 item 6): the clamp and clampFrameDt live in frameDt.ts (pure), read from
+// motion.dtClamp once; everything that moves with real time takes the same clamped dt.
+export { clampFrameDt, MAX_FRAME_DT_MS };
 
 export type FieldClock = { readonly t: SharedValue<number> };
-
-/** A frame's dt as the field takes it: at most the clamp; a negative, missing or non-finite dt is 0. */
-export function clampFrameDt(dtMs: number | null | undefined, maxDtMs: number = MAX_FRAME_DT_MS): number {
-  'worklet';
-  return typeof dtMs === 'number' && Number.isFinite(dtMs) && dtMs > 0 ? Math.min(dtMs, maxDtMs) : 0;
-}
 
 /** One frame of field time. A poisoned t (NaN, negative) restarts at 0; a bad period holds at 0. */
 export function advanceFieldTime(
