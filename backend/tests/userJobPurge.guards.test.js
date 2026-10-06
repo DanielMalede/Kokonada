@@ -117,6 +117,14 @@ describe('every job that carries a user id is on a queue the purge erases', () =
   });
 });
 
+describe('the health-sample repair job is global rather than user-owned', () => {
+  it('uses an empty repeatable payload and is not part of the per-user purge', () => {
+    const index = stripComments(read(path.join(APP, 'index.js')));
+    expect(index).toMatch(/scheduleRepeatable\(\s*QUEUES\.HEALTH_SAMPLE_RECONCILE,[\s\S]*?,\s*\{\}\s*,?\s*\)/);
+    expect(USER_JOB_QUEUES.map((queue) => queue.name)).not.toContain(QUEUES.HEALTH_SAMPLE_RECONCILE);
+  });
+});
+
 describe('BullMQ is reached only through app/queues/ and the worker registry', () => {
   it('no other module in app/ requires bullmq', () => {
     // An exact list, not a folder: a new file under queues/ could open its own Queue. A subpath, a template
