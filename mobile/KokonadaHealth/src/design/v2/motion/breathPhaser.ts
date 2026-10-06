@@ -42,6 +42,7 @@ export interface BreathClock {
 export const MAX_STEP_MS = 3_600_000;
 
 function assertClock(clock: BreathClock): void {
+  'worklet';
   if (!(clock.masterPeriodMs > 0 && Number.isFinite(clock.masterPeriodMs))) {
     throw new RangeError(`master period must be a finite number > 0, got ${clock.masterPeriodMs}`);
   }
@@ -51,6 +52,7 @@ function assertClock(clock: BreathClock): void {
 }
 
 function assertN(n: number, what: string): void {
+  'worklet';
   if (!(Number.isInteger(n) && n >= 1)) {
     throw new RangeError(`${what} must be a whole number of breaths >= 1, got ${n}`);
   }
@@ -58,6 +60,7 @@ function assertN(n: number, what: string): void {
 
 /** On mount: n is the target, the phase starts at 0, and a faster step is allowed at the first wrap. */
 export function startBreath(n: number, clock: BreathClock): BreathState {
+  'worklet';
   assertClock(clock);
   assertN(n, 'n');
   return { phase: 0, n, wrapsSinceChange: clock.fasterWrapsPerStep - 1 };
@@ -65,6 +68,7 @@ export function startBreath(n: number, clock: BreathClock): BreathState {
 
 /** Coming from the still (b = 0.5): start at inhale / 2, where the level is already 0.5. */
 export function startBreathFromStill(n: number, clock: BreathClock, inhale: number): BreathState {
+  'worklet';
   if (!(inhale > 0 && inhale < 1)) {
     throw new RangeError(`inhale share must be in (0, 1), got ${inhale}`);
   }
@@ -72,6 +76,7 @@ export function startBreathFromStill(n: number, clock: BreathClock, inhale: numb
 }
 
 export function breathPeriodOf(state: BreathState, clock: BreathClock): number {
+  'worklet';
   return clock.masterPeriodMs / state.n;
 }
 
@@ -85,6 +90,7 @@ function atWrap(
   targetN: number,
   fasterWrapsPerStep: number,
 ): { n: number; wrapsSinceChange: number } {
+  'worklet';
   if (targetN < n) {
     return { n: n - 1, wrapsSinceChange: 0 };
   }
@@ -99,6 +105,7 @@ function atWrap(
  * (breathCycles); it is adopted only at wraps, under the wrap rule.
  */
 export function advanceBreath(state: BreathState, clampedDtMs: number, targetN: number, clock: BreathClock): BreathState {
+  'worklet';
   if (!(clampedDtMs >= 0 && Number.isFinite(clampedDtMs))) {
     throw new RangeError(`a breath step must be a finite number of ms >= 0, got ${clampedDtMs}`);
   }
@@ -134,6 +141,7 @@ export function advanceBreath(state: BreathState, clampedDtMs: number, targetN: 
 
 /** frac(n(s)·t / T) at a fixed n: what a capture at time t shows. */
 export function fixedTimeBreathPhase(tMs: number, law: BreathLaw, stress: number): number {
+  'worklet';
   if (!Number.isFinite(tMs)) {
     throw new RangeError(`time must be a finite number of ms, got ${tMs}`);
   }

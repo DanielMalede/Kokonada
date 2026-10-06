@@ -41,6 +41,7 @@ export interface BreathViolation {
 
 /** Stress outside [0, 1] is clamped; a stress that is not a number is no inferred tension: rest. */
 function clampStress(stress: number): number {
+  'worklet';
   if (!(stress >= 0)) {
     return 0;
   }
@@ -48,15 +49,18 @@ function clampStress(stress: number): number {
 }
 
 export function breathCycles(law: BreathLaw, stress: number): number {
+  'worklet';
   return law.nRest - Math.round((law.nRest - law.nStress) * clampStress(stress));
 }
 
 export function breathPeriodMs(law: BreathLaw, stress: number): number {
+  'worklet';
   return law.masterPeriodMs / breathCycles(law, stress);
 }
 
 /** 0 = empty, 1 = full. The phase wraps, so any real phase is accepted. */
 export function breathLevel(phase: number, inhale: number): number {
+  'worklet';
   if (!(inhale > 0 && inhale < 1)) {
     throw new RangeError(`inhale share must be in (0, 1), got ${inhale}`);
   }
@@ -68,6 +72,7 @@ export function breathLevel(phase: number, inhale: number): number {
 }
 
 function assertLaw(law: BreathLaw): void {
+  'worklet';
   if (!(law.masterPeriodMs > 0 && Number.isFinite(law.masterPeriodMs))) {
     throw new RangeError(`master period must be a finite number > 0, got ${law.masterPeriodMs}`);
   }
@@ -83,6 +88,7 @@ function assertLaw(law: BreathLaw): void {
 
 /** Every QA-066 / QA-067 rule the law breaks, each reported at the first stress where it breaks. */
 export function breathLawViolations(law: BreathLaw, rules: BreathRules): BreathViolation[] {
+  'worklet';
   assertLaw(law);
   if (!(rules.stressStep > 0 && rules.stressStep <= 1)) {
     throw new RangeError(`stress step must be in (0, 1], got ${rules.stressStep}`);

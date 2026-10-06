@@ -76,6 +76,7 @@ const ACHROMATIC_CHROMA = 0.000004;
 const DEG = 180 / Math.PI;
 
 export function multiply(m: Matrix, v: readonly [number, number, number]): [number, number, number] {
+  'worklet';
   return [
     m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
     m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
@@ -85,6 +86,7 @@ export function multiply(m: Matrix, v: readonly [number, number, number]): [numb
 
 /** One sRGB channel to linear light. Negative values mirror, as CSS Color 4 extends it. */
 export function srgbToLinear(value: number): number {
+  'worklet';
   const magnitude = Math.abs(value);
   if (magnitude <= 0.04045) {
     return value / 12.92;
@@ -94,6 +96,7 @@ export function srgbToLinear(value: number): number {
 
 /** One linear-light channel to gamma-encoded sRGB. Negative values mirror. */
 export function linearToSrgb(value: number): number {
+  'worklet';
   const magnitude = Math.abs(value);
   if (magnitude > 0.0031308) {
     return Math.sign(value) * (1.055 * Math.pow(magnitude, 1 / 2.4) - 0.055);
@@ -102,14 +105,17 @@ export function linearToSrgb(value: number): number {
 }
 
 export function linearSrgbToXyz(rgb: LinearSrgb): Xyz {
+  'worklet';
   return multiply(LINEAR_SRGB_TO_XYZ, rgb);
 }
 
 export function xyzToLinearSrgb(xyz: Xyz): LinearSrgb {
+  'worklet';
   return multiply(XYZ_TO_LINEAR_SRGB, xyz);
 }
 
 export function xyzToOklab(xyz: Xyz): Oklab {
+  'worklet';
   // Math.cbrt keeps the sign; a general power function would return NaN for negative LMS.
   const lms = multiply(XYZ_TO_LMS, xyz);
   const [L, a, b] = multiply(LMS_TO_OKLAB, [Math.cbrt(lms[0]), Math.cbrt(lms[1]), Math.cbrt(lms[2])]);
@@ -117,21 +123,25 @@ export function xyzToOklab(xyz: Xyz): Oklab {
 }
 
 export function oklabToXyz(lab: Oklab): Xyz {
+  'worklet';
   const lms = multiply(OKLAB_TO_LMS, [lab.L, lab.a, lab.b]);
   return multiply(LMS_TO_XYZ, [lms[0] ** 3, lms[1] ** 3, lms[2] ** 3]);
 }
 
 export function srgbToOklab(rgb: Srgb): Oklab {
+  'worklet';
   return xyzToOklab(linearSrgbToXyz([srgbToLinear(rgb[0]), srgbToLinear(rgb[1]), srgbToLinear(rgb[2])]));
 }
 
 /** Gamma-encoded sRGB, NOT clamped: values outside 0..1 mean the colour is outside the gamut. */
 export function oklabToSrgb(lab: Oklab): Srgb {
+  'worklet';
   const linear = xyzToLinearSrgb(oklabToXyz(lab));
   return [linearToSrgb(linear[0]), linearToSrgb(linear[1]), linearToSrgb(linear[2])];
 }
 
 export function oklabToOklch(lab: Oklab): Oklch {
+  'worklet';
   const C = Math.sqrt(lab.a * lab.a + lab.b * lab.b);
   if (C <= ACHROMATIC_CHROMA) {
     return { L: lab.L, C, h: NaN };
@@ -141,6 +151,7 @@ export function oklabToOklch(lab: Oklab): Oklch {
 }
 
 export function oklchToOklab(lch: Oklch): Oklab {
+  'worklet';
   // A powerless hue converts as 0, the way CSS Color 4 treats a missing component.
   const h = Number.isNaN(lch.h) ? 0 : lch.h / DEG;
   return { L: lch.L, a: lch.C * Math.cos(h), b: lch.C * Math.sin(h) };
@@ -151,6 +162,7 @@ export function oklchToOklab(lch: Oklch): Oklab {
  * both ends come out exactly: a sampler that starts and stops on an anchor must test the anchor.
  */
 export function mixOklab(from: Oklab, to: Oklab, t: number): Oklab {
+  'worklet';
   if (!(t >= 0 && t <= 1)) {
     throw new RangeError(`mix parameter must be in [0, 1], got ${t}`);
   }

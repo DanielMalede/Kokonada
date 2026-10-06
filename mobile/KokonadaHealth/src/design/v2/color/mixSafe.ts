@@ -14,9 +14,13 @@ import type { RedBand } from './redBand.ts';
 /** Below this chroma the hue is powerless (CSS Color 4), so a colour has no arc. */
 const ACHROMATIC_CHROMA = 0.000004;
 
-const normalise = (deg: number) => ((deg % 360) + 360) % 360;
+const normalise = (deg: number) => {
+  'worklet';
+  return ((deg % 360) + 360) % 360;
+};
 
 function hueOf(colour: Oklab): number {
+  'worklet';
   return Math.sqrt(colour.a * colour.a + colour.b * colour.b) <= ACHROMATIC_CHROMA
     ? NaN
     : normalise((Math.atan2(colour.b, colour.a) * 180) / Math.PI);
@@ -24,6 +28,7 @@ function hueOf(colour: Oklab): number {
 
 /** Does the short arc from `from` to `to` touch the band? An achromatic end has no arc. */
 function shortArcMeetsBand(from: Oklab, to: Oklab, band: RedBand): boolean {
+  'worklet';
   const start = hueOf(from);
   const end = hueOf(to);
   if (Number.isNaN(start) || Number.isNaN(end)) {
@@ -38,6 +43,7 @@ function shortArcMeetsBand(from: Oklab, to: Oklab, band: RedBand): boolean {
 }
 
 export function mixSafe(from: Oklab, to: Oklab, t: number, band: RedBand): Oklab {
+  'worklet';
   if (!(t >= 0 && t <= 1)) {
     throw new RangeError(`mix parameter must be in [0, 1], got ${t}`);
   }
