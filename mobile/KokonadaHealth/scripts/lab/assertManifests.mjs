@@ -7,7 +7,9 @@
 // It reads every merged manifest AGP wrote (merged_manifest, merged_manifests, bundle_manifest,
 // packaged_manifests), per variant, and checks:
 //   · every variant that can be uploaded (release, and any other variant that is not the lab):
-//     no Design Lab component, and not the lab package;
+//     no Design Lab component, and not the lab package; and its permissions pass the upload
+//     permission gate (uploadPermissions.mjs, MB-093): location only as FINE capped at API 30, no
+//     <uses-permission-sdk-23> location, a neverForLocation scan, and nothing off the allow-list;
 //   · the lab variant: the lab package; exactly one launcher, the lab activity; none of the real
 //     app's activities (MainActivity, the Health Connect rationale and its alias); no INTERNET, no
 //     health and no Bluetooth or location permission; none of the real app's URL schemes
@@ -18,6 +20,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { allowListName, permissionProblems } from './uploadPermissions.mjs';
 
 // ---- a small, strict XML reader: enough for a merged manifest, and it throws on anything else ----
 
@@ -79,6 +82,9 @@ export function parseXml(text) {
 }
 
 const descendants = (el) => el.children.flatMap((c) => [c, ...descendants(c)]);
+// The platform parses <uses-permission-sdk-m> exactly as <uses-permission-sdk-23>: both request the
+// permission on API 23 and up only.
+const PERMISSION_ELEMENTS = new Set(['uses-permission', 'uses-permission-sdk-23', 'uses-permission-sdk-m']);
 const COMPONENTS = new Set(['activity', 'activity-alias', 'service', 'receiver', 'provider']);
 const isLauncherFilter = (filter) =>
   filter.children.some((c) => c.name === 'action' && c.attrs['android:name'] === 'android.intent.action.MAIN')
@@ -89,6 +95,14 @@ export function manifestFacts(xml) {
   const manifest = parseXml(xml).children.find((c) => c.name === 'manifest');
   if (!manifest) throw new Error('not an Android manifest: no <manifest> root');
   const app = manifest.children.find((c) => c.name === 'application');
+  const permissionEntries = manifest.children
+    .filter((c) => PERMISSION_ELEMENTS.has(c.name))
+    .map((c) => ({
+      element: c.name,
+      name: c.attrs['android:name'] ?? null,
+      maxSdkVersion: c.attrs['android:maxSdkVersion'] ?? null,
+      flags: c.attrs['android:usesPermissionFlags'] ?? null,
+    }));
   const components = (app ? app.children : [])
     .filter((c) => COMPONENTS.has(c.name))
     .map((c) => ({ kind: c.name, name: c.attrs['android:name'], target: c.attrs['android:targetActivity'] ?? null, el: c }));
@@ -99,9 +113,8 @@ export function manifestFacts(xml) {
       .filter((c) => (c.kind === 'activity' || c.kind === 'activity-alias'))
       .filter((c) => c.el.children.some((f) => f.name === 'intent-filter' && isLauncherFilter(f)))
       .map((c) => c.name),
-    permissions: manifest.children
-      .filter((c) => c.name === 'uses-permission' || c.name === 'uses-permission-sdk-23')
-      .map((c) => c.attrs['android:name']),
+    permissions: permissionEntries.map((e) => e.name),
+    permissionEntries,
     schemes: descendants(manifest).filter((c) => c.name === 'data' && c.attrs['android:scheme']).map((c) => c.attrs['android:scheme']),
     cleartext: app ? app.attrs['android:usesCleartextTraffic'] ?? null : null,
     browsable: descendants(manifest).some((c) => c.name === 'category' && c.attrs['android:name'] === 'android.intent.category.BROWSABLE'),
@@ -129,8 +142,11 @@ const LAB_ALLOWED_PERMISSIONS = ['android.permission.USE_BIOMETRIC', 'android.pe
 
 const isLabComponent = (name) => /DesignLabActivity/.test(name) || name.startsWith('com.kokonadahealth.lab.');
 
-/** Problems in the merged manifest of a variant that can be uploaded. [] when clean. */
-export function checkUploadManifest(xml) {
+/**
+ * Problems in the merged manifest of a variant that can be uploaded. [] when clean. The variant picks
+ * the permission allow-list (uploadPermissions.mjs); one the gate does not know gets release's.
+ */
+export function checkUploadManifest(xml, variant = 'release') {
   const f = manifestFacts(xml);
   const problems = [];
   if (f.package && f.package.endsWith(LAB_PACKAGE_SUFFIX)) problems.push(`declares the lab package ${f.package}`);
@@ -138,7 +154,7 @@ export function checkUploadManifest(xml) {
     if (isLabComponent(c.name) || (c.target && isLabComponent(c.target))) problems.push(`declares the Design Lab component ${c.name}`);
   }
   if (problems.length === 0 && /DesignLabActivity/.test(xml)) problems.push('names DesignLabActivity');
-  return problems;
+  return [...problems, ...permissionProblems(f.permissionEntries, { variant, pkg: f.package })];
 }
 
 /** Problems in the lab's merged manifest. [] when it is the lab as designed. */
@@ -216,9 +232,11 @@ function main(argv) {
   for (const m of manifests) {
     const where = `${m.variant} (${m.kind})`;
     let problems;
+    let permissionCount;
     try {
       const xml = fs.readFileSync(m.file, 'utf8');
-      problems = isLabVariant(m.variant) ? checkLabManifest(xml) : checkUploadManifest(xml);
+      problems = isLabVariant(m.variant) ? checkLabManifest(xml) : checkUploadManifest(xml, m.variant);
+      permissionCount = manifestFacts(xml).permissionEntries.length;
     } catch (e) {
       console.error(`${where}: unreadable: ${e.message}`);
       return 2;
@@ -228,7 +246,10 @@ function main(argv) {
       console.error(`${where}: ${path.relative(appRoot, m.file)}`);
       for (const p of problems) console.error(`  ${p}`);
     } else {
-      console.log(`${where}: ${isLabVariant(m.variant) ? 'the lab as designed' : 'no Design Lab'}`);
+      const verdict = isLabVariant(m.variant)
+        ? 'the lab as designed'
+        : `no Design Lab; ${permissionCount} permissions, all on the ${allowListName(m.variant)} allow-list`;
+      console.log(`${where}: ${verdict}`);
     }
   }
   return failed ? 1 : 0;

@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -25,7 +26,16 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <!-- rxandroidble (under react-native-ble-plx) declares location for API 23+ with no cap. minSdk is 26,
+         so the capped <uses-permission> above already covers API 26-30; on 31+ the scan is neverForLocation.
+         scripts/lab/uploadPermissions.mjs checks the merged manifest (MB-093). -->
+    <uses-permission-sdk-23 android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission-sdk-23 android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <!-- The capped legacy BLE permissions imply required classic Bluetooth and location hardware, which Play
+         filters devices on. The app requires neither: it works mood-only, with no wearable. -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
 
     <!-- Android 11+ (API 30+) package visibility. The Spotify App Remote connects to the
          Spotify app over IPC via bindService(); on modern Android a target package the app
