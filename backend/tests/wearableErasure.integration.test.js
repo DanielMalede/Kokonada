@@ -12,6 +12,7 @@ jest.mock('../app/config/redis', () => ({ getRedis: () => null })); // no real R
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const BiometricLog   = require('../app/models/BiometricLog');
+const HealthSample   = require('../app/models/HealthSample');
 const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const MorningState   = require('../app/models/MorningState');
@@ -32,6 +33,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await BiometricLog.deleteMany({});
+  await HealthSample.deleteMany({});
   await VitalSample.deleteMany({});
   await MedicalProfile.deleteMany({});
   await MorningState.deleteMany({});
@@ -44,6 +46,21 @@ const log = (userId, source, hr = 60) =>
 
 const vital = (userId, source, metric = 'hrv', value = 60) =>
   VitalSample.create({ userId, metric, value, source, recordedAt: new Date() });
+
+const health = (userId, source, key, metric = 'resting_heart_rate', value = 60) =>
+  HealthSample.create({
+    userId,
+    source,
+    sampleKey: key.repeat(64),
+    metric,
+    value,
+    unit: 'count/min',
+    startAt: new Date('2026-10-06T08:00:00Z'),
+    endAt: new Date('2026-10-06T08:01:00Z'),
+    state: 'active',
+    projectionState: 'applied',
+    expiresAt: new Date('2027-01-04T08:01:00Z'),
+  });
 
 describe('purgeWearableData (real Mongo)', () => {
   it('deletes EXACTLY the provider\'s samples — other providers and other users untouched', async () => {
@@ -76,6 +93,39 @@ describe('purgeWearableData (real Mongo)', () => {
     expect(res.medicalProfiles).toBe(1);
     expect(await BiometricLog.countDocuments({ userId: userC })).toBe(0);
     expect(await MedicalProfile.countDocuments({ userId: userC })).toBe(0); // orphaned → erased
+  });
+});
+
+describe('purgeWearableData — authoritative HealthSample scoping (real Mongo)', () => {
+  it('deletes only the provider rows and clears only their explicitly-owned profile projection', async () => {
+    const userA = new mongoose.Types.ObjectId();
+    const userB = new mongoose.Types.ObjectId();
+    await health(userA, 'apple_health', 'a');
+    await health(userA, 'apple_health', 'b', 'heart_rate', 72);
+    await health(userA, 'health_connect', 'c');
+    await health(userB, 'apple_health', 'd');
+    await MedicalProfile.create({
+      userId: userA,
+      healthProjectionProvider: 'apple_health',
+      restingHeartRate: 58,
+      hrv: 44,
+      sleepStages: { deep: 70, light: 190, rem: 55 },
+    });
+
+    const res = await purgeWearableData(userA, 'apple_health');
+
+    expect(res.healthSamples).toBe(2);
+    expect(res.healthProfileProjections).toBe(1);
+    expect(await HealthSample.countDocuments({ userId: userA, source: 'apple_health' })).toBe(0);
+    expect(await HealthSample.countDocuments({ userId: userA, source: 'health_connect' })).toBe(1);
+    expect(await HealthSample.countDocuments({ userId: userB, source: 'apple_health' })).toBe(1);
+
+    const profile = await MedicalProfile.findOne({ userId: userA });
+    expect(profile).not.toBeNull();
+    expect(profile.healthProjectionProvider).toBeNull();
+    expect(profile.restingHeartRate).toBeNull();
+    expect(profile.sleepStages.deep).toBeNull();
+    expect(Number(profile.hrv)).toBe(44);
   });
 });
 
