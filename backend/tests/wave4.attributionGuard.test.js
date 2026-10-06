@@ -45,8 +45,7 @@ const PRE_WAVE_DIR = 'docs/superpowers/plans/';
 // Deliberately a closed literal: growing it means editing the equality assertion below, which is a
 // visible act in review rather than a quiet append that reopens the hole this guard closes.
 const POLICY_TEXTS = {
-  'CLAUDE.md': 'the standing order itself - it enumerates the forbidden strings verbatim',
-  'docs/ORCHESTRATOR_FABLE.md': 'the orchestration directive, whose attribution policy is the source of truth',
+  'CLAUDE.md': 'the standing order itself - the one binding source, it enumerates the forbidden strings verbatim',
 };
 
 // This file carries the fixtures the detector is tested against.
@@ -228,8 +227,8 @@ describe('W4-D78 - attribution guard (CLAUDE.md standing order)', () => {
   });
 
   describe('the exemption list cannot quietly grow', () => {
-    it('is exactly the two policy documents', () => {
-      expect(Object.keys(POLICY_TEXTS).sort()).toEqual(['CLAUDE.md', 'docs/ORCHESTRATOR_FABLE.md']);
+    it('is exactly the one policy document', () => {
+      expect(Object.keys(POLICY_TEXTS).sort()).toEqual(['CLAUDE.md']);
     });
 
     it('every exempt path exists and still declares the ban (a stale exemption is a hole)', () => {
