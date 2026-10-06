@@ -10,7 +10,7 @@
 // once here in float64), clamped, then the sRGB transfer function.
 
 import { LMS_TO_XYZ, XYZ_TO_LINEAR_SRGB, OKLAB_TO_LMS, type Matrix } from '../color/oklab.ts';
-import { NODE_SLOTS } from './fieldLaw.ts';
+import { NODE_SLOTS, ROUTED_EDGES, WAYPOINT_EDGES } from './fieldLaw.ts';
 import { FIELD_UNIFORMS } from './uniforms.ts';
 
 const compose = (a: Matrix, b: Matrix): number[][] =>
@@ -24,6 +24,13 @@ const literal = (v: number) => {
 const row = (m: readonly (readonly number[])[], r: number) => `float3(${m[r].map(literal).join(', ')})`;
 
 const typeOf = (floats: number) => (floats === 1 ? 'float' : `float${floats}`);
+// isWaypoint is generated from the law's own edge tables (fieldLaw.ts), so the two cannot disagree on
+// which pairs mix through N; the Skia pair test and graphConformance.test.ts check both.
+const nodeId = (node: number) => `${node}.0`;
+const either = (edges: ReadonlyArray<readonly [number, number]>) =>
+  edges.length === 0
+    ? 'false'
+    : edges.map(([x, y]) => `(a == ${nodeId(x)} && b == ${nodeId(y)}) || (a == ${nodeId(y)} && b == ${nodeId(x)})`).join(' || ');
 const declarations = FIELD_UNIFORMS.map((u) => `uniform ${typeOf(u.floats)} ${u.name};`).join('\n');
 const nodes = Array.from({ length: NODE_SLOTS }, (_, k) => k);
 
@@ -81,8 +88,8 @@ float3 nodeColour(float3 field, float3 haloColour, float hasHalo, float h, float
 }
 
 bool isWaypoint(float a, float b) {
-  return (a == 0.0 && b == 3.0) || (a == 3.0 && b == 0.0) ||
-    (uSelect.y > 0.5 && ((a == 4.0 && b == 3.0) || (a == 3.0 && b == 4.0)));
+  return ${either(WAYPOINT_EDGES)} ||
+    (uSelect.y > 0.5 && (${either(ROUTED_EDGES)}));
 }
 
 float encode(float x) {

@@ -2,7 +2,7 @@ import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRu
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
-import { NODE, fieldPixel, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { NODE, fieldPixel, isWaypoint, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
@@ -30,27 +30,27 @@ beforeAll(() => {
   blueNoise = image.makeShaderOptions(TileMode.Repeat, TileMode.Repeat, FilterMode.Nearest, MipmapMode.None);
 });
 
-function render(frame: FieldFrame, source: SkRuntimeEffect = effect): Uint8Array {
-  const surface = Skia.Surface.Make(W, H);
+function render(frame: FieldFrame, source: SkRuntimeEffect = effect, w = W, h = H): Uint8Array {
+  const surface = Skia.Surface.Make(w, h);
   if (!surface) throw new Error('no surface');
   const paint = Skia.Paint();
   paint.setDither(false);
   paint.setShader(source.makeShaderWithChildren(packFrame(frame), [blueNoise]));
   surface.getCanvas().drawPaint(paint);
   surface.flush();
-  const pixels = surface.makeImageSnapshot().readPixels(0, 0, { width: W, height: H, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul });
+  const pixels = surface.makeImageSnapshot().readPixels(0, 0, { width: w, height: h, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul });
   if (!pixels) throw new Error('no pixels');
   return pixels as Uint8Array;
 }
 
-const rgbAt = (pixels: Uint8Array, x: number, y: number) => [0, 1, 2].map((c) => pixels[(y * W + x) * 4 + c]);
+const rgbAt = (pixels: Uint8Array, x: number, y: number, w = W) => [0, 1, 2].map((c) => pixels[(y * w + x) * 4 + c]);
 
 /** The largest per-channel difference between the render and the law, over every pixel, with where it is. */
-function worstDisagreement(frame: FieldFrame, pixels: Uint8Array): { delta: number; at: [number, number]; drawn: number[]; law: number[] } {
+function worstDisagreement(frame: FieldFrame, pixels: Uint8Array, w = W, h = H): { delta: number; at: [number, number]; drawn: number[]; law: number[] } {
   let worst = { delta: -1, at: [0, 0] as [number, number], drawn: [] as number[], law: [] as number[] };
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const drawn = rgbAt(pixels, x, y);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const drawn = rgbAt(pixels, x, y, w);
       const law = fieldPixel(frame, x + 0.5, y + 0.5);
       const delta = Math.max(...drawn.map((v, c) => Math.abs(v - law[c])));
       if (delta > worst.delta) worst = { delta, at: [x, y], drawn, law };
@@ -122,6 +122,49 @@ describe('the field shader compiles, with the builder’s uniform layout', () =>
     });
     expect(declared).toEqual(expected);
     expect(effect.getUniformFloatCount()).toBe(FIELD_UNIFORM_FLOATS);
+  });
+});
+
+// G8 in Skia: graphConformance.test.ts holds the law's waypoint edges to the token graph; this holds
+// the shader to the law on every ordered pair of node ids, routed and not. Two equal lobes meet at the
+// plate centre, which sits on a pixel centre, so the pair mixes at exactly t = 0.5: through N (a
+// neutral pixel) on a waypoint edge, at the joy–calm midpoint (a green one) on a straight edge.
+describe('the shader routes exactly the law’s waypoint pairs', () => {
+  const names = Object.keys(NODE) as Array<keyof typeof NODE>;
+  const cases = names.flatMap((a) => names.flatMap((b) => [false, true].map((routed) => [a, b, routed] as const)));
+
+  it('over all 25 ordered pairs of node ids, R0–I routed and not', () => {
+    expect(cases).toHaveLength(50);
+    const joy = anchor('joy', 'dark');
+    const calm = anchor('calm', 'dark');
+    const grey = { L: 0.5, a: 0, b: 0 };
+    const centres: Record<string, string> = {};
+    for (const [a, b, routed] of cases) {
+      const frame = frameFor('abyss', 'dark', [
+        { id: NODE[a], fade: 1, centre: [-0.5, 0], radius: 0.6, field: joy, halo: joy, bead: null },
+        { id: NODE[b], fade: 1, centre: [0.5, 0], radius: 0.6, field: calm, halo: calm, bead: null },
+      ], {
+        centrePx: [1.5, 1.5],
+        restIntenseWaypoint: routed,
+        grounds: { outside: grey, face: grey, ring: grey },
+        vignette: 0,
+        centreLift: 0,
+        grain: { inside: 0, ground: 0 },
+        dither: 0,
+        shimmer: { cos: 1, sin: 0 },
+        warp: { amount: 0, orbit: 0, cos: 1, sin: 0, octaves: 3 },
+      });
+      const pixels = render(frame, effect, 4, 4);
+      const worst = worstDisagreement(frame, pixels, 4, 4);
+      expect({ pair: `${a}–${b}`, routed, delta: Math.min(worst.delta, 2) }).toEqual({ pair: `${a}–${b}`, routed, delta: Math.min(worst.delta, 1) });
+      centres[`${a}–${b} ${routed}`] = rgbAt(pixels, 1, 1, 4).join(',');
+    }
+    // Not vacuous: the waypoint pairs draw one colour (N, neutral), the straight pairs another.
+    const through = cases.filter(([a, b, routed]) => isWaypoint(NODE[a], NODE[b], routed)).map(([a, b, routed]) => centres[`${a}–${b} ${routed}`]);
+    const straight = cases.filter(([a, b, routed]) => !isWaypoint(NODE[a], NODE[b], routed)).map(([a, b, routed]) => centres[`${a}–${b} ${routed}`]);
+    expect([through.length, new Set(through).size, straight.length, new Set(straight).size]).toEqual([6, 1, 44, 1]);
+    const [n, mid] = [through[0], straight[0]].map((s) => s.split(',').map(Number));
+    expect(Math.max(...n.map((v, c) => Math.abs(v - mid[c])))).toBeGreaterThan(8);
   });
 });
 
