@@ -43,4 +43,4 @@ RE-RUN RULES
 - A HALT is terminal until resolved. Never re-run a gate hoping for a different answer without new evidence, and never argue a verdict away.
 - Changing the direction after G3 needs a superseding ADR.
 
-REPORT after each gate, in one block: page, gate, verdict per agent, input SHA, artefact path, what is now stale, the next gate. Mark any work that passed through no agent. Stop at every owner gate, every HALT and every Pause & Guide.
+REPORT after each gate, in one block: page, gate, verdict per agent, input SHA, artefact path, what is now stale, the next gate. Mark any work that passed through no agent. Stop at every owner gate not delegated under DEC-142 (a DEC- entry on law, privacy, consent or counsel never is), every HALT and every Pause & Guide.
