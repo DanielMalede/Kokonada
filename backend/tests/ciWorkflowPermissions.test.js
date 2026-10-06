@@ -133,7 +133,12 @@ const WORKFLOWS = fs.readdirSync(WORKFLOW_DIR)
 
 describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
   it('finds the real workflows and jobs — the guard is not passing vacuously', () => {
-    expect(WORKFLOWS.map((w) => w.file).sort()).toEqual(['ci.yml', 'secret-scan-history.yml']);
+    expect(WORKFLOWS.map((w) => w.file).sort()).toEqual(['ci.yml', 'project-explorer-pages.yml', 'secret-scan-history.yml']);
+
+    // project-explorer-pages.yml (#218) deploys the static project explorer to GitHub Pages: contents
+    // read at the top level, plus the pages/id-token scopes that actions/deploy-pages requires.
+    const pagesWf = WORKFLOWS.find((w) => w.file === 'project-explorer-pages.yml');
+    expect(pagesWf.jobs.map((j) => j.id)).toEqual(['deploy']);
 
     const ci = WORKFLOWS.find((w) => w.file === 'ci.yml');
     expect(ci.triggers.sort()).toEqual(['pull_request', 'push']);
