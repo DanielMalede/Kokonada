@@ -83,6 +83,24 @@ describe('the hash and the value noise: exact in float32, so the shader agrees',
     }
   });
 
+  // The shader runs the same hash in float32 (and a GPU may divide by a reciprocal). Every input
+  // stays below 289, so every product stays below 2^22 and every floor(x / 289) is exact: the
+  // float32 lattice equals the float64 one at every point.
+  it('the lattice values are the same in float32, step by step, at every lattice point', () => {
+    const f = Math.fround;
+    const mod289f = (x: number) => f(x - f(289 * Math.floor(f(x / 289))));
+    const hashf = (x: number) => mod289f(f(f(f(x * 34) + 1) * x));
+    const cornerf = (ix: number, iy: number) => f(hashf(mod289f(f(hashf(mod289f(ix)) + mod289f(iy)))) / 289);
+    let checked = 0;
+    for (let ix = -300; ix < 300; ix += 1) {
+      for (let iy = -300; iy < 300; iy += 7) {
+        expect(f(valueNoise(ix, iy))).toBe(cornerf(ix, iy));
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(50000);
+  });
+
   it('value noise lies in [0, 1), and is continuous across a cell edge', () => {
     for (let i = 0; i < 200; i++) {
       const v = valueNoise(i * 0.37 - 20, i * 0.53 - 31);

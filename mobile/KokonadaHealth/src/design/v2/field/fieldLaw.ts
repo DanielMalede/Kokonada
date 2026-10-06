@@ -107,7 +107,9 @@ export function valueNoise(x: number, y: number): number {
   const iy = Math.floor(y);
   const fx = x - ix;
   const fy = y - iy;
-  const corner = (dx: number, dy: number) => hash289(hash289(mod289(ix + dx)) + mod289(iy + dy)) / 289;
+  // The inner mod289 keeps every hash input below 289, so each step stays exact in float32 even where
+  // a GPU divides by a reciprocal (fieldShader.ts does the same).
+  const corner = (dx: number, dy: number) => hash289(mod289(hash289(mod289(ix + dx)) + mod289(iy + dy))) / 289;
   const ux = fx * fx * (3 - 2 * fx);
   const uy = fy * fy * (3 - 2 * fy);
   const bottom = corner(0, 0) + (corner(1, 0) - corner(0, 0)) * ux;

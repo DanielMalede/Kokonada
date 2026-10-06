@@ -1,0 +1,283 @@
+import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRuntimeEffect, type SkShader } from '@shopify/react-native-skia';
+import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
+import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
+import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
+import { NODE, fieldPixel, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { FIELD_SKSL } from '../fieldShader.ts';
+import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
+
+// The field shader in real Skia (CanvasKit), held to the TypeScript law (fieldLaw.ts) pixel for
+// pixel. Every claim about the shader is made here, on rendered pixels, never on the source text.
+
+const W = 64;
+const H = 64;
+const lab = (c: { oklab: readonly number[] }): Oklab => ({ L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] });
+const scale = (c: Oklab, p: number): Oklab => ({ L: c.L, a: c.a * p, b: c.b * p });
+
+let effect: SkRuntimeEffect;
+let blueNoise: SkShader;
+
+beforeAll(() => {
+  const made = Skia.RuntimeEffect.Make(FIELD_SKSL);
+  if (!made) throw new Error('the field shader did not compile');
+  effect = made;
+  const image = Skia.Image.MakeImage(
+    { width: BLUE_NOISE_SIZE, height: BLUE_NOISE_SIZE, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul },
+    Skia.Data.fromBytes(blueNoiseRgba()),
+    BLUE_NOISE_SIZE * 4,
+  );
+  if (!image) throw new Error('the blue-noise image was not made');
+  blueNoise = image.makeShaderOptions(TileMode.Repeat, TileMode.Repeat, FilterMode.Nearest, MipmapMode.None);
+});
+
+function render(frame: FieldFrame, source: SkRuntimeEffect = effect): Uint8Array {
+  const surface = Skia.Surface.Make(W, H);
+  if (!surface) throw new Error('no surface');
+  const paint = Skia.Paint();
+  paint.setDither(false);
+  paint.setShader(source.makeShaderWithChildren(packFrame(frame), [blueNoise]));
+  surface.getCanvas().drawPaint(paint);
+  surface.flush();
+  const pixels = surface.makeImageSnapshot().readPixels(0, 0, { width: W, height: H, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul });
+  if (!pixels) throw new Error('no pixels');
+  return pixels as Uint8Array;
+}
+
+const rgbAt = (pixels: Uint8Array, x: number, y: number) => [0, 1, 2].map((c) => pixels[(y * W + x) * 4 + c]);
+
+/** The largest per-channel difference between the render and the law, over every pixel, with where it is. */
+function worstDisagreement(frame: FieldFrame, pixels: Uint8Array): { delta: number; at: [number, number]; drawn: number[]; law: number[] } {
+  let worst = { delta: -1, at: [0, 0] as [number, number], drawn: [] as number[], law: [] as number[] };
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const drawn = rgbAt(pixels, x, y);
+      const law = fieldPixel(frame, x + 0.5, y + 0.5);
+      const delta = Math.max(...drawn.map((v, c) => Math.abs(v - law[c])));
+      if (delta > worst.delta) worst = { delta, at: [x, y], drawn, law };
+    }
+  }
+  return worst;
+}
+
+const absent = (id: number): FieldNodeFrame => ({ id, fade: 0, centre: [0, 0], radius: 0.5, field: { L: 0.5, a: 0, b: 0 }, halo: { L: 0.5, a: 0, b: 0 }, bead: null });
+
+/** A frame for a direction and face, with the given nodes; geometry at 64×64 with R = 24 px. */
+function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], overrides: Partial<FieldFrame> = {}): FieldFrame {
+  const d = DIRECTIONS[id];
+  const c = d.color[face];
+  const rDp = 150;
+  return {
+    centrePx: [31.3, 32.7],
+    radiusPx: 24,
+    ringInner: 1 - 28 / rDp,
+    moatOuter: 1 + d.field.mask.moat / rDp,
+    moatFeather: d.field.mask.moatFeather / rDp,
+    beadRadius: d.bead.diameter / 2 / rDp,
+    haloRadius: BASE.field.halo.diameter / 2 / rDp,
+    mask: d.field.mask,
+    grounds: { outside: lab(c.ground), face: lab(c.plate.face), ring: lab(c.plate.ring) },
+    vignette: d.plate.face.vignette[face],
+    centreLift: d.plate.face.centreLift[face],
+    kField: d.field.K[face] * d.field.presence.none,
+    kMax: Math.max(d.field.cap[face], face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight),
+    haloPeak: face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight,
+    kp: d.field.pivot,
+    warp: { amount: d.field.warp.W0, orbit: d.field.warp.orbit, cos: Math.cos(1.1), sin: Math.sin(1.1), octaves: 3 },
+    shimmer: { cos: Math.cos((d.field.shimmer.deg * Math.PI) / 180), sin: Math.sin((d.field.shimmer.deg * Math.PI) / 180) },
+    lambda: BASE.field.graph.lambda,
+    restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
+    grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
+    dither: BASE.field.dither.amplitude,
+    nodes: [...nodes, ...Array.from({ length: 5 - nodes.length }, () => absent(NODE.R0))],
+    ...overrides,
+  };
+}
+
+const anchor = (q: 'joy' | 'calm' | 'reflective' | 'intense', face: Face) => lab(BASE.emotion[q][face === 'dark' ? 'core' : 'deep']);
+const bead = (id: number, q: 'joy' | 'calm' | 'reflective' | 'intense', face: Face, at: [number, number], radius: number): FieldNodeFrame => ({
+  id,
+  fade: 1,
+  centre: at,
+  radius,
+  field: scale(anchor(q, face), 0.9),
+  halo: anchor(q, face),
+  bead: at,
+});
+
+describe('the field shader compiles, with the builder’s uniform layout', () => {
+  it('compiles in real Skia', () => {
+    expect(effect).toBeDefined();
+  });
+
+  it('declares exactly the builder’s uniforms: names, order, float counts and slots', () => {
+    const declared = Array.from({ length: effect.getUniformCount() }, (_, i) => {
+      const u = effect.getUniform(i);
+      return { name: effect.getUniformName(i), floats: u.columns * u.rows, slot: u.slot };
+    });
+    let slot = 0;
+    const expected = FIELD_UNIFORMS.map((u) => {
+      const entry = { name: u.name, floats: u.floats, slot };
+      slot += u.floats;
+      return entry;
+    });
+    expect(declared).toEqual(expected);
+    expect(effect.getUniformFloatCount()).toBe(FIELD_UNIFORM_FLOATS);
+  });
+});
+
+describe('the field shader draws the TypeScript law, pixel for pixel (±1 LSB)', () => {
+  const ids: DirectionId[] = ['abyss', 'linen', 'basin'];
+  const faces: Face[] = ['dark', 'light'];
+  const cases = ids.flatMap((id) => faces.map((face) => [id, face] as const));
+
+  it.each(cases)('%s, %s face: the rest glow on its rest lobes, warped and grained', (id, face) => {
+    const R0 = lab(DIRECTIONS[id].color[face].field.restGlow);
+    const rest = (at: [number, number]): FieldNodeFrame => ({ id: NODE.R0, fade: 1, centre: at, radius: DIRECTIONS[id].field.lobe.radius, field: R0, halo: R0, bead: null });
+    const frame = frameFor(id, face, [rest([-0.35, -0.3]), rest([0.4, 0.35])]);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(cases)('%s, %s face: the seam, intense beside joy, turned by the shimmer', (id, face) => {
+    const r = DIRECTIONS[id].field.lobe.radius;
+    const frame = frameFor(id, face, [bead(NODE.I, 'intense', face, [-0.15, 0.8], r), bead(NODE.J, 'joy', face, [0.15, 0.8], r)]);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  // Genesis raises presence to 1.2, so k_field can pass the cap: the shader must clamp k to max(cap, peak).
+  it.each(cases)('%s, %s face: a genesis-sized weight, clamped at max(cap, peak)', (id, face) => {
+    const r = DIRECTIONS[id].field.lobe.radius;
+    const frame = frameFor(id, face, [bead(NODE.C, 'calm', face, [0.2, 0.1], r), bead(NODE.R, 'reflective', face, [-0.3, -0.2], r)], {
+      kField: 1.3,
+    });
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(cases)('%s, %s face: three beads and a fading rest lobe, at tier low (two octaves)', (id, face) => {
+    const r = DIRECTIONS[id].field.lobe.radius;
+    const R0 = lab(DIRECTIONS[id].color[face].field.restGlow);
+    const frame = frameFor(
+      id,
+      face,
+      [
+        bead(NODE.C, 'calm', face, [0.5, -0.4], r),
+        bead(NODE.R, 'reflective', face, [-0.6, -0.2], r),
+        bead(NODE.I, 'intense', face, [0.1, 0.94], r),
+        { id: NODE.R0, fade: 0.4, centre: [0, 0], radius: r, field: R0, halo: R0, bead: null },
+      ],
+      { warp: { amount: DIRECTIONS[id].field.warp.W0, orbit: DIRECTIONS[id].field.warp.orbit, cos: 0.3, sin: -0.95, octaves: 2 } },
+    );
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('what the shader’s pixels show', () => {
+  it.each([['dark'], ['light']] as Array<[Face]>)('an anchor composited over itself renders as its token hex ±1 (%s face)', (face) => {
+    for (const q of ['joy', 'calm', 'reflective', 'intense'] as const) {
+      const colour = anchor(q, face);
+      const frame = frameFor('abyss', face, [{ id: NODE.J, fade: 1, centre: [0, 0], radius: 0.95, field: colour, halo: colour, bead: null }], {
+        grounds: { outside: colour, face: colour, ring: colour },
+        vignette: 0,
+        centreLift: 0,
+        grain: { inside: 0, ground: 0 },
+        dither: 0,
+        shimmer: { cos: 1, sin: 0 },
+      });
+      const hex = BASE.emotion[q][face === 'dark' ? 'core' : 'deep'].hex;
+      const token = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      const drawn = rgbAt(render(frame), 31, 32);
+      expect(drawn.map((v, c) => Math.abs(v - token[c])).every((d) => d <= 1)).toBe(true);
+    }
+  });
+
+  it('two equal straight nodes (joy and calm) mix to the OKLab midpoint, not the sRGB one', () => {
+    const joy = anchor('joy', 'dark');
+    const calm = anchor('calm', 'dark');
+    const mid = mixOklab(joy, calm, 0.5);
+    const frame = frameFor('abyss', 'dark', [
+      { id: NODE.J, fade: 1, centre: [-0.5, 0], radius: 0.6, field: joy, halo: joy, bead: null },
+      { id: NODE.C, fade: 1, centre: [0.5, 0], radius: 0.6, field: calm, halo: calm, bead: null },
+    ], { grounds: { outside: mid, face: mid, ring: mid }, vignette: 0, centreLift: 0, grain: { inside: 0, ground: 0 }, dither: 0, shimmer: { cos: 1, sin: 0 }, warp: { amount: 0, orbit: 0, cos: 1, sin: 0, octaves: 3 } });
+    // The plate centre (31.3, 32.7) sits on the bisector; pixel (31, 32) is 0.3 px from it.
+    const pixels = render(frame);
+    const drawn = rgbAt(pixels, 31, 32);
+    const okMid = oklabToSrgb(mid).map((v) => Math.round(v * 255));
+    const srgbMid = [0, 1, 2].map((c) => Math.round(((oklabToSrgb(joy)[c] + oklabToSrgb(calm)[c]) / 2) * 255));
+    expect(drawn.map((v, c) => Math.abs(v - okMid[c])).every((d) => d <= 1)).toBe(true);
+    expect(Math.max(...srgbMid.map((v, c) => Math.abs(v - okMid[c])))).toBeGreaterThan(8);
+  });
+
+  it('dither and grain move L only: a neutral ground stays neutral on every pixel', () => {
+    const grey = { L: 0.6, a: 0, b: 0 };
+    const frame = frameFor('linen', 'light', [], { grounds: { outside: grey, face: grey, ring: grey } });
+    const pixels = render(frame);
+    for (let i = 0; i < W * H; i++) {
+      expect([pixels[4 * i], pixels[4 * i + 1]]).toEqual([pixels[4 * i + 2], pixels[4 * i + 2]]);
+    }
+  });
+
+  it('the dither is fixed in time: frames that differ only in their clock draw the same ground', () => {
+    const a = frameFor('abyss', 'dark', [], { warp: { amount: 0.3, orbit: 0.6, cos: 1, sin: 0, octaves: 3 }, shimmer: { cos: 1, sin: 0 } });
+    const b = frameFor('abyss', 'dark', [], { warp: { amount: 0.3, orbit: 0.6, cos: -0.4, sin: 0.9165, octaves: 3 }, shimmer: { cos: 0.99, sin: 0.1 } });
+    expect(Array.from(render(b))).toEqual(Array.from(render(a)));
+  });
+
+  // The dither against the undithered field, per 8-bit channel, over a lit 64×64 frame.
+  const ditherEffect = () => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const nodes = [bead(NODE.C, 'calm', 'dark', [0.3, 0.2], r), bead(NODE.R, 'reflective', 'dark', [-0.4, -0.3], r)];
+    const clean = render(frameFor('abyss', 'dark', nodes, { grain: { inside: 0, ground: 0 }, dither: 0 }));
+    const dithered = render(frameFor('abyss', 'dark', nodes, { grain: { inside: 0, ground: 0 } }));
+    let worst = 0;
+    let sum = 0;
+    for (let i = 0; i < W * H; i++) {
+      for (let c = 0; c < 3; c++) {
+        const delta = dithered[4 * i + c] - clean[4 * i + c];
+        worst = Math.max(worst, Math.abs(delta));
+        sum += delta;
+      }
+    }
+    return { worst, bias: sum / (W * H * 3) };
+  };
+
+  it('the dither (±1/255 on OKLab L, the token) moves a channel by at most 2 LSB, with a bias under 0.1 LSB', () => {
+    const { worst, bias } = ditherEffect();
+    expect(worst).toBeGreaterThan(0);
+    expect(worst).toBeLessThanOrEqual(2);
+    expect(Math.abs(bias)).toBeLessThan(0.1);
+  });
+
+  // KNOWN CONFLICT, for the designer: plan §B4 asks for "within ±1 LSB", but ±1/255 on OKLab L moves
+  // an sRGB channel by more than 1 LSB wherever the channel's slope exceeds 1 (bright greys, and
+  // chromatic colours whose weakest channel is near 0), so after rounding a channel can move by 2.
+  // This test fails today on purpose (jest's it.failing); it turns red the day the conflict is
+  // resolved either way, so the marker cannot outlive it.
+  it.failing('the dither stays within ±1 LSB of the undithered field (plan §B4)', () => {
+    expect(ditherEffect().worst).toBeLessThanOrEqual(1);
+  });
+
+  // Marks never shimmer (designer rulings, QA-064): in the ring, where only the halo shows, the
+  // shimmer changes no pixel.
+  it('a halo is never turned by the shimmer', () => {
+    const r = DIRECTIONS.basin.field.lobe.radius;
+    const nodes = [bead(NODE.I, 'intense', 'dark', [-0.02, 0.92], r)];
+    const turned = frameFor('basin', 'dark', nodes, { shimmer: { cos: Math.cos(0.05), sin: Math.sin(0.05) } });
+    const still = frameFor('basin', 'dark', nodes, { shimmer: { cos: 1, sin: 0 } });
+    const a = render(turned);
+    const b = render(still);
+    let ringPixels = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const qx = (x + 0.5 - turned.centrePx[0]) / turned.radiusPx;
+        const qy = -(y + 0.5 - turned.centrePx[1]) / turned.radiusPx;
+        const d = Math.hypot(qx, qy);
+        const nearBead = Math.hypot(qx + 0.02, qy - 0.92) < turned.haloRadius;
+        if (d >= turned.ringInner && d <= 1 && nearBead) {
+          ringPixels++;
+          expect(rgbAt(a, x, y)).toEqual(rgbAt(b, x, y));
+        }
+      }
+    }
+    expect(ringPixels).toBeGreaterThan(0);
+  });
+
+});
