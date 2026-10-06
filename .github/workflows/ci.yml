@@ -52,7 +52,8 @@ jobs:
       # Any other event fails instead of scanning nothing. The range goes to gitleaks as it is: no
       # --first-parent, which would drop the commits a PR brings in by merging another branch.
       # gitleaks exits 1 on any finding, and on a range git cannot resolve; either fails the job.
-      # It reads .gitleaksignore from the checkout root.
+      # It reads .gitleaksignore from the checkout root. --ignore-gitleaks-allow: an inline
+      # `gitleaks:allow` comment does not hide its line, so a PR cannot exempt its own secret.
       - name: gitleaks
         env:
           PR_RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
@@ -67,7 +68,7 @@ jobs:
           esac
           commits=$(git rev-list --count "$range")
           echo "gitleaks scans $range: $commits commits"
-          "$RUNNER_TEMP/gitleaks" git --log-opts="$range" --redact --verbose --exit-code=1 --no-banner .
+          "$RUNNER_TEMP/gitleaks" git --log-opts="$range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .
 
   backend:
     name: Backend — lint & test

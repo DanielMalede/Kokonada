@@ -25,7 +25,19 @@
 //   · any other event fails rather than scanning nothing.
 // The binary is a pinned release whose SHA-256 is checked before anything in the archive runs.
 // The pins hold the exact commands, because a scan step that quietly narrows still reports green.
+//
+// THE OTHER WAYS TO SKIP A FINDING. `.gitleaksignore` is not the only channel, and a PR is scanned
+// with its own checkout, so whatever it adds there applies to its own scan. Checked against the
+// 8.24.3 release binary:
+//   · a `.gitleaks.toml` at the checkout root is loaded, and its allowlist hides a finding;
+//   · next to one, a `.gitleaks.json` is the file actually applied (the debug log still names the
+//     .toml), so its allowlist hides a finding too; a `.gitleaks.yaml` is not read;
+//   · an inline `gitleaks:allow` comment hides its line, unless `--ignore-gitleaks-allow` is passed,
+//     which the `git` subcommand accepts. The repository holds no such comment, in the tree or in
+//     history, so the flag changes no current result.
+// So no `.gitleaks.<ext>` config may exist, and the PR and push scan ignores inline markers.
 
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -60,8 +72,12 @@ const SCAN_COMMANDS = [
   'esac',
   'commits=$(git rev-list --count "$range")',
   'echo "gitleaks scans $range: $commits commits"',
-  '"$RUNNER_TEMP/gitleaks" git --log-opts="$range" --redact --verbose --exit-code=1 --no-banner .',
+  '"$RUNNER_TEMP/gitleaks" git --log-opts="$range" --ignore-gitleaks-allow --redact --verbose --exit-code=1 --no-banner .',
 ];
+
+// gitleaks reads its config from `<checkout>/.gitleaks.<ext>`. `.gitleaksignore` has no dot after
+// "gitleaks", so it does not match.
+const GITLEAKS_CONFIG = /^\.gitleaks\./;
 
 // ---- a reader for the one job, in the same indentation-walking style as the other CI guards ----
 
@@ -208,5 +224,24 @@ describe('the PR and push secret scan (ci.yml, job secret-scan)', () => {
 
   it('holds contents: read and nothing else: the CLI makes no pull-request API call', () => {
     expect(job.permissions).toEqual({ contents: 'read' });
+  });
+
+  it('ignores inline gitleaks:allow markers, so a PR cannot exempt its own line', () => {
+    const gitleaksCall = commandsOf(scan.run).find((c) => c.startsWith('"$RUNNER_TEMP/gitleaks" git '));
+    expect(gitleaksCall.split(' ')).toContain('--ignore-gitleaks-allow');
+  });
+});
+
+describe('no gitleaks config file can allow-list a finding', () => {
+  it('no `.gitleaks.<ext>` file is tracked anywhere in the repository', () => {
+    const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' })
+      .split('\0').filter(Boolean);
+    // The listing is the real tree, so an empty result below means something.
+    expect(tracked).toEqual(expect.arrayContaining(['.gitleaksignore', '.github/workflows/ci.yml']));
+    expect(tracked.filter((f) => GITLEAKS_CONFIG.test(path.posix.basename(f)))).toEqual([]);
+  });
+
+  it('none sits at the repository root either, tracked or not, where gitleaks would load it', () => {
+    expect(fs.readdirSync(REPO_ROOT).filter((name) => GITLEAKS_CONFIG.test(name))).toEqual([]);
   });
 });
