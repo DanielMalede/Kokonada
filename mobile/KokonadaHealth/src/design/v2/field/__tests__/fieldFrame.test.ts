@@ -35,6 +35,22 @@ describe('the statics come from the extensions the caller passes in', () => {
     expect(s.drift.harmonics).toEqual([[2, 3], [3, 2], [1, 2]]);
     expect(s.drift.phases).toEqual([[0, 0], [1.3, 0.7], [2.1, 4]]);
   });
+
+  // The port's whole output, value by value (architect, fork 1, 1B). When the statics move to their
+  // own generated module (1D), this pin is what proves the move changed nothing.
+  const DRIFT = { harmonics: [[2, 3], [3, 2], [1, 2]], phases: [[0, 0], [1.3, 0.7], [2.1, 4]] };
+  const FALLBACK_STOPS = { position: [0, 0.585, 0.63, 0.7, 0.815, 0.926, 1], weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0] };
+  it.each([
+    ['abyss', [[-0.35, -0.3], [0.4, 0.35]]],
+    ['basin', [[0, 0]]],
+    ['linen', [[-0.97, -0.56], [0.97, 0.56]]],
+  ] as Array<[DirectionId, number[][]]>)('%s: every value of the port, pinned (rest lobes, drift, fallback stops)', (id, restLobes) => {
+    expect(statics(id)).toEqual({ restLobes, drift: DRIFT, fallbackStops: FALLBACK_STOPS });
+  });
+
+  it('pins every direction', () => {
+    expect([...IDS].sort()).toEqual(['abyss', 'basin', 'linen']);
+  });
 });
 
 describe('the frame for a moment', () => {

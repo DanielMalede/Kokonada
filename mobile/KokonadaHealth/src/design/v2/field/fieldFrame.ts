@@ -69,20 +69,30 @@ export interface FieldStatics {
     readonly harmonics: ReadonlyArray<readonly [number, number]>;
     readonly phases: ReadonlyArray<readonly [number, number]>;
   };
+  /** The fallback's radial stops (field.fallback, F-11 A): positions × the lobe's fallback radius, and the metaball weight at each. */
+  readonly fallbackStops: {
+    readonly position: readonly number[];
+    readonly weight: readonly number[];
+  };
 }
 
 interface ExtensionsShape {
-  readonly base: { readonly 'field.clock': { readonly drift: { readonly harmonics: Record<string, readonly [number, number]>; readonly phases: Record<string, readonly [number, number]> } } };
+  readonly base: {
+    readonly 'field.clock': { readonly drift: { readonly harmonics: Record<string, readonly [number, number]>; readonly phases: Record<string, readonly [number, number]> } };
+    readonly 'field.fallback': { readonly stops: { readonly position: readonly number[]; readonly weight: readonly number[] } };
+  };
 }
 
 /** The statics for a direction, read from the extensions object the caller holds (the lab, a test). */
 export function staticsFor(id: DirectionId, extensions: ExtensionsShape): FieldStatics {
   const drift = extensions.base['field.clock'].drift;
+  const stops = extensions.base['field.fallback'].stops;
   const lobes = ['lobe0', 'lobe1', 'lobe2'];
   const own = (extensions as unknown as Record<string, Record<string, { lobes: ReadonlyArray<readonly [number, number]> }>>)[id]['field.rest'];
   return {
     restLobes: own.lobes,
     drift: { harmonics: lobes.map((l) => drift.harmonics[l]), phases: lobes.map((l) => drift.phases[l]) },
+    fallbackStops: { position: stops.position, weight: stops.weight },
   };
 }
 
