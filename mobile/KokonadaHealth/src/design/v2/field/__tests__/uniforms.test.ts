@@ -1,4 +1,4 @@
-import { NODE, NODE_SLOTS, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { LIVE_SLOTS, NODE, NODE_SLOTS, SHARED_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
 // The uniform layout is the contract between the uniform builder (TypeScript) and the shader
@@ -37,11 +37,29 @@ const frame = (overrides: Partial<FieldFrame> = {}): FieldFrame => ({
   restIntenseWaypoint: true,
   grain: { inside: 0.012, ground: 0.02 },
   dither: 1 / 255,
-  nodes: [node(NODE.J), node(NODE.C), node(NODE.I, { bead: null }), node(NODE.R0, { fade: 0 }), node(NODE.R0, { fade: 0.5 })],
+  nodes: [node(NODE.J), node(NODE.C), node(NODE.I, { bead: null }), node(NODE.R0, { fade: 0 }), node(NODE.R0, { fade: 0.5 }), inertNode()],
   ...overrides,
 });
 
 describe('the field uniform layout', () => {
+  // Architect re-rule §2: three live slots and three shared by leaving placements and rest lobes
+  // (critic item 6 with the designer's sentence); each slot is 14 floats in 4 declarations.
+  it('has six node slots, three live and three shared: 122 floats in 37 declarations', () => {
+    expect([NODE_SLOTS, LIVE_SLOTS, SHARED_SLOTS]).toEqual([6, 3, 3]);
+    expect(FIELD_UNIFORMS).toHaveLength(13 + 4 * NODE_SLOTS);
+    expect(FIELD_UNIFORMS.length).toBe(37);
+    expect(FIELD_UNIFORM_FLOATS).toBe(38 + 14 * NODE_SLOTS);
+    expect(FIELD_UNIFORM_FLOATS).toBe(122);
+    expect(FIELD_UNIFORMS.slice(-4).map((u) => u.name)).toEqual(['uNode5', 'uNode5Bead', 'uNode5Field', 'uNode5Halo']);
+  });
+
+  // An unused slot is inert: no fade, no lobe, no halo, and a finite colour, so 0·c is never NaN.
+  it('an inert node: fade 0, no lobe, no halo, finite colours', () => {
+    const n = inertNode();
+    expect(n).toEqual({ id: NODE.R0, fade: 0, centre: [0, 0], radius: 0, field: { L: 0, a: 0, b: 0 }, halo: { L: 0, a: 0, b: 0 }, bead: null });
+    expect(inertNode()).not.toBe(n);
+  });
+
   it('names every uniform once, in order, with its float count', () => {
     const names = FIELD_UNIFORMS.map((u) => u.name);
     expect(new Set(names).size).toBe(names.length);
@@ -77,6 +95,8 @@ describe('the field uniform layout', () => {
     expect(at('uNode0Bead')).toEqual([0.5, 0.6, 1, NODE.J]);
     expect(at('uNode2Bead')).toEqual([0, 0, 0, NODE.I]); // a rest lobe: no halo
     expect(at('uNode4')).toEqual([0.1, 0.2, 0.3, 0.5]);
+    expect(at('uNode5')).toEqual([0, 0, 0, 0]);
+    expect(at('uNode5Bead')).toEqual([0, 0, 0, NODE.R0]);
     expect(at('uNode1Field')).toEqual([0.6, 0.01, 0.02]);
     expect(at('uNode1Halo')).toEqual([0.7, 0.03, 0.04]);
   });

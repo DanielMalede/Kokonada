@@ -119,7 +119,7 @@ half4 main(float2 p) {
     q.x + uWarp.x * (fbm(float2(1.4 * q.x + uWarp.y * uWarp.z, 1.4 * q.y + uWarp.y * uWarp.w)) - 0.5),
     q.y + uWarp.x * (fbm(float2(1.4 * q.x + 5.2 + uWarp.y * uWarp.w, 1.4 * q.y + 1.3 + uWarp.y * uWarp.z)) - 0.5));
 
-${nodes.map((k) => `  float f${k} = lobe(uNode${k}, qw);\n  float h${k} = halo(uNode${k}Bead, uNode${k}.w, q, d);`).join('\n')}
+${nodes.map((k) => `  float f${k} = 0.0;\n  float h${k} = 0.0;\n  if (uNode${k}.w > 0.0) {\n    f${k} = lobe(uNode${k}, qw);\n    h${k} = halo(uNode${k}Bead, uNode${k}.w, q, d);\n  }`).join('\n')}
   float fSum = ${nodes.map((k) => `f${k}`).join(' + ')};
   float H = max(0.0, h0);
 ${nodes.slice(1).map((k) => `  H = max(H, h${k});`).join('\n')}

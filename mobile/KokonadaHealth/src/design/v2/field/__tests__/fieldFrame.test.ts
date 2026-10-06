@@ -2,8 +2,9 @@ import { oklabToOklch } from '../../color/oklab.ts';
 import { breathCycles, breathLevel } from '../../motion/breathLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
-import { NODE } from '../fieldLaw.ts';
-import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState } from '../fieldFrame.ts';
+import { LIVE_SLOTS, NODE, NODE_SLOTS, inertNode } from '../fieldLaw.ts';
+import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState, type Placement } from '../fieldFrame.ts';
+import { emptyLedger, placementsOf, reconcile } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { FIELD_UNIFORMS, packFrame } from '../uniforms.ts';
 
@@ -111,10 +112,101 @@ describe('the frame for a moment', () => {
     expect(linen.nodes[0].radius).toBe(0); // no lobe; its halo stays
   });
 
-  it('keeps the latest three placements: a fourth replaces the oldest', () => {
-    const four = [[0.566, 0.566], [0.566, -0.566], [-0.566, -0.566], [-0.566, 0.566]].map(([x, y]) => ({ x, y })); // J, C, R, I: the replace scene
-    const f = buildFieldFrame(state('abyss', 'dark', { placements: four }), geometry, statics('abyss'));
-    expect(f.nodes.slice(0, 3).map((n) => n.id)).toEqual([NODE.C, NODE.R, NODE.I]);
+  // Resilience QA-068 change 3 (it replaces "keeps the latest three placements: a fourth replaces
+  // the oldest", which locked in the cut). A placement's identity is its ordinal; in a scene, its
+  // order in the list.
+  it('a fourth tap: the oldest stays until its fade is 0, and every surviving lobe keeps its centre', () => {
+    const [J, C, R, I] = [[0.566, 0.566], [0.566, -0.566], [-0.566, -0.566], [-0.566, 0.566]].map(([x, y]) => ({ x, y }));
+    const before = buildFieldFrame(state('abyss', 'dark', { placements: [J, C, R] }), geometry, statics('abyss'));
+    const after = buildFieldFrame(state('abyss', 'dark', { placements: [{ ...J, fade: 0.3 }, C, R, { ...I, fade: 0.7 }] }), geometry, statics('abyss'));
+    const byId = (frame: typeof before, id: number) => frame.nodes.find((n) => n.id === id && n.fade > 0)!;
+    expect(byId(after, NODE.C).centre).toEqual(byId(before, NODE.C).centre);
+    expect(byId(after, NODE.R).centre).toEqual(byId(before, NODE.R).centre);
+    expect(byId(after, NODE.J).fade).toBe(0.3);
+    expect(after.nodes.filter((n) => n.fade > 0)).toHaveLength(4);
+  });
+});
+
+// Architect re-rule §4 T4 (critic items 5 and 6, with the designer's sentence): six node slots, three
+// for live placements and three shared by rest lobes and leaving placements; slots are assigned
+// deterministically (live by ordinal to 0–2; rest lobes by index, then leaving by ordinal, to 3–5), and
+// a lobe's drift belongs to its placement's ordinal, mod the drift tables, for its whole life.
+describe('six node slots and the ordinal', () => {
+  const at = (x: number, y: number, more: Record<string, unknown> = {}) => ({ x, y, ...more });
+
+  it('live placements take slots 0–2 by ordinal; rest lobes, then leaving placements by ordinal, take 3–5; the rest is inert', () => {
+    const f = buildFieldFrame(
+      state('abyss', 'dark', {
+        placements: [at(0.5, 0.5, { ordinal: 5 }), at(-0.5, -0.5, { ordinal: 2, role: 'leaving', fade: 0.4 }), at(0.5, -0.5, { ordinal: 3 })],
+        restFade: 0.5,
+      }),
+      geometry,
+      statics('abyss'),
+    );
+    expect(f.nodes).toHaveLength(NODE_SLOTS);
+    expect(f.nodes.map((n) => [n.id, n.fade])).toEqual([
+      [NODE.C, 1], // ordinal 3
+      [NODE.J, 1], // ordinal 5
+      [NODE.R0, 0], // no third live placement
+      [NODE.R0, 0.5], // rest lobe 0
+      [NODE.R0, 0.5], // rest lobe 1
+      [NODE.R, 0.4], // leaving, ordinal 2
+    ]);
+    expect(f.nodes[2]).toEqual(inertNode());
+  });
+
+  it('more than three live placements: the oldest beyond three take shared slots, as leaving, with their fades', () => {
+    const f = buildFieldFrame(state('abyss', 'dark', { placements: [at(0.5, 0.5, { fade: 0.2 }), at(0.5, -0.5), at(-0.5, -0.5), at(-0.5, 0.5)] }), geometry, statics('abyss'));
+    expect(f.nodes.slice(0, LIVE_SLOTS).map((n) => n.id)).toEqual([NODE.C, NODE.R, NODE.I]);
+    expect(f.nodes.slice(LIVE_SLOTS).map((n) => [n.id, n.fade])).toEqual([[NODE.J, 0.2], [NODE.R0, 0], [NODE.R0, 0]]);
+  });
+
+  it('a lobe’s drift is its ordinal’s, mod the drift tables, wherever its slot', () => {
+    const centreOf = (placements: Placement[], id: number) =>
+      buildFieldFrame(state('abyss', 'dark', { placements, tMs: 7000 }), geometry, statics('abyss')).nodes.find((n) => n.id === id && n.fade > 0)!.centre;
+    const C = at(0.5, -0.5);
+    const tables = statics('abyss').drift.harmonics.length;
+    expect(tables).toBe(3);
+    expect(centreOf([{ ...C, ordinal: 4 }], NODE.C)).toEqual(centreOf([{ ...C, ordinal: 1 }], NODE.C));
+    expect(centreOf([{ ...C, ordinal: 4 }], NODE.C)).not.toEqual(centreOf([{ ...C, ordinal: 0 }], NODE.C));
+    // The same ordinal, alone or behind two others, in slot 0 or slot 2: the same centre.
+    expect(centreOf([at(0.5, 0.5, { ordinal: 0 }), at(-0.5, -0.5, { ordinal: 1 }), { ...C, ordinal: 2 }], NODE.C)).toEqual(centreOf([{ ...C, ordinal: 2 }], NODE.C));
+  });
+
+  it('rest lobe i drifts on table i', () => {
+    const rest = buildFieldFrame(state('abyss', 'dark', { placements: [], tMs: 7000 }), geometry, statics('abyss'));
+    const lobes = statics('abyss').restLobes;
+    const d = DIRECTIONS.abyss.field.drift;
+    const A = d.A0 * (1 + (d.D - 1) * 1);
+    const T0 = (i: number) => {
+      const [kx, ky] = statics('abyss').drift.harmonics[i];
+      const [px, py] = statics('abyss').drift.phases[i];
+      return [lobes[i][0] + A * Math.sin((2 * Math.PI * kx * 7000) / T + px), lobes[i][1] + A * Math.cos((2 * Math.PI * ky * 7000) / T + py)];
+    };
+    const restNodes = rest.nodes.filter((n) => n.fade > 0);
+    expect(restNodes).toHaveLength(2);
+    restNodes.forEach((n, i) => {
+      expect(n.centre[0]).toBeCloseTo(T0(i)[0], 12);
+      expect(n.centre[1]).toBeCloseTo(T0(i)[1], 12);
+    });
+  });
+
+  it('through the ledger: after a fourth tap every surviving placement keeps its centre, and the same ledger packs the same uniforms', () => {
+    const [J, C, R, I] = [[0.566, 0.566], [0.566, -0.566], [-0.566, -0.566], [-0.566, 0.566]].map(([x, y]) => ({ x, y }));
+    let l = reconcile(emptyLedger(), [J], 0);
+    l = reconcile(l, [J, C], 10);
+    l = reconcile(l, [J, C, R], 20);
+    const frameOf = (fades: Record<number, number>) =>
+      buildFieldFrame(state('abyss', 'dark', { placements: placementsOf(l, (e) => fades[e.ordinal] ?? 1), tMs: 7000 }), geometry, statics('abyss'));
+    const before = frameOf({});
+    l = reconcile(l, [C, R, I], 30);
+    expect(l.change).toBe('replace');
+    const after = frameOf({ 0: 0.6, 3: 0.4 });
+    for (const id of [NODE.C, NODE.R]) {
+      expect(after.nodes.find((n) => n.id === id)!.centre).toEqual(before.nodes.find((n) => n.id === id)!.centre);
+    }
+    expect(after.nodes.find((n) => n.id === NODE.J)!.fade).toBe(0.6);
+    expect(packFrame(frameOf({ 0: 0.6, 3: 0.4 }))).toEqual(packFrame(after));
   });
 });
 

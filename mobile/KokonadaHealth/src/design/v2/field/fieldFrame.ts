@@ -26,7 +26,7 @@ import type { Oklab } from '../color/oklab.ts';
 import { breathCycles, breathLevel } from '../motion/breathLaw.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
-import { NODE, NODE_SLOTS, type FieldFrame, type FieldNodeFrame } from './fieldLaw.ts';
+import { LIVE_SLOTS, NODE, SHARED_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from './fieldLaw.ts';
 
 export type PlacementNode = 'J' | 'C' | 'R' | 'I' | 'neutral';
 
@@ -39,12 +39,22 @@ export interface Placement {
   readonly y: number;
   /** Its lobe's and halo's fade in, 0..1 (placement settles in over motion.settle). Default 1. */
   readonly fade?: number;
+  /**
+   * How many placements came before it (placementLedger.ts): its drift table for its whole life,
+   * its fade-out included (critic item 5). Default: its index in `placements`, a scene's order.
+   */
+  readonly ordinal?: number;
+  /** 'leaving' while it fades out after a replace, a removal or a clear. Default 'live'. */
+  readonly role?: 'live' | 'leaving';
 }
 
 export interface FieldState {
   readonly direction: DirectionId;
   readonly face: Face;
-  /** Oldest first; only the latest three are drawn (a fourth replaces the oldest). */
+  /**
+   * Live and leaving placements. The three latest live ones by ordinal are live; an older one (a
+   * scene that lists four) is drawn as leaving, with its fade, until the ledger removes it.
+   */
   readonly placements: readonly Placement[];
   /** Tension s in [0, 1]. */
   readonly stress: number;
@@ -91,6 +101,11 @@ const finite = (v: number, fallback: number) => {
 const clamp01 = (v: number) => {
   'worklet';
   return Math.min(1, Math.max(0, v));
+};
+/** A placement's ordinal: the one it carries, if it is a whole number ≥ 0, or its index in the list. */
+const ordinalOf = (ordinal: number | undefined, index: number) => {
+  'worklet';
+  return ordinal !== undefined && Number.isInteger(ordinal) && ordinal >= 0 ? ordinal : index;
 };
 const lab = (c: { readonly oklab: readonly number[] }): Oklab => {
   'worklet';
@@ -179,8 +194,17 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
   const tier = NODE_TIER[face];
   const restGlow = lab(colours.field.restGlow);
 
-  const placements = state.placements.slice(-3);
-  const nodes: FieldNodeFrame[] = placements.map((placement, slot) => {
+  // Slots (architect re-rule §4 T4): live placements by ordinal take slots 0–2; rest lobes by index
+  // (while their fade is above 0), then leaving placements by ordinal, take the shared slots 3–5.
+  const entries = state.placements.map((placement, index) => ({ placement, ordinal: ordinalOf(placement.ordinal, index), leaving: placement.role === 'leaving' }));
+  const byOrdinal = (p: { ordinal: number }, q: { ordinal: number }) => p.ordinal - q.ordinal;
+  const staying = entries.filter((e) => !e.leaving).sort(byOrdinal);
+  const cut = Math.max(0, staying.length - LIVE_SLOTS);
+  const live = staying.slice(cut);
+  const leaving = [...staying.slice(0, cut), ...entries.filter((e) => e.leaving)].sort(byOrdinal);
+
+  // A placement's lobe and halo; its drift is its ordinal's, never its slot's.
+  const placed = (placement: Placement, ordinal: number): FieldNodeFrame => {
     let x = finite(placement.x, 0);
     let y = finite(placement.y, 0);
     const r = Math.hypot(x, y);
@@ -193,7 +217,7 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     const bead: [number, number] = [x * (1 - beadRadius), y * (1 - beadRadius)];
     const along = Math.hypot(bead[0], bead[1]);
     const unit: [number, number] = along > 0 ? [bead[0] / along, bead[1] / along] : [0, 0];
-    const [ox, oy] = offset(slot);
+    const [ox, oy] = offset(ordinal);
     const centre: [number, number] = [
       d.field.lobe.centreAlpha * bead[0] + d.field.lobe.centreBeta * unit[0] + ox,
       d.field.lobe.centreAlpha * bead[1] + d.field.lobe.centreBeta * unit[1] + oy,
@@ -208,17 +232,24 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     const scale = p * d.bead.chromaScale;
     const halo = { L: restGlow.L + (anchor.L - restGlow.L) * p, a: anchor.a * scale, b: anchor.b * scale };
     return { id: NODE[node], fade, centre, radius, field: tense(halo), halo, bead };
-  });
+  };
 
+  const nodes: FieldNodeFrame[] = [];
+  for (let i = 0; i < LIVE_SLOTS; i++) nodes.push(i < live.length ? placed(live[i].placement, live[i].ordinal) : inertNode());
   // Before any placement the rest glow shows on the rest lobes; once a bead is placed they fade out.
-  const restFade = placements.length === 0 ? 1 : clamp01(finite(state.restFade ?? 0, 0));
-  statics.restLobes.slice(0, NODE_SLOTS - nodes.length).forEach(([rx, ry], i) => {
-    const [ox, oy] = offset(i);
-    nodes.push({ id: NODE.R0, fade: restFade, centre: [rx + ox, ry + oy], radius, field: tense(restGlow), halo: restGlow, bead: null });
-  });
-  while (nodes.length < NODE_SLOTS) {
-    nodes.push({ id: NODE.R0, fade: 0, centre: [0, 0], radius: 0, field: restGlow, halo: restGlow, bead: null });
+  // Rest lobe i keeps drift table i. A rest lobe at fade 0 frees its slot.
+  const restFade = state.placements.length === 0 ? 1 : clamp01(finite(state.restFade ?? 0, 0));
+  const shared: FieldNodeFrame[] = [];
+  if (restFade > 0) {
+    statics.restLobes.forEach(([rx, ry], i) => {
+      const [ox, oy] = offset(i);
+      shared.push({ id: NODE.R0, fade: restFade, centre: [rx + ox, ry + oy], radius, field: tense(restGlow), halo: restGlow, bead: null });
+    });
   }
+  for (const e of leaving) shared.push(placed(e.placement, e.ordinal));
+  // The ledger admits no more than the shared slots hold (designer, admission DEC; T5's E3 pins it):
+  // beyond them nothing is drawn, so this never cuts a node on the ruled path.
+  for (let i = 0; i < SHARED_SLOTS; i++) nodes.push(i < shared.length ? shared[i] : inertNode());
 
   return {
     centrePx: [finite(geometry.centrePx[0], 0), finite(geometry.centrePx[1], 0)],

@@ -2,7 +2,7 @@ import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRu
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
-import { NODE, fieldOklab, fieldPixel, isWaypoint, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, fieldOklab, fieldPixel, inertNode, isWaypoint, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
@@ -62,7 +62,6 @@ function worstDisagreement(frame: FieldFrame, pixels: Uint8Array, w = W, h = H):
   return worst;
 }
 
-const absent = (id: number): FieldNodeFrame => ({ id, fade: 0, centre: [0, 0], radius: 0.5, field: { L: 0.5, a: 0, b: 0 }, halo: { L: 0.5, a: 0, b: 0 }, bead: null });
 
 /** A frame for a direction and face, with the given nodes; geometry at 64×64 with R = 24 px. */
 function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], overrides: Partial<FieldFrame> = {}): FieldFrame {
@@ -91,7 +90,7 @@ function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], override
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,
-    nodes: [...nodes, ...Array.from({ length: 5 - nodes.length }, () => absent(NODE.R0))],
+    nodes: [...nodes, ...Array.from({ length: NODE_SLOTS - nodes.length }, inertNode)],
     ...overrides,
   };
 }
@@ -195,6 +194,24 @@ describe('the field shader draws the TypeScript law, pixel for pixel (±1 LSB)',
     const frame = frameFor(id, face, [bead(NODE.C, 'calm', face, [0.2, 0.1], r), bead(NODE.R, 'reflective', face, [-0.3, -0.2], r)], {
       kField: 1.3,
     });
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  // Every slot lit (architect re-rule §4 T4): three live beads, a rest lobe and two leaving beads,
+  // so the sixth slot is drawn and selected like the others.
+  it.each(cases)('%s, %s face: all six slots lit, three live, a rest lobe and two leaving', (id, face) => {
+    const r = DIRECTIONS[id].field.lobe.radius;
+    const R0 = lab(DIRECTIONS[id].color[face].field.restGlow);
+    const leaving = (node: FieldNodeFrame, fade: number): FieldNodeFrame => ({ ...node, fade });
+    const frame = frameFor(id, face, [
+      bead(NODE.C, 'calm', face, [0.5, -0.4], r),
+      bead(NODE.R, 'reflective', face, [-0.6, -0.2], r),
+      bead(NODE.I, 'intense', face, [0.1, 0.94], r),
+      { id: NODE.R0, fade: 0.6, centre: [0, 0], radius: r, field: R0, halo: R0, bead: null },
+      leaving(bead(NODE.J, 'joy', face, [0.55, 0.55], r), 0.5),
+      leaving(bead(NODE.I, 'intense', face, [-0.5, 0.6], r), 0.8),
+    ]);
+    expect(frame.nodes.every((n) => n.fade > 0)).toBe(true);
     expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
   });
 

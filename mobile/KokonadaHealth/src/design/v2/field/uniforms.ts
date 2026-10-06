@@ -5,7 +5,7 @@
 // packFrame runs on the UI thread (FieldView derives the uniforms there), so every function here is
 // a worklet (workletSafe.test.ts).
 //
-// The nodes are unrolled (uNode0 … uNode4): SkSL's strict ES2 rules forbid indexing a uniform array
+// The nodes are unrolled (uNode0 … uNode5, one per NODE_SLOTS): SkSL's strict ES2 rules forbid indexing a uniform array
 // with a computed index, and separate uniforms keep each slot unambiguous.
 
 import { NODE_SLOTS, type FieldFrame } from './fieldLaw.ts';

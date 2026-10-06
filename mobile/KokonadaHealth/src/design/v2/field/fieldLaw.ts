@@ -26,8 +26,14 @@ import { blueNoiseValue } from './blueNoise.ts';
 
 /** Node ids: the four quadrants and the rest glow. */
 export const NODE = { J: 0, C: 1, R: 2, I: 3, R0: 4 } as const;
-/** Three beads and two rest lobes. */
-export const NODE_SLOTS = 5;
+/**
+ * Node slots (critic item 6 with the designer's sentence; architect re-rule §2): three for live
+ * placements, and three shared by rest lobes and leaving placements (a rest lobe at fade 0 frees its
+ * slot). A slot whose fade is 0 is skipped by a uniform branch in the shader; no value changes.
+ */
+export const LIVE_SLOTS = 3;
+export const SHARED_SLOTS = 3;
+export const NODE_SLOTS = LIVE_SLOTS + SHARED_SLOTS;
 
 export interface FieldNodeFrame {
   /** A NODE id. */
@@ -44,6 +50,15 @@ export interface FieldNodeFrame {
   readonly halo: Oklab;
   /** The bead centre its halo surrounds, in plate units; null for a rest lobe, which has no halo. */
   readonly bead: readonly [number, number] | null;
+}
+
+/**
+ * An unused slot: no fade, so no lobe and no halo, and a finite colour, so that 0·c never makes a NaN
+ * (architect re-rule §2). A new object each call: frames never share mutable nodes.
+ */
+export function inertNode(): FieldNodeFrame {
+  'worklet';
+  return { id: NODE.R0, fade: 0, centre: [0, 0], radius: 0, field: { L: 0, a: 0, b: 0 }, halo: { L: 0, a: 0, b: 0 }, bead: null };
 }
 
 export type Region = 'face' | 'ring' | 'moat' | 'outside';
