@@ -134,8 +134,45 @@
       "Bash(grep -aA10 \"●\\\\|Expected\\\\|Received\")",
       "Bash(./node_modules/.bin/jest src/__tests__/shadow.context.test.ts src/state/warm)"
     ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push origin main*)",
+      "Bash(git push * main)",
+      "Bash(git push * HEAD:main*)",
+      "Bash(git push * :main*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)",
+      "Bash(gh pr merge * --admin*)",
+      "PowerShell(git push --force*)",
+      "PowerShell(git push -f*)",
+      "PowerShell(git push origin main*)",
+      "PowerShell(git reset --hard*)",
+      "PowerShell(git clean*)",
+      "PowerShell(git stash drop*)",
+      "PowerShell(git stash clear*)"
+    ],
     "additionalDirectories": [
       "\\tmp"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell|mcp__plugin_github_github__merge_pull_request|mcp__plugin_github_github__create_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
+            "timeout": 20
+          }
+        ]
+      }
     ]
   }
 }
