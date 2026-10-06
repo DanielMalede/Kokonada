@@ -72,10 +72,12 @@ describe('G9: each face draws the token’s node tier', () => {
 
   // A bead at p = 1 shows its anchor at the tier's lightness and hue, with chroma × the bead scale.
   const QUADRANTS = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
+  /** Each quadrant at r = 1 on its own side (x ≥ 0 pleasant, y ≥ 0 more energy), so p = 1. */
+  const AT = { J: [0.6, 0.8], C: [0.6, -0.8], R: [-0.6, -0.8], I: [-0.6, 0.8] } as const;
   it.each(IDS.flatMap((id) => FACES.map((face) => [id, face] as const)))('%s, %s face: every quadrant’s halo is its tier’s anchor', (id, face) => {
     for (const [node, quadrant] of Object.entries(QUADRANTS) as Array<[keyof typeof QUADRANTS, (typeof QUADRANTS)[keyof typeof QUADRANTS]]>) {
       const frame = buildFieldFrame(
-        { direction: id, face, placements: [{ node, x: 0.6, y: 0.8 }], stress: 0, confidence: 1, genesis: false, tMs: 0, breathPhase: 0, tier: 'full' },
+        { direction: id, face, placements: [{ x: AT[node][0], y: AT[node][1] }], stress: 0, confidence: 1, genesis: false, tMs: 0, breathPhase: 0, tier: 'full' },
         { centrePx: [100, 100], radiusPx: 80, pxPerDp: 0.5, fontScale: 1 },
         staticsFor(id, EXTENSIONS as never),
       );

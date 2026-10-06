@@ -3,7 +3,7 @@ import { breathCycles, breathLevel } from '../../motion/breathLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE } from '../fieldLaw.ts';
-import { buildFieldFrame, fixedFieldBreath, type FieldState } from '../fieldFrame.ts';
+import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState } from '../fieldFrame.ts';
 import { staticsFor } from '../statics.ts';
 import { packFrame } from '../uniforms.ts';
 
@@ -18,7 +18,7 @@ const statics = (id: DirectionId) => staticsFor(id, EXTENSIONS as never);
 const state = (id: DirectionId, face: Face, overrides: Partial<FieldState> = {}): FieldState => ({
   direction: id,
   face,
-  placements: [{ node: 'C', x: 0.5, y: 0.3 }],
+  placements: [{ x: 0.5, y: -0.3 }], // calm: x ≥ 0 pleasant, y < 0 less energy
   stress: 0,
   confidence: null,
   genesis: false,
@@ -69,14 +69,17 @@ describe('the frame for a moment', () => {
 
   it('a bead sits at its unit-disc position scaled to the layout radius, R minus the bead', () => {
     const f = buildFieldFrame(state('abyss', 'dark'), geometry, statics('abyss'));
-    expect(f.nodes[0].bead).toEqual([0.5 * (1 - f.beadRadius), 0.3 * (1 - f.beadRadius)]);
+    expect(f.nodes[0].bead).toEqual([0.5 * (1 - f.beadRadius), -0.3 * (1 - f.beadRadius)]);
     expect(f.nodes[0].id).toBe(NODE.C);
   });
 
-  it('a placement’s chroma is its distance from the centre, times the bead chroma scale', () => {
-    const f = buildFieldFrame(state('linen', 'light', { placements: [{ node: 'C', x: 0.3, y: 0.4 }] }), geometry, statics('linen'));
+  // Designer 2.7 with the critic's lightness (this was fieldFrame.test.ts:59-63): r 0.375 is p 0.5.
+  it('a placement’s chroma is its ramp p times the bead chroma scale, and at p 0.5 its lightness is halfway from the rest glow', () => {
+    const f = buildFieldFrame(state('linen', 'light', { placements: [{ x: 0.225, y: -0.3 }] }), geometry, statics('linen'));
     const anchor = BASE.emotion.calm.deep.oklch;
+    const restGlow = DIRECTIONS.linen.color.light.field.restGlow.oklab[0];
     expect(oklabToOklch(f.nodes[0].halo).C).toBeCloseTo(anchor[1] * 0.5 * DIRECTIONS.linen.bead.chromaScale, 9);
+    expect(f.nodes[0].halo.L).toBeCloseTo((restGlow + anchor[0]) / 2, 12);
   });
 
   it('centres a lobe by the direction’s rule: at the bead (Abyss), or 1.12R out along its angle (Linen)', () => {
@@ -84,7 +87,7 @@ describe('the frame for a moment', () => {
     const abyss = buildFieldFrame(state('abyss', 'dark', still), geometry, statics('abyss'));
     expect(abyss.nodes[0].centre[0]).toBeCloseTo(abyss.nodes[0].bead![0], 12);
     const linen = buildFieldFrame(state('linen', 'dark', still), geometry, statics('linen'));
-    const angle = Math.atan2(0.3, 0.5);
+    const angle = Math.atan2(-0.3, 0.5);
     // At t = 0 lobe 0's drift is (sin 0, cos 0)·A_d: none along x, A_d(1) = A0·(1 − 0.4) along y.
     const drift = DIRECTIONS.linen.field.drift.A0 * (1 - BASE.field.stress.speed);
     expect(linen.nodes[0].centre[0]).toBeCloseTo(1.12 * Math.cos(angle), 9);
@@ -99,7 +102,7 @@ describe('the frame for a moment', () => {
   });
 
   it('a neutral placement lights the rest glow, with a lobe only where the direction has one', () => {
-    const neutral = { placements: [{ node: 'neutral' as const, x: 0.2, y: 0.2 }] };
+    const neutral = { placements: [{ x: 0.05, y: 0.05 }] }; // one.neutral (this was (0.2, 0.2), r 0.28: not neutral)
     const abyss = buildFieldFrame(state('abyss', 'dark', neutral), geometry, statics('abyss'));
     expect(abyss.nodes[0].id).toBe(NODE.R0);
     expect(abyss.nodes[0].radius).toBeGreaterThan(0);
@@ -109,9 +112,99 @@ describe('the frame for a moment', () => {
   });
 
   it('keeps the latest three placements: a fourth replaces the oldest', () => {
-    const four = ['J', 'C', 'R', 'I'].map((node, i) => ({ node: node as 'J', x: 0.1 * i, y: 0.2 }));
+    const four = [[0.566, 0.566], [0.566, -0.566], [-0.566, -0.566], [-0.566, 0.566]].map(([x, y]) => ({ x, y })); // J, C, R, I: the replace scene
     const f = buildFieldFrame(state('abyss', 'dark', { placements: four }), geometry, statics('abyss'));
     expect(f.nodes.slice(0, 3).map((n) => n.id)).toEqual([NODE.C, NODE.R, NODE.I]);
+  });
+});
+
+// Designer 2.7, with the critic's lightness (accepted): p ramps from placement.neutralRadius to
+// placement.rampEnd; a node's halo is (L: lerp(L_R0, L_tier, p); ab: p·bead.chromaScale·tier.ab), and its
+// field colour is that under tension; the node is a function of (x, y).
+describe('placement chroma and lightness, and the node from (x, y)', () => {
+  const { neutralRadius, rampEnd } = BASE.placement;
+  const QUADRANTS = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
+  /** Each quadrant's diagonal. */
+  const DIAGONAL = { J: [1, 1], C: [1, -1], R: [-1, -1], I: [-1, 1] } as const;
+  const at = (node: keyof typeof DIAGONAL, r: number) => ({ x: (DIAGONAL[node][0] * r) / Math.SQRT2, y: (DIAGONAL[node][1] * r) / Math.SQRT2 });
+
+  it.each([
+    [0.15, 0],
+    [0.375, 0.5],
+    [0.6, 1],
+    [0.8, 1],
+    [1.4, 1],
+  ])('r %s gives p %s', (r, p) => {
+    expect([neutralRadius, rampEnd]).toEqual([0.15, 0.6]);
+    expect(placementRamp(r, 0)).toBeCloseTo(p, 12);
+    expect(placementRamp(0, -r)).toBeCloseTo(p, 12);
+  });
+
+  it('the node: neutral inside placement.neutralRadius, otherwise the quadrant by sign (x ≥ 0 pleasant, y ≥ 0 more energy)', () => {
+    expect([nodeAt(0.1, 0), nodeAt(0.07, -0.07), nodeAt(0, 0), nodeAt(-0.1, 0.05)]).toEqual(['neutral', 'neutral', 'neutral', 'neutral']);
+    expect([nodeAt(0.5, 0.5), nodeAt(0.5, -0.5), nodeAt(-0.5, -0.5), nodeAt(-0.5, 0.5)]).toEqual(['J', 'C', 'R', 'I']);
+    expect([nodeAt(0, 0.8), nodeAt(0, -0.8), nodeAt(0.8, 0), nodeAt(-0.8, 0)]).toEqual(['J', 'C', 'J', 'I']);
+    expect(nodeAt(0.15, 0)).toBe('J'); // r = neutralRadius is not neutral: it is p 0
+  });
+
+  it('a placement inside the neutral radius is built as the neutral node, in every quadrant', () => {
+    const glow = DIRECTIONS.abyss.color.dark.field.restGlow.oklab;
+    for (const node of ['J', 'C', 'R', 'I'] as const) {
+      const f = buildFieldFrame(state('abyss', 'dark', { placements: [at(node, 0.1)] }), geometry, statics('abyss'));
+      expect(f.nodes[0].id).toBe(NODE.R0);
+      expect(f.nodes[0].halo).toEqual({ L: glow[0], a: glow[1], b: glow[2] });
+    }
+  });
+
+  it.each(IDS.flatMap((id) => (['dark', 'light'] as Face[]).map((face) => [id, face] as const)))('%s, %s face: L = lerp(L_R0, L_tier, p) and ab = p·chromaScale·tier.ab, in every quadrant', (id, face) => {
+    const d = DIRECTIONS[id];
+    const L0 = d.color[face].field.restGlow.oklab[0];
+    const tier = face === 'dark' ? 'core' : 'deep';
+    for (const node of ['J', 'C', 'R', 'I'] as const) {
+      const anchor = BASE.emotion[QUADRANTS[node]][tier].oklab;
+      for (const [r, p] of [[0.15, 0], [0.2, 0.05 / 0.45], [0.375, 0.5], [0.6, 1], [0.9, 1]]) {
+        const f = buildFieldFrame(state(id, face, { placements: [at(node, r)] }), geometry, statics(id));
+        expect(f.nodes[0].id).toBe(NODE[node]);
+        expect(f.nodes[0].halo.L).toBeCloseTo(L0 + (anchor[0] - L0) * p, 12);
+        expect(f.nodes[0].halo.a).toBeCloseTo(anchor[1] * p * d.bead.chromaScale, 12);
+        expect(f.nodes[0].halo.b).toBeCloseTo(anchor[2] * p * d.bead.chromaScale, 12);
+      }
+    }
+  });
+
+  // The critic's near.* scenes, as test data here (scribing them into the hero $extensions is
+  // capture data, outside B4): one bead at (±0.141, ±0.141), r 0.2, p 0.11.
+  it.each([
+    ['near.joy', 0.141, 0.141, 'J'],
+    ['near.calm', 0.141, -0.141, 'C'],
+    ['near.reflective', -0.141, -0.141, 'R'],
+    ['near.intense', -0.141, 0.141, 'I'],
+  ] as const)('%s: its quadrant at p 0.11, its lightness p of the way from the rest glow', (_name, x, y, node) => {
+    expect(nodeAt(x, y)).toBe(node);
+    expect(placementRamp(x, y)).toBeCloseTo(0.11, 2);
+    for (const face of ['dark', 'light'] as Face[]) {
+      const f = buildFieldFrame(state('basin', face, { placements: [{ x, y }] }), geometry, statics('basin'));
+      const L0 = DIRECTIONS.basin.color[face].field.restGlow.oklab[0];
+      const Lt = BASE.emotion[QUADRANTS[node]][face === 'dark' ? 'core' : 'deep'].oklab[0];
+      expect(Math.abs(f.nodes[0].halo.L - L0)).toBeCloseTo(placementRamp(x, y) * Math.abs(Lt - L0), 12);
+    }
+  });
+
+  // "Every hard placement and never-red scene in the tokens already agrees with the sign rule"
+  // (designer 2.7): every placement the token extensions name carries the node its (x, y) gives.
+  it('every placement the token scenes name is the node its position gives', () => {
+    const found: Array<{ node: string; x: number; y: number }> = [];
+    const walk = (v: unknown) => {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v !== null && typeof v === 'object') {
+        const o = v as Record<string, unknown>;
+        if (typeof o.node === 'string' && typeof o.x === 'number' && typeof o.y === 'number') found.push({ node: o.node, x: o.x, y: o.y });
+        Object.values(o).forEach(walk);
+      }
+    };
+    walk(EXTENSIONS);
+    expect(found.length).toBeGreaterThan(40);
+    expect(found.filter((b) => nodeAt(b.x, b.y) !== b.node)).toEqual([]);
   });
 });
 
@@ -178,7 +271,7 @@ describe('the breath, the still and the tiers', () => {
 describe('the builder clamps what it is given', () => {
   it('NaN, Infinity and out-of-range inputs give a finite frame within range', () => {
     const f = buildFieldFrame(
-      state('basin', 'dark', { stress: NaN, confidence: Infinity, tMs: -Infinity, breathPhase: NaN, placements: [{ node: 'J', x: NaN, y: 5 }] }),
+      state('basin', 'dark', { stress: NaN, confidence: Infinity, tMs: -Infinity, breathPhase: NaN, placements: [{ x: NaN, y: 5 }] }),
       geometry,
       statics('basin'),
     );

@@ -10,6 +10,9 @@
 //   breath  lobe radius × (1 + ampRadius·b·(1 − 0.5s)), presence × (1 − ampPresence + ampPresence·b);
 //   tension field colour C × (1 − 0.35s), L × (1 − 0.15s) on dark; weight × (1 − 0.2s); halos untouched;
 //   presence P(c) = P_min + (1 − P_min)·c, or P_none with no inference; × genesisPresence in genesis;
+//   a node  from (x, y): neutral inside placement.neutralRadius, else the quadrant by sign; its ramp
+//           p = clamp((r − neutralRadius)/(rampEnd − neutralRadius)); halo L = lerp(L_R0, L_tier, p),
+//           ab = p·bead.chromaScale·tier.ab (designer 2.7, critic item 7);
 //   the still t = t*, b = 0.5, no shimmer.
 //
 // The drift tables and the rest lobes live in the token extensions, which app code may not import
@@ -28,8 +31,10 @@ import { NODE, NODE_SLOTS, type FieldFrame, type FieldNodeFrame } from './fieldL
 export type PlacementNode = 'J' | 'C' | 'R' | 'I' | 'neutral';
 
 export interface Placement {
-  readonly node: PlacementNode;
-  /** The bead on the unit disc (the plate's layout radius, R minus the bead), y up. */
+  /**
+   * The bead on the unit disc (the plate's layout radius, R minus the bead), y up. Its node and its
+   * chroma ramp follow from this position alone (nodeAt, placementRamp; designer 2.7).
+   */
   readonly x: number;
   readonly y: number;
   /** Its lobe's and halo's fade in, 0..1 (placement settles in over motion.settle). Default 1. */
@@ -94,6 +99,28 @@ const lab = (c: { readonly oklab: readonly number[] }): Oklab => {
 const QUADRANT = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
 /** The emotion tier each face draws (field.graph.nodeTier); graphConformance.test.ts holds it to the token. */
 export const NODE_TIER: Readonly<Record<Face, 'core' | 'deep'>> = { dark: 'core', light: 'deep' };
+
+/**
+ * The node a position on the unit disc places (designer 2.7): neutral inside
+ * placement.neutralRadius, otherwise the quadrant by sign, x ≥ 0 pleasant and y ≥ 0 more energy.
+ */
+export function nodeAt(x: number, y: number): PlacementNode {
+  'worklet';
+  if (Math.min(1, Math.hypot(x, y)) < BASE.placement.neutralRadius) return 'neutral';
+  if (x >= 0) return y >= 0 ? 'J' : 'C';
+  return y >= 0 ? 'I' : 'R';
+}
+
+/**
+ * The placement's ramp p (designer 2.7, DSN-017): 0 at placement.neutralRadius, 1 from
+ * placement.rampEnd out, linear between; r is clamped to the unit disc.
+ */
+export function placementRamp(x: number, y: number): number {
+  'worklet';
+  const r = Math.min(1, Math.hypot(x, y));
+  const from = BASE.placement.neutralRadius;
+  return clamp01((r - from) / (BASE.placement.rampEnd - from));
+}
 
 /** The breath at a fixed time (captures, stills, sweeps): n(s) in JS, a whole number, and its phase. */
 export function fixedFieldBreath(id: DirectionId, stress: number, tMs: number): { n: number; phase: number } {
@@ -161,7 +188,8 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
       x /= r;
       y /= r;
     }
-    const p = Math.min(1, Math.hypot(x, y));
+    const node = nodeAt(x, y);
+    const p = placementRamp(x, y);
     const bead: [number, number] = [x * (1 - beadRadius), y * (1 - beadRadius)];
     const along = Math.hypot(bead[0], bead[1]);
     const unit: [number, number] = along > 0 ? [bead[0] / along, bead[1] / along] : [0, 0];
@@ -171,13 +199,15 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
       d.field.lobe.centreAlpha * bead[1] + d.field.lobe.centreBeta * unit[1] + oy,
     ];
     const fade = clamp01(finite(placement.fade ?? 1, 1));
-    if (placement.node === 'neutral') {
+    if (node === 'neutral') {
       return { id: NODE.R0, fade, centre, radius: d.field.lobe.neutralLobe > 0 ? radius : 0, field: tense(restGlow), halo: restGlow, bead };
     }
-    const anchor = lab(BASE.emotion[QUADRANT[placement.node]][tier]);
+    // DSN-017 applied to the field (critic item 7, accepted): the lightness ramps from the rest glow's,
+    // and the chroma from 0, both with p; ab stays p·tier.ab, so every node pair keeps its graph route.
+    const anchor = lab(BASE.emotion[QUADRANT[node]][tier]);
     const scale = p * d.bead.chromaScale;
-    const halo = { L: anchor.L, a: anchor.a * scale, b: anchor.b * scale };
-    return { id: NODE[placement.node], fade, centre, radius, field: tense(halo), halo, bead };
+    const halo = { L: restGlow.L + (anchor.L - restGlow.L) * p, a: anchor.a * scale, b: anchor.b * scale };
+    return { id: NODE[node], fade, centre, radius, field: tense(halo), halo, bead };
   });
 
   // Before any placement the rest glow shows on the rest lobes; once a bead is placed they fade out.
