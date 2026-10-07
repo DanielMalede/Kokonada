@@ -65,13 +65,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `OPS-155` (TASKS)
-- title: Coordinator hardening: the audit residuals, the merge-guard trigger on the coordinator path, and custodian's two-partner preconditions
-- branch: `fix/ops155-coord-hardening`
-- paths: `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.claude/hooks/merge-guard-trigger.mjs`, `.claude/hooks/merge-guard-trigger.test.mjs`, `backend/tests/mergeGuardHook.test.js`, `.claude/commands/ship.md`, `.claude/commands/merge.md`, `.claude/agents/custodian.md`, `.claude/agents/coordinator.md`, `.agents/skills/coordinate/SKILL.md`, `.claude/settings.json`, `WORK_LEDGER.md`, `TASKS.md`
+- task: `own:coord-paperwork` (own)
+- title: close the coordinator rows on #229's evidence and record its last audit findings
+- branch: `docs/coord-paperwork`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #229
-- started: 2026-10-06
+- state: claimed
+- started: 2026-10-07
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
