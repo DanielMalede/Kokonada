@@ -378,6 +378,57 @@ describe('ingestV2Batch', () => {
     expect(reconcileHealthSamples).not.toHaveBeenCalled();
   });
 
+  it('cannot strand staged rows when recovery reaps a writer whose lease was forced expired', async () => {
+    const owner = await connectedUser();
+    const create = HealthSample.create.bind(HealthSample);
+    let releaseCreate;
+    let createStarted;
+    const started = new Promise((resolve) => { createStarted = resolve; });
+    const held = new Promise((resolve) => { releaseCreate = resolve; });
+    const createSpy = jest.spyOn(HealthSample, 'create').mockImplementation(async (...args) => {
+      createStarted();
+      await held;
+      return create(...args);
+    });
+
+    const ingest = ingestV2Batch(owner._id, 'healthkit', [upsert()]);
+    await started;
+    await HealthIngestBatch.updateOne(
+      { userId: owner._id, status: 'writing' },
+      { $set: { leaseUntil: new Date(Date.now() - 1000) } },
+    );
+    await recoverStagedHealthSamples({ userId: owner._id });
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+
+    await ConsentRecord.create({
+      userId: owner._id,
+      purpose: HEALTH_CONSENT_PURPOSE,
+      consentVersion: CURRENT_CONSENT_VERSION,
+      status: 'withdrawn',
+      withdrawnAt: new Date(),
+    });
+    await User.updateOne(
+      { _id: owner._id },
+      { $set: { wearableProvider: null }, $inc: { wearableConnectionVersion: 1 } },
+    );
+    const deleteSpy = jest.spyOn(HealthSample, 'deleteMany')
+      .mockRejectedValueOnce(new Error('temporary late cleanup failure'));
+    releaseCreate();
+
+    await expect(ingest).rejects.toMatchObject({
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+    expect(await HealthSample.countDocuments({ userId: owner._id, ingestState: 'staged' })).toBe(1);
+    deleteSpy.mockRestore();
+    createSpy.mockRestore();
+
+    await expect(recoverStagedHealthSamples({ userId: owner._id }))
+      .resolves.toEqual({ recovered: 0, removed: 1, failed: 0 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+  });
+
   it('keeps failed cleanup staged and the repair path removes it durably', async () => {
     const owner = await connectedUser();
     const create = HealthSample.create.bind(HealthSample);
@@ -398,7 +449,9 @@ describe('ingestV2Batch', () => {
       { _id: owner._id },
       { $set: { wearableProvider: null }, $inc: { wearableConnectionVersion: 1 } },
     );
-    deleteSpy.mockRejectedValueOnce(new Error('temporary mongo failure'));
+    deleteSpy
+      .mockRejectedValueOnce(new Error('temporary mongo failure'))
+      .mockRejectedValueOnce(new Error('temporary mongo failure'));
     releaseCreate();
 
     await expect(ingest).rejects.toThrow('temporary mongo failure');

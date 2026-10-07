@@ -253,6 +253,7 @@ async function applyDelete(userId, source, sample, now, pendingKeys, counts, sta
 
 async function applyHealthOperations(userId, source, samples, {
   now = new Date(), connectionVersion = null, consentFence = null, ingestToken = null,
+  beforeOperation = null, afterOperation = null,
 } = {}) {
   const operations = reduceOperations(samples);
   const pendingKeys = new Set();
@@ -264,11 +265,13 @@ async function applyHealthOperations(userId, source, samples, {
   };
 
   for (const sample of operations) {
+    if (beforeOperation) await beforeOperation();
     if (sample.operation === 'delete') {
       await applyDelete(userId, source, sample, now, pendingKeys, counts, staging);
     } else {
       await applyUpsert(userId, source, sample, now, pendingKeys, counts, staging);
     }
+    if (afterOperation) await afterOperation();
   }
 
   return {

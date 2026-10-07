@@ -292,7 +292,20 @@ async function clearCleanupMarkers(userId, selector) {
   await HealthProjectionCleanup.deleteMany({ userId, ...selector });
 }
 
-async function cleanupMarker(userId, marker) {
+async function renewProjectionLease(token) {
+  const owned = await HealthProjectionCleanup.updateOne(
+    { _id: token, status: 'projecting' },
+    { $set: { leaseUntil: new Date(Date.now() + MAX_BATCH_LEASE_MS) } },
+  );
+  if ((owned?.matchedCount ?? 0) !== 1) {
+    throw Object.assign(new Error('health_projection_pending'), {
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+  }
+}
+
+async function cleanupMarker(userId, marker, { keepMarker = false } = {}) {
   for (const sampleKey of marker.sampleKeys ?? []) {
     const newer = await HealthSample.exists({
       userId,
@@ -308,7 +321,7 @@ async function cleanupMarker(userId, marker) {
     healthProjectionProvider: marker.provider,
     healthProjectionConnectionVersion: Number(marker.connectionVersion ?? 0),
   }, { $set: PROFILE_CLEAR });
-  await clearCleanupMarkers(userId, { _id: marker._id });
+  if (!keepMarker) await clearCleanupMarkers(userId, { _id: marker._id });
 }
 
 async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
@@ -325,11 +338,32 @@ async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
         deferred += 1;
         continue;
       }
+      if (marker.status === 'cleanup' && marker.leaseUntil > new Date()) {
+        deferred += 1;
+        continue;
+      }
       if (marker.status !== 'cleanup' && fence.reason === 'consent_read_error') {
         deferred += 1;
         continue;
       }
-      await cleanupMarker(marker.userId, marker);
+      if (marker.status === 'projecting') {
+        const claimed = await HealthProjectionCleanup.updateOne(
+          { _id: marker._id, status: 'projecting', leaseUntil: { $lte: new Date() } },
+          {
+            $set: {
+              status: 'cleanup',
+              leaseUntil: new Date(Date.now() + MAX_BATCH_LEASE_MS),
+            },
+          },
+        );
+        if ((claimed?.modifiedCount ?? 0) !== 1) {
+          deferred += 1;
+          continue;
+        }
+        await cleanupMarker(marker.userId, marker, { keepMarker: true });
+      } else {
+        await cleanupMarker(marker.userId, marker);
+      }
       cleaned += 1;
     } catch {
       failed += 1;
@@ -396,12 +430,16 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
   let failure = null;
   try {
     for (const sample of pending) {
+      await renewProjectionLease(cleanupToken);
       const result = await projectTimeSeriesSample(sample);
+      await renewProjectionLease(cleanupToken);
       projected += result.inserted;
       removed += result.removed;
       if (result.inserted > 0) run.createdSampleKeys.push(sample.sampleKey);
     }
+    await renewProjectionLease(cleanupToken);
     profileUpdated = await rebuildAppleProfile(userId, source, start.connectionVersion, run);
+    await renewProjectionLease(cleanupToken);
   } catch (error) {
     failure = error;
   }
@@ -414,7 +452,7 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
   if (refusal) {
     await HealthProjectionCleanup.updateOne(
       { _id: cleanupToken },
-      { $set: { status: 'cleanup' } },
+      { $set: { status: 'cleanup', leaseUntil: new Date() } },
     );
     await compensate(userId, source, refusal, run);
     await cleanupRefusedPending(userId, source, start.connectionVersion);
@@ -423,7 +461,7 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
   if (failure) {
     await HealthProjectionCleanup.updateOne(
       { _id: cleanupToken },
-      { $set: { status: 'cleanup' } },
+      { $set: { status: 'cleanup', leaseUntil: new Date() } },
     );
     try {
       await cleanupMarker(userId, {

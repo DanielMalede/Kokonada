@@ -324,4 +324,31 @@ describe('health sample reconciliation privacy fences', () => {
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
   });
+
+  it('keeps an expired projection obligation through a recovery race with an active writer', async () => {
+    const owner = await grantedUser();
+    await pending(owner, '9', 'resting_heart_rate');
+    const hold = holdBefore(VitalSample, 'create');
+
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    await hold.entered;
+    await HealthProjectionCleanup.updateOne(
+      { userId: owner._id, status: 'projecting' },
+      { $set: { leaseUntil: new Date(Date.now() - 1000) } },
+    );
+
+    await expect(recoverOwedHealthProjectionCleanups())
+      .resolves.toEqual({ cleaned: 1, deferred: 0, failed: 0 });
+    const claimed = await HealthProjectionCleanup.findOne({ userId: owner._id }).lean();
+    expect(claimed).toMatchObject({ status: 'cleanup' });
+    expect(claimed.leaseUntil.getTime()).toBeGreaterThan(Date.now());
+
+    hold.release();
+    await expect(run).rejects.toMatchObject({
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
+  });
 });

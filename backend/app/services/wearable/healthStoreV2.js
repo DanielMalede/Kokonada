@@ -60,6 +60,35 @@ async function removeStagedRows(selector) {
   return removed?.deletedCount ?? 0;
 }
 
+async function renewIngestLease(ingestToken) {
+  const owned = await HealthIngestBatch.updateOne(
+    { _id: ingestToken, status: 'writing' },
+    { $set: { leaseUntil: new Date(Date.now() + MAX_BATCH_LEASE_MS) } },
+  );
+  if ((owned?.matchedCount ?? 0) !== 1) throw fixedError('health_projection_pending', 503);
+}
+
+async function removeOrphanedStagedRows({ userId = null, source = null, limit = 500 } = {}) {
+  const query = { ingestState: 'staged' };
+  if (userId != null) query.userId = userId;
+  if (source != null) query.source = source;
+  const rows = await HealthSample.find(query)
+    .select('userId source ingestToken')
+    .limit(limit)
+    .lean();
+  const tokens = [...new Set(rows.map((row) => row.ingestToken).filter(Boolean))];
+  let removed = 0;
+  for (const ingestToken of tokens) {
+    if (await HealthIngestBatch.exists({ _id: ingestToken })) continue;
+    removed += await removeStagedRows({
+      ...(userId == null ? {} : { userId }),
+      ...(source == null ? {} : { source }),
+      ingestToken,
+    });
+  }
+  return removed;
+}
+
 async function recoverStagedHealthSamples({ userId = null, source = null, limit = 500 } = {}) {
   const batchQuery = {};
   if (userId != null) batchQuery.userId = userId;
@@ -114,6 +143,11 @@ async function recoverStagedHealthSamples({ userId = null, source = null, limit 
       failed += 1;
     }
   }
+  try {
+    removed += await removeOrphanedStagedRows({ userId, source, limit });
+  } catch {
+    failed += 1;
+  }
   return { recovered, removed, failed };
 }
 
@@ -149,6 +183,8 @@ async function ingestV2Batch(userId, platform, samples, options = {}) {
       connectionVersion: expectedConnectionVersion,
       consentFence: start.fence,
       ingestToken,
+      beforeOperation: () => renewIngestLease(ingestToken),
+      afterOperation: () => renewIngestLease(ingestToken),
     });
 
     const completed = await HealthIngestBatch.updateOne(
@@ -193,17 +229,16 @@ async function ingestV2Batch(userId, platform, samples, options = {}) {
       projected: reconciled.projected,
     };
   } catch (error) {
-    if (stored == null) {
-      await HealthIngestBatch.updateOne(
-        { _id: ingestToken, status: 'writing' },
-        { $set: { status: 'aborted' } },
-      );
-      try {
-        await removeStagedRows({ userId, source, ingestToken });
-        await HealthIngestBatch.deleteOne({ _id: ingestToken, status: 'aborted' });
-      } catch {
-        // The durable aborted journal is intentionally left for the recovery worker.
-      }
+    await HealthIngestBatch.updateOne(
+      { _id: ingestToken, status: 'writing' },
+      { $set: { status: 'aborted' } },
+    );
+    try {
+      // Safe even after commit/projection failure: committed rows no longer carry ingestToken.
+      await removeStagedRows({ userId, source, ingestToken });
+      await HealthIngestBatch.deleteOne({ _id: ingestToken, status: 'aborted' });
+    } catch {
+      // The durable aborted journal, or the journal-independent staged sweep, retries cleanup.
     }
     const statusCode = STATUS_BY_CODE[error?.code];
     if (statusCode) throw fixedError(error.code, statusCode);
