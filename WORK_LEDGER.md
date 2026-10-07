@@ -70,7 +70,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/coord-paperwork`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #236
 - started: 2026-10-07
 
 ### M02
