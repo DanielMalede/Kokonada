@@ -11,11 +11,10 @@
 // only rises. The builder keys a lobe's drift by it for the placement's whole life.
 //
 // Reading the store:
-//   · a fresh ledger's first input is a reset: its taps are shown at once, at fade 1 (a mount; a lab
-//     scene, whose order is its ordinal). A seq that goes backwards (the root restarted) also resets;
-//   · otherwise a change is detected by seq and read by value, as the pops and adds that keep the
-//     most taps. Several store changes seen in one frame (React may batch them) are read as their
-//     events, so nothing steps;
+//   · a fresh ledger's first input is the only reset: its taps are shown at once, at fade 1 (a mount;
+//     a lab scene mounts a fresh ledger, so its order is its ordinal). Any other seq change, forward
+//     or backward, is read by value, as the pops and adds that keep the most taps. Several store
+//     changes seen in one frame (React may batch them) are read as their events, so nothing steps;
 //   · the taps lost from the tail go first (a clear's oldest first), then those shifted out from the
 //     front: the order the cold lane loses them in.
 //
@@ -190,7 +189,7 @@ export function emptyLedger(config: LedgerConfig, limits: Admission = ADMISSION)
   };
 }
 
-/** Shown at once, at fade 1: a fresh ledger's first input, or a restart. */
+/** Shown at once, at fade 1: a fresh ledger's first input, the only reset. */
 function reset(l: Ledger, taps: readonly Tap[], seq: number): Ledger {
   'worklet';
   const shown: Shown[] = taps.map((t, i) => ({ id: l.next + i, x: t.x, y: t.y, node: nodeAt(t.x, t.y), slot: i, phase: 'still' as const }));
@@ -210,7 +209,7 @@ function reset(l: Ledger, taps: readonly Tap[], seq: number): Ledger {
   };
 }
 
-/** A forward change, read by value as the pops and adds that keep the most taps, and netted. */
+/** A change of seq, read by value as the pops and adds that keep the most taps, and netted. */
 function change(l: Ledger, taps: readonly Tap[], seq: number): Ledger {
   'worklet';
   const old = l.store;
@@ -242,6 +241,16 @@ function change(l: Ledger, taps: readonly Tap[], seq: number): Ledger {
     else leaves.push(gone);
   }
   return { ...l, seq, store: [...kept, ...added], next: l.next + added.length, leaves, enters: [...enters, ...added] };
+}
+
+/**
+ * The store's taps as the field reads them: at most the cold lane's three (emotionSlice MAX_TAPS), and
+ * a non-finite coordinate read as 0, as the builder reads it (fieldFrame.ts finite(…, 0)), so both give
+ * a tap the same node.
+ */
+function readTaps(taps: readonly Tap[]): Tap[] {
+  'worklet';
+  return taps.slice(-ADMISSION.live).map((t) => ({ x: Number.isFinite(t.x) ? t.x : 0, y: Number.isFinite(t.y) ? t.y : 0 }));
 }
 
 /** How many of the waiting swaps (then lone changes) fit, as an arrival-order prefix. */
@@ -330,11 +339,10 @@ export function reconcile(prev: Ledger, input: LedgerInput, nowMs: number, mode:
     if (progress(l.running!.mode, l.running!.elapsed) >= 1) l = finish(l);
   }
   if (l.seq === null) {
-    l = reset(l, input.taps, input.seq);
+    l = reset(l, readTaps(input.taps), input.seq);
   } else if (input.seq !== l.seq) {
-    if (sameTaps(l.store, input.taps)) l = { ...l, seq: input.seq };
-    else if (input.seq < l.seq) l = reset(l, input.taps, input.seq);
-    else l = change(l, input.taps, input.seq);
+    const taps = readTaps(input.taps);
+    l = sameTaps(l.store, taps) ? { ...l, seq: input.seq } : change(l, taps, input.seq);
   }
   const waiting = l.leaves.length > 0 || l.enters.length > 0;
   if (l.running === null && waiting && l.clock - l.lastStart >= BASE.motion.settle.duration) l = start(l, mode);

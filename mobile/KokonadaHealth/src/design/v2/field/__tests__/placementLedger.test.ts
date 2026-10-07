@@ -1,18 +1,23 @@
 /// <reference types="node" />
 import * as fs from 'fs';
 import * as path from 'path';
+import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE } from '../../tokens/tokens.generated.ts';
 import { progress, crossfade } from '../crossfade.ts';
+import { buildFieldFrame, nodeAt } from '../fieldFrame.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
+import { frameState, geometry, stormDeps } from '../ledgerStorms.ts';
 import { ADMISSION, emptyLedger, fades, needsFrames, reconcile, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from '../placementLedger.ts';
+import { staticsFor } from '../statics.ts';
+import { packFrame } from '../uniforms.ts';
 
 // The placement ledger (architect admission §1, designer final rulings (1) and (2), resilience
 // admission §1): the visual layer's record of the placements, derived from the cold-lane taps alone.
 //   · reconcile(prev, {seq, taps}, nowMs, mode) runs once per frame on the UI thread;
-//   · a fresh ledger's first input is a reset: its taps are shown at once, with no animation (a mount,
-//     or a lab scene, whose order is its ordinal). After that a change is detected by seq and read by
-//     value, as the pops and adds that keep the most taps; several store changes seen in one frame
-//     are read as their events, so nothing steps. Only a seq that goes backwards (a restart) resets;
+//   · a fresh ledger's first input is the only reset: its taps are shown at once, with no animation
+//     (a mount; a lab scene mounts a fresh ledger, so its order is its ordinal). Any other seq change,
+//     forward or backward, is read by value, as the pops and adds that keep the most taps; several
+//     store changes seen in one frame are read as their events, so nothing steps;
 //   · pending changes are netted, never queued raw: an enter followed by a leave of the same
 //     placement cancels, so what waits is the difference between the field and the store. The
 //     waiting leaves and enters, each in arrival order, pair into swaps;
@@ -179,14 +184,37 @@ describe('change detection by seq, classification by value', () => {
     expect(at(1200).f.placements.map((p) => [p.id, p.role, p.fade])).toEqual([[0, 'live', 1], [1, 'leaving', 1], [2, 'live', 0]]);
   });
 
-  it('a seq that goes backwards (the root restarted) is a reset: no animation, all live at fade 1, ids never reused', () => {
+  // Resilience round 1 F5 and architect round 1 §1 (c): only a fresh ledger's first input resets.
+  it('a seq that goes backwards is read by value like any change: animated, never a reset (only a fresh ledger resets)', () => {
     const s = store();
     const { ledger } = run(emptyLedger(ABYSS), s, -1, 700, 'settle', { 0: () => s.add(J) });
     const restarted = reconcile(ledger, { seq: 0, taps: [C, R] }, 701, 'settle');
-    expect(fades(restarted).placements.map((p) => [p.id, p.role, p.fade])).toEqual([[1, 'live', 1], [2, 'live', 1]]);
-    expect(fades(restarted).ended).toEqual([0]);
-    expect(fades(restarted).restFade).toBe(0);
-    expect(needsFrames(restarted)).toBe(false);
+    expect(fades(restarted).placements.map((p) => [p.id, p.role, p.fade])).toEqual([[0, 'leaving', 1], [1, 'live', 0], [2, 'live', 0]]);
+    expect(needsFrames(restarted)).toBe(true);
+  });
+
+  it('two writers alternating {seq 5, [J]} and {seq 4, [C]} every frame for 3 s: no fade steps, and starts stay at least 600 ms apart', () => {
+    let ledger = emptyLedger(ABYSS);
+    let before = new Map<number, number>();
+    const starts: number[] = [];
+    let seen = 0;
+    const slope = 4 / 0.6 / 1000;
+    const steps: string[] = [];
+    for (let t = 0; t <= 3000; t++) {
+      ledger = reconcile(ledger, t % 2 === 0 ? { seq: 5, taps: [J] } : { seq: 4, taps: [C] }, t, 'settle');
+      if (ledger.starts !== seen) { seen = ledger.starts; starts.push(t); }
+      const f = fades(ledger);
+      const now = new Map<number, number>(f.placements.map((p) => [p.id, p.fade]));
+      for (const e of f.ended) now.set(e, 0);
+      for (const [id, fade] of now) {
+        const was = before.get(id);
+        if (was === undefined ? fade !== 0 && t > 0 : Math.abs(fade - was) > slope * 1.001 + 1e-12) steps.push(`id ${id} at ${t} ms`);
+      }
+      before = new Map([...now].filter(([id]) => !f.ended.includes(id)));
+    }
+    expect(steps.slice(0, 3)).toEqual([]);
+    expect(starts.slice(1).map((t, k) => t - starts[k]).filter((g) => g < SETTLE)).toEqual([]);
+    expect(starts.length).toBeGreaterThan(1);
   });
 
   it('a forward change no single store operation explains is still animated: the most taps kept, the rest leave and enter', () => {
@@ -203,11 +231,13 @@ describe('change detection by seq, classification by value', () => {
 });
 
 describe('netting: pending changes are netted against the store, never queued raw', () => {
-  it('a tap undone before it is admitted never appears', () => {
+  it('a tap undone before it is admitted never appears, and nothing is left waiting', () => {
     const s = store();
     const { frames } = run(emptyLedger(ABYSS), s, -1, 2000, 'settle', { 0: () => s.add(J), 100: () => s.add(C), 200: () => s.undo() });
     expect(frames.some((x) => x.f.placements.some((p) => p.id === 1))).toBe(false);
-    expect(frames[frames.length - 1].ledger.starts).toBe(1);
+    const last = frames[frames.length - 1].ledger;
+    expect(last.starts).toBe(1);
+    expect([last.leaves.length, last.enters.length, needsFrames(last)]).toEqual([0, 0, false]);
   });
 
   it('a replace queues its leave before its enter: never four live', () => {
@@ -353,5 +383,60 @@ describe('the ledger stays in the visual layer', () => {
   it('the cold-lane Tap is still exactly {x, y}', () => {
     const slice = fs.readFileSync(path.resolve(FIELD, '../../../state/cold/emotionSlice.ts'), 'utf8');
     expect(slice).toMatch(/export interface Tap \{\s*x: number;\s*y: number;\s*\}/);
+  });
+
+  // Resilience round 1 F4: the ledger reads at most the cold lane's three taps (readTaps).
+  it('the cold lane holds at most three taps, the ledger\'s live limit', () => {
+    const slice = fs.readFileSync(path.resolve(FIELD, '../../../state/cold/emotionSlice.ts'), 'utf8');
+    const held = /const MAX_TAPS = (\d+);/.exec(slice);
+    expect(held).not.toBeNull();
+    expect(Number(held![1])).toBe(ADMISSION.live);
+  });
+});
+
+// Resilience round 1 F4 (architect round 1 G-b): the ledger and the builder read a tap the same way.
+// A non-finite coordinate is read as 0 by both, and the ledger reads at most the cold lane's three
+// taps, so the frame never holds more than the ledger's demand and the builder never throws.
+describe('the ledger reads the store as the builder does', () => {
+  const linen = stormDeps('linen', staticsFor('linen', EXTENSIONS as never));
+  /** Frames at 1 ms, each built and packed: the worst occupancy over demand, and the first throw. */
+  function drive(first: Tap[], later: Record<number, Tap[]>, to: number) {
+    let ledger = emptyLedger(linen.config);
+    let taps = first;
+    let seq = 1;
+    let over = 0;
+    let threw: string | null = null;
+    for (let t = 0; t <= to; t++) {
+      if (later[t]) { taps = later[t]; seq++; }
+      ledger = reconcile(ledger, { seq, taps }, t, 'settle');
+      const f = fades(ledger);
+      try {
+        const frame = buildFieldFrame(frameState('linen', 'light', f), geometry, linen.statics);
+        packFrame(frame);
+        const occupied = frame.nodes.filter((nd) => nd.fade > 0 || nd.bead !== null).length;
+        over = Math.max(over, occupied - f.demand);
+      } catch (error) {
+        threw = threw ?? `${(error as Error).name} at ${t} ms: ${(error as Error).message}`;
+      }
+    }
+    return { over, threw, ledger };
+  }
+
+  it.each([['NaN', NaN], ['Infinity', Infinity]])('Linen, taps [n1, n2, %s], then two neutral taps inside one settle window: never throws, never over demand', (_, bad) => {
+    const odd = tap(bad, bad);
+    const { over, threw } = drive([n(1), n(2), odd], { 100: [n(2), odd, n(4)], 200: [odd, n(4), n(5)] }, 3000);
+    expect({ threw, over: Math.max(0, over) }).toEqual({ threw: null, over: 0 });
+  });
+
+  it('a raw input of five taps is read as its last three', () => {
+    const five = [n(1), n(2), n(3), n(4), n(5)];
+    const { over, threw, ledger } = drive(five, {}, 100);
+    expect({ threw, over: Math.max(0, over) }).toEqual({ threw: null, over: 0 });
+    expect(fades(ledger).placements.map((p) => [p.x, p.y])).toEqual([n(3), n(4), n(5)].map((p) => [p.x, p.y]));
+  });
+
+  it('a non-finite coordinate is read as 0, as the builder reads it, so both give the tap the same node', () => {
+    const f = fades(reconcile(emptyLedger(linen.config), { seq: 1, taps: [tap(NaN, 0.5), tap(0.4, Infinity)] }, 0, 'settle'));
+    expect(f.placements.map((p) => [p.x, p.y, p.node])).toEqual([[0, 0.5, nodeAt(0, 0.5)], [0.4, 0, nodeAt(0.4, 0)]]);
   });
 });
