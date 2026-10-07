@@ -109,18 +109,31 @@ describe('E5: the halo is bound to the ledger', () => {
     }
     return out;
   };
-  /** A plate or bead source that reads field.halo or draws a halo of its own. */
-  const offends = (file: string, source: string) => /(plate|bead)/i.test(path.basename(file)) && /field\.halo|\bhalo\b|Halo\b/.test(source);
+  /**
+   * A plate or bead source that reads field.halo or draws a halo of its own; or any source outside
+   * v2/field and the generated tokens that reads field.halo, whatever its name (resilience round 1 F10).
+   */
+  const offends = (file: string, source: string) => (/(plate|bead)/i.test(path.basename(file)) && /field\.halo|\bhalo\b|Halo\b/.test(source)) || (!file.includes(`${path.sep}v2${path.sep}field${path.sep}`) && !/tokens(\.extensions)?\.generated\.ts$/.test(file) && /\bfield\.halo\b/.test(source));
 
-  it('the static guard: no plate or bead file reads field.halo or draws a halo', () => {
+  /** The legitimate readers of field.halo outside v2/field, each with its reason (resilience round 1 F10). */
+  const HALO_READERS: Record<string, string> = {
+    [path.join('v2', 'tokens', 'neverRedSweeps.ts')]: 'the never-red sweep bounds k by the halo peak (field.halo.peakDark and peakLight); it draws nothing',
+  };
+
+  it('the static guard: no plate or bead file reads field.halo or draws a halo, and nothing else outside v2/field reads field.halo', () => {
     const files = [...walk(path.join(DESIGN, 'v2')), ...walk(path.join(DESIGN, 'lab'))];
     expect(files.length).toBeGreaterThan(20);
-    expect(files.filter((f) => offends(f, fs.readFileSync(f, 'utf8'))).map((f) => path.relative(DESIGN, f))).toEqual([]);
+    expect(files.filter((f) => offends(f, fs.readFileSync(f, 'utf8'))).map((f) => path.relative(DESIGN, f)).filter((f) => !(f in HALO_READERS))).toEqual([]);
+  });
+
+  it('each allowlisted reader still exists and still reads field.halo, so the list cannot rot', () => {
+    for (const file of Object.keys(HALO_READERS)) expect([file, offends(path.join(DESIGN, file), fs.readFileSync(path.join(DESIGN, file), 'utf8'))]).toEqual([file, true]);
   });
 
   it('the static guard bites on planted sources', () => {
     expect(offends('lab/v1hero/Beads.tsx', 'const r = BASE.field.halo.diameter / 2;')).toBe(true);
     expect(offends('lab/v1hero/Plate.tsx', '<Circle r={22} color={haloColour} /> // the Halo')).toBe(true);
     expect(offends('lab/v1hero/VoiceLine.tsx', 'const halo = 1;')).toBe(false);
+    expect(offends('lab/v1hero/PlacementMarks.tsx', 'const d = BASE.field.halo.diameter;')).toBe(true);
   });
 });
