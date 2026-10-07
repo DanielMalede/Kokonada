@@ -351,4 +351,85 @@ describe('health sample reconciliation privacy fences', () => {
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
   });
+
+  it('sweeps a projection that commits after both cleanup passes and the writer crashes', async () => {
+    const owner = await grantedUser();
+    await pending(owner, 'a', 'resting_heart_rate');
+    const originalCreate = VitalSample.create.bind(VitalSample);
+    let entered;
+    let release;
+    let inserted;
+    const enteredPromise = new Promise((resolve) => { entered = resolve; });
+    const releasePromise = new Promise((resolve) => { release = resolve; });
+    const insertedPromise = new Promise((resolve) => { inserted = resolve; });
+    const simulatedCrash = new Promise(() => {});
+    jest.spyOn(VitalSample, 'create').mockImplementation(async (...args) => {
+      entered();
+      await releasePromise;
+      const result = await originalCreate(...args);
+      inserted();
+      await simulatedCrash;
+      return result;
+    });
+
+    // The unresolved promise simulates a process dying after Mongo commits but before the
+    // writer can renew its lease or run compensation. Attach a handler so the test owns it.
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    run.catch(() => {});
+    await enteredPromise;
+
+    await HealthProjectionCleanup.updateOne(
+      { userId: owner._id, status: 'projecting' },
+      { $set: { leaseUntil: new Date(Date.now() - 1000) } },
+    );
+    await recoverOwedHealthProjectionCleanups();
+    await HealthProjectionCleanup.updateOne(
+      { userId: owner._id, status: 'cleanup' },
+      { $set: { leaseUntil: new Date(Date.now() - 1000) } },
+    );
+    await recoverOwedHealthProjectionCleanups();
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
+
+    await withdrawConsent(owner._id, HEALTH_CONSENT_PURPOSE);
+    await eraseWearableProvider(await User.findById(owner._id), 'apple_health');
+    release();
+    await insertedPromise;
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(1);
+
+    await recoverOwedHealthProjectionCleanups();
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
+  });
+
+  it('does not sweep a linked projection while its authoritative sample remains active', async () => {
+    const owner = await grantedUser();
+    await pending(owner, 'b', 'resting_heart_rate');
+    await reconcileHealthSamples(owner._id, 'apple_health');
+
+    await recoverOwedHealthProjectionCleanups();
+
+    expect(await HealthSample.countDocuments({ userId: owner._id, state: 'active' })).toBe(1);
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(1);
+  });
+
+  it('clears stale Apple profile provenance without deleting unrelated profile fields', async () => {
+    const owner = await grantedUser();
+    await MedicalProfile.create({
+      userId: owner._id,
+      healthProjectionProvider: 'apple_health',
+      healthProjectionConnectionVersion: 0,
+      restingHeartRate: 58,
+      maxHeartRate: 181,
+    });
+    await User.updateOne({ _id: owner._id }, { $inc: { wearableConnectionVersion: 1 } });
+
+    await recoverOwedHealthProjectionCleanups();
+
+    const profile = await MedicalProfile.findOne({ userId: owner._id });
+    expect(profile.healthProjectionProvider).toBeNull();
+    expect(profile.healthProjectionConnectionVersion).toBeNull();
+    expect(profile.restingHeartRate).toBeNull();
+    expect(profile.maxHeartRate).toBe(181);
+  });
 });

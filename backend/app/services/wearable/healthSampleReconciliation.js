@@ -1,8 +1,10 @@
 'use strict';
 
+const BiometricLog = require('../../models/BiometricLog');
 const HealthSample = require('../../models/HealthSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const User = require('../../models/User');
+const VitalSample = require('../../models/VitalSample');
 const { getRedis } = require('../../config/redis');
 const { enqueue } = require('../../queues/queue');
 const { QUEUES } = require('../../queues/definitions');
@@ -324,6 +326,80 @@ async function cleanupMarker(userId, marker, { keepMarker = false } = {}) {
   if (!keepMarker) await clearCleanupMarkers(userId, { _id: marker._id });
 }
 
+async function findProjectionsWithoutAuthority(Model, limit) {
+  return Model.aggregate([
+    { $match: { healthSampleKey: { $type: 'string' } } },
+    {
+      $lookup: {
+        from: HealthSample.collection.name,
+        let: {
+          projectionUserId: '$userId',
+          projectionSource: '$source',
+          projectionSampleKey: '$healthSampleKey',
+        },
+        pipeline: [
+          {
+            $match: {
+              state: 'active',
+              ingestState: { $ne: 'staged' },
+              $expr: {
+                $and: [
+                  { $eq: ['$userId', '$$projectionUserId'] },
+                  { $eq: ['$source', '$$projectionSource'] },
+                  { $eq: ['$sampleKey', '$$projectionSampleKey'] },
+                ],
+              },
+            },
+          },
+          { $project: { _id: 1 } },
+          { $limit: 1 },
+        ],
+        as: 'authoritativeRows',
+      },
+    },
+    { $match: { authoritativeRows: { $eq: [] } } },
+    { $project: { _id: 1 } },
+    { $limit: limit },
+  ]);
+}
+
+/**
+ * A projection writer may be suspended inside Mongo longer than any lease. If it commits after
+ * its cleanup marker was processed, the marker cannot lead recovery back to that row. The
+ * authoritative HealthSample link is therefore the durable invariant: no linked time-series
+ * projection may outlive its active, committed source row. MedicalProfile has no sample key, so
+ * its explicit provider/generation provenance is checked against the live consent/provider fence.
+ */
+async function sweepOrphanedHealthProjections({ limit = 100 } = {}) {
+  let removed = 0;
+  for (const Model of [BiometricLog, VitalSample]) {
+    const orphaned = await findProjectionsWithoutAuthority(Model, limit);
+    if (!orphaned.length) continue;
+    const result = await Model.deleteMany({ _id: { $in: orphaned.map((row) => row._id) } });
+    removed += result?.deletedCount ?? 0;
+  }
+
+  const profiles = await MedicalProfile.find({ healthProjectionProvider: { $ne: null } })
+    .select('_id userId healthProjectionProvider healthProjectionConnectionVersion')
+    .limit(limit)
+    .lean();
+  for (const profile of profiles) {
+    const fence = await projectionFence(
+      profile.userId,
+      profile.healthProjectionProvider,
+      profile.healthProjectionConnectionVersion,
+    );
+    if (fence.reason === 'consent_read_error' || fence.admitted) continue;
+    const result = await MedicalProfile.updateOne({
+      _id: profile._id,
+      healthProjectionProvider: profile.healthProjectionProvider,
+      healthProjectionConnectionVersion: profile.healthProjectionConnectionVersion,
+    }, { $set: PROFILE_CLEAR });
+    removed += result?.modifiedCount ?? 0;
+  }
+  return removed;
+}
+
 async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
   const markers = await HealthProjectionCleanup.find({})
     .limit(limit)
@@ -368,6 +444,13 @@ async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
     } catch {
       failed += 1;
     }
+  }
+  try {
+    await sweepOrphanedHealthProjections({ limit });
+  } catch {
+    // The next worker pass retries independently of journal presence. Keep the public result
+    // values-free while making an operational failure visible to the worker/monitoring path.
+    failed += 1;
   }
   return { cleaned, deferred, failed };
 }
@@ -499,5 +582,6 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
 module.exports = {
   recoverOwedHealthProjectionCleanups,
   reconcileHealthSamples,
+  sweepOrphanedHealthProjections,
   summarizeSleepIntervals,
 };
