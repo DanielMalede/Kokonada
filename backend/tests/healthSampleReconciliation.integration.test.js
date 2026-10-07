@@ -10,6 +10,7 @@ jest.mock('../app/queues/queue', () => ({ enqueue: jest.fn().mockResolvedValue({
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const BiometricLog = require('../app/models/BiometricLog');
+const ConsentRecord = require('../app/models/ConsentRecord');
 const HealthSample = require('../app/models/HealthSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const User = require('../app/models/User');
@@ -17,6 +18,10 @@ const VitalSample = require('../app/models/VitalSample');
 const { enqueue } = require('../app/queues/queue');
 const { QUEUES } = require('../app/queues/definitions');
 const { stateVectorJobId } = require('../app/queues/stateVectorJob');
+const {
+  HEALTH_CONSENT_PURPOSE,
+  recordConsent,
+} = require('../app/services/privacy/consent');
 const { reconcileHealthSamples } = require('../app/services/wearable/healthSampleReconciliation');
 
 jest.setTimeout(120000);
@@ -27,6 +32,7 @@ beforeAll(async () => {
   await mongoose.connect(mem.getUri(), { dbName: 'kokonada_health_reconciliation' });
   await Promise.all([
     BiometricLog.syncIndexes(),
+    ConsentRecord.syncIndexes(),
     HealthSample.syncIndexes(),
     MedicalProfile.syncIndexes(),
     User.syncIndexes(),
@@ -43,6 +49,7 @@ beforeEach(async () => {
   enqueue.mockResolvedValue({ queued: true });
   await Promise.all([
     BiometricLog.deleteMany({}),
+    ConsentRecord.deleteMany({}),
     HealthSample.deleteMany({}),
     MedicalProfile.deleteMany({}),
     User.deleteMany({}),
@@ -51,12 +58,17 @@ beforeEach(async () => {
 });
 
 async function user(wearableProvider = 'apple_health') {
-  return User.create({
+  const owner = await User.create({
     ssoProvider: 'google',
     ssoId: new mongoose.Types.ObjectId().toString(),
     email: `${new mongoose.Types.ObjectId()}@example.test`,
     wearableProvider,
   });
+  await recordConsent(owner._id, {
+    purpose: HEALTH_CONSENT_PURPOSE,
+    dataCategories: ['heart_rate', 'resting_heart_rate', 'hrv', 'sleep'],
+  });
+  return owner;
 }
 
 async function sample(owner, keyDigit, overrides = {}) {

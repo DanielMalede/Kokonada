@@ -29,10 +29,10 @@ const { logBiometricAccess } = require('../../utils/biometricAudit');
 // Same collections erasure cascades over. `redact` strips credential secrets from the export
 // (the row is still represented — only the secret field is removed).
 const COLLECTIONS = [
-  { model: BiometricLog },
+  { model: BiometricLog, redact: ['healthSampleKey'] },
   // The physiological value belongs in the subject's export; the HMAC identity does not.
   { model: HealthSample, redact: ['sampleKey'] },
-  { model: VitalSample },                              // per-metric vitals (W4-004, S5)
+  { model: VitalSample, redact: ['healthSampleKey'] }, // per-metric vitals (W4-004, S5)
   { model: MedicalProfile },
   { model: MorningState },                             // nightly consolidation history (W4-012, S5)
   { model: RewardEvent },                              // learned context-bucket rewards (W4-011, S5)

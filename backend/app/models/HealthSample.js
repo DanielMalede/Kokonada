@@ -39,6 +39,9 @@ const healthSampleSchema = new mongoose.Schema({
   expiresAt: { type: Date, required: true },
   v: { type: Number, default: HEALTH_SAMPLE_VERSION },
 }, {
+  // Production indexes are an owner-gated Atlas rollout. Keep declarations for explicit
+  // syncIndexes()/createIndexes() calls, but never create unique or TTL indexes on app startup.
+  autoIndex: false,
   timestamps: true,
   toJSON: { getters: true },
   toObject: { getters: true },

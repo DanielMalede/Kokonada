@@ -113,7 +113,10 @@ async function applyExistingUpsert(row, sample, currentKey, pendingKeys, counts)
 
 async function applyUpsert(userId, source, sample, now, pendingKeys, counts) {
   const endAt = new Date(sample.endDate);
-  const expiresAt = new Date(endAt.getTime() + RETENTION_MS);
+  const expiresAt = new Date(Math.min(
+    endAt.getTime() + RETENTION_MS,
+    now.getTime() + RETENTION_MS,
+  ));
   if (expiresAt.getTime() <= now.getTime()) throw outsideRetention();
 
   const found = await findExisting(userId, source, sample.sampleId);

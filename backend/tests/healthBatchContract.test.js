@@ -5,6 +5,7 @@ const { parseHealthBatchRequest } = require('../app/services/wearable/healthBatc
 const batchId = '550e8400-e29b-41d4-a716-446655440000';
 const sampleId = '6ba7b810-9dad-41d1-80b4-00c04fd430c8';
 const at = '2026-10-06T06:30:00.000Z';
+const now = new Date('2026-10-06T06:30:00.000Z');
 
 function v2Sample(overrides = {}) {
   return {
@@ -30,9 +31,9 @@ function v2Body(overrides = {}) {
   };
 }
 
-function expectContractError(body, code, statusCode) {
+function expectContractError(body, code, statusCode, options) {
   try {
-    parseHealthBatchRequest(body);
+    parseHealthBatchRequest(body, options);
     throw new Error('expected parseHealthBatchRequest to throw');
   } catch (error) {
     expect(error).toMatchObject({ code, statusCode });
@@ -82,6 +83,7 @@ describe('parseHealthBatchRequest', () => {
       v2Body({ samples: [v2Sample({ sampleId: 'not-a-uuid' })] }),
       'invalid_health_sample',
       400,
+      { now },
     );
   });
 
@@ -91,6 +93,75 @@ describe('parseHealthBatchRequest', () => {
       'invalid_health_sample',
       400,
     );
+  });
+
+  it.each([
+    ['a numeric string', { value: '72' }],
+    ['whitespace', { value: ' ' }],
+    ['a non-canonical heart-rate unit', { unit: 'kg' }],
+    ['heart rate below the physiological floor', { value: 29 }],
+    ['heart rate above the physiological ceiling', { value: 221 }],
+  ])('rejects %s', (_label, overrides) => {
+    expectContractError(
+      v2Body({ samples: [v2Sample(overrides)] }),
+      'invalid_health_sample',
+      400,
+    );
+  });
+
+  it.each([
+    ['resting_heart_rate', 60, 'ms'],
+    ['hrv', 48, 'bpm'],
+    ['sleep_deep', 60, 'bpm'],
+  ])('rejects a non-canonical unit for %s', (type, value, unit) => {
+    const method = type === 'hrv' ? 'sdnn' : undefined;
+    expectContractError(
+      v2Body({ samples: [v2Sample({ type, value, unit, method })] }),
+      'invalid_health_sample',
+      400,
+    );
+  });
+
+  it.each([
+    ['hrv', 0, 'ms', 'sdnn'],
+    ['hrv', 1001, 'ms', 'sdnn'],
+    ['sleep_deep', 0, 'min', undefined],
+    ['sleep_rem', 1441, 'min', undefined],
+  ])('rejects an out-of-range %s value', (type, value, unit, method) => {
+    expectContractError(
+      v2Body({ samples: [v2Sample({ type, value, unit, method })] }),
+      'invalid_health_sample',
+      400,
+    );
+  });
+
+  it('rejects an interval whose start is after its end', () => {
+    expectContractError(
+      v2Body({ samples: [v2Sample({
+        startDate: '2026-10-06T06:31:00.000Z',
+        endDate: '2026-10-06T06:30:00.000Z',
+      })] }),
+      'invalid_health_sample',
+      400,
+      { now },
+    );
+  });
+
+  it('rejects a sample more than five minutes in the future but accepts the boundary', () => {
+    expectContractError(
+      v2Body({ samples: [v2Sample({
+        startDate: '2026-10-06T06:35:00.001Z',
+        endDate: '2026-10-06T06:35:00.001Z',
+      })] }),
+      'invalid_health_sample',
+      400,
+      { now },
+    );
+
+    expect(parseHealthBatchRequest(v2Body({ samples: [v2Sample({
+      startDate: '2026-10-06T06:35:00.000Z',
+      endDate: '2026-10-06T06:35:00.000Z',
+    })] }), { now })).toMatchObject({ version: 2 });
   });
 
   it('rejects a date-only value instead of accepting it as an ISO timestamp', () => {
@@ -131,7 +202,7 @@ describe('parseHealthBatchRequest', () => {
 
   it('rejects HealthKit HRV labeled as RMSSD', () => {
     expectContractError(
-      v2Body({ samples: [v2Sample({ type: 'hrv', method: 'rmssd' })] }),
+      v2Body({ samples: [v2Sample({ type: 'hrv', unit: 'ms', method: 'rmssd' })] }),
       'invalid_hrv_method',
       400,
     );
@@ -141,7 +212,7 @@ describe('parseHealthBatchRequest', () => {
     expectContractError(
       v2Body({
         platform: 'health_connect',
-        samples: [v2Sample({ type: 'hrv', method: 'sdnn' })],
+        samples: [v2Sample({ type: 'hrv', unit: 'ms', method: 'sdnn' })],
       }),
       'invalid_hrv_method',
       400,

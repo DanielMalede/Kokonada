@@ -1,6 +1,9 @@
 'use strict';
 
+const { isPhysiologicalHR } = require('./hrRange');
+
 const MAX_BATCH = 2000;
+const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 const PLATFORMS = new Set(['healthkit', 'health_connect']);
@@ -12,6 +15,14 @@ const TYPES = new Set([
   'sleep_light',
   'sleep_rem',
 ]);
+const METRIC_RULES = Object.freeze({
+  heart_rate: { unit: 'bpm', valid: isPhysiologicalHR },
+  resting_heart_rate: { unit: 'bpm', valid: isPhysiologicalHR },
+  hrv: { unit: 'ms', valid: (value) => value > 0 && value <= 1000 },
+  sleep_deep: { unit: 'min', valid: (value) => value > 0 && value <= 1440 },
+  sleep_light: { unit: 'min', valid: (value) => value > 0 && value <= 1440 },
+  sleep_rem: { unit: 'min', valid: (value) => value > 0 && value <= 1440 },
+});
 
 function contractError(code, statusCode = 400) {
   return Object.assign(new Error(code), { code, statusCode });
@@ -27,7 +38,7 @@ function validatePlatform(platform) {
   if (!PLATFORMS.has(platform)) throw contractError('invalid_health_platform');
 }
 
-function parseHealthBatchRequest(body) {
+function parseHealthBatchRequest(body, { now = new Date() } = {}) {
   const input = body && typeof body === 'object' ? body : {};
   validatePlatform(input.platform);
 
@@ -60,13 +71,19 @@ function parseHealthBatchRequest(body) {
 
   for (const sample of input.samples) {
     if (sample.operation === 'delete') continue;
+    const rule = METRIC_RULES[sample.type];
+    const startMs = Date.parse(sample.startDate);
+    const endMs = Date.parse(sample.endDate);
     if (!TYPES.has(sample.type)
-      || sample.value == null
-      || !Number.isFinite(Number(sample.value))
-      || typeof sample.unit !== 'string'
-      || sample.unit.length === 0
+      || typeof sample.value !== 'number'
+      || !Number.isFinite(sample.value)
+      || !rule
+      || sample.unit !== rule.unit
+      || !rule.valid(sample.value)
       || !isIsoDate(sample.startDate)
-      || !isIsoDate(sample.endDate)) {
+      || !isIsoDate(sample.endDate)
+      || startMs > endMs
+      || endMs > now.getTime() + MAX_FUTURE_SKEW_MS) {
       throw contractError('invalid_health_sample');
     }
 

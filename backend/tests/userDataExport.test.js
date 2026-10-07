@@ -34,7 +34,13 @@ function stubFind(model, docs = []) {
 beforeEach(() => {
   jest.restoreAllMocks();
   // Real model instances so the encrypted getters actually run (real decryption semantics).
-  stubFind(BiometricLog, [new BiometricLog({ userId: OID, heartRate: 72, source: 'garmin', recordedAt: new Date() })]);
+  stubFind(BiometricLog, [new BiometricLog({
+    userId: OID,
+    heartRate: 72,
+    source: 'apple_health',
+    recordedAt: new Date(),
+    healthSampleKey: 'c'.repeat(64),
+  })]);
   stubFind(HealthSample, [new HealthSample({
     userId: OID,
     sampleKey: 'b'.repeat(64),
@@ -46,7 +52,14 @@ beforeEach(() => {
     endAt: new Date(),
     expiresAt: new Date(Date.now() + 86400000),
   })]);
-  stubFind(VitalSample, [new VitalSample({ userId: OID, metric: 'hrv', value: 63, source: 'garmin', recordedAt: new Date() })]);
+  stubFind(VitalSample, [new VitalSample({
+    userId: OID,
+    metric: 'hrv',
+    value: 63,
+    source: 'apple_health',
+    recordedAt: new Date(),
+    healthSampleKey: 'd'.repeat(64),
+  })]);
   stubFind(MedicalProfile, []);
   stubFind(MorningState, []);
   stubFind(RewardEvent, []);   // W4-011, ADR-0012 Track A
@@ -95,6 +108,8 @@ describe('exportUserData', () => {
     expect(out.collections.identities[0].provider).toBe('password'); // non-secret metadata kept
     expect(out.collections.refreshtokens[0]).not.toHaveProperty('tokenHash');
     expect(out.collections.healthsamples[0]).not.toHaveProperty('sampleKey');
+    expect(out.collections.biometriclogs[0]).not.toHaveProperty('healthSampleKey');
+    expect(out.collections.vitalsamples[0]).not.toHaveProperty('healthSampleKey');
   });
 
   it('exports a curated user profile without OAuth blobs / device secrets / internal index', async () => {

@@ -113,6 +113,21 @@ describe('applyHealthOperations upserts', () => {
     expect(await HealthSample.countDocuments({ userId })).toBe(0);
   });
 
+  it('caps expiry at 90 days from receipt when an accepted sample is slightly future-dated', async () => {
+    const userId = uid();
+    const future = new Date(NOW.getTime() + 5 * 60 * 1000).toISOString();
+
+    await applyHealthOperations(
+      userId,
+      'apple_health',
+      [upsert({ startDate: future, endDate: future })],
+      { now: NOW },
+    );
+
+    const row = await HealthSample.findOne({ userId });
+    expect(row.expiresAt.toISOString()).toBe(new Date(NOW.getTime() + 90 * DAY_MS).toISOString());
+  });
+
   it('uses the unique index as the race guard for concurrent identical upserts', async () => {
     const userId = uid();
     const results = await Promise.all([
