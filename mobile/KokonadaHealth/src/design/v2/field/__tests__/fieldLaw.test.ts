@@ -5,6 +5,7 @@ import { blueNoiseValue } from '../blueNoise.ts';
 import {
   NODE,
   NODE_SLOTS,
+  inertShadow,
   encodeSrgb8,
   fbm,
   fieldOklab,
@@ -61,6 +62,8 @@ function frame(overrides: Partial<FieldFrame> = {}): FieldFrame {
     restIntenseWaypoint: false,
     grain: { inside: 0, ground: 0 },
     dither: 0,
+    quiet: { rects: [], grow: 0, feather: 0 },
+    shadows: [inertShadow(), inertShadow()],
     nodes: [
       { id: NODE.J, fade: 1, centre: [0, 0.9], radius: 0.95, field: J, halo: J, bead: [0, 0.9] },
       absent(NODE.C),

@@ -26,7 +26,7 @@ import type { Oklab } from '../color/oklab.ts';
 import { breathCycles, breathLevel } from '../motion/breathLaw.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
-import { NODE, NODE_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from './fieldLaw.ts';
+import { NODE, NODE_SLOTS, QUIET_SLOTS, inertNode, inertShadow, type FieldFrame, type FieldNodeFrame, type PlateShadow, type QuietRect } from './fieldLaw.ts';
 
 export type PlacementNode = 'J' | 'C' | 'R' | 'I' | 'neutral';
 
@@ -88,6 +88,23 @@ export interface FieldGeometry {
   readonly pxPerDp: number;
   /** The OS font scale: the label band grows with it. */
   readonly fontScale: number;
+  /**
+   * The quiet zones (DSN-023): each measured text or control bound's centre and half-size, in the
+   * field canvas's render px. At most QUIET_SLOTS, each finite with a size of 0 or more: anything else
+   * is a RangeError in every build (checkQuietRects). The shipped clamp to QUIET_SLOTS lives at
+   * FieldView's geometry boundary, never in the builder.
+   */
+  readonly quietRects?: readonly QuietRect[];
+}
+
+/** More than QUIET_SLOTS rects, or a rect that is not finite or has a negative size, is a RangeError. */
+export function checkQuietRects(rects: readonly QuietRect[]): void {
+  'worklet';
+  if (rects.length > QUIET_SLOTS) throw new RangeError(`at most ${QUIET_SLOTS} quiet rects, got ${rects.length}`);
+  for (const r of rects) {
+    const ok = Number.isFinite(r.cx) && Number.isFinite(r.cy) && Number.isFinite(r.hx) && Number.isFinite(r.hy) && r.hx >= 0 && r.hy >= 0;
+    if (!ok) throw new RangeError(`a quiet rect must be finite with a size of 0 or more, got ${r.cx}, ${r.cy}, ${r.hx}, ${r.hy}`);
+  }
 }
 
 export interface FieldStatics {
@@ -275,6 +292,15 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
   }
   const nodes: FieldNodeFrame[] = slots.map((node) => (node === null ? inertNode() : node));
 
+  // Quiet zones in render px, refused above QUIET_SLOTS or when malformed, in every build.
+  const quietRects = geometry.quietRects ?? [];
+  checkQuietRects(quietRects);
+  // The plate's shadows (designer 2.9): outer where plate.depth > 0, inner where it is below 0, in plate
+  // units; a shadow with no strength or no blur draws nothing.
+  const mode = Math.sign(d.plate.depth);
+  const shadowOf = (token: { readonly offsetY: number; readonly blur: number; readonly strength: number }): PlateShadow =>
+    token.strength !== 0 && token.blur > 0 && mode !== 0 ? { offset: -token.offsetY / rDp, blur: token.blur / rDp, strength: token.strength, mode } : inertShadow();
+
   return {
     centrePx: [finite(geometry.centrePx[0], 0), finite(geometry.centrePx[1], 0)],
     radiusPx: geometry.radiusPx,
@@ -303,6 +329,8 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,
+    quiet: { rects: quietRects, grow: BASE.quiet.grow * geometry.pxPerDp, feather: d.field.mask.quietFeather * geometry.pxPerDp },
+    shadows: [shadowOf(d.plate.shadow[face]), shadowOf(d.plate.shadow2[face])],
     nodes,
   };
 }

@@ -15,6 +15,10 @@
 //              (designer 2.1, with the critic's exact mix: where w_i = 1 it is the halo bit for bit);
 //   selection  topTwoSoft over e_i = extent·f_i + λ·h_i: (e1·a1 + max(0, e2 − e3)·a2)/(e1 + max(0, e2 − e3)),
 //              through N = (mid L, 0, 0) on a waypoint edge (J–I, and R0–I where the direction says);
+//   quiet      extent = regionExtent · Π over the quiet rects of smoothstep(0, F, sd) (a step where F = 0),
+//              sd the signed distance to the rect grown by g, rounded (designer r3 §1);
+//   shadows    G.L ← G.L·(1 − Σ strength·smoothstep(−blur, blur, u)): outer u = R − |q − o| outside the
+//              rim, inner u = |q − o| − R_face on the face (designer 2.9);
 //   composite  route R4: L = mix(G.L, col.L, k); ab = k·col.ab + (1 − k)·(1 − smoothstep(0, kp, k))·G.ab;
 //   noise      static grain and blue-noise dither, on L only;
 //   encode     OKLab → linear sRGB, clamped, sRGB-encoded, 8 bits.
@@ -60,6 +64,38 @@ export function inertNode(): FieldNodeFrame {
   return { id: NODE.R0, fade: 0, centre: [0, 0], radius: 0, field: { L: 0, a: 0, b: 0 }, halo: { L: 0, a: 0, b: 0 }, bead: null };
 }
 
+/** A quiet zone (DSN-023): the measured bound's centre and half-size, in render px. */
+export interface QuietRect {
+  readonly cx: number;
+  readonly cy: number;
+  readonly hx: number;
+  readonly hy: number;
+}
+
+/** At most six quiet zones (designer r3; orchestrator: more is a RangeError in tests and the lab). */
+export const QUIET_SLOTS = 6;
+
+/**
+ * A plate shadow (designer 2.9), in plate units: its offset along y (y up: downward on screen is
+ * negative), its blur, its signed strength (a negative one lifts), and its mode: 1 outer, outside the
+ * rim; −1 inner, on the face; 0 none.
+ */
+export interface PlateShadow {
+  readonly offset: number;
+  readonly blur: number;
+  readonly strength: number;
+  readonly mode: number;
+}
+
+/** The face's plate.shadow and plate.shadow2. */
+export const SHADOW_SLOTS = 2;
+
+/** A shadow that draws nothing. */
+export function inertShadow(): PlateShadow {
+  'worklet';
+  return { offset: 0, blur: 0, strength: 0, mode: 0 };
+}
+
 export type Region = 'face' | 'ring' | 'moat' | 'outside';
 
 export interface FieldFrame {
@@ -99,6 +135,10 @@ export interface FieldFrame {
   readonly grain: { readonly inside: number; readonly ground: number };
   /** The dither amplitude on L. */
   readonly dither: number;
+  /** Up to QUIET_SLOTS quiet zones, with quiet.grow and field.mask.quietFeather in render px. */
+  readonly quiet: { readonly rects: readonly QuietRect[]; readonly grow: number; readonly feather: number };
+  /** SHADOW_SLOTS plate shadows. */
+  readonly shadows: readonly PlateShadow[];
   readonly nodes: readonly FieldNodeFrame[];
 }
 
@@ -167,6 +207,36 @@ function extentAt(region: Region, d: number, frame: FieldFrame): number {
   return frame.mask.outside * (frame.moatFeather > 0 ? smoothstep(frame.moatOuter, frame.moatOuter + frame.moatFeather, d) : 1);
 }
 
+/**
+ * The quiet zones' factor at the pixel centre (x, y), in render px (designer r3 §1): 0 on and inside
+ * every grown rect, the product of each rect's factor elsewhere.
+ */
+export function quietFactor(frame: FieldFrame, x: number, y: number): number {
+  const { rects, grow, feather } = frame.quiet;
+  let product = 1;
+  for (const r of rects) {
+    const qx = Math.abs(x - r.cx) - r.hx;
+    const qy = Math.abs(y - r.cy) - r.hy;
+    const ox = Math.max(qx, 0);
+    const oy = Math.max(qy, 0);
+    const sd = Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - grow;
+    product *= feather > 0 ? smoothstep(0, feather, sd) : sd > 0 ? 1 : 0;
+  }
+  return product;
+}
+
+/** The plate shadows' factor on the ground's L at q (plate units, y up), in a region (designer 2.9). */
+export function shadowFactor(frame: FieldFrame, region: Region, qx: number, qy: number): number {
+  let sum = 0;
+  for (const s of frame.shadows) {
+    if (s.mode === 0) continue;
+    const dist = Math.sqrt(qx * qx + (qy - s.offset) * (qy - s.offset));
+    if (s.mode > 0 && (region === 'moat' || region === 'outside')) sum += s.strength * smoothstep(-s.blur, s.blur, 1 - dist);
+    if (s.mode < 0 && region === 'face') sum += s.strength * smoothstep(-s.blur, s.blur, dist - frame.ringInner);
+  }
+  return 1 - sum;
+}
+
 /** The halo at a distance from its bead's centre: the peak inside the bead, 0 at the halo radius. */
 export function haloWeight(distance: number, frame: FieldFrame): number {
   return frame.haloPeak * (1 - smoothstep(frame.beadRadius, frame.haloRadius, distance));
@@ -233,7 +303,8 @@ export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
   const qy = -(y - frame.centrePx[1]) / frame.radiusPx;
   const d = Math.sqrt(qx * qx + qy * qy);
   const region = regionOf(d, frame);
-  const ground = groundAt(region, d, frame);
+  const local = groundAt(region, d, frame);
+  const ground = { L: local.L * shadowFactor(frame, region, qx, qy), a: local.a, b: local.b };
 
   const w = frame.warp;
   const wx = qx + w.amount * (fbm(1.4 * qx + w.orbit * w.cos, 1.4 * qy + w.orbit * w.sin, w.octaves) - 0.5);
@@ -259,7 +330,8 @@ export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
     }
     H = Math.max(H, h[i]);
   }
-  const extent = extentAt(region, d, frame);
+  const regionExtent = extentAt(region, d, frame);
+  const extent = regionExtent > 0 ? regionExtent * quietFactor(frame, x, y) : 0;
   const kFieldHere = frame.kField * smoothstep(0.55, 1.6, fSum) * extent;
   const k = Math.min(Math.max(kFieldHere, H), frame.kMax);
 

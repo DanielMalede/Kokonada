@@ -2,7 +2,7 @@ import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRu
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
-import { NODE, NODE_SLOTS, fieldOklab, fieldPixel, inertNode, isWaypoint, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, quietFactor, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
@@ -91,10 +91,19 @@ function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], override
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,
+    quiet: { rects: [], grow: 8 * (24 / rDp), feather: d.field.mask.quietFeather * (24 / rDp) },
+    shadows: [inertShadow(), inertShadow()],
     nodes: [...nodes, ...Array.from({ length: NODE_SLOTS - nodes.length }, inertNode)],
     ...overrides,
   };
 }
+
+/** The plate's shadows for a direction and face, as the builder makes them, at frameFor's plate (R 150 dp). */
+const shadowsFor = (id: DirectionId, face: Face) => {
+  const d = DIRECTIONS[id];
+  const mode = Math.sign(d.plate.depth);
+  return [d.plate.shadow[face], d.plate.shadow2[face]].map((t) => (t.strength !== 0 && t.blur > 0 && mode !== 0 ? { offset: -t.offsetY / 150, blur: t.blur / 150, strength: t.strength, mode } : inertShadow()));
+};
 
 const anchor = (q: 'joy' | 'calm' | 'reflective' | 'intense', face: Face) => lab(BASE.emotion[q][face === 'dark' ? 'core' : 'deep']);
 const bead = (id: number, q: 'joy' | 'calm' | 'reflective' | 'intense', face: Face, at: [number, number], radius: number): FieldNodeFrame => ({
@@ -231,6 +240,103 @@ describe('the field shader draws the TypeScript law, pixel for pixel (±1 LSB)',
       { warp: { amount: DIRECTIONS[id].field.warp.W0, orbit: DIRECTIONS[id].field.warp.orbit, cos: 0.3, sin: -0.95, octaves: 2 } },
     );
     expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+});
+
+// Item 9 (designer 2.9, r3 §1): quiet zones and plate shadows, held to the law on synthetic geometry.
+describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)', () => {
+  // A lobe over the whole canvas, so the field is present wherever a zone is not.
+  const wide = (id: DirectionId, face: Face): FieldNodeFrame[] => [bead(NODE.C, 'calm', face, [0.1, -0.1], 2.5)];
+  // Overlapping, partly off-canvas, a zero-size one, and the rest of the six slots unused: the packed
+  // zeros of an unused slot sit at the canvas origin, where only count keeps them from carving a disc.
+  const RECTS: QuietRect[] = [
+    { cx: 10, cy: 8, hx: 6, hy: 2 },
+    { cx: 15, cy: 12, hx: 5, hy: 3 },
+    { cx: 70, cy: 40, hx: 12, hy: 4 },
+    { cx: 50, cy: 58, hx: 0, hy: 0 },
+  ];
+
+  it.each([['abyss', 'dark'], ['abyss', 'light'], ['linen', 'dark'], ['basin', 'dark'], ['basin', 'light']] as const)(
+    '%s, %s face: four zones (feather or step path by direction), with the unused slots inert',
+    (id, face) => {
+      const frame = frameFor(id, face, wide(id, face), { mask: { outside: 1, face: 1, ring: 1 } });
+      const withZones = { ...frame, quiet: { ...frame.quiet, rects: RECTS } };
+      expect(worstDisagreement(withZones, render(withZones)).delta).toBeLessThanOrEqual(1);
+      // Not vacuous: the zones change pixels, and the corner by the origin (an unused slot's zeros) is field.
+      expect(Array.from(render(withZones))).not.toEqual(Array.from(render(frame)));
+      expect(quietFactor(withZones, 0.5, 63.5)).toBe(1);
+    },
+  );
+
+  it.each([['linen', 'light'], ['basin', 'dark'], ['basin', 'light']] as const)('%s, %s face: the plate’s shadows on the ground', (id, face) => {
+    const frame = frameFor(id, face, [], { shadows: shadowsFor(id, face), grain: { inside: 0, ground: 0 } });
+    expect(frame.shadows.some((sh) => sh.mode !== 0)).toBe(true);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+    const plain = frameFor(id, face, [], { grain: { inside: 0, ground: 0 } });
+    expect(Array.from(render(frame))).not.toEqual(Array.from(render(plain)));
+  });
+
+  // The token grounds are near-grey, where a shadow on a and b moves less than one LSB; on a strongly
+  // chromatic ground it moves many, so this is where the shader is held to "L only" (designer 2.9).
+  it.each([['linen', 'light'], ['basin', 'dark']] as const)('%s, %s face: the shadows darken L only, on a strongly chromatic ground', (id, face) => {
+    const chroma: Oklab = { L: 0.62, a: 0.1, b: 0.06 };
+    const frame = frameFor(id, face, [], {
+      shadows: shadowsFor(id, face),
+      grounds: { outside: chroma, face: chroma, ring: chroma },
+      vignette: 0,
+      centreLift: 0,
+      grain: { inside: 0, ground: 0 },
+      dither: 0,
+    });
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+    // Not vacuous: somewhere the shadow takes a twentieth of L (Linen light's outer shadow is the
+    // faintest, about 9% at this geometry), and there a and b are the ground's.
+    let deepest = { L: chroma.L, a: chroma.a, b: chroma.b };
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const at = fieldOklab(frame, x + 0.5, y + 0.5);
+        if (at.L < deepest.L) deepest = at;
+      }
+    }
+    expect(deepest.L).toBeLessThan(0.95 * chroma.L);
+    expect([deepest.a, deepest.b]).toEqual([chroma.a, chroma.b]);
+  });
+
+  it('shadows and zones together, with beads and halos, on Linen light', () => {
+    const r = DIRECTIONS.linen.field.lobe.radius;
+    const frame = frameFor('linen', 'light', [bead(NODE.I, 'intense', 'light', [-0.6, 0.6], r), bead(NODE.J, 'joy', 'light', [0.5, -0.7], r)], {
+      shadows: shadowsFor('linen', 'light'),
+      quiet: { rects: [{ cx: 32, cy: 60, hx: 20, hy: 3 }], grow: 8 * (24 / 150), feather: DIRECTIONS.linen.field.mask.quietFeather * (24 / 150) },
+    });
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  // The designer's planted-rect test in real Skia: inside the grown rect, every byte is the same
+  // whatever the tension, confidence, clock or placements, and is the law's ground + grain + dither.
+  it('a planted rect: byte for byte the same across s, c, t and placements', () => {
+    const rect: QuietRect = { cx: 32, cy: 5, hx: 14, hy: 2 };
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const quiet = (fr: FieldFrame) => ({ ...fr, quiet: { ...fr.quiet, rects: [rect] } });
+    const frames = [
+      quiet(frameFor('abyss', 'dark', [bead(NODE.C, 'calm', 'dark', [0.1, 0.7], r)])),
+      quiet(frameFor('abyss', 'dark', [bead(NODE.I, 'intense', 'dark', [-0.2, 0.6], 2), bead(NODE.J, 'joy', 'dark', [0.4, 0.5], 2)], { kField: 1.2, shimmer: { cos: Math.cos(0.1), sin: Math.sin(0.1) }, warp: { amount: 0.3, orbit: 0.6, cos: -0.5, sin: 0.866, octaves: 2 } })),
+      quiet(frameFor('abyss', 'dark', [bead(NODE.R, 'reflective', 'dark', [0, 0.9], 1.5)], { kField: 0.3 })),
+    ];
+    const rendered = frames.map((fr) => render(fr));
+    let inside = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (quietFactor(frames[0], x + 0.5, y + 0.5) !== 0) continue;
+        inside++;
+        for (const px of rendered.slice(1)) expect(rgbAt(px, x, y)).toEqual(rgbAt(rendered[0], x, y));
+        const law = fieldOklab(frames[0], x + 0.5, y + 0.5);
+        expect(Math.max(...rgbAt(rendered[0], x, y).map((v, c) => Math.abs(v - fieldPixel(frames[0], x + 0.5, y + 0.5)[c])))).toBeLessThanOrEqual(1);
+        expect([law.a, law.b]).toEqual([frames[0].grounds.outside.a, frames[0].grounds.outside.b]);
+      }
+    }
+    expect(inside).toBeGreaterThan(40);
+    // Not vacuous: outside the zone, the three moments do differ.
+    expect(Array.from(rendered[1])).not.toEqual(Array.from(rendered[0]));
   });
 });
 
@@ -444,7 +550,9 @@ half4 main(float2 p) {
   // Under reduced motion the first ramp ends at 150 ms, so only the spacing keeps the second tap out.
   it.each((['abyss', 'linen', 'basin'] as DirectionId[]).flatMap((id) => (['settle', 'reduced'] as const).map((mode) => [id, mode] as const)))('%s, %s: a tap the ledger has not admitted draws nothing, byte for byte', (id, mode) => {
     const config = { restLobes: staticsFor(id, EXTENSIONS as never).restLobes.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 };
-    const geometry = { centrePx: [32.3, 31.6] as [number, number], radiusPx: 24, pxPerDp: 24 / (BASE.plate.maxDiameter / 2), fontScale: 1 };
+    // A heading above the plate and a CTA below it: quiet zones the pending tap must not reach either.
+    const quietRects = [{ cx: 32, cy: 3, hx: 20, hy: 2 }, { cx: 32, cy: 61, hx: 18, hy: 2 }];
+    const geometry = { centrePx: [32.3, 31.6] as [number, number], radiusPx: 24, pxPerDp: 24 / (BASE.plate.maxDiameter / 2), fontScale: 1, quietRects };
     const frameAt = (taps: Array<{ x: number; y: number }>[], at: number) => {
       let l = emptyLedger(config);
       for (let t = 0; t <= at; t++) l = reconcile(l, { seq: t === 0 ? 0 : t < 100 ? 1 : taps.length, taps: t === 0 ? [] : t < 100 ? taps[0] : taps[taps.length - 1] }, t, mode);

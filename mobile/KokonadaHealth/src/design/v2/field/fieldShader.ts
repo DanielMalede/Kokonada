@@ -10,7 +10,7 @@
 // once here in float64), clamped, then the sRGB transfer function.
 
 import { LMS_TO_XYZ, XYZ_TO_LINEAR_SRGB, OKLAB_TO_LMS, type Matrix } from '../color/oklab.ts';
-import { NODE_SLOTS, ROUTED_EDGES, WAYPOINT_EDGES } from './fieldLaw.ts';
+import { NODE_SLOTS, QUIET_SLOTS, ROUTED_EDGES, SHADOW_SLOTS, WAYPOINT_EDGES } from './fieldLaw.ts';
 import { FIELD_UNIFORMS } from './uniforms.ts';
 
 const compose = (a: Matrix, b: Matrix): number[][] =>
@@ -33,6 +33,8 @@ const either = (edges: ReadonlyArray<readonly [number, number]>) =>
     : edges.map(([x, y]) => `(a == ${nodeId(x)} && b == ${nodeId(y)}) || (a == ${nodeId(y)} && b == ${nodeId(x)})`).join(' || ');
 const declarations = FIELD_UNIFORMS.map((u) => `uniform ${typeOf(u.floats)} ${u.name};`).join('\n');
 const nodes = Array.from({ length: NODE_SLOTS }, (_, k) => k);
+const quietSlots = Array.from({ length: QUIET_SLOTS }, (_, k) => k);
+const shadowSlots = Array.from({ length: SHADOW_SLOTS }, (_, k) => k);
 
 export const FIELD_SKSL = `${declarations}
 uniform shader uBlueNoise;
@@ -88,6 +90,32 @@ float3 nodeColour(float3 field, float3 haloColour, float hasHalo, float h, float
   return (1.0 - w) * turned + w * haloColour;
 }
 
+// One quiet zone's factor at p (render px), the rect grown by g and rounded (designer r3 §1): 0 on the
+// grown boundary and inside it; a smoothstep over the feather, or a step where there is none.
+float quietOne(float4 r, float2 p) {
+  float2 qd = abs(p - r.xy) - r.zw;
+  float sd = length(max(qd, float2(0.0))) + min(max(qd.x, qd.y), 0.0) - uQuietParams.x;
+  return uQuietParams.y > 0.0 ? sstep(0.0, uQuietParams.y, sd) : (sd > 0.0 ? 1.0 : 0.0);
+}
+
+// The product over the zones in use: an unused slot is inert through the count only.
+float quiet(float2 p) {
+  float product = 1.0;
+${quietSlots.map((k) => `  if (uQuietParams.z > ${k}.5) { product *= quietOne(uQuiet${k}, p); }`).join('\n')}
+  return product;
+}
+
+// One plate shadow's term on the ground's L at q (designer 2.9): outer outside the rim, inner on the
+// face; an inert slot (mode 0) adds nothing.
+float shadowOne(float4 s, float2 q, float region) {
+  if (s.w == 0.0) { return 0.0; }
+  float dy = q.y - s.x;
+  float dist = sqrt(q.x * q.x + dy * dy);
+  if (s.w > 0.0 && region >= 2.0) { return s.z * sstep(-s.y, s.y, 1.0 - dist); }
+  if (s.w < 0.0 && region == 0.0) { return s.z * sstep(-s.y, s.y, dist - uGeom.w); }
+  return 0.0;
+}
+
 bool isWaypoint(float a, float b) {
   return ${either(WAYPOINT_EDGES)} ||
     (uSelect.y > 0.5 && (${either(ROUTED_EDGES)}));
@@ -114,6 +142,9 @@ half4 main(float2 p) {
   } else if (region == 2.0) {
     extent = 0.0;
   }
+  // The plate's shadows on the ground's L, and the quiet zones on the extent (gated: no value changes).
+  ground.x = ground.x * (1.0 - (${shadowSlots.map((k) => `shadowOne(uShadow${k}, q, region)`).join(' + ')}));
+  extent = extent > 0.0 ? extent * quiet(p) : 0.0;
 
   float2 qw = float2(
     q.x + uWarp.x * (fbm(float2(1.4 * q.x + uWarp.y * uWarp.z, 1.4 * q.y + uWarp.y * uWarp.w)) - 0.5),

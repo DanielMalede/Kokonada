@@ -8,7 +8,7 @@
 // The nodes are unrolled (uNode0 … uNode5, one per NODE_SLOTS): SkSL's strict ES2 rules forbid indexing a uniform array
 // with a computed index, and separate uniforms keep each slot unambiguous.
 
-import { NODE_SLOTS, type FieldFrame } from './fieldLaw.ts';
+import { NODE_SLOTS, QUIET_SLOTS, SHADOW_SLOTS, type FieldFrame } from './fieldLaw.ts';
 
 export interface FieldUniform {
   readonly name: string;
@@ -39,6 +39,12 @@ export const FIELD_UNIFORMS: readonly FieldUniform[] = [
   { name: 'uShimmer', floats: 2 }, // cos φ, sin φ
   { name: 'uSelect', floats: 2 }, // λ, R0–I is a waypoint edge (0 or 1)
   { name: 'uNoise', floats: 3 }, // grain inside the face, grain elsewhere, dither
+  // Quiet zones (designer r3 §1): each rect's centre and half-size in render px; unused slots are
+  // inert through the count only.
+  ...Array.from({ length: QUIET_SLOTS }, (_, k) => ({ name: `uQuiet${k}`, floats: 4 })),
+  { name: 'uQuietParams', floats: 3 }, // grow (px), feather (px), count
+  // Plate shadows (designer 2.9): offset (plate units, y up), blur (plate units), strength, mode.
+  ...Array.from({ length: SHADOW_SLOTS }, (_, k) => ({ name: `uShadow${k}`, floats: 4 })),
   ...Array.from({ length: NODE_SLOTS }, (_, k) => NODE_UNIFORMS(k)).flat(),
 ];
 
@@ -55,6 +61,18 @@ export function packFrame(frame: FieldFrame): number[] {
   if (frame.nodes.length !== NODE_SLOTS) {
     throw new RangeError(`a field frame has ${NODE_SLOTS} node slots, got ${frame.nodes.length}`);
   }
+  if (frame.quiet.rects.length > QUIET_SLOTS) {
+    throw new RangeError(`a field frame holds at most ${QUIET_SLOTS} quiet rects, got ${frame.quiet.rects.length}`);
+  }
+  if (frame.shadows.length !== SHADOW_SLOTS) {
+    throw new RangeError(`a field frame has ${SHADOW_SLOTS} shadow slots, got ${frame.shadows.length}`);
+  }
+  const rects: number[] = [];
+  for (let k = 0; k < QUIET_SLOTS; k++) {
+    const r = frame.quiet.rects[k];
+    if (r === undefined) rects.push(0, 0, 0, 0);
+    else rects.push(r.cx, r.cy, r.hx, r.hy);
+  }
   const lab = (c: { L: number; a: number; b: number }) => [c.L, c.a, c.b];
   const values = [
     frame.centrePx[0], frame.centrePx[1], frame.radiusPx, frame.ringInner,
@@ -68,6 +86,9 @@ export function packFrame(frame: FieldFrame): number[] {
     frame.shimmer.cos, frame.shimmer.sin,
     frame.lambda, frame.restIntenseWaypoint ? 1 : 0,
     frame.grain.inside, frame.grain.ground, frame.dither,
+    ...rects,
+    frame.quiet.grow, frame.quiet.feather, frame.quiet.rects.length,
+    ...frame.shadows.flatMap((sh) => [sh.offset, sh.blur, sh.strength, sh.mode]),
     ...frame.nodes.flatMap((node) => [
       node.centre[0], node.centre[1], node.radius, node.fade,
       node.bead ? node.bead[0] : 0, node.bead ? node.bead[1] : 0, node.bead ? 1 : 0, node.id,

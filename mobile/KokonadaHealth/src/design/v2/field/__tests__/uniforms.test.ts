@@ -1,5 +1,5 @@
 import * as law from '../fieldLaw.ts';
-import { NODE, NODE_SLOTS, inertNode, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, QUIET_SLOTS, SHADOW_SLOTS, inertNode, inertShadow, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
 // The uniform layout is the contract between the uniform builder (TypeScript) and the shader
@@ -38,6 +38,8 @@ const frame = (overrides: Partial<FieldFrame> = {}): FieldFrame => ({
   restIntenseWaypoint: true,
   grain: { inside: 0.012, ground: 0.02 },
   dither: 1 / 255,
+  quiet: { rects: [{ cx: 11, cy: 12, hx: 13, hy: 14 }, { cx: 21, cy: 22, hx: 23, hy: 24 }], grow: 8, feather: 40 },
+  shadows: [{ offset: -0.02, blur: 0.05, strength: 0.18, mode: -1 }, inertShadow()],
   nodes: [node(NODE.J), node(NODE.C), node(NODE.I, { bead: null }), node(NODE.R0, { fade: 0 }), node(NODE.R0, { fade: 0.5 }), inertNode()],
   ...overrides,
 });
@@ -45,13 +47,16 @@ const frame = (overrides: Partial<FieldFrame> = {}): FieldFrame => ({
 describe('the field uniform layout', () => {
   // Architect re-rule §2 and the designer's final ruling (1): one pool of six node slots, with no
   // fixed live/shared split; each slot is 14 floats in 4 declarations.
-  it('has one pool of six node slots, no live/shared split: 122 floats in 37 declarations', () => {
+  // With the quiet zones (six rects and their parameters) and the two plate shadows (architect
+  // re-rule §2): 157 floats in 46 declarations.
+  it('has one pool of six node slots, no live/shared split, six quiet rects and two shadows: 157 floats in 46 declarations', () => {
     expect(NODE_SLOTS).toBe(6);
+    expect([QUIET_SLOTS, SHADOW_SLOTS]).toEqual([6, 2]);
     expect(Object.keys(law).filter((k) => /LIVE_SLOTS|SHARED_SLOTS/.test(k))).toEqual([]);
-    expect(FIELD_UNIFORMS).toHaveLength(13 + 4 * NODE_SLOTS);
-    expect(FIELD_UNIFORMS.length).toBe(37);
-    expect(FIELD_UNIFORM_FLOATS).toBe(38 + 14 * NODE_SLOTS);
-    expect(FIELD_UNIFORM_FLOATS).toBe(122);
+    expect(FIELD_UNIFORMS).toHaveLength(13 + QUIET_SLOTS + 1 + SHADOW_SLOTS + 4 * NODE_SLOTS);
+    expect(FIELD_UNIFORMS.length).toBe(46);
+    expect(FIELD_UNIFORM_FLOATS).toBe(38 + 4 * QUIET_SLOTS + 3 + 4 * SHADOW_SLOTS + 14 * NODE_SLOTS);
+    expect(FIELD_UNIFORM_FLOATS).toBe(157);
     expect(FIELD_UNIFORMS.slice(-4).map((u) => u.name)).toEqual(['uNode5', 'uNode5Bead', 'uNode5Field', 'uNode5Halo']);
   });
 
@@ -65,9 +70,10 @@ describe('the field uniform layout', () => {
   it('names every uniform once, in order, with its float count', () => {
     const names = FIELD_UNIFORMS.map((u) => u.name);
     expect(new Set(names).size).toBe(names.length);
-    expect(names.slice(0, 13)).toEqual([
+    expect(names.slice(0, 22)).toEqual([
       'uGeom', 'uGeom2', 'uMask', 'uGroundOutside', 'uGroundFace', 'uGroundRing', 'uFace', 'uWeight', 'uWarp', 'uOctaves',
       'uShimmer', 'uSelect', 'uNoise',
+      'uQuiet0', 'uQuiet1', 'uQuiet2', 'uQuiet3', 'uQuiet4', 'uQuiet5', 'uQuietParams', 'uShadow0', 'uShadow1',
     ]);
     for (let k = 0; k < NODE_SLOTS; k++) {
       expect(names).toEqual(expect.arrayContaining([`uNode${k}`, `uNode${k}Bead`, `uNode${k}Field`, `uNode${k}Halo`]));
@@ -101,10 +107,20 @@ describe('the field uniform layout', () => {
     expect(at('uNode5Bead')).toEqual([0, 0, 0, NODE.R0]);
     expect(at('uNode1Field')).toEqual([0.6, 0.01, 0.02]);
     expect(at('uNode1Halo')).toEqual([0.7, 0.03, 0.04]);
+    // Quiet rects: centre and half-size in render px; unused slots are zeros, inert through count only.
+    expect(at('uQuiet0')).toEqual([11, 12, 13, 14]);
+    expect(at('uQuiet1')).toEqual([21, 22, 23, 24]);
+    for (const k of [2, 3, 4, 5]) expect(at(`uQuiet${k}`)).toEqual([0, 0, 0, 0]);
+    expect(at('uQuietParams')).toEqual([8, 40, 2]);
+    expect(at('uShadow0')).toEqual([-0.02, 0.05, 0.18, -1]);
+    expect(at('uShadow1')).toEqual([0, 0, 0, 0]);
   });
 
-  it('refuses a frame that does not fill every node slot', () => {
+  it('refuses a frame that does not fill every node slot, or that holds more than six quiet rects or not two shadows', () => {
     expect(() => packFrame(frame({ nodes: [node(NODE.J)] }))).toThrow(RangeError);
+    const seven = Array.from({ length: 7 }, () => ({ cx: 1, cy: 1, hx: 1, hy: 1 }));
+    expect(() => packFrame(frame({ quiet: { rects: seven, grow: 8, feather: 0 } }))).toThrow(RangeError);
+    expect(() => packFrame(frame({ shadows: [inertShadow()] }))).toThrow(RangeError);
   });
 
   // A NaN or an Infinity reaching a uniform makes the whole field black or garbage on the GPU.
