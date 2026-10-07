@@ -457,3 +457,56 @@ git commit -m "docs: add HealthKit storage rollout guide"
 - [ ] **Step 6: Push only after coordination**
 
 Fetch Malede's latest remote work, rebase this branch, resolve the known `TASKS.md` reservation conflict while preserving both sides, rerun the full gate, then push. Open a PR and require all GitHub Actions checks to be green before merge.
+
+### Task 10: Remediate compliance audit blockers
+
+**Files:**
+- Modify: `backend/app/services/wearable/healthSampleReconciliation.js`
+- Modify: `backend/app/services/wearable/healthSampleProjection.js`
+- Create: `backend/tests/healthSampleConsentRace.integration.test.js`
+- Modify: `backend/app/models/HealthSample.js`
+- Create: `backend/tests/healthSampleAutoIndex.integration.test.js`
+- Modify: `backend/app/services/wearable/healthBatchContract.js`
+- Modify: `backend/app/services/wearable/healthSampleRepository.js`
+- Modify: `backend/tests/healthBatchContract.test.js`
+- Modify: `backend/tests/healthSampleRepository.integration.test.js`
+- Modify: `backend/app/services/privacy/userDataExport.js`
+- Modify: `backend/tests/userDataExport.test.js`
+- Modify: `docs/PRIVACY_DECLARATIONS.md`
+- Modify: `TASKS.md`
+
+**Interfaces:**
+- Consumes: `healthWriteFence`, provider connection state and the authoritative sample/projection links.
+- Produces: consent/provider-fenced reconciliation with targeted compensation; owner-gated index rollout; bounded 90-day retention and canonical input validation; identifier-free export.
+
+- [ ] **Step 1: Add failing race tests**
+
+On real MongoDB, hold reconciliation after its projection writes, then withdraw consent, disconnect Apple Health, or remove the account. Assert the post-write fence removes only this run's linked time-series rows/profile projection, leaves authoritative rows pending where the account still exists, and never enqueues derived state after refusal.
+
+- [ ] **Step 2: Implement start and post-write fences**
+
+Require a current consent fence and matching active provider before reading pending rows. Re-check both after writes, compare the consent record id, and compensate by linked sample keys plus the Apple-owned profile projection. Keep logs closed-token only.
+
+- [ ] **Step 3: Add a failing automatic-index test**
+
+Connect a process that has registered `HealthSample` without calling `syncIndexes()` and assert startup creates none of its three application indexes.
+
+- [ ] **Step 4: Disable HealthSample automatic index creation**
+
+Set schema-level `autoIndex: false`; keep the index declarations so tests and the owner-run rollout can create and verify them explicitly.
+
+- [ ] **Step 5: Add failing contract and retention tests**
+
+Reject non-number values, non-canonical units, out-of-range values, reversed intervals and timestamps beyond the allowed future skew. Assert stored expiry is never later than receipt plus 90 days.
+
+- [ ] **Step 6: Implement strict validation and bounded expiry**
+
+Use per-metric unit/range rules, a five-minute future-skew ceiling, interval ordering and `min(endAt + 90 days, receipt + 90 days)` retention.
+
+- [ ] **Step 7: Remove internal projection identifiers from export and correct declarations**
+
+Redact `healthSampleKey` from `BiometricLog` and `VitalSample` exports. State that the authoritative store is active for Apple Health only; Health Connect v2 remains future work.
+
+- [ ] **Step 8: Run focused suites, full local gates, exact-head CI and repeat compliance review**
+
+Do not mark `OPS-174` complete or make the PR ready until the compliance auditor returns a non-HALT verdict on the exact green SHA.
