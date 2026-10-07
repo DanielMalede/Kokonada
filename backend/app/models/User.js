@@ -8,15 +8,6 @@ const encryptedTokenSchema = new mongoose.Schema({
   blob: { type: String, required: true }, // AES-256-GCM encrypted JSON
 }, { _id: false });
 
-const healthProjectionCleanupSchema = new mongoose.Schema({
-  token: { type: String, required: true, match: /^[0-9a-f]{32}$/ },
-  provider: { type: String, required: true, enum: ['apple_health'] },
-  connectionVersion: { type: Number, required: true, min: 0 },
-  consentFence: { type: String, required: true },
-  sampleKeys: [{ type: String, match: /^[0-9a-f]{64}$/ }],
-  createdAt: { type: Date, required: true },
-}, { _id: false });
-
 const userSchema = new mongoose.Schema({
   // 'password' rows mirror the email flow (ssoId = normalized email) so the
   // (ssoProvider, ssoId) unique index keeps holding; Identity is the auth truth.
@@ -49,10 +40,6 @@ const userSchema = new mongoose.Schema({
   // Monotonic connection epoch. Any disconnect or provider switch increments it so an in-flight
   // health write from an older connection cannot become valid again after an ABA reconnect.
   wearableConnectionVersion: { type: Number, default: 0, min: 0 },
-  // Durable compensation journal for authoritative projections. It is written before projection
-  // starts and removed only after success or verified cleanup, so a crash/transient Mongo failure
-  // cannot turn a privacy cleanup into a log-only event.
-  healthProjectionCleanupPending: { type: [healthProjectionCleanupSchema], default: [] },
   wearableToken:     { type: encryptedTokenSchema, default: null },
   // Garmin Health API account id — special-category account identifier, ENCRYPTED at rest
   // (T3.3). It can no longer be queried directly; the webhook routes via garminUserIdHmac

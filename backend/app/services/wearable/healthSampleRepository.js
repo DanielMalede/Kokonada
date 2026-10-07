@@ -17,6 +17,19 @@ const outsideRetention = () => repositoryError('health_sample_outside_retention'
 const millis = (value) => new Date(value).getTime();
 const optionalNumber = (value) => (value == null ? null : Number(value));
 
+async function saveExisting(row) {
+  try {
+    await row.save();
+  } catch (error) {
+    // optimisticConcurrency makes the loaded __v a compare-and-set pin. A stale generation may
+    // never overwrite a row that a reconnect (or another batch) changed after this read.
+    if (error?.name === 'VersionError') {
+      throw repositoryError('wearable_connection_changed', 409);
+    }
+    throw error;
+  }
+}
+
 function contentOf(sample) {
   return {
     metric: sample.type,
@@ -86,7 +99,7 @@ async function findExisting(userId, source, sampleId) {
 
   row.sampleKey = currentKey;
   try {
-    await row.save();
+    await saveExisting(row);
     return { row, currentKey };
   } catch (error) {
     if (error?.code !== 11000) throw error;
@@ -120,7 +133,7 @@ async function applyExistingUpsert(row, sample, currentKey, pendingKeys, counts,
     if (staging && (row.ingestState !== 'committed'
       || Number(row.connectionVersion ?? 0) !== staging.connectionVersion)) {
       applyStaging(row, staging);
-      await row.save();
+      await saveExisting(row);
     }
     counts.replayed += 1;
     notePending(row, currentKey, pendingKeys);
@@ -130,7 +143,7 @@ async function applyExistingUpsert(row, sample, currentKey, pendingKeys, counts,
   if (staging && (row.ingestState !== 'committed'
     || Number(row.connectionVersion ?? 0) !== staging.connectionVersion)) {
     applyStaging(row, staging);
-    await row.save();
+    await saveExisting(row);
   }
   counts.replayed += 1;
   notePending(row, currentKey, pendingKeys);
@@ -189,7 +202,7 @@ async function applyExistingDelete(row, now, currentKey, pendingKeys, counts, st
     if (staging && (row.ingestState !== 'committed'
       || Number(row.connectionVersion ?? 0) !== staging.connectionVersion)) {
       applyStaging(row, staging);
-      await row.save();
+      await saveExisting(row);
     }
     counts.replayed += 1;
     notePending(row, currentKey, pendingKeys);
@@ -200,7 +213,7 @@ async function applyExistingDelete(row, now, currentKey, pendingKeys, counts, st
   row.deletedAt = now;
   row.projectionState = 'pending';
   applyStaging(row, staging);
-  await row.save();
+  await saveExisting(row);
   counts.deleted += 1;
   notePending(row, currentKey, pendingKeys);
 }

@@ -55,6 +55,7 @@ const healthSampleSchema = new mongoose.Schema({
   // Production indexes are an owner-gated Atlas rollout. Keep declarations for explicit
   // syncIndexes()/createIndexes() calls, but never create unique or TTL indexes on app startup.
   autoIndex: false,
+  optimisticConcurrency: true,
   timestamps: true,
   toJSON: { getters: true },
   toObject: { getters: true },

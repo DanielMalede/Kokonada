@@ -20,6 +20,7 @@ const {
 } = require('../app/services/privacy/consentState');
 const { reconcileHealthSamples } = require('../app/services/wearable/healthSampleReconciliation');
 const { ingestV2Batch, recoverStagedHealthSamples } = require('../app/services/wearable/healthStoreV2');
+const { HealthIngestBatch } = require('../app/services/wearable/healthOperationJournal');
 
 const sampleId = '6ba7b810-9dad-41d1-80b4-00c04fd430c8';
 const upsert = (overrides = {}) => ({
@@ -46,7 +47,10 @@ afterAll(async () => {
 beforeEach(async () => {
   jest.clearAllMocks();
   reconcileHealthSamples.mockResolvedValue({ projected: 0, removed: 0, profileUpdated: false });
-  await Promise.all([HealthSample.deleteMany({}), ConsentRecord.deleteMany({}), User.deleteMany({})]);
+  await Promise.all([
+    HealthSample.deleteMany({}), HealthIngestBatch.deleteMany({}),
+    ConsentRecord.deleteMany({}), User.deleteMany({}),
+  ]);
 });
 
 async function connectedUser() {
@@ -274,6 +278,104 @@ describe('ingestV2Batch', () => {
     const survivor = await HealthSample.findOne({ userId: owner._id });
     expect(survivor).toMatchObject({ connectionVersion: 2, ingestState: 'committed' });
     createSpy.mockRestore();
+  });
+
+  it('CAS-pins an existing row so an old delete cannot overwrite a newer reconnect', async () => {
+    const owner = await connectedUser();
+    await ingestV2Batch(owner._id, 'healthkit', [upsert()], { connectionVersion: 0 });
+
+    const originalSave = HealthSample.prototype.save;
+    let releaseOld;
+    let oldEntered;
+    const entered = new Promise((resolve) => { oldEntered = resolve; });
+    const held = new Promise((resolve) => { releaseOld = resolve; });
+    let heldOnce = false;
+    const saveSpy = jest.spyOn(HealthSample.prototype, 'save').mockImplementation(async function save(...args) {
+      if (!heldOnce && this.state === 'deleted' && this.connectionVersion === 0) {
+        heldOnce = true;
+        oldEntered();
+        await held;
+      }
+      return originalSave.apply(this, args);
+    });
+
+    const oldDelete = ingestV2Batch(owner._id, 'healthkit', [
+      { sampleId, operation: 'delete' },
+    ], { connectionVersion: 0 });
+    await entered;
+    await User.updateOne(
+      { _id: owner._id },
+      { $set: { wearableProvider: 'apple_health', wearableConnectionVersion: 2 } },
+    );
+    await ingestV2Batch(owner._id, 'healthkit', [upsert()], { connectionVersion: 2 });
+    releaseOld();
+
+    await expect(oldDelete).rejects.toMatchObject({
+      code: 'wearable_connection_changed',
+      statusCode: 409,
+    });
+    const survivor = await HealthSample.findOne({ userId: owner._id });
+    expect(survivor).toMatchObject({
+      state: 'active', connectionVersion: 2, ingestState: 'committed',
+    });
+    saveSpy.mockRestore();
+  });
+
+  it('aborts and removes a successful batch prefix when a later operation conflicts', async () => {
+    const owner = await connectedUser();
+    const conflictingId = '1812265d-2516-4f6e-a1d4-7088487c46b1';
+    await ingestV2Batch(owner._id, 'healthkit', [upsert({ sampleId: conflictingId })]);
+
+    await expect(ingestV2Batch(owner._id, 'healthkit', [
+      upsert({ sampleId: 'c4f31270-b235-4548-a5bf-f935934df34e' }),
+      upsert({ sampleId: conflictingId, value: 173 }),
+    ])).rejects.toMatchObject({ code: 'health_sample_identity_conflict', statusCode: 409 });
+
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(1);
+    expect(await HealthSample.countDocuments({ userId: owner._id, ingestState: 'staged' })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+    await expect(recoverStagedHealthSamples({ userId: owner._id }))
+      .resolves.toEqual({ recovered: 0, removed: 0, failed: 0 });
+  });
+
+  it('aborts an expired writing journal instead of committing a crash-truncated batch', async () => {
+    const owner = await connectedUser();
+    const ingestToken = 'd'.repeat(32);
+    const consent = await ConsentRecord.findOne({ userId: owner._id }).sort({ createdAt: -1 });
+    await HealthIngestBatch.create({
+      _id: ingestToken,
+      userId: owner._id,
+      source: 'apple_health',
+      connectionVersion: 0,
+      consentFence: String(consent._id),
+      status: 'writing',
+      leaseUntil: new Date(Date.now() - 1000),
+      createdAt: new Date(Date.now() - 10 * 60 * 1000),
+    });
+    await HealthSample.create({
+      userId: owner._id,
+      sampleKey: require('../app/services/wearable/healthSampleIdentity')
+        .healthSampleKey(owner._id, 'apple_health', sampleId),
+      source: 'apple_health',
+      metric: 'heart_rate',
+      value: 72,
+      unit: 'bpm',
+      startAt: new Date('2026-10-06T06:30:00.000Z'),
+      endAt: new Date('2026-10-06T06:31:00.000Z'),
+      state: 'active',
+      projectionState: 'pending',
+      ingestState: 'staged',
+      ingestToken,
+      consentFence: String(consent._id),
+      connectionVersion: 0,
+      expiresAt: new Date('2027-01-04T06:31:00.000Z'),
+    });
+
+    await expect(recoverStagedHealthSamples({ userId: owner._id }))
+      .resolves.toEqual({ recovered: 0, removed: 1, failed: 0 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+    expect(reconcileHealthSamples).not.toHaveBeenCalled();
   });
 
   it('keeps failed cleanup staged and the repair path removes it durably', async () => {

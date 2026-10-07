@@ -1,6 +1,5 @@
 'use strict';
 
-const crypto = require('crypto');
 const HealthSample = require('../../models/HealthSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const User = require('../../models/User');
@@ -10,8 +9,13 @@ const { QUEUES } = require('../../queues/definitions');
 const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
 const { affectKey } = require('../biosonic/affectCache');
 const { healthWriteFence } = require('../privacy/healthWriteFence');
-const { purgeOrphanedAggregates } = require('../privacy/wearableErasure');
 const { projectTimeSeriesSample, removeTimeSeriesProjection } = require('./healthSampleProjection');
+const {
+  HealthProjectionCleanup,
+  MAX_BATCH_LEASE_MS,
+  MAX_PROJECTION_SAMPLE_KEYS,
+  projectionCleanupId,
+} = require('./healthOperationJournal');
 
 const SLEEP_STAGE = Object.freeze({
   sleep_deep: 'deep',
@@ -208,10 +212,6 @@ async function undoRunProjections(userId, source, reason, run) {
         { $set: PROFILE_CLEAR },
       );
       changed += cleared?.modifiedCount ?? 0;
-      if ((cleared?.modifiedCount ?? 0) > 0) {
-        const purged = await purgeOrphanedAggregates(userId);
-        changed += purged?.medicalProfiles ?? 0;
-      }
     }
   }
   return changed;
@@ -249,34 +249,37 @@ async function cleanupRefusedPending(userId, source, connectionVersion) {
       ? {}
       : { healthProjectionConnectionVersion: Number(connectionVersion) }),
   };
-  const clearedProfile = await MedicalProfile.updateOne(profileSelector, { $set: PROFILE_CLEAR });
+  await MedicalProfile.updateOne(profileSelector, { $set: PROFILE_CLEAR });
   await HealthSample.deleteMany({
     _id: { $in: pending.map((sample) => sample._id) },
     projectionState: 'pending',
   });
-  if ((clearedProfile?.modifiedCount ?? 0) > 0) await purgeOrphanedAggregates(userId);
 }
 
 async function recordCleanupMarker(userId, source, connectionVersion, consentFence, sampleKeys) {
-  const token = crypto.randomBytes(16).toString('hex');
-  const result = await User.updateOne({
-    _id: userId,
-    wearableProvider: source,
-    wearableConnectionVersion: Number(connectionVersion ?? 0),
-    deletedAt: null,
-  }, {
-    $push: {
-      healthProjectionCleanupPending: {
-        token,
-        provider: source,
-        connectionVersion: Number(connectionVersion ?? 0),
-        consentFence: String(consentFence),
-        sampleKeys,
-        createdAt: new Date(),
-      },
-    },
-  });
-  if ((result?.modifiedCount ?? 0) !== 1) {
+  if (sampleKeys.length > MAX_PROJECTION_SAMPLE_KEYS) {
+    throw Object.assign(new Error('health_projection_pending'), {
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+  }
+  const token = projectionCleanupId(userId, source, connectionVersion);
+  try {
+    await HealthProjectionCleanup.create({
+      _id: token,
+      userId,
+      provider: source,
+      connectionVersion: Number(connectionVersion ?? 0),
+      consentFence: String(consentFence),
+      status: 'projecting',
+      leaseUntil: new Date(Date.now() + MAX_BATCH_LEASE_MS),
+      sampleKeys,
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    // One fixed obligation per user/provider/generation bounds the journal and prevents another
+    // projection pass from running while an earlier cleanup is still owed.
+    if (error?.code !== 11000) throw error;
     throw Object.assign(new Error('health_projection_pending'), {
       code: 'health_projection_pending',
       statusCode: 503,
@@ -286,10 +289,7 @@ async function recordCleanupMarker(userId, source, connectionVersion, consentFen
 }
 
 async function clearCleanupMarkers(userId, selector) {
-  await User.updateOne(
-    { _id: userId },
-    { $pull: { healthProjectionCleanupPending: selector } },
-  );
+  await HealthProjectionCleanup.deleteMany({ userId, ...selector });
 }
 
 async function cleanupMarker(userId, marker) {
@@ -303,40 +303,36 @@ async function cleanupMarker(userId, marker) {
     });
     if (!newer) await removeTimeSeriesProjection(sampleKey, userId);
   }
-  const clearedProfile = await MedicalProfile.updateOne({
+  await MedicalProfile.updateOne({
     userId,
     healthProjectionProvider: marker.provider,
     healthProjectionConnectionVersion: Number(marker.connectionVersion ?? 0),
   }, { $set: PROFILE_CLEAR });
-  await clearCleanupMarkers(userId, { token: marker.token });
-  if ((clearedProfile?.modifiedCount ?? 0) > 0) await purgeOrphanedAggregates(userId);
+  await clearCleanupMarkers(userId, { _id: marker._id });
 }
 
 async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
-  const users = await User.find({ 'healthProjectionCleanupPending.0': { $exists: true } })
-    .select('_id healthProjectionCleanupPending')
+  const markers = await HealthProjectionCleanup.find({})
     .limit(limit)
     .lean();
   let cleaned = 0;
   let deferred = 0;
   let failed = 0;
-  for (const user of users) {
-    for (const marker of user.healthProjectionCleanupPending ?? []) {
-      try {
-        const fence = await projectionFence(user._id, marker.provider, marker.connectionVersion);
-        if (fence.admitted && fence.fence === marker.consentFence) {
-          deferred += 1;
-          continue;
-        }
-        if (fence.reason === 'consent_read_error') {
-          deferred += 1;
-          continue;
-        }
-        await cleanupMarker(user._id, marker);
-        cleaned += 1;
-      } catch {
-        failed += 1;
+  for (const marker of markers) {
+    try {
+      const fence = await projectionFence(marker.userId, marker.provider, marker.connectionVersion);
+      if (marker.status === 'projecting' && marker.leaseUntil > new Date()) {
+        deferred += 1;
+        continue;
       }
+      if (marker.status !== 'cleanup' && fence.reason === 'consent_read_error') {
+        deferred += 1;
+        continue;
+      }
+      await cleanupMarker(marker.userId, marker);
+      cleaned += 1;
+    } catch {
+      failed += 1;
     }
   }
   return { cleaned, deferred, failed };
@@ -382,7 +378,7 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
     ingestState: { $ne: 'staged' },
     ...(connectionVersion == null ? {} : { connectionVersion: Number(connectionVersion) }),
     updatedAt: { $lte: cutoff },
-  }).sort({ updatedAt: 1, _id: 1 });
+  }).sort({ updatedAt: 1, _id: 1 }).limit(MAX_PROJECTION_SAMPLE_KEYS);
 
   if (!pending.length) return { projected: 0, removed: 0, profileUpdated: false };
 
@@ -416,11 +412,34 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
   else if (after.fence !== start.fence) refusal = 'consent_changed';
   else if (after.connectionVersion !== start.connectionVersion) refusal = 'connection_changed';
   if (refusal) {
+    await HealthProjectionCleanup.updateOne(
+      { _id: cleanupToken },
+      { $set: { status: 'cleanup' } },
+    );
     await compensate(userId, source, refusal, run);
     await cleanupRefusedPending(userId, source, start.connectionVersion);
-    await clearCleanupMarkers(userId, { token: cleanupToken });
+    await clearCleanupMarkers(userId, { _id: cleanupToken });
   }
-  if (failure) throw failure;
+  if (failure) {
+    await HealthProjectionCleanup.updateOne(
+      { _id: cleanupToken },
+      { $set: { status: 'cleanup' } },
+    );
+    try {
+      await cleanupMarker(userId, {
+        _id: cleanupToken,
+        provider: source,
+        connectionVersion: start.connectionVersion,
+        sampleKeys: pending.map((sample) => sample.sampleKey),
+      });
+    } catch {
+      throw Object.assign(new Error('health_projection_pending'), {
+        code: 'health_projection_pending',
+        statusCode: 503,
+      });
+    }
+    throw failure;
+  }
   if (refusal) return { projected: 0, removed: 0, profileUpdated: false };
 
   await invalidateDerivedCaches(userId);
@@ -433,9 +452,7 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
   }, { $set: { projectionState: 'applied' } });
 
   await clearCleanupMarkers(userId, {
-    provider: source,
-    connectionVersion: Number(start.connectionVersion ?? 0),
-    consentFence: String(start.fence),
+    _id: cleanupToken,
   });
 
   return { projected, removed, profileUpdated };

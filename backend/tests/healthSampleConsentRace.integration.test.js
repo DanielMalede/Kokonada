@@ -35,6 +35,7 @@ const {
   reconcileHealthSamples,
   recoverOwedHealthProjectionCleanups,
 } = require('../app/services/wearable/healthSampleReconciliation');
+const { HealthProjectionCleanup } = require('../app/services/wearable/healthOperationJournal');
 
 jest.setTimeout(120000);
 
@@ -66,6 +67,7 @@ beforeEach(async () => {
     BiometricLog.deleteMany({}),
     ConsentRecord.deleteMany({}),
     HealthSample.deleteMany({}),
+    HealthProjectionCleanup.deleteMany({}),
     MedicalProfile.deleteMany({}),
     User.deleteMany({}),
     VitalSample.deleteMany({}),
@@ -176,7 +178,10 @@ describe('health sample reconciliation privacy fences', () => {
     hold.release();
     await run;
 
-    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    const profile = await MedicalProfile.findOne({ userId: owner._id });
+    expect(profile).not.toBeNull();
+    expect(profile.maxHeartRate).toBe(181);
+    expect(profile.restingHeartRate).toBeNull();
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(enqueue).not.toHaveBeenCalled();
   });
@@ -193,7 +198,12 @@ describe('health sample reconciliation privacy fences', () => {
     hold.release();
     await run;
 
-    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    const profile = await MedicalProfile.findOne({ userId: owner._id });
+    expect(profile).not.toBeNull();
+    // Withdrawal owns all health data, so the legacy value was erased by that path; the held
+    // Apple write may not restore it and compensation must leave no Apple field behind.
+    expect(profile.maxHeartRate).toBeNull();
+    expect(profile.restingHeartRate).toBeNull();
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(enqueue).not.toHaveBeenCalled();
   });
@@ -214,7 +224,10 @@ describe('health sample reconciliation privacy fences', () => {
     hold.release();
     await run;
 
-    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    const profile = await MedicalProfile.findOne({ userId: owner._id });
+    expect(profile).not.toBeNull();
+    expect(profile.maxHeartRate).toBe(181);
+    expect(profile.restingHeartRate).toBeNull();
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(enqueue).not.toHaveBeenCalled();
   });
@@ -275,14 +288,40 @@ describe('health sample reconciliation privacy fences', () => {
       statusCode: 503,
     });
     expect(await BiometricLog.countDocuments({ userId: owner._id })).toBe(1);
-    const marked = await User.findById(owner._id).lean();
-    expect(marked.healthProjectionCleanupPending).toHaveLength(1);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(1);
     deleteSpy.mockRestore();
 
     await expect(recoverOwedHealthProjectionCleanups())
       .resolves.toEqual({ cleaned: 1, deferred: 0, failed: 0 });
     expect(await BiometricLog.countDocuments({ userId: owner._id })).toBe(0);
-    const repaired = await User.findById(owner._id).lean();
-    expect(repaired.healthProjectionCleanupPending).toEqual([]);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
+  });
+
+  it('keeps the cleanup obligation after account deletion and removes a late orphan on retry', async () => {
+    const owner = await grantedUser();
+    await pending(owner, '8', 'resting_heart_rate');
+    const hold = holdBefore(VitalSample, 'create');
+
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    await hold.entered;
+    await eraseUserChildData(owner._id);
+    await User.deleteOne({ _id: owner._id });
+    const deleteSpy = jest.spyOn(VitalSample, 'deleteMany')
+      .mockRejectedValueOnce(new Error('temporary cleanup failure'));
+    hold.release();
+
+    await expect(run).rejects.toMatchObject({
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+    expect(await User.countDocuments({ _id: owner._id })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(1);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(1);
+    deleteSpy.mockRestore();
+
+    await expect(recoverOwedHealthProjectionCleanups())
+      .resolves.toEqual({ cleaned: 1, deferred: 0, failed: 0 });
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
   });
 });
