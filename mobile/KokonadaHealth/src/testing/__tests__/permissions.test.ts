@@ -61,9 +61,11 @@ describe('QA-049 · Health Connect outcomes through the real healthConnect.ts', 
   it.each([
     ['unavailable', 1],
     ['update-required', 2],
-  ] as const)('%s (SDK status %i): install-required, and no sheet is reachable', async (status) => {
+  ] as const)('%s (SDK status %i): install-required, and no sheet is reachable', async (status, _code) => {
     fakes.healthConnect.setStatus(status);
     expect(await checkAvailability()).toBe('install-required');
+    await expect(requestHealthPermissions()).rejects.toThrow(/failed to initialize/);
+    expect(fakes.healthConnect.sheetsShown()).toBe(0);
   });
 
   it('initialize failing is an error, never a silent grant', async () => {
