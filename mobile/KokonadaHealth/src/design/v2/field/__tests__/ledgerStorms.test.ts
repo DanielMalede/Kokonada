@@ -46,7 +46,17 @@ const RAMP: Record<Mode, number> = { settle: SETTLE, reduced: BASE.motion.fadeRe
 const SLOPE: Record<Mode, number> = { settle: 4 / 0.6 / 1000, reduced: 2 / 0.15 / 1000 };
 const LONG = 600_000;
 
-const geometry = { centrePx: [100, 100] as [number, number], radiusPx: 80, pxPerDp: 80 / 170, fontScale: 1 };
+// A screen's worth of quiet zones, all QUIET_SLOTS of them (a heading, a subheading, two corner
+// controls, a caption and the CTA), so every storm frame is built and packed at the limit.
+const quietRects = [
+  { cx: 100, cy: 6, hx: 70, hy: 5 },
+  { cx: 100, cy: 16, hx: 50, hy: 3 },
+  { cx: 12, cy: 8, hx: 8, hy: 8 },
+  { cx: 188, cy: 8, hx: 8, hy: 8 },
+  { cx: 100, cy: 178, hx: 40, hy: 3 },
+  { cx: 100, cy: 190, hx: 60, hy: 8 },
+];
+const geometry = { centrePx: [100, 100] as [number, number], radiusPx: 80, pxPerDp: 80 / 170, fontScale: 1, quietRects };
 const config = (id: DirectionId): LedgerConfig => ({ restLobes: staticsFor(id, EXTENSIONS as never).restLobes.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 });
 const tap = (x: number, y: number): Tap => ({ x, y });
 const QUAD = [tap(0.566, 0.566), tap(0.566, -0.566), tap(-0.566, -0.566), tap(-0.566, 0.566)];
