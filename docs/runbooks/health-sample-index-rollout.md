@@ -1,6 +1,8 @@
 # HealthSample production indexes — Pause & Guide
 
-This runbook prepares the authoritative Apple Health / Health Connect sample store for production. It does **not** authorize an agent to change MongoDB Atlas. Daniel or Malede performs every production step and visually verifies the result in Atlas.
+This runbook prepares the authoritative Apple HealthKit sample store for production. Health Connect remains on the legacy v1 path; Health Connect v2 is not enabled. It does **not** authorize an agent to change MongoDB Atlas. Bedrack or Malede performs every production step and visually verifies the result in Atlas.
+
+The schema sets `autoIndex: false`, so application startup and `HealthSample.init()` do not create these indexes automatically. Production correctness therefore depends on the owner-controlled procedure below being completed before v2 HealthKit ingestion is enabled.
 
 ## Expected indexes
 
@@ -8,11 +10,11 @@ The `healthsamples` collection needs these application indexes in addition to Mo
 
 | Name | Keys | Options | Purpose |
 |---|---|---|---|
-| `userId_1_source_1_sampleKey_1` | `{ userId: 1, source: 1, sampleKey: 1 }` | `unique: true` | Makes one HealthKit/Health Connect sample identity unique per user and source. |
+| `userId_1_source_1_sampleKey_1` | `{ userId: 1, source: 1, sampleKey: 1 }` | `unique: true` | Makes one HealthKit sample identity unique per user and source. |
 | `projectionState_1_updatedAt_1` | `{ projectionState: 1, updatedAt: 1 }` | none | Lets the repair worker scan the oldest pending projections without scanning the collection. |
 | `expiresAt_1` | `{ expiresAt: 1 }` | `expireAfterSeconds: 0` | Absolute TTL: MongoDB removes a row after its application-computed `expiresAt` date. |
 
-The application computes active-sample expiry from the sample's end time and tombstone expiry from deletion receipt time, both at 90 days. Do not replace the absolute TTL with a relative TTL value.
+The application computes active-sample expiry as the earlier of 90 days after the sample's end time and 90 days after server receipt. Tombstones expire 90 days after receipt. Do not replace the absolute TTL with a relative TTL value.
 
 ## Before touching Atlas
 

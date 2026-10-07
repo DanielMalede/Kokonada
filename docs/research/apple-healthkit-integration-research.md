@@ -33,7 +33,7 @@ The mobile app is a bare React Native application, not Expo managed:
 
 The server now has the complete additive v2 storage prerequisite for a future HealthKit client. It persists keyed sample identity in the encrypted `HealthSample` collection, applies idempotent upserts and deletion tombstones, keeps SDNN distinct from RMSSD in the read model, rebuilds supported derived values, repairs interrupted projections, and covers account/provider erasure, owner export and 90-day retention. The legacy Health Connect v1 path remains unchanged; Health Connect v2 is explicitly rejected until it receives its own implementation decision.
 
-The three production indexes required by this collection are documented in `docs/runbooks/health-sample-index-rollout.md`. Creating and visually verifying them in MongoDB Atlas is an owner action; this PR does not mutate production.
+The three production indexes required by this collection are documented in `docs/runbooks/health-sample-index-rollout.md`. The schema disables Mongoose automatic index creation, so application startup does not bypass that runbook. Creating and visually verifying the indexes in MongoDB Atlas is an owner action; this PR does not mutate production.
 
 ## HealthKit is a store, not an Apple Watch API
 

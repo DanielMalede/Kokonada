@@ -69,7 +69,9 @@ Required indexes:
 - `{ projectionState: 1, updatedAt: 1 }` for bounded repair scans;
 - TTL `{ expiresAt: 1 }` with `expireAfterSeconds: 0`.
 
-Active rows expire 90 days after `endAt`, matching the existing physiological-sample retention window. An unseen-deletion tombstone expires 90 days after receipt. The v2 lane rejects an upsert whose sample is already outside that window, so an expired tombstone cannot permit an accepted stale sample to reappear.
+Active rows expire at the earlier of 90 days after `endAt` and 90 days after server receipt, so a future-dated client sample cannot extend retention beyond the disclosed window. An unseen-deletion tombstone expires 90 days after receipt. The v2 lane rejects an upsert whose sample is already outside that window and rejects an `endAt` more than five minutes in the future, so an expired tombstone cannot permit an accepted stale sample to reappear.
+
+The v2 contract accepts only JSON numbers and canonical units: heart rate and resting heart rate use `bpm` in the existing physiological range 30–220; HRV uses `ms` in `(0, 1000]`; sleep stages use `min` in `(0, 1440]`. It rejects non-finite values, numeric strings, reversed intervals and timestamps outside the allowed future-skew boundary.
 
 ## Identity and key rotation
 
