@@ -147,6 +147,43 @@ describe('parseHealthBatchRequest', () => {
     );
   });
 
+  it.each([
+    ['a zero-length sleep interval', {
+      type: 'sleep_deep', value: 1, unit: 'min',
+      startDate: '2026-10-06T06:30:00.000Z',
+      endDate: '2026-10-06T06:30:00.000Z',
+    }],
+    ['a sleep interval longer than 24 hours', {
+      type: 'sleep_light', value: 1440, unit: 'min',
+      startDate: '2026-10-05T06:29:59.999Z',
+      endDate: '2026-10-06T06:30:00.000Z',
+    }],
+    ['a sleep value that does not match its interval', {
+      type: 'sleep_rem', value: 60, unit: 'min',
+      startDate: '2026-10-06T05:00:00.000Z',
+      endDate: '2026-10-06T06:30:00.000Z',
+    }],
+  ])('rejects %s', (_label, overrides) => {
+    expectContractError(
+      v2Body({ samples: [v2Sample(overrides)] }),
+      'invalid_health_sample',
+      400,
+      { now },
+    );
+  });
+
+  it('accepts a sleep value matching the interval within one second of precision', () => {
+    const sample = v2Sample({
+      type: 'sleep_deep',
+      value: 60,
+      unit: 'min',
+      startDate: '2026-10-06T05:30:00.500Z',
+      endDate: '2026-10-06T06:30:00.000Z',
+    });
+
+    expect(parseHealthBatchRequest(v2Body({ samples: [sample] }), { now })).toMatchObject({ version: 2 });
+  });
+
   it('rejects a sample more than five minutes in the future but accepts the boundary', () => {
     expectContractError(
       v2Body({ samples: [v2Sample({

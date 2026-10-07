@@ -109,6 +109,7 @@ jest.mock('../app/services/privacy/wearableErasure', () => ({
 }));
 jest.mock('../app/models/User', () => ({
   findByIdAndUpdate: jest.fn().mockResolvedValue(true),
+  findOneAndUpdate:  jest.fn().mockResolvedValue(true),
   findById:          jest.fn(),
   findOne:           jest.fn(),
   updateOne:         jest.fn().mockResolvedValue({}),
@@ -143,6 +144,7 @@ function buildUser(overrides = {}) {
     spotifyToken:      null,
     youtubeMusicToken: null,
     wearableProvider:  null,
+    wearableConnectionVersion: 0,
     wearableToken:     null,
     setToken: jest.fn(function (field, obj) { this[field] = { blob: 'encrypted' }; }),
     getToken: jest.fn(),
@@ -945,7 +947,12 @@ describe('healthBatchIngest', () => {
 
     await ctrl.healthBatchIngest({ user, body: v2Batch }, res, jest.fn());
 
-    expect(ingestV2Batch).toHaveBeenCalledWith(user._id, 'healthkit', v2Batch.samples);
+    expect(ingestV2Batch).toHaveBeenCalledWith(
+      user._id,
+      'healthkit',
+      v2Batch.samples,
+      { connectionVersion: 0 },
+    );
     expect(healthStore.ingestBatch).not.toHaveBeenCalled();
     expect(res.json).toHaveBeenCalledWith({
       accepted: 1,
@@ -961,14 +968,22 @@ describe('healthBatchIngest', () => {
   it('activates Apple before the first v2 reconciliation pass', async () => {
     const user = buildUser({ wearableProvider: null });
     ingestV2Batch.mockImplementation(async () => {
-      expect(User.findByIdAndUpdate).toHaveBeenCalledWith(user._id, { wearableProvider: 'apple_health' });
+      expect(User.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: user._id, wearableProvider: null },
+        {
+          $set: { wearableProvider: 'apple_health' },
+          $inc: { wearableConnectionVersion: 1 },
+        },
+        { returnDocument: 'after' },
+      );
       return { accepted: 1, created: 1, replayed: 0, deleted: 0, projected: 1 };
     });
 
     await ctrl.healthBatchIngest({ user, body: v2Batch }, buildRes(), jest.fn());
 
-    expect(User.findByIdAndUpdate).toHaveBeenCalledTimes(1);
+    expect(User.findOneAndUpdate).toHaveBeenCalledTimes(1);
     expect(user.wearableProvider).toBe('apple_health');
+    expect(user.wearableConnectionVersion).toBe(1);
   });
 
   it('rejects an unsupported schema version before persistence', async () => {
@@ -1003,6 +1018,7 @@ describe('healthBatchIngest', () => {
       expect.anything(),
       'healthkit',
       [...v2Batch.samples, deleted],
+      { connectionVersion: 1 },
     );
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ deleted: 1, schemaVersion: 2 }));
     expect(healthStore.ingestBatch).not.toHaveBeenCalled();

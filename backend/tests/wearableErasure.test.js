@@ -196,6 +196,7 @@ describe('clearWearableCredentials', () => {
   it('nulls every Garmin credential field on the user', () => {
     const user = {
       wearableProvider: 'garmin',
+      wearableConnectionVersion: 4,
       wearableToken: { blob: 'enc' },
       garminUserId: 'g-123',
       garminUserIdHmac: 'hmac-abc',
@@ -208,20 +209,28 @@ describe('clearWearableCredentials', () => {
     expect(user.garminUserId).toBeNull();
     expect(user.garminUserIdHmac).toBeNull();
     expect(user.watchToken.hash).toBeNull();
+    expect(user.wearableConnectionVersion).toBe(5);
   });
 
   it('clears a push-based provider credential without touching garmin-only fields', () => {
-    const user = { wearableProvider: 'apple_health', wearableToken: null, garminUserId: 'g-9' };
+    const user = {
+      wearableProvider: 'apple_health',
+      wearableConnectionVersion: 7,
+      wearableToken: null,
+      garminUserId: 'g-9',
+    };
     const changed = clearWearableCredentials(user, 'apple_health');
     expect(changed).toBe(true);
     expect(user.wearableProvider).toBeNull();
     expect(user.garminUserId).toBe('g-9'); // NOT a garmin erasure — untouched
+    expect(user.wearableConnectionVersion).toBe(8);
   });
 
   it('does not clear the active provider when erasing a different one', () => {
-    const user = { wearableProvider: 'apple_health', wearableToken: null };
+    const user = { wearableProvider: 'apple_health', wearableConnectionVersion: 3, wearableToken: null };
     clearWearableCredentials(user, 'garmin');
     expect(user.wearableProvider).toBe('apple_health');
+    expect(user.wearableConnectionVersion).toBe(3);
   });
 });
 

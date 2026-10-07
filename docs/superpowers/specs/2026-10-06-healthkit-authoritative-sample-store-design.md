@@ -71,7 +71,7 @@ Required indexes:
 
 Active rows expire at the earlier of 90 days after `endAt` and 90 days after server receipt, so a future-dated client sample cannot extend retention beyond the disclosed window. An unseen-deletion tombstone expires 90 days after receipt. The v2 lane rejects an upsert whose sample is already outside that window and rejects an `endAt` more than five minutes in the future, so an expired tombstone cannot permit an accepted stale sample to reappear.
 
-The v2 contract accepts only JSON numbers and canonical units: heart rate and resting heart rate use `bpm` in the existing physiological range 30–220; HRV uses `ms` in `(0, 1000]`; sleep stages use `min` in `(0, 1440]`. It rejects non-finite values, numeric strings, reversed intervals and timestamps outside the allowed future-skew boundary.
+The v2 contract accepts only JSON numbers and canonical units: heart rate and resting heart rate use `bpm` in the existing physiological range 30–220; HRV uses `ms` in `(0, 1000]`; sleep stages use `min` in `(0, 1440]`. It rejects non-finite values, numeric strings, reversed intervals and timestamps outside the allowed future-skew boundary. A sleep-stage sample must span more than zero and no more than 24 hours, and its supplied minute value must match the timestamp-derived duration within one second of precision. Reconciliation still derives sleep from the timestamps rather than trusting the aggregate value.
 
 ## Identity and key rotation
 
@@ -121,6 +121,8 @@ Deleting wins over a delayed upsert for the same identity. The API returns succe
 HRV baseline output becomes method aware. The baseline blob adds separate SDNN and RMSSD statistics. Existing top-level `hrvMedian` and `hrvMAD` keep their legacy RMSSD-oriented meaning and must never include labeled SDNN rows. This storage increment preserves HealthKit SDNN for later method-aware state consumption; it does not feed SDNN into a classifier that still assumes generic HRV.
 
 Sleep projections are rebuilt from active HealthSample intervals for the active provider. The service calculates stage totals by night, then rebuilds `MedicalProfile.sleepStages`, `lastNightSleep`, and `sleepUpdatedAt`. It does not subtract a duration from an existing aggregate because overlapping intervals, retries, and earlier deletions make arithmetic subtraction unsafe.
+
+Every wearable connection has a monotonic server-side generation. Disconnecting or switching a provider advances that generation. HealthKit ingestion and projection capture it and refuse work from an older generation, including a disconnect/reconnect ABA where the provider name is again `apple_health`. A privacy-fence compensation clears only Apple-owned projection fields written by that run; it never restores a pre-erasure health snapshot.
 
 The profile records which provider produced its supported health projection. A HealthKit recompute may replace those supported fields only when `apple_health` is the user's active wearable provider. It never combines an Apple SDNN value with an older generic HRV aggregate from another provider.
 

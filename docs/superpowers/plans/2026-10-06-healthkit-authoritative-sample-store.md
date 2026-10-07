@@ -462,6 +462,10 @@ Fetch Malede's latest remote work, rebase this branch, resolve the known `TASKS.
 
 **Files:**
 - Modify: `backend/app/services/wearable/healthSampleReconciliation.js`
+- Modify: `backend/app/services/wearable/healthStoreV2.js`
+- Modify: `backend/app/controllers/integrationsController.js`
+- Modify: `backend/app/models/User.js`
+- Modify: `backend/app/services/privacy/wearableErasure.js`
 - Modify: `backend/app/services/wearable/healthSampleProjection.js`
 - Create: `backend/tests/healthSampleConsentRace.integration.test.js`
 - Modify: `backend/app/models/HealthSample.js`
@@ -478,6 +482,7 @@ Fetch Malede's latest remote work, rebase this branch, resolve the known `TASKS.
 **Interfaces:**
 - Consumes: `healthWriteFence`, provider connection state and the authoritative sample/projection links.
 - Produces: consent/provider-fenced reconciliation with targeted compensation; owner-gated index rollout; bounded 90-day retention and canonical input validation; identifier-free export.
+- Produces: a monotonic wearable connection generation that rejects stale ingest/reconciliation across disconnect/reconnect ABA transitions.
 
 - [ ] **Step 1: Add failing race tests**
 
@@ -507,6 +512,10 @@ Use per-metric unit/range rules, a five-minute future-skew ceiling, interval ord
 
 Redact `healthSampleKey` from `BiometricLog` and `VitalSample` exports. State that the authoritative store is active for Apple Health only; Health Connect v2 remains future work.
 
-- [ ] **Step 8: Run focused suites, full local gates, exact-head CI and repeat compliance review**
+- [ ] **Step 8: Pin and remediate second-review lifecycle and interval findings**
+
+Start with an existing Apple-owned profile, hold its reconciliation write, then exercise withdrawal, disconnect, account deletion, withdraw/regrant and disconnect/reconnect. Never restore the pre-erasure snapshot. Add a monotonic connection generation, advance it on disconnect/connect, and reject stale v2 ingest before persistence. For sleep, require a positive interval of at most 24 hours and timestamp/value agreement within one second.
+
+- [ ] **Step 9: Run focused suites, full local gates, exact-head CI and repeat compliance review**
 
 Do not mark `OPS-174` complete or make the PR ready until the compliance auditor returns a non-HALT verdict on the exact green SHA.

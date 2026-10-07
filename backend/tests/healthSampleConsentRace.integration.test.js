@@ -57,6 +57,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   jest.restoreAllMocks();
+  enqueue.mockClear();
   enqueue.mockResolvedValue({ queued: true });
   await Promise.all([
     BiometricLog.deleteMany({}),
@@ -95,6 +96,15 @@ async function pending(owner, keyDigit, metric) {
     state: 'active',
     projectionState: 'pending',
     expiresAt: new Date('2027-01-05T08:01:00Z'),
+  });
+}
+
+async function existingAppleProfile(owner) {
+  return MedicalProfile.create({
+    userId: owner._id,
+    healthProjectionProvider: 'apple_health',
+    restingHeartRate: 57,
+    maxHeartRate: 181,
   });
 }
 
@@ -151,6 +161,7 @@ describe('health sample reconciliation privacy fences', () => {
 
   it('does not recreate an Apple-owned profile after the provider was disconnected', async () => {
     const owner = await grantedUser();
+    await existingAppleProfile(owner);
     await pending(owner, '2', 'resting_heart_rate');
     const hold = holdBefore(MedicalProfile, 'findOneAndUpdate');
 
@@ -165,8 +176,47 @@ describe('health sample reconciliation privacy fences', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
+  it('does not restore an erased Apple-owned profile snapshot after consent withdrawal', async () => {
+    const owner = await grantedUser();
+    await existingAppleProfile(owner);
+    await pending(owner, '5', 'resting_heart_rate');
+    const hold = holdBefore(MedicalProfile, 'findOneAndUpdate');
+
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    await hold.entered;
+    await withdrawConsent(owner._id, HEALTH_CONSENT_PURPOSE);
+    hold.release();
+    await run;
+
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reconciliation from the connection generation before disconnect and reconnect', async () => {
+    const owner = await grantedUser();
+    await existingAppleProfile(owner);
+    await pending(owner, '6', 'resting_heart_rate');
+    const hold = holdBefore(MedicalProfile, 'findOneAndUpdate');
+
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    await hold.entered;
+    await eraseWearableProvider(await User.findById(owner._id), 'apple_health');
+    await User.updateOne(
+      { _id: owner._id },
+      { $set: { wearableProvider: 'apple_health' }, $inc: { wearableConnectionVersion: 1 } },
+    );
+    hold.release();
+    await run;
+
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('does not recreate a vital row after account deletion erased the user and children', async () => {
     const owner = await grantedUser();
+    await existingAppleProfile(owner);
     await pending(owner, '3', 'resting_heart_rate');
     const hold = holdBefore(VitalSample, 'create');
 

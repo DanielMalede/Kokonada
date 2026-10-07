@@ -182,6 +182,7 @@ function clearWearableCredentials(user, provider) {
   if (user.wearableProvider === provider) {
     user.wearableProvider = null;
     user.wearableToken = null;
+    user.wearableConnectionVersion = Number(user.wearableConnectionVersion ?? 0) + 1;
     changed = true;
   }
 

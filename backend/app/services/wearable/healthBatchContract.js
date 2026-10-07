@@ -15,6 +15,9 @@ const TYPES = new Set([
   'sleep_light',
   'sleep_rem',
 ]);
+const SLEEP_TYPES = new Set(['sleep_deep', 'sleep_light', 'sleep_rem']);
+const MAX_SLEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const SLEEP_DURATION_TOLERANCE_MINUTES = 1 / 60;
 const METRIC_RULES = Object.freeze({
   heart_rate: { unit: 'bpm', valid: isPhysiologicalHR },
   resting_heart_rate: { unit: 'bpm', valid: isPhysiologicalHR },
@@ -90,6 +93,16 @@ function parseHealthBatchRequest(body, { now = new Date() } = {}) {
     if (sample.tzOffsetMinutes != null) {
       const offset = Number(sample.tzOffsetMinutes);
       if (!Number.isInteger(offset) || offset < -840 || offset > 720) {
+        throw contractError('invalid_health_sample');
+      }
+    }
+
+    if (SLEEP_TYPES.has(sample.type)) {
+      const intervalMs = endMs - startMs;
+      const intervalMinutes = intervalMs / 60000;
+      if (intervalMs <= 0
+        || intervalMs > MAX_SLEEP_INTERVAL_MS
+        || Math.abs(sample.value - intervalMinutes) > SLEEP_DURATION_TOLERANCE_MINUTES) {
         throw contractError('invalid_health_sample');
       }
     }

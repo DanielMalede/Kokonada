@@ -9,6 +9,7 @@ const { QUEUES } = require('../../queues/definitions');
 const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
 const { affectKey } = require('../biosonic/affectCache');
 const { healthWriteFence } = require('../privacy/healthWriteFence');
+const { purgeOrphanedAggregates } = require('../privacy/wearableErasure');
 const { projectTimeSeriesSample, removeTimeSeriesProjection } = require('./healthSampleProjection');
 
 const SLEEP_STAGE = Object.freeze({
@@ -31,6 +32,7 @@ const PROFILE_PATHS = Object.freeze([
   'lastNightSleep.date',
   'sleepUpdatedAt',
 ]);
+const PROFILE_CLEAR = Object.freeze(Object.fromEntries(PROFILE_PATHS.map((path) => [path, null])));
 
 const errorType = (error) => (
   typeof error?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)
@@ -38,13 +40,16 @@ const errorType = (error) => (
     : 'Error'
 );
 
-async function projectionFence(userId, source) {
+async function projectionFence(userId, source, expectedConnectionVersion = null) {
   const consent = await healthWriteFence(userId);
   if (!consent.admitted) return consent;
 
   let account;
   try {
-    account = await User.findById(userId).select('wearableProvider deletedAt').read('primary').lean();
+    account = await User.findById(userId)
+      .select('wearableProvider wearableConnectionVersion deletedAt')
+      .read('primary')
+      .lean();
   } catch {
     return { admitted: false, reason: 'consent_read_error', fence: null };
   }
@@ -53,13 +58,12 @@ async function projectionFence(userId, source) {
   if (account.wearableProvider !== source) {
     return { admitted: false, reason: 'provider_not_current', fence: null };
   }
-  return consent;
-}
-
-function profileSnapshot(profile) {
-  const snapshot = {};
-  for (const path of PROFILE_PATHS) snapshot[path] = profile.get(path) ?? null;
-  return snapshot;
+  const connectionVersion = Number(account.wearableConnectionVersion ?? 0);
+  if (expectedConnectionVersion != null
+    && connectionVersion !== Number(expectedConnectionVersion)) {
+    return { admitted: false, reason: 'connection_changed', fence: null };
+  }
+  return { ...consent, connectionVersion };
 }
 
 function median(values) {
@@ -169,12 +173,12 @@ async function rebuildAppleProfile(userId, source, run) {
   run.profileWrite = {
     id: written._id,
     updatedAt: written.updatedAt,
-    before: existing ? profileSnapshot(existing) : null,
+    createdWithoutPriorProfile: existing == null,
   };
   return true;
 }
 
-async function undoRunProjections(userId, source, run) {
+async function undoRunProjections(userId, source, reason, run) {
   let changed = 0;
   for (const sampleKey of run.createdSampleKeys) {
     changed += await removeTimeSeriesProjection(sampleKey, userId);
@@ -187,15 +191,21 @@ async function undoRunProjections(userId, source, run) {
       healthProjectionProvider: source,
       updatedAt: run.profileWrite.updatedAt,
     };
-    if (run.profileWrite.before == null) {
+    if (run.profileWrite.createdWithoutPriorProfile
+      || reason === 'user_missing'
+      || reason === 'user_flagged') {
       const removed = await MedicalProfile.deleteOne(selector);
       changed += removed?.deletedCount ?? 0;
     } else {
-      const restored = await MedicalProfile.updateOne(
+      const cleared = await MedicalProfile.updateOne(
         selector,
-        { $set: run.profileWrite.before },
+        { $set: PROFILE_CLEAR },
       );
-      changed += restored?.modifiedCount ?? 0;
+      changed += cleared?.modifiedCount ?? 0;
+      if ((cleared?.modifiedCount ?? 0) > 0) {
+        const purged = await purgeOrphanedAggregates(userId);
+        changed += purged?.medicalProfiles ?? 0;
+      }
     }
   }
   return changed;
@@ -204,7 +214,7 @@ async function undoRunProjections(userId, source, run) {
 async function compensate(userId, source, reason, run) {
   let outcome;
   try {
-    const changed = await undoRunProjections(userId, source, run);
+    const changed = await undoRunProjections(userId, source, reason, run);
     outcome = changed > 0 ? 'undone' : 'nothing';
   } catch (error) {
     outcome = `failed error=${errorType(error)}`;
@@ -235,8 +245,8 @@ async function enqueueStateRecompute(userId) {
   }
 }
 
-async function reconcileHealthSamples(userId, source) {
-  const start = await projectionFence(userId, source);
+async function reconcileHealthSamples(userId, source, { connectionVersion = null } = {}) {
+  const start = await projectionFence(userId, source, connectionVersion);
   if (!start.admitted) return { projected: 0, removed: 0, profileUpdated: false };
 
   // This cut makes the final update race-safe: an upsert/delete that changes a row during this
@@ -268,10 +278,11 @@ async function reconcileHealthSamples(userId, source) {
     failure = error;
   }
 
-  const after = await projectionFence(userId, source);
+  const after = await projectionFence(userId, source, connectionVersion);
   let refusal = null;
   if (!after.admitted) refusal = after.reason;
   else if (after.fence !== start.fence) refusal = 'consent_changed';
+  else if (after.connectionVersion !== start.connectionVersion) refusal = 'connection_changed';
   if (refusal) await compensate(userId, source, refusal, run);
   if (failure) throw failure;
   if (refusal) return { projected: 0, removed: 0, profileUpdated: false };

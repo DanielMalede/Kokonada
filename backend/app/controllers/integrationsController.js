@@ -617,12 +617,39 @@ exports.appleHealthPush = async (req, res, next) => {
 
     // Mark as connected on first successful push
     if (req.user.wearableProvider !== 'apple_health') {
-      await User.findByIdAndUpdate(req.user._id, { wearableProvider: 'apple_health' });
+      await activatePushWearable(req.user, 'apple_health');
     }
 
     res.json(result);
   } catch (err) { next(err); }
 };
+
+async function activatePushWearable(user, provider) {
+  const previousProvider = user.wearableProvider ?? null;
+  const previousVersion = Number(user.wearableConnectionVersion ?? 0);
+  if (previousProvider === provider) return previousVersion;
+
+  const connected = await User.findOneAndUpdate(
+    { _id: user._id, wearableProvider: previousProvider },
+    {
+      $set: { wearableProvider: provider },
+      $inc: { wearableConnectionVersion: 1 },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!connected) {
+    throw Object.assign(new Error('wearable_connection_changed'), {
+      code: 'wearable_connection_changed',
+      statusCode: 409,
+    });
+  }
+
+  user.wearableProvider = provider;
+  user.wearableConnectionVersion = Number(
+    connected.wearableConnectionVersion ?? previousVersion + 1,
+  );
+  return user.wearableConnectionVersion;
+}
 
 // ── Health store batch (HealthKit / Health Connect medical-profile backfill) ─────
 
@@ -646,14 +673,12 @@ exports.healthBatchIngest = async (req, res, next) => {
 
     // HealthKit profile reconciliation is provider-scoped. Activate the validated provider before
     // the synchronous v2 projection so the first successful batch can rebuild its profile too.
-    if (batch.version === 2 && batch.platform === 'healthkit'
-      && req.user.wearableProvider !== provider) {
-      await User.findByIdAndUpdate(req.user._id, { wearableProvider: provider });
-      req.user.wearableProvider = provider;
-    }
+    const connectionVersion = batch.version === 2 && batch.platform === 'healthkit'
+      ? await activatePushWearable(req.user, provider)
+      : null;
 
     const result = batch.version === 2
-      ? await ingestV2Batch(req.user._id, batch.platform, batch.samples)
+      ? await ingestV2Batch(req.user._id, batch.platform, batch.samples, { connectionVersion })
       : await healthStore.ingestBatch(req.user._id, batch.platform, batch.samples);
     // W4-D08: `rejected` is a count plus (path, validator-kind) pairs — never a submitted value.
     // W4-D10: this line used to serialise the whole `profileMetrics` object, i.e. write the median

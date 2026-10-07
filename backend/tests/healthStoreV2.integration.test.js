@@ -12,6 +12,7 @@ const fs = require('fs');
 const mongoose = require('mongoose');
 const path = require('path');
 const HealthSample = require('../app/models/HealthSample');
+const User = require('../app/models/User');
 const { reconcileHealthSamples } = require('../app/services/wearable/healthSampleReconciliation');
 const { ingestV2Batch } = require('../app/services/wearable/healthStoreV2');
 
@@ -40,8 +41,18 @@ afterAll(async () => {
 beforeEach(async () => {
   jest.clearAllMocks();
   reconcileHealthSamples.mockResolvedValue({ projected: 0, removed: 0, profileUpdated: false });
-  await HealthSample.deleteMany({});
+  await Promise.all([HealthSample.deleteMany({}), User.deleteMany({})]);
 });
+
+async function connectedUser() {
+  return User.create({
+    ssoProvider: 'google',
+    ssoId: new mongoose.Types.ObjectId().toString(),
+    email: `${new mongoose.Types.ObjectId()}@example.test`,
+    wearableProvider: 'apple_health',
+    wearableConnectionVersion: 0,
+  });
+}
 
 describe('ingestV2Batch', () => {
   it('leaves the legacy Health Connect store independent of HealthSample', () => {
@@ -53,7 +64,7 @@ describe('ingestV2Batch', () => {
   });
 
   it('maps HealthKit to apple_health and lets delete dominate duplicate operations', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const { _id: userId } = await connectedUser();
     const samples = [upsert(), { sampleId, operation: 'delete' }];
 
     await expect(ingestV2Batch(userId, 'healthkit', samples)).resolves.toEqual({
@@ -66,11 +77,15 @@ describe('ingestV2Batch', () => {
 
     const row = await HealthSample.findOne({ userId });
     expect(row).toMatchObject({ source: 'apple_health', state: 'deleted', projectionState: 'pending' });
-    expect(reconcileHealthSamples).toHaveBeenCalledWith(userId, 'apple_health');
+    expect(reconcileHealthSamples).toHaveBeenCalledWith(
+      userId,
+      'apple_health',
+      { connectionVersion: 0 },
+    );
   });
 
   it('returns operational projection counts without identities or values', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const { _id: userId } = await connectedUser();
     reconcileHealthSamples.mockResolvedValue({ projected: 1, removed: 0, profileUpdated: false });
 
     const result = await ingestV2Batch(userId, 'healthkit', [upsert()]);
@@ -80,7 +95,7 @@ describe('ingestV2Batch', () => {
   });
 
   it('preserves fixed 409 identity conflicts without exposing submitted data', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const { _id: userId } = await connectedUser();
     await ingestV2Batch(userId, 'healthkit', [upsert()]);
 
     await expect(ingestV2Batch(userId, 'healthkit', [upsert({ value: 173 })]))
@@ -88,7 +103,7 @@ describe('ingestV2Batch', () => {
   });
 
   it('preserves the retryable 503 when synchronous projection remains pending', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const { _id: userId } = await connectedUser();
     reconcileHealthSamples.mockRejectedValue(Object.assign(new Error('health_projection_pending'), {
       code: 'health_projection_pending',
       statusCode: 503,
@@ -97,6 +112,24 @@ describe('ingestV2Batch', () => {
     await expect(ingestV2Batch(userId, 'healthkit', [upsert()]))
       .rejects.toMatchObject({ code: 'health_projection_pending', statusCode: 503 });
     expect(await HealthSample.countDocuments({ userId, projectionState: 'pending' })).toBe(1);
+  });
+
+  it('rejects a batch from an older wearable connection before storing any sample', async () => {
+    const owner = await connectedUser();
+    await User.updateOne(
+      { _id: owner._id },
+      { $set: { wearableConnectionVersion: 2 } },
+    );
+
+    await expect(ingestV2Batch(
+      owner._id,
+      'healthkit',
+      [upsert()],
+      { connectionVersion: 1 },
+    )).rejects.toMatchObject({ code: 'wearable_connection_changed', statusCode: 409 });
+
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(reconcileHealthSamples).not.toHaveBeenCalled();
   });
 
   it('does not enable the authoritative v2 lane for Health Connect yet', async () => {
