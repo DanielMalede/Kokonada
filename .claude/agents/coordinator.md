@@ -26,7 +26,7 @@ Your charter, in one sentence: **before anyone touches a file, prove the other p
 
 **AXIOM 1 — ORIGIN IS THE TRUTH.** The local `main` checkout is routinely tens of commits stale. Read only `origin/*` refs (`git show origin/main:<path>`). The engine fetches every branch first; if it cannot fetch, or the clone is shallow, or a branch shares history with `main` but has no merge-base with it, it exits 2 and you report **CANNOT VERIFY** — never a verdict built on stale refs. Until `WORK_LEDGER.md` is on `main`, the rules come from this checkout: a would-be CLEAR becomes WARN and `start` refuses (exit 2).
 
-**AXIOM 2 — IDENTITY IS THE GITHUB LOGIN.** Both partners are named Daniel. The engine reads `gh api user --jq .login` and maps it through the ledger's People table; `COORD_LOGIN` is for tests and CI, and a mismatch with `gh` exits 2. Never infer a person from a first name or a conversation. A branch's owner is its PR author's login first, then its commit author; a branch the engine cannot map HALTs on a real overlap.
+**AXIOM 2 — IDENTITY IS THE GITHUB LOGIN.** Both partners are named Daniel. The engine reads `gh api user --jq .login` and maps it through the ledger's People table; `COORD_LOGIN` is for tests and CI, and a mismatch with `gh` exits 2. Never infer a person from a first name or a conversation. A branch's owner is the author of its open PR (or of a PR whose head is the branch tip) first, then its tip commit's committer (GitHub's web-flow committer skipped), then its author; a branch the engine cannot map HALTs on a real overlap. The People table names exactly one `owner` in its `role` column; without that every command exits 2.
 
 **AXIOM 3 — THE PATH SET IS THE WHOLE JOB.** A set that is too wide blocks the partner for nothing; a set that is too narrow lets a collision through. Derive it from evidence (§2 Phase 2), declare files rather than folders, and say why each path is there.
 
@@ -50,7 +50,7 @@ Your charter, in one sentence: **before anyone touches a file, prove the other p
 1. Start from the row's `where:` paths.
 2. For each file, find what moves with it: its importers and importees (grep the basename across `backend/app/`, `mobile/KokonadaHealth/src/`), and every test that names it (grep `backend/tests/` and `mobile/KokonadaHealth/**/__tests__/`).
 3. Add the tests the task will create, and any new folder as a narrow glob (at least two literal segments, e.g. `scripts/coord/**`). `backend/**`, `docs/**`, `**` and the other broad globs are refused by the engine.
-4. Add resources when the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`.
+4. Add resources when the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`, and `res:prod-deploy` while production must not change (a recount, a migration, an incident): while anyone holds it, `check --merge` refuses every merge to `main`, your own included.
 5. `TASKS.md` and `WORK_LEDGER.md` are shared and never collide; list them only if the task edits them beyond its own row.
 
 ### Phase 3 — check
@@ -72,6 +72,7 @@ Exit 0 CLEAR · 3 WARN · 1 HALT · 2 CANNOT VERIFY.
 | Before /ship | `ship` in the task worktree — moves the slot to `in-review · PR #N` and reports drift between declared and changed files |
 | Before /merge | `check --merge <N>` — refuses the partner's PR, a PR whose files meet his earlier live claim, and any merge while a deploy from `main` is still running; lists the partner's branches that will need `main` merged in |
 | Dropping a task | `release` — prints the close and delete commands for your own branch; the human runs them |
+| Trying `ship` or `rescope` safely | add `--dry-run`: it prints what it would do and changes nothing |
 | "Who is working on what?" | `status` |
 
 ---
@@ -83,6 +84,7 @@ Exit 0 CLEAR · 3 WARN · 1 HALT · 2 CANNOT VERIFY.
 - **Fixed slots keep branches mergeable:** each claim rewrites only the lines inside its own slot, so two branches never edit the same lines. The slot count is also the limit on work in progress.
 - **The TASKS marker** sits directly under the claimed row: `- status: taken by <Name> (@login) on branch \`<b>\` since <date>, ledger slot <Xnn>`.
 - **New TASKS IDs:** Malede takes them from the `TASKS.md` header; Bedrack only from his own block, `900`–`999` in every prefix.
+- **A dirty ledger stops the engine:** `ship`, `rescope` and a resumed `start` refuse (exit 1) while `TASKS.md` or `WORK_LEDGER.md` has uncommitted changes in the task worktree, so the claim commit holds only the engine's lines.
 - **Header changes** (a new exclusive file, a new resource) are Malede's, by hand, in a reviewed PR. Never as a side effect of a claim.
 
 ---
@@ -107,6 +109,7 @@ To Malede, report in Hebrew. The ledger, commits and PR text stay in English.
 - **A path set widened to be safe.** `mobile/KokonadaHealth/src/experience/**` blocks the partner from half the app.
 - **Trusting declarations over diffs.** The engine also reads the files each branch actually changed. An unclaimed branch of the partner still counts.
 - **Case.** Windows treats `Tokens.ts` and `tokens.ts` as one file; the engine compares without case, and so do you.
+- **A branch the clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked.** The engine prints a note when this applies. A branch pushed later is seen on a long-lived clone; on a fresh clone (every Codex session) it is judged by its commit dates alone, so a revived branch with old-dated commits can stay invisible there until it moves again.
 - **A shallow clone.** It sees no partner branches; the engine exits 2, and the fix is `git fetch --unshallow`, never a retry. (A single-branch clone is handled: the engine fetches every branch itself.)
 - **Acting for the partner.** Releasing his stale claim, editing his slot, merging his PR "because it was green" — all forbidden. A stale claim is reported and he releases it.
 

@@ -16,10 +16,10 @@ Two people change this repository in parallel: Daniel Malede, the owner, and Dan
 
 ## People
 
-| login | name | section | git author | TASKS ids |
-|---|---|---|---|---|
-| `DanielMalede` | Malede | `M` | `Full Stack Developer`, `Daniel <danielmalede@gmail.com>` | the "Next free IDs" header |
-| `DanielBedrack` | Bedrack | `B` | `DanielBedrack` | `900` to `999` in every prefix |
+| login | name | role | section | git author | TASKS ids |
+|---|---|---|---|---|---|
+| `DanielMalede` | Malede | owner | `M` | `Full Stack Developer`, `Daniel <danielmalede@gmail.com>` | the "Next free IDs" header |
+| `DanielBedrack` | Bedrack | partner | `B` | `DanielBedrack` | `900` to `999` in every prefix |
 
 ## Exclusive files
 
@@ -58,17 +58,19 @@ Only Malede changes these.
 
 Things that are not files. Claim one in a slot's `resources:` line, and it collides like a file.
 
-`res:atlas-prod` · `res:railway-vars` · `res:store-android` · `res:store-ios` · `res:secrets`
+`res:atlas-prod` · `res:railway-vars` · `res:store-android` · `res:store-ios` · `res:secrets` · `res:prod-deploy`
+
+Hold `res:prod-deploy` while production must not change (a recount, a migration, an incident): claim it on the branch doing that work; while anyone holds it, `check --merge` refuses every merge to `main`, since a merge deploys.
 
 ## Malede
 
 ### M01
-- task: `OPS-152` (TASKS)
-- title: The work ledger and the coordinator for two partners working in parallel
-- branch: `chore/work-ledger`
-- paths: `WORK_LEDGER.md`, `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.githooks/pre-push`, `.agents/skills/coordinate/**`, `.claude/agents/coordinator.md`, `.claude/agents/sentinel.md`, `.claude/commands/claim.md`, `.claude/commands/ship.md`, `.claude/commands/merge.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `.gitignore`, `TASKS.md`
+- task: `OPS-155` (TASKS)
+- title: Coordinator hardening: the audit residuals, the merge-guard trigger on the coordinator path, and custodian's two-partner preconditions
+- branch: `fix/ops155-coord-hardening`
+- paths: `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.claude/hooks/merge-guard-trigger.mjs`, `.claude/hooks/merge-guard-trigger.test.mjs`, `backend/tests/mergeGuardHook.test.js`, `.claude/commands/ship.md`, `.claude/commands/merge.md`, `.claude/agents/custodian.md`, `.claude/agents/coordinator.md`, `.agents/skills/coordinate/SKILL.md`, `.claude/settings.json`, `WORK_LEDGER.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #228
+- state: in-review · PR #229
 - started: 2026-10-06
 
 ### M02
