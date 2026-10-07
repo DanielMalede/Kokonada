@@ -118,7 +118,13 @@ _free_
 _free_
 
 ### B02
-_free_
+- task: `own:atlas-healthsamples-index-rollout` (own)
+- title: Roll out HealthSample indexes in Atlas test
+- branch: `codex/atlas-healthsamples-index-rollout`
+- paths: `docs/runbooks/health-sample-index-rollout.md`
+- resources: `res:atlas-prod`
+- state: claimed
+- started: 2026-10-07
 
 ### B03
 _free_
