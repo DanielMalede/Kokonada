@@ -1,4 +1,4 @@
-import { CHECK_BAND, DESIGN_BAND, EDGE_SWEEP_GRIDS, coverageRange, edgeFamiliesFor, edgeSweepInputs } from '../neverRedSweeps.ts';
+import { CHECK_BAND, DESIGN_BAND, EDGE_SWEEP_GRIDS, coverageRange, edgeFamiliesFor, edgeSweepInputs, plateShadowGrounds } from '../neverRedSweeps.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens.generated.ts';
 
 // QA-065's anti-aliased term (addendum §2.4, resilience HIGH-1, designer rulings §1, second voice
@@ -104,5 +104,51 @@ describe.each(CASES)('QA-065 anti-aliased pairs: %s, %s face', (id, face) => {
         ...(DIRECTIONS[id].cta.keyline > 0 ? ['CTA fill · keyline', 'CTA keyline · ground'] : ['CTA fill · ground']),
       ]),
     );
+  });
+});
+
+// The plate's shadows in the edge sweep (resilience, rulings after T5d, §3). The law and the shader
+// shade the ground's L wherever a shadow is drawn, whether or not the field lands there
+// (plateShadows.test.ts), so the condition is "a shadow is drawn", never "under the field":
+//   · inner shadows (plate.depth < 0): the face-lit surfaces take each shadowed face, at P 0.5 and 1;
+//     beads go out to R minus the bead radius, so their settings, shadows and elevations can sit over
+//     the inner shadow's band;
+//   · outer shadows (> 0): every family over c.ground takes each shadowed ground, unconditionally.
+//     The designer's reading (Linen light's CTA sits about 24 dp below the rim, inside the shadow's
+//     reach of offset 10 + blur 24 dp) is one case of it; the CTA's distance depends on layout (font
+//     scale, width, orientation), so the sweep takes the shadowed grounds whatever the layout.
+const SHADOW_GROUNDS: Record<string, [string[], string[]]> = {
+  'abyss dark': [['face'], ['ground']],
+  'abyss light': [['face'], ['ground']],
+  'basin dark': [['face', 'face shadowed 0.5', 'face shadowed 1'], ['ground']],
+  'basin light': [['face', 'face shadowed 0.5', 'face shadowed 1'], ['ground']],
+  'linen dark': [['face'], ['ground']],
+  'linen light': [['face'], ['ground', 'ground shadowed 0.5', 'ground shadowed 1']],
+};
+
+describe.each(CASES)('QA-065 anti-aliased pairs over the plate’s shadows: %s, %s face', (id, face) => {
+  it('the face-lit surfaces and the ground families take each shadowed ground, L only, at P 0.5 and 1', () => {
+    const grounds = plateShadowGrounds(id, face);
+    expect([Object.keys(grounds.face), Object.keys(grounds.ground)]).toEqual(SHADOW_GROUNDS[`${id} ${face}`]);
+    const d = DIRECTIONS[id];
+    const sum = [d.plate.shadow[face], d.plate.shadow2[face]].filter((t) => t.strength !== 0 && t.blur > 0).reduce((t, x) => t + x.strength, 0);
+    for (const [side, plain] of [['face', grounds.face.face], ['ground', grounds.ground.ground]] as const) {
+      for (const P of [0.5, 1]) {
+        const shaded = (grounds[side] as Record<string, { L: number; a: number; b: number }>)[`${side} shadowed ${P}`];
+        if (shaded) expect(shaded).toEqual({ L: plain.L * (1 - sum * P), a: plain.a, b: plain.b });
+      }
+    }
+  });
+
+  it('and the sweep really takes them: more pixel blends than over the unshadowed grounds alone', () => {
+    const grounds = plateShadowGrounds(id, face);
+    const plain = { face: { face: grounds.face.face }, ground: { ground: grounds.ground.ground } };
+    const blends = (g: typeof grounds) => Object.fromEntries(edgeFamiliesFor(id, face, 'coarse', g).map((f) => [f.family, f.pixelBlends]));
+    const [withShadows, without] = [blends(grounds), blends(plain)];
+    const grew = Object.keys(withShadows).filter((family) => withShadows[family] > without[family]).sort();
+    const faceLit = Object.keys(withShadows).filter((f) => f.startsWith('face lit'));
+    const overGround = Object.keys(withShadows).filter((f) => f.endsWith('· ground'));
+    const expected = [...(Object.keys(grounds.face).length > 1 ? faceLit : []), ...(Object.keys(grounds.ground).length > 1 ? overGround : [])].sort();
+    expect(grew).toEqual(expected);
   });
 });

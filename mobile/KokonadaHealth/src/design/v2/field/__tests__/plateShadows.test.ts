@@ -151,3 +151,21 @@ describe('the law: the shadow factor, exactly as ruled', () => {
     expect(at).toBeGreaterThan(0);
   });
 });
+
+// Resilience, rulings after T5d, §3: does the plate's outer shadow shade the ground where the field
+// does not land (mask.outside = 0)? It does: the shadow multiplies the local ground's L before the
+// composite, whatever the extent. So the never-red sweep's condition is "a shadow is drawn".
+describe('the outer shadow shades the ground where the field does not land', () => {
+  it('Linen light with mask.outside 0: below the plate, the ground is darker than the plain ground, by the shadow factor', () => {
+    const frame = frameOf('linen', 'light');
+    const noField = { ...frame, mask: { ...frame.mask, outside: 0 }, grain: { inside: 0, ground: 0 }, dither: 0 };
+    const qx = 0;
+    const qy = -1.02; // just outside the rim, under the shadow's offset
+    const x = noField.centrePx[0] + qx * noField.radiusPx;
+    const y = noField.centrePx[1] - qy * noField.radiusPx;
+    const region = regionOf(Math.hypot(qx, qy), noField);
+    const factor = shadowFactor(noField, region, qx, qy);
+    expect(factor).toBeLessThan(0.99);
+    expect(fieldOklab(noField, x, y).L).toBeCloseTo(noField.grounds.outside.L * factor, 12);
+  });
+});

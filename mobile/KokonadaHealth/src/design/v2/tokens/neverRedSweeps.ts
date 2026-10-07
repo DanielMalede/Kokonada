@@ -249,7 +249,27 @@ class Family {
   }
 }
 
-export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse'): EdgeFamilyMax[] {
+/**
+ * The grounds the edge sweep composites over, with the plate's shadows (resilience, rulings after T5d,
+ * §3): the face, and each inner-shadowed face at every profile value; the ground, and each
+ * outer-shadowed ground. The law and the shader shade a ground's L wherever a shadow is drawn, whether
+ * or not the field lands there, so the condition is that a shadow is drawn (strength and blur), never
+ * the mask.
+ */
+export function plateShadowGrounds(id: DirectionId, face: Face): { readonly face: Record<string, Oklab>; readonly ground: Record<string, Oklab> } {
+  const d = DIRECTIONS[id];
+  const c = d.color[face];
+  const out = { face: { face: lab(c.plate.face) } as Record<string, Oklab>, ground: { ground: lab(c.ground) } as Record<string, Oklab> };
+  const drawn = [d.plate.shadow[face], d.plate.shadow2[face]].filter((t) => t.strength !== 0 && t.blur > 0);
+  if (drawn.length === 0 || d.plate.depth === 0) return out;
+  const sum = drawn.reduce((t, x) => t + x.strength, 0);
+  const side = d.plate.depth < 0 ? 'face' : 'ground';
+  const g = out[side][side];
+  for (const P of SHADOW_PROFILE) out[side][`${side} shadowed ${P}`] = { L: g.L * (1 - sum * P), a: g.a, b: g.b };
+  return out;
+}
+
+export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse', grounds = plateShadowGrounds(id, face)): EdgeFamilyMax[] {
   const d = DIRECTIONS[id];
   const c = d.color[face];
   const tier = tierFor(face);
@@ -289,19 +309,21 @@ export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepRe
     return [...out.values()];
   };
   const ring = lab(c.plate.ring);
-  const faceGround = lab(c.plate.face);
+  // The face, and each face an inner shadow reaches; the ground, and each ground an outer shadow reaches.
+  const faceGrounds = Object.values(grounds.face);
+  const groundGrounds = Object.values(grounds.ground);
   const fieldNodes = [...anchors, lab(c.field.restGlow)];
   const ringFloat = shifted(lit(ring, anchors, haloPeak(face), [0], floatKStep));
   const ringBytes = quantised(byteShifted(lit(ring, anchors, haloPeak(face), [0], byteKStep)));
-  const faceFloat = shifted([
+  const faceFloat = shifted(faceGrounds.flatMap((faceGround) => [
     ...lit(faceGround, anchors, haloPeak(face), [0], floatKStep),
     ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, floatKStep) : []),
-  ]);
+  ]));
   const faceBytes = quantised(
-    byteShifted([
+    byteShifted(faceGrounds.flatMap((faceGround) => [
       ...lit(faceGround, anchors, haloPeak(face), [0], byteKStep),
       ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, byteKStep) : []),
-    ]),
+    ])),
   );
 
   const shadows: Ink[] = [{ colour: c.bead.shadow, coverage: c.bead.shadow.alpha }];
@@ -362,9 +384,9 @@ export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepRe
   if (d.cta.keyline > 0) {
     const keyline = (f: Oklab): Oklab => ({ L: f.L, a: 0, b: 0 });
     pairsOf('CTA fill · keyline', ctaFills.map((f) => [f, keyline(f)]));
-    pairsOf('CTA keyline · ground', ctaFills.map((f) => [keyline(f), lab(c.ground)]));
+    pairsOf('CTA keyline · ground', ctaFills.flatMap((f) => groundGrounds.map((g): [Oklab, Oklab] => [keyline(f), g])));
   } else {
-    pairsOf('CTA fill · ground', ctaFills.map((f) => [f, lab(c.ground)]));
+    pairsOf('CTA fill · ground', ctaFills.flatMap((f) => groundGrounds.map((g): [Oklab, Oklab] => [f, g])));
   }
   return families.map((family) => family.result());
 }
