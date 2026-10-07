@@ -16,6 +16,12 @@
 //   · assigning an animation to .value starts it at the current frame time; it advances on frames;
 //     cancelAnimation stops it (callback finished=false); useSharedValue cancels its own animation on
 //     unmount (useSharedValue.ts); useReducedMotion is a static read of the system setting.
+// RN Animated with useNativeDriver: the preset's NativeAnimatedModule completes EVERY native animation
+// after a 16 ms setTimeout and its stopAnimation cancels nothing (jest-preset/jest/mocks/NativeModules.js
+// :96-99), so in jest a native-driven infinite Animated.loop "finishes" after 16 ms and a stopped one
+// leaves a timer behind. Here a native animation runs on the motion clock instead: a frames config of
+// n samples (round(duration/16.67) + 1, TimingAnimation) lasts (n - 1) x 1000/60 ms per iteration, iterations -1 never completes, and stopAnimation ends it
+// with finished:false, as the native side does (Android NativeAnimatedNodesManager.stopAnimation).
 // withSpring is modelled as an ease-out timing of config.duration (default 600 ms): spring physics are
 // not reproduced, only "running until it settles", which is what stillness and teardown need.
 
@@ -109,7 +115,7 @@ function makeStepper(anim: Anim, from: number, start: number): Stepper {
   }
 }
 
-export interface VisualWork { frameCallbacks: number; clockSubscriptions: number; animations: number; loops: number; mapperRunsPerFrame: number }
+export interface VisualWork { frameCallbacks: number; clockSubscriptions: number; animations: number; nativeAnimations: number; loops: number; mapperRunsPerFrame: number }
 
 export interface MotionFakes {
   /** Advance one frame by dtMs (default 1000/60): frame callbacks, then animations, then dirty mappers. */
@@ -120,6 +126,8 @@ export interface MotionFakes {
   registeredFrameCallbacks(): number;
   clockSubscriptions(): number;
   activeAnimations(): number;
+  /** RN Animated animations running on the (faked) native driver. */
+  activeNativeAnimations(): number;
   activeLoops(): number;
   mappers(): number;
   mapperRunsLastFrame(): number;
@@ -306,11 +314,13 @@ export function installMotionFakes(): MotionFakes {
 
   // ── RN Animated loops ─────────────────────────────────────────────────────────────────────────
   const loops = new Set<number>();
+  const loopStops = new Map<number, () => void>();
   let nextLoop = 1;
   const realLoop = RN.Animated.loop;
   patcher.set(RN.Animated, 'loop', (animation: RN.Animated.CompositeAnimation, config?: Parameters<typeof RN.Animated.loop>[1]) => {
     const composite = realLoop(animation, config);
     const id = nextLoop++;
+    loopStops.set(id, () => composite.stop());
     return {
       ...composite,
       start(cb?: (r: { finished: boolean }) => void) {
@@ -321,6 +331,26 @@ export function installMotionFakes(): MotionFakes {
       reset() { loops.delete(id); composite.reset(); },
     };
   });
+
+  // ── RN Animated's native driver ──────────────────────────────────────────────────────────────────
+  type NativeAnim = { endsAt: number; end?: (r: { finished: boolean }) => void };
+  const nativeAnims = new Map<number, NativeAnim>();
+  const nativeModule = (RN.NativeModules as Record<string, any>).NativeAnimatedModule as Record<string, unknown> | undefined;
+  if (nativeModule) {
+    const durationOf = (config: { type?: string; frames?: unknown[]; duration?: number }) =>
+      config?.type === 'frames' && Array.isArray(config.frames) ? Math.max(0, config.frames.length - 1) * (1000 / 60) : (config?.duration ?? 600);
+    patcher.set(nativeModule, 'startAnimatingNode', (id: number, _tag: number, config: { iterations?: number }, end?: (r: { finished: boolean }) => void) => {
+      const iterations = config?.iterations ?? 1;
+      const endsAt = iterations === -1 || !Number.isFinite(iterations) ? Infinity : now + durationOf(config as any) * Math.max(1, iterations);
+      nativeAnims.set(id, { endsAt, end });
+    });
+    patcher.set(nativeModule, 'stopAnimation', (id: number) => {
+      const a = nativeAnims.get(id);
+      if (!a) return;
+      nativeAnims.delete(id);
+      a.end?.({ finished: false });
+    });
+  }
 
   // ── the clock ─────────────────────────────────────────────────────────────────────────────────
   let lastRuns = 0;
@@ -344,6 +374,7 @@ export function installMotionFakes(): MotionFakes {
       if (done) finish(sv, true);
     }
     for (const m of [...mappers]) if (m.dirty) { m.dirty = false; m.run(); }
+    for (const [id, a] of [...nativeAnims]) if (a.endsAt <= now) { nativeAnims.delete(id); a.end?.({ finished: true }); }
     lastRuns = mapperRuns - runsBefore;
   };
 
@@ -351,6 +382,7 @@ export function installMotionFakes(): MotionFakes {
     frameCallbacks: [...callbacks.values()].filter((c) => c.active).length,
     clockSubscriptions: [...callbacks.values()].filter((c) => c.active && c.clock).length,
     animations: running.size,
+    nativeAnimations: nativeAnims.size,
     loops: loops.size,
   });
 
@@ -362,6 +394,7 @@ export function installMotionFakes(): MotionFakes {
     registeredFrameCallbacks: () => callbacks.size,
     clockSubscriptions: () => counts().clockSubscriptions,
     activeAnimations: () => running.size,
+    activeNativeAnimations: () => nativeAnims.size,
     activeLoops: () => loops.size,
     mappers: () => mappers.size,
     mapperRunsLastFrame: () => lastRuns,
@@ -376,13 +409,18 @@ export function installMotionFakes(): MotionFakes {
         w.frameCallbacks && `  frame callbacks: ${w.frameCallbacks}`,
         w.clockSubscriptions && `  Skia clock subscriptions: ${w.clockSubscriptions}`,
         w.animations && `  Reanimated animations: ${w.animations}`,
+        w.nativeAnimations && `  RN Animated native-driver animations: ${w.nativeAnimations}`,
         w.loops && `  RN Animated loops: ${w.loops}`,
         w.mapperRunsPerFrame && `  derived values / animated styles re-run per frame: ${w.mapperRunsPerFrame}`,
       ].filter(Boolean);
       if (lines.length) throw new Error(`QA-046: visual work is still running:\n${lines.join('\n')}`);
     },
     restore() {
-      for (const id of [...loops]) loops.delete(id);
+      // a loop a test leaked must not outlive it (it would keep scheduling frames and hold the process open)
+      for (const id of [...loops]) { loops.delete(id); loopStops.get(id)?.(); }
+      loopStops.clear();
+      for (const sv of [...running.keys()]) running.delete(sv);
+      nativeAnims.clear();
       patcher.restore();
       installed = false;
     },

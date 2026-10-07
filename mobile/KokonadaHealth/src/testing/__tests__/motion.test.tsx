@@ -117,7 +117,7 @@ describe('QA-046 · the Skia clock, derived values and reduced motion', () => {
   it('the compliant field under reduced motion does no visual work', () => {
     render(<StillField reduced />);
     expect(() => motion.assertStill()).not.toThrow();
-    expect(motion.visualWork()).toEqual({ frameCallbacks: 0, clockSubscriptions: 0, animations: 0, loops: 0, mapperRunsPerFrame: 0 });
+    expect(motion.visualWork()).toEqual({ frameCallbacks: 0, clockSubscriptions: 0, animations: 0, nativeAnimations: 0, loops: 0, mapperRunsPerFrame: 0 });
   });
 
   it('useReducedMotion is the static system read, scripted before render', () => {
@@ -207,6 +207,25 @@ describe('QA-046 · RN Animated loops', () => {
     expect(motion.activeLoops()).toBe(1);
     act(() => { tree.unmount(); });
     expect(motion.activeLoops()).toBe(0);
+  });
+
+  it('a native-driven infinite loop keeps running across frames (the preset would end it after 16 ms)', () => {
+    render(<Pulse reduced={false} />);
+    frames(...Array.from({ length: 300 }, () => 16)); // 4.8 s: more than two full 2 s periods
+    expect(motion.activeLoops()).toBe(1);
+    expect(motion.activeNativeAnimations()).toBe(1);
+  });
+
+  it('a native-driven timing completes on the motion clock and calls back finished=true', () => {
+    const done = jest.fn();
+    const v = new Animated.Value(0);
+    act(() => { Animated.timing(v, { toValue: 1, duration: 100, useNativeDriver: true }).start(done); });
+    expect(motion.activeNativeAnimations()).toBe(1);
+    frames(50);
+    expect(done).not.toHaveBeenCalled();
+    frames(60);
+    expect(done).toHaveBeenCalledWith({ finished: true });
+    expect(motion.activeNativeAnimations()).toBe(0);
   });
 
   it('useCalmPulse under reduced motion starts no loop', () => {
