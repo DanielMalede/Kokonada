@@ -249,12 +249,12 @@ async function cleanupRefusedPending(userId, source, connectionVersion) {
       ? {}
       : { healthProjectionConnectionVersion: Number(connectionVersion) }),
   };
-  await MedicalProfile.updateOne(profileSelector, { $set: PROFILE_CLEAR });
+  const clearedProfile = await MedicalProfile.updateOne(profileSelector, { $set: PROFILE_CLEAR });
   await HealthSample.deleteMany({
     _id: { $in: pending.map((sample) => sample._id) },
     projectionState: 'pending',
   });
-  await purgeOrphanedAggregates(userId);
+  if ((clearedProfile?.modifiedCount ?? 0) > 0) await purgeOrphanedAggregates(userId);
 }
 
 async function recordCleanupMarker(userId, source, connectionVersion, consentFence, sampleKeys) {
@@ -303,13 +303,13 @@ async function cleanupMarker(userId, marker) {
     });
     if (!newer) await removeTimeSeriesProjection(sampleKey, userId);
   }
-  await MedicalProfile.updateOne({
+  const clearedProfile = await MedicalProfile.updateOne({
     userId,
     healthProjectionProvider: marker.provider,
     healthProjectionConnectionVersion: Number(marker.connectionVersion ?? 0),
   }, { $set: PROFILE_CLEAR });
   await clearCleanupMarkers(userId, { token: marker.token });
-  await purgeOrphanedAggregates(userId);
+  if ((clearedProfile?.modifiedCount ?? 0) > 0) await purgeOrphanedAggregates(userId);
 }
 
 async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
