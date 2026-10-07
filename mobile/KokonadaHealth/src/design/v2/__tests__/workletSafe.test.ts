@@ -26,6 +26,7 @@ const FUTURE_WORKLET_MODULES = [
   'field/uniforms.ts',
   'field/crossfade.ts',
   'field/placementLedger.ts',
+  'clock/frameDt.ts',
 ];
 
 const DESTRUCTURED = /\b(?:const|let|var)\s*\{[^}]*\}\s*=\s*(?:Math|Number)\b/;
@@ -53,6 +54,72 @@ function moduleFunctions(source: string, fileName: string): Array<{ name: string
     }
   }
   return out;
+}
+
+/** The names a module imports by value from relative modules, each with its specifier (type-only imports skipped). */
+function valueImports(source: string, fileName: string): Array<{ spec: string; name: string }> {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const out: Array<{ spec: string; name: string }> = [];
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const spec = statement.moduleSpecifier.text;
+    const clause = statement.importClause;
+    if (!spec.startsWith('.') || clause === undefined || clause.isTypeOnly) continue;
+    if (clause.name) out.push({ spec, name: 'default' });
+    const bindings = clause.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) out.push({ spec, name: '*' });
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) if (!element.isTypeOnly) out.push({ spec, name: (element.propertyName ?? element.name).text });
+    }
+  }
+  return out;
+}
+
+/** Where a module re-exports a name from another module (`export { name } from './x'`), that module's specifier. */
+function reExportOf(source: string, fileName: string, name: string): string | null {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  for (const statement of file.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const clause = statement.exportClause;
+    if (clause && ts.isNamedExports(clause) && clause.elements.some((e) => e.name.text === name)) {
+      const element = clause.elements.find((e) => e.name.text === name)!;
+      return element.propertyName ? null : statement.moduleSpecifier.text;
+    }
+  }
+  return null;
+}
+
+/**
+ * The functions `importer` imports by value from relative modules that are not worklets in their own
+ * source, followed through re-exports; constants and types are not functions and pass. `read` returns
+ * a file's text, or null where there is no such file.
+ */
+function plainImportedFunctions(importer: string, source: string, read: (file: string) => string | null): string[] {
+  const resolve = (from: string, spec: string) => {
+    const base = path.resolve(path.dirname(from), spec);
+    return [base, `${base}.ts`, `${base}.tsx`].find((f) => /\.tsx?$/.test(f) && read(f) !== null);
+  };
+  const offenders: string[] = [];
+  for (const { spec, name } of valueImports(source, importer)) {
+    let target = resolve(importer, spec);
+    for (let hops = 0; target !== undefined && hops < 4; hops++) {
+      const text = read(target)!;
+      const functions = moduleFunctions(text, target);
+      if (name === '*') {
+        offenders.push(...functions.filter((f) => !f.worklet).map((f) => `${f.name} from ${spec}`));
+        break;
+      }
+      const found = functions.find((f) => f.name === name);
+      if (found) {
+        if (!found.worklet) offenders.push(`${name} from ${spec}`);
+        break;
+      }
+      const next = reExportOf(text, target, name);
+      target = next === null ? undefined : resolve(target, next);
+    }
+    if (resolve(importer, spec) === undefined) offenders.push(`${name} from ${spec}: no such module`);
+  }
+  return offenders;
 }
 
 function hostBindings(source: string): string[] {
@@ -121,6 +188,32 @@ describe('worklet-safe maths', () => {
     const functions = moduleFunctions(fs.readFileSync(path.join(V2, file), 'utf8'), file);
     expect(functions.length).toBeGreaterThan(0);
     expect(functions.filter((f) => !f.worklet).map((f) => f.name)).toEqual([]);
+  });
+
+  // A worklet that calls a plain function from another module throws on the UI thread just the same,
+  // and the list above cannot see it (fieldLaw.ts also holds the Node-side law, so it can never join).
+  // So every function a listed module imports by value from another v2 module is a worklet in its own
+  // source (architect round 1 G-a, resilience round 1 F11).
+  const readIfExists = (file: string) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null);
+
+  it.each(FUTURE_WORKLET_MODULES)('%s: every function it imports by value from another v2 module is a worklet', (file) => {
+    const full = path.join(V2, file);
+    expect(plainImportedFunctions(full, fs.readFileSync(full, 'utf8'), readIfExists)).toEqual([]);
+  });
+
+  it('the import rule bites on planted sources, follows a re-export, and passes constants and types', () => {
+    const at = (name: string) => path.join(V2, 'planted', name);
+    const planted: Record<string, string> = {
+      [at('importer.ts')]: "import { plain, works, LIMIT } from './lib.ts';\nimport type { Shape } from './lib.ts';\nimport { again } from './barrel';\n",
+      [at('lib.ts')]: "export const LIMIT = 3;\nexport function plain() { return 1; }\nexport const works = () => { 'worklet'; return 2; };\nexport type Shape = number;\n",
+      [at('barrel.ts')]: "export { again } from './deep.ts';\n",
+      [at('deep.ts')]: 'export function again() { return 3; }\n',
+    };
+    const read = (f: string) => planted[f] ?? null;
+    expect(plainImportedFunctions(at('importer.ts'), planted[at('importer.ts')], read)).toEqual(['plain from ./lib.ts', 'again from ./barrel']);
+    // The real ledger: its import of clampFrameDt is checked in clock/frameDt.ts, where it is a worklet.
+    const ledger = path.join(V2, 'field/placementLedger.ts');
+    expect(valueImports(fs.readFileSync(ledger, 'utf8'), ledger).map((i) => i.name)).toEqual(expect.arrayContaining(['clampFrameDt', 'nodeAt', 'crossfade', 'progress']));
   });
 
   it('covers the helpers the review named, each a worklet', () => {
