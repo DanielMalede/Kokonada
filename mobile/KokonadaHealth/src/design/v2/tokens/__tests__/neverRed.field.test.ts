@@ -17,13 +17,43 @@ const CHECK_LIMIT = CHECK_BAND.chromaFloor - BASE.neverRed.margin;
 const sweepFor = (id: DirectionId, face: Face, edges?: { straight: Array<[string, string]>; waypoint: Array<[string, string]> }): NeverRedSweep =>
   fieldSweepFor(id, face, GRAPH.edges, edges);
 
+// The plate's shadows (designer ruling 2.9, with the critic's text the designer adopted): they multiply
+// the local ground's L before the composite, G.L ← G.L·(1 − Σ strength·P), over the face's plate.shadow
+// and plate.shadow2. Outer shadows (plate.depth > 0) land outside the rim, where the field lands only
+// if mask.outside > 0; inner ones (< 0) on the face. A shadow with no strength or no blur draws nothing
+// (fieldFrame.ts). The sweep samples each shadowed ground at P ∈ {0, 0.5, 1}, because quantisation near
+// black is not monotone in L; P = 0 is the ground itself.
+function shadowsOf(id: DirectionId, face: Face): { under: 'face' | 'ground' | null; sum: number } {
+  const d = DIRECTIONS[id];
+  const drawn = [d.plate.shadow[face], d.plate.shadow2[face]].filter((t) => t.strength !== 0 && t.blur > 0);
+  const under = d.plate.depth < 0 ? 'face' : d.plate.depth > 0 && d.field.mask.outside > 0 ? 'ground' : null;
+  return drawn.length === 0 ? { under: null, sum: 0 } : { under, sum: drawn.reduce((t, x) => t + x.strength, 0) };
+}
+
+it('the shadowed grounds are swept where the tokens draw a shadow under the field: Linen light outside the rim, Basin on the face', () => {
+  expect(CASES.filter(([id, face]) => shadowsOf(id, face).under !== null).map(([id, face]) => [id, face, shadowsOf(id, face).under])).toEqual([
+    ['basin', 'dark', 'face'],
+    ['basin', 'light', 'face'],
+    ['linen', 'light', 'ground'],
+  ]);
+});
+
 describe.each(CASES)('QA-065 field segments (upsampling and Skia not yet covered): %s, %s face', (id, face) => {
   // The sweep's inputs, pinned: dropping a ground, a k bound, a segment or the grain from the
   // amplitude would otherwise leave this block green while it checked less.
   it('sweeps the grounds, k range, segments and dither amplitude this direction can show', () => {
     const cfg = sweepFor(id, face);
     const d = DIRECTIONS[id];
-    expect(Object.keys(cfg.grounds).sort()).toEqual(d.field.mask.outside > 0 ? ['face', 'ground', 'ring'] : ['face', 'ring']);
+    const { under, sum } = shadowsOf(id, face);
+    const shadowed = under === null ? [] : [`${under} shadowed 0.5`, `${under} shadowed 1`];
+    expect(Object.keys(cfg.grounds).sort()).toEqual([...(d.field.mask.outside > 0 ? ['face', 'ground', 'ring'] : ['face', 'ring']), ...shadowed].sort());
+    // Each shadowed ground is its ground with L·(1 − Σ strength·P): L only, so a neutral one stays neutral.
+    if (under !== null) {
+      for (const P of [0.5, 1]) {
+        const g = cfg.grounds[under];
+        expect(cfg.grounds[`${under} shadowed ${P}`]).toEqual({ L: g.L * (1 - sum * P), a: g.a, b: g.b });
+      }
+    }
     expect(cfg.kMax).toBe(Math.max(d.field.cap[face], face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight));
     expect(graphSegments(cfg.graph)).toHaveLength(d.field.graph.restIntenseRoute === 'waypoint' ? 17 : 16);
     expect(cfg.ditherAmplitude).toBe(BASE.field.dither.amplitude + Math.max(d.field.grain.ground, d.field.grain.inside));

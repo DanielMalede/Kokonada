@@ -2,7 +2,7 @@
 //
 // Two kinds:
 //   • fieldSweepFor: the blend graph composited over every local ground the field or a halo lands
-//     on (blendSpace.ts).
+//     on (blendSpace.ts), including each ground the plate's shadows darken or lift, at P 0.5 and 1.
 //   • edgeFamiliesFor: every pair of colours that meet at an anti-aliased edge, a stroke, a shadow
 //     tail or a gradient, blended in sRGB as Skia draws them (edgeSweep.ts). Each family reports its
 //     exact largest in-band chroma in float (design band) and on 8-bit pixels (check band).
@@ -63,6 +63,24 @@ function fieldGrid(resolution: SweepResolution): NeverRedSweep['grid'] {
     : { kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.2, pixelKStep: 0.2, chromaScales };
 }
 
+/**
+ * The plate's shadows under the field (designer ruling 2.9, with the critic's text the designer
+ * adopted): G.L ← G.L·(1 − Σ strength·P) over the face's plate.shadow and plate.shadow2, outer shadows
+ * (plate.depth > 0) outside the rim, where the field lands only if mask.outside > 0, inner ones (< 0)
+ * on the face. A shadow with no strength or no blur draws nothing (fieldFrame.ts). Null where no
+ * shadow lands under the field.
+ */
+function plateShadowsUnderField(id: DirectionId, face: Face): { readonly under: 'face' | 'ground'; readonly sum: number } | null {
+  const d = DIRECTIONS[id];
+  const drawn = [d.plate.shadow[face], d.plate.shadow2[face]].filter((t) => t.strength !== 0 && t.blur > 0);
+  const under = d.plate.depth < 0 ? 'face' : d.plate.depth > 0 && d.field.mask.outside > 0 ? 'ground' : null;
+  if (drawn.length === 0 || under === null) return null;
+  return { under, sum: drawn.reduce((t, x) => t + x.strength, 0) };
+}
+
+/** The shadow profile values the sweep adds (P = 0 is the ground itself): quantisation near black is not monotone in L. */
+const SHADOW_PROFILE = [0.5, 1];
+
 export function fieldSweepFor(
   id: DirectionId,
   face: Face,
@@ -87,6 +105,12 @@ export function fieldSweepFor(
   };
   const grounds: Record<string, Oklab> = { face: lab(colours.plate.face), ring: lab(colours.plate.ring) };
   if (d.field.mask.outside > 0) grounds.ground = lab(colours.ground);
+  // Each shadowed ground, on L only, at every profile value.
+  const shadows = plateShadowsUnderField(id, face);
+  if (shadows !== null) {
+    const g = grounds[shadows.under];
+    for (const P of SHADOW_PROFILE) grounds[`${shadows.under} shadowed ${P}`] = { L: g.L * (1 - shadows.sum * P), a: g.a, b: g.b };
+  }
   return {
     graph,
     grounds,
