@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import * as fs from 'fs';
 import * as path from 'path';
+import ts from 'typescript';
 
 // v2 starts clean (plan §1, F-4): nothing under src/design/v2 may import v1 code, or anything
 // else in the app outside v2. Packages are fine; a relative path that climbs out of v2 is not.
@@ -87,5 +88,31 @@ describe('src/design/v2 imports nothing from outside v2', () => {
   it('does not flag a package or a path that stays inside v2', () => {
     const source = "import React from 'react';\nimport { a } from './oklab.ts';\nimport { b } from '../motion/ports.ts';";
     expect(importsLeavingV2(source, path.join(V2, 'color', 'x.ts'), V2)).toEqual([]);
+  });
+});
+
+// One spelling for a relative import (architect round 1, a nit made a rule): it names its file,
+// `./oklab.ts`, never `./oklab`, as the rest of v2 writes it.
+function extensionlessImports(source: string, fileName: string): string[] {
+  const kind = fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind);
+  const out: string[] = [];
+  for (const statement of file.statements) {
+    if (!(ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement))) continue;
+    const spec = statement.moduleSpecifier;
+    if (spec && ts.isStringLiteral(spec) && spec.text.startsWith('.') && !/\.(tsx?|json|[mc]?js)$/.test(spec.text)) out.push(spec.text);
+  }
+  return out;
+}
+
+describe('every relative import in src/design/v2 names its file', () => {
+  it('no import or re-export leaves out the extension', () => {
+    const offenders = FILES.filter((f) => /\.tsx?$/.test(f)).flatMap((f) => extensionlessImports(fs.readFileSync(f, 'utf8'), f).map((spec) => `${rel(f)} -> ${spec}`));
+    expect(offenders).toEqual([]);
+  });
+
+  it('bites on planted sources, and passes a package, a named file and a type-only import that names its file', () => {
+    const planted = "import { a } from './oklab';\nexport { b } from '../motion/ports';\nimport React from 'react';\nimport { c } from './mixSafe.ts';\nimport type { D } from './redBand.ts';\n";
+    expect(extensionlessImports(planted, path.join(V2, 'color', 'planted.ts'))).toEqual(['./oklab', '../motion/ports']);
   });
 });

@@ -4,7 +4,7 @@
 // (placementLedger.ts). A pure module (no React, no Reanimated), so the ledger stays pure and loads in
 // every jest project; fieldClock.ts re-exports both names for its callers.
 
-import { BASE } from '../tokens/tokens.generated';
+import { BASE } from '../tokens/tokens.generated.ts';
 
 export const MAX_FRAME_DT_MS = BASE.motion.dtClamp;
 

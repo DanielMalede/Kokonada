@@ -37,7 +37,7 @@
 // Slots: one pool of NODE_SLOTS. A node keeps its slot from the frame it enters until its fade
 // reaches 0; freed slots are reused lowest first.
 
-import { clampFrameDt } from '../clock/frameDt';
+import { clampFrameDt } from '../clock/frameDt.ts';
 import { BASE } from '../tokens/tokens.generated.ts';
 import { crossfade, progress, type FadeMode } from './crossfade.ts';
 import { nodeAt, type PlacementNode } from './fieldFrame.ts';

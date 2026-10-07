@@ -13,8 +13,8 @@
 
 import { useCallback, useEffect } from 'react';
 import { useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
-import { advanceBreath, type BreathClock, type BreathState } from '../motion/breathPhaser';
-import { clampFrameDt, MAX_FRAME_DT_MS } from './frameDt';
+import { advanceBreath, type BreathClock, type BreathState } from '../motion/breathPhaser.ts';
+import { clampFrameDt, MAX_FRAME_DT_MS } from './frameDt.ts';
 
 // One dt law (B4 item 6): the clamp and clampFrameDt live in frameDt.ts (pure), read from
 // motion.dtClamp once; everything that moves with real time takes the same clamped dt.

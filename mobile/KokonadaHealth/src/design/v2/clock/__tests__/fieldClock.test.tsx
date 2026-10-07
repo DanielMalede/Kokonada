@@ -1,8 +1,8 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { advanceBreath, startBreath, type BreathClock } from '../../motion/breathPhaser';
-import { BASE } from '../../tokens/tokens.generated';
-import { advanceFieldMotion, advanceFieldTime, clampFrameDt, MAX_FRAME_DT_MS, useRealtimeFieldClock, type FieldClock } from '../fieldClock';
+import { advanceBreath, startBreath, type BreathClock } from '../../motion/breathPhaser.ts';
+import { BASE } from '../../tokens/tokens.generated.ts';
+import { advanceFieldMotion, advanceFieldTime, clampFrameDt, MAX_FRAME_DT_MS, useRealtimeFieldClock, type FieldClock } from '../fieldClock.ts';
 
 // MB-085. The real-time field clock is a SharedValue that a frame callback advances on the UI
 // thread. Its laws:
