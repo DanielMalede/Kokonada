@@ -7,7 +7,8 @@ import { spawnSync } from 'child_process';
 //   · unit — the existing configuration, with the global stubs (jest.setup.js), every test except
 //     *.skia.test.*;
 //   · skia — Skia's CanvasKit environment, *.skia.test.* only, and never the Skia stub.
-//   · sweeps — UI-073's full-resolution never-red pass, *.sweeps.test.* only, in its own config
+//   · sweeps — UI-073's full-resolution never-red pass and E3's full ledger-storm grid (QA-068),
+//     *.sweeps.test.* only, in its own config
 //     (jest.sweeps.config.js), so `jest` and `jest --ci` never run it. CI runs it in its own job,
 //     gated by a pinned paths filter, so a PR that cannot change a sweep result skips it.
 // Splitting a jest config is how suites silently stop running: a narrowed pattern runs fewer files
@@ -82,6 +83,9 @@ const SWEEPS_FILTER = [
   'design-tokens/**',
   'mobile/KokonadaHealth/src/design/v2/color/**',
   'mobile/KokonadaHealth/src/design/v2/tokens/**',
+  'mobile/KokonadaHealth/src/design/v2/field/**',
+  'mobile/KokonadaHealth/src/design/v2/clock/**',
+  'mobile/KokonadaHealth/src/design/v2/motion/**',
   'mobile/KokonadaHealth/jest.sweeps.config.js',
   'mobile/KokonadaHealth/jest.config.js',
   'mobile/KokonadaHealth/package-lock.json',
@@ -171,7 +175,7 @@ describe('the two jest projects (MB-086)', () => {
 
   // Positive control: every file a sweep test actually loads (its relative import closure), the
   // token sources, both jest configs, the lockfile and ci.yml match the filter, and an app screen
-  // does not. A sweep module added outside color/ or tokens/ would fail here.
+  // does not. A sweep module added outside color/, tokens/, field/, clock/ or motion/ would fail here.
   it('the filter covers every file the sweeps load, and only design files', () => {
     const matches = matchesAny(filterGlobs(jobBlock(ciLines(), 'sweeps-changes'), 'sweeps'));
     const { importClosure } = require('../../lab/importGraph.mjs') as { importClosure(entry: string): string[] };
@@ -181,6 +185,7 @@ describe('the two jest projects (MB-086)', () => {
     const loaded = [...new Set(sweepsFiles.flatMap((f) => importClosure(path.join(APP, f)).map(repoRel)))].sort();
     expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/tokens/neverRedSweeps.ts');
     expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/color/blendSpace.ts');
+    expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/field/placementLedger.ts');
     const tokens = fs.readdirSync(path.resolve(APP, '../../design-tokens')).map((f) => `design-tokens/${f}`);
     expect(tokens.length).toBeGreaterThan(0);
     const inputs = [...loaded, ...tokens, 'mobile/KokonadaHealth/jest.config.js', 'mobile/KokonadaHealth/jest.sweeps.config.js',
