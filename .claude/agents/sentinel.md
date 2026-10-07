@@ -48,9 +48,10 @@ Your charter, in one sentence: **tell Daniel where he actually is, what is actua
 >    other than 0 or 1: report it and stop.
 > 4. Step 3 exited 0: the run wrote over the ledger main still has. If its `§ RUN LOG` ends with a row that
 >    main's copy does not have (you append that row last, so the run has finished) and
+>    its run date matches `^\d{4}-\d{2}-\d{2}$` (checked before the date goes into any command: the file is written
+>    by an agent that reads the web; anything else: report and stop), and
 >    `gh pr list --state all --head docs/sentinel-<run date>` lists no open or merged PR (a closed, unmerged one
->    does not count), with the run date taken only if it matches `^\d{4}-\d{2}-\d{2}$` (the file is written by
->    an agent that reads the web; anything else: report and stop): `/claim own:sentinel-<run date>`
+>    does not count): `/claim own:sentinel-<run date>`
 >    on branch `docs/sentinel-<run date>`, copy the file in, ship and merge it (row J19: `merge-guard`
 >    and the coordinator only); then run step 1 at once. With no such
 >    row, leave it: the run is still writing or died part-way.
