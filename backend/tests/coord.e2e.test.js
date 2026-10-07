@@ -1634,6 +1634,44 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     }
   });
 
+  test('res:prod-deploy · a claim holding the production freeze stops check --merge of every other PR, mine included; status names it first; deleting its branch ends it', () => {
+    const started = [
+      run('malede', ['start', '--task', 'own:freeze-hold', '--title', 'Hold production', '--paths', 'docs/freeze/hold.md', '--resources', 'res:prod-deploy', '--branch', 'docs/freeze-hold']),
+      run('malede', ['start', '--task', 'own:freeze-pr', '--title', 'A PR to merge', '--paths', 'docs/freeze/pr.md', '--branch', 'docs/freeze-pr']),
+    ];
+    // WARN is the world's residue (an earlier test leaves his malformed feat/hidden claim live); a
+    // claim that declares the freeze, or a start beside one, is never stopped by it
+    for (const r of started) {
+      expect([0, 3]).toContain(r.code);
+      expect(r.out).not.toMatch(/HALT|\[freeze\]/);
+    }
+    const held = prOf('docs/freeze-hold');
+    const pr = prOf('docs/freeze-pr');
+    try {
+      // my own claim on another branch holds it: the merge is refused all the same
+      const frozen = run('malede', ['check', '--merge', String(pr.number)]);
+      expect(frozen.out).toMatch(new RegExp(`HALT \\[freeze\\] Malede \\(@DanielMalede\\): live claim M\\d\\d on branch docs/freeze-hold for own:freeze-hold holds \`res:prod-deploy\` — production is frozen, and a merge to main deploys: PR #${pr.number} waits until that claim lands or its branch is deleted`));
+      expect(frozen.code).toBe(1);
+      // the PR of the work holding it is not stopped by its own freeze
+      const own = run('malede', ['check', '--merge', String(held.number)]);
+      expect(own.out).not.toMatch(/\[freeze\]/);
+      expect([0, 3]).toContain(own.code);
+      const status = run('malede', ['status']);
+      expect(status.out.split('\n')[0]).toMatch(/^production freeze: held by Malede \(@DanielMalede\) on docs\/freeze-hold \(M\d\d, own:freeze-hold\) — check --merge refuses every merge to main while it is held$/);
+      expect(JSON.parse(run('malede', ['status', '--json']).stdout).freeze).toEqual([
+        expect.objectContaining({ person: 'Malede', login: 'DanielMalede', branch: 'docs/freeze-hold', task: 'own:freeze-hold' }),
+      ]);
+
+      release('docs/freeze-hold');
+      const thawed = run('malede', ['check', '--merge', String(pr.number)]);
+      expect(thawed.out).not.toMatch(/\[freeze\]/);
+      expect([0, 3]).toContain(thawed.code);
+      expect(run('malede', ['status']).out).not.toMatch(/production freeze/);
+    } finally {
+      for (const b of ['docs/freeze-hold', 'docs/freeze-pr']) if (onOrigin().includes(b)) release(b);
+    }
+  });
+
   test('M2 · status lists a salvaged claim that has no slot after the slotted ones, as "(no slot)"', () => {
     expect(run('bedrack', ['start', '--task', 'own:m2', '--title', 'A slotted claim', '--paths', 'docs/m2/x.md', '--branch', 'docs/m2-b']).code).toBe(0);
     const b = W.clones.bedrack;

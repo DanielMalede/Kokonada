@@ -58,7 +58,9 @@ Only Malede changes these.
 
 Things that are not files. Claim one in a slot's `resources:` line, and it collides like a file.
 
-`res:atlas-prod` · `res:railway-vars` · `res:store-android` · `res:store-ios` · `res:secrets`
+`res:atlas-prod` · `res:railway-vars` · `res:store-android` · `res:store-ios` · `res:secrets` · `res:prod-deploy`
+
+Hold `res:prod-deploy` while production must not change (a recount, a migration, an incident): claim it on the branch doing that work; while anyone holds it, `check --merge` refuses every merge to `main`, since a merge deploys.
 
 ## Malede
 

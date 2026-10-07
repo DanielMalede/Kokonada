@@ -780,6 +780,9 @@ function cmdStatus(cwd, flags) {
   const view = {
     people: ctx.rules.people.map((p) => ({ name: p.name, login: p.login, section: p.section, claims: [], unclaimed: [] })),
     unknown: [],
+    freeze: C.freezeHolders(footprints).map((f) => ({
+      person: f.person ? f.person.name : null, login: f.person ? f.person.login : null, slot: f.slot, branch: f.branch, task: f.task,
+    })),
   };
   for (const fp of footprints) {
     const ageDays = C.daysOld(fp.tipTime, ctx.now);

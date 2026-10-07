@@ -900,13 +900,13 @@ describe('end to end - the script as the hook runner starts it, stdin piped', ()
 
 describe('wiring - the committed settings', () => {
   const settings = JSON.parse(readFileSync(path.join(REPO_ROOT, '.claude', 'settings.json'), 'utf8'));
-  const IF_FILTERS = ['Bash(git *)', 'Bash(gh pr *)', 'PowerShell(git *)', 'PowerShell(gh pr *)'];
+  const IF_FILTERS = ['Bash(git *)', 'Bash(gh pr *)', 'Bash(node *)', 'PowerShell(git *)', 'PowerShell(gh pr *)', 'PowerShell(node *)'];
   const MCP_MATCHER = 'mcp__.*__(merge_pull_request|create_pull_request|update_pull_request_branch)';
   const handlers = (event) => (settings.hooks?.[event] ?? []).flatMap((group) => (group.hooks ?? []).map((h) => ({ ...h, matcher: group.matcher })));
   const command = handlers('PostToolUse')[0]?.command;
 
   for (const event of ['PostToolUse', 'PostToolUseFailure']) {
-    test(`${event}: the shell tools reach the script only through the four if filters, the MCP tools by matcher`, () => {
+    test(`${event}: the shell tools reach the script only through the six if filters, the MCP tools by matcher`, () => {
       const hs = handlers(event);
       assert.deepEqual(hs.filter((h) => h.if).map((h) => [h.matcher, h.if]), IF_FILTERS.map((f) => ['Bash|PowerShell', f]));
       assert.deepEqual(hs.filter((h) => !h.if).map((h) => h.matcher), [MCP_MATCHER]);

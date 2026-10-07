@@ -22,9 +22,14 @@ const RELEASE_DAYS = 10;
 // Overlap on these two is ignored entirely: every task edits them, each in its own rows.
 const IGNORED_SHARED = Object.freeze([TASKS_PATH, LEDGER_PATH]);
 
-const CLASS_ORDER = ['owner-only', 'malformed', 'exact', 'glob', 'exclusive group', 'resource', 'task', 'shared', 'coupling', 'stale', 'owner unknown', 'merge', 'deploy', 'merge-order', 'needs-main'];
+const CLASS_ORDER = ['freeze', 'owner-only', 'malformed', 'exact', 'glob', 'exclusive group', 'resource', 'task', 'shared', 'coupling', 'stale', 'owner unknown', 'merge', 'deploy', 'merge-order', 'needs-main'];
 
 const TASK_ID_RE = /^[A-Z][A-Z0-9]*-\d+$/;
+
+// The production freeze. A merge to main deploys, so while any live claim holds this resource no
+// merge to main may happen: not his, and not mine from another branch (another session of mine
+// holding it for a recount, a migration or an incident).
+const FREEZE_RESOURCE = 'res:prod-deploy';
 
 // The documented residual of the recency rule (printed once when it applies): a branch with no open
 // PR, which this clone has never seen move or appear after its first fetch, is judged by its commit
@@ -622,9 +627,21 @@ function assess({ rules, me, mine, footprints, mainTasks, testMentions, now }) {
   return { verdict: verdictOf(sorted), reasons: sorted };
 }
 
+// The live claims holding the production freeze, except those on `exceptBranch` (a PR's own head:
+// the work that holds the freeze ends it by landing). Whoever owns them, mapped or not.
+function freezeHolders(footprints, exceptBranch = null) {
+  return (footprints || []).filter((f) => f.kind === 'claim' && f.branch !== exceptBranch
+    && (f.resources || []).some((r) => lower(r) === FREEZE_RESOURCE));
+}
+
 // check --merge N
 function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
   const reasons = [];
+  // Unlike every other collision, my own section is no exception here: a freeze is about
+  // production, not about whose files meet.
+  for (const fp of freezeHolders(footprints, pr.headRefName)) {
+    reasons.push(reason('HALT', 'freeze', fp, [], `${who(fp)}: ${where(fp, now)}${fp.task ? ` for ${fp.task}` : ''} holds \`${FREEZE_RESOURCE}\` — production is frozen, and a merge to main deploys: PR #${pr.number} waits until that claim lands or its branch is deleted`));
+  }
   if (lower(pr.author && pr.author.login) !== lower(me.login)) {
     reasons.push(reason('HALT', 'merge', null, [], `PR #${pr.number} is @${pr.author && pr.author.login}'s: merge only your own PRs`));
   }
@@ -760,6 +777,8 @@ module.exports = {
   overlaps,
   assess,
   mergeAdvice,
+  freezeHolders,
+  FREEZE_RESOURCE,
   ciEvaluate,
   firstClaimWins,
   mergedByContent,

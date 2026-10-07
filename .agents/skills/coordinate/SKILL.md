@@ -24,7 +24,7 @@ The full rules, the People table and the list of exclusive files are in `WORK_LE
    - An own task: name it `own:<short-slug>`.
    - `DAN-` rows are the owner's alone. Never claim one.
 2. **Derive the exact path set.** Start from the `where:` paths. For each file, add what moves with it: its importers and importees, and every test that names it (search `backend/tests/` and `mobile/KokonadaHealth/**/__tests__/`). Add the tests you will create, and any new folder as a narrow glob with at least two literal segments (`project-explorer/src/**` is fine; `project-explorer/**`, `backend/**`, `docs/**` and `**` are refused as too broad). Declare files, not whole areas.
-3. **Add resources** if the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`. These are normally the owner's.
+3. **Add resources** if the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`, and `res:prod-deploy` while production must not change (a recount, a migration, an incident): while anyone holds it, `check --merge` refuses every merge to `main`, your own included. These are normally the owner's.
 4. **Check:**
    ```
    node scripts/coord/coord.js check --task <ID|own:slug> --paths <p1,p2,...> [--resources <r1,...>]

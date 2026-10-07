@@ -50,7 +50,7 @@ Your charter, in one sentence: **before anyone touches a file, prove the other p
 1. Start from the row's `where:` paths.
 2. For each file, find what moves with it: its importers and importees (grep the basename across `backend/app/`, `mobile/KokonadaHealth/src/`), and every test that names it (grep `backend/tests/` and `mobile/KokonadaHealth/**/__tests__/`).
 3. Add the tests the task will create, and any new folder as a narrow glob (at least two literal segments, e.g. `scripts/coord/**`). `backend/**`, `docs/**`, `**` and the other broad globs are refused by the engine.
-4. Add resources when the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`.
+4. Add resources when the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`, and `res:prod-deploy` while production must not change (a recount, a migration, an incident): while anyone holds it, `check --merge` refuses every merge to `main`, your own included.
 5. `TASKS.md` and `WORK_LEDGER.md` are shared and never collide; list them only if the task edits them beyond its own row.
 
 ### Phase 3 — check

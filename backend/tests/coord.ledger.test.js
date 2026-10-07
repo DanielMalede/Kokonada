@@ -484,4 +484,14 @@ describe('OPS-152 · ledger — live pin on the real WORK_LEDGER.md', () => {
   test('the shared list carries the two files every task edits', () => {
     expect(ledger.shared).toEqual(expect.arrayContaining(['TASKS.md', 'WORK_LEDGER.md']));
   });
+
+  test('the resources list carries res:prod-deploy, the production freeze the engine reads, and says what it does', () => {
+    const { FREEZE_RESOURCE } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'lib', 'collide.js'));
+    expect(FREEZE_RESOURCE).toBe('res:prod-deploy');
+    expect(ledger.resources).toContain(FREEZE_RESOURCE);
+    const lines = real.split('\n');
+    const start = lines.indexOf('## Resources');
+    const end = lines.findIndex((l, i) => i > start && l.startsWith('## '));
+    expect(lines.slice(start, end)).toContain('Hold `res:prod-deploy` while production must not change (a recount, a migration, an incident): claim it on the branch doing that work; while anyone holds it, `check --merge` refuses every merge to `main`, since a merge deploys.');
+  });
 });

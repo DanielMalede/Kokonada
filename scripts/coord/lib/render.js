@@ -72,9 +72,16 @@ function prText(pr) {
   return `PR #${pr.number} (${String(pr.state).toLowerCase()}${pr.isDraft ? ', draft' : ''})`;
 }
 
-// view: { people: [{ name, login, section, claims: [...], unclaimed: [...] }], unknown: [...] }
+// view: { people: [{ name, login, section, claims: [...], unclaimed: [...] }], unknown: [...],
+//         freeze: [{ person, login, slot, branch, task }] } — an active production freeze comes first.
 function renderStatus(view) {
   const out = [];
+  const freeze = view.freeze || [];
+  for (const f of freeze) {
+    const holder = f.person ? `${f.person} (@${f.login})` : 'owner unknown';
+    out.push(`production freeze: held by ${holder} on ${f.branch} (${f.slot || 'no slot'}, ${f.task || 'no task'}) — check --merge refuses every merge to main while it is held`);
+  }
+  if (freeze.length) out.push('');
   for (const person of view.people) {
     out.push(`== ${person.name} (@${person.login}) — section ${person.section} ==`);
     if (!person.claims.length) out.push('  no live claims');

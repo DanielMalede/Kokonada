@@ -701,6 +701,109 @@ describe('OPS-152 · collide — check --merge', () => {
   });
 });
 
+describe('res:prod-deploy · collide — a production freeze stops every merge to main', () => {
+  const { FREEZE_RESOURCE, freezeHolders } = lib('collide.js');
+  const { renderStatus } = lib('render.js');
+  const pr = { number: 231, author: { login: 'DanielMalede' }, headRefName: 'feat/m', files: [{ path: 'docs/m.md' }] };
+  const done = [{ status: 'completed' }];
+  const mineFp = fp({ branch: 'feat/m', person: malede, slot: 'M02', declared: ['docs/m.md'], firstLedgerTime: NOW - 100 });
+  // A claim holding the freeze: disjoint paths, so nothing but the freeze can meet the PR.
+  const hold = (over = {}) => fp({ declared: ['docs/recount.md'], resources: ['res:prod-deploy'], task: 'OPS-300', firstLedgerTime: NOW - 5000, ...over });
+  const ownHold = (over = {}) => hold({ branch: 'chore/recount', person: malede, slot: 'M03', ...over });
+  const merge = (footprints, over = {}) => mergeAdvice({ rules, me: malede, pr: { ...pr, ...over }, runs: done, footprints, now: NOW });
+
+  test('the resource the engine reads is the one the ledger lists', () => {
+    expect(FREEZE_RESOURCE).toBe('res:prod-deploy');
+    expect(rules.resources).toContain(FREEZE_RESOURCE);
+  });
+
+  test('my OWN claim on another branch holding it HALTs --merge, unlike every other collision', () => {
+    const res = merge([mineFp, ownHold()]);
+    expect(classes(res)).toEqual(['HALT freeze']);
+    expect(res.reasons[0]).toMatchObject({ person: 'Malede', login: 'DanielMalede', branch: 'chore/recount', slot: 'M03' });
+    expect(res.reasons[0].message).toBe('Malede (@DanielMalede): live claim M03 on branch chore/recount for OPS-300 holds `res:prod-deploy` — production is frozen, and a merge to main deploys: PR #231 waits until that claim lands or its branch is deleted');
+  });
+
+  test('his claim holding it HALTs --merge, naming him, the branch, the slot and the task', () => {
+    const res = merge([mineFp, hold()]);
+    expect(classes(res)).toEqual(['HALT freeze']);
+    expect(res.reasons[0]).toMatchObject({ person: 'Bedrack', login: 'DanielBedrack', branch: 'feat/b', slot: 'B01' });
+    expect(res.reasons[0].message).toMatch(/^Bedrack \(@DanielBedrack\): live claim B01 on branch feat\/b for OPS-300 holds `res:prod-deploy`/);
+  });
+
+  test('a claim whose owner maps to nobody, or written in another case, still holds it: the freeze fails closed', () => {
+    const unknown = hold({ person: null, branch: 'chore/who', slot: null, author: { name: 'x', email: 'x@y.z' }, resources: ['RES:Prod-Deploy'] });
+    const res = merge([mineFp, unknown]);
+    expect(classes(res)).toEqual(['HALT freeze']);
+    expect(res.reasons[0].message).toMatch(/^owner unknown — author x <x@y\.z>: live claim on branch chore\/who for OPS-300 holds `res:prod-deploy`/);
+  });
+
+  test('the PR\'s own branch holding it does not block itself: the freeze ends when that work lands', () => {
+    expect(merge([ownHold({ branch: 'feat/m', slot: 'M02' })]).verdict).toBe('CLEAR');
+    expect(merge([hold({ branch: 'feat/m' })], { headRefName: 'feat/m' }).reasons.map((r) => r.class)).not.toContain('freeze');
+  });
+
+  test('no freeze → --merge is unchanged', () => {
+    expect(merge([mineFp, ownHold({ resources: ['res:atlas-prod'] })]).verdict).toBe('CLEAR');
+    expect(merge([mineFp, hold({ resources: ['res:atlas-prod'] })]).verdict).toBe('CLEAR');
+    expect(merge([mineFp, fp({ kind: 'unclaimed', slot: null, actual: ['docs/other.md'] })]).verdict).toBe('CLEAR');
+  });
+
+  test('check and start keep the normal resource rules for a claim that declares it', () => {
+    // his claim holds it and mine declares it: the ordinary resource collision, not a freeze
+    expect(classes(run(malede, { declared: ['a/b/c.js'], resources: ['res:prod-deploy'] }, [hold()]))).toEqual(['HALT resource']);
+    // my own other claim holding it: my own section never collides with me, as for every resource
+    expect(run(malede, { declared: ['a/b/c.js'], resources: ['res:prod-deploy'] }, [ownHold()]).verdict).toBe('CLEAR');
+    // a check that does not declare it is not stopped by his freeze: only a merge is
+    expect(run(malede, { declared: ['a/b/c.js'] }, [hold()]).verdict).toBe('CLEAR');
+  });
+
+  test('ci is unchanged: a freeze held elsewhere, his or the author\'s own, adds nothing', () => {
+    const headText = setSlot(freeText, 'B01', {
+      task: 'own:pe', taskKind: 'own', title: 't', branch: 'feat/b', paths: ['project-explorer/src/**'], resources: [], state: 'claimed', pr: null, started: '2026-10-06',
+    });
+    const selfFp = fp({ declared: ['project-explorer/src/**'], actual: ['project-explorer/src/app.js', 'WORK_LEDGER.md'], firstLedgerTime: NOW - 100 });
+    const res = ciEvaluate({
+      rules,
+      author: bedrack,
+      branch: 'feat/b',
+      headLedgerText: headText,
+      baseLedgerText: freeText,
+      baseTasks: MAIN_TASKS,
+      headTasks: MAIN_TASKS,
+      footprints: [selfFp, ownHold(), hold({ branch: 'feat/b2', slot: 'B02' })],
+      mode: 'fail',
+      now: NOW,
+    });
+    expect(res).toEqual({ verdict: 'CLEAR', reasons: [] });
+  });
+
+  test('freezeHolders: every live claim holding it, except on the branch named', () => {
+    const fps = [mineFp, ownHold(), hold(), fp({ kind: 'unclaimed', branch: 'feat/u', slot: null, actual: ['docs/u.md'] })];
+    expect(freezeHolders(fps).map((f) => f.branch)).toEqual(['chore/recount', 'feat/b']);
+    expect(freezeHolders(fps, 'feat/b').map((f) => f.branch)).toEqual(['chore/recount']);
+    expect(freezeHolders([mineFp])).toEqual([]);
+  });
+
+  test('status puts an active freeze at the top; with none it says nothing about one', () => {
+    const view = {
+      people: [{ name: 'Malede', login: 'DanielMalede', section: 'M', claims: [], unclaimed: [] }],
+      unknown: [],
+      freeze: [
+        { person: 'Malede', login: 'DanielMalede', slot: 'M03', branch: 'chore/recount', task: 'OPS-300' },
+        { person: null, login: null, slot: null, branch: 'chore/who', task: null },
+      ],
+    };
+    const lines = renderStatus(view).split('\n');
+    expect(lines[0]).toBe('production freeze: held by Malede (@DanielMalede) on chore/recount (M03, OPS-300) — check --merge refuses every merge to main while it is held');
+    expect(lines[1]).toBe('production freeze: held by owner unknown on chore/who (no slot, no task) — check --merge refuses every merge to main while it is held');
+    expect(lines[2]).toBe('');
+    expect(lines[3]).toBe('== Malede (@DanielMalede) — section M ==');
+    expect(renderStatus({ ...view, freeze: [] })).not.toMatch(/production freeze/);
+    expect(renderStatus({ people: view.people, unknown: [] })).not.toMatch(/production freeze/);
+  });
+});
+
 describe('OPS-152 · collide — ci', () => {
   const claim = (branch, over = {}) => ({
     task: 'own:pe', taskKind: 'own', title: 't', branch, paths: ['project-explorer/src/**'], resources: [], state: 'claimed', pr: null, started: '2026-10-06', ...over,
