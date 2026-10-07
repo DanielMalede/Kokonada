@@ -23,11 +23,16 @@
 //    ramp, or + 2·600 ms + ramp wherever no rest lobe is lit. No backlog: at every frame the waiting
 //    change is exactly the difference between the store and the live field (each waiting leave a live
 //    placement absent from the store, each waiting enter in the store and not shown, each side at
-//    most 3), and no frame ends idle with a change waiting once the spacing has passed. The 10 s storm
-//    converges no later than 600 ms after the 3 s storm (one-sided). Planted cases, each watched
-//    failing on its own clause: a raw first-in-first-out ledger breaks the identity at every cadence,
-//    never converges at 17 and 50 ms, and at a slow cadence converges after both storms but more than
-//    600 ms apart.
+//    most 3), and no frame ends idle with a change waiting once the spacing has passed. Secondary, in
+//    the sweeps project only: the 10 s storm converges no later than 600 ms after the 3 s storm
+//    (one-sided). The identity, the no-stall check and the absolute bound are the no-backlog guard;
+//    this clause adds only a lag that grows with storm length yet stays inside the absolute bound's
+//    slack (measured at 10 s: 253 ms in cycle4 to 1200 ms in reemit). Planted cases, each asserting
+//    the harness's own clause output: a raw first-in-first-out ledger breaks the identity and fails
+//    the absolute bound (default run); at 250 ms it converges after both storms but more than 600 ms
+//    apart (sweeps project; on this plant the absolute bound also fires). If this clause alone fails
+//    while the identity, the no-stall check and the absolute bound hold, re-measure the convergence
+//    table: a schedule-only failure is ruled by resilience, never fixed by loosening the ledger.
 //  - E5, the halo is bound: two frames with the same ledger output, one built while the store holds an
 //    extra unadmitted tap, are byte-identical over the whole field (law and real Skia). A static guard
 //    checks that no plate or bead file reads field.halo or draws a halo."
@@ -38,7 +43,8 @@
 //
 // The grids (architect round 1 §4): the default run takes the coarse grid, taps every {17, 143, 250}
 // ms for 3 s, where the netting identity and the no-stall check keep the no-backlog guard without the
-// 10 s span; the sweeps project takes the full grid above, with the one-sided clause.
+// 10 s span; the sweeps project takes the full grid above, with the one-sided clause. A planted control
+// runs where its clause runs (resilience, rulings after T5d, §2).
 
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
 import { buildFieldFrame, type FieldGeometry, type FieldState, type FieldStatics } from './fieldFrame.ts';
@@ -273,21 +279,38 @@ export function stormFailures(label: string, kind: Storm, mode: Mode, o: Outcome
   return out;
 }
 
-/** Every storm of a grid for one direction, mode and storm kind: the runs made and every broken clause. */
-export function gridReport(id: DirectionId, mode: Mode, kind: Storm, grid: StormGrid, deps: StormDeps): { runs: number; failures: string[] } {
+/** The one-sided no-backlog clause on one cadence's outcomes: each longer storm that converged more than 600 ms after the shortest. */
+export function backlogBreaks(label: string, spans: readonly number[], outcomes: readonly Outcome[]): string[] {
+  const out: string[] = [];
+  const [first, ...longer] = outcomes;
+  for (const [i, o] of longer.entries()) {
+    if (first.converged !== null && o.converged !== null && o.converged > first.converged + SETTLE) {
+      out.push(`${label}: the ${spans[i + 1]} ms storm converged ${o.converged - first.converged} ms after the ${spans[0]} ms one`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every storm of a grid for one direction, mode and storm kind: the runs made and every broken clause.
+ * The planted controls pass other admission limits or a longer tail; the field uses the defaults.
+ */
+export function gridReport(
+  id: DirectionId,
+  mode: Mode,
+  kind: Storm,
+  grid: StormGrid,
+  deps: StormDeps,
+  limits: Admission = ADMISSION,
+  tail?: number,
+): { runs: number; failures: string[] } {
   const failures: string[] = [];
   let runs = 0;
   for (const every of grid.every) {
-    const outcomes = grid.span.map((span) => storm(id, mode, kind, every, span, deps));
+    const outcomes = grid.span.map((span) => storm(id, mode, kind, every, span, deps, limits, false, tail));
     runs += outcomes.length;
     outcomes.forEach((o, i) => failures.push(...stormFailures(`${id} ${mode} ${kind} every ${every} ms for ${grid.span[i]} ms`, kind, mode, o)));
-    // No backlog, one-sided: each longer storm converges no more than 600 ms after the shortest.
-    const [first, ...longer] = outcomes;
-    for (const [i, o] of longer.entries()) {
-      if (first.converged !== null && o.converged !== null && o.converged > first.converged + SETTLE) {
-        failures.push(`${id} ${mode} ${kind} every ${every} ms: the ${grid.span[i + 1]} ms storm converged ${o.converged - first.converged} ms after the ${grid.span[0]} ms one`);
-      }
-    }
+    failures.push(...backlogBreaks(`${id} ${mode} ${kind} every ${every} ms`, grid.span, outcomes));
   }
   return { runs, failures };
 }

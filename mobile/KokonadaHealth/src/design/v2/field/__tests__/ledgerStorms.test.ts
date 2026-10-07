@@ -2,21 +2,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
-import { DIRECTIONS, type DirectionId } from '../../tokens/tokens.generated.ts';
+import { BASE, DIRECTIONS, type DirectionId } from '../../tokens/tokens.generated.ts';
+import { NODE_SLOTS } from '../fieldLaw.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { ADMISSION, emptyLedger, fades, reconcile, type Admission } from '../placementLedger.ts';
-import { MODES, QUAD, SETTLE, STORMS, STORM_GRIDS, frameState, geometry, gridReport, storm, store, stormDeps, type Mode, type Storm } from '../ledgerStorms.ts';
+import { MODES, QUAD, STORMS, STORM_GRIDS, frameState, geometry, gridReport, storm, store, stormDeps, stormFailures, type Mode, type Outcome, type Storm } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
 import { packFrame } from '../uniforms.ts';
 
 // QA-068, the event path: E3 and E5 in the default run. E3's text, its storms and its clauses live in
-// the shared harness (field/ledgerStorms.ts); this file runs the coarse grid, every planted control,
-// reemit and the law half of E5, and the sweeps project runs the full grid
-// (ledgerStorms.{abyss,linen,basin}.sweeps.test.ts). neutral3 runs in every direction; it is the
+// the shared harness (field/ledgerStorms.ts); this file runs the coarse grid, the planted controls
+// whose clauses run here (each asserting the harness's own clause output), reemit on the coarse
+// cadences and the law half of E5; the sweeps project runs the full grid and the controls whose
+// clauses run there (ledgerStorms.{abyss,linen,basin}.sweeps.test.ts). neutral3 runs in every direction; it is the
 // binding case in Linen, where neutral placements have no lobe and the rest lobes stay lit. E5's
 // real-Skia half is in fieldShader.skia.test.ts.
 
 const IDS = Object.keys(DIRECTIONS) as DirectionId[];
+const BASE_SETTLE = BASE.motion.settle.duration;
 const LONG = 600_000;
 const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never));
 const config = (id: DirectionId) => deps(id).config;
@@ -38,8 +41,8 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
     LONG,
   );
 
-  it.each(MODES)('%s: reemit’s fades are bit-identical to one tap sent once', (mode) => {
-    for (const every of STORM_GRIDS.full.every) {
+  it.each(MODES)('%s: reemit’s fades are bit-identical to one tap sent once, at the coarse cadences (the full set runs in the sweeps project)', (mode) => {
+    for (const every of STORM_GRIDS.coarse.every) {
       const re = storm('abyss', mode, 'reemit', every, 3000, deps('abyss'), ADMISSION, true);
       const once = storm('abyss', mode, 'reemit', 1e9, 3000, deps('abyss'), ADMISSION, true);
       expect(re.series).toEqual(once.series);
@@ -47,31 +50,82 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
   });
 });
 
-describe('E3’s planted controls: each guard is shown to bite', () => {
-  it('a ledger that admits three swaps makes Linen’s neutral3 overflow, and the builder throws a RangeError', () => {
+// Each control asserts the harness's own clause output (resilience, rulings after T5d, §1), and runs
+// where its clause runs (§2): the one-sided clause and the full cadence sets are in the sweeps project.
+describe('E3’s planted controls: each guard is shown to bite, through the harness’s own clauses', () => {
+  const has = (failures: readonly string[], clause: string) => failures.some((f) => f.includes(clause));
+
+  it('a ledger that admits three swaps makes Linen’s neutral3 overflow: the builder throws, and the demand passes NODE_SLOTS', () => {
     const three: Admission = { ...ADMISSION, entering: 3, leaving: 3, nodes: 99 };
-    const o = storm('linen', 'settle', 'neutral3', 100, 3000, deps('linen'), three);
-    expect(o.threw).toMatch(/^RangeError/);
-    expect(storm('linen', 'settle', 'neutral3', 100, 3000, deps('linen')).threw).toBeNull();
+    const failures = stormFailures('three swaps', 'neutral3', 'settle', storm('linen', 'settle', 'neutral3', 100, 3000, deps('linen'), three));
+    expect([has(failures, 'the builder threw'), has(failures, 'demand above NODE_SLOTS')]).toEqual([true, true]);
   });
 
-  // Resilience round 1 F2: three controls, each proving one clause.
+  it('a ledger whose lobe rule disagrees with the builder’s (Linen read as if neutrals bore a lobe): the frame holds more than the demand', () => {
+    const wrong = { ...deps('linen'), config: { ...deps('linen').config, neutralLobe: true } };
+    const failures = stormFailures('wrong lobe rule', 'neutral3', 'settle', storm('linen', 'settle', 'neutral3', 100, 3000, wrong));
+    expect(has(failures, 'the demand and the built frame disagree')).toBe(true);
+  });
+
+  it('a ledger whose node limit can never fit a swap stalls: a frame ends idle with a change waiting past the spacing', () => {
+    const tight: Admission = { ...ADMISSION, nodes: 2 };
+    const failures = stormFailures('tight', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss'), tight));
+    expect(has(failures, 'a frame ended idle with a change waiting past the spacing')).toBe(true);
+  });
+
   const raw: Admission = { ...ADMISSION, netting: false };
-  // Measured (runs/v1b-b4-T5b-E3-convergence-table.txt §1): at 250 ms the raw ledger converges at 1450 ms
-  // after the 3 s storm and 2850 ms after the 10 s one; at 300 ms and slower the two coincide.
-  const SLOW_RAW_CADENCE = 250;
-  it('a raw first-in-first-out ledger breaks the netting identity at every cadence', () => {
-    for (const every of STORM_GRIDS.full.every) expect(storm('abyss', 'settle', 'toggle', every, 3000, deps('abyss'), raw).netBreaks).toBeGreaterThan(0);
-    expect(storm('abyss', 'settle', 'toggle', 17, 3000, deps('abyss')).netBreaks).toBe(0);
+  it('a raw first-in-first-out ledger breaks the netting identity at every coarse cadence (the full set runs in the sweeps project)', () => {
+    const { runs, failures } = gridReport('abyss', 'settle', 'toggle', STORM_GRIDS.coarse, deps('abyss'), raw);
+    expect(runs).toBe(3);
+    expect(STORM_GRIDS.coarse.every.map((every) => has(failures.filter((f) => f.includes(`every ${every} ms`)), 'the netting identity broke'))).toEqual([true, true, true]);
   });
-  it('at fast cadences a raw ledger never converges inside the window (the absolute bound bites)', () => {
-    for (const every of [17, 50]) expect(storm('abyss', 'settle', 'toggle', every, 3000, deps('abyss'), raw).converged).toBeNull();
+
+  it('a raw ledger at 143 ms never converges inside the window: the absolute bound fires (17 and 50 ms run in the sweeps project)', () => {
+    const o = storm('abyss', 'settle', 'toggle', 143, 3000, deps('abyss'), raw);
+    expect(has(stormFailures('raw 143', 'toggle', 'settle', o), 'did not converge')).toBe(true);
   });
-  it('the one-sided backlog clause bites on its own: a raw ledger at a slow cadence converges after both storms, the long one more than 600 ms later', () => {
-    const [short, long] = STORM_GRIDS.full.span.map((span) => storm('abyss', 'settle', 'toggle', SLOW_RAW_CADENCE, span, deps('abyss'), raw, false, 30_000));
-    expect(short.converged).not.toBeNull();
-    expect(long.converged).not.toBeNull();
-    expect(long.converged! - short.converged!).toBeGreaterThan(SETTLE);
+});
+
+// The harness mutation run deletes each clause line in stormFailures, one at a time; each one fires
+// here on its own planted defect, on an outcome that otherwise passes every clause.
+describe('E3’s clauses: each fires on its own defect, and only it', () => {
+  let clean: Outcome;
+  let cleanReemit: Outcome;
+  beforeAll(() => {
+    clean = storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss'));
+    cleanReemit = storm('abyss', 'settle', 'reemit', 250, 3000, deps('abyss'));
+  });
+
+  it('a real storm’s outcomes pass every clause', () => {
+    expect([stormFailures('clean', 'toggle', 'settle', clean), stormFailures('clean', 'reemit', 'settle', cleanReemit)]).toEqual([[], []]);
+    expect(clean.starts.length).toBeGreaterThan(1);
+  });
+
+  const defects: Array<[string, Partial<Outcome>, string]> = [
+    ['a throw', { threw: 'RangeError at 5 ms: planted' }, 'the builder threw'],
+    ['demand over the slots', { maxDemand: NODE_SLOTS + 1 }, 'demand above NODE_SLOTS'],
+    ['a frame over its demand', { demandMismatch: 1 }, 'the demand and the built frame disagree'],
+    ['a fast fade', { slopeBreaks: ['id 0 at 5 ms: 0 → 1'] }, 'a fade moved faster than its curve'],
+    ['an enter above 0', { entersNotAtZero: [7] }, 'an id entered above 0'],
+    ['a leave above 0', { leavesNotAtZero: [7] }, 'an id left above 0'],
+    ['a fast rest lobe', { restBreaks: 1 }, 'a rest-lobe fade moved faster than its curve'],
+    ['two starts 300 ms apart', { starts: [1, 301], admittedAtStarts: [1, 1] }, 'starts closer than motion.settle.duration'],
+    ['an empty start', { starts: [1], admittedAtStarts: [0] }, 'a start admitted nothing'],
+    ['a netting break', { netBreaks: 1 }, 'the netting identity broke'],
+    ['a stall', { stalls: 1 }, 'a frame ended idle with a change waiting past the spacing'],
+    ['no convergence', { converged: null }, 'did not converge within'],
+    ['a late convergence', { converged: 2 * BASE_SETTLE + 600 + 1 }, 'did not converge within'],
+  ];
+  it.each(defects)('%s', (_, defect, clause) => {
+    const failures = stormFailures('planted', 'toggle', 'settle', { ...clean, ...defect });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain(clause);
+  });
+
+  it('reemit with two starts', () => {
+    const failures = stormFailures('planted', 'reemit', 'settle', { ...cleanReemit, starts: [1, 701], admittedAtStarts: [1, 1] });
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('reemit did not give exactly one start');
   });
 });
 
