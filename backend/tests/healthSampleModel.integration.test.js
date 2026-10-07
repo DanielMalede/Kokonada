@@ -107,9 +107,9 @@ describe('HealthSample state and HRV method rules', () => {
 });
 
 describe('HealthSample schema contract', () => {
-  it('stores schema version 1 on every row', async () => {
+  it('stores the current schema version on every row', async () => {
     const doc = await HealthSample.create(active());
-    expect(doc.v).toBe(1);
+    expect(doc.v).toBe(2);
     expect(doc.v).toBe(HealthSample.HEALTH_SAMPLE_VERSION);
   });
 

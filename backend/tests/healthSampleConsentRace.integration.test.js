@@ -31,7 +31,10 @@ const {
 } = require('../app/services/privacy/consent');
 const { eraseUserChildData } = require('../app/services/privacy/erasure');
 const { eraseWearableProvider } = require('../app/services/privacy/wearableErasure');
-const { reconcileHealthSamples } = require('../app/services/wearable/healthSampleReconciliation');
+const {
+  reconcileHealthSamples,
+  recoverOwedHealthProjectionCleanups,
+} = require('../app/services/wearable/healthSampleReconciliation');
 
 jest.setTimeout(120000);
 
@@ -139,7 +142,9 @@ describe('health sample reconciliation privacy fences', () => {
     });
 
     expect(await BiometricLog.countDocuments({ userId: owner._id })).toBe(0);
-    expect((await HealthSample.findById(row._id)).projectionState).toBe('pending');
+    // A definitive missing/withdrawn grant is also the durable cleanup path: the pending
+    // authoritative row is removed instead of waiting up to its retention limit.
+    expect(await HealthSample.findById(row._id)).toBeNull();
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -251,5 +256,33 @@ describe('health sample reconciliation privacy fences', () => {
 
     expect(await BiometricLog.countDocuments({ userId: owner._id })).toBe(0);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('keeps a durable marker when compensation fails and the repair sweep finishes it', async () => {
+    const owner = await grantedUser();
+    await pending(owner, '7', 'heart_rate');
+    const hold = holdBefore(BiometricLog, 'create');
+
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    await hold.entered;
+    await withdrawConsent(owner._id, HEALTH_CONSENT_PURPOSE);
+    const deleteSpy = jest.spyOn(BiometricLog, 'deleteMany')
+      .mockRejectedValueOnce(new Error('temporary cleanup failure'));
+    hold.release();
+
+    await expect(run).rejects.toMatchObject({
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+    expect(await BiometricLog.countDocuments({ userId: owner._id })).toBe(1);
+    const marked = await User.findById(owner._id).lean();
+    expect(marked.healthProjectionCleanupPending).toHaveLength(1);
+    deleteSpy.mockRestore();
+
+    await expect(recoverOwedHealthProjectionCleanups())
+      .resolves.toEqual({ cleaned: 1, deferred: 0, failed: 0 });
+    expect(await BiometricLog.countDocuments({ userId: owner._id })).toBe(0);
+    const repaired = await User.findById(owner._id).lean();
+    expect(repaired.healthProjectionCleanupPending).toEqual([]);
   });
 });

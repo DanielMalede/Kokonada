@@ -31,7 +31,7 @@ const { logBiometricAccess } = require('../../utils/biometricAudit');
 const COLLECTIONS = [
   { model: BiometricLog, redact: ['healthSampleKey'] },
   // The physiological value belongs in the subject's export; the HMAC identity does not.
-  { model: HealthSample, redact: ['sampleKey'] },
+  { model: HealthSample, redact: ['sampleKey', 'ingestToken', 'consentFence'] },
   { model: VitalSample, redact: ['healthSampleKey'] }, // per-metric vitals (W4-004, S5)
   { model: MedicalProfile },
   { model: MorningState },                             // nightly consolidation history (W4-012, S5)

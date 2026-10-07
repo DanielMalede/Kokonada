@@ -100,18 +100,43 @@ function notePending(row, currentKey, pendingKeys) {
   if (row.projectionState === 'pending') pendingKeys.add(currentKey);
 }
 
-async function applyExistingUpsert(row, sample, currentKey, pendingKeys, counts) {
+function applyStaging(row, staging) {
+  if (!staging) return;
+  row.ingestState = 'staged';
+  row.ingestToken = staging.ingestToken;
+  row.consentFence = staging.consentFence;
+  row.connectionVersion = staging.connectionVersion;
+}
+
+function refuseNewerConnection(row, staging) {
+  if (staging && Number(row.connectionVersion ?? 0) > staging.connectionVersion) {
+    throw repositoryError('wearable_connection_changed', 409);
+  }
+}
+
+async function applyExistingUpsert(row, sample, currentKey, pendingKeys, counts, staging) {
+  refuseNewerConnection(row, staging);
   if (row.state === 'deleted') {
+    if (staging && (row.ingestState !== 'committed'
+      || Number(row.connectionVersion ?? 0) !== staging.connectionVersion)) {
+      applyStaging(row, staging);
+      await row.save();
+    }
     counts.replayed += 1;
     notePending(row, currentKey, pendingKeys);
     return;
   }
   if (!sameContent(rowContent(row), contentOf(sample))) throw conflict();
+  if (staging && (row.ingestState !== 'committed'
+    || Number(row.connectionVersion ?? 0) !== staging.connectionVersion)) {
+    applyStaging(row, staging);
+    await row.save();
+  }
   counts.replayed += 1;
   notePending(row, currentKey, pendingKeys);
 }
 
-async function applyUpsert(userId, source, sample, now, pendingKeys, counts) {
+async function applyUpsert(userId, source, sample, now, pendingKeys, counts, staging) {
   const endAt = new Date(sample.endDate);
   const expiresAt = new Date(Math.min(
     endAt.getTime() + RETENTION_MS,
@@ -121,7 +146,7 @@ async function applyUpsert(userId, source, sample, now, pendingKeys, counts) {
 
   const found = await findExisting(userId, source, sample.sampleId);
   if (found.row) {
-    await applyExistingUpsert(found.row, sample, found.currentKey, pendingKeys, counts);
+    await applyExistingUpsert(found.row, sample, found.currentKey, pendingKeys, counts, staging);
     return;
   }
 
@@ -139,6 +164,12 @@ async function applyUpsert(userId, source, sample, now, pendingKeys, counts) {
       tzOffsetMinutes: optionalNumber(sample.tzOffsetMinutes),
       state: 'active',
       projectionState: 'pending',
+      ...(staging ? {
+        ingestState: 'staged',
+        ingestToken: staging.ingestToken,
+        consentFence: staging.consentFence,
+        connectionVersion: staging.connectionVersion,
+      } : {}),
       deletedAt: null,
       expiresAt,
     });
@@ -148,12 +179,18 @@ async function applyUpsert(userId, source, sample, now, pendingKeys, counts) {
     if (error?.code !== 11000) throw error;
     const winner = await findExisting(userId, source, sample.sampleId);
     if (!winner.row) throw error;
-    await applyExistingUpsert(winner.row, sample, winner.currentKey, pendingKeys, counts);
+    await applyExistingUpsert(winner.row, sample, winner.currentKey, pendingKeys, counts, staging);
   }
 }
 
-async function applyExistingDelete(row, now, currentKey, pendingKeys, counts) {
+async function applyExistingDelete(row, now, currentKey, pendingKeys, counts, staging) {
+  refuseNewerConnection(row, staging);
   if (row.state === 'deleted') {
+    if (staging && (row.ingestState !== 'committed'
+      || Number(row.connectionVersion ?? 0) !== staging.connectionVersion)) {
+      applyStaging(row, staging);
+      await row.save();
+    }
     counts.replayed += 1;
     notePending(row, currentKey, pendingKeys);
     return;
@@ -162,15 +199,16 @@ async function applyExistingDelete(row, now, currentKey, pendingKeys, counts) {
   row.state = 'deleted';
   row.deletedAt = now;
   row.projectionState = 'pending';
+  applyStaging(row, staging);
   await row.save();
   counts.deleted += 1;
   notePending(row, currentKey, pendingKeys);
 }
 
-async function applyDelete(userId, source, sample, now, pendingKeys, counts) {
+async function applyDelete(userId, source, sample, now, pendingKeys, counts, staging) {
   const found = await findExisting(userId, source, sample.sampleId);
   if (found.row) {
-    await applyExistingDelete(found.row, now, found.currentKey, pendingKeys, counts);
+    await applyExistingDelete(found.row, now, found.currentKey, pendingKeys, counts, staging);
     return;
   }
 
@@ -181,6 +219,12 @@ async function applyDelete(userId, source, sample, now, pendingKeys, counts) {
       source,
       state: 'deleted',
       projectionState: 'pending',
+      ...(staging ? {
+        ingestState: 'staged',
+        ingestToken: staging.ingestToken,
+        consentFence: staging.consentFence,
+        connectionVersion: staging.connectionVersion,
+      } : {}),
       deletedAt: now,
       expiresAt: new Date(now.getTime() + RETENTION_MS),
     });
@@ -190,20 +234,27 @@ async function applyDelete(userId, source, sample, now, pendingKeys, counts) {
     if (error?.code !== 11000) throw error;
     const winner = await findExisting(userId, source, sample.sampleId);
     if (!winner.row) throw error;
-    await applyExistingDelete(winner.row, now, winner.currentKey, pendingKeys, counts);
+    await applyExistingDelete(winner.row, now, winner.currentKey, pendingKeys, counts, staging);
   }
 }
 
-async function applyHealthOperations(userId, source, samples, { now = new Date() } = {}) {
+async function applyHealthOperations(userId, source, samples, {
+  now = new Date(), connectionVersion = null, consentFence = null, ingestToken = null,
+} = {}) {
   const operations = reduceOperations(samples);
   const pendingKeys = new Set();
   const counts = { created: 0, replayed: 0, deleted: 0 };
+  const staging = ingestToken == null ? null : {
+    ingestToken,
+    consentFence: String(consentFence),
+    connectionVersion: Number(connectionVersion ?? 0),
+  };
 
   for (const sample of operations) {
     if (sample.operation === 'delete') {
-      await applyDelete(userId, source, sample, now, pendingKeys, counts);
+      await applyDelete(userId, source, sample, now, pendingKeys, counts, staging);
     } else {
-      await applyUpsert(userId, source, sample, now, pendingKeys, counts);
+      await applyUpsert(userId, source, sample, now, pendingKeys, counts, staging);
     }
   }
 

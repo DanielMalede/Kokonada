@@ -33,6 +33,9 @@ const medicalProfileSchema = new mongoose.Schema({
     enum: ['apple_health', null],
     default: null,
   },
+  // Connection epoch that owns the Apple-derived fields. It lets a cleanup for an old,
+  // disconnected watch avoid clearing a newer reconnect's projection.
+  healthProjectionConnectionVersion: { type: Number, default: null, min: 0 },
 
   // Special-category health metrics — encrypted at rest (transparent get/set). (audit F3)
   restingHeartRate: encryptedNumber({ default: null }), // bpm, established from biometric history

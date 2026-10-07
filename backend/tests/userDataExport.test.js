@@ -44,6 +44,9 @@ beforeEach(() => {
   stubFind(HealthSample, [new HealthSample({
     userId: OID,
     sampleKey: 'b'.repeat(64),
+    ingestState: 'staged',
+    ingestToken: 'c'.repeat(32),
+    consentFence: 'internal-consent-row-id',
     source: 'apple_health',
     metric: 'heart_rate',
     value: 71,
@@ -108,6 +111,8 @@ describe('exportUserData', () => {
     expect(out.collections.identities[0].provider).toBe('password'); // non-secret metadata kept
     expect(out.collections.refreshtokens[0]).not.toHaveProperty('tokenHash');
     expect(out.collections.healthsamples[0]).not.toHaveProperty('sampleKey');
+    expect(out.collections.healthsamples[0]).not.toHaveProperty('ingestToken');
+    expect(out.collections.healthsamples[0]).not.toHaveProperty('consentFence');
     expect(out.collections.biometriclogs[0]).not.toHaveProperty('healthSampleKey');
     expect(out.collections.vitalsamples[0]).not.toHaveProperty('healthSampleKey');
   });

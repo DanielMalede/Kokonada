@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const HealthSample = require('../../models/HealthSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const User = require('../../models/User');
@@ -22,6 +23,7 @@ const SLEEP_METRICS = Object.freeze(Object.keys(SLEEP_STAGE));
 const baselineKey = (userId) => `bio:baseline:${userId}`;
 const PROFILE_PATHS = Object.freeze([
   'healthProjectionProvider',
+  'healthProjectionConnectionVersion',
   'restingHeartRate',
   'sleepStages.deep',
   'sleepStages.light',
@@ -119,10 +121,11 @@ function summarizeSleepIntervals(samples) {
 }
 
 async function findRows(query) {
-  return HealthSample.find(query).sort({ endAt: 1, _id: 1 });
+  return HealthSample.find({ ...query, ingestState: { $ne: 'staged' } })
+    .sort({ endAt: 1, _id: 1 });
 }
 
-async function rebuildAppleProfile(userId, source, run) {
+async function rebuildAppleProfile(userId, source, connectionVersion, run) {
   if (source !== 'apple_health') return false;
 
   const user = await User.findById(userId).select('wearableProvider').lean();
@@ -142,7 +145,10 @@ async function rebuildAppleProfile(userId, source, run) {
   // gives this service permission to write these fields.
   if (!summary && !restingValues.length && !ownsExistingProjection) return false;
 
-  const $set = { healthProjectionProvider: source };
+  const $set = {
+    healthProjectionProvider: source,
+    healthProjectionConnectionVersion: Number(connectionVersion ?? 0),
+  };
   if (summary) {
     $set['sleepStages.deep'] = summary.sleepStages.deep;
     $set['sleepStages.light'] = summary.sleepStages.light;
@@ -212,16 +218,128 @@ async function undoRunProjections(userId, source, reason, run) {
 }
 
 async function compensate(userId, source, reason, run) {
-  let outcome;
   try {
     const changed = await undoRunProjections(userId, source, reason, run);
-    outcome = changed > 0 ? 'undone' : 'nothing';
+    const outcome = changed > 0 ? 'undone' : 'nothing';
+    console.warn(`[healthProjection] compensating-undo reason=${reason} outcome=${outcome}`);
   } catch (error) {
-    outcome = `failed error=${errorType(error)}`;
+    console.error(`[healthProjection] compensating-undo reason=${reason} outcome=failed error=${errorType(error)}`);
+    throw Object.assign(new Error('health_projection_pending'), {
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
   }
-  const line = `[healthProjection] compensating-undo reason=${reason} outcome=${outcome}`;
-  if (outcome.startsWith('failed')) console.error(line);
-  else console.warn(line);
+}
+
+async function cleanupRefusedPending(userId, source, connectionVersion) {
+  const selector = {
+    userId,
+    source,
+    projectionState: 'pending',
+    ingestState: { $ne: 'staged' },
+    ...(connectionVersion == null ? {} : { connectionVersion: Number(connectionVersion) }),
+  };
+  const pending = await HealthSample.find(selector).select('_id sampleKey');
+  for (const sample of pending) await removeTimeSeriesProjection(sample.sampleKey, userId);
+
+  const profileSelector = {
+    userId,
+    healthProjectionProvider: source,
+    ...(connectionVersion == null
+      ? {}
+      : { healthProjectionConnectionVersion: Number(connectionVersion) }),
+  };
+  await MedicalProfile.updateOne(profileSelector, { $set: PROFILE_CLEAR });
+  await HealthSample.deleteMany({
+    _id: { $in: pending.map((sample) => sample._id) },
+    projectionState: 'pending',
+  });
+  await purgeOrphanedAggregates(userId);
+}
+
+async function recordCleanupMarker(userId, source, connectionVersion, consentFence, sampleKeys) {
+  const token = crypto.randomBytes(16).toString('hex');
+  const result = await User.updateOne({
+    _id: userId,
+    wearableProvider: source,
+    wearableConnectionVersion: Number(connectionVersion ?? 0),
+    deletedAt: null,
+  }, {
+    $push: {
+      healthProjectionCleanupPending: {
+        token,
+        provider: source,
+        connectionVersion: Number(connectionVersion ?? 0),
+        consentFence: String(consentFence),
+        sampleKeys,
+        createdAt: new Date(),
+      },
+    },
+  });
+  if ((result?.modifiedCount ?? 0) !== 1) {
+    throw Object.assign(new Error('health_projection_pending'), {
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+  }
+  return token;
+}
+
+async function clearCleanupMarkers(userId, selector) {
+  await User.updateOne(
+    { _id: userId },
+    { $pull: { healthProjectionCleanupPending: selector } },
+  );
+}
+
+async function cleanupMarker(userId, marker) {
+  for (const sampleKey of marker.sampleKeys ?? []) {
+    const newer = await HealthSample.exists({
+      userId,
+      source: marker.provider,
+      sampleKey,
+      ingestState: { $ne: 'staged' },
+      connectionVersion: { $gt: Number(marker.connectionVersion ?? 0) },
+    });
+    if (!newer) await removeTimeSeriesProjection(sampleKey, userId);
+  }
+  await MedicalProfile.updateOne({
+    userId,
+    healthProjectionProvider: marker.provider,
+    healthProjectionConnectionVersion: Number(marker.connectionVersion ?? 0),
+  }, { $set: PROFILE_CLEAR });
+  await clearCleanupMarkers(userId, { token: marker.token });
+  await purgeOrphanedAggregates(userId);
+}
+
+async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
+  const users = await User.find({ 'healthProjectionCleanupPending.0': { $exists: true } })
+    .select('_id healthProjectionCleanupPending')
+    .limit(limit)
+    .lean();
+  let cleaned = 0;
+  let deferred = 0;
+  let failed = 0;
+  for (const user of users) {
+    for (const marker of user.healthProjectionCleanupPending ?? []) {
+      try {
+        const fence = await projectionFence(user._id, marker.provider, marker.connectionVersion);
+        if (fence.admitted && fence.fence === marker.consentFence) {
+          deferred += 1;
+          continue;
+        }
+        if (fence.reason === 'consent_read_error') {
+          deferred += 1;
+          continue;
+        }
+        await cleanupMarker(user._id, marker);
+        cleaned += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+  }
+  return { cleaned, deferred, failed };
 }
 
 async function invalidateDerivedCaches(userId) {
@@ -247,7 +365,12 @@ async function enqueueStateRecompute(userId) {
 
 async function reconcileHealthSamples(userId, source, { connectionVersion = null } = {}) {
   const start = await projectionFence(userId, source, connectionVersion);
-  if (!start.admitted) return { projected: 0, removed: 0, profileUpdated: false };
+  if (!start.admitted) {
+    if (start.reason !== 'consent_read_error') {
+      await cleanupRefusedPending(userId, source, connectionVersion);
+    }
+    return { projected: 0, removed: 0, profileUpdated: false };
+  }
 
   // This cut makes the final update race-safe: an upsert/delete that changes a row during this
   // pass receives a newer updatedAt and remains pending for the next pass.
@@ -256,11 +379,20 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
     userId,
     source,
     projectionState: 'pending',
+    ingestState: { $ne: 'staged' },
+    ...(connectionVersion == null ? {} : { connectionVersion: Number(connectionVersion) }),
     updatedAt: { $lte: cutoff },
   }).sort({ updatedAt: 1, _id: 1 });
 
   if (!pending.length) return { projected: 0, removed: 0, profileUpdated: false };
 
+  const cleanupToken = await recordCleanupMarker(
+    userId,
+    source,
+    start.connectionVersion,
+    start.fence,
+    pending.map((sample) => sample.sampleKey),
+  );
   const run = { createdSampleKeys: [], profileWrite: null };
   let projected = 0;
   let removed = 0;
@@ -273,7 +405,7 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
       removed += result.removed;
       if (result.inserted > 0) run.createdSampleKeys.push(sample.sampleKey);
     }
-    profileUpdated = await rebuildAppleProfile(userId, source, run);
+    profileUpdated = await rebuildAppleProfile(userId, source, start.connectionVersion, run);
   } catch (error) {
     failure = error;
   }
@@ -283,7 +415,11 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
   if (!after.admitted) refusal = after.reason;
   else if (after.fence !== start.fence) refusal = 'consent_changed';
   else if (after.connectionVersion !== start.connectionVersion) refusal = 'connection_changed';
-  if (refusal) await compensate(userId, source, refusal, run);
+  if (refusal) {
+    await compensate(userId, source, refusal, run);
+    await cleanupRefusedPending(userId, source, start.connectionVersion);
+    await clearCleanupMarkers(userId, { token: cleanupToken });
+  }
   if (failure) throw failure;
   if (refusal) return { projected: 0, removed: 0, profileUpdated: false };
 
@@ -296,10 +432,17 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
     updatedAt: { $lte: cutoff },
   }, { $set: { projectionState: 'applied' } });
 
+  await clearCleanupMarkers(userId, {
+    provider: source,
+    connectionVersion: Number(start.connectionVersion ?? 0),
+    consentFence: String(start.fence),
+  });
+
   return { projected, removed, profileUpdated };
 }
 
 module.exports = {
+  recoverOwedHealthProjectionCleanups,
   reconcileHealthSamples,
   summarizeSleepIntervals,
 };

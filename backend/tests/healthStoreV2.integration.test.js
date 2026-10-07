@@ -11,10 +11,15 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const fs = require('fs');
 const mongoose = require('mongoose');
 const path = require('path');
+const ConsentRecord = require('../app/models/ConsentRecord');
 const HealthSample = require('../app/models/HealthSample');
 const User = require('../app/models/User');
+const {
+  CURRENT_CONSENT_VERSION,
+  HEALTH_CONSENT_PURPOSE,
+} = require('../app/services/privacy/consentState');
 const { reconcileHealthSamples } = require('../app/services/wearable/healthSampleReconciliation');
-const { ingestV2Batch } = require('../app/services/wearable/healthStoreV2');
+const { ingestV2Batch, recoverStagedHealthSamples } = require('../app/services/wearable/healthStoreV2');
 
 const sampleId = '6ba7b810-9dad-41d1-80b4-00c04fd430c8';
 const upsert = (overrides = {}) => ({
@@ -41,17 +46,25 @@ afterAll(async () => {
 beforeEach(async () => {
   jest.clearAllMocks();
   reconcileHealthSamples.mockResolvedValue({ projected: 0, removed: 0, profileUpdated: false });
-  await Promise.all([HealthSample.deleteMany({}), User.deleteMany({})]);
+  await Promise.all([HealthSample.deleteMany({}), ConsentRecord.deleteMany({}), User.deleteMany({})]);
 });
 
 async function connectedUser() {
-  return User.create({
+  const user = await User.create({
     ssoProvider: 'google',
     ssoId: new mongoose.Types.ObjectId().toString(),
     email: `${new mongoose.Types.ObjectId()}@example.test`,
     wearableProvider: 'apple_health',
     wearableConnectionVersion: 0,
   });
+  await ConsentRecord.create({
+    userId: user._id,
+    purpose: HEALTH_CONSENT_PURPOSE,
+    consentVersion: CURRENT_CONSENT_VERSION,
+    status: 'granted',
+    grantedAt: new Date(),
+  });
+  return user;
 }
 
 describe('ingestV2Batch', () => {
@@ -130,6 +143,170 @@ describe('ingestV2Batch', () => {
 
     expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(reconcileHealthSamples).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a sample whose write finishes after the wearable was disconnected', async () => {
+    const owner = await connectedUser();
+    const create = HealthSample.create.bind(HealthSample);
+    let releaseCreate;
+    let createStarted;
+    const started = new Promise((resolve) => { createStarted = resolve; });
+    const held = new Promise((resolve) => { releaseCreate = resolve; });
+    const createSpy = jest.spyOn(HealthSample, 'create').mockImplementation(async (...args) => {
+      createStarted();
+      await held;
+      return create(...args);
+    });
+
+    const ingest = ingestV2Batch(owner._id, 'healthkit', [upsert()]);
+    await started;
+    await User.updateOne(
+      { _id: owner._id },
+      { $set: { wearableProvider: null }, $inc: { wearableConnectionVersion: 1 } },
+    );
+    releaseCreate();
+
+    await expect(ingest).rejects.toMatchObject({
+      code: 'wearable_connection_changed',
+      statusCode: 409,
+    });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(reconcileHealthSamples).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
+  it('rolls back a held write when consent is withdrawn after admission', async () => {
+    const owner = await connectedUser();
+    const create = HealthSample.create.bind(HealthSample);
+    let releaseCreate;
+    let createStarted;
+    const started = new Promise((resolve) => { createStarted = resolve; });
+    const held = new Promise((resolve) => { releaseCreate = resolve; });
+    const createSpy = jest.spyOn(HealthSample, 'create').mockImplementation(async (...args) => {
+      createStarted();
+      await held;
+      return create(...args);
+    });
+
+    const ingest = ingestV2Batch(owner._id, 'healthkit', [upsert()]);
+    await started;
+    await ConsentRecord.create({
+      userId: owner._id,
+      purpose: HEALTH_CONSENT_PURPOSE,
+      consentVersion: CURRENT_CONSENT_VERSION,
+      status: 'withdrawn',
+      withdrawnAt: new Date(),
+    });
+    releaseCreate();
+
+    await expect(ingest).rejects.toMatchObject({ code: 'health_consent_changed', statusCode: 409 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(reconcileHealthSamples).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
+  it('rolls back a held write when the account disappears after admission', async () => {
+    const owner = await connectedUser();
+    const create = HealthSample.create.bind(HealthSample);
+    let releaseCreate;
+    let createStarted;
+    const started = new Promise((resolve) => { createStarted = resolve; });
+    const held = new Promise((resolve) => { releaseCreate = resolve; });
+    const createSpy = jest.spyOn(HealthSample, 'create').mockImplementation(async (...args) => {
+      createStarted();
+      await held;
+      return create(...args);
+    });
+
+    const ingest = ingestV2Batch(owner._id, 'healthkit', [upsert()]);
+    await started;
+    await User.deleteOne({ _id: owner._id });
+    releaseCreate();
+
+    await expect(ingest).rejects.toMatchObject({ code: 'wearable_connection_changed', statusCode: 409 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(reconcileHealthSamples).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
+  it('does not let an older held batch delete a reconnect generation row with the same identity', async () => {
+    const owner = await connectedUser();
+    const create = HealthSample.create.bind(HealthSample);
+    let releaseCreate;
+    let createStarted;
+    const started = new Promise((resolve) => { createStarted = resolve; });
+    const held = new Promise((resolve) => { releaseCreate = resolve; });
+    let heldOnce = false;
+    const createSpy = jest.spyOn(HealthSample, 'create').mockImplementation(async (...args) => {
+      if (!heldOnce) {
+        heldOnce = true;
+        createStarted();
+        await held;
+      }
+      return create(...args);
+    });
+
+    const oldIngest = ingestV2Batch(owner._id, 'healthkit', [upsert()], { connectionVersion: 0 });
+    await started;
+    await User.updateOne(
+      { _id: owner._id },
+      { $set: { wearableProvider: 'apple_health', wearableConnectionVersion: 2 } },
+    );
+    await HealthSample.create({
+      userId: owner._id,
+      sampleKey: require('../app/services/wearable/healthSampleIdentity')
+        .healthSampleKey(owner._id, 'apple_health', sampleId),
+      source: 'apple_health',
+      metric: 'heart_rate',
+      value: 72,
+      unit: 'bpm',
+      startAt: new Date('2026-10-06T06:30:00.000Z'),
+      endAt: new Date('2026-10-06T06:31:00.000Z'),
+      state: 'active',
+      projectionState: 'pending',
+      ingestState: 'committed',
+      connectionVersion: 2,
+      expiresAt: new Date('2027-01-04T06:31:00.000Z'),
+    });
+    releaseCreate();
+
+    await expect(oldIngest).rejects.toMatchObject({ code: 'wearable_connection_changed', statusCode: 409 });
+    const survivor = await HealthSample.findOne({ userId: owner._id });
+    expect(survivor).toMatchObject({ connectionVersion: 2, ingestState: 'committed' });
+    createSpy.mockRestore();
+  });
+
+  it('keeps failed cleanup staged and the repair path removes it durably', async () => {
+    const owner = await connectedUser();
+    const create = HealthSample.create.bind(HealthSample);
+    let releaseCreate;
+    let createStarted;
+    const started = new Promise((resolve) => { createStarted = resolve; });
+    const held = new Promise((resolve) => { releaseCreate = resolve; });
+    const createSpy = jest.spyOn(HealthSample, 'create').mockImplementation(async (...args) => {
+      createStarted();
+      await held;
+      return create(...args);
+    });
+    const deleteSpy = jest.spyOn(HealthSample, 'deleteMany');
+
+    const ingest = ingestV2Batch(owner._id, 'healthkit', [upsert()]);
+    await started;
+    await User.updateOne(
+      { _id: owner._id },
+      { $set: { wearableProvider: null }, $inc: { wearableConnectionVersion: 1 } },
+    );
+    deleteSpy.mockRejectedValueOnce(new Error('temporary mongo failure'));
+    releaseCreate();
+
+    await expect(ingest).rejects.toThrow('temporary mongo failure');
+    expect(await HealthSample.countDocuments({ userId: owner._id, ingestState: 'staged' })).toBe(1);
+    deleteSpy.mockRestore();
+    createSpy.mockRestore();
+
+    await expect(recoverStagedHealthSamples({ userId: owner._id, source: 'apple_health' }))
+      .resolves.toMatchObject({ removed: 1, failed: 0 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
   });
 
   it('does not enable the authoritative v2 lane for Health Connect yet', async () => {

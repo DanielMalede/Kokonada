@@ -58,9 +58,12 @@ Create `backend/app/models/HealthSample.js` with these logical fields:
 | `tzOffsetMinutes` | Optional offset in the existing `[-840, 720]` range |
 | `state` | `active` or `deleted` |
 | `projectionState` | `pending` or `applied` |
+| `ingestState` | `staged` until the post-write consent/connection fence passes, then `committed` |
+| `ingestToken`, `consentFence` | Internal CAS/recovery metadata while a write is staged; cleared on commit |
+| `connectionVersion` | Monotonic wearable-connection generation that owns the row |
 | `deletedAt` | When the server first accepted deletion; null for active rows |
 | `expiresAt` | Absolute retention deadline used by a TTL index |
-| `v` | Stored schema version, initially `1` |
+| `v` | Stored schema version; `2` adds staged-ingest and connection-generation metadata |
 | timestamps | `createdAt` and `updatedAt` for operations and repair |
 
 Required indexes:
@@ -83,7 +86,7 @@ kokonada:health-sample:v1|<userId>|<source>|<sampleId>
 
 The existing rotation-aware blind-index primitives produce the current write key and all valid lookup candidates. Looking up through all configured keys keeps rows reachable after encryption-key rotation. When a row is found under an old key, it is safely moved to the current key.
 
-The `sampleKey` is internal metadata. It is removed from the subject-facing data export. Logs contain counts and fixed error codes, never `sampleId`, `sampleKey`, values, timestamps, device names, or source metadata.
+The `sampleKey`, staged-ingest token and consent-fence id are internal metadata. They are removed from the subject-facing data export. Logs contain counts and fixed error codes, never `sampleId`, `sampleKey`, values, timestamps, device names, or source metadata.
 
 ## Upsert semantics
 
@@ -122,7 +125,7 @@ HRV baseline output becomes method aware. The baseline blob adds separate SDNN a
 
 Sleep projections are rebuilt from active HealthSample intervals for the active provider. The service calculates stage totals by night, then rebuilds `MedicalProfile.sleepStages`, `lastNightSleep`, and `sleepUpdatedAt`. It does not subtract a duration from an existing aggregate because overlapping intervals, retries, and earlier deletions make arithmetic subtraction unsafe.
 
-Every wearable connection has a monotonic server-side generation. Disconnecting or switching a provider advances that generation. HealthKit ingestion and projection capture it and refuse work from an older generation, including a disconnect/reconnect ABA where the provider name is again `apple_health`. A privacy-fence compensation clears only Apple-owned projection fields written by that run; it never restores a pre-erasure health snapshot.
+Every wearable connection has a monotonic server-side generation. Disconnecting or switching a provider advances that generation. HealthKit ingestion and projection capture it and refuse work from an older generation, including a disconnect/reconnect ABA where the provider name is again `apple_health`. A privacy-fence compensation clears only Apple-owned projection fields written by that run; it never restores a pre-erasure health snapshot. `MedicalProfile` records the owning connection generation as well as the provider, so cleanup for an old connection cannot clear a newer reconnect's profile.
 
 The profile records which provider produced its supported health projection. A HealthKit recompute may replace those supported fields only when `apple_health` is the user's active wearable provider. It never combines an Apple SDNN value with an older generic HRV aggregate from another provider.
 
@@ -134,11 +137,14 @@ MongoDB transactions are deliberately not required. Local integration tests use 
 
 Instead:
 
-- the authoritative row is durable before any projection change;
+- an ingest writes authoritative rows as `staged`, with the consent fence and connection generation that admitted it;
+- a second fence runs after storage and before success; invalid work is removed and a transient cleanup failure leaves the staged row as a durable retry marker;
+- only a matching post-write fence promotes staged rows to `committed`, and projection ignores staged rows;
 - every projection operation is idempotent;
-- pending state is visible in MongoDB;
+- pending projection state is visible in MongoDB;
+- before projection starts, the User row receives a values-free cleanup journal containing the internal sample keys, consent fence and connection generation; it is removed only after success or verified compensation;
 - the request tries reconciliation immediately;
-- a global reconciliation job scans a bounded number of oldest pending rows and groups them by user and source;
+- a global reconciliation job first resolves staged ingests and owed cleanup journals, then scans a bounded number of oldest committed pending rows grouped by user, source and connection generation;
 - account deletion removes the authoritative rows, and the global job carries no user identifier in its queue payload.
 
 This gives eventual repair after a crash while preserving a deterministic retry path.
@@ -192,6 +198,8 @@ No individual sample identity or physiological value is returned. Legacy respons
 - delete-before-upsert creates a tombstone and prevents resurrection;
 - mixed upsert/delete for one UUID resolves to deleted independent of order;
 - a projection failure leaves `pending`, returns a retryable failure, and succeeds on reconciliation;
+- held-write races across withdrawal, direct disconnect, account deletion, withdraw/regrant and disconnect/reconnect never return success for stale work and never delete a newer connection generation;
+- a failed compensating delete leaves a durable cleanup journal and the repair worker removes the late projection on retry;
 - SDNN never contributes to legacy RMSSD baseline keys;
 - deleting a sleep interval rebuilds nightly and long-run sleep fields from remaining active intervals;
 - legacy Health Connect tests remain unchanged and green;

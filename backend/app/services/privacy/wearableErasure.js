@@ -28,6 +28,7 @@ const { affectKey: _affectKey } = require('../biosonic/affectCache');
 // is the safety boundary: legacy/Garmin values have null provenance and are never cleared here.
 const HEALTH_PROFILE_PROJECTION_CLEAR = Object.freeze({
   healthProjectionProvider: null,
+  healthProjectionConnectionVersion: null,
   restingHeartRate: null,
   'sleepStages.deep': null,
   'sleepStages.light': null,

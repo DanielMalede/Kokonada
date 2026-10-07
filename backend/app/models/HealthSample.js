@@ -3,7 +3,7 @@
 const mongoose = require('mongoose');
 const { encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField');
 
-const HEALTH_SAMPLE_VERSION = 1;
+const HEALTH_SAMPLE_VERSION = 2;
 const HEALTH_SAMPLE_SOURCES = Object.freeze(['apple_health', 'health_connect']);
 const HEALTH_SAMPLE_METRICS = Object.freeze([
   'heart_rate',
@@ -16,6 +16,7 @@ const HEALTH_SAMPLE_METRICS = Object.freeze([
 const HEALTH_SAMPLE_METHODS = Object.freeze(['sdnn', 'rmssd']);
 const HEALTH_SAMPLE_STATES = Object.freeze(['active', 'deleted']);
 const HEALTH_SAMPLE_PROJECTION_STATES = Object.freeze(['pending', 'applied']);
+const HEALTH_SAMPLE_INGEST_STATES = Object.freeze(['staged', 'committed']);
 
 const healthSampleSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -35,6 +36,18 @@ const healthSampleSchema = new mongoose.Schema({
     required: true,
     default: 'pending',
   },
+  // A v2 batch is staged until the post-write consent/connection fence passes. A process crash
+  // or cleanup failure therefore leaves an explicit, retryable marker rather than an apparently
+  // valid health row. Legacy rows predate this field and read as committed through the default.
+  ingestState: {
+    type: String,
+    enum: HEALTH_SAMPLE_INGEST_STATES,
+    required: true,
+    default: 'committed',
+  },
+  ingestToken: { type: String, default: null, match: /^[0-9a-f]{32}$/ },
+  consentFence: { type: String, default: null },
+  connectionVersion: { type: Number, default: 0, min: 0 },
   deletedAt: { type: Date, default: null },
   expiresAt: { type: Date, required: true },
   v: { type: Number, default: HEALTH_SAMPLE_VERSION },
@@ -82,5 +95,6 @@ HealthSample.HEALTH_SAMPLE_METRICS = HEALTH_SAMPLE_METRICS;
 HealthSample.HEALTH_SAMPLE_METHODS = HEALTH_SAMPLE_METHODS;
 HealthSample.HEALTH_SAMPLE_STATES = HEALTH_SAMPLE_STATES;
 HealthSample.HEALTH_SAMPLE_PROJECTION_STATES = HEALTH_SAMPLE_PROJECTION_STATES;
+HealthSample.HEALTH_SAMPLE_INGEST_STATES = HEALTH_SAMPLE_INGEST_STATES;
 
 module.exports = HealthSample;

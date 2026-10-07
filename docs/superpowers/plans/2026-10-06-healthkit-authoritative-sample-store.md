@@ -519,3 +519,7 @@ Start with an existing Apple-owned profile, hold its reconciliation write, then 
 - [ ] **Step 9: Run focused suites, full local gates, exact-head CI and repeat compliance review**
 
 Do not mark `OPS-174` complete or make the PR ready until the compliance auditor returns a non-HALT verdict on the exact green SHA.
+
+- [ ] **Step 10: Close the third-review authoritative-write race**
+
+Write authoritative rows as staged under the admitting consent fence and wearable connection generation. Re-check both after storage, promote only matching rows, and remove stale staged rows before returning an error. Add a durable projection-cleanup journal before any derived write and let the repair worker resolve both staged rows and owed compensation. Pin real-Mongo held-write races for withdrawal, disconnect, account deletion and reconnect ABA, including a transient cleanup failure followed by successful repair. Then repeat the complete local gate, exact-head CI and compliance audit.
