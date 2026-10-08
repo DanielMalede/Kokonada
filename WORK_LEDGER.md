@@ -52,9 +52,9 @@ Both partners may edit these at the same time; each edits only his own rows or h
 
 Only Malede changes these.
 
-`.claude/settings.json` · `.claude/settings.local.json` · `.claude/hooks/**` · `.claude/agents/architect.md` · `.claude/agents/compliance-auditor.md` · `.claude/agents/coordinator.md` · `.claude/agents/custodian.md` · `.claude/agents/designer.md` · `.claude/agents/developer.md` · `.claude/agents/regulatory-researcher.md` · `.claude/agents/resilience-auditor.md` · `.claude/agents/security-auditor.md` · `.claude/agents/sentinel.md` · `.claude/commands/adr.md` · `.claude/commands/claim.md` · `.claude/commands/compliance-check.md` · `.claude/commands/db.md` · `.claude/commands/device-qa.md` · `.claude/commands/fix-bug.md` · `.claude/commands/graph.md` · `.claude/commands/kickoff.md` · `.claude/commands/page.md` · `.claude/commands/plan.md` · `.claude/commands/runtime-agent.md` · `.claude/commands/ship.md` · `.claude/commands/spotify-quota.md` · `.claude/commands/status.md` · `.claude/commands/vision-frame.md` · `docs/design-v2/pages/**` · `docs/plans/WAVE4_STATE.md`
+`.claude/**` · `docs/design-v2/pages/**` · `docs/plans/WAVE4_STATE.md`
 
-Until 2026-10-08 the first entry was `.claude/**`. The owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186` only, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"), so the list names every other file under `.claude/` instead. When those rows close, the first entry goes back to `.claude/**`. A new file under `.claude/` is owner-only only if it is added here.
+On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). The list above still says `.claude/**`, because `backend/tests/coord.collide.test.js` pins it and `backend/**` is under a production hold; `OPS-187` narrows the list and the test together. Until it lands, the engine HALTs his claim on those files.
 
 ## Resources
 
