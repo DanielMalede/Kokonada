@@ -83,13 +83,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:instruction-layer` (own)
-- title: Instruction-layer overhaul: CLAUDE.md as the one binding source
-- branch: `chore/instruction-layer`
-- paths: `CLAUDE.md`, `AGENTS.md`, `docs/ORCHESTRATOR_FABLE.md`, `docs/plans/DESIGN_V2_PLAN.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/decisions/DEC-142.md`, `docs/design-v2/decisions/DEC-143.md`, `.claude/agents/architect.md`, `.claude/agents/compliance-auditor.md`, `.claude/agents/designer.md`, `.claude/agents/developer.md`, `.claude/agents/merge-guard.md`, `.claude/agents/regulatory-researcher.md`, `.claude/agents/resilience-auditor.md`, `.claude/agents/sentinel.md`, `.claude/agents/security-auditor.md`, `.claude/commands/adr.md`, `.claude/commands/fix-bug.md`, `.claude/commands/kickoff.md`, `.claude/commands/merge.md`, `.claude/commands/page.md`, `.claude/commands/plan.md`, `.claude/commands/runtime-agent.md`, `.claude/commands/status.md`, `.claude/commands/review-pr.md`, `.claude/commands/vision-frame.md`, `.claude/settings.json`, `TASKS.md`
+- task: `own:il-followups` (own)
+- title: Instruction-layer follow-ups: the review rounds' leads as TASKS rows
+- branch: `docs/il-followups`
+- paths: `TASKS.md`
 - resources: none
-- state: claimed
-- started: 2026-10-06
+- state: in-review · PR #242
+- started: 2026-10-08
 
 ### M04
 _free_
