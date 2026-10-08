@@ -1256,6 +1256,10 @@ _(put anything you are unsure about here rather than losing it)_
 
 ## Infra · CI · repo hygiene
 
+- [ ] `OPS-900` `P1` **Resolve the historical skipped Coordination check blocking PR #239, then verify its exact-head and post-merge gates.** Merge Guard returned `RED (UNVERIFIED)` on `64e0a9cf3f381d31e9e31a7a6e368c54b516d755`: synchronize run `37765383921` was skipped while the PR was Draft, despite successful ready-for-review run `37765384261` and CI run `37765383943` on the same SHA. The guard requires every check on the current SHA to succeed, except the explicitly path-gated iOS build.
+  - **update 2026-10-08 — remediation:** PR #239 is Ready; publish a new documentation-only head without changing application code, run CI and Coordination on that SHA, and request fresh pre-merge and post-merge Merge Guard verdicts. No workflow gate is weakened and no historical check is deleted.
+  - where: PR #239 (`own:coord-ci-pr-metadata`) · done when: fresh pre-merge GREEN binds to the current head and main, the squash tree equals the approved head, and post-merge GREEN confirms CI on the squash commit and current main · src: Merge Guard on PR #239, 2026-10-08 · added: 2026-10-08
+
 - [ ] `OPS-020` `P2` **`regulatory-researcher` — a seventh build agent, created 2026-08-28. Standing routing, not a one-off.** Its first assignment is `DAN-010`.
   - **Why it exists.** Six agents covered code, design, resilience, hygiene and *provider terms*. None covered **law**. `compliance-auditor` reads a company's TOS and branding rules; when a finding turned out to rest on the EU AI Act rather than on anybody's terms of service, there was nobody to route it to and the analysis fell to me — which is exactly how a build-side agent ends up producing something that reads like legal advice.
   - **Scope:** EU technology regulation — AI Act, GDPR, and the adjacent instruments this product touches (ePrivacy, DSA, the MDR/wellness boundary, the Data Act). Read-only, plus web.

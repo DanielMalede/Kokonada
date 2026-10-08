@@ -193,11 +193,12 @@ function prAuthorFor(prs, branch, tipSha) {
   return pr && pr.author && pr.author.login ? pr.author.login : null;
 }
 
-// Both PR lists came back, and the open one is not cut off at its limit. Otherwise a check cannot
-// tell open work from finished work and must not decide.
-function prListsUsable({ open, all, openLimit }) {
+// Both PR lists came back, and neither is cut off at its limit. Otherwise a check cannot tell open
+// work from finished work and must not decide.
+function prListsUsable({ open, all, openLimit, allLimit }) {
   if (!open || !all) return { ok: false, reason: 'gh pr list failed' };
   if (open.length >= openLimit) return { ok: false, reason: `gh listed ${open.length} open PRs, its limit: the list may be truncated` };
+  if (all.length >= allLimit) return { ok: false, reason: `gh listed ${all.length} PRs, its limit: the list may be truncated` };
   return { ok: true, reason: null };
 }
 
@@ -340,6 +341,11 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
         resources: m.resources,
       });
     }
+    if (broken.length) continue;
+    // A finished exact tip is no longer live even when its branch still carries the claim it used
+    // while the PR was open. A malformed claim remains visible so PR metadata cannot hide damage to
+    // the coordination ledger.
+    if (val(b.prDone) && claims.every((slot) => claimPaths(slot.claim.paths).bad.length === 0)) continue;
     if (claims.length) {
       const actual = actualPaths(val(b.changed) || []);
       for (const slot of claims) {
@@ -363,7 +369,6 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
       }
       continue;
     }
-    if (broken.length) continue;
     // Recent: an OPEN PR keeps a branch whatever its commit dates; otherwise the newer of the tip's
     // commit date and the last time this clone saw the ref move (a revived branch with old dates).
     const seen = Math.max(Number(b.tipTime) || 0, Number(val(b.seenTime)) || 0);

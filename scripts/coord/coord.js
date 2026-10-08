@@ -193,14 +193,14 @@ function context(cwd, { identity = true, rulesFromCheckout = true } = {}) {
 
 // → { footprints, remoteNames, prs }: every other branch's live claims and unclaimed recent work.
 // With `useGh`, one `gh pr list` lets a branch whose newest PR is merged or closed drop out; without
-// it (ci, or gh missing) a squash-merged branch drops out by content instead.
+// it (status when gh is missing) a squash-merged branch drops out by content instead.
 function gather(ctx, { useGh = true, requireGh = false } = {}) {
   const { root } = ctx;
   let prs = null;
   if (useGh) {
     const open = gh.prListOpen(root);
     const all = gh.prList(root);
-    const usable = C.prListsUsable({ open, all, openLimit: gh.OPEN_LIMIT });
+    const usable = C.prListsUsable({ open, all, openLimit: gh.OPEN_LIMIT, allLimit: gh.ALL_LIMIT });
     if (requireGh && !usable.ok) {
       throw cannotVerify(`cannot verify: ${usable.reason} — without the PR lists, open work cannot be told from finished work`);
     }
@@ -837,7 +837,7 @@ function cmdCi(cwd, flags) {
   const ref = remoteRef(b);
   if (!git.refExists(ctx.root, ref)) throw cannotVerify(`cannot verify: origin/${b} does not exist after the fetch`);
   const base = git.mergeBase(ctx.root, MAIN, ref);
-  const { footprints } = gather(ctx, { useGh: false });
+  const { footprints } = gather(ctx, { useGh: true, requireGh: true });
   const result = C.ciEvaluate({
     rules: ctx.rules,
     author,
