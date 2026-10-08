@@ -200,7 +200,7 @@ function gather(ctx, { useGh = true, requireGh = false } = {}) {
   if (useGh) {
     const open = gh.prListOpen(root);
     const all = gh.prList(root);
-    const usable = C.prListsUsable({ open, all, openLimit: gh.OPEN_LIMIT });
+    const usable = C.prListsUsable({ open, all, openLimit: gh.OPEN_LIMIT, allLimit: gh.ALL_LIMIT });
     if (requireGh && !usable.ok) {
       throw cannotVerify(`cannot verify: ${usable.reason} — without the PR lists, open work cannot be told from finished work`);
     }

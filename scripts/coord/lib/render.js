@@ -41,7 +41,7 @@ commands
 exit codes
   0 CLEAR · 3 WARN · 1 HALT or FAIL · 2 cannot verify (no fetch, shallow clone, unknown or
   mismatched login, a ledger header that does not parse, gh missing or failing where it is
-  required: check, check --merge, start and rescope)
+  required: check, check --merge, start, rescope and ci)
 
 identity
   COORD_LOGIN if set, else \`gh api user --jq .login\`, mapped through the People table. When both

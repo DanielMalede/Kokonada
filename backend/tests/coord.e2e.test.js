@@ -341,6 +341,7 @@ describe('OPS-152 · coordinator end to end', () => {
   });
 
   test('N3 · gh pr list failing means "cannot verify" for check, start and ci → exit 2', () => {
+    const savedPrs = readGh().prs;
     const b = clones.bedrack;
     git(b, ['checkout', '-B', 'feat/nolist-ci', 'origin/main']);
     write(b, 'docs/nolist/ci.md', 'probe\n');
@@ -358,8 +359,19 @@ describe('OPS-152 · coordinator end to end', () => {
       const ci = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack']);
       expect(ci.code).toBe(2);
       expect(ci.out).toMatch(/pr list/);
+      writeGh({
+        failPrList: false,
+        prs: Array.from({ length: 300 }, (_, i) => ({
+          number: 1000 + i, title: `closed ${i}`, body: '', headRefName: `closed/${i}`,
+          baseRefName: 'main', isDraft: false, state: 'CLOSED', author: { login: 'DanielMalede' },
+          url: `https://github.example/pull/${1000 + i}`, files: [], headRefOid: String(i).padStart(40, '0'),
+        })),
+      });
+      const cut = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack']);
+      expect(cut.code).toBe(2);
+      expect(cut.out).toMatch(/truncated/);
     } finally {
-      writeGh({ failPrList: false });
+      writeGh({ failPrList: false, prs: savedPrs });
     }
     git(origin, ['branch', '-D', 'feat/nolist-ci']);
     expect(remoteBranches()).toEqual(['main']);
@@ -823,11 +835,20 @@ describe('OPS-152 · coordinator end to end', () => {
     // status leaves both out too
     expect(coord('malede', ['status']).out).not.toMatch(/feat\/tiny|feat\/dropped/);
 
+    const claimedDone = coord('bedrack', [
+      'start', '--task', 'own:claimed-done', '--title', 'Claimed branch that is finished',
+      '--paths', 'docs/claimed-done/a.md', '--branch', 'feat/claimed-done',
+    ]);
+    expect(claimedDone.code).toBe(0);
+    const claimedDoneState = readGh();
+    claimedDoneState.prs.find((p) => p.headRefName === 'feat/claimed-done').state = 'CLOSED';
+    fs.writeFileSync(ghState, JSON.stringify(claimedDoneState, null, 2));
+
     // CI must use the same PR evidence as check/status. The closed branch is still present on
     // origin and its contents were never merged, so git alone would report a false collision.
     const started = coord('malede', [
       'start', '--task', 'own:finished-pr-ci', '--title', 'Finished PRs in CI',
-      '--paths', 'docs/dropped/a.md', '--branch', 'test/finished-pr-ci',
+      '--paths', 'docs/dropped/a.md,docs/claimed-done/a.md', '--branch', 'test/finished-pr-ci',
     ]);
     expect(started.code).toBe(0);
     const ci = coord('malede', ['ci', '--branch', 'test/finished-pr-ci', '--author', 'DanielMalede']);
@@ -1160,7 +1181,7 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(res.code).toBe(0);
     const text = res.out.replace(/\s+/g, ' ');
     expect(text).toMatch(/resume your own claim: on origin, or a local one a failed push left behind/);
-    expect(text).toMatch(/gh missing or failing where it is required: check, check --merge, start and rescope/);
+    expect(text).toMatch(/gh missing or failing where it is required: check, check --merge, start, rescope and ci/);
     expect(text).toMatch(/refuse while TASKS\.md or WORK_LEDGER\.md has uncommitted changes/);
     expect(text).toMatch(/ship \[--pr N\] \[--dry-run\]/);
     expect(text).toMatch(/rescope --paths a,b,c \[--dry-run\]/);

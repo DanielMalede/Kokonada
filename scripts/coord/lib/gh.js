@@ -43,6 +43,7 @@ function prView(cwd, selector, fields) {
 // The OPEN PRs, on their own call: an open PR keeps a branch in view whatever its age, so this list
 // must be whole. If it comes back exactly at its limit it may be cut, and callers stop.
 const OPEN_LIMIT = 100;
+const ALL_LIMIT = 300;
 
 function prListOpen(cwd) {
   return json(['pr', 'list', '--state', 'open', '--limit', String(OPEN_LIMIT), '--json', 'number,state,headRefName,headRefOid,isDraft,author'], { cwd });
@@ -53,7 +54,7 @@ function prListOpen(cwd) {
 // headRefOid: a merged or closed PR counts only for the commit it was about. author: a branch whose
 // commit author maps to nobody is resolved through the login that opened its PR.
 function prList(cwd) {
-  return json(['pr', 'list', '--state', 'all', '--limit', '300', '--json', 'number,state,headRefName,headRefOid,isDraft,author'], { cwd });
+  return json(['pr', 'list', '--state', 'all', '--limit', String(ALL_LIMIT), '--json', 'number,state,headRefName,headRefOid,isDraft,author'], { cwd });
 }
 
 // The OPEN PR for a branch, or null. Never a merged or closed one: a reused name must not pick up
@@ -74,4 +75,4 @@ function runList(cwd) {
   return json(['run', 'list', '--branch', 'main', '--event', 'push', '--json', 'status', '--limit', '5'], { cwd });
 }
 
-module.exports = { OPEN_LIMIT, run, login, prView, prList, prListOpen, openPrFor, prCreate, runList };
+module.exports = { OPEN_LIMIT, ALL_LIMIT, run, login, prView, prList, prListOpen, openPrFor, prCreate, runList };

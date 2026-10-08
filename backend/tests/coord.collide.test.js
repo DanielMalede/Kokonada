@@ -197,6 +197,14 @@ describe('OPS-152 · collide — which claims are live', () => {
         branch('main'),
         branch('HEAD'),
         branch('feat/claimed', { headLedgerText: setSlot(freeText, 'B02', claim('feat/claimed', { task: 'own:y' })) }),
+        branch('feat/claimed-pr-done', {
+          headLedgerText: setSlot(freeText, 'B02', claim('feat/claimed-pr-done')),
+          prDone: () => true,
+        }),
+        branch('feat/claimed-pr-done-malformed', {
+          headLedgerText: setSlot(freeText, 'B02', claim('feat/claimed-pr-done-malformed', { paths: ['../escape.js'] })),
+          prDone: () => true,
+        }),
         branch('feat/landed', { headLedgerText: setSlot(freeText, 'B03', claim('feat/landed')) }),
         branch('feat/recent'),
         branch('feat/no-ledger', { headLedgerText: null, baseLedgerText: null }),
@@ -210,9 +218,10 @@ describe('OPS-152 · collide — which claims are live', () => {
     });
     const byBranch = Object.fromEntries(fps.map((f) => [f.branch, f]));
 
-    expect(Object.keys(byBranch).sort()).toEqual(['feat/claimed', 'feat/landed', 'feat/no-ledger', 'feat/recent', 'feat/unknown']);
+    expect(Object.keys(byBranch).sort()).toEqual(['feat/claimed', 'feat/claimed-pr-done-malformed', 'feat/landed', 'feat/no-ledger', 'feat/recent', 'feat/unknown']);
     expect(byBranch['feat/claimed']).toMatchObject({ kind: 'claim', slot: 'B02', task: 'own:y', declared: ['project-explorer/app.js'], actual: ['feat/claimed.txt'] });
     expect(byBranch['feat/claimed'].person).toBe(bedrack);
+    expect(byBranch['feat/claimed-pr-done-malformed']).toMatchObject({ kind: 'claim', malformed: true, dropped: ['../escape.js'] });
     expect(byBranch['feat/recent']).toMatchObject({ kind: 'unclaimed', slot: null, declared: [], actual: ['feat/recent.txt'] });
     expect(byBranch['feat/recent'].person).toBe(bedrack);
     expect(byBranch['feat/unknown'].person).toBeNull();
@@ -360,12 +369,14 @@ describe('OPS-152 · collide — which claims are live', () => {
     expect(RECENCY_NOTE).toBe('note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked');
   });
 
-  test('N3 · gh answers count only when both PR lists came back and the open list is not cut at its limit', () => {
-    expect(prListsUsable({ open: [], all: [], openLimit: 100 })).toEqual({ ok: true, reason: null });
-    expect(prListsUsable({ open: null, all: [], openLimit: 100 }).ok).toBe(false);
-    expect(prListsUsable({ open: [], all: null, openLimit: 100 }).ok).toBe(false);
-    const full = Array.from({ length: 100 }, (_, i) => ({ number: i }));
-    expect(prListsUsable({ open: full, all: [], openLimit: 100 })).toMatchObject({ ok: false, reason: expect.stringMatching(/truncated/) });
+  test('N3 · gh answers count only when both PR lists came back and neither list is cut at its limit', () => {
+    expect(prListsUsable({ open: [], all: [], openLimit: 100, allLimit: 300 })).toEqual({ ok: true, reason: null });
+    expect(prListsUsable({ open: null, all: [], openLimit: 100, allLimit: 300 }).ok).toBe(false);
+    expect(prListsUsable({ open: [], all: null, openLimit: 100, allLimit: 300 }).ok).toBe(false);
+    const fullOpen = Array.from({ length: 100 }, (_, i) => ({ number: i }));
+    const fullAll = Array.from({ length: 300 }, (_, i) => ({ number: i }));
+    expect(prListsUsable({ open: fullOpen, all: [], openLimit: 100, allLimit: 300 })).toMatchObject({ ok: false, reason: expect.stringMatching(/truncated/) });
+    expect(prListsUsable({ open: [], all: fullAll, openLimit: 100, allLimit: 300 })).toMatchObject({ ok: false, reason: expect.stringMatching(/truncated/) });
   });
 
   test('an unmapped commit author is resolved through the PR author login first', () => {
