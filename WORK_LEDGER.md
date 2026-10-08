@@ -83,12 +83,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:handoff-bedrack` (own)
-- title: Handoff to Bedrack: where the instruction layer stands and how to continue
-- branch: `docs/handoff-bedrack`
-- paths: `HANDOFF_2026-10-08_BEDRACK.md`
+- task: `own:owner-rows-2026-10-08` (own)
+- title: The owner's rows after the instruction layer: DAN-066 ordered, DAN-067 closed, DAN-069 status
+- branch: `docs/owner-rows`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #243
+- state: claimed
 - started: 2026-10-08
 
 ### M04
