@@ -98,7 +98,7 @@ _free_
 - task: `own:resilience-auditor-max` (own)
 - title: Resilience-auditor at full protocol: test-running rights, a Codex skill mirror, ship-flow wiring, AGENTS.md map and a contract test
 - branch: `chore/resilience-auditor-max`
-- paths: `.claude/agents/resilience-auditor.md`, `.claude/commands/ship.md`, `.claude/commands/review-pr.md`, `.agents/skills/resilience-audit/SKILL.md`, `.agents/skills/coordinate/SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `backend/tests/resilienceAuditor.contract.test.js`
+- paths: `.claude/agents/resilience-auditor.md`, `.claude/commands/ship.md`, `.claude/commands/review-pr.md`, `.agents/skills/resilience-audit/SKILL.md`, `.agents/skills/coordinate/SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `backend/tests/resilienceAuditor.contract.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-10-08
