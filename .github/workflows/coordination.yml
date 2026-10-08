@@ -3,7 +3,8 @@ name: Coordination
 # The work-ledger check (OPS-153). Two partners push to this repository, which has no branch
 # protection, and a merge to main deploys production. `node scripts/coord/coord.js ci` checks a
 # pull request's branch against WORK_LEDGER.md: it holds a live claim, stays inside it, and meets
-# nobody else's work. It is git only: no PR API, no write scope, no secret.
+# nobody else's work. It reads PR state so a merged or closed branch is not mistaken for live work;
+# it has no write scope and receives only GitHub's short-lived workflow token.
 #
 # Not a job in ci.yml: that file is in the Android compile job's path filter and runs on push to
 # main, where this check means nothing.
@@ -23,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   coordination:
@@ -70,6 +72,7 @@ jobs:
         env:
           HEAD_REF: ${{ github.head_ref }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           rc=0
           t=$(openssl rand -hex 16)

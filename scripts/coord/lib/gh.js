@@ -3,8 +3,8 @@
 // The GitHub CLI adapter. `COORD_GH` names a JavaScript file to run in gh's place (tests and CI use
 // a stateful fake); otherwise the real `gh` runs. Never through a shell. Every call returns null
 // when gh is missing, signed out or fails, so the caller decides what "no answer" means: `status`
-// degrades (no PR state) and `ci` never calls it; `check`, `check --merge`, `start` and `rescope`
-// cannot verify without it and exit 2 (`start` before it changes anything).
+// degrades (no PR state); `ci`, `check`, `check --merge`, `start` and `rescope` cannot verify
+// without it and exit 2 (`start` before it changes anything).
 
 const { spawnSync } = require('child_process');
 
