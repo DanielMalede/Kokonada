@@ -88,7 +88,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/owner-rows`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #244
 - started: 2026-10-08
 
 ### M04
