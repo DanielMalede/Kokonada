@@ -42,6 +42,7 @@ function requireDates(sample) {
  */
 function normalizeAnchoredResult({ identifier, result, batchId, now }) {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) reject('invalid_probe_clock');
+  if (typeof batchId !== 'string' || !UUID_RE.test(batchId)) reject('invalid_health_batch');
   const quantityRule = QUANTITY_RULES.get(identifier);
   if (!quantityRule && identifier !== SLEEP_IDENTIFIER) reject('unsupported_native_identifier');
   if (!isRecord(result) || !Array.isArray(result.samples) || !Array.isArray(result.deletedSamples)) {

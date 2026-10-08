@@ -272,6 +272,16 @@ describe('synthetic offline HealthKit contract probe', () => {
     expect(() => normalize(syntheticResult([]), heartRate, { batchId: invalidBatchId })).toThrow('invalid_health_batch');
   });
 
+  // Catches server-regex coercion allowing an arbitrary object into payload.batchId.
+  test.each([
+    ['coercible object', { toString: () => batchId, metadata: 'synthetic arbitrary metadata' }],
+    ['boxed string', new String(batchId)],
+    ['array', [batchId]],
+  ])('rejects nonprimitive batch ID represented by %s', (_name, invalidBatchId) => {
+    expect(() => normalize(syntheticResult([]), heartRate, { batchId: invalidBatchId }))
+      .toThrow('invalid_health_batch');
+  });
+
   test.each([new Date(NaN), '2026-10-08', undefined])('rejects invalid explicit clock %p', (invalidNow) => {
     expect(() => normalize(syntheticResult(), heartRate, { now: invalidNow })).toThrow('invalid_probe_clock');
   });
