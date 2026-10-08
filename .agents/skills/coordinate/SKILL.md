@@ -53,7 +53,7 @@ A HALT *after* the push means you lost a race: your claim is already pushed, no 
 | When | Run |
 |---|---|
 | The task needs a file it did not declare | `node scripts/coord/coord.js rescope --paths <full new set>` in the task worktree, **before** touching the file |
-| Ready for review | `node scripts/coord/coord.js ship` in the task worktree, then `gh pr edit --body-file <file>` and `gh pr ready` |
+| Ready for review | `node scripts/coord/coord.js ship` in the task worktree, then `gh pr edit --body-file <file>`; then `$resilience-audit` in a fresh thread (`.agents/skills/resilience-audit/SKILL.md`), which posts its report on your PR; `gh pr ready` only on its `VERDICT: APPROVE @ <H>` at the current head, and on BLOCK fix, push and audit again |
 | Before merging | `node scripts/coord/coord.js check --merge <PR number>` |
 | Dropping the task | `node scripts/coord/coord.js release` prints the close and delete commands for your branch |
 | Trying `ship` or `rescope` safely | add `--dry-run`: it prints what it would do and changes nothing |

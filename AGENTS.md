@@ -1,30 +1,17 @@
-# Kokonada contribution rules
+# AGENTS.md
 
-These instructions apply to the whole repository.
+**Read `CLAUDE.md` at the repository root first, in full. It binds you too.** Codex reads this file; the owner's tools read `CLAUDE.md`; both follow the same rules. Where this file and `CLAUDE.md` disagree, `CLAUDE.md` wins (`docs/design-v2/decisions/DEC-155.md`). This file only maps what `CLAUDE.md` names on the owner's side to what you use in Codex.
 
-## Two partners, one repository
+| In `CLAUDE.md` | In Codex |
+|---|---|
+| `/claim` and the `coordinator` agent | `$coordinate` (`.agents/skills/coordinate/SKILL.md`), the same engine: `node scripts/coord/coord.js` |
+| `resilience-auditor` after every implementation, and `/ship`'s audit | `$resilience-audit` (`.agents/skills/resilience-audit/SKILL.md`): the same protocol, word for word, and `backend/tests/resilienceAuditor.contract.test.js` keeps the two copies identical. Run it in a fresh thread on the task worktree, after the suite is green and before `gh pr ready`; it posts its report on your PR and ends with `VERDICT: APPROVE @ <H>` or `VERDICT: BLOCK @ <H>`. On BLOCK, fix, push and audit again; `gh pr ready` only on APPROVE at the current head |
+| The build agents and `/review-pr` (the approvals a merge needs) | Your PR's gate is your own audit, not the owner's side. Merge your own PR yourself when all of these hold: CI is green on its current head H; `node scripts/coord/coord.js check --merge <n>` exits 0, or 3 with each warning reported; your latest `Resilience audit for #<n> at <H>` comment ends with `VERDICT: APPROVE @ <H>`; it is outside 02:58–05:10 UTC. Then `gh pr merge <n> --squash --delete-branch --match-head-commit <H>`. A push, or a new head, means auditing again. The owner's side may run `/review-pr` or its own auditor on your PR as a second opinion; its records there are advice, never a condition of your merge |
+| The `merge-guard` hook, and session start step 6 | After your merge, tell the owner's side, which runs `merge-guard` post-merge and posts its verdict on the PR; report any merged PR you see without that verdict to the owner's side |
+| Session start, step 2 (the owner's main checkout) and step 3 (the sentinel's worktree) | Skip them |
+| The deny list in `.claude/settings.json` | Codex does not load it: read its `permissions.deny` and never run a command it lists (force pushes, any push to `main`, `git reset --hard`, `git clean`, `git stash drop` and `clear`, `--mirror`, `gh pr merge --admin`, and the rest). Run `git config core.hooksPath .githooks` once in every fresh clone (the pre-push guard against pushes to `main`) |
+| The models and `effort` lines | A file cannot set them for Codex, so you do, once per machine: every agent on the owner's side runs on the strongest model at maximum reasoning effort, and so does your work in this repository. Set your Codex model to the strongest one available and its reasoning effort to the highest it offers, for every thread here. Every audit report's `RUN:` line states the model and effort it ran on, so the depth is on the PR for both partners to see |
 
-Two people change this repository in parallel: Daniel Malede (GitHub `DanielMalede`, the owner) and Daniel Bedrack (GitHub `DanielBedrack`). Elsewhere in this repository, "Daniel" means Malede. The repository has no branch protection, and a merge to `main` deploys the backend to production.
+When you hand work back, report the PR URL, the latest Actions run URL and the final check results.
 
-- **Start every task with `$coordinate`** (`.agents/skills/coordinate/SKILL.md`). It checks the other partner's live work on `origin`; on CLEAR, or on a WARN it has reported, it claims a slot in `WORK_LEDGER.md`, marks the `TASKS.md` row as taken (for a `TASKS.md` id; an `own:` task has no row) and opens a draft PR. On HALT, stop and report; never work around it.
-- **Before touching a file the task did not declare**, run `node scripts/coord/coord.js rescope --paths <full new set>` in the task worktree.
-- **Never push to `main`.** Turn on the pre-push guard once per clone: `git config core.hooksPath .githooks`.
-- **Merge only your own PRs,** one at a time, after `node scripts/coord/coord.js check --merge <PR>` is clear. Never push to, merge, close or rebase the other partner's branch or PR.
-- **Read the Coordination check on every PR.** It runs the engine's `ci` mode in warn mode for now, so a yellow warning there can be a real failure (files changed outside the claim, an unclaimed branch, an edit outside your own ledger section, an ID outside your block). `check --merge` does not evaluate those. Fix or explain every warning before merging.
-- **New `TASKS.md` IDs:** Bedrack takes them only from his block, `900` to `999` in every prefix; Malede from the file's "Next free IDs" header.
-- **Owner-only:** `.claude/**`, `docs/design-v2/pages/**`, `docs/plans/WAVE4_STATE.md`, `DAN-` rows, and every production step (Atlas, Railway variables, store consoles, secrets).
-
-## Working rules
-
-- Work in a dedicated branch and worktree cut from `origin/main` (the claim creates both). Read files as `git show origin/main:<path>`, never from a stale local `main`.
-- Stage by explicit path (`git add -- <path>`). Never `git add -A` or `git add .`.
-- Commits are one short line, with no body and no trailers. Never add AI or assistant attribution anywhere: commits, PRs, code, comments or docs.
-
-## CI is a merge gate
-
-- Before committing, run the tests and static checks that cover the changed surface.
-- Do not describe a change as complete or ready to merge until CI on the PR's current head commit has passed; a green run on an older commit does not count.
-- Do not merge while any job is failing, pending, cancelled or missing (this repository has no required checks, so treat every job as required). A path-gated job may be skipped only when its workflow marks the changed surface as unaffected.
-- When CI fails, read the failing job's logs, reproduce it when possible, fix the root cause and push the fix. Do not dismiss a failure as flaky without evidence; re-run the same commit only for a demonstrated infrastructure failure.
-- Report the PR URL, the latest Actions run URL and the final check results when handing work back.
-- Do not add GitHub Pages or any other public deployment path unless the owner approves it.
+Your new TASKS IDs come only from your own block, `900`–`999` in every prefix. `DAN-` rows, the owner-only paths listed in `WORK_LEDGER.md` and every production step are the owner's.
