@@ -28,4 +28,12 @@ describe('BiometricLog retention (TTL index)', () => {
     const [, opts] = ttlIndex();
     expect(opts.expireAfterSeconds).toBeGreaterThan(BASELINE_WINDOW_DAYS * 24 * 3600);
   });
+
+  it('declares a sparse unique link to an authoritative health sample', () => {
+    const index = BiometricLog.schema.indexes().find(
+      ([keys]) => Object.keys(keys).length === 1 && keys.healthSampleKey === 1,
+    );
+    expect(index).toBeDefined();
+    expect(index[1]).toEqual(expect.objectContaining({ unique: true, sparse: true }));
+  });
 });

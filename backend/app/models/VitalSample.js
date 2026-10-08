@@ -84,6 +84,16 @@ const vitalSampleSchema = new mongoose.Schema({
   recordedAt: { type: Date, required: true },
   source: { type: String, enum: VITAL_SOURCES, required: true },
 
+  // Optional authoritative-store link. A sparse, single-field index is deliberate: a
+  // compound sparse index containing the always-present userId would also index legacy rows
+  // as `{ userId, healthSampleKey: null }`, allowing only one legacy vital per user.
+  healthSampleKey: { type: String, match: /^[0-9a-f]{64}$/ },
+
+  // Apple reports SDNN while some platforms report RMSSD. They are not interchangeable.
+  // Legacy HRV rows remain unlabeled for backward compatibility; every linked HRV must say
+  // which method produced it so downstream analytics cannot silently mix definitions.
+  hrvMethod: { type: String, enum: ['sdnn', 'rmssd'], default: null },
+
   // D13: the hour a reading belongs to is the SUBJECT's hour, not the server's. Optional and
   // additive — every shipped client predates this field, so absence means "fall back to the
   // server hour" rather than "reject". JS convention (UTC minus local, inverted), same band as
@@ -117,10 +127,19 @@ vitalSampleSchema.pre('validate', function enforceMetricRange() {
   }
 });
 
+vitalSampleSchema.pre('validate', function enforceLinkedHrvMethod() {
+  if (this.metric === 'hrv' && this.healthSampleKey && !this.hrvMethod) {
+    this.invalidate('hrvMethod', 'hrvMethod is required for linked HRV samples');
+  } else if (this.metric !== 'hrv' && this.hrvMethod != null) {
+    this.invalidate('hrvMethod', 'hrvMethod is allowed only for HRV samples');
+  }
+});
+
 // The one read pattern the baseline engine uses: "this user's samples of THIS metric over a
 // window, in time order". Compound and ordered so the window scan is a range seek, not a
 // collection scan the moment a user has a year of rows.
 vitalSampleSchema.index({ userId: 1, metric: 1, recordedAt: -1 });
+vitalSampleSchema.index({ healthSampleKey: 1 }, { unique: true, sparse: true });
 
 // Retention (T3.1, §0.4 S5). Longest reader is the 30-day chronic baseline window; retain 90
 // days — the same 3x headroom, and the same 90-day figure, as BiometricLog and ServeEvent, so

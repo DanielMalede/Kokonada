@@ -26,6 +26,7 @@ const { enqueue } = require('../app/queues/queue');
 const { computeLastNightSleep } = require('../app/services/medicalProfileService');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
 const { stateVectorJobId } = require('../app/queues/stateVectorJob');
+const { summarizeSleepIntervals } = require('../app/services/wearable/healthSampleReconciliation');
 
 const sleep = (metric, value, iso) => ({ metric, value, unit: 'min', recordedAt: new Date(iso), source: 'health_connect' });
 
@@ -67,6 +68,35 @@ describe('computeLastNightSleep (pure)', () => {
     ]);
 
     expect(out).toEqual({ deep: 40, light: 0, rem: 0, date: '2026-07-01' });
+  });
+});
+
+describe('summarizeSleepIntervals (authoritative HealthKit intervals)', () => {
+  it('groups stage durations per night, then derives long-run medians and the latest night', () => {
+    const interval = (metric, startAt, endAt) => ({ metric, startAt, endAt });
+    const summary = summarizeSleepIntervals([
+      interval('sleep_deep', '2026-07-01T05:00:00Z', '2026-07-01T06:00:00Z'),
+      interval('sleep_light', '2026-07-01T02:00:00Z', '2026-07-01T05:00:00Z'),
+      interval('sleep_rem', '2026-07-01T06:00:00Z', '2026-07-01T06:40:00Z'),
+      interval('sleep_deep', '2026-07-02T04:30:00Z', '2026-07-02T05:00:00Z'),
+      interval('sleep_deep', '2026-07-02T05:00:00Z', '2026-07-02T05:50:00Z'),
+      interval('sleep_light', '2026-07-02T01:30:00Z', '2026-07-02T04:50:00Z'),
+      interval('sleep_rem', '2026-07-02T05:50:00Z', '2026-07-02T06:40:00Z'),
+    ]);
+
+    expect(summary).toEqual({
+      sleepStages: { deep: 70, light: 190, rem: 45 },
+      lastNightSleep: { deep: 80, light: 200, rem: 50, date: new Date('2026-07-02') },
+      sleepUpdatedAt: new Date('2026-07-02T06:40:00.000Z'),
+    });
+  });
+
+  it('ignores invalid and non-sleep rows rather than inventing minutes', () => {
+    expect(summarizeSleepIntervals([
+      { metric: 'hrv', startAt: '2026-07-01T05:00:00Z', endAt: '2026-07-01T06:00:00Z' },
+      { metric: 'sleep_deep', startAt: 'bad', endAt: '2026-07-01T06:00:00Z' },
+      { metric: 'sleep_rem', startAt: '2026-07-01T07:00:00Z', endAt: '2026-07-01T06:00:00Z' },
+    ])).toBeNull();
   });
 });
 

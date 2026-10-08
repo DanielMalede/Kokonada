@@ -64,7 +64,7 @@ const { fitCosinor } = require('./chronobiology');
 
 // Bumped when the cached blob's shape changes (S15). `baselines.peekBaselines` consumers must
 // tolerate an older `v` — the legacy keys are guaranteed to survive every bump.
-const BASELINE_BLOB_VERSION = 1;
+const BASELINE_BLOB_VERSION = 2;
 
 const MAD_SCALE = 1.4826;      // MAD -> sigma for a normal, matching translate.js
 const HOUR_MS = 3600000;
@@ -722,14 +722,26 @@ function computeBaselineBlob({
   hrSamples = [], vitalSamples = [], profile = {}, now, tzOffsetMinutes = 0,
 } = {}) {
   const nowMs = finite(now) ?? 0;
+  const vitalRows = Array.isArray(vitalSamples) ? vitalSamples : [];
 
-  const deviceRhrRows = (Array.isArray(vitalSamples) ? vitalSamples : [])
+  const deviceRhrRows = vitalRows
     .filter((s) => s?.metric === 'restingHeartRate');
+  const hrvRows = vitalRows.filter((s) => s?.metric === 'hrv');
+  const rmssdRows = hrvRows.filter((s) => s.hrvMethod === 'rmssd');
+  const sdnnRows = hrvRows.filter((s) => s.hrvMethod === 'sdnn');
+  // Existing Garmin and pre-method rows were historically treated as RMSSD-oriented data.
+  // Keep them in the legacy top-level lane, but do not silently label them as RMSSD in the
+  // method-aware output. Any explicitly labeled non-RMSSD row (notably Apple SDNN) is excluded.
+  const legacyHrvRows = hrvRows.filter((s) => s.hrvMethod == null || s.hrvMethod === 'rmssd');
 
   const rhr = estimateRestingHeartRate({
     hrSamples, deviceRestingHeartRate: deviceRhrRows, now: nowMs, tzOffsetMinutes,
   });
-  const hrv = estimateMetricBaseline({ metric: 'hrv', samples: vitalSamples, now: nowMs, tzOffsetMinutes });
+  const hrv = estimateMetricBaseline({ metric: 'hrv', samples: legacyHrvRows, now: nowMs, tzOffsetMinutes });
+  const hrvByMethod = {
+    rmssd: estimateMetricBaseline({ metric: 'hrv', samples: rmssdRows, now: nowMs, tzOffsetMinutes }),
+    sdnn: estimateMetricBaseline({ metric: 'hrv', samples: sdnnRows, now: nowMs, tzOffsetMinutes }),
+  };
   const rhrSeries = estimateMetricBaseline({
     metric: 'restingHeartRate', samples: deviceRhrRows, now: nowMs, tzOffsetMinutes,
   });
@@ -758,6 +770,7 @@ function computeBaselineBlob({
     // ── superset ──
     hrvMedian: hrv.median,
     hrvMAD: hrv.mad,
+    hrvByMethod,
     hourly,
     cosinor,
     zones,

@@ -25,6 +25,7 @@ const REPO_ROOT = path.join(__dirname, '../..');
 const MODELS_DIR = path.join(__dirname, '../app/models');
 const PRIVACY_DOC = path.join(REPO_ROOT, 'docs/PRIVACY_DECLARATIONS.md');
 const ERASURE_SRC = path.join(__dirname, '../app/services/privacy/erasure.js');
+const HEALTH_SAMPLE_REPOSITORY_SRC = path.join(__dirname, '../app/services/wearable/healthSampleRepository.js');
 
 const readDoc = () => fs.readFileSync(PRIVACY_DOC, 'utf8');
 
@@ -109,6 +110,15 @@ describe('W4-D13 · retention documentation is registered, not remembered', () =
       const row = retention.split('\n').find((l) => l.includes(`\`${name}\``));
       expect(row).toContain(envVar[1]);
     }
+  });
+
+  it('states the same 90-day HealthSample window enforced by the authoritative repository', () => {
+    const retention = section(readDoc(), 'Retention');
+    const row = retention.split('\n').find((line) => line.includes('`HealthSample`'));
+    const repository = fs.readFileSync(HEALTH_SAMPLE_REPOSITORY_SRC, 'utf8');
+    expect(row).toContain('**90 days**');
+    expect(row).toContain('`expiresAt`');
+    expect(repository).toMatch(/RETENTION_MS\s*=\s*90\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
   });
 
   it('shows the store EXACTLY the collections the erasure cascade deletes (no more, no fewer)', () => {

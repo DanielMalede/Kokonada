@@ -7,6 +7,7 @@
 // (services/privacy/erasure.js) stays owned by Wave 1; consolidation happens later.
 
 const BiometricLog   = require('../../models/BiometricLog');
+const HealthSample   = require('../../models/HealthSample');
 const VitalSample    = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const MorningState   = require('../../models/MorningState');
@@ -23,12 +24,36 @@ const _baselineKey = (userId) => `bio:baseline:${userId}`;
 // the silent leak S5 exists to prevent.
 const { affectKey: _affectKey } = require('../biosonic/affectCache');
 
+// Fields currently owned by the authoritative Apple projection. The provenance predicate below
+// is the safety boundary: legacy/Garmin values have null provenance and are never cleared here.
+const HEALTH_PROFILE_PROJECTION_CLEAR = Object.freeze({
+  healthProjectionProvider: null,
+  healthProjectionConnectionVersion: null,
+  restingHeartRate: null,
+  'sleepStages.deep': null,
+  'sleepStages.light': null,
+  'sleepStages.rem': null,
+  'lastNightSleep.deep': null,
+  'lastNightSleep.light': null,
+  'lastNightSleep.rem': null,
+  'lastNightSleep.date': null,
+  sleepUpdatedAt: null,
+});
+
+async function clearOwnedHealthProjection(userId, provider) {
+  const result = await MedicalProfile.updateMany(
+    { userId, healthProjectionProvider: provider },
+    { $set: HEALTH_PROFILE_PROJECTION_CLEAR },
+  );
+  return result?.modifiedCount ?? 0;
+}
+
 // MedicalProfile is a single per-user AGGREGATE with no per-source attribution; it is derived
-// from BiometricLog. Delete it ONLY when no biometric samples remain (i.e. it was derived solely
+// from wearable samples. Delete it ONLY when no biometric samples remain (i.e. it was derived solely
 // from what has been purged). Otherwise it still reflects another connected wearable — leave it
-// and let baselines recompute. "No samples remain" means no HR samples AND no vital samples —
-// counting only BiometricLog would delete a profile still backed by another wearable's
-// VitalSample rows.
+// and let baselines recompute. "No samples remain" means no HR samples, no authoritative OS
+// samples awaiting projection, AND no vital samples — counting only the read models would delete
+// a profile while another provider still has authoritative rows waiting to be projected.
 //
 // MorningState (W4-012, S5) is the SAME category of derived aggregate — a nightly consolidation
 // of exactly the vitals MedicalProfile/BiometricLog/VitalSample carry, with no per-source
@@ -44,14 +69,17 @@ const { affectKey: _affectKey } = require('../biosonic/affectCache');
 // Both counts are pinned to the PRIMARY, like ConsentRecord.latestFor: they must see the delete that
 // runs just before them (the erasure's own, or the compensation's), and a lagging secondary would
 // still count that row and keep the aggregates. Proven in tests/consentPrimaryRead.integration.test.js.
-async function purgeOrphanedAggregates(userId) {
+async function purgeOrphanedAggregates(userId, { preserveMedicalProfile = false } = {}) {
   let medicalProfiles = 0;
   let morningStates = 0;
   const remaining = await BiometricLog.countDocuments({ userId }).read('primary')
+    + await HealthSample.countDocuments({ userId }).read('primary')
     + await VitalSample.countDocuments({ userId }).read('primary');
   if (remaining === 0) {
-    const med = await MedicalProfile.deleteMany({ userId });
-    medicalProfiles = med?.deletedCount ?? 0;
+    if (!preserveMedicalProfile) {
+      const med = await MedicalProfile.deleteMany({ userId });
+      medicalProfiles = med?.deletedCount ?? 0;
+    }
     const morning = await MorningState.deleteMany({ userId });
     morningStates = morning?.deletedCount ?? 0;
   }
@@ -64,15 +92,27 @@ async function purgeWearableData(userId, provider) {
   // 1. BiometricLog is source-attributed — delete exactly this provider's samples.
   const bio = await BiometricLog.deleteMany({ userId, source: provider });
 
-  // 1b. VitalSample carries the SAME `source` attribution (W4-004, S5), so the identical
+  // 1b. HealthSample is the authoritative Apple Health / Health Connect store. Delete only
+  //     the disconnected provider's samples and tombstones; another OS-health provider stays.
+  const health = await HealthSample.deleteMany({ userId, source: provider });
+
+  // 1c. VitalSample carries the SAME `source` attribution (W4-004, S5), so the identical
   //     scoping applies: disconnecting Garmin removes Garmin's HRV/SpO2/battery history and
   //     leaves an Apple Health connection's rows alone. Registered here in the task that
   //     created the collection rather than "later" — a wearable-derived collection missing
   //     from per-provider erasure is a silent GDPR leak that nothing would surface.
   const vitals = await VitalSample.deleteMany({ userId, source: provider });
 
+  // Remove only profile values whose explicit provenance names the disconnected provider.
+  // A profile backed by another provider survives, but no Apple-derived sleep/RHR value does.
+  const healthProfileProjections = await clearOwnedHealthProjection(userId, provider);
+
   // 2. The derived aggregates (MedicalProfile, MorningState) — see purgeOrphanedAggregates.
-  const { medicalProfiles, morningStates } = await purgeOrphanedAggregates(userId);
+  const { medicalProfiles, morningStates } = await purgeOrphanedAggregates(userId, {
+    // Apple fields have explicit provenance and were cleared above. The shared profile can also
+    // carry legacy/manual fields (for example maxHeartRate), which an Apple disconnect does not own.
+    preserveMedicalProfile: provider === 'apple_health',
+  });
 
   // 2b. RewardEvent (W4-011, ADR-0012 Track A, S5) is registered here as a DELIBERATE
   //     EXCLUSION, and the reasoning is the point rather than the omission. It looks like the
@@ -129,7 +169,12 @@ async function purgeWearableData(userId, provider) {
   } catch { /* best-effort */ }
 
   return {
-    biometricLogs: bio?.deletedCount ?? 0, vitalSamples: vitals?.deletedCount ?? 0, medicalProfiles, morningStates,
+    biometricLogs: bio?.deletedCount ?? 0,
+    healthSamples: health?.deletedCount ?? 0,
+    vitalSamples: vitals?.deletedCount ?? 0,
+    healthProfileProjections,
+    medicalProfiles,
+    morningStates,
   };
 }
 
@@ -144,6 +189,7 @@ function clearWearableCredentials(user, provider) {
   if (user.wearableProvider === provider) {
     user.wearableProvider = null;
     user.wearableToken = null;
+    user.wearableConnectionVersion = Number(user.wearableConnectionVersion ?? 0) + 1;
     changed = true;
   }
 
@@ -189,6 +235,7 @@ module.exports = {
   WEARABLE_PROVIDERS,
   purgeWearableData,
   purgeOrphanedAggregates,
+  clearOwnedHealthProjection,
   clearWearableCredentials,
   eraseWearableProvider,
 };
