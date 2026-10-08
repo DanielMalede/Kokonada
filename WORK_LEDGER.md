@@ -86,7 +86,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `own:owner-rows-2026-10-08` (own)
 - title: The owner's rows after the instruction layer: DAN-066 ordered, DAN-067 closed, DAN-069 status
 - branch: `docs/owner-rows`
-- paths: `TASKS.md`
+- paths: `TASKS.md`, `WORK_LEDGER.md`, `HANDOFF_2026-10-08_BEDRACK.md`, `docs/design-v2/decisions/DEC-156.md`
 - resources: none
 - state: in-review · PR #244
 - started: 2026-10-08
