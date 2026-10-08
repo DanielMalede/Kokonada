@@ -120,7 +120,7 @@ _free_
 - branch: `codex/coord-ci-pr-metadata`
 - paths: `scripts/coord/coord.js`, `scripts/coord/lib/gh.js`, `scripts/coord/lib/render.js`, `scripts/coord/lib/collide.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.collide.test.js`, `.github/workflows/coordination.yml`, `backend/tests/ciWorkflowPermissions.test.js`
 - resources: none
-- state: claimed
+- state: in-review · PR #239
 - started: 2026-10-08
 
 ### B02
