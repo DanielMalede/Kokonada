@@ -74,7 +74,8 @@ Every row's `where:` lists the files to declare in the claim; add each file's im
 
 ### 4C. The owner's rows
 
-- `DAN-069`: the production `healthsamples`, `biometriclogs` and `vitalsamples` indexes are a claim, not evidence; `getIndexes()` output on the database production `MONGO_URI` names, and the `[healthSampleReconciliation] repeatable scheduled` log line. Yours only if the owner hands you `res:atlas-prod` for it; your live B02 claim is on that resource, so coordinate before touching it.
+- `DAN-069`, **reassigned to you by the owner on 2026-10-08**: the production `healthsamples`, `biometriclogs` and `vitalsamples` indexes are a claim, not evidence. Paste into the row the `getIndexes()` output of all three collections on the database production `MONGO_URI` names, and the `[healthSampleReconciliation] repeatable scheduled` log line from the deployed commit with one worker pass result. You hold `res:atlas-prod` under B02; do it inside that claim or rescope it. Read-only: nothing here creates or drops an index.
+- PR #240 itself stays the owner's to approve and merge: it edits `.claude/**`, `CLAUDE.md` and `AGENTS.md` (owner-only paths; instruction-layer changes need his class (a) approval in his own words), and a partner never merges the other's PR. What you can do on it: run `-audit` in the REVIEW TREE regime on its head and send the owner your findings; never post on it.
 
 ## 5. How to work, step by step, every task
 
