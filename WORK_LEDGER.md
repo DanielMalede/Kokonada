@@ -126,7 +126,7 @@ _free_
 - branch: `codex/healthkit-offline-spike`
 - paths: `scripts/healthkit-spike/**`, `backend/tests/healthkitSpike.test.js`, `TASKS.md`, `docs/research/apple-healthkit-integration-research.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #241
 - started: 2026-10-08
 
 ### B02
