@@ -88,7 +88,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/handoff-bedrack`
 - paths: `HANDOFF_2026-10-08_BEDRACK.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #243
 - started: 2026-10-08
 
 ### M04
