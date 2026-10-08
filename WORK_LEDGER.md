@@ -100,7 +100,7 @@ _free_
 - branch: `chore/resilience-auditor-max`
 - paths: `.claude/agents/resilience-auditor.md`, `.claude/commands/ship.md`, `.claude/commands/review-pr.md`, `.agents/skills/resilience-audit/SKILL.md`, `.agents/skills/coordinate/SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `backend/tests/resilienceAuditor.contract.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #240
 - started: 2026-10-08
 
 ### M06
