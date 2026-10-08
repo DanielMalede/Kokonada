@@ -83,12 +83,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:il-followups` (own)
-- title: Instruction-layer follow-ups: the review rounds' leads as TASKS rows
-- branch: `docs/il-followups`
-- paths: `TASKS.md`
+- task: `own:handoff-bedrack` (own)
+- title: Handoff to Bedrack: where the instruction layer stands and how to continue
+- branch: `docs/handoff-bedrack`
+- paths: `HANDOFF_2026-10-08_BEDRACK.md`
 - resources: none
-- state: in-review · PR #242
+- state: in-review · PR #243
 - started: 2026-10-08
 
 ### M04
