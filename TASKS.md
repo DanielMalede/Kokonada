@@ -14,16 +14,15 @@ Bedrack's block (`WORK_LEDGER.md`): `900`–`999` in every prefix (`BE-900`, `MB
 
 The owner's ordered queue — at most ten IDs. A session with no named task recommends the top row and waits for a go (`CLAUDE.md`, session start); when the queue is empty it proposes an open `P0` row. Only the owner reorders it; a session may propose a change, with its reason, at its recommendation.
 
-**PROPOSED by the orchestrator on 2026-10-06, not yet ordered by the owner (`DAN-066`):**
+**Ordered by the owner on 2026-10-08** (his words, delegating the proposed order and this file's rows: "טפל בלכ המשימות שלי יש לך אישור"; `DAN-066`). `OPS-160` merged as #231 and left the queue.
 
-1. `OPS-160` — the instruction-layer overhaul: the rules every later task runs under.
-2. `DAN-053` — the owner's Round-13 actions; until Railway's Wait for CI is on, a merge deploys before CI ends and every PR must contain current `main`.
-3. `DAN-063` — the two-partner protocol on both machines and in the repository settings.
-4. `OPS-155` — the coordinator's hardening (#229), in flight. (`OPS-153`, phase B, merged as #230; its check runs in warn mode for a week.)
-5. `DAN-050` — J2's production evidence and arming.
-6. `ARCH-011` — the HALT fix lane, before P2's G1.
-7. `MB-087` — V1 plan B3, in progress on `design/v1-vision-frame`.
-8. `OPS-168` — `security-auditor`'s first pass over the sensitive surfaces that merged before it existed.
+1. `DAN-053` — the owner's Round-13 actions; until Railway's Wait for CI is on, a merge deploys before CI ends and every PR must contain current `main`.
+2. `DAN-063` — the two-partner protocol on both machines and in the repository settings.
+3. `OPS-155` — the coordinator's hardening, merged as #229 on 2026-10-07; its LOW items stay open. (`OPS-153`, phase B, merged as #230; its check runs in warn mode for a week.)
+4. `DAN-050` — J2's production evidence and arming.
+5. `ARCH-011` — the HALT fix lane, before P2's G1.
+6. `MB-087` — V1 plan B3, in progress on `design/v1-vision-frame`.
+7. `OPS-168` — `security-auditor`'s first pass over the sensitive surfaces that merged before it existed.
 ---
 
 ## How this file is maintained — read this, every session
@@ -2567,15 +2566,17 @@ _(put anything you are unsure about here rather than losing it)_
   - options: keep write access under `DAN-063`'s rules plus `DAN-064`'s ruleset; or move the repository to an organisation, which has a Read role, and have him work from a fork; or remove the collaborator.
   - where: GitHub, the repository's Settings → Collaborators (owner only) · done when: the owner's choice is recorded here with its date, and any change of access is confirmed with `gh api repos/DanielMalede/Kokonada/collaborators/<login>/permission` · related: `DAN-063`, `OPS-152`, `DAN-064`, `OPS-110`, `OPS-136` · src: `compliance-auditor`, scribe PR 2 round 1, 2026-10-06 (outside the repo, `Kokonada-private/session-3181c7f6/scribe2/scribe2-r1-compliance.md`) (DAN-065: NEEDS CHANGE; GitHub's permission levels for a personal-account repository, fetched that day); the repository owner confirmed a personal (User) account with `gh api` (the orchestrator, 2026-10-06); the private handoff §0.7 (a) (outside the repo, `Kokonada-private/HANDOFF.md`); #218's author and merger, and its merge time (2026-10-05T13:39:29Z), and #220's revert (2026-10-06T06:36:09Z), read by the scribe with `gh pr view`; the orchestrator's instruction of 2026-10-06 · added: 2026-10-06
 
-- [ ] `DAN-066` `P1` **Order the `## Next up` queue at the top of this file.** The orchestrator proposed eight rows on 2026-10-06; the owner confirms, reorders or cuts them, and from then on owns the order (`DEC-155`, Round 6).
+- [x] `DAN-066` `P1` **Order the `## Next up` queue at the top of this file.** The orchestrator proposed eight rows on 2026-10-06; the owner confirms, reorders or cuts them, and from then on owns the order (`DEC-155`, Round 6).
   - where: `TASKS.md` `## Next up` · done when: the queue carries the owner's order and the PROPOSED line is gone · src: `DEC-155` · added: 2026-10-06
-- [ ] `DAN-067` `P3` **The main checkout shows `.claude/commands/compliance-check.md` as modified, though only its line endings differ** (`git diff --ignore-all-space` is empty). The new session start fast-forwards the main checkout only when it is clean, so this file blocks that step.
+  - **closed 2026-10-08:** the owner delegated the proposed order in his own words (quoted in `## Next up`); the queue carries it, `OPS-160` removed as merged (#231), `OPS-155` marked merged (#229).
+- [x] `DAN-067` `P3` **The main checkout shows `.claude/commands/compliance-check.md` as modified, though only its line endings differ** (`git diff --ignore-all-space` is empty). The new session start fast-forwards the main checkout only when it is clean, so this file blocks that step.
   - where: `C:\Users\danie\Videos\Kokonada` (the main checkout) · done when: the owner restores the file (`git checkout -- .claude/commands/compliance-check.md` there) or commits a real change to it · src: the instruction-layer plan's exploration, 2026-10-06 · added: 2026-10-06
+  - **closed 2026-10-08:** on the owner's word, the file was restored with `git checkout -- .claude/commands/compliance-check.md` after proving the working copy differed from HEAD by five carriage returns only (byte-identical after stripping CR; `git diff --ignore-all-space` empty); the main checkout is clean.
 - [ ] `DAN-068` `P2` **Ratify or reverse DEC-156 under class (c).** DEC-156 (merged in #233) records a privacy-page publication question as decided by the orchestrator on 2026-10-06 under DEC-142 and DEC-143. `DEC-155` Round 9 makes every DEC- entry on law, privacy, consent or counsel the owner's alone, and Round 12 puts every publication or change of the privacy policy in owner class (c).
   - where: `docs/design-v2/decisions/DEC-156.md` · done when: the owner's own words, ratifying or reversing it, are recorded in DEC-156 · src: the `architect`'s review of #231 (NEW-7), 2026-10-07 · added: 2026-10-07
 - [ ] `DAN-069` `P1` **Paste the new sentinel routine prompt.** The scheduled routine `trig_01NLJjg9M3GYVuDLQrEhGVPk` still tells the agent to use the `hebrew-rtl-formatter` skill and to write in the main checkout. A session cannot edit it: the server answers 403 and asks for a device proof from the bound device (Claude Desktop, Windows).
-  - where: the claude.ai routine "Sentinel — Kokonada strategic risk review" · the new prompt is in `Kokonada-private/sentinel-routine-prompt-2026-10-08.txt` (private repo) · done when: the owner pastes it from his bound device, and the next Monday or Friday 21:00 UTC run reads and writes in `.claude/worktrees/sentinel`
-  - **update 2026-10-08 (on the owner's word):** the session could not edit the bound routine (403, device proof), so it created a second routine with the new prompt, `trig_01M6LDwhFyRsr8apHXaudWBi` ("Sentinel — Kokonada strategic risk review (2026-10-08 prompt)", same schedule, disabled) and disabled the old one `trig_01NLJjg9M3GYVuDLQrEhGVPk` so the stale prompt never writes into the main checkout again. The server ignored the device binding on create, so the new routine cannot reach this computer yet. Left for the owner, one step: in the Claude desktop app on this computer, open the new routine, link it to this computer and enable it; then delete the old one. Until then no scheduled sentinel run happens · src: `DEC-155` Round 5, session 9ad6c66, 2026-10-08 · added: 2026-10-08
+  - where: the claude.ai routine "Sentinel — Kokonada strategic risk review" · the new prompt is in `Kokonada-private/sentinel-routine-prompt-2026-10-08.txt` (private repo) · done when: the owner pastes it from his bound device, and the next Monday or Friday 21:00 UTC run reads and writes in `.claude/worktrees/sentinel` · src: `DEC-155` Round 5, session 9ad6c66, 2026-10-08 · added: 2026-10-08
+  - **update 2026-10-08 (on the owner's word):** the session could not edit the bound routine (403, device proof), so it created a second routine with the new prompt, `trig_01M6LDwhFyRsr8apHXaudWBi` ("Sentinel — Kokonada strategic risk review (2026-10-08 prompt)", same schedule, disabled) and disabled the old one `trig_01NLJjg9M3GYVuDLQrEhGVPk` so the stale prompt never writes into the main checkout again. The server ignored the device binding on create, so the new routine cannot reach this computer yet. Left for the owner, one step: in the Claude desktop app on this computer, open the new routine, link it to this computer and enable it; then delete the old one. Until then no scheduled sentinel run happens
 
 ---
 
