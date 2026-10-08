@@ -54,6 +54,8 @@ Only Malede changes these.
 
 `.claude/**` · `docs/design-v2/pages/**` · `docs/plans/WAVE4_STATE.md`
 
+On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). The list above still says `.claude/**`, because `backend/tests/coord.collide.test.js` pins it and `backend/**` is under a production hold; `OPS-187` narrows the list and the test together. Until it lands, the engine HALTs his claim on those files.
+
 ## Resources
 
 Things that are not files. Claim one in a slot's `resources:` line, and it collides like a file.
@@ -83,12 +85,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:handoff-bedrack` (own)
-- title: Handoff to Bedrack: where the instruction layer stands and how to continue
-- branch: `docs/handoff-bedrack`
-- paths: `HANDOFF_2026-10-08_BEDRACK.md`
+- task: `own:owner-rows-2026-10-08` (own)
+- title: The owner's rows after the instruction layer: DAN-066 ordered, DAN-067 closed, DAN-069 status
+- branch: `docs/owner-rows`
+- paths: `TASKS.md`, `WORK_LEDGER.md`, `HANDOFF_2026-10-08_BEDRACK.md`, `docs/design-v2/decisions/DEC-156.md`
 - resources: none
-- state: in-review · PR #243
+- state: in-review · PR #244
 - started: 2026-10-08
 
 ### M04
