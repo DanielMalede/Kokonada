@@ -269,6 +269,12 @@
           },
           {
             "type": "command",
+            "if": "Bash(node *)",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "if": "PowerShell(git *)",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
             "timeout": 20
@@ -276,6 +282,12 @@
           {
             "type": "command",
             "if": "PowerShell(gh pr *)",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(node *)",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
             "timeout": 20
           }
@@ -310,6 +322,12 @@
           },
           {
             "type": "command",
+            "if": "Bash(node *)",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "if": "PowerShell(git *)",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
             "timeout": 20
@@ -317,6 +335,12 @@
           {
             "type": "command",
             "if": "PowerShell(gh pr *)",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(node *)",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
             "timeout": 20
           }

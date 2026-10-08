@@ -21,6 +21,7 @@ const { statusLine, setStatusLine } = lib('tasks.js');
 const {
   expandCoupled,
   ownerOfAuthor,
+  ownerOfCommit,
   liveClaimsOn,
   deriveFootprints,
   overlaps,
@@ -96,6 +97,7 @@ const run = (me, mineOver, footprints, extra = {}) => assess({
   mine: mine(mineOver),
   footprints,
   mainTasks: MAIN_TASKS,
+  // every branch these tests name exists on origin; whether it is LIVE is the footprints' call (N10)
   remoteBranches: new Set(['main', 'feat/b', 'feat/m', 'fix/human-branch']),
   testMentions: {},
   now: NOW,
@@ -354,7 +356,8 @@ describe('OPS-152 · collide — which claims are live', () => {
       branches: [{ ...b, name: 'feat/no-evidence', seenTime: null }, { ...b, name: 'feat/seen-long-ago', seenTime: NOW - 30 * DAY }],
     });
     expect(stats.ageOnly).toEqual(['feat/no-evidence']);
-    expect(RECENCY_NOTE).toMatch(/recency from commit dates only; a revived branch with old-dated commits and no open PR cannot be seen on a fresh clone/);
+    // M1: the residual's true scope, said once
+    expect(RECENCY_NOTE).toBe('note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked');
   });
 
   test('N3 · gh answers count only when both PR lists came back and the open list is not cut at its limit', () => {
@@ -480,14 +483,24 @@ describe('OPS-152 · collide — check: HALT classes', () => {
   });
 
   test('a row whose status line names a different LIVE branch → HALT; a dead branch or my own does not', () => {
-    expect(classes(run(malede, { declared: ['a/b/c.js'], task: 'BE-002', taskKind: 'TASKS' }, []))).toEqual(['HALT task']);
-    const dead = run(malede, { declared: ['a/b/c.js'], task: 'BE-002', taskKind: 'TASKS' }, [], { remoteBranches: new Set(['main']) });
+    const live = fp({ kind: 'unclaimed', slot: null, branch: 'fix/human-branch', actual: ['x/y/z.js'] });
+    expect(classes(run(malede, { declared: ['a/b/c.js'], task: 'BE-002', taskKind: 'TASKS' }, [live]))).toEqual(['HALT task']);
+    const dead = run(malede, { declared: ['a/b/c.js'], task: 'BE-002', taskKind: 'TASKS' }, []);
     expect(dead.verdict).toBe('CLEAR');
     const own = run(malede, { declared: ['a/b/c.js'], task: 'BE-002', taskKind: 'TASKS', branch: 'fix/human-branch' }, []);
     expect(own.verdict).toBe('CLEAR');
     // a local checkout of HIS branch name (gh pr checkout) does not make his row mine
     const his = run(malede, { declared: ['a/b/c.js'], task: 'BE-002', taskKind: 'TASKS', branch: 'fix/human-branch' }, [fp({ branch: 'fix/human-branch', declared: ['x/y/z.js'] })]);
     expect(classes(his)).toEqual(['HALT task']);
+  });
+
+  test('N10 · a status line names a LIVE branch only when that branch has a live footprint: a landed but undeleted branch does not hold the row', () => {
+    const task = { declared: ['a/b/c.js'], task: 'BE-002', taskKind: 'TASKS' };
+    // fix/human-branch still exists on origin, but its work landed: no claim, no unclaimed footprint
+    expect(run(malede, task, []).verdict).toBe('CLEAR');
+    // my own live claim on that branch, while I stand on another one, is the same task twice
+    const myOther = fp({ person: malede, slot: 'M03', branch: 'fix/human-branch', declared: ['x/y/z.js'] });
+    expect(classes(run(malede, task, [myOther]))).toEqual(['HALT task']);
   });
 
   test('dropSelf drops only MY footprint on the current branch, never his under the same name', () => {
@@ -646,11 +659,13 @@ describe('OPS-152 · collide — check --merge', () => {
 
   test('N6 · the PR meets his live claim\'s DECLARED paths and his claim came first, or tied → HALT', () => {
     const his = (t) => fp({ declared: ['AGENTS.md'], firstLedgerTime: t });
-    const first = mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp, his(NOW - 500)], now: NOW });
+    const first = mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp, his(NOW - 5000)], now: NOW });
     expect(classes(first)).toEqual(['HALT merge-order']);
-    expect(first.reasons[0].message).toMatch(/claimed first/);
-    expect(classes(mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp, his(NOW - 100)], now: NOW }))).toEqual(['HALT merge-order']);
-    const later = mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp, his(NOW - 10)], now: NOW });
+    expect(first.reasons[0].message).toMatch(/was claimed first/);
+    const tied = mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp, his(NOW - 100)], now: NOW });
+    expect(classes(tied)).toEqual(['HALT merge-order']);
+    expect(tied.reasons[0].message).toMatch(/within ten minutes of yours/);
+    const later = mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp, his(NOW + 5000)], now: NOW });
     expect(classes(later)).toEqual(['WARN needs-main']);
     expect(later.reasons[0].message).toMatch(/he will need main merged in after this lands/);
   });
@@ -667,8 +682,125 @@ describe('OPS-152 · collide — check --merge', () => {
     expect(mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [old], now: NOW }).reasons[0].message).toMatch(/10 days old/);
   });
 
+  test('a PR whose head is HIS branch is not mine to merge, whoever opened it → HALT', () => {
+    const onHisBranch = { ...pr, headRefName: 'feat/b' }; // I opened it; the branch carries his claim
+    const his = fp({ branch: 'feat/b', declared: ['docs/his.md'], actual: ['docs/his.md'] });
+    const res = mergeAdvice({ rules, me: malede, pr: onHisBranch, runs: done, footprints: [his], now: NOW });
+    expect(classes(res)).toEqual(['HALT merge']);
+    expect(res.reasons[0]).toMatchObject({ person: 'Bedrack', branch: 'feat/b', slot: 'B01' });
+    expect(res.reasons[0].message).toMatch(/PR #230's head feat\/b carries Bedrack's work/);
+    // his unclaimed work on that branch counts as much as his claim
+    const unclaimed = fp({ kind: 'unclaimed', slot: null, branch: 'feat/b', actual: ['docs/his.md'] });
+    expect(classes(mergeAdvice({ rules, me: malede, pr: onHisBranch, runs: done, footprints: [unclaimed], now: NOW }))).toEqual(['HALT merge']);
+    // my own footprint on my head is what I am merging
+    expect(mergeAdvice({ rules, me: malede, pr, runs: done, footprints: [mineFp], now: NOW }).verdict).toBe('CLEAR');
+  });
+
   test('nothing in the way → CLEAR', () => {
     expect(mergeAdvice({ rules, me: malede, pr, runs: [{ status: 'completed' }], footprints: [] }).verdict).toBe('CLEAR');
+  });
+});
+
+describe('res:prod-deploy · collide — a production freeze stops every merge to main', () => {
+  const { FREEZE_RESOURCE, freezeHolders } = lib('collide.js');
+  const { renderStatus } = lib('render.js');
+  const pr = { number: 231, author: { login: 'DanielMalede' }, headRefName: 'feat/m', files: [{ path: 'docs/m.md' }] };
+  const done = [{ status: 'completed' }];
+  const mineFp = fp({ branch: 'feat/m', person: malede, slot: 'M02', declared: ['docs/m.md'], firstLedgerTime: NOW - 100 });
+  // A claim holding the freeze: disjoint paths, so nothing but the freeze can meet the PR.
+  const hold = (over = {}) => fp({ declared: ['docs/recount.md'], resources: ['res:prod-deploy'], task: 'OPS-300', firstLedgerTime: NOW - 5000, ...over });
+  const ownHold = (over = {}) => hold({ branch: 'chore/recount', person: malede, slot: 'M03', ...over });
+  const merge = (footprints, over = {}) => mergeAdvice({ rules, me: malede, pr: { ...pr, ...over }, runs: done, footprints, now: NOW });
+
+  test('the resource the engine reads is the one the ledger lists', () => {
+    expect(FREEZE_RESOURCE).toBe('res:prod-deploy');
+    expect(rules.resources).toContain(FREEZE_RESOURCE);
+  });
+
+  test('my OWN claim on another branch holding it HALTs --merge, unlike every other collision', () => {
+    const res = merge([mineFp, ownHold()]);
+    expect(classes(res)).toEqual(['HALT freeze']);
+    expect(res.reasons[0]).toMatchObject({ person: 'Malede', login: 'DanielMalede', branch: 'chore/recount', slot: 'M03' });
+    expect(res.reasons[0].message).toBe('Malede (@DanielMalede): live claim M03 on branch chore/recount for OPS-300 holds `res:prod-deploy` — production is frozen, and a merge to main deploys: PR #231 waits until that claim lands or its branch is deleted');
+  });
+
+  test('his claim holding it HALTs --merge, naming him, the branch, the slot and the task', () => {
+    const res = merge([mineFp, hold()]);
+    expect(classes(res)).toEqual(['HALT freeze']);
+    expect(res.reasons[0]).toMatchObject({ person: 'Bedrack', login: 'DanielBedrack', branch: 'feat/b', slot: 'B01' });
+    expect(res.reasons[0].message).toMatch(/^Bedrack \(@DanielBedrack\): live claim B01 on branch feat\/b for OPS-300 holds `res:prod-deploy`/);
+  });
+
+  test('a claim whose owner maps to nobody, or written in another case, still holds it: the freeze fails closed', () => {
+    const unknown = hold({ person: null, branch: 'chore/who', slot: null, author: { name: 'x', email: 'x@y.z' }, resources: ['RES:Prod-Deploy'] });
+    const res = merge([mineFp, unknown]);
+    expect(classes(res)).toEqual(['HALT freeze']);
+    expect(res.reasons[0].message).toMatch(/^owner unknown — author x <x@y\.z>: live claim on branch chore\/who for OPS-300 holds `res:prod-deploy`/);
+  });
+
+  test('the PR\'s own branch holding it does not block itself: the freeze ends when that work lands', () => {
+    expect(merge([ownHold({ branch: 'feat/m', slot: 'M02' })]).verdict).toBe('CLEAR');
+    expect(merge([hold({ branch: 'feat/m' })], { headRefName: 'feat/m' }).reasons.map((r) => r.class)).not.toContain('freeze');
+  });
+
+  test('no freeze → --merge is unchanged', () => {
+    expect(merge([mineFp, ownHold({ resources: ['res:atlas-prod'] })]).verdict).toBe('CLEAR');
+    expect(merge([mineFp, hold({ resources: ['res:atlas-prod'] })]).verdict).toBe('CLEAR');
+    expect(merge([mineFp, fp({ kind: 'unclaimed', slot: null, actual: ['docs/other.md'] })]).verdict).toBe('CLEAR');
+  });
+
+  test('check and start keep the normal resource rules for a claim that declares it', () => {
+    // his claim holds it and mine declares it: the ordinary resource collision, not a freeze
+    expect(classes(run(malede, { declared: ['a/b/c.js'], resources: ['res:prod-deploy'] }, [hold()]))).toEqual(['HALT resource']);
+    // my own other claim holding it: my own section never collides with me, as for every resource
+    expect(run(malede, { declared: ['a/b/c.js'], resources: ['res:prod-deploy'] }, [ownHold()]).verdict).toBe('CLEAR');
+    // a check that does not declare it is not stopped by his freeze: only a merge is
+    expect(run(malede, { declared: ['a/b/c.js'] }, [hold()]).verdict).toBe('CLEAR');
+  });
+
+  test('ci is unchanged: a freeze held elsewhere, his or the author\'s own, adds nothing', () => {
+    const headText = setSlot(freeText, 'B01', {
+      task: 'own:pe', taskKind: 'own', title: 't', branch: 'feat/b', paths: ['project-explorer/src/**'], resources: [], state: 'claimed', pr: null, started: '2026-10-06',
+    });
+    const selfFp = fp({ declared: ['project-explorer/src/**'], actual: ['project-explorer/src/app.js', 'WORK_LEDGER.md'], firstLedgerTime: NOW - 100 });
+    const res = ciEvaluate({
+      rules,
+      author: bedrack,
+      branch: 'feat/b',
+      headLedgerText: headText,
+      baseLedgerText: freeText,
+      baseTasks: MAIN_TASKS,
+      headTasks: MAIN_TASKS,
+      footprints: [selfFp, ownHold(), hold({ branch: 'feat/b2', slot: 'B02' })],
+      mode: 'fail',
+      now: NOW,
+    });
+    expect(res).toEqual({ verdict: 'CLEAR', reasons: [] });
+  });
+
+  test('freezeHolders: every live claim holding it, except on the branch named', () => {
+    const fps = [mineFp, ownHold(), hold(), fp({ kind: 'unclaimed', branch: 'feat/u', slot: null, actual: ['docs/u.md'] })];
+    expect(freezeHolders(fps).map((f) => f.branch)).toEqual(['chore/recount', 'feat/b']);
+    expect(freezeHolders(fps, 'feat/b').map((f) => f.branch)).toEqual(['chore/recount']);
+    expect(freezeHolders([mineFp])).toEqual([]);
+  });
+
+  test('status puts an active freeze at the top; with none it says nothing about one', () => {
+    const view = {
+      people: [{ name: 'Malede', login: 'DanielMalede', section: 'M', claims: [], unclaimed: [] }],
+      unknown: [],
+      freeze: [
+        { person: 'Malede', login: 'DanielMalede', slot: 'M03', branch: 'chore/recount', task: 'OPS-300' },
+        { person: null, login: null, slot: null, branch: 'chore/who', task: null },
+      ],
+    };
+    const lines = renderStatus(view).split('\n');
+    expect(lines[0]).toBe('production freeze: held by Malede (@DanielMalede) on chore/recount (M03, OPS-300) — check --merge refuses every merge to main while it is held');
+    expect(lines[1]).toBe('production freeze: held by owner unknown on chore/who (no slot, no task) — check --merge refuses every merge to main while it is held');
+    expect(lines[2]).toBe('');
+    expect(lines[3]).toBe('== Malede (@DanielMalede) — section M ==');
+    expect(renderStatus({ ...view, freeze: [] })).not.toMatch(/production freeze/);
+    expect(renderStatus({ people: view.people, unknown: [] })).not.toMatch(/production freeze/);
   });
 });
 
@@ -729,10 +861,21 @@ describe('OPS-152 · collide — ci', () => {
   });
 
   test('(5) overlap with his live claim: the earlier first ledger commit wins', () => {
-    const his = fp({ person: malede, slot: 'M02', branch: 'feat/m', declared: ['project-explorer/src/app.js'], firstLedgerTime: NOW - 500 });
-    expect(ciClasses(ci({ footprints: [selfFp, his] }))).toEqual(['FAIL overlap']);
-    const later = { ...his, firstLedgerTime: NOW - 10 };
+    const his = fp({ person: malede, slot: 'M02', branch: 'feat/m', declared: ['project-explorer/src/app.js'], firstLedgerTime: NOW - 5000 });
+    const lost = ci({ footprints: [selfFp, his] });
+    expect(ciClasses(lost)).toEqual(['FAIL overlap']);
+    expect(lost.reasons[0].message).toMatch(/his claim was committed first/);
+    const later = { ...his, firstLedgerTime: NOW + 5000 };
     expect(ci({ footprints: [selfFp, later] }).verdict).toBe('CLEAR');
+  });
+
+  test('N14 · two claims first committed within ten minutes of each other are a tie: both fail', () => {
+    for (const t of [NOW - 100 - 600, NOW - 100 + 600, NOW - 100]) {
+      const his = fp({ person: malede, slot: 'M02', branch: 'feat/m', declared: ['project-explorer/src/app.js'], firstLedgerTime: t });
+      const res = ci({ footprints: [selfFp, his] });
+      expect({ t, classes: ciClasses(res) }).toEqual({ t, classes: ['FAIL overlap'] });
+      expect(res.reasons[0].message).toMatch(/within ten minutes/);
+    }
   });
 
   test('L4 · ci prints real ages', () => {
@@ -759,9 +902,14 @@ describe('OPS-152 · collide — ci', () => {
 
 describe('OPS-152 · collide — the race rule', () => {
   test('the earlier first ledger commit wins; a tie is nobody\'s win', () => {
-    expect(firstClaimWins(100, 200)).toBe('mine');
-    expect(firstClaimWins(300, 200)).toBe('theirs');
+    expect(firstClaimWins(100, 100 + 3600)).toBe('mine');
+    expect(firstClaimWins(100 + 3600, 100)).toBe('theirs');
     expect(firstClaimWins(200, 200)).toBe('tie');
+    // N14: committer dates come from two local clocks; ten minutes apart or less cannot be ordered
+    expect(firstClaimWins(1000, 1000 + 600)).toBe('tie');
+    expect(firstClaimWins(1000 + 600, 1000)).toBe('tie');
+    expect(firstClaimWins(1000, 1000 + 601)).toBe('mine');
+    expect(firstClaimWins(1000 + 601, 1000)).toBe('theirs');
     // an unknown time on EITHER side is nobody's win
     expect(firstClaimWins(null, 200)).toBe('tie');
     expect(firstClaimWins(100, null)).toBe('tie');
@@ -778,7 +926,140 @@ describe('OPS-152 · collide — a status line a real claim writes is read back 
   test('the coordinator\'s own status line on main names a live branch → the next claimant HALTs', () => {
     const line = statusLine({ name: 'Bedrack', login: 'DanielBedrack', branch: 'feat/b', since: '2026-10-06', slot: 'B01' });
     const tasks = setStatusLine(MAIN_TASKS, 'BE-001', line);
-    const res = run(malede, { declared: ['a/b/c.js'], task: 'BE-001', taskKind: 'TASKS' }, [], { mainTasks: tasks });
+    const hisClaim = fp({ branch: 'feat/b', declared: ['x/y/z.js'] }); // N10: the branch is live because his claim is
+    const res = run(malede, { declared: ['a/b/c.js'], task: 'BE-001', taskKind: 'TASKS' }, [hisClaim], { mainTasks: tasks });
     expect(classes(res)).toEqual(['HALT task']);
+  });
+});
+
+describe('OPS-155 · collide — a claim is never half-read or hidden', () => {
+  const HIS = { name: 'DanielBedrack', email: '111690772+DanielBedrack@users.noreply.github.com' };
+  const MINE = { name: 'Full Stack Developer', email: '102303436+DanielMalede@users.noreply.github.com' };
+  const main = parseLedger(freeText);
+  const claim = (branch, over = {}) => ({
+    task: 'own:x', taskKind: 'own', title: 't', branch, paths: ['AGENTS.md'], resources: [], state: 'claimed', pr: null, started: '2026-10-06', ...over,
+  });
+  const branch = (name, over = {}) => ({
+    name, headLedgerText: null, baseLedgerText: freeText, merged: false, contentMerged: false, prDone: false,
+    changed: ['WORK_LEDGER.md'], tipTime: NOW - DAY, author: HIS, ...over,
+  });
+  const derive = (b, extra = {}) => deriveFootprints({ mainLedger: main, rules, now: NOW, branches: [b], ...extra });
+
+  test('A5 · a hand-written Windows folder with a trailing backslash is a folder claim', () => {
+    const fps = derive(branch('feat/slash', { headLedgerText: setSlot(freeText, 'B04', claim('feat/slash', { paths: ['project-explorer\\src\\'] })) }));
+    expect(fps[0]).toMatchObject({ declared: ['project-explorer/src/**'], malformed: false });
+    expect(classes(run(malede, { declared: ['project-explorer/src/a.js'] }, fps))).toEqual(['HALT glob']);
+  });
+
+  test('A6 · a partly broken claim warns on its own, naming the tokens it dropped', () => {
+    const fps = derive(branch('feat/half', { headLedgerText: setSlot(freeText, 'B04', claim('feat/half', { paths: ['../escape.js', 'docs/ok.md'] })) }));
+    expect(fps[0]).toMatchObject({ declared: ['docs/ok.md'], malformed: true, dropped: ['../escape.js'] });
+    const res = run(malede, { declared: ['x/y/z.js'] }, fps);
+    expect(classes(res)).toEqual(['WARN malformed']);
+    expect(res.reasons[0]).toMatchObject({ person: 'Bedrack', branch: 'feat/half', slot: 'B04' });
+    expect(res.reasons[0].message).toMatch(/`\.\.\/escape\.js`/);
+    expect(res.reasons[0].message).toMatch(/not checked/);
+    // and it still collides on what it does name
+    expect(classes(run(malede, { declared: ['docs/ok.md'] }, fps))).toEqual(['HALT exact', 'WARN malformed']);
+  });
+
+  test('A6 · a slot that does not parse warns too; a token it cannot read is named', () => {
+    const broken = freeText.replace('### B02\n_free_\n', '### B02\n- task: `own:x` (own)\n- branch: `feat/broken`\n- paths: `../up.js`, `AGENTS.md`\n');
+    const fps = derive(branch('feat/broken', { headLedgerText: broken }));
+    expect(fps[0]).toMatchObject({ malformed: true, declared: ['AGENTS.md'], dropped: ['../up.js'] });
+    const res = run(malede, { declared: ['x/y/z.js'] }, fps);
+    expect(classes(res)).toEqual(['WARN malformed']);
+    expect(res.reasons[0].message).toMatch(/`\.\.\/up\.js`/);
+  });
+
+  describe('N8 · a branch\'s ledger is read with main\'s People table and section headings', () => {
+    const filled = setSlot(freeText, 'B02', claim('feat/hid'));
+    const hidden = (text) => {
+      const fps = derive(branch('feat/hid', { headLedgerText: text }));
+      expect(fps).toHaveLength(1);
+      expect(fps[0]).toMatchObject({ kind: 'claim', malformed: true, slot: 'B02', declared: ['AGENTS.md'], task: 'own:x' });
+      expect(fps[0].person).toBe(bedrack);
+      const res = run(malede, { declared: ['AGENTS.md'] }, fps);
+      expect(res.verdict).toBe('HALT');
+      expect(res.reasons.map((r) => r.message).join('\n')).toMatch(/does not parse/);
+      return fps[0];
+    };
+
+    test('a renamed section heading does not hide the claim under it', () => {
+      expect(filled).toMatch(/\n## Bedrack\n/);
+      const fp0 = hidden(filled.replace('\n## Bedrack\n', '\n## Bedrack (away)\n'));
+      expect(fp0.malformedWhy).toMatch(/## Bedrack/);
+    });
+
+    test('a branch that renames its own People row and heading does not hide the claim', () => {
+      const text = filled.replace('| `DanielBedrack` | Bedrack |', '| `DanielBedrack` | Bedrack D. |').replace('\n## Bedrack\n', '\n## Bedrack D.\n');
+      expect(text).not.toMatch(/\| Bedrack \|/);
+      hidden(text);
+    });
+
+    test('fewer slots than main is malformed, and the claim is salvaged', () => {
+      const fewer = filled.replace('### B05\n_free_\n\n', '');
+      expect(fewer).not.toBe(filled);
+      expect(hidden(fewer).malformedWhy).toMatch(/B05/);
+    });
+
+    test('a renamed heading with no claim under it still counts: it names no path, so it HALTs', () => {
+      const fps = derive(branch('feat/renamed', { headLedgerText: freeText.replace('\n## Bedrack\n', '\n## Bedrack (away)\n') }));
+      expect(fps).toHaveLength(1);
+      expect(fps[0]).toMatchObject({ kind: 'claim', malformed: true, declared: [] });
+      expect(fps[0].person).toBe(bedrack); // no slot names him, so the branch's committer decides
+      expect(classes(run(malede, { declared: ['x/y/z.js'] }, fps))).toEqual(['HALT malformed']);
+    });
+
+    test('M3 · a broken ledger stacked on my branch is salvaged from HIS claim — the block naming his branch — and is his', () => {
+      // feat/his is cut from my feat/mine (my claim in M03, not yet on main) and claims B02; then its
+      // section heading is renamed. Read against main, both M03 and B02 changed.
+      const mine = setSlot(freeText, 'M03', claim('feat/mine', { paths: ['docs/mine/a.md'] }));
+      const stacked = setSlot(mine, 'B02', claim('feat/his', { paths: ['docs/his/b.md'] })).replace('\n## Bedrack\n', '\n## Bedrack (away)\n');
+      const fps = derive(branch('feat/his', { headLedgerText: stacked }));
+      expect(fps).toHaveLength(1);
+      expect(fps[0]).toMatchObject({ kind: 'claim', malformed: true, slot: 'B02', declared: ['docs/his/b.md'] });
+      expect(fps[0].person).toBe(bedrack);
+      expect(classes(run(malede, { declared: ['docs/his/b.md'] }, fps))).toEqual(['HALT exact', 'WARN malformed']);
+    });
+
+    test('M3 · the branch\'s owner decides over a slot letter: his claim written into an M slot is still his', () => {
+      const misplaced = setSlot(freeText, 'M04', claim('feat/his', { paths: ['docs/his/c.md'] })).replace('\n## Bedrack\n', '\n## Bedrack (away)\n');
+      const fps = derive(branch('feat/his', { headLedgerText: misplaced, committer: HIS }));
+      expect(fps[0]).toMatchObject({ slot: 'M04', declared: ['docs/his/c.md'] });
+      expect(fps[0].person).toBe(bedrack);
+      expect(run(malede, { declared: ['docs/his/c.md'] }, fps).verdict).toBe('HALT');
+      // with no owner to be had from the commit or a PR, the slot letter still names one
+      const anon = derive(branch('feat/his', { headLedgerText: misplaced, author: { name: 'Laptop', email: 'root@laptop' } }));
+      expect(anon[0].person).toBe(malede);
+    });
+
+    test('a slot main added after the branch forked is not a missing slot', () => {
+      const grown = `${freeText}\n### B07\n_free_\n`;
+      const fps = deriveFootprints({ mainLedger: parseLedger(grown), rules: parseLedger(grown), now: NOW, branches: [branch('feat/old-base', { headLedgerText: setSlot(freeText, 'B02', claim('feat/old-base')) })] });
+      expect(fps).toHaveLength(1);
+      expect(fps[0]).toMatchObject({ kind: 'claim', slot: 'B02', malformed: false });
+    });
+
+    test('a branch that never touched its ledger is judged as before, whatever main did since', () => {
+      const grown = `${freeText}\n### B07\n_free_\n`;
+      const fps = deriveFootprints({ mainLedger: parseLedger(grown), rules: parseLedger(grown), now: NOW, branches: [branch('feat/plain', { headLedgerText: freeText, changed: ['docs/a/b.md'] })] });
+      expect(fps.map((f) => [f.kind, f.malformed || false])).toEqual([['unclaimed', false]]);
+    });
+  });
+
+  test('N12 · the owner of an unclaimed branch is its committer first, then its author; GitHub\'s web-flow committer is skipped', () => {
+    const webFlow = { name: 'GitHub', email: 'noreply@github.com' };
+    const unknown = { name: 'Laptop', email: 'root@laptop' };
+    expect(ownerOfCommit(rules.people, { committer: HIS, author: MINE })).toBe(bedrack); // he cherry-picked my commit
+    expect(ownerOfCommit(rules.people, { committer: webFlow, author: HIS })).toBe(bedrack); // a merge made in GitHub's web UI
+    expect(ownerOfCommit(rules.people, { committer: unknown, author: MINE })).toBe(malede); // an unmapped committer falls back
+    expect(ownerOfCommit(rules.people, { author: MINE })).toBe(malede);
+    // web-flow is skipped by its email, whatever name it carries
+    const people = rules.people.map((p) => (p.login === 'DanielMalede' ? { ...p, gitAuthors: [...p.gitAuthors, 'GitHub'] } : p));
+    expect(ownerOfCommit(people, { committer: webFlow, author: HIS }).login).toBe('DanielBedrack');
+    const fps = derive(branch('feat/cherry', { headLedgerText: null, baseLedgerText: null, changed: ['docs/cherry/x.md'], author: MINE, committer: HIS }));
+    expect(fps[0].person).toBe(bedrack);
+    expect(classes(run(malede, { declared: ['docs/cherry/x.md'] }, fps))).toEqual(['HALT exact']);
   });
 });
