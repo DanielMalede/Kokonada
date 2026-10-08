@@ -137,7 +137,7 @@ describe('the discovery list is the cascade (lockstep with erasure.js)', () => {
     const src = fs.readFileSync(ERASURE_SRC, 'utf8');
     const body = src.slice(src.indexOf('async function eraseUserChildData'), src.indexOf('await purgeUserKeys'));
     const parsed = [...body.matchAll(/(\w+)\.deleteMany\(\s*\{\s*userId\s*\}/g)].map((m) => m[1]);
-    expect(parsed).toHaveLength(13);
+    expect(parsed).toHaveLength(14);
     expect(CASCADE_MODELS.map((m) => m.modelName).sort()).toEqual([...parsed].sort());
   });
 });

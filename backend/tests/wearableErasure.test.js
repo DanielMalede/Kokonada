@@ -19,12 +19,17 @@ jest.mock('../app/models/BiometricLog', () => ({
   deleteMany:     jest.fn().mockResolvedValue({ deletedCount: 5 }),
   countDocuments: jest.fn(() => mockCountQuery(0)),
 }));
+jest.mock('../app/models/HealthSample', () => ({
+  deleteMany:     jest.fn().mockResolvedValue({ deletedCount: 7 }),
+  countDocuments: jest.fn(() => mockCountQuery(0)),
+}));
 jest.mock('../app/models/VitalSample', () => ({
   deleteMany:     jest.fn().mockResolvedValue({ deletedCount: 3 }),
   countDocuments: jest.fn(() => mockCountQuery(0)),
 }));
 jest.mock('../app/models/MedicalProfile', () => ({
   deleteMany: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+  updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
 }));
 jest.mock('../app/models/MorningState', () => ({
   deleteMany: jest.fn().mockResolvedValue({ deletedCount: 2 }),
@@ -52,6 +57,7 @@ jest.mock('../app/services/wearable/garmin', () => ({
 }));
 
 const BiometricLog   = require('../app/models/BiometricLog');
+const HealthSample   = require('../app/models/HealthSample');
 const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const MorningState   = require('../app/models/MorningState');
@@ -69,9 +75,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   BiometricLog.deleteMany.mockResolvedValue({ deletedCount: 5 });
   BiometricLog.countDocuments.mockImplementation(() => mockCountQuery(0));
+  HealthSample.deleteMany.mockResolvedValue({ deletedCount: 7 });
+  HealthSample.countDocuments.mockImplementation(() => mockCountQuery(0));
   VitalSample.deleteMany.mockResolvedValue({ deletedCount: 3 });
   VitalSample.countDocuments.mockImplementation(() => mockCountQuery(0));
   MedicalProfile.deleteMany.mockResolvedValue({ deletedCount: 1 });
+  MedicalProfile.updateMany.mockResolvedValue({ modifiedCount: 1 });
   MorningState.deleteMany.mockResolvedValue({ deletedCount: 2 });
   getRedis.mockReturnValue(fakeRedis);
   garmin.getValidToken.mockResolvedValue('valid-access-token');
@@ -84,6 +93,12 @@ describe('purgeWearableData', () => {
   it('deletes ONLY the biometric samples attributed to that provider (source-scoped)', async () => {
     await purgeWearableData(USER, 'garmin');
     expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
+  });
+
+  it('deletes ONLY that provider\'s authoritative health samples, and reports the count', async () => {
+    const res = await purgeWearableData(USER, 'apple_health');
+    expect(HealthSample.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'apple_health' });
+    expect(res.healthSamples).toBe(7);
   });
 
   // W4-004 / S5: VitalSample is source-attributed too, so a provider disconnect has to take
@@ -102,6 +117,33 @@ describe('purgeWearableData', () => {
     expect(MorningState.deleteMany).not.toHaveBeenCalled();
     expect(res.medicalProfiles).toBe(0);
     expect(res.morningStates).toBe(0);
+  });
+
+  it('KEEPS derived aggregates when another provider has only authoritative samples awaiting projection', async () => {
+    BiometricLog.countDocuments.mockImplementation(() => mockCountQuery(0));
+    HealthSample.countDocuments.mockImplementation(() => mockCountQuery(2));
+    VitalSample.countDocuments.mockImplementation(() => mockCountQuery(0));
+    const res = await purgeWearableData(USER, 'apple_health');
+    expect(MedicalProfile.deleteMany).not.toHaveBeenCalled();
+    expect(MorningState.deleteMany).not.toHaveBeenCalled();
+    expect(res.medicalProfiles).toBe(0);
+    expect(res.morningStates).toBe(0);
+  });
+
+  it('clears only the disconnected provider\'s owned profile projection when the profile survives', async () => {
+    HealthSample.countDocuments.mockImplementation(() => mockCountQuery(2));
+    const res = await purgeWearableData(USER, 'apple_health');
+    expect(MedicalProfile.updateMany).toHaveBeenCalledWith(
+      { userId: USER, healthProjectionProvider: 'apple_health' },
+      { $set: expect.objectContaining({
+        healthProjectionProvider: null,
+        restingHeartRate: null,
+        'sleepStages.deep': null,
+        'lastNightSleep.date': null,
+        sleepUpdatedAt: null,
+      }) },
+    );
+    expect(res.healthProfileProjections).toBe(1);
   });
 
   // W4-012 / S5: MorningState is the same category of derived aggregate as MedicalProfile — it
@@ -154,6 +196,7 @@ describe('clearWearableCredentials', () => {
   it('nulls every Garmin credential field on the user', () => {
     const user = {
       wearableProvider: 'garmin',
+      wearableConnectionVersion: 4,
       wearableToken: { blob: 'enc' },
       garminUserId: 'g-123',
       garminUserIdHmac: 'hmac-abc',
@@ -166,20 +209,28 @@ describe('clearWearableCredentials', () => {
     expect(user.garminUserId).toBeNull();
     expect(user.garminUserIdHmac).toBeNull();
     expect(user.watchToken.hash).toBeNull();
+    expect(user.wearableConnectionVersion).toBe(5);
   });
 
   it('clears a push-based provider credential without touching garmin-only fields', () => {
-    const user = { wearableProvider: 'apple_health', wearableToken: null, garminUserId: 'g-9' };
+    const user = {
+      wearableProvider: 'apple_health',
+      wearableConnectionVersion: 7,
+      wearableToken: null,
+      garminUserId: 'g-9',
+    };
     const changed = clearWearableCredentials(user, 'apple_health');
     expect(changed).toBe(true);
     expect(user.wearableProvider).toBeNull();
     expect(user.garminUserId).toBe('g-9'); // NOT a garmin erasure — untouched
+    expect(user.wearableConnectionVersion).toBe(8);
   });
 
   it('does not clear the active provider when erasing a different one', () => {
-    const user = { wearableProvider: 'apple_health', wearableToken: null };
+    const user = { wearableProvider: 'apple_health', wearableConnectionVersion: 3, wearableToken: null };
     clearWearableCredentials(user, 'garmin');
     expect(user.wearableProvider).toBe('apple_health');
+    expect(user.wearableConnectionVersion).toBe(3);
   });
 });
 
@@ -246,6 +297,7 @@ describe('purgeOrphanedAggregates — the rule purgeWearableData applies after i
   it('drops MedicalProfile and MorningState when no HR and no vital samples remain, and reports the counts', async () => {
     await expect(purgeOrphanedAggregates(USER)).resolves.toEqual({ medicalProfiles: 1, morningStates: 2 });
     expect(BiometricLog.countDocuments).toHaveBeenCalledWith({ userId: USER });
+    expect(HealthSample.countDocuments).toHaveBeenCalledWith({ userId: USER });
     expect(VitalSample.countDocuments).toHaveBeenCalledWith({ userId: USER });
     expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId: USER });
     expect(MorningState.deleteMany).toHaveBeenCalledWith({ userId: USER });

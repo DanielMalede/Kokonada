@@ -37,6 +37,9 @@ const userSchema = new mongoose.Schema({
   healthErasurePendingAt: { type: Date, default: null },
   youtubeMusicToken: { type: encryptedTokenSchema, default: null },
   wearableProvider:  { type: String, enum: ['garmin', 'apple_health', 'health_connect', 'suunto', null], default: null },
+  // Monotonic connection epoch. Any disconnect or provider switch increments it so an in-flight
+  // health write from an older connection cannot become valid again after an ABA reconnect.
+  wearableConnectionVersion: { type: Number, default: 0, min: 0 },
   wearableToken:     { type: encryptedTokenSchema, default: null },
   // Garmin Health API account id — special-category account identifier, ENCRYPTED at rest
   // (T3.3). It can no longer be queried directly; the webhook routes via garminUserIdHmac

@@ -110,9 +110,18 @@ describe('every job that carries a user id is on a queue the purge erases', () =
       'services/discovery/corpusIngest.js',
       'services/features/featureService.js',
       'services/learning/rewardDispatch.js',
+      'services/wearable/healthSampleReconciliation.js',
       'services/wearable/metricStore.js',
       'worker.js',
     ]);
+  });
+});
+
+describe('the health-sample repair job is global rather than user-owned', () => {
+  it('uses an empty repeatable payload and is not part of the per-user purge', () => {
+    const index = stripComments(read(path.join(APP, 'index.js')));
+    expect(index).toMatch(/scheduleRepeatable\(\s*QUEUES\.HEALTH_SAMPLE_RECONCILE,[\s\S]*?,\s*\{\}\s*,?\s*\)/);
+    expect(USER_JOB_QUEUES.map((queue) => queue.name)).not.toContain(QUEUES.HEALTH_SAMPLE_RECONCILE);
   });
 });
 

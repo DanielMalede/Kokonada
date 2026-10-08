@@ -36,12 +36,12 @@ commands
           ship, rescope and a resumed start commit only their own ledger lines, so they refuse
           while TASKS.md or WORK_LEDGER.md has uncommitted changes in the task worktree.
   ci      --branch <b> --author <login> [--mode warn|fail]
-          The server-side gate for a pushed branch (git only).
+          The server-side gate for a pushed branch (git plus GitHub PR state).
 
 exit codes
   0 CLEAR · 3 WARN · 1 HALT or FAIL · 2 cannot verify (no fetch, shallow clone, unknown or
   mismatched login, a ledger header that does not parse, gh missing or failing where it is
-  required: check, check --merge, start and rescope)
+  required: check, check --merge, start, rescope and ci)
 
 identity
   COORD_LOGIN if set, else \`gh api user --jq .login\`, mapped through the People table. When both

@@ -754,7 +754,7 @@ describe('W4-D76 · every schema with ANY encrypted leaf installs the refusal', 
       .filter((f) => { const s = schemaOf(f); return s && encryptedLeafPaths(s).length > 0; });
     // If this list ever shrinks, a model stopped encrypting — that is a finding, not a fix.
     expect(withLeaves.sort()).toEqual([
-      'BiometricLog.js', 'MedicalProfile.js', 'MorningState.js',
+      'BiometricLog.js', 'HealthSample.js', 'MedicalProfile.js', 'MorningState.js',
       'PlaylistSession.js', 'User.js', 'VitalSample.js',
     ]);
   });

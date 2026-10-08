@@ -24,6 +24,19 @@ const medicalProfileSchema = new mongoose.Schema({
     unique: true,
   },
 
+  // Which active wearable produced the supported derived profile fields below. Existing
+  // profiles deliberately stay null: provenance cannot be reconstructed safely after the fact.
+  healthProjectionProvider: {
+    type: String,
+    // Only the authoritative Apple projection owns this field today. Existing Garmin/Health
+    // Connect/Suunto aggregates are deliberately not retroactively attributed.
+    enum: ['apple_health', null],
+    default: null,
+  },
+  // Connection epoch that owns the Apple-derived fields. It lets a cleanup for an old,
+  // disconnected watch avoid clearing a newer reconnect's projection.
+  healthProjectionConnectionVersion: { type: Number, default: null, min: 0 },
+
   // Special-category health metrics — encrypted at rest (transparent get/set). (audit F3)
   restingHeartRate: encryptedNumber({ default: null }), // bpm, established from biometric history
   maxHeartRate:     encryptedNumber({ default: null }), // bpm, measured or user-provided
