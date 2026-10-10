@@ -35,6 +35,90 @@ const AUTHORS = {
   bedrack: ['DanielBedrack', '111690772+DanielBedrack@users.noreply.github.com'],
 };
 
+describe('OPS-187 · owner exceptions on real git', () => {
+  let W;
+  const run = (actor, args, cwd) => coord(actor, args, {
+    cwd: cwd || W.clones[actor], extraEnv: { FAKE_GH_STATE: W.ghState },
+  });
+  const worktree = (branch) => path.join(W.clones.bedrack, `.worktree-${branch.replace(/\//g, '-')}`);
+  const prOf = (branch) => JSON.parse(fs.readFileSync(W.ghState, 'utf8')).prs.find((p) => p.headRefName === branch);
+  const commitPush = (dir, files, message) => {
+    git(dir, ['add', '--', ...files]);
+    git(dir, ['commit', '-m', message]);
+    git(dir, ['push', 'origin', 'HEAD']);
+  };
+
+  beforeAll(() => {
+    W = seedWorld(fs.mkdtempSync(path.join(os.tmpdir(), 'coord owner grants ')));
+    const seed = W.clones.seed;
+    write(seed, '.claude/agents/security-auditor.md', 'protected source\n');
+    write(seed, 'TASKS.md', `${TASKS}\n## Operations\n\n- [ ] \`OPS-178\` \`P2\` Delegated fixture task.\n  - where: \`.claude/agents/merge-guard.md\` · done when: fixture complete\n`);
+    commitPush(seed, ['.claude/agents/security-auditor.md', 'TASKS.md'], 'test: owner seeds protected file and open task');
+  });
+
+  afterAll(() => {
+    if (W) fs.rmSync(path.dirname(W.origin), { recursive: true, force: true });
+  });
+
+  test('exact grant survives start, CI and merge check; a real rename cannot hide its protected source', () => {
+    const branch = 'codex/owner-grant';
+    const allowed = '.claude/commands/ship.md';
+    const target = '.claude/agents/merge-guard.md';
+    const source = '.claude/agents/security-auditor.md';
+    const paths = `${allowed},${target}`;
+    const denied = run('bedrack', ['check', '--task', 'own:unrelated', '--paths', paths]);
+    expect(denied.code).toBe(1);
+    expect(denied.out).toMatch(/owner-only/);
+    const start = run('bedrack', ['start', '--task', 'own:resilience-auditor-max-2', '--title', 'Delegated fixture', '--paths', paths, '--branch', branch]);
+    expect({ code: start.code, out: start.out }).toMatchObject({ code: 0 });
+    const dir = worktree(branch);
+    write(dir, allowed, 'authorized work\n');
+    commitPush(dir, [allowed], 'test: change an authorized file');
+    const n = String(prOf(branch).number);
+    expect(run('bedrack', ['ci', '--branch', branch, '--author', 'DanielBedrack'], dir).code).toBe(0);
+    expect(run('bedrack', ['check', '--merge', n], dir).code).toBe(0);
+    const widened = run('bedrack', ['rescope', '--paths', `${paths},${source}`], dir);
+    expect(widened.code).toBe(1);
+    expect(widened.out).toMatch(/owner-only/);
+    expect(git(dir, ['status', '--porcelain'])).toBe('');
+    fs.mkdirSync(path.dirname(path.join(dir, target)), { recursive: true });
+    git(dir, ['mv', source, target]);
+    // git mv already staged the source's deletion; the old path no longer exists to add.
+    commitPush(dir, [target], 'test: rename a protected source into an authorized destination');
+    const ci = run('bedrack', ['ci', '--branch', branch, '--author', 'DanielBedrack'], dir);
+    expect(ci.code).toBe(1);
+    expect(ci.out).toMatch(/owner-only/);
+    expect(ci.out).toContain(source);
+    const merge = run('bedrack', ['check', '--merge', n], dir);
+    expect(merge.code).toBe(1);
+    expect(merge.out).toMatch(/owner-only/);
+    expect(merge.out).toContain(source);
+    git(W.origin, ['branch', '-D', branch]);
+  });
+
+  test('closing a TASKS row on current main revokes an older branch grant in CI and merge check', () => {
+    const branch = 'codex/open-row-grant';
+    const file = '.claude/agents/merge-guard.md';
+    const start = run('bedrack', ['start', '--task', 'OPS-178', '--title', 'Delegated open row', '--paths', file, '--branch', branch]);
+    expect({ code: start.code, out: start.out }).toMatchObject({ code: 0 });
+    const dir = worktree(branch);
+    write(dir, file, 'authorized while task is open\n');
+    commitPush(dir, [file], 'test: authorized task work');
+    const n = String(prOf(branch).number);
+    expect(run('bedrack', ['ci', '--branch', branch, '--author', 'DanielBedrack'], dir).code).toBe(0);
+    expect(run('bedrack', ['check', '--merge', n], dir).code).toBe(0);
+    const seed = W.clones.seed;
+    write(seed, 'TASKS.md', fs.readFileSync(path.join(seed, 'TASKS.md'), 'utf8').replace('- [ ] `OPS-178`', '- [x] `OPS-178`'));
+    commitPush(seed, ['TASKS.md'], 'test: owner closes delegated row on current main');
+    for (const args of [['ci', '--branch', branch, '--author', 'DanielBedrack'], ['check', '--merge', n]]) {
+      const res = run('bedrack', args, dir);
+      expect(res.code).toBe(1);
+      expect(res.out).toMatch(/owner-only/);
+      expect(res.out).toContain(file);
+    }
+  });
+});
+
 const TASKS = `# TASKS — e2e
 
 **Next free IDs:** \`BE-003\`

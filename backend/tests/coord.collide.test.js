@@ -106,6 +106,147 @@ const run = (me, mineOver, footprints, extra = {}) => assess({
 
 const classes = (res) => res.reasons.map((r) => `${r.level} ${r.class}`).sort();
 
+describe('OPS-187 · owner grants are exact task/path permissions, not blanket access', () => {
+  // Literal owner-approved pairs; never derive expected permissions from the implementation.
+  const pairs = [
+    ['OPS-178', 'TASKS', '.claude/agents/merge-guard.md'],
+    ['OPS-178', 'TASKS', '.claude/commands/review-pr.md'],
+    ['OPS-182', 'TASKS', '.claude/agents/merge-guard.md'],
+    ['OPS-183', 'TASKS', '.claude/commands/merge.md'],
+    ['OPS-184', 'TASKS', '.claude/commands/review-pr.md'],
+    ['OPS-185', 'TASKS', '.claude/agents/merge-guard.md'],
+    ['OPS-186', 'TASKS', '.claude/commands/merge.md'],
+    ['own:resilience-auditor-max-2', 'own', '.claude/agents/resilience-auditor.md'],
+    ['own:resilience-auditor-max-2', 'own', '.claude/agents/merge-guard.md'],
+    ['own:resilience-auditor-max-2', 'own', '.claude/commands/ship.md'],
+    ['own:resilience-auditor-max-2', 'own', '.claude/commands/review-pr.md'],
+  ];
+  const openTasks = MAIN_TASKS + ['OPS-178', 'OPS-182', 'OPS-183', 'OPS-184', 'OPS-185', 'OPS-186']
+    .map((id) => `\n- [ ] \`${id}\` \`P2\` Owner-delegated task.\n`).join('');
+  const branch = 'codex/delegated';
+  const claimFor = (task, taskKind, paths) => ({
+    task, taskKind, title: 'delegated task', branch, paths, resources: [],
+    state: 'claimed', pr: null, started: '2026-10-10',
+  });
+  const footprintFor = (task, taskKind, declared, actual) => fp({
+    branch, task, taskKind, declared, actual, firstLedgerTime: NOW - 100,
+  });
+  const evaluate = (gate, task, taskKind, declared, actual = declared, extra = {}) => {
+    const self = footprintFor(task, taskKind, declared, actual);
+    if (gate === 'check') return run(extra.me || bedrack, { task, taskKind, declared }, extra.footprints || [], {
+      mainTasks: openTasks, ...extra,
+    });
+    if (gate === 'ci') return ciEvaluate({
+      rules, author: extra.me || bedrack, branch,
+      headLedgerText: setSlot(freeText, 'B01', claimFor(task, taskKind, declared)),
+      baseLedgerText: freeText, baseTasks: openTasks, headTasks: openTasks, mainTasks: openTasks,
+      footprints: [self], mode: 'fail', now: NOW, ...extra,
+    });
+    return mergeAdvice({
+      rules, me: extra.me || bedrack,
+      pr: { number: 246, author: { login: (extra.me || bedrack).login }, headRefName: branch, files: actual.map((p) => ({ path: p })) },
+      runs: [{ status: 'completed' }], footprints: [self], mainTasks: openTasks, now: NOW, ...extra,
+    });
+  };
+
+  describe.each(['check', 'ci', 'merge'])('%s enforces the same grant', (gate) => {
+    test.each(pairs)('%s (%s) may change only %s', (task, kind, file) => {
+      expect(evaluate(gate, task, kind, [file])).toEqual({ verdict: 'CLEAR', reasons: [] });
+    });
+    test.each([
+      [null, null, '.claude/agents/merge-guard.md'],
+      ['own:unrelated', 'own', '.claude/agents/merge-guard.md'],
+      ['OPS-187', 'TASKS', '.claude/agents/merge-guard.md'],
+      ['OPS-184', 'TASKS', '.claude/commands/merge.md'],
+      ['OPS-178', 'own', '.claude/agents/merge-guard.md'],
+      ['own:resilience-auditor-max-2', 'TASKS', '.claude/commands/ship.md'],
+      ['own:resilience-auditor-max-2', 'own', '.claude/agents/security-auditor.md'],
+      ['own:resilience-auditor-max-2', 'own', '.claude/settings.json'],
+      ['own:resilience-auditor-max-2', 'own', '.claude/agents/**'],
+      ['own:resilience-auditor-max-2', 'own', '.claude/agents/merge-guard.md*'],
+      ['own:resilience-auditor-max-2', 'own', 'docs/design-v2/pages/private.md'],
+      ['own:resilience-auditor-max-2', 'own', 'docs/plans/WAVE4_STATE.md'],
+    ])('%s (%s) cannot claim %s', (task, kind, file) => {
+      const result = evaluate(gate, task, kind, [file]);
+      expect(result.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ class: 'owner-only', files: [file] })]));
+    });
+    test('mixed allowed/denied paths retain the denial', () => {
+      const result = evaluate(gate, 'OPS-178', 'TASKS', ['.claude/agents/merge-guard.md', '.claude/agents/x.md']);
+      expect(result.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ class: 'owner-only', files: ['.claude/agents/x.md'] })]));
+    });
+    test('an open task closing on current main revokes its permission', () => {
+      const result = evaluate(gate, 'OPS-178', 'TASKS', ['.claude/agents/merge-guard.md'], undefined, {
+        mainTasks: openTasks.replace('- [ ] `OPS-178`', '- [x] `OPS-178`'),
+      });
+      expect(result.reasons.map((r) => r.class)).toContain('owner-only');
+    });
+    test('an unknown partner cannot borrow Bedrack\'s grant', () => {
+      const result = evaluate(gate, 'own:resilience-auditor-max-2', 'own', ['.claude/commands/ship.md'], undefined, {
+        me: { ...bedrack, login: 'SomeoneElse' },
+      });
+      expect(result.reasons.map((r) => r.class)).toContain('owner-only');
+    });
+    test('case-insensitive paths use the same permission as the filesystem', () => {
+      expect(evaluate(gate, 'own:resilience-auditor-max-2', 'own', ['.CLAUDE/Commands/SHIP.md']).verdict).toBe('CLEAR');
+    });
+  });
+
+  test.each(['ci', 'merge'])('%s rejects a broad declaration even when only an allowed file changed', (gate) => {
+    const result = evaluate(gate, 'own:resilience-auditor-max-2', 'own', ['.claude/agents/**'], ['.claude/agents/merge-guard.md']);
+    expect(result.reasons.map((r) => r.class)).toContain('owner-only');
+  });
+  test.each(['ci', 'merge'])('%s rejects unauthorized actual paths, including the source of a rename', (gate) => {
+    const result = evaluate(gate, 'OPS-178', 'TASKS', ['.claude/agents/merge-guard.md'], ['.claude/agents/merge-guard.md', '.claude/agents/security-auditor.md']);
+    expect(result.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ class: 'owner-only', files: ['.claude/agents/security-auditor.md'] })]));
+  });
+  describe.each(['ci', 'merge'])('%s preserves actual Git filename semantics', (gate) => {
+    test.each(['logo@1,5x.png', 'logo`variant.png', 'logo.png ', 'logo\nvariant.png'])('an unprotected %s is not an owner-only file', (name) => {
+      const result = evaluate(gate, 'own:assets', 'own', ['mobile/KokonadaHealth/assets/bootsplash/**'], [`mobile/KokonadaHealth/assets/bootsplash/${name}`]);
+      // Other existing gates (e.g. drift) are independent of owner-only classification.
+      expect(result.reasons.map((r) => r.class)).not.toContain('owner-only');
+    });
+    test.each(['ship.md ', 'ship.md\nsuffix', 'ship,md', 'ship`md'])('a protected %s is not the literal authorized ship.md', (name) => {
+      const file = `.claude/commands/${name}`;
+      const result = evaluate(gate, 'own:resilience-auditor-max-2', 'own', ['.claude/commands/ship.md'], [file]);
+      expect(result.reasons).toEqual(expect.arrayContaining([expect.objectContaining({ class: 'owner-only', files: [file] })]));
+    });
+  });
+  test.each(['ci', 'merge'])('%s cannot use a missing, malformed, duplicate or foreign claim', (gate) => {
+    const self = footprintFor('own:resilience-auditor-max-2', 'own', ['.claude/commands/ship.md'], ['.claude/commands/ship.md']);
+    for (const footprints of [[], [{ ...self, malformed: true }], [self, { ...self, slot: 'B02' }], [{ ...self, person: malede }]]) {
+      const result = evaluate(gate, self.task, self.taskKind, self.declared, self.actual, { footprints });
+      // With no footprint CI already fails the missing-claim gate; it has no diff to inspect.
+      expect(result.verdict).toBe(gate === 'ci' ? 'FAIL' : 'HALT');
+      if (footprints.length) expect(result.reasons.map((r) => r.class)).toContain('owner-only');
+    }
+  });
+  test('CI warn mode is advisory, but check --merge still HALTs a denied path', () => {
+    expect(evaluate('ci', 'own:unrelated', 'own', ['.claude/commands/ship.md'], undefined, { mode: 'warn' }).verdict).toBe('WARN');
+    expect(evaluate('merge', 'own:unrelated', 'own', ['.claude/commands/ship.md']).verdict).toBe('HALT');
+  });
+  test('a delegated instruction PR still waits for res:prod-deploy', () => {
+    const self = footprintFor('own:resilience-auditor-max-2', 'own', ['.claude/commands/ship.md'], ['.claude/commands/ship.md']);
+    const hold = fp({ branch: 'owner/recount', person: malede, resources: ['res:prod-deploy'] });
+    expect(evaluate('merge', self.task, self.taskKind, self.declared, self.actual, { footprints: [self, hold] }).reasons.map((r) => r.class)).toContain('freeze');
+  });
+  test('a branch\'s ledger cannot grant itself a protected path or change the header', () => {
+    const badHeader = setSlot(freeText.replace('`.claude/**` · ', ''), 'B01', claimFor('own:unrelated', 'own', ['.claude/commands/ship.md']));
+    const result = evaluate('ci', 'own:unrelated', 'own', ['.claude/commands/ship.md'], undefined, { headLedgerText: badHeader });
+    expect(result.reasons.map((r) => r.class)).toEqual(expect.arrayContaining(['ledger', 'owner-only']));
+  });
+  test('derived valid claims keep taskKind, so a mislabeled task cannot receive a grant', () => {
+    const main = parseLedger(freeText);
+    const footprints = deriveFootprints({ mainLedger: main, rules, now: NOW, branches: [{
+      name: branch, headLedgerText: setSlot(freeText, 'B01', claimFor('OPS-178', 'own', ['.claude/agents/merge-guard.md'])),
+      baseLedgerText: freeText, changed: ['.claude/agents/merge-guard.md'], tipTime: NOW - 100,
+      firstLedgerTime: NOW - 100, author: { name: 'DanielBedrack', email: '111690772+DanielBedrack@users.noreply.github.com' },
+    }] });
+    expect(footprints).toHaveLength(1);
+    expect(footprints[0]).toMatchObject({ task: 'OPS-178', taskKind: 'own' });
+    expect(evaluate('ci', 'OPS-178', 'own', ['.claude/agents/merge-guard.md'], undefined, { footprints }).reasons.map((r) => r.class)).toContain('owner-only');
+  });
+});
+
 describe('OPS-152 · collide — coupled expansion', () => {
   test('a workflow file claims its whole exclusive row', () => {
     const { patterns, groups } = expandCoupled(['.github/workflows/ci.yml'], rules.exclusive);

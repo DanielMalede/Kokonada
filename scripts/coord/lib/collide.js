@@ -13,6 +13,7 @@ const { normalizePath, overlapClass, covers } = require('./paths');
 const { personBySection, personByLogin, LEDGER_PATH, FREE, ledgerGuard } = require('./ledger');
 const { TASKS_PATH, findOpenRow, branchesInStatus, addedIds, idNumber } = require('./tasks');
 const { shortTicks } = require('./render');
+const { ownerOnlyHits } = require('./ownerGrants');
 
 const DAY = 86400;
 const RECENT_DAYS = 14;
@@ -356,6 +357,7 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
           slot: slot.id,
           person: personBySection(rules, slot.section),
           task: slot.claim.task,
+          taskKind: slot.claim.taskKind,
           title: slot.claim.title,
           state: slot.claim.state,
           pr: slot.claim.pr,
@@ -538,7 +540,7 @@ function assess({ rules, me, mine, footprints, mainTasks, testMentions, now }) {
   const live = new Set((footprints || []).map((f) => f.branch));
 
   if (!me.isOwner) {
-    const hits = declared.filter((p) => (rules.ownerOnly || []).some((o) => overlapClass(p, o)));
+    const hits = ownerOnlyHits({ rules, person: me, claim: mine, paths: declared, mainTasks });
     if (hits.length) reasons.push(reason('HALT', 'owner-only', null, hits, `${ticks(hits)} ${hits.length > 1 ? 'are' : 'is'} owner-only: only the owner changes ${ticks(rules.ownerOnly)}`));
   }
 
@@ -640,7 +642,7 @@ function freezeHolders(footprints, exceptBranch = null) {
 }
 
 // check --merge N
-function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
+function mergeAdvice({ rules, me, pr, runs, footprints, mainTasks, now }) {
   const reasons = [];
   // Unlike every other collision, my own section is no exception here: a freeze is about
   // production, not about whose files meet.
@@ -655,7 +657,13 @@ function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
   }
   const files = actualPaths((pr.files || []).map((f) => f.path));
   const prFp = { declared: files, actual: [], resources: [], task: null };
-  const mine = (footprints || []).find((f) => f.branch === pr.headRefName && f.kind === 'claim' && f.person && f.person.section === me.section);
+  const headClaims = (footprints || []).filter((f) => f.branch === pr.headRefName && f.kind === 'claim');
+  const mine = headClaims.find((f) => f.person && f.person.section === me.section);
+  const grantClaim = headClaims.length === 1 && mine && !mine.malformed ? mine : null;
+  const ownerHits = ownerOnlyHits({ rules, person: me, claim: grantClaim,
+    paths: uniq(files.concat(headClaims.flatMap((f) => f.declared || []))), mainTasks });
+  if (ownerHits.length) reasons.push(reason('HALT', 'owner-only', null, ownerHits,
+    `${ticks(ownerHits)}: no exact owner grant for this task and path — the PR cannot merge`));
   const myFirst = mine ? val(mine.firstLedgerTime) : null;
   for (const fp of footprints || []) {
     if (fp.branch === pr.headRefName) {
@@ -701,7 +709,7 @@ function firstClaimWins(mine, theirs) {
 }
 
 // ci --branch b --author login: the server-side gate on a pushed task branch.
-function ciEvaluate({ rules, author, branch, headLedgerText, baseLedgerText, baseTasks, headTasks, footprints, mode, now }) {
+function ciEvaluate({ rules, author, branch, headLedgerText, baseLedgerText, baseTasks, headTasks, mainTasks, footprints, mode, now }) {
   const reasons = [];
   const fail = (cls, files, message) => reasons.push({ level: 'FAIL', class: cls, files, message, branch });
 
@@ -735,7 +743,10 @@ function ciEvaluate({ rules, author, branch, headLedgerText, baseLedgerText, bas
   }
 
   if (!author.isOwner) {
-    const hits = actual.filter((f) => (rules.ownerOnly || []).some((o) => overlapClass(f, o)));
+    const branchClaims = own.filter((f) => f.kind === 'claim');
+    const grantClaim = branchClaims.length === 1 && claims.length === 1 && !claims[0].malformed ? claims[0] : null;
+    const hits = ownerOnlyHits({ rules, person: author, claim: grantClaim,
+      paths: uniq(declared.concat(actual)), mainTasks });
     if (hits.length) fail('owner-only', hits, `${ticks(hits)}: owner-only paths change only on the owner's branches`);
   }
 

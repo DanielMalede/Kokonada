@@ -352,7 +352,8 @@ function cmdCheck(cwd, flags) {
       stats = g.stats;
       others = footprints.filter((f) => !(f.person && f.person.section === ctx.me.section));
     }
-    reasons = reasons.concat(C.mergeAdvice({ rules: ctx.rules, me: ctx.me, pr: { ...pr, number: Number(flags.merge) }, runs, footprints, now: ctx.now }).reasons);
+    reasons = reasons.concat(C.mergeAdvice({ rules: ctx.rules, me: ctx.me, pr: { ...pr, number: Number(flags.merge) }, runs, footprints,
+      mainTasks: git.showFile(ctx.root, MAIN, T.TASKS_PATH) || '', now: ctx.now }).reasons);
   }
 
   // Until the ledger has landed on main, the rules came from this checkout: a CLEAR is not trusted.
@@ -846,6 +847,7 @@ function cmdCi(cwd, flags) {
     baseLedgerText: base ? git.showFile(ctx.root, base, L.LEDGER_PATH) : null,
     baseTasks: (base && git.showFile(ctx.root, base, T.TASKS_PATH)) || '',
     headTasks: git.showFile(ctx.root, ref, T.TASKS_PATH) || '',
+    mainTasks: git.showFile(ctx.root, MAIN, T.TASKS_PATH) || '',
     footprints,
     mode,
     now: ctx.now,
