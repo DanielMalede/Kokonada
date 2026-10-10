@@ -135,7 +135,13 @@ _free_
 _free_
 
 ### B03
-_free_
+- task: `OPS-187` (TASKS)
+- title: Task-scoped owner path exceptions
+- branch: `codex/ops-187-owner-exceptions`
+- paths: `scripts/coord/coord.js`, `scripts/coord/lib/collide.js`, `scripts/coord/lib/ownerGrants.js`, `scripts/coord/lib/ledger.js`, `scripts/coord/lib/paths.js`, `scripts/coord/lib/tasks.js`, `backend/tests/coord.collide.test.js`, `backend/tests/coord.ledger.test.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.mergeSafety.test.js`, `backend/tests/coord.paths.test.js`, `backend/tests/coord.tasks.test.js`, `TASKS.md`, `WORK_LEDGER.md`
+- resources: none
+- state: claimed
+- started: 2026-10-10
 
 ### B04
 _free_
