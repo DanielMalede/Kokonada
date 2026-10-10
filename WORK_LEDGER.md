@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:owner-rows-2026-10-08` (own)
-- title: The owner's rows after the instruction layer: DAN-066 ordered, DAN-067 closed, DAN-069 status
-- branch: `docs/owner-rows`
-- paths: `TASKS.md`, `WORK_LEDGER.md`, `HANDOFF_2026-10-08_BEDRACK.md`, `docs/design-v2/decisions/DEC-156.md`
+- task: `own:j2-hold-lifted` (own)
+- title: The owner lifts the backend/** production hold; DAN-050 re-sequenced after D moved
+- branch: `docs/j2-hold-lifted`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #244
-- started: 2026-10-08
+- state: claimed
+- started: 2026-10-10
 
 ### M04
 _free_
