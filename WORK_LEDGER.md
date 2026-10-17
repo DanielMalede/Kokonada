@@ -94,7 +94,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-10
 
 ### M04
-_free_
+- task: `OPS-067` (TASKS)
+- title: Stage 0 Q3: opt-in stateful fakes, a both-faces harness, the spyOn guard
+- branch: `test/s0-q-infra`
+- paths: `mobile/KokonadaHealth/src/testing/**`, `mobile/KokonadaHealth/src/__contracts__/**`, `mobile/KokonadaHealth/scripts/tsc/**`, `docs/design-v2/baselines/test-counts.json`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-10-07
 
 ### M05
 _free_
