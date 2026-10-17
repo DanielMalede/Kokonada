@@ -4,6 +4,9 @@ const QUEUES = Object.freeze({
   FEATURE_HYDRATION: 'feature-hydration',
   EMBEDDING_BUILD: 'embedding-build',
   STATE_VECTOR_RECOMPUTE: 'state-vector-recompute',
+  // Global, identity-free repair pass for authoritative health rows whose projections were not
+  // completed before a crash or transient dependency failure.
+  HEALTH_SAMPLE_RECONCILE: 'health-sample-reconcile',
   // Precompiles a live-biometric playlist buffer on a confirmed HR band transition,
   // so flipping to Live mode plays instantly (Part 3 shadow-worker buffer).
   BIOMETRIC_BUFFER: 'biometric-buffer',

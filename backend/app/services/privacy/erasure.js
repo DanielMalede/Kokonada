@@ -7,6 +7,7 @@
 // retryable account, never an orphaned un-loginable one.
 
 const BiometricLog = require('../../models/BiometricLog');
+const HealthSample = require('../../models/HealthSample');
 const VitalSample = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const MorningState = require('../../models/MorningState');
@@ -62,6 +63,8 @@ async function eraseUserChildData(userId) {
   }
   await Promise.all([
     BiometricLog.deleteMany({ userId }),
+    // Authoritative Apple Health / Health Connect samples and deletion tombstones.
+    HealthSample.deleteMany({ userId }),
     // Per-metric physiological samples (W4-004, S5) — special-category, registered in the
     // same task that created the collection.
     VitalSample.deleteMany({ userId }),

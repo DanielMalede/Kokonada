@@ -54,6 +54,8 @@ Only Malede changes these.
 
 `.claude/**` · `docs/design-v2/pages/**` · `docs/plans/WAVE4_STATE.md`
 
+On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). The list above still says `.claude/**`, because `backend/tests/coord.collide.test.js` pins it and `backend/**` is under a production hold; `OPS-187` narrows the list and the test together. Until it lands, the engine HALTs his claim on those files.
+
 ## Resources
 
 Things that are not files. Claim one in a slot's `resources:` line, and it collides like a file.
@@ -83,7 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-_free_
+- task: `own:j2-hold-lifted` (own)
+- title: The owner lifts the backend/** production hold; DAN-050 re-sequenced after D moved
+- branch: `docs/j2-hold-lifted`
+- paths: `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-10-10
 
 ### M04
 _free_
@@ -115,7 +123,13 @@ _free_
 ## Bedrack
 
 ### B01
-_free_
+- task: `own:coord-ci-pr-metadata` (own)
+- title: Use GitHub PR state in coordination CI
+- branch: `codex/coord-ci-pr-metadata`
+- paths: `scripts/coord/coord.js`, `scripts/coord/lib/gh.js`, `scripts/coord/lib/render.js`, `scripts/coord/lib/collide.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.collide.test.js`, `.github/workflows/coordination.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #239
+- started: 2026-10-08
 
 ### B02
 _free_

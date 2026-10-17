@@ -233,8 +233,8 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
 // and this workflow runs it on every pull request to main. What is pinned, and why:
 //   · only `pull_request` to main, on opened, reopened, synchronize and ready_for_review: the job
 //     skips drafts, so a draft marked ready is checked at once, not on its next push;
-//   · `contents: read` at the top and no job-level block: the check is git only, so it holds no
-//     `pull-requests` scope and runs no action that calls the PR API;
+//   · `contents: read` and `pull-requests: read` at the top: the coordinator reads PR state so a
+//     branch whose exact tip was merged or closed is not mistaken for live work;
 //   · the engine is origin/main's copy, extracted outside the checkout, so a PR that edits
 //     scripts/coord cannot weaken the check it is judged by;
 //   · the branch name and the PR author reach the script only through `env:`. A branch name can
@@ -379,14 +379,23 @@ describe('the coordination check (coordination.yml, OPS-153)', () => {
     });
   });
 
-  it('holds contents: read at the top and nothing else; no job grants itself more or calls the PR API', () => {
-    expect(coordinationWorkflow.permissions).toEqual({ contents: 'read' });
+  it('holds only contents: read and pull-requests: read; no job grants itself more', () => {
+    expect(coordinationWorkflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
     expect(coordinationWorkflow.jobs.map((j) => j.id)).toEqual(['coordination']);
     for (const job of coordinationWorkflow.jobs) {
       expect(job.permissions).toBeNull();
-      expect(grantedLevel(coordinationWorkflow.permissions, 'pull-requests')).toBe('none');
+      expect(grantedLevel(coordinationWorkflow.permissions, 'pull-requests')).toBe('read');
       expect(job.uses.filter((u) => PR_API_ACTIONS.some((a) => a.match.test(u)))).toEqual([]);
     }
+  });
+
+  it('passes the workflow token only to the coordinator step', () => {
+    expect(checkStep.env).toEqual({
+      HEAD_REF: '${{ github.head_ref }}',
+      PR_AUTHOR: '${{ github.event.pull_request.user.login }}',
+      GH_TOKEN: '${{ github.token }}',
+    });
+    expect(coordinationSteps.filter((step) => step !== checkStep).every((step) => !step.env?.GH_TOKEN)).toBe(true);
   });
 
   it('skips drafts and pull requests from forks', () => {
@@ -417,16 +426,18 @@ describe('the coordination check (coordination.yml, OPS-153)', () => {
       .toEqual([ENGINE_FROM_MAIN, ENGINE_RUN]);
   });
 
-  it('passes the branch name and the PR author only through env, never as an expression inside a script', () => {
+  it('passes the branch name, PR author and token only through env, never as expressions inside a script', () => {
     expect(checkStep.env).toEqual({
       HEAD_REF: '${{ github.head_ref }}',
       PR_AUTHOR: '${{ github.event.pull_request.user.login }}',
+      GH_TOKEN: '${{ github.token }}',
     });
     for (const step of coordinationSteps.filter((s) => typeof s.run === 'string')) expect(step.run).not.toMatch(/\$\{\{/);
     // Comment lines inside a `run: |` block are part of the script, and are covered just above.
     expect(coordination.lines.filter((l) => l.includes('${{') && !/^\s*#/.test(l)).map((l) => l.trim())).toEqual([
       'HEAD_REF: ${{ github.head_ref }}',
       'PR_AUTHOR: ${{ github.event.pull_request.user.login }}',
+      'GH_TOKEN: ${{ github.token }}',
     ]);
   });
 
@@ -737,6 +748,12 @@ describe('coordination.yml with the real engine, on a checkout shaped like the r
   beforeAll(() => {
     box = openSandbox('coordination engine');
     const { seed } = box;
+    fs.writeFileSync(path.join(box.dir, 'fake gh.js'), [
+      "'use strict';",
+      "if (process.argv[2] === 'pr' && process.argv[3] === 'list') { process.stdout.write('[]'); process.exit(0); }",
+      "process.stderr.write('unsupported fake gh call'); process.exit(1);",
+      '',
+    ].join('\n'));
     const ledger = fs.readFileSync(path.join(REPO_ROOT, 'WORK_LEDGER.md'), 'utf8');
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'coord'), path.join(seed, 'scripts', 'coord'), { recursive: true });
     box.write(seed, 'WORK_LEDGER.md', ledger);
@@ -771,7 +788,11 @@ describe('coordination.yml with the real engine, on a checkout shaped like the r
     // As on the runner, the checkout's fetch wrote a reflog for every remote branch just now.
     expect(fs.existsSync(path.join(ws, '.git', 'logs', 'refs', 'remotes', 'origin', 'feat', 'old'))).toBe(true);
     const r = box.prepare(box.runner(ws));
-    const res = box.runStep(r, checkStep.run, { HEAD_REF: 'feat/claimed', PR_AUTHOR: 'DanielMalede' });
+    const res = box.runStep(r, checkStep.run, {
+      HEAD_REF: 'feat/claimed',
+      PR_AUTHOR: 'DanielMalede',
+      COORD_GH: path.join(box.dir, 'fake gh.js'),
+    });
     expect(res.code).toBe(0);
     expect(res.out).toContain('ci feat/claimed by @DanielMalede: WARN');
     // The claim itself is sound: the only reasons are overlaps.

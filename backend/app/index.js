@@ -169,6 +169,14 @@ async function start() {
   if (inProcessWorkers.length) {
     const { scheduleRepeatable } = require('./queues/queue');
     const { QUEUES } = require('./queues/definitions');
+    scheduleRepeatable(
+      QUEUES.HEALTH_SAMPLE_RECONCILE,
+      process.env.HEALTH_SAMPLE_RECONCILE_CRON || '*/5 * * * *',
+      {},
+    )
+      .then((r) => console.log(`[healthSampleReconciliation] repeatable scheduled: ${JSON.stringify(r)}`))
+      .catch(() => console.error('[healthSampleReconciliation] schedule failed'));
+
     scheduleRepeatable(QUEUES.RECLASSIFY_UNCLASSIFIED, process.env.RECLASSIFY_CRON || '*/30 * * * *', {})
       .then((r) => console.log(`[reclassify] repeatable scheduled: ${JSON.stringify(r)}`))
       .catch((e) => console.error('[reclassify] schedule failed:', e.message));

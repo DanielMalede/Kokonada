@@ -287,7 +287,7 @@ describe('a deletion that stops part-way keeps the consent history (consent last
     const src = fs.readFileSync(ERASURE_SRC, 'utf8');
     const body = src.slice(src.indexOf('async function eraseUserChildData'), src.indexOf('await purgeUserKeys'));
     const cascade = [...body.matchAll(/(\w+)\.deleteMany\(\s*\{\s*userId\s*\}/g)].map((m) => mongoose.models[m[1]]);
-    expect(cascade).toHaveLength(13);
+    expect(cascade).toHaveLength(14);
     const kept = [];
     for (const model of cascade) {
       const real = model.deleteMany.bind(model);
