@@ -67,12 +67,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:coord-paperwork` (own)
-- title: close the coordinator rows on #229's evidence and record its last audit findings
-- branch: `docs/coord-paperwork`
+- task: `own:close-ops152-dan053` (own)
+- title: close OPS-152 and DAN-053 on evidence
+- branch: `docs/close-ops152-dan053`
 - paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #236
+- state: in-review · PR #237
 - started: 2026-10-07
 
 ### M02
