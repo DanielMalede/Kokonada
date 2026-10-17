@@ -276,10 +276,27 @@ describe('handshake timing guards (W4-D27)', () => {
     expect(expiresAtMs - Date.now()).toBeLessThanOrEqual(EXPIRY_LEAD_SECONDS * 1000);
 
     // The construction this replaced: its life is only the REMAINDER of the current
-    // second, so it is under 1000 ms by definition and can be a handful of ms - which is
-    // both unknowable to the caller and, at the low end, shorter than a slow handshake.
-    const legacy = jwt.sign({ userId: 'user-1' }, process.env.JWT_SECRET, { expiresIn: '1s' });
-    expect(jwt.decode(legacy).exp * 1000 - Date.now()).toBeLessThan(1000);
+    // second - at most 1000 ms, exactly 1000 only when minted on a whole second, and a
+    // handful of ms just before one - which is both unknowable to the caller and, at the
+    // low end, shorter than a slow handshake. The clock is frozen so each remainder is
+    // exact: on the real clock a strict `< 1000` failed whenever the mint and the read
+    // shared a whole-second millisecond (main, 2026-10-17, CI run 39035142488).
+    jest.useFakeTimers(CLOCK_ONLY_FAKE);
+    try {
+      const sign1s = () => jwt.sign({ userId: 'user-1' }, process.env.JWT_SECRET, { expiresIn: '1s' });
+      const lifeMs = (token) => jwt.decode(token).exp * 1000 - Date.now();
+
+      jest.setSystemTime(1760000000250);
+      expect(lifeMs(sign1s())).toBe(750);
+
+      jest.setSystemTime(1760000000995);
+      expect(lifeMs(sign1s())).toBe(5);
+
+      jest.setSystemTime(1760000001000);
+      expect(lifeMs(sign1s())).toBe(1000);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('fails an unexpectedly rejected handshake loudly instead of hanging to the ceiling', async () => {
