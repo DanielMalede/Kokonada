@@ -97,7 +97,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M05
-_free_
+- task: `own:review-rows-2026-10-17` (own)
+- title: the review findings of #246 and #241 as TASKS rows
+- branch: `docs/review-rows-2026-10-17`
+- paths: `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-10-17
 
 ### M06
 _free_
