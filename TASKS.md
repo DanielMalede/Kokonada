@@ -3,9 +3,9 @@
 The single running list of everything still open in this repo. **If it is not written here, it does not exist.**
 A task that lives only in a conversation is already lost — that is what this file exists to stop.
 
-**Last updated:** 2026-10-10
-**Next free IDs:** `BE-129` · `MB-110` · `UI-095` · `OPS-192` · `ARCH-018` · `DAN-071`
-Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, ARCH-013–016, DAN-050–062, DEC-128–154, DEC-165–176 (the V1 B4 DECs, recorded on `design/v1-vision-frame`), OPS-160–171 and OPS-177–181, BE-124–128, DAN-066–068 (the instruction-layer branch `chore/instruction-layer`, #231); each branch writes its own rows.
+**Last updated:** 2026-10-17
+**Next free IDs:** `BE-157` · `MB-128` · `UI-110` · `OPS-232` · `ARCH-022` · `DAN-087`
+Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, ARCH-013–016, DAN-050–062, DEC-128–154, DEC-165–176 (the V1 B4 DECs, recorded on `design/v1-vision-frame`), OPS-160–171 and OPS-177–181, BE-124–128, DAN-066–068 (the instruction-layer branch `chore/instruction-layer`, #231); the 2026-10-17 session packages: BE-129–143, MB-110–127, UI-095–109, OPS-192–220, ARCH-018–021, DAN-071–084, DEC-157–164 and DEC-177–184 (#247, #250 and #251 have written some of them); each branch writes its own rows.
 Bedrack's block (`WORK_LEDGER.md`): `900`–`999` in every prefix (`BE-900`, `MB-900`, …). Bedrack takes new IDs only from it; the next free IDs above never enter it.
 
 ---
@@ -2048,6 +2048,10 @@ _(put anything you are unsure about here rather than losing it)_
   - where: `.claude/agents/merge-guard.md` (post-merge steps 3–6) · done when: the file says how a deployment status is judged, reviewed by `resilience-auditor` (J2a) and the J8/J16 approvers, with the owner's (a) · src: `merge-guard`, post-merge on #232, 2026-10-17 · added: 2026-10-17
 - [ ] `OPS-229` `P3` **Two sentences in `merge-guard.md` are no longer true.** Post-merge step 6 says a merge to `main` starts a Railway deploy before CI ends, but Wait for CI has been on since the owner confirmed it on 2026-10-07 (`DAN-053`); and `:36` says the in-suite eslint covers `backend/app` alone, while `backend/tests/wave4.lintGuard.test.js:37` lints `['app', 'sim']`.
   - where: `.claude/agents/merge-guard.md:36` and post-merge step 6 · done when: both sentences match the facts, reviewed by `resilience-auditor` (J2a) and the J8/J16 approvers, with the owner's (a) · src: `merge-guard`, post-merge on #232 and #239, 2026-10-17 · added: 2026-10-17
+- [ ] `OPS-230` `P2` **Parallel sessions take TASKS IDs from their own branch's header, so two open PRs define the same ID for different rows, and nothing catches it.** On 2026-10-17 alone: #247 wrote OPS-192–199 inside the ranges reserved for packages 1 and 2; #250 wrote OPS-192 again; #251 wrote BE-132–142 and DAN-071 (reserved for packages 6, 7 and 1) and, at `c56abfa` (20:22Z), OPS-221–225 six minutes after #254 had pushed its own OPS-221–229. The hunks do not conflict and no test reads TASKS IDs, so a duplicate lands on `main` silently; the coordinator's ID check (`scripts/coord/lib/collide.js:718-725`) covers only the partner's block.
+  - where: `TASKS.md` (the header) · `scripts/coord/lib/collide.js:718-725` · tracked with `OPS-211` on #250, which records the same class · done when: a check (in `coord.js check --merge` or a test) fails a PR that adds an ID already defined on `main` or on another open branch, and the header names the next free past every live branch · src: `merge-guard`, pre-merge on #254, 2026-10-17 · added: 2026-10-17
+- [ ] `OPS-231` `P3` **`mobile-ios-build` still runs on `macos-latest`, a moving label like the one `OPS-191` pinned.** #253 named it as the one runner outside the Ubuntu pin and left it out of scope; when GitHub moves `macos-latest` to a new macOS image, the iOS build (which runs only when `ios-changes` matches) can break with no change in the repository.
+  - where: `.github/workflows/ci.yml:312` · `backend/tests/ciWorkflowPermissions.test.js` (`CI runner images (OPS-191)`) · done when: the job names its macOS image and the guard pins it, or the owner decides to keep `macos-latest` with the macOS job's future (`DAN-019`) · J8 and J16, the owner's (a) · src: the `developer` on #253, 2026-10-17 · added: 2026-10-17
 
 ---
 
