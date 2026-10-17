@@ -161,6 +161,7 @@ function parseWorkflow(file, text) {
   return { file, triggers, permissions: readPermissions(lines, -1), jobs, unreadJobs };
 }
 
+// The lower-case .yml and .yaml files; a test below fails on any other entry of the directory.
 const WORKFLOWS = fs.readdirSync(WORKFLOW_DIR)
   .filter((f) => /\.ya?ml$/.test(f))
   .map((f) => parseWorkflow(f, fs.readFileSync(path.join(WORKFLOW_DIR, f), 'utf8')));
@@ -194,6 +195,13 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
       .map((j) => j.id)
       .sort();
     expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile']);
+  });
+
+  it('reads every entry of the workflows directory, so none escapes these pins', () => {
+    // WORKFLOWS takes the lower-case .yml and .yaml files GitHub documents. Whether GitHub also runs a
+    // `deploy.YML` is not this file's to guess, so an entry the filter leaves out (another case, another
+    // extension, a folder) fails here, to be renamed or moved out, instead of passing every pin unread.
+    expect(fs.readdirSync(WORKFLOW_DIR).sort()).toEqual(WORKFLOWS.map((w) => w.file).sort());
   });
 
   it.each(WORKFLOWS.map((w) => [w.file]))(
