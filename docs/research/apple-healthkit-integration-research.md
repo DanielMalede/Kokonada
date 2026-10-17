@@ -1,9 +1,11 @@
 # Apple HealthKit Integration Research
 
-**Status:** server authoritative-store prerequisite implemented in draft PR #232; no iOS dependency, entitlement, permission, or HealthKit reader was added
+**Status:** server authoritative-store prerequisite merged in PR #232; isolated synthetic contract probe in PR #241; no iOS dependency, entitlement, permission, or HealthKit reader was added
 
 **Date:** 2026-10-06
 **Task:** MB-900 (`MB-105` is a separate Health Connect history-window task)
+
+**Offline probe update:** 2026-10-08; native build and device gates remain open
 
 ## Executive recommendation
 
@@ -35,7 +37,7 @@ The server now has the additive v2 storage prerequisite for a future HealthKit c
 
 The two operational journal collections contain no heart rate, HRV, sleep interval or other physiological value. `healthingestbatches` has a renewable five-minute live lease; ownership is checked around every mutation, and recovery also removes journal-less staged rows before they can project. `healthprojectioncleanups` is limited to one obligation per user/provider/connection generation and 2,000 keyed identities; projection ownership is checked around every mutation, and an expired active marker is retained through an extra cleanup grace pass before deletion. Because a suspended Mongo write can outlive any fixed grace period, every repair pass also sweeps linked `BiometricLog` and `VitalSample` projections that have no matching active, committed `HealthSample`, and clears stale Apple-owned `MedicalProfile` provenance while preserving unrelated profile fields. Both journals are retried every five minutes and removed only after success or verified cleanup. The projection obligation deliberately survives removal of the `User` document because deleting the cleanup signal first could strand health data written by a request that was already running.
 
-The three production indexes required by this collection are documented in `docs/runbooks/health-sample-index-rollout.md`. The schema disables Mongoose automatic index creation, so application startup does not bypass that runbook. Creating and visually verifying the indexes in MongoDB Atlas is an owner action; this PR does not mutate production.
+The three required indexes are documented in `docs/runbooks/health-sample-index-rollout.md`. The schema disables Mongoose automatic index creation, so application startup does not bypass that runbook. The owner-approved rollout in database `test` was visually verified and recorded in PR #238; that evidence is not a verification of a separately named production database. The offline probe performs no database operation.
 
 ## HealthKit is a store, not an Apple Watch API
 
@@ -112,7 +114,7 @@ Use one persisted anchor per HealthKit type and authorization context.
 
 5. On later syncs, reuse the anchor to receive only added and deleted objects.
 
-6. The server prerequisite is now implemented: it persists sample identity, makes retries idempotent, and processes tombstones. Production anchored sync must still wait for the Atlas index rollout and the native outbox/anchor implementation and real-device verification.
+6. The server prerequisite is now implemented: it persists sample identity, makes retries idempotent, and processes tombstones. The index rollout in database `test` is recorded in PR #238. Production anchored sync still requires the native outbox/anchor implementation, real-device verification, and deployment-target verification.
 
 Deleted HealthKit objects are not permanent history. Apple may eventually remove deletion records, so background observation plus anchored follow-up is required if Kokonada promises deletion fidelity.
 
@@ -186,6 +188,39 @@ This costs more maintenance but gives Kokonada control over the exact contract a
 7. Verify on a signed iPhone paired with Apple Watch using real and partial-permission data.
 
 8. Add background delivery only after foreground correctness and deletion fidelity are proven.
+
+## Isolated offline contract probe — 2026-10-08
+
+There is currently no Mac or Apple Watch available. Windows can run a synthetic format experiment, but cannot run Xcode's iOS simulator or establish that the native bridge compiles, reads HealthKit, or works on a signed iPhone. PR #241 therefore answers a narrower question: can the documented bridge result shape be normalized into the existing server v2 contract without inventing data or uploading arbitrary metadata?
+
+The source shape is pinned to `@kingstinct/react-native-healthkit@16.0.0`, npm `gitHead` `6473f892c48dece1adbca978513b3e75d5041e48`. The inspected upstream types define sample UUIDs, `Date` start/end values, quantity units, category values, deleted UUIDs, and `{ samples, deletedSamples, newAnchor }` anchored results. Both upstream podspecs use React Native's `min_ios_version_supported`; this is not evidence that Kokonada's current `15.1` target builds successfully.
+
+The experimental files under `scripts/healthkit-spike/` are not imported by the application. They use only built-in synthetic scenarios and the existing pure server `parseHealthBatchRequest` validator. No package, lockfile, capability, permission copy, screen, Android lane, server wire contract, network call, or database operation is added.
+
+The probe covers:
+
+- heart rate and resting heart rate from `count/min` to `bpm`;
+- HRV in `ms`, explicitly tagged `sdnn`, never relabeled `rmssd`;
+- core/light, deep, and REM sleep intervals converted to minutes; in-bed, awake, and unspecified sleep are excluded rather than guessed;
+- exact UUID preservation, including deletion-only results;
+- strict outbound field selection: source revision, device and arbitrary metadata are not uploaded;
+- a maximum of 2,000 incoming added/deleted objects before filtering, strict units and dates, and the actual server's metric/time bounds;
+- an opaque pending anchor, returned locally but neither stored nor advanced;
+- an empty-result state that does not claim read permission was refused.
+
+The CLI prints aggregate counts and a fixed verdict only, not samples, values, timestamps, identifiers, devices or anchors. Its README contains the runnable commands and explicit limitations. Repeatability of a fixed synthetic batch proves deterministic normalization only: it does not prove a durable outbox, acknowledgement handling, persisted anchors, real network retries, or server storage idempotency.
+
+Local targeted verification: 80 probe tests and 32 existing server-contract tests passed together (112 total). The demo validated four synthetic query results with six upserts, one deletion and three excluded non-stage sleep records; the empty scenario reported no visible data, and the invalid-unit scenario rejected its input with exit code 1. A review boundary finding was pinned by three RED-to-GREEN tests: a coercible object, boxed string or array must never become an outbound batch UUID; the adapter now requires a primitive string UUID. These are offline results only; full regression and exact-head CI evidence belongs on PR #241, not a native acceptance verdict.
+
+Native acceptance remains a separate decision gate. A Mac or separately approved macOS build environment is needed for the compiled spike; a signed iPhone is needed for actual authorization, readable history and deletion tests. Apple Watch is needed to verify watch-origin samples, but HealthKit can also contain user-entered and third-party data, so absence of a watch does not imply an empty store. Background delivery and locked-device behavior remain unverified.
+
+Pinned shape references:
+
+- [Core sample, device and deleted-object types](https://github.com/kingstinct/react-native-healthkit/blob/6473f892c48dece1adbca978513b3e75d5041e48/packages/core/src/types/Shared.ts)
+- [Quantity sample shape](https://github.com/kingstinct/react-native-healthkit/blob/6473f892c48dece1adbca978513b3e75d5041e48/packages/react-native-healthkit/src/types/QuantitySample.ts)
+- [Anchored quantity result](https://github.com/kingstinct/react-native-healthkit/blob/6473f892c48dece1adbca978513b3e75d5041e48/packages/react-native-healthkit/src/types/QuantityType.ts)
+- [Anchored category result](https://github.com/kingstinct/react-native-healthkit/blob/6473f892c48dece1adbca978513b3e75d5041e48/packages/react-native-healthkit/src/types/CategoryType.ts)
+- [Generated sleep category values](https://github.com/kingstinct/react-native-healthkit/blob/6473f892c48dece1adbca978513b3e75d5041e48/packages/react-native-healthkit/src/generated/healthkit.generated.ts)
 
 ## Real-device acceptance checklist
 
