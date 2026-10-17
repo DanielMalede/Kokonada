@@ -102,7 +102,7 @@ _free_
 - branch: `docs/review-rows-2026-10-17`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #248
 - started: 2026-10-17
 
 ### M06
