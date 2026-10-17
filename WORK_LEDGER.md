@@ -70,7 +70,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `own:resilience-auditor-max-2` (own)
 - title: the resilience audit at full depth, pinned whole on both sides (completes #240)
 - branch: `chore/resilience-auditor-max-2`
-- paths: `.claude/agents/resilience-auditor.md`, `.claude/agents/merge-guard.md`, `.claude/commands/ship.md`, `.claude/commands/review-pr.md`, `.agents/skills/resilience-audit/SKILL.md`, `.agents/skills/coordinate/SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `backend/tests/resilienceAuditor.contract.test.js`, `TASKS.md`
+- paths: `.claude/agents/resilience-auditor.md`, `.claude/commands/ship.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `TASKS.md`
 - resources: none
 - state: in-review · PR #251
 - started: 2026-10-17
