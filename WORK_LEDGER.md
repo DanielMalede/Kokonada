@@ -105,7 +105,7 @@ _free_
 - branch: `fix/socket-auth-flake`
 - paths: `backend/tests/socket.auth.test.js`
 - resources: none
-- state: claimed
+- state: in-review · PR #252
 - started: 2026-10-17
 
 ### M07
