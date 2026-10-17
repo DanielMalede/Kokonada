@@ -105,7 +105,7 @@ _free_
 - branch: `docs/pkg1-findings-1017`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #254
 - started: 2026-10-17
 
 ### M07
