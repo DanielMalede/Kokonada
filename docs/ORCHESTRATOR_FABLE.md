@@ -38,10 +38,10 @@ Every task is executed by a squad: one `developer` paired with the reviewers its
 
 <resilience_audit>
 The QA gate is the **Resilience Audit** — Stability Engineering, not a generic review. (On-disk guard tests keep their historical `shadow.*.test.js` / `src/__tests__/shadow.*.test.ts` names; the practice is resilience and boundary validation.)
-1. After the build is green, `resilience-auditor` writes **stress and boundary tests first** (RED where a stability defect is suspected) in `backend/tests/shadow.*.test.js` or mobile `src/__tests__/shadow.*.test.ts`: degenerate inputs, rate-limit storms, clock drift, cache staleness, concurrency bursts, env misconfiguration, NaN/∞ poisoning, resource exhaustion.
-2. Validate boundaries across the new code **and every prior phase** — the full suite is the regression gate.
-3. Fix every CONFIRMED stability finding in the same PR; **pin every hardened boundary as a permanent regression test**.
-4. Post the audit as a PR comment: a table per surface with **CONFIRMED→FIXED / HARDENED (pinned) / ACCEPTED (documented)** verdicts and a stability score line.
+1. After the build is green, `resilience-auditor` (`.claude/agents/resilience-auditor.md`) audits by its Method and reports in its Report format: findings by calibrated severity (S0–S3) and origin (INTRODUCED, EXPOSED, PRE-EXISTING), each with its regression guard, and the full source of every RED stress or boundary test it proposes. It has no shell: the session hands it the raw output of the full suite run in the task worktree, and CI on the head.
+2. The developer adds every PROPOSED TEST, RED first, in `backend/tests/shadow.*.test.js` or mobile `src/__tests__/shadow.*.test.ts`; the full suite is the regression gate across the new code **and every prior phase**.
+3. Fix every INTRODUCED or EXPOSED blocking finding in the same PR; **pin every hardened boundary as a permanent regression test**. A PRE-EXISTING finding becomes a `TASKS.md` row.
+4. `/ship` posts the report as a PR comment and makes the PR ready only on its `VERDICT: APPROVE`.
 5. Respect the permanent purge-scan guards (`backend/tests/shadow.flip.test.js` bans reintroduced legacy identifiers across `app/`).
 </resilience_audit>
 
