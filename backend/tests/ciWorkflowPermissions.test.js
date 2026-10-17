@@ -270,7 +270,8 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
 //     of its own: adding one means teaching this guard to read the workflow it calls;
 //   · every workflow yields a job, or a line it cannot read, so no file passes on nothing read;
 //   · a label that names Ubuntu is exactly UBUNTU_IMAGE: not ubuntu-latest, not another release, not
-//     an -arm variant or another spelling;
+//     an -arm variant or another spelling; and UBUNTU_IMAGE is itself a numbered release, so the pin
+//     cannot be pointed at a label that moves;
 //   · the Ubuntu jobs are found by name, so the guard cannot pass on none;
 //   · mobile-ios-build, on macos-latest, is the one runner outside this pin, and it is named, so a new
 //     one is a change to this file.
@@ -301,6 +302,10 @@ const RUNNERS = WORKFLOWS.flatMap((wf) => wf.jobs.map((job) => ({ at: `${wf.file
 const probe = (jobLines) => parseWorkflow('probe.yml', ['on: push', 'jobs:', ...jobLines].join('\n'));
 
 describe('CI runner images (OPS-191)', () => {
+  it('pins a numbered Ubuntu release, never a label that moves', () => {
+    expect(UBUNTU_IMAGE).toMatch(/^ubuntu-\d{2}\.\d{2}$/);
+  });
+
   it(`runs every Ubuntu job on ${UBUNTU_IMAGE}, and reads the runs-on of every job`, () => {
     expect(runnerFailures(WORKFLOWS)).toEqual([]);
   });
