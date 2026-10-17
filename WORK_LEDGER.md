@@ -100,12 +100,12 @@ _free_
 _free_
 
 ### M06
-- task: `own:socket-auth-flake` (own)
-- title: pin the clock in the 1s-token boundary assertion that failed main once in a thousand
-- branch: `fix/socket-auth-flake`
-- paths: `backend/tests/socket.auth.test.js`
+- task: `own:pkg1-findings-2026-10-17` (own)
+- title: Package 1's findings as TASKS rows: the security-auditor's first pass over #232 and #239 (OPS-168), the merge-guard sweep, and the public repository
+- branch: `docs/pkg1-findings-1017`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #252
+- state: in-review · PR #254
 - started: 2026-10-17
 
 ### M07
