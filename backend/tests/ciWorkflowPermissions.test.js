@@ -257,11 +257,11 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
 // failure mode of the 2026-08-20 incident above, where something outside every diff decided what CI
 // did. So every Ubuntu job names its image, and moving to Ubuntu 26 is a reviewed change of
 // UBUNTU_IMAGE and of the workflows, made once a run on ubuntu-26.04 is green. What is pinned:
-//   · every job's `runs-on` is one literal label. No `runs-on`, an expression (`${{ matrix.os }}`), a
-//     list, a `group:` or an alias can each put the job on any image, so each fails the guard instead
-//     of being skipped, and so does a line under `jobs:` the parser cannot read as a job. A
-//     reusable-workflow call has no `runs-on` of its own: adding one means teaching this guard to read
-//     the workflow it calls;
+//   · every job's `runs-on` is one literal label. A missing one, an expression (`${{ matrix.os }}`),
+//     a list, a `group:` or an alias leaves the image to something this parser cannot read, so each
+//     fails the guard instead of being skipped, and so does a line under `jobs:` the parser cannot read
+//     as a job. A reusable-workflow call has no `runs-on` of its own: adding one means teaching this
+//     guard to read the workflow it calls;
 //   · a label that names Ubuntu is exactly UBUNTU_IMAGE: not ubuntu-latest, not another release, not
 //     an -arm variant or another spelling;
 //   · the Ubuntu jobs are found by name, so the guard cannot pass on none;
