@@ -72,7 +72,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `feat/healthkit-spike-takeover`
 - paths: `scripts/healthkit-spike/adapter.js`, `scripts/healthkit-spike/cli.js`, `scripts/healthkit-spike/syntheticFixtures.js`, `scripts/healthkit-spike/README.md`, `backend/tests/healthkitSpike.test.js`, `docs/research/apple-healthkit-integration-research.md`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #249
 - started: 2026-10-17
 
 ### M02
