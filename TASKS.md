@@ -4,7 +4,7 @@ The single running list of everything still open in this repo. **If it is not wr
 A task that lives only in a conversation is already lost — that is what this file exists to stop.
 
 **Last updated:** 2026-10-17
-**Next free IDs:** `BE-132` · `MB-114` · `UI-095` · `OPS-214` · `ARCH-018` · `DAN-071`
+**Next free IDs:** `BE-157` · `MB-114` · `UI-095` · `OPS-230` · `ARCH-018` · `DAN-087`
 Reserved for open branches (do not use): BE-094–119, MB-084–104, UI-066–089, OPS-100–124, ARCH-013–016, DAN-050–062, DEC-128–154, DEC-165–176 (the V1 B4 DECs, recorded on `design/v1-vision-frame`), OPS-160–171 and OPS-177–181, BE-124–128, DAN-066–068 (the instruction-layer branch `chore/instruction-layer`, #231); each branch writes its own rows.
 Bedrack's block (`WORK_LEDGER.md`): `900`–`999` in every prefix (`BE-900`, `MB-900`, …). Bedrack takes new IDs only from it; the next free IDs above never enter it.
 
