@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:close-ops152-dan053` (own)
-- title: close OPS-152 and DAN-053 on evidence
-- branch: `docs/close-ops152-dan053`
-- paths: `TASKS.md`
+- task: `own:healthkit-spike-takeover` (own)
+- title: HealthKit offline contract probe (MB-900), taken over from #241
+- branch: `feat/healthkit-spike-takeover`
+- paths: `scripts/healthkit-spike/adapter.js`, `scripts/healthkit-spike/cli.js`, `scripts/healthkit-spike/syntheticFixtures.js`, `scripts/healthkit-spike/README.md`, `backend/tests/healthkitSpike.test.js`, `docs/research/apple-healthkit-integration-research.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #237
-- started: 2026-10-07
+- state: in-review · PR #249
+- started: 2026-10-17
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
