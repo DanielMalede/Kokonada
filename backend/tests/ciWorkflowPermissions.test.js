@@ -125,6 +125,8 @@ function readRunsOn(lines, headerIdx) {
 
 // A job's key directly under `jobs:`: the one shape this parser reads as a job.
 const JOB_KEY = /^\s*[\w-]+:\s*(#.*)?$/;
+// `jobs:` alone on its line, its jobs on the lines below: the one shape this parser reads jobs from.
+const JOBS_HEADER = /^\s*jobs:\s*(#.*)?$/;
 
 function parseWorkflow(file, text) {
   const lines = text.split(/\r?\n/);
@@ -148,9 +150,13 @@ function parseWorkflow(file, text) {
         .map((j) => (lines[j].match(/uses:\s*(\S+)/) || [])[1])
         .filter(Boolean),
     }));
-  // A line under `jobs:` that is not such a key (a quoted id, a job written inline) is a job no pin
-  // in this file can see; the runner-image guard reports it rather than skipping it.
-  const unreadJobs = jobKeys.filter((i) => !JOB_KEY.test(lines[i])).map((i) => lines[i].trim());
+  // A line under `jobs:` that is not such a key (a quoted id, a job written inline), and a `jobs:` line
+  // that holds its value itself (`jobs: { build: … }`, `jobs: *all`), hold jobs no pin in this file can
+  // see; the runner-image guard reports each rather than skipping it.
+  const unreadJobs = [
+    ...(JOBS_HEADER.test(lines[jobsIdx]) ? [] : [jobsIdx]),
+    ...jobKeys.filter((i) => !JOB_KEY.test(lines[i])),
+  ].map((i) => lines[i].trim());
 
   return { file, triggers, permissions: readPermissions(lines, -1), jobs, unreadJobs };
 }
@@ -260,8 +266,9 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
 //   · every job's `runs-on` is one literal label. A missing one, an expression (`${{ matrix.os }}`),
 //     a list, a `group:` or an alias leaves the image to something this parser cannot read, so each
 //     fails the guard instead of being skipped, and so does a line under `jobs:` the parser cannot read
-//     as a job. A reusable-workflow call has no `runs-on` of its own: adding one means teaching this
-//     guard to read the workflow it calls;
+//     as a job, and a `jobs:` line that holds its jobs itself. A reusable-workflow call has no `runs-on`
+//     of its own: adding one means teaching this guard to read the workflow it calls;
+//   · every workflow yields a job, or a line it cannot read, so no file passes on nothing read;
 //   · a label that names Ubuntu is exactly UBUNTU_IMAGE: not ubuntu-latest, not another release, not
 //     an -arm variant or another spelling;
 //   · the Ubuntu jobs are found by name, so the guard cannot pass on none;
@@ -296,6 +303,11 @@ const probe = (jobLines) => parseWorkflow('probe.yml', ['on: push', 'jobs:', ...
 describe('CI runner images (OPS-191)', () => {
   it(`runs every Ubuntu job on ${UBUNTU_IMAGE}, and reads the runs-on of every job`, () => {
     expect(runnerFailures(WORKFLOWS)).toEqual([]);
+  });
+
+  it.each(WORKFLOWS.map((w) => [w.file]))('reads at least one job from %s, or reports what it cannot read', (file) => {
+    const wf = WORKFLOWS.find((w) => w.file === file);
+    expect(wf.jobs.length + wf.unreadJobs.length).toBeGreaterThan(0);
   });
 
   it('finds the Ubuntu jobs it pins, so it cannot pass on none', () => {
@@ -344,6 +356,14 @@ describe('CI runner images (OPS-191)', () => {
       'probe.yml: cannot read a job from this line under jobs: build: { runs-on: ubuntu-latest }'],
   ])('fails %s, which the parser cannot read, instead of skipping it', (_case, jobLines, failure) => {
     expect(runnerFailures([probe(jobLines)])).toEqual([failure]);
+  });
+
+  it.each([
+    ['a flow mapping', 'jobs: { build: { runs-on: ubuntu-latest } }'],
+    ['an alias', 'jobs: *all'],
+  ])('fails jobs written on the jobs: line itself (%s) instead of passing on no job', (_case, jobsLine) => {
+    expect(runnerFailures([parseWorkflow('probe.yml', `on: push\n${jobsLine}`)]))
+      .toEqual([`probe.yml: cannot read a job from this line under jobs: ${jobsLine}`]);
   });
 });
 
