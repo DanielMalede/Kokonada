@@ -102,7 +102,7 @@ _free_
 - branch: `docs/dan019-lockout-lifted`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #250
 - started: 2026-10-17
 
 ### M06
