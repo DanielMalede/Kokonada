@@ -100,7 +100,13 @@ _free_
 _free_
 
 ### M06
-_free_
+- task: `own:socket-auth-flake` (own)
+- title: pin the clock in the 1s-token boundary assertion that failed main once in a thousand
+- branch: `fix/socket-auth-flake`
+- paths: `backend/tests/socket.auth.test.js`
+- resources: none
+- state: in-review · PR #252
+- started: 2026-10-17
 
 ### M07
 - task: `OPS-191` (TASKS)
