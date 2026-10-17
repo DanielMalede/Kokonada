@@ -346,6 +346,10 @@ describe('CI runner images (OPS-191)', () => {
     ['fails an alias', ['runs-on: *runner'], ['probe.yml job "probe" has runs-on: *runner, not one literal label']],
     ['fails a job with no runs-on', ['steps: []'], ['probe.yml job "probe" has no runs-on']],
     ['fails a reusable-workflow call', ['uses: ./.github/workflows/build.yml'], ['probe.yml job "probe" has no runs-on']],
+    // A runs-on among the call's inputs is the called workflow's to use or ignore, not the job's runner.
+    ['fails a reusable-workflow call whose inputs name a runner', [
+      'uses: org/repo/.github/workflows/build.yml@v1', 'with:', '  runs-on: ubuntu-24.04',
+    ], ['probe.yml job "probe" has no runs-on']],
   ])('%s', (_case, body, failures) => {
     expect(runnerFailures([probe(['  probe:', ...body.map((l) => `    ${l}`)])])).toEqual(failures);
   });
