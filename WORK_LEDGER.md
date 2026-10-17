@@ -114,7 +114,7 @@ _free_
 - branch: `chore/ops191-pin-ubuntu-2404`
 - paths: `.github/workflows/ci.yml`, `.github/workflows/coordination.yml`, `.github/workflows/secret-scan-history.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #253
 - started: 2026-10-17
 
 ### M08
