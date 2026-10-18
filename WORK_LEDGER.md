@@ -85,12 +85,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `OPS-196` (TASKS)
-- title: OPS-196: the two-partner machinery stays dormant (the owner's decision, DEC-185)
-- branch: `docs/ops196-partner-dormant`
-- paths: `HANDOFF_2026-10-08_BEDRACK.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-156.md`
+- task: `own:l-check-waiver-row` (own)
+- title: TASKS: the L-check deviation of #255 (OPS-244) and J18's status reading (OPS-169)
+- branch: `docs/l-check-waiver-row`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #255
+- state: in-review · PR #258
 - started: 2026-10-18
 
 ### M04
