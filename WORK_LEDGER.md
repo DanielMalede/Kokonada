@@ -70,7 +70,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `own:sentinel-2026-10-17` (own)
 - title: the sentinel's 2026-10-17 run filed into WEAKNESSES_AND_FAILURES.md (sentinel.md FILING step 4)
 - branch: `docs/sentinel-2026-10-17`
-- paths: `WEAKNESSES_AND_FAILURES.md`
+- paths: `WEAKNESSES_AND_FAILURES.md`, `TASKS.md`
 - resources: none
 - state: in-review · PR #263
 - started: 2026-10-18
