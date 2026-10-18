@@ -25,6 +25,12 @@ function fixedError(code, statusCode) {
   return Object.assign(new Error(code), { code, statusCode });
 }
 
+const errorType = (error) => (
+  typeof error?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(error.name)
+    ? error.name
+    : 'Error'
+);
+
 async function ingestFence(userId, source, expectedConnectionVersion) {
   const consent = await healthWriteFence(userId);
   if (!consent.admitted) return consent;
@@ -64,13 +70,32 @@ async function removeStagedRows(selector) {
 // RA-1 (the resilience audit of #256). A staged row is a HealthSample, so an erasure that ran while
 // it stood counted it and kept MedicalProfile and MorningState. Once a refusal removes the row, the
 // erasure's own rule runs again, as the reconcile's refusal and the live lane's compensation do. It
-// deletes only when no sample of any provider remains. A failure is retryable.
-async function reapplyOrphanRule(userId) {
+// deletes only when no sample of any provider remains. A failure answers 503 with one closed-token
+// line, and what carries the rule from there is the batch's journal, not a retry of the batch: the
+// paths that remove a batch's rows delete its journal only after the rule has run, so the repair
+// pass applies it (RA-6, the second audit of #256). The journal-less sweep below
+// (removeOrphanedStagedRows) removes rows without it (RA-7).
+async function reapplyOrphanRule(userId, reason) {
   try {
     await purgeOrphanedAggregates(userId);
-  } catch {
+  } catch (error) {
+    console.error(`[healthIngest] orphan-rule reason=${reason} outcome=failed error=${errorType(error)}`);
     throw fixedError('health_projection_pending', 503);
   }
+}
+
+// RA-8 (the second audit of #256). The rule deletes the whole profile once no sample is left, yet
+// the profile and MorningState hold data no sample backs: the v1 lane writes sleep to the profile
+// alone, and MorningState keeps 90 nights. So it is owed only where an erasure can have run since
+// the batch was admitted: a disconnect bumps the connection version and a withdrawal writes a new
+// consent row, so a fence still admitted under the batch's own grant means none ran, and the rule
+// is skipped. A fence that could not be read decides nothing: false, and the caller keeps the
+// journal for the next repair pass. A failing rule propagates.
+async function settleOrphanRule(userId, fence, consentFence) {
+  if (fence.admitted && fence.fence === consentFence) return true;
+  if (fence.reason === 'consent_read_error') return false;
+  await reapplyOrphanRule(userId, fence.admitted ? 'consent_changed' : fence.reason);
+  return true;
 }
 
 async function renewIngestLease(ingestToken) {
@@ -148,9 +173,13 @@ async function recoverStagedHealthSamples({ userId = null, source = null, limit 
         await HealthIngestBatch.deleteOne({ _id: batch._id, status: 'complete' });
       } else if (status === 'aborted' || fence.reason !== 'consent_read_error') {
         removed += await removeStagedRows(selector);
-        // Before the journal goes: if the rule fails, the journal stays and the next pass reapplies it.
-        await reapplyOrphanRule(batch.userId);
-        await HealthIngestBatch.deleteOne({ _id: batch._id });
+        // Before the journal goes: if the rule fails, or the fence cannot be read, the journal
+        // stays and the next pass decides again.
+        if (await settleOrphanRule(batch.userId, fence, batch.consentFence)) {
+          await HealthIngestBatch.deleteOne({ _id: batch._id });
+        } else {
+          failed += 1;
+        }
       } else {
         failed += 1;
       }
@@ -219,7 +248,7 @@ async function ingestV2Batch(userId, platform, samples, options = {}) {
           { $set: { status: 'aborted' } },
         );
         await removeStagedRows({ userId, source, ingestToken });
-        await reapplyOrphanRule(userId);
+        await reapplyOrphanRule(userId, consentChanged ? 'consent_changed' : after.reason);
         await HealthIngestBatch.deleteOne({ _id: ingestToken, status: 'aborted' });
       }
       if (after.reason === 'consent_read_error') throw fixedError('health_projection_pending', 503);
@@ -252,7 +281,16 @@ async function ingestV2Batch(userId, platform, samples, options = {}) {
     try {
       // Safe even after commit/projection failure: committed rows no longer carry ingestToken.
       await removeStagedRows({ userId, source, ingestToken });
-      await HealthIngestBatch.deleteOne({ _id: ingestToken, status: 'aborted' });
+      // RA-6 and RA-7 (the second audit of #256): an erasure may have counted a row this batch
+      // staged, whatever failed after it (the refusal's own cleanup, a 422, a lost lease, a store
+      // error), so the rule runs here too, under RA-8's gate, before the journal goes. A failure
+      // leaves the aborted journal, where there still is one, and the repair pass applies the rule
+      // from it. A refusal that settled above ends here as well, and the rule runs again: it is
+      // idempotent.
+      const fence = await ingestFence(userId, source, expectedConnectionVersion);
+      if (await settleOrphanRule(userId, fence, start.fence)) {
+        await HealthIngestBatch.deleteOne({ _id: ingestToken, status: 'aborted' });
+      }
     } catch {
       // The durable aborted journal, or the journal-independent staged sweep, retries cleanup.
     }
