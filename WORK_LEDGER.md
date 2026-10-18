@@ -54,7 +54,7 @@ Only Malede changes these.
 
 `.claude/**` · `docs/design-v2/pages/**` · `docs/plans/WAVE4_STATE.md`
 
-On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). The list above still says `.claude/**`, because `backend/tests/coord.collide.test.js` pins it and `backend/**` is under a production hold; `OPS-187` narrows the list and the test together. Until it lands, the engine HALTs his claim on those files.
+On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). Bedrack stopped working on the repository on 2026-10-17: `OPS-187` closed as no longer needed, those rows are the owner's again, and the two-partner machinery stays dormant (`DEC-185`). The list above still says `.claude/**`.
 
 ## Resources
 
