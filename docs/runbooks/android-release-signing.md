@@ -6,7 +6,7 @@ owner: the owner (DAN- rows); security-auditor and resilience-auditor review (J1
 
 # Android release signing and the standalone build
 
-How the production Android build of `mobile/KokonadaHealth` is signed and produced. Every step below was checked against `mobile/KokonadaHealth/android/app/build.gradle` on 2026-10-18 (the signing block landed in #174). The older kit document (`RELEASE_SIGNING.md` under `mobile/native-snippets/`, now a Moved row in `docs/ARCHIVE.md`) described a generated project that no longer exists.
+How the production Android build of `mobile/KokonadaHealth` is signed and produced. Every step below was checked against `mobile/KokonadaHealth/android/app/build.gradle` on 2026-10-18 (the signing block landed in #174). The older kit document (`RELEASE_SIGNING.md` under `mobile/native-snippets/`, now a Deleted row in `docs/ARCHIVE.md`; this file is a rewrite, not a copy) described a generated project that no longer exists.
 
 ## 1. What the build reads
 
@@ -39,17 +39,17 @@ The APK lands under `app/build/outputs/apk/release/`. The JS bundle and Hermes b
 ./gradlew :app:bundleRelease
 ```
 
-Verify the signature before sideloading or uploading:
+Verify the signature before sideloading or uploading (with `minSdkVersion 26` the Android Gradle plugin signs with the v2/v3 schemes, which `jarsigner` does not see):
 
 ```
-jarsigner -verify -verbose -certs app/build/outputs/apk/release/app-release.apk | head
+apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
 ```
 
 A build on a machine without `keystore.properties` is debug-signed and will not keep the data of an installed release build; it also fails Google sign-in and Spotify connect (section 2).
 
 ## 4. Sideload for on-device QA
 
-Copy the APK to the phone and install it; the same signature keeps the installed data and sign-in. `docs/device-qa` (`/device-qa`) has the capture runbook; `adb devices` first, the test phone drops its USB link intermittently.
+Copy the APK to the phone and install it; the same signature keeps the installed data and sign-in. `/device-qa` (`.claude/commands/device-qa.md`) has the capture runbook; `adb devices` first, the test phone drops its USB link intermittently.
 
 ## 5. Testers' Spotify connect (beta path)
 

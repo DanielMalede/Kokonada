@@ -5,7 +5,7 @@ verified: 2026-10-18
 
 # HealthKit designs (MB-900)
 
-The two design specifications of the iOS HealthKit lane (`MB-900`), in dependency order: the data contract first, then the authoritative sample store it feeds. Text kept verbatim with headings one level down. The implementation plans are `docs/plans/healthkit/plan.md (deleted; see docs/ARCHIVE.md)`; the research is `docs/plans/healthkit/research.md`.
+The two design specifications of the iOS HealthKit lane (`MB-900`), in dependency order: the data contract first, then the authoritative sample store it feeds. Text kept verbatim with headings one level down. The implementation plans are `docs/plans/healthkit/plan.md`; the research is `docs/plans/healthkit/research.md`.
 
 | Design | Date | Status | TASKS rows |
 |---|---|---|---|
