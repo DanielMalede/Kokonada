@@ -177,11 +177,18 @@ async function rebuildAppleProfile(userId, source, connectionVersion, run) {
 
   // Deliberately no `hrv` write: Apple HealthKit HRV is SDNN, while this legacy scalar has
   // RMSSD-oriented meaning. Task 4 preserves SDNN in VitalSample and the method-aware baseline.
+  //
+  // A profile this pass READ is updated by its `_id` and never upserted (BE-144): when an erasure
+  // deletes it while this write is in flight, the write matches nothing and the profile stays
+  // deleted. Only a first projection, with no profile at all, may insert one, and the run's
+  // compensation removes that one when a fence refuses. `userId` stays in the filter because the
+  // encrypted fields take their owner binding (AAD) from it (encryptedField.js `_queryAad`).
   const written = await MedicalProfile.findOneAndUpdate(
-    { userId },
+    existing ? { _id: existing._id, userId } : { userId },
     { $set },
-    { upsert: true, returnDocument: 'after' },
+    { upsert: existing == null, returnDocument: 'after' },
   );
+  if (!written) return false; // read, then erased: never re-create it
   run.profileWrite = {
     id: written._id,
     updatedAt: written.updatedAt,
