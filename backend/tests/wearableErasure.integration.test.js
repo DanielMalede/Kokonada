@@ -16,9 +16,13 @@ const HealthSample   = require('../app/models/HealthSample');
 const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const MorningState   = require('../app/models/MorningState');
+const User           = require('../app/models/User');
 const { RewardEvent }     = require('../app/models/RewardEvent');
 const { PersonalWeights } = require('../app/models/PersonalWeights');
-const { purgeWearableData, eraseWearableProvider } = require('../app/services/privacy/wearableErasure');
+const { encrypt, decrypt, isCiphertextFormat } = require('../app/utils/encryption');
+const {
+  purgeWearableData, eraseWearableProvider, WEARABLE_PROVIDERS,
+} = require('../app/services/privacy/wearableErasure');
 
 jest.setTimeout(120000);
 
@@ -39,6 +43,16 @@ beforeEach(async () => {
   await MorningState.deleteMany({});
   await RewardEvent.deleteMany({});
   await PersonalWeights.deleteMany({});
+  await User.deleteMany({});
+});
+
+// A real User row connected to Apple Health, for the live disconnect path (eraseWearableProvider).
+const appleUser = (wearableConnectionVersion = 0) => User.create({
+  ssoProvider: 'google',
+  ssoId: new mongoose.Types.ObjectId().toString(),
+  email: `${new mongoose.Types.ObjectId()}@example.test`,
+  wearableProvider: 'apple_health',
+  wearableConnectionVersion,
 });
 
 const log = (userId, source, hr = 60) =>
@@ -97,6 +111,9 @@ describe('purgeWearableData (real Mongo)', () => {
 });
 
 describe('purgeWearableData — authoritative HealthSample scoping (real Mongo)', () => {
+  // The NON-orphan case: another provider's sample remains, so the profile survives with only the
+  // Apple-tagged paths cleared, and an untagged value (`hrv` here) stays until a recompute. That
+  // leftover predates BE-144 and is BE-164's to settle; this pins today's behaviour, not the goal.
   it('deletes only the provider rows and clears only their explicitly-owned profile projection', async () => {
     const userA = new mongoose.Types.ObjectId();
     const userB = new mongoose.Types.ObjectId();
@@ -126,6 +143,106 @@ describe('purgeWearableData — authoritative HealthSample scoping (real Mongo)'
     expect(profile.restingHeartRate).toBeNull();
     expect(profile.sleepStages.deep).toBeNull();
     expect(Number(profile.hrv)).toBe(44);
+  });
+});
+
+// BE-144 (SEC-232-1). Apple Health was exempt from the orphan rule: an Apple disconnect that left
+// no sample of any provider kept the MedicalProfile, and with it every UNTAGGED value Apple's own
+// samples produced (maxHeartRate and the zones from baselines.js, hrv, the encrypted state vector,
+// and everything the v1 `healthkit` lane writes). No provider is exempt any more.
+describe('BE-144 — a disconnect that leaves no sample deletes the whole profile (real Mongo)', () => {
+  it('v2 Apple-only user: the profile goes, untagged values included, with every Apple sample', async () => {
+    const owner = await appleUser(3);
+    const uid = owner._id;
+    await health(uid, 'apple_health', 'e');
+    await log(uid, 'apple_health', 64);
+    await vital(uid, 'apple_health', 'hrv', 44);
+    // Seeded directly, not through baselines.js: the point is what an erasure leaves, whoever wrote it.
+    await MedicalProfile.create({
+      userId: uid,
+      // Tagged: the v2 reconcile owns these (cleared by provenance even when the profile survives).
+      healthProjectionProvider: 'apple_health',
+      healthProjectionConnectionVersion: 3,
+      restingHeartRate: 58,
+      sleepStages: { deep: 70, light: 190, rem: 55 },
+      lastNightSleep: { deep: 80, light: 200, rem: 50, date: new Date('2026-10-06') },
+      sleepUpdatedAt: new Date('2026-10-06T06:50:00Z'),
+      // Untagged, yet derived from the same Apple samples (baselines.js, the state-vector job).
+      maxHeartRate: 181,
+      hrZones: {
+        zone1: { label: 'easy',      minBpm: 120, maxBpm: 132, percentOfMax: '50-60%' },
+        zone2: { label: 'fat-burn',  minBpm: 132, maxBpm: 144, percentOfMax: '60-70%' },
+        zone3: { label: 'aerobic',   minBpm: 144, maxBpm: 156, percentOfMax: '70-80%' },
+        zone4: { label: 'anaerobic', minBpm: 156, maxBpm: 169, percentOfMax: '80-90%' },
+        zone5: { label: 'max',       minBpm: 169, maxBpm: 181, percentOfMax: '90-100%' },
+      },
+      hrv: 44,
+      stateVector: {
+        status: encrypt('Calm Recovery', String(uid)),
+        confidence: 0.7,
+        computedAt: new Date('2026-10-06T07:00:00Z'),
+        stateId: encrypt('calm', String(uid)),
+        stateConfidence: 0.6,
+      },
+      sampleCount: 240,
+      lastAnalyzed: new Date('2026-10-06T07:00:00Z'),
+    });
+    await MorningState.create({ userId: uid, date: new Date('2026-10-06T00:00:00Z'), readiness: 0.6 });
+
+    // Precondition, read from the raw collection: what this test says is erased is really stored.
+    const raw = await MedicalProfile.collection.findOne({ userId: uid });
+    expect(isCiphertextFormat(raw.maxHeartRate)).toBe(true);
+    expect(decrypt(raw.maxHeartRate, false, String(uid))).toBe('181');
+    expect(typeof raw.hrZones.zone1.minBpm).toBe('number');
+    expect(raw.stateVector.status).not.toBeNull();
+
+    const res = await eraseWearableProvider(await User.findById(uid), 'apple_health');
+
+    expect(await MedicalProfile.countDocuments({ userId: uid })).toBe(0);
+    expect(await MedicalProfile.collection.countDocuments({ userId: uid })).toBe(0);
+    expect(await MorningState.countDocuments({ userId: uid })).toBe(0);
+    expect(await HealthSample.countDocuments({ userId: uid })).toBe(0);
+    expect(await BiometricLog.countDocuments({ userId: uid })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: uid })).toBe(0);
+    expect(res).toMatchObject({ medicalProfiles: 1, morningStates: 1, healthProfileProjections: 1 });
+    const saved = await User.findById(uid);
+    expect(saved.wearableProvider).toBeNull();
+    expect(saved.wearableConnectionVersion).toBe(4);
+  });
+
+  it('v1 Apple-only user (the `healthkit` lane): an untagged profile goes too', async () => {
+    const owner = await appleUser(1);
+    const uid = owner._id;
+    await log(uid, 'apple_health', 66);
+    await vital(uid, 'apple_health', 'restingHeartRate', 61);
+    // metricStore.js writes the v1 profile with an untagged $set: no healthProjectionProvider.
+    await MedicalProfile.create({
+      userId: uid,
+      restingHeartRate: 61,
+      hrv: 47,
+      sleepStages: { deep: 65, light: 205, rem: 50 },
+      lastNightSleep: { deep: 70, light: 210, rem: 45, date: new Date('2026-10-06') },
+      sleepUpdatedAt: new Date('2026-10-06T07:00:00Z'),
+    });
+
+    const res = await eraseWearableProvider(await User.findById(uid), 'apple_health');
+
+    expect(await MedicalProfile.countDocuments({ userId: uid })).toBe(0);
+    expect(await MedicalProfile.collection.countDocuments({ userId: uid })).toBe(0);
+    // Nothing was tagged, so the provenance clear reached nothing: only the orphan rule removes it.
+    expect(res.healthProfileProjections).toBe(0);
+    expect(res.medicalProfiles).toBe(1);
+  });
+
+  it.each(WEARABLE_PROVIDERS)('%s: purgeWearableData drops an orphaned profile (no provider is exempt)', async (provider) => {
+    const uid = new mongoose.Types.ObjectId();
+    await log(uid, provider);
+    await MedicalProfile.create({ userId: uid, restingHeartRate: 60, maxHeartRate: 181 });
+
+    const res = await purgeWearableData(uid, provider);
+
+    expect(await MedicalProfile.countDocuments({ userId: uid })).toBe(0);
+    expect(res.medicalProfiles).toBe(1);
   });
 });
 
@@ -244,8 +361,8 @@ describe('purgeWearableData — the learned personalization SURVIVES a disconnec
 
   it('the LIVE disconnect path (eraseWearableProvider) keeps them too', async () => {
     const userI = new mongoose.Types.ObjectId();
-    // A plain object stands in for the User doc — this suite has no User rows, and the credential
-    // clearing is already covered by the unit suite; what is under test is the DATA footprint.
+    // A plain object stands in for the User doc — the credential clearing is already covered by
+    // the unit suite; what is under test is the DATA footprint.
     const user = { _id: userI, wearableProvider: 'garmin', wearableToken: null, save: async () => {} };
     await log(userI, 'garmin');
     await seedLearned(userI);
@@ -255,5 +372,20 @@ describe('purgeWearableData — the learned personalization SURVIVES a disconnec
     expect(await BiometricLog.countDocuments({ userId: userI })).toBe(0);         // its own job done
     expect(await RewardEvent.countDocuments({ userId: userI })).toBe(1);
     expect(await PersonalWeights.countDocuments({ userId: userI })).toBe(1);
+  });
+
+  // BE-144 widened the orphan delete to Apple Health; it must not widen past the derived profile.
+  it('an Apple Health disconnect that leaves no sample keeps them too', async () => {
+    const owner = await appleUser(2);
+    const userJ = owner._id;
+    await health(userJ, 'apple_health', 'f');
+    await MedicalProfile.create({ userId: userJ, healthProjectionProvider: 'apple_health', restingHeartRate: 57 });
+    await seedLearned(userJ);
+
+    await eraseWearableProvider(await User.findById(userJ), 'apple_health');
+
+    expect(await HealthSample.countDocuments({ userId: userJ })).toBe(0);         // its own job done
+    expect(await RewardEvent.countDocuments({ userId: userJ })).toBe(1);
+    expect(await PersonalWeights.countDocuments({ userId: userJ })).toBe(1);
   });
 });

@@ -23,6 +23,7 @@ const {
   recordConsent,
 } = require('../app/services/privacy/consent');
 const { reconcileHealthSamples } = require('../app/services/wearable/healthSampleReconciliation');
+const { decrypt } = require('../app/utils/encryption');
 
 jest.setTimeout(120000);
 
@@ -159,6 +160,30 @@ describe('reconcileHealthSamples', () => {
     expect(Number(profile.sleepStages.deep)).toBe(30);
     expect(Number(profile.lastNightSleep.deep)).toBe(30);
     expect((await HealthSample.findById(removed._id)).projectionState).toBe('applied');
+  });
+
+  // BE-144 guard. The rebuild addresses the profile it read by `_id`, so it cannot re-create one
+  // erased mid-run; `userId` stays in that filter because the encrypted fields take their owner
+  // binding (AAD) from it (encryptedField.js `_queryAad`). Without it they would be written unbound.
+  it('rebuilds an existing profile in place, its values still bound to their owner', async () => {
+    const owner = await user();
+    const before = await MedicalProfile.create({
+      userId: owner._id,
+      healthProjectionProvider: 'apple_health',
+      restingHeartRate: 61,
+    });
+    await sample(owner, '0', { metric: 'resting_heart_rate', value: 58 });
+
+    await expect(reconcileHealthSamples(owner._id, 'apple_health')).resolves.toMatchObject({
+      profileUpdated: true,
+    });
+
+    const profiles = await MedicalProfile.find({ userId: owner._id });
+    expect(profiles).toHaveLength(1);
+    expect(String(profiles[0]._id)).toBe(String(before._id));
+    const raw = await MedicalProfile.collection.findOne({ _id: before._id });
+    expect(decrypt(raw.restingHeartRate, false, String(owner._id))).toBe('58');
+    expect(() => decrypt(raw.restingHeartRate)).toThrow();
   });
 
   it('does not overwrite a profile while another wearable provider is active', async () => {
