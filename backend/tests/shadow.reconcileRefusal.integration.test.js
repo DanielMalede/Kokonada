@@ -92,6 +92,13 @@ function gate() {
   return { opened, open };
 }
 
+const primaryLost = () => Object.assign(new Error('no primary'), { name: 'MongoServerSelectionError' });
+
+const settle = (promise) => promise.then(
+  (value) => ({ resolved: value }),
+  (error) => error,
+);
+
 async function appleUserWithGrant() {
   const owner = await User.create({
     ssoProvider: 'google',
@@ -193,6 +200,48 @@ async function eraseAroundWrite(owner, write) {
   return erasure;
 }
 
+// A reconcile whose projection commits inside the disconnect's erasure; the run is still held.
+async function reconcileAcrossDisconnect(owner) {
+  const projection = holdCreate(VitalSample);
+  const run = settle(reconcileHealthSamples(owner._id, 'apple_health'));
+  // The erasure deleted the authoritative row, missed the projection in its own delete, and
+  // counted it: both aggregates survived.
+  await expect(eraseAroundWrite(owner, projection)).resolves.toMatchObject({
+    healthSamples: 1,
+    vitalSamples: 0,
+    medicalProfiles: 0,
+    morningStates: 0,
+  });
+  return { resume: projection.resume, outcome: run };
+}
+
+// An ingest whose staged row commits inside the disconnect's erasure; the batch is still held.
+async function ingestAcrossDisconnect(owner) {
+  const staged = holdCreate(HealthSample);
+  const ingest = settle(ingestV2Batch(owner._id, 'healthkit', [heartRateUpsert]));
+  // The staged row did not exist at the erasure's delete, and its count saw it.
+  await expect(eraseAroundWrite(owner, staged)).resolves.toMatchObject({
+    healthSamples: 0,
+    medicalProfiles: 0,
+    morningStates: 0,
+  });
+  return { resume: staged.resume, outcome: ingest };
+}
+
+// The same batch, whose own cleanup fails twice, at its refusal and in its catch, so the staged
+// row and the aborted journal are left for the repair pass.
+async function abortedAcrossDisconnect(owner) {
+  const { resume, outcome } = await ingestAcrossDisconnect(owner);
+  const deleteMany = jest.spyOn(HealthSample, 'deleteMany')
+    .mockRejectedValueOnce(new Error('temporary mongo failure'))
+    .mockRejectedValueOnce(new Error('temporary mongo failure'));
+  resume();
+  expect(await outcome).toMatchObject({ message: 'temporary mongo failure' });
+  deleteMany.mockRestore();
+  expect(await HealthSample.countDocuments({ userId: owner._id, ingestState: 'staged' })).toBe(1);
+  expect(await HealthIngestBatch.countDocuments({ userId: owner._id, status: 'aborted' })).toBe(1);
+}
+
 // From here on the write fence's account read fails as an unreachable primary does. Only
 // healthWriteFence selects `deletedAt` alone (healthWriteFence.js:40); every other read passes.
 function failFenceReads() {
@@ -204,9 +253,7 @@ function failFenceReads() {
       if (fields !== 'deletedAt') return select(fields);
       const unreachable = {
         read: () => unreachable,
-        lean: () => Promise.reject(Object.assign(new Error('no primary'), {
-          name: 'MongoServerSelectionError',
-        })),
+        lean: () => Promise.reject(primaryLost()),
       };
       return unreachable;
     };
@@ -214,30 +261,18 @@ function failFenceReads() {
   });
 }
 
-const settle = (promise) => promise.then(
-  (value) => ({ resolved: value }),
-  (error) => error,
-);
-
 describe('v2 reconcile refusals (resilience audit of #256)', () => {
   it('RA-1: a disconnect inside a reconcile leaves no profile once the run has undone its projection', async () => {
     const owner = await appleUserWithGrant();
     await derivedAggregates(owner);
     await pendingRestingHr(owner, 'e');
-    const projection = holdCreate(VitalSample);
 
-    const run = reconcileHealthSamples(owner._id, 'apple_health');
-    // The erasure deleted the authoritative row, missed the projection in its own delete, and
-    // counted it: both aggregates survived.
-    await expect(eraseAroundWrite(owner, projection)).resolves.toMatchObject({
-      healthSamples: 1,
-      vitalSamples: 0,
-      medicalProfiles: 0,
-      morningStates: 0,
+    const run = await reconcileAcrossDisconnect(owner);
+    run.resume();
+
+    expect(await run.outcome).toEqual({
+      resolved: { projected: 0, removed: 0, profileUpdated: false },
     });
-    projection.resume();
-
-    await expect(run).resolves.toEqual({ projected: 0, removed: 0, profileUpdated: false });
     expect(await BiometricLog.countDocuments({ userId: owner._id })).toBe(0);
     expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
@@ -246,19 +281,40 @@ describe('v2 reconcile refusals (resilience audit of #256)', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
+  it('RA-1: a failing orphan rule after a refusal answers the retryable 503', async () => {
+    const owner = await appleUserWithGrant();
+    await derivedAggregates(owner);
+    await pendingRestingHr(owner, 'b');
+
+    const run = await reconcileAcrossDisconnect(owner);
+    jest.spyOn(MedicalProfile, 'deleteMany').mockRejectedValueOnce(primaryLost());
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+    run.resume();
+
+    expect(await run.outcome).toMatchObject({ code: 'health_projection_pending', statusCode: 503 });
+    // One closed-token line, no user reference and no value: what an operator needs to look again.
+    expect(errors.mock.calls.map((call) => call.join(' '))).toContain(
+      '[healthProjection] orphan-rule reason=provider_not_current outcome=failed error=MongoServerSelectionError',
+    );
+    // The run's own writes are still undone, and its marker is discharged.
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it('RA-2: an after-fence read error keeps the pending authoritative rows for the next pass', async () => {
     const owner = await appleUserWithGrant();
     const row = await pendingRestingHr(owner, 'f');
     const projection = holdCreate(VitalSample);
 
-    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    const run = settle(reconcileHealthSamples(owner._id, 'apple_health'));
     await projection.entered;
     projection.commit();
     await projection.committed;
     const fenceReads = failFenceReads();
     projection.resume();
 
-    const outcome = await settle(run);
+    const outcome = await run;
     // Fail closed on the run's own writes: its projection and the profile it created are undone.
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
@@ -286,19 +342,12 @@ describe('v2 reconcile refusals (resilience audit of #256)', () => {
     const owner = await appleUserWithGrant();
     await derivedAggregates(owner);
     await pendingRestingHr(owner, 'd');
-    const projection = holdCreate(VitalSample);
 
-    const run = reconcileHealthSamples(owner._id, 'apple_health');
-    await expect(eraseAroundWrite(owner, projection)).resolves.toMatchObject({
-      healthSamples: 1,
-      vitalSamples: 0,
-      medicalProfiles: 0,
-      morningStates: 0,
-    });
+    const run = await reconcileAcrossDisconnect(owner);
     failFenceReads();
-    projection.resume();
+    run.resume();
 
-    const outcome = await settle(run);
+    const outcome = await run.outcome;
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
     expect(await MorningState.countDocuments({ userId: owner._id })).toBe(0);
@@ -311,18 +360,11 @@ describe('v2 ingest refusals (resilience audit of #256)', () => {
   it('RA-1: a disconnect inside an ingest leaves no profile once the refusal has removed the staged row', async () => {
     const owner = await appleUserWithGrant();
     await derivedAggregates(owner);
-    const staged = holdCreate(HealthSample);
 
-    const ingest = ingestV2Batch(owner._id, 'healthkit', [heartRateUpsert]);
-    // The staged row did not exist at the erasure's delete, and its count saw it.
-    await expect(eraseAroundWrite(owner, staged)).resolves.toMatchObject({
-      healthSamples: 0,
-      medicalProfiles: 0,
-      morningStates: 0,
-    });
-    staged.resume();
+    const ingest = await ingestAcrossDisconnect(owner);
+    ingest.resume();
 
-    await expect(ingest).rejects.toMatchObject({ code: 'wearable_connection_changed', statusCode: 409 });
+    expect(await ingest.outcome).toMatchObject({ code: 'wearable_connection_changed', statusCode: 409 });
     expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
     expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
@@ -330,32 +372,45 @@ describe('v2 ingest refusals (resilience audit of #256)', () => {
     expect(enqueue).not.toHaveBeenCalled();
   });
 
+  it('RA-1: a failing orphan rule after an ingest refusal answers the retryable 503', async () => {
+    const owner = await appleUserWithGrant();
+    await derivedAggregates(owner);
+
+    const ingest = await ingestAcrossDisconnect(owner);
+    jest.spyOn(MedicalProfile, 'deleteMany').mockRejectedValueOnce(primaryLost());
+    ingest.resume();
+
+    expect(await ingest.outcome).toMatchObject({ code: 'health_projection_pending', statusCode: 503 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+  });
+
   it('RA-1: the repair pass that removes a refused batch\'s staged row leaves no profile behind', async () => {
     const owner = await appleUserWithGrant();
     await derivedAggregates(owner);
-    const staged = holdCreate(HealthSample);
-
-    const ingest = ingestV2Batch(owner._id, 'healthkit', [heartRateUpsert]);
-    await expect(eraseAroundWrite(owner, staged)).resolves.toMatchObject({
-      healthSamples: 0,
-      medicalProfiles: 0,
-      morningStates: 0,
-    });
-    // The batch's own cleanup fails twice, at its refusal and in its catch, so the staged row and
-    // the aborted journal are left for the repair pass.
-    const deleteMany = jest.spyOn(HealthSample, 'deleteMany')
-      .mockRejectedValueOnce(new Error('temporary mongo failure'))
-      .mockRejectedValueOnce(new Error('temporary mongo failure'));
-    staged.resume();
-
-    await expect(ingest).rejects.toThrow('temporary mongo failure');
-    expect(await HealthSample.countDocuments({ userId: owner._id, ingestState: 'staged' })).toBe(1);
-    expect(await HealthIngestBatch.countDocuments({ userId: owner._id, status: 'aborted' })).toBe(1);
-    deleteMany.mockRestore();
+    await abortedAcrossDisconnect(owner);
 
     await expect(recoverStagedHealthSamples({ userId: owner._id }))
       .resolves.toEqual({ recovered: 0, removed: 1, failed: 0 });
     expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await MorningState.countDocuments({ userId: owner._id })).toBe(0);
+  });
+
+  it('RA-1: a failing orphan rule in the repair pass keeps the journal, and the next pass applies it', async () => {
+    const owner = await appleUserWithGrant();
+    await derivedAggregates(owner);
+    await abortedAcrossDisconnect(owner);
+
+    jest.spyOn(MedicalProfile, 'deleteMany').mockRejectedValueOnce(primaryLost());
+    await expect(recoverStagedHealthSamples({ userId: owner._id }))
+      .resolves.toEqual({ recovered: 0, removed: 1, failed: 1 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id, status: 'aborted' })).toBe(1);
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(1);
+
+    await expect(recoverStagedHealthSamples({ userId: owner._id }))
+      .resolves.toEqual({ recovered: 0, removed: 0, failed: 0 });
     expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
     expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
     expect(await MorningState.countDocuments({ userId: owner._id })).toBe(0);
