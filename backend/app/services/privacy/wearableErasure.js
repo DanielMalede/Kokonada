@@ -69,17 +69,15 @@ async function clearOwnedHealthProjection(userId, provider) {
 // Both counts are pinned to the PRIMARY, like ConsentRecord.latestFor: they must see the delete that
 // runs just before them (the erasure's own, or the compensation's), and a lagging secondary would
 // still count that row and keep the aggregates. Proven in tests/consentPrimaryRead.integration.test.js.
-async function purgeOrphanedAggregates(userId, { preserveMedicalProfile = false } = {}) {
+async function purgeOrphanedAggregates(userId) {
   let medicalProfiles = 0;
   let morningStates = 0;
   const remaining = await BiometricLog.countDocuments({ userId }).read('primary')
     + await HealthSample.countDocuments({ userId }).read('primary')
     + await VitalSample.countDocuments({ userId }).read('primary');
   if (remaining === 0) {
-    if (!preserveMedicalProfile) {
-      const med = await MedicalProfile.deleteMany({ userId });
-      medicalProfiles = med?.deletedCount ?? 0;
-    }
+    const med = await MedicalProfile.deleteMany({ userId });
+    medicalProfiles = med?.deletedCount ?? 0;
     const morning = await MorningState.deleteMany({ userId });
     morningStates = morning?.deletedCount ?? 0;
   }
@@ -108,11 +106,11 @@ async function purgeWearableData(userId, provider) {
   const healthProfileProjections = await clearOwnedHealthProjection(userId, provider);
 
   // 2. The derived aggregates (MedicalProfile, MorningState) — see purgeOrphanedAggregates.
-  const { medicalProfiles, morningStates } = await purgeOrphanedAggregates(userId, {
-    // Apple fields have explicit provenance and were cleared above. The shared profile can also
-    // carry legacy/manual fields (for example maxHeartRate), which an Apple disconnect does not own.
-    preserveMedicalProfile: provider === 'apple_health',
-  });
+  //    No provider is exempt (BE-144): every value on this profile is wearable-derived, so a
+  //    profile left with no sample behind it is erased whole, whichever provider went last. That
+  //    holds only while a user-entered value is never stored on this profile; one that must
+  //    survive a disconnect belongs in a store of its own.
+  const { medicalProfiles, morningStates } = await purgeOrphanedAggregates(userId);
 
   // 2b. RewardEvent (W4-011, ADR-0012 Track A, S5) is registered here as a DELIBERATE
   //     EXCLUSION, and the reasoning is the point rather than the omission. It looks like the
