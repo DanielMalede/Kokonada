@@ -27,6 +27,7 @@
 // vacuously, so the parser must keep finding the real jobs by name.
 //
 // The coordination check (coordination.yml, OPS-153) has its own pins at the end of this file.
+// The runner image of every job (OPS-191) is pinned between the two, through the same parser.
 
 const fs = require('fs');
 const os = require('os');
@@ -107,8 +108,28 @@ function grantedLevel(perms, scope) {
   return perms[scope] || 'none';
 }
 
-function parseWorkflow(file) {
-  const lines = fs.readFileSync(path.join(WORKFLOW_DIR, file), 'utf8').split(/\r?\n/);
+// What a job's `runs-on` holds (OPS-191): { label } when it is one literal runner label, quoted or
+// not, with or without a comment after it; otherwise { unreadable }, saying what is there instead.
+function readRunsOn(lines, headerIdx) {
+  const at = findDirectKey(lines, headerIdx, 'runs-on');
+  if (at === undefined) return { unreadable: 'has no runs-on' };
+  const raw = lines[at].replace(/^\s*runs-on:\s*/, '').replace(/\s+#.*$/, '').trim();
+  const label = raw.replace(/^(['"])(.*)\1$/, '$2');
+  if (/^[A-Za-z0-9][\w.-]*$/.test(label)) return { label };
+  return {
+    unreadable: raw
+      ? `has runs-on: ${raw}, not one literal label`
+      : 'has runs-on with no value on its line (a list, a group, or nothing), not one literal label',
+  };
+}
+
+// A job's key directly under `jobs:`: the one shape this parser reads as a job.
+const JOB_KEY = /^\s*[\w-]+:\s*(#.*)?$/;
+// `jobs:` alone on its line, its jobs on the lines below: the one shape this parser reads jobs from.
+const JOBS_HEADER = /^\s*jobs:\s*(#.*)?$/;
+
+function parseWorkflow(file, text) {
+  const lines = text.split(/\r?\n/);
 
   const onIdx = findDirectKey(lines, -1, 'on');
   const onInline = onIdx === undefined ? '' : lines[onIdx].replace(/^\s*on:\s*/, '').trim();
@@ -117,23 +138,33 @@ function parseWorkflow(file) {
     : directChildIndices(lines, onIdx).map((i) => (lines[i].match(/^\s*([a-z_]+):/) || [])[1]).filter(Boolean);
 
   const jobsIdx = findDirectKey(lines, -1, 'jobs');
-  const jobs = directChildIndices(lines, jobsIdx)
-    .filter((i) => /^\s*[\w-]+:\s*(#.*)?$/.test(lines[i]))
+  const jobKeys = directChildIndices(lines, jobsIdx);
+  const jobs = jobKeys
+    .filter((i) => JOB_KEY.test(lines[i]))
     .map((i) => ({
       id: lines[i].trim().replace(/:.*$/, ''),
       permissions: readPermissions(lines, i),
+      runsOn: readRunsOn(lines, i),
       checksOut: blockIndices(lines, i).some((j) => /uses:\s*actions\/checkout(@|\s|$)/.test(lines[j])),
       uses: blockIndices(lines, i)
         .map((j) => (lines[j].match(/uses:\s*(\S+)/) || [])[1])
         .filter(Boolean),
     }));
+  // A line under `jobs:` that is not such a key (a quoted id, a job written inline), and a `jobs:` line
+  // that holds its value itself (`jobs: { build: … }`, `jobs: *all`), hold jobs no pin in this file can
+  // see; the runner-image guard reports each rather than skipping it.
+  const unreadJobs = [
+    ...(JOBS_HEADER.test(lines[jobsIdx]) ? [] : [jobsIdx]),
+    ...jobKeys.filter((i) => !JOB_KEY.test(lines[i])),
+  ].map((i) => lines[i].trim());
 
-  return { file, triggers, permissions: readPermissions(lines, -1), jobs };
+  return { file, triggers, permissions: readPermissions(lines, -1), jobs, unreadJobs };
 }
 
+// The lower-case .yml and .yaml files; a test below fails on any other entry of the directory.
 const WORKFLOWS = fs.readdirSync(WORKFLOW_DIR)
   .filter((f) => /\.ya?ml$/.test(f))
-  .map(parseWorkflow);
+  .map((f) => parseWorkflow(f, fs.readFileSync(path.join(WORKFLOW_DIR, f), 'utf8')));
 
 describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
   it('finds the real workflows and jobs — the guard is not passing vacuously', () => {
@@ -164,6 +195,13 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
       .map((j) => j.id)
       .sort();
     expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile']);
+  });
+
+  it('reads every entry of the workflows directory, so none escapes these pins', () => {
+    // WORKFLOWS takes the lower-case .yml and .yaml files GitHub documents. Whether GitHub also runs a
+    // `deploy.YML` is not this file's to guess, so an entry the filter leaves out (another case, another
+    // extension, a folder) fails here, to be renamed or moved out, instead of passing every pin unread.
+    expect(fs.readdirSync(WORKFLOW_DIR).sort()).toEqual(WORKFLOWS.map((w) => w.file).sort());
   });
 
   it.each(WORKFLOWS.map((w) => [w.file]))(
@@ -222,6 +260,127 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
       expect(wf.permissions && wf.permissions.mode).not.toBe('write-all');
       expect(grantedLevel(wf.permissions, 'contents')).not.toBe('write');
     }
+  });
+});
+
+// ---- the runner image of every job (OPS-191) -----------------------------------------------------
+//
+// GitHub's notice on run 38036165461 (Coordination, 2026-10-10): "The ubuntu-latest label will
+// migrate to Ubuntu 26 beginning October 19, 2026" (actions/runner-images#14748). A label that moves
+// changes the image under every job that names it while no line of this repository changes: the
+// failure mode of the 2026-08-20 incident above, where something outside every diff decided what CI
+// did. So every Ubuntu job names its image, and moving to Ubuntu 26 is a reviewed change of
+// UBUNTU_IMAGE and of the workflows, made once a run on ubuntu-26.04 is green. What is pinned:
+//   · every job's `runs-on` is one literal label. A missing one, an expression (`${{ matrix.os }}`),
+//     a list, a `group:` or an alias leaves the image to something this parser cannot read, so each
+//     fails the guard instead of being skipped, and so does a line under `jobs:` the parser cannot read
+//     as a job, and a `jobs:` line that holds its jobs itself. A reusable-workflow call has no `runs-on`
+//     of its own: adding one means teaching this guard to read the workflow it calls;
+//   · every workflow yields a job, or a line it cannot read, so no file passes on nothing read;
+//   · a label that names Ubuntu is exactly UBUNTU_IMAGE: not ubuntu-latest, not another release, not
+//     an -arm variant or another spelling; and UBUNTU_IMAGE is itself a numbered release, so the pin
+//     cannot be pointed at a label that moves;
+//   · the Ubuntu jobs are found by name, so the guard cannot pass on none;
+//   · mobile-ios-build, on macos-latest, is the one runner outside this pin, and it is named, so a new
+//     one is a change to this file.
+
+const UBUNTU_IMAGE = 'ubuntu-24.04';
+const namesUbuntu = (runsOn) => Boolean(runsOn.label) && /ubuntu/i.test(runsOn.label);
+
+// Every way the workflows break the pin, one line each.
+function runnerFailures(workflows) {
+  const failures = [];
+  for (const wf of workflows) {
+    for (const line of wf.unreadJobs) failures.push(`${wf.file}: cannot read a job from this line under jobs: ${line}`);
+    for (const job of wf.jobs) {
+      if (job.runsOn.unreadable) failures.push(`${wf.file} job "${job.id}" ${job.runsOn.unreadable}`);
+      else if (namesUbuntu(job.runsOn) && job.runsOn.label !== UBUNTU_IMAGE) {
+        failures.push(`${wf.file} job "${job.id}" runs on ${job.runsOn.label}, not ${UBUNTU_IMAGE}`);
+      }
+    }
+  }
+  return failures;
+}
+
+// Every job of the real workflows, as `<file> <job>`, beside what its runs-on holds.
+const RUNNERS = WORKFLOWS.flatMap((wf) => wf.jobs.map((job) => ({ at: `${wf.file} ${job.id}`, runsOn: job.runsOn })));
+
+// A workflow of the given lines under `jobs:`, through the same parser, for the shapes the real
+// workflows do not hold today.
+const probe = (jobLines) => parseWorkflow('probe.yml', ['on: push', 'jobs:', ...jobLines].join('\n'));
+
+describe('CI runner images (OPS-191)', () => {
+  it('pins a numbered Ubuntu release, never a label that moves', () => {
+    expect(UBUNTU_IMAGE).toMatch(/^ubuntu-\d{2}\.\d{2}$/);
+  });
+
+  it(`runs every Ubuntu job on ${UBUNTU_IMAGE}, and reads the runs-on of every job`, () => {
+    expect(runnerFailures(WORKFLOWS)).toEqual([]);
+  });
+
+  it.each(WORKFLOWS.map((w) => [w.file]))('reads at least one job from %s, or reports what it cannot read', (file) => {
+    const wf = WORKFLOWS.find((w) => w.file === file);
+    expect(wf.jobs.length + wf.unreadJobs.length).toBeGreaterThan(0);
+  });
+
+  it('finds the Ubuntu jobs it pins, so it cannot pass on none', () => {
+    expect(RUNNERS.filter((r) => namesUbuntu(r.runsOn)).map((r) => r.at).sort()).toEqual([
+      'ci.yml backend',
+      'ci.yml ios-changes',
+      'ci.yml mobile',
+      'ci.yml mobile-android-compile',
+      'ci.yml secret-scan',
+      'coordination.yml coordination',
+      'secret-scan-history.yml gitleaks-history',
+    ]);
+  });
+
+  it('leaves one runner outside the pin: macos-latest, on mobile-ios-build', () => {
+    expect(RUNNERS.filter((r) => !namesUbuntu(r.runsOn)).map((r) => `${r.at}: ${r.runsOn.label || r.runsOn.unreadable}`))
+      .toEqual(['ci.yml mobile-ios-build: macos-latest']);
+  });
+
+  it.each([
+    ['passes the pinned image', ['runs-on: ubuntu-24.04'], []],
+    ['passes the pinned image quoted, with a comment', ["runs-on: 'ubuntu-24.04'  # pinned"], []],
+    ['leaves a runner that is not Ubuntu to the pin above', ['runs-on: macos-latest'], []],
+    ['fails ubuntu-latest', ['runs-on: ubuntu-latest'], ['probe.yml job "probe" runs on ubuntu-latest, not ubuntu-24.04']],
+    ['fails the next release', ['runs-on: ubuntu-26.04'], ['probe.yml job "probe" runs on ubuntu-26.04, not ubuntu-24.04']],
+    ['fails an -arm variant', ['runs-on: ubuntu-24.04-arm'], ['probe.yml job "probe" runs on ubuntu-24.04-arm, not ubuntu-24.04']],
+    ['fails another spelling', ['runs-on: Ubuntu-24.04'], ['probe.yml job "probe" runs on Ubuntu-24.04, not ubuntu-24.04']],
+    ['fails an expression', ['runs-on: ${{ matrix.os }}'], ['probe.yml job "probe" has runs-on: ${{ matrix.os }}, not one literal label']],
+    ['fails a list', ['runs-on: [self-hosted, linux]'], ['probe.yml job "probe" has runs-on: [self-hosted, linux], not one literal label']],
+    ['fails a list on the lines below', ['runs-on:', '  - ubuntu-24.04'], [
+      'probe.yml job "probe" has runs-on with no value on its line (a list, a group, or nothing), not one literal label',
+    ]],
+    ['fails a runner group', ['runs-on:', '  group: large-runners'], [
+      'probe.yml job "probe" has runs-on with no value on its line (a list, a group, or nothing), not one literal label',
+    ]],
+    ['fails an alias', ['runs-on: *runner'], ['probe.yml job "probe" has runs-on: *runner, not one literal label']],
+    ['fails a job with no runs-on', ['steps: []'], ['probe.yml job "probe" has no runs-on']],
+    ['fails a reusable-workflow call', ['uses: ./.github/workflows/build.yml'], ['probe.yml job "probe" has no runs-on']],
+    // A runs-on among the call's inputs is the called workflow's to use or ignore, not the job's runner.
+    ['fails a reusable-workflow call whose inputs name a runner', [
+      'uses: org/repo/.github/workflows/build.yml@v1', 'with:', '  runs-on: ubuntu-24.04',
+    ], ['probe.yml job "probe" has no runs-on']],
+  ])('%s', (_case, body, failures) => {
+    expect(runnerFailures([probe(['  probe:', ...body.map((l) => `    ${l}`)])])).toEqual(failures);
+  });
+
+  it.each([
+    ['a quoted job id', ['  "build":', '    runs-on: ubuntu-latest'], 'probe.yml: cannot read a job from this line under jobs: "build":'],
+    ['a job written inline', ['  build: { runs-on: ubuntu-latest }'],
+      'probe.yml: cannot read a job from this line under jobs: build: { runs-on: ubuntu-latest }'],
+  ])('fails %s, which the parser cannot read, instead of skipping it', (_case, jobLines, failure) => {
+    expect(runnerFailures([probe(jobLines)])).toEqual([failure]);
+  });
+
+  it.each([
+    ['a flow mapping', 'jobs: { build: { runs-on: ubuntu-latest } }'],
+    ['an alias', 'jobs: *all'],
+  ])('fails jobs written on the jobs: line itself (%s) instead of passing on no job', (_case, jobsLine) => {
+    expect(runnerFailures([parseWorkflow('probe.yml', `on: push\n${jobsLine}`)]))
+      .toEqual([`probe.yml: cannot read a job from this line under jobs: ${jobsLine}`]);
   });
 });
 
