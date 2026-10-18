@@ -44,7 +44,6 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 |---|---|---|---|---|
 | `OAUTH_AUTH_TROUBLESHOOTING.md` | Web-app login failure report (Vercel and Facebook OAuth) | 2026-06-22 | `7dfbb6232ad1f664a63fa9f24e3854f115112394` | PR 1 of the md reorganisation (OPS-270) |
 | `UI_UX_MASTER_PLAN.md` | UI plan of the deleted React web app (shadcn, Tailwind) | 2026-06 | `0b10c99961319704472780a54f1bfd468ab13801` | PR 1 of the md reorganisation (OPS-270) |
-| `HANDOFF_2026-10-08_BEDRACK.md` | Handoff to the partner; superseded on 2026-10-18 (DEC-185) | 2026-10-08 | `1acf5c2aa03ebc185a9bfe10a0ea81f4b5a3296c` | PR 1 of the md reorganisation (OPS-270) |
 | `docs/HANDOFF_2026-09-23.md` | Handoff from a design session: branch cleanup and TASKS drift | 2026-09-23 | `c45b2bd7e0f17f5a92ecd5eb2547902a8d509a56` | PR 1 of the md reorganisation (OPS-270) |
 | `docs/DEPLOYMENT_OAUTH_CONFIG.md` | Railway, Vercel and provider-console OAuth values of the web era (Vercel deleted, DAN-002) | 2026-06 | `14d8fc5a6d7ba4aa96660f8089c6be50afac31a8` | PR 1 of the md reorganisation (OPS-270) |
 | `docs/GROUND_TRUTH_2026-07-07.md` | Measured-facts brief, phase 1; succeeded by GROUND_TRUTH_2026-09-02 | 2026-07-07 | `90bfc5e1b92d021606c34753d62a5f37dbd7b5df` | PR 1 of the md reorganisation (OPS-270) |
@@ -108,7 +107,7 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 | `docs/pre-sideload-checklist.md` | docs/WEB_SUNSET_D5_GAP_SCAN_2026-07-08.md (deleted above) | A web-era checklist; never tracked | never tracked |
 | `docs/design-v2/LEDGER.md` | docs/design-v2/research/2026-09-23/critique.md | A proposed design-v2 ledger that became WORK_LEDGER.md; never tracked | never tracked |
 | `docs/audits/custodian/LEDGER.md` | .claude/agents/custodian.md | The custodian's append-only ledger; not written yet (future) | never tracked |
-| `.claude/commands/build-screen.md` | docs/plans/DESIGN_V2_PLAN.md | The v1 screen-building command, replaced by /page | `b9639c5` |
-| `.claude/commands/wave2.md` | docs/design-v2/research/2026-09-23/critique.md | The Wave-2 command of the v1 era | `b9639c5` |
+| `.claude/commands/build-screen.md` | docs/plans/DESIGN_V2_PLAN.md | The v1 screen-building command, replaced by /page | `442d5758e243561a3a7da944bb31136c80944b37` |
+| `.claude/commands/wave2.md` | docs/design-v2/research/2026-09-23/critique.md | The Wave-2 command of the v1 era | `442d5758e243561a3a7da944bb31136c80944b37` |
 | `.claude/worktrees/sentinel/WEAKNESSES_AND_FAILURES.md` | TASKS.md (OPS-213) | The sentinel's worktree copy of the root file; a worktree path, never a tracked file | never tracked |
 | `docs/adr/ADR-0012-learning-compliance.md` | docs/plans/WAVE4_STATE.md, docs/plans/WAVE4_INTELLIGENCE_MISSION.md (deleted above) | A misspelt name; the file is `docs/adr/0012-learning-compliance.md` | never tracked under this name |
