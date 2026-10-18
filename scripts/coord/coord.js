@@ -844,7 +844,7 @@ function cmdCi(cwd, flags) {
   const ref = remoteRef(b);
   if (!git.refExists(ctx.root, ref)) throw cannotVerify(`cannot verify: origin/${b} does not exist after the fetch`);
   const base = git.mergeBase(ctx.root, MAIN, ref);
-  const { footprints } = gather(ctx, { useGh: true, requireGh: true });
+  const { footprints, stats } = gather(ctx, { useGh: true, requireGh: true });
   const result = C.ciEvaluate({
     rules: ctx.rules,
     author,
@@ -857,11 +857,16 @@ function cmdCi(cwd, flags) {
     mode,
     now: ctx.now,
   });
+  // The Coordination check runs unattended, so its job summary carries the notes too: a run in the
+  // fallback, or one that judged a branch on its dates alone, says so where the check is read.
+  const notes = notesOf(stats);
   out(R.renderCi(result, { branch: b, author: author.login }));
+  for (const n of notes) out(n);
   if (ctx.note) out(ctx.note);
   if (process.env.GITHUB_STEP_SUMMARY) {
     try {
-      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, R.ciMarkdown(result, { branch: b, author: author.login }), 'utf8');
+      const summary = R.ciMarkdown(result, { branch: b, author: author.login }) + notes.map((n) => `${n}\n\n`).join('');
+      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary, 'utf8');
     } catch { /* the summary is a convenience; the exit code is the gate */ }
   }
   return C.exitCodeOf(result.verdict);
