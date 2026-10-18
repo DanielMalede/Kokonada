@@ -377,14 +377,14 @@ Outputs are four lists: must show (disclosures), must not claim, allowed to draw
 | E12 | c:\Users\danie\Videos\Kokonada\docs\canvas\Tokens.dc.html |
 | E13 | c:\Users\danie\Videos\Kokonada\docs\canvas\Main.dc.html |
 | E14 | c:\Users\danie\Videos\Kokonada\docs\canvas\Flow.dc.html |
-| E15 | c:\Users\danie\Videos\Kokonada\docs\superpowers\specs\2026-07-13-discovery-ui-visual-direction.md |
+| E15 | c:\Users\danie\Videos\Kokonada\docs\superpowers\specs\2026-07-13-discovery-ui-visual-direction.md (deleted; see docs/ARCHIVE.md) |
 | E16 | c:\Users\danie\Videos\Kokonada\docs\canvas\Plan.dc.html |
 | E17 | c:\Users\danie\Videos\Kokonada\mobile\KokonadaHealth\src\navigation\EmotionTabBar.tsx |
-| E18 | c:\Users\danie\Videos\Kokonada\docs\plans\DECISION_TWO_LOBE_FIELD.md |
+| E18 | c:\Users\danie\Videos\Kokonada\docs\plans\DECISION_TWO_LOBE_FIELD.md (deleted; see docs/ARCHIVE.md) |
 | E19 | c:\Users\danie\Videos\Kokonada\mobile\KokonadaHealth\src\experience\aura\auraBreath.ts |
-| E20 | c:\Users\danie\Videos\Kokonada\docs\plans\CANVAS_SCALE_AUDIT.md |
+| E20 | c:\Users\danie\Videos\Kokonada\docs\plans\CANVAS_SCALE_AUDIT.md (deleted; see docs/ARCHIVE.md) |
 | E21 | c:\Users\danie\Videos\Kokonada\docs\plans\LEGAL_AI_ACT_EMOTION_RECOGNITION.md |
-| E22 | c:\Users\danie\Videos\Kokonada\docs\plans\DEV_AMBIENT_FIELD_SCOPE_AND_DEGRADATION.md |
+| E22 | c:\Users\danie\Videos\Kokonada\docs\plans\DEV_AMBIENT_FIELD_SCOPE_AND_DEGRADATION.md (deleted; see docs/ARCHIVE.md) |
 | E23 | c:\Users\danie\Videos\Kokonada\docs\review\06-generate.html |
 | E24 | c:\Users\danie\Videos\Kokonada\mobile\KokonadaHealth\src\experience\aura\BioAura.tsx |
 | E25 | c:\Users\danie\Videos\Kokonada\mobile\KokonadaHealth\src\experience\aura\BreathingGlow.tsx |
@@ -400,5 +400,5 @@ Outputs are four lists: must show (disclosures), must not claim, allowed to draw
 Also relevant:
 - c:\Users\danie\Videos\Kokonada\docs\adr\0009-calm-bioluminescent-design-language.md
 - c:\Users\danie\Videos\Kokonada\docs\adr\0016-launch-platform.md
-- c:\Users\danie\Videos\Kokonada\UI_UX_MASTER_PLAN.md (this describes the retired shadcn/Tailwind web plan; custodian should archive it)
+- c:\Users\danie\Videos\Kokonada\UI_UX_MASTER_PLAN.md (deleted; see docs/ARCHIVE.md) (this describes the retired shadcn/Tailwind web plan; custodian should archive it)
 - c:\Users\danie\Videos\Kokonada\docs\canvas\GeneralSans-Semibold.otf (second font copy; licence check needed)

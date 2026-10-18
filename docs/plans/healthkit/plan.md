@@ -1,4 +1,159 @@
-# HealthKit Authoritative Sample Store Implementation Plan
+---
+status: living
+verified: 2026-10-18
+---
+
+# HealthKit implementation plans (MB-900)
+
+The two implementation plans of the iOS HealthKit lane (`MB-900`), in dependency order. Each plan implements the design of the same name in `docs/plans/healthkit/design.md`. Text kept verbatim with headings one level down.
+
+| Plan | Date | Status | TASKS rows |
+|---|---|---|---|
+| [HealthKit Contract Foundation Implementation Plan](#contract-foundation) | — | — | `MB-900` |
+| [HealthKit Authoritative Sample Store Implementation Plan](#authoritative-sample-store) | — | — | — |
+
+---
+
+<a id="contract-foundation"></a>
+## HealthKit Contract Foundation Implementation Plan
+_Was `docs/superpowers/plans/2026-10-06-healthkit-contract-foundation.md` until 2026-10-18 (`docs/ARCHIVE.md` § Moved); its history is under that path._
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add a backward-compatible, versioned HealthKit batch contract that validates stable sample identity and HRV method while refusing unimplemented deletions atomically.
+
+**Architecture:** A pure contract parser owns envelope validation and produces the legacy `(platform, samples)` input consumed by the existing normalizer. The controller calls it before persistence and decorates only v2 responses with operational identity. Existing Health Connect requests bypass new strict sample rules and retain their current behavior.
+
+**Tech Stack:** Node.js, Express, Jest, existing wearable services; no new dependency.
+
+**Spec:** `docs/plans/healthkit/design.md#data-contract`
+
+### Global Constraints
+
+- Preserve the existing unversioned Health Connect request and response.
+- Keep the 2,000-sample cap.
+- Do not add a HealthKit dependency, entitlement, permission string or new metric.
+- Do not log or echo physiological values, sample IDs, timestamps or device/source metadata.
+- Reject a batch containing any delete before any write.
+- HRV v2 requires `sdnn` on HealthKit and `rmssd` on Health Connect.
+- Every production behavior starts with a failing test and finishes with the full backend suite and lint.
+
+### Review Focus
+
+- A mixed upsert/delete batch must perform zero writes, even when the delete is last.
+- A legacy Health Connect caller must receive the same response shape as before.
+- A malformed v2 batch must not fall through to the tolerant legacy normalizer.
+- HRV method/platform mismatch must fail before persistence.
+- Error and receipt logs must not expose fields copied from a sample.
+
+---
+
+#### Task 1: Pure health-batch contract
+
+**Files:**
+- Create: `backend/app/services/wearable/healthBatchContract.js`
+- Create: `backend/tests/healthBatchContract.test.js`
+
+**Interfaces:**
+- Consumes: raw `req.body`.
+- Produces: `parseHealthBatchRequest(body) -> { version, platform, batchId, samples }`; throws an error with stable `code` and HTTP `statusCode` (`400` for invalid input, `501` plus `health_delete_not_implemented` for any delete).
+
+- [x] **Step 1: Write failing contract tests**
+
+Test legacy passthrough, valid v2 HealthKit HR/SDNN samples, unknown schema versions, malformed UUIDs/timestamps, more than 2,000 samples, HRV method mismatch, and atomic refusal of a mixed delete batch. Assert errors by `code`, never by submitted value.
+
+- [x] **Step 2: Run the new test file and verify RED**
+
+Run: `npm test -- --runTestsByPath tests/healthBatchContract.test.js`
+
+Expected: FAIL because `healthBatchContract` does not exist.
+
+- [x] **Step 3: Implement the minimal pure parser**
+
+Implement `parseHealthBatchRequest(body)` without a new package. Preserve the original samples array for valid requests; scan and validate the entire v2 batch before returning.
+
+- [x] **Step 4: Run the contract tests and verify GREEN**
+
+Run: `npm test -- --runTestsByPath tests/healthBatchContract.test.js`
+
+Expected: all contract tests pass with no console errors or warnings.
+
+#### Task 2: Controller integration and response compatibility
+
+**Files:**
+- Modify: `backend/app/controllers/integrationsController.js`
+- Modify: `backend/tests/integrations.test.js`
+- Modify: `backend/tests/wave4.ingestLogZeroKnowledge.test.js`
+
+**Interfaces:**
+- Consumes: `parseHealthBatchRequest` from Task 1.
+- Produces: legacy response unchanged; v2 response adds `{ schemaVersion: 2, batchId }`.
+
+- [x] **Step 1: Write failing controller tests**
+
+Assert valid v2 forwarding, legacy response compatibility, invalid/delete batches performing zero `healthStore.ingestBatch` calls, stable status/code responses, and logs containing no sample identity or values.
+
+- [x] **Step 2: Run the focused tests and verify RED**
+
+Run: `npm test -- --runTestsByPath tests/integrations.test.js tests/wave4.ingestLogZeroKnowledge.test.js`
+
+Expected: new v2 assertions fail against the current controller.
+
+- [x] **Step 3: Wire the parser before persistence**
+
+Call `parseHealthBatchRequest(req.body)`, pass its platform and samples to `healthStore.ingestBatch`, and decorate only versioned responses. Map stable contract errors directly without exposing raw input.
+
+- [x] **Step 4: Run the focused tests and verify GREEN**
+
+Run: `npm test -- --runTestsByPath tests/integrations.test.js tests/wave4.ingestLogZeroKnowledge.test.js`
+
+Expected: both suites pass with no newly introduced log leakage.
+
+#### Task 3: Baseline cleanup and complete verification
+
+**Files:**
+- Modify: `backend/tests/healthStore.test.js`
+- Modify: `TASKS.md`
+
+**Interfaces:**
+- Consumes: the existing `VitalSample` persistence call exercised by `healthStore.test.js`.
+- Produces: a truthful test fixture that follows the successful persistence path instead of swallowing a mocked CastError; MB-900 remains open with this increment recorded.
+
+- [x] **Step 1: Pin the false-green fixture behavior**
+
+Add the `VitalSample` mock used by the real health-store path and assert that an accepted resting-HR/HRV batch actually calls `VitalSample.insertMany`.
+
+- [x] **Step 2: Run the focused health suites**
+
+Run: `npm test -- --runTestsByPath tests/healthStoreAdapter.test.js tests/healthStore.test.js tests/healthStoreConsentVersionGate.test.js tests/integrationsConsentGate.test.js tests/healthBatchContract.test.js tests/integrations.test.js tests/wave4.ingestLogZeroKnowledge.test.js`
+
+Expected: all focused suites pass without the current swallowed `CastError` console output.
+
+- [x] **Step 3: Record the completed increment without closing MB-900**
+
+Add a dated MB-900 update listing the implemented contract foundation and explicitly naming persistent identity, tombstones and iOS integration as remaining.
+
+- [x] **Step 4: Run complete verification**
+
+Run: `npm test`
+
+Expected: all backend suites pass.
+
+Run: `npm run lint`
+
+Expected: exit 0 with no lint errors.
+
+Run: `git diff --check`
+
+Expected: no whitespace errors.
+
+- [x] **Step 5: Commit only after verification**
+
+Commit the task row, spec, plan, tests and implementation together with a short single-line message. Do not push or open a PR without Bedrack's explicit instruction.
+
+<a id="authoritative-sample-store"></a>
+## HealthKit Authoritative Sample Store Implementation Plan
+_Was `docs/superpowers/plans/2026-10-06-healthkit-authoritative-sample-store.md` until 2026-10-18 (`docs/ARCHIVE.md` § Moved); its history is under that path._
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,9 +163,9 @@
 
 **Tech Stack:** Node.js 24, Express 5, Mongoose 9, MongoDB, Jest 29, mongodb-memory-server, BullMQ/Redis, AES-256-GCM encrypted fields, rotation-aware HMAC blind indexes.
 
-**Spec:** `docs/superpowers/specs/2026-10-06-healthkit-authoritative-sample-store-design.md`
+**Spec:** `docs/plans/healthkit/design.md#authoritative-sample-store`
 
-## Global Constraints
+### Global Constraints
 
 - Do not install an iOS package, change HealthKit entitlements, or request device permission in this plan.
 - Legacy unversioned Health Connect behavior and response shape must remain unchanged.
@@ -24,7 +179,7 @@
 - Do not edit `TASKS.md` until Malede's PR #222 is integrated and the branch is rebased.
 - Every commit requires its targeted tests plus the full local CI-equivalent gate below. A pushed commit is not mergeable until all GitHub Actions checks are green.
 
-### Full local CI-equivalent gate before every commit
+#### Full local CI-equivalent gate before every commit
 
 Run from the repository root:
 
@@ -49,7 +204,7 @@ git diff --cached --check
 
 Expected: Node reports v24.x; backend and mobile tests pass; both Design Lab exclusion checks pass; design-system lint does not exceed its baseline; backend lint has zero errors; and both Git whitespace checks print nothing. GitHub's gitleaks job remains the authoritative secret scan; inspect its result before merge.
 
-## Review Focus
+### Review Focus
 
 - Two requests insert the same new UUID concurrently: one authoritative row and one projection must remain.
 - A delete arrives before the corresponding upsert: the tombstone must block later resurrection.
@@ -59,7 +214,7 @@ Expected: Node reports v24.x; backend and mobile tests pass; both Design Lab exc
 
 ---
 
-### Task 1: Safe HealthKit identity and authoritative model
+#### Task 1: Safe HealthKit identity and authoritative model
 
 **Files:**
 - Create: `backend/app/services/wearable/healthSampleIdentity.js`
@@ -112,7 +267,7 @@ git add backend/app/services/wearable/healthSampleIdentity.js backend/app/models
 git commit -m "feat: add authoritative health sample model"
 ```
 
-### Task 2: Idempotent operation repository and tombstones
+#### Task 2: Idempotent operation repository and tombstones
 
 **Files:**
 - Create: `backend/app/services/wearable/healthSampleRepository.js`
@@ -147,7 +302,7 @@ git add backend/app/services/wearable/healthSampleRepository.js backend/tests/he
 git commit -m "feat: persist idempotent health sample operations"
 ```
 
-### Task 3: Idempotent heart-rate and vital projections
+#### Task 3: Idempotent heart-rate and vital projections
 
 **Files:**
 - Modify: `backend/app/models/BiometricLog.js`
@@ -190,7 +345,7 @@ git add backend/app/models/BiometricLog.js backend/app/models/VitalSample.js bac
 git commit -m "feat: project authoritative health time series"
 ```
 
-### Task 4: Method-aware HRV baselines
+#### Task 4: Method-aware HRV baselines
 
 **Files:**
 - Modify: `backend/app/agents/runtime/physiology/baselineEngine.js`
@@ -227,7 +382,7 @@ git add backend/app/agents/runtime/physiology/baselineEngine.js backend/app/serv
 git commit -m "feat: separate SDNN and RMSSD baselines"
 ```
 
-### Task 5: Sleep/profile recomputation and reconciliation service
+#### Task 5: Sleep/profile recomputation and reconciliation service
 
 **Files:**
 - Modify: `backend/app/models/MedicalProfile.js`
@@ -272,7 +427,7 @@ git add backend/app/models/MedicalProfile.js backend/app/services/wearable/healt
 git commit -m "feat: reconcile health samples into derived profiles"
 ```
 
-### Task 6: Crash-repair worker
+#### Task 6: Crash-repair worker
 
 **Files:**
 - Modify: `backend/app/queues/definitions.js`
@@ -313,7 +468,7 @@ git add backend/app/queues/definitions.js backend/app/queues/queue.js backend/ap
 git commit -m "feat: repair pending health projections"
 ```
 
-### Task 7: Route v2 HealthKit through the authoritative lane
+#### Task 7: Route v2 HealthKit through the authoritative lane
 
 **Files:**
 - Modify: `backend/app/services/wearable/healthBatchContract.js`
@@ -361,7 +516,7 @@ git add backend/app/services/wearable/healthBatchContract.js backend/app/service
 git commit -m "feat: enable idempotent HealthKit v2 sync"
 ```
 
-### Task 8: Complete privacy, erasure, export and retention registration
+#### Task 8: Complete privacy, erasure, export and retention registration
 
 **Files:**
 - Modify: `backend/app/services/privacy/erasure.js`
@@ -404,10 +559,10 @@ git add backend/app/services/privacy/erasure.js backend/scripts/gdpr-delete.js b
 git commit -m "feat: cover health samples across privacy lifecycle"
 ```
 
-### Task 9: Final verification and human-gated rollout notes
+#### Task 9: Final verification and human-gated rollout notes
 
 **Files:**
-- Modify: `docs/research/apple-healthkit-integration-research.md`
+- Modify: `docs/plans/healthkit/research.md`
 - Create: `docs/runbooks/health-sample-index-rollout.md`
 - Modify after PR #222 rebase only: `TASKS.md`
 
@@ -450,7 +605,7 @@ Expected: only scoped HealthKit storage/research changes, no secrets, no unrelat
 - [ ] **Step 5: Commit the rollout documentation**
 
 ```powershell
-git add docs/research/apple-healthkit-integration-research.md docs/runbooks/health-sample-index-rollout.md TASKS.md
+git add docs/plans/healthkit/research.md docs/runbooks/health-sample-index-rollout.md TASKS.md
 git commit -m "docs: add HealthKit storage rollout guide"
 ```
 
@@ -458,7 +613,7 @@ git commit -m "docs: add HealthKit storage rollout guide"
 
 Fetch Malede's latest remote work, rebase this branch, resolve the known `TASKS.md` reservation conflict while preserving both sides, rerun the full gate, then push. Open a PR and require all GitHub Actions checks to be green before merge.
 
-### Task 10: Remediate compliance audit blockers
+#### Task 10: Remediate compliance audit blockers
 
 **Files:**
 - Modify: `backend/app/services/wearable/healthSampleReconciliation.js`
