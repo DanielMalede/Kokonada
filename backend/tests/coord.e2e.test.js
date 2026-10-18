@@ -77,7 +77,8 @@ const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : u
 const out = (s) => { save(); process.stdout.write(s); process.exit(0); };
 const fail = (s) => { save(); process.stderr.write(s); process.exit(1); };
 const git = (a) => execFileSync('git', a, { encoding: 'utf8' }).trim();
-const pick = (pr, fields) => Object.fromEntries(fields.split(',').map((f) => [f, pr[f]]));
+// gh always says isCrossRepository; a PR here is from this repository unless a test says otherwise.
+const pick = (pr, fields) => Object.fromEntries(fields.split(',').map((f) => [f, f === 'isCrossRepository' ? pr.isCrossRepository === true : pr[f]]));
 const newestFirst = () => state.prs.slice().sort((a, b) => b.number - a.number);
 // Like GitHub: an OPEN PR's files and head commit follow its branch; a merged or closed PR, or one
 // whose branch is gone, keeps what it had. A rename is listed ONCE, by its new path, as GitHub's
@@ -148,6 +149,13 @@ if (args[0] === 'pr' && args[1] === 'list') {
   const st = (flag('--state') || 'open').toLowerCase();
   let list = newestFirst();
   if (flag('--head')) list = list.filter((p) => p.headRefName === flag('--head'));
+  if (flag('--base')) list = list.filter((p) => p.baseRefName === flag('--base'));
+  // gh answers --author through GitHub's search, which may not have indexed a PR opened moments ago
+  // (searchLag: the numbers of such PRs)
+  if (flag('--author')) {
+    const login = flag('--author').toLowerCase();
+    list = list.filter((p) => p.author && String(p.author.login).toLowerCase() === login && !(state.searchLag || []).includes(p.number));
+  }
   if (st !== 'all') list = list.filter((p) => p.state.toLowerCase() === st);
   list = list.slice(0, Number(flag('--limit') || 30)); // gh stops at --limit (30 by default)
   out(JSON.stringify(list.map((p) => pick(refresh(p), flag('--json') || 'number'))));
@@ -256,6 +264,9 @@ beforeAll(() => {
 
   env = { ...process.env };
   for (const k of Object.keys(env)) if (/^(GIT_|COORD_)/.test(k)) delete env[k];
+  // The Actions runner sets GITHUB_STEP_SUMMARY, so each `ci` run spawned here would append its
+  // report to the Backend job's own summary; a test that reads one sets its own (RA-4, RA-11).
+  delete env.GITHUB_STEP_SUMMARY;
   Object.assign(env, {
     GIT_CONFIG_GLOBAL: emptyConfig,
     GIT_CONFIG_NOSYSTEM: '1',
@@ -264,6 +275,7 @@ beforeAll(() => {
     FAKE_GH_STATE: path.join(root, 'gh state.json'),
     COORD_TODAY: TODAY,
   });
+  expect(env.GITHUB_STEP_SUMMARY).toBeUndefined();
 
   ({ origin, clones, ghState } = seedWorld(root));
   expect(ghState).toBe(env.FAKE_GH_STATE);
@@ -340,7 +352,7 @@ describe('OPS-152 · coordinator end to end', () => {
     expect(fs.existsSync(worktreeOf('bedrack', 'feat/never'))).toBe(false);
   });
 
-  test('N3 · gh pr list failing means "cannot verify" for check, start and ci → exit 2', () => {
+  test('N3 · gh pr list failing means "cannot verify" for check, start and ci → exit 2; OPS-221 · 300 closed PRs still decide', () => {
     const savedPrs = readGh().prs;
     const b = clones.bedrack;
     git(b, ['checkout', '-B', 'feat/nolist-ci', 'origin/main']);
@@ -359,6 +371,9 @@ describe('OPS-152 · coordinator end to end', () => {
       const ci = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack']);
       expect(ci.code).toBe(2);
       expect(ci.out).toMatch(/pr list/);
+      // OPS-221 · gh lists PRs newest first, so a list of every state cut at its limit has lost only
+      // the oldest PRs, which can only make a branch look unfinished: with 300 closed PRs, as the
+      // repository will hold, ci and check still decide.
       writeGh({
         failPrList: false,
         prs: Array.from({ length: 300 }, (_, i) => ({
@@ -367,9 +382,13 @@ describe('OPS-152 · coordinator end to end', () => {
           url: `https://github.example/pull/${1000 + i}`, files: [], headRefOid: String(i).padStart(40, '0'),
         })),
       });
-      const cut = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack']);
-      expect(cut.code).toBe(2);
-      expect(cut.out).toMatch(/truncated/);
+      const decided = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack', '--mode', 'warn']);
+      expect(decided.out).not.toMatch(/truncated|its limit|cannot verify/);
+      expect(decided.out).toMatch(/WARN \[unclaimed\]/);
+      expect(decided.code).toBe(3);
+      const checked = coord('malede', ['check', '--paths', 'a/b/c.js']);
+      expect(checked.out).not.toMatch(/truncated|its limit|cannot verify/);
+      expect([0, 3]).toContain(checked.code);
     } finally {
       writeGh({ failPrList: false, prs: savedPrs });
     }
@@ -1297,6 +1316,8 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(chk.code).toBe(0);
     const ci = run('malede', ['ci', '--branch', 'docs/ages-m', '--author', 'DanielMalede'], { cwd: inited });
     expect(ci.out).not.toMatch(/feat\/aged/);
+    // and ci, which runs on exactly this kind of checkout, says so too (RA-4)
+    expect(ci.out).toMatch(NOTE);
 
     // once this clone sees the branch MOVE, that move is recent evidence
     pushAged('aged, a third time\n');
@@ -1308,7 +1329,42 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(seen.code).toBe(1);
   });
 
-  test('A2 · a hundred open PRs, gh\'s page limit, cannot be told from a cut list → check and start exit 2', () => {
+  // A PR as GitHub holds it, for the tests below that fill gh with PRs.
+  const ghPr = (number, over = {}) => ({
+    number, title: `pr ${number}`, body: '', headRefName: `old/${number}`, baseRefName: 'main', isDraft: false, state: 'OPEN',
+    author: { login: 'DanielMalede' }, url: `https://github.example/pull/${number}`, files: [], headRefOid: String(number).padStart(40, '0'), ...over,
+  });
+  const ghCalls = (since) => gh().calls.slice(since).map((c) => c.args.join(' '));
+  // exit 0 or 3: the command decided (CLEAR or WARN); the output is shown when it did not
+  const decided = (label, res) => expect({ label, decided: [0, 3].includes(res.code), out: res.out }).toEqual({ label, decided: true, out: expect.any(String) });
+  const FALLBACK = /note: the open PR list reached gh's limit, so each person in People had his open PRs listed on their own; an open PR by anyone else may be missing, and its branch is then judged as if it had none/;
+
+  test('OPS-221 · the fake gh, like gh, answers --author from search (one author, less what search has not indexed yet), honours --base, and says isCrossRepository', () => {
+    const saved = gh().prs;
+    setGh({
+      prs: saved.concat(
+        ghPr(8001, { author: { login: 'DanielBedrack' } }),
+        ghPr(8002),
+        ghPr(8003, { author: { login: 'DanielBedrack' }, baseRefName: 'dev' }),
+        ghPr(8004, { author: { login: 'DanielBedrack' }, isCrossRepository: true }),
+      ),
+      searchLag: [8001],
+    });
+    try {
+      const list = (...args) => JSON.parse(fakeGh(['pr', 'list', '--state', 'open', ...args, '--limit', '100', '--json', 'number,isCrossRepository'], W.clones.malede).stdout)
+        .filter((p) => p.number > 8000);
+      const numbers = (...args) => list(...args).map((p) => p.number);
+      expect(numbers()).toEqual([8004, 8003, 8002, 8001]);
+      expect(numbers('--author', 'DanielBedrack')).toEqual([8004, 8003]); // 8001 is not in search yet
+      expect(numbers('--author', 'danielmalede')).toEqual([8002]); // a login, as GitHub reads it, in any case
+      expect(numbers('--base', 'main')).toEqual([8004, 8002, 8001]);
+      expect(list().map((p) => [p.number, p.isCrossRepository])).toEqual([[8004, true], [8003, false], [8002, false], [8001, false]]);
+    } finally {
+      setGh({ prs: saved, searchLag: null });
+    }
+  });
+
+  test('A2 · OPS-221 · a hundred open PRs of one partner, gh\'s page limit, cannot be told from a cut list → check and start exit 2', () => {
     const saved = gh().prs;
     const bulk = Array.from({ length: 100 }, (_, i) => ({
       number: 1000 + i, title: `bulk ${i}`, body: '', headRefName: `bulk/${i}`, baseRefName: 'main', isDraft: false, state: 'OPEN',
@@ -1318,14 +1374,180 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     try {
       // the fake honours --limit, as gh does: the list comes back cut at exactly 100
       expect(JSON.parse(fakeGh(['pr', 'list', '--state', 'open', '--limit', '100', '--json', 'number'], W.clones.malede).stdout)).toHaveLength(100);
+      // so are his own open PRs, listed on their own: his list is cut too
       const chk = run('malede', ['check', '--paths', 'docs/bulk/x.md']);
-      expect(chk.out).toMatch(/listed 100 open PRs, its limit: the list may be truncated/);
+      expect(chk.out).toMatch(/listed 100 open PRs by @DanielBedrack, its limit: the list may be truncated/);
       expect(chk.code).toBe(2);
       const st = run('malede', ['start', '--task', 'own:bulk', '--title', 'Bulk', '--paths', 'docs/bulk/x.md', '--branch', 'docs/bulk-m']);
       expect(st.code).toBe(2);
       expect(onOrigin()).not.toContain('docs/bulk-m');
     } finally {
       setGh({ prs: saved });
+    }
+  });
+
+  test('OPS-221 · with 300 closed PRs, then 100 open fork PRs, then 100 open PRs of someone outside People, start, rescope, check --merge and ci still decide', () => {
+    const closed = Array.from({ length: 300 }, (_, i) => ghPr(2000 + i, { state: 'CLOSED' }));
+    const forks = Array.from({ length: 100 }, (_, i) => ghPr(3000 + i, { headRefName: `patch-${i}`, author: { login: 'stranger' }, isCrossRepository: true }));
+    const outsiders = Array.from({ length: 100 }, (_, i) => ghPr(4000 + i, { headRefName: `outside/${i}`, author: { login: 'someone-else' } }));
+    const fixtures = new Set([...closed, ...forks, ...outsiders].map((p) => p.number));
+    // Every command a claim lives through, on a new branch of mine: each must decide. ci writes its
+    // job summary, as the Coordination check's runner has it do, into a file of this test's own.
+    const lifecycle = (branch, file) => {
+      const st = run('malede', ['start', '--task', `own:${branch.replace(/\//g, '-')}`, '--title', 'Many PRs', '--paths', file, '--branch', branch]);
+      decided(`start ${branch}`, st);
+      const rs = run('malede', ['rescope', '--paths', `${file},${file.replace(/\.md$/, '2.md')}`], { cwd: wt('malede', branch) });
+      decided(`rescope ${branch}`, rs);
+      const merge = run('malede', ['check', '--merge', String(prOf(branch).number)]);
+      decided(`check --merge ${branch}`, merge);
+      const summary = path.join(W.root, `step summary ${branch.replace(/\//g, '-')}.md`);
+      const ci = run('malede', ['ci', '--branch', branch, '--author', 'DanielMalede'], { extraEnv: { GITHUB_STEP_SUMMARY: summary } });
+      decided(`ci ${branch}`, ci);
+      return { results: [st, rs, merge, ci], ci, summary: fs.readFileSync(summary, 'utf8') };
+    };
+    setGh({ prs: gh().prs.concat(closed) });
+    try {
+      // A · 300 closed PRs: the all-states list is cut, and nothing else changes — two lists, no search
+      let mark = gh().calls.length;
+      const a = lifecycle('docs/ops221-a', 'docs/ops221/a.md');
+      expect(ghCalls(mark).filter((c) => c.includes('--author'))).toEqual([]);
+      // so ci says nothing of a fallback, in its output or in its job summary
+      expect(a.ci.out).not.toMatch(FALLBACK);
+      expect(a.summary).not.toMatch(FALLBACK);
+
+      // B · and 100 open PRs from a stranger's fork: the open list is cut, so each partner's own open
+      // PRs are listed on their own, and the output says so: ci's too, and the job summary the
+      // unattended Coordination check leaves (RA-4)
+      setGh({ prs: gh().prs.concat(forks) });
+      mark = gh().calls.length;
+      const b = lifecycle('docs/ops221-b', 'docs/ops221/b.md');
+      for (const res of b.results) expect(res.out).toMatch(FALLBACK);
+      expect(b.summary).toMatch(FALLBACK);
+      const calls = ghCalls(mark);
+      expect(calls).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^pr list --state open --author DanielMalede --limit 100 --json /),
+        expect.stringMatching(/^pr list --state open --author DanielBedrack --limit 100 --json /),
+      ]));
+
+      // C · instead, 100 open PRs of this repository by someone outside People: they count toward no limit
+      setGh({ prs: gh().prs.filter((p) => !forks.some((f) => f.number === p.number)).concat(outsiders) });
+      const chk = run('malede', ['check', '--paths', 'docs/ops221/c.md']);
+      decided('check with 100 open PRs of someone else', chk);
+      expect(chk.out).toMatch(FALLBACK);
+    } finally {
+      setGh({ prs: gh().prs.filter((p) => !fixtures.has(p.number)) });
+      for (const b of ['docs/ops221-a', 'docs/ops221-b']) if (onOrigin().includes(b)) release(b);
+    }
+  });
+
+  test('OPS-221 · a PR GitHub\'s search has not indexed yet is the newest PR, so the lists that are not searches carry it: during a flood his old-dated branch with that open PR still HALTs a fresh clone', () => {
+    const forks = Array.from({ length: 100 }, (_, i) => ghPr(3000 + i, { headRefName: `patch-${i}`, author: { login: 'stranger' }, isCrossRepository: true }));
+    const saved = gh().prs;
+    pushOldBranch('feat/lagged', 'docs/lagged/x.md');
+    // a clone made after the push holds the branch from its first fetch: only an open PR keeps it in view
+    const fresh = path.join(W.root, 'clone made after the lagged push');
+    git(W.root, ['clone', W.origin, fresh]);
+    setGh({ prs: saved.concat(forks) });
+    try {
+      const unseen = run('malede', ['check', '--paths', 'docs/lagged/x.md'], { cwd: fresh });
+      expect(unseen.out).not.toMatch(/feat\/lagged/);
+      expect(unseen.out).toMatch(NOTE);
+      decided('check before his PR', unseen);
+
+      const lagged = ghPr(9000, { headRefName: 'feat/lagged', author: { login: 'DanielBedrack' }, files: [{ path: 'docs/lagged/x.md' }], headRefOid: tipOf('feat/lagged') });
+      setGh({ prs: gh().prs.concat(lagged), searchLag: [9000] });
+      const his = JSON.parse(fakeGh(['pr', 'list', '--state', 'open', '--author', 'DanielBedrack', '--limit', '100', '--json', 'number'], fresh).stdout);
+      expect(his.map((p) => p.number)).not.toContain(9000);
+      const mark = gh().calls.length;
+      const seen = run('malede', ['check', '--paths', 'docs/lagged/x.md'], { cwd: fresh });
+      expect(seen.out).toMatch(/Bedrack \(@DanielBedrack\): unclaimed recent branch feat\/lagged \(40 days old\)/);
+      expect(seen.out).toMatch(FALLBACK);
+      expect(seen.code).toBe(1);
+      expect(ghCalls(mark)).toEqual(expect.arrayContaining([expect.stringMatching(/^pr list --state open --author DanielBedrack /)]));
+    } finally {
+      setGh({ prs: saved, searchLag: null });
+      release('feat/lagged');
+    }
+  });
+
+  test('OPS-222 · a stranger\'s CLOSED fork PR at the tip of his claim holding res:prod-deploy does not lift the freeze; the same PR from this repository, merged, does', () => {
+    decided('his start', run('bedrack', ['start', '--task', 'own:fork-freeze', '--title', 'Hold production', '--paths', 'docs/fork-freeze/hold.md', '--resources', 'res:prod-deploy', '--branch', 'docs/fork-freeze-b']));
+    decided('my start', run('malede', ['start', '--task', 'own:fork-freeze-m', '--title', 'A PR to merge', '--paths', 'docs/fork-freeze/pr.md', '--branch', 'docs/fork-freeze-m']));
+    const mine = prOf('docs/fork-freeze-m');
+    const saved = gh().prs;
+    // his claim's own PR gone from the lists; a fork's PR of the same name, at the same commit, opened and closed
+    const without = saved.filter((p) => p.headRefName !== 'docs/fork-freeze-b');
+    const forkPr = ghPr(9100, {
+      headRefName: 'docs/fork-freeze-b', state: 'CLOSED', author: { login: 'stranger' }, isCrossRepository: true,
+      headRefOid: tipOf('docs/fork-freeze-b'), files: [{ path: 'WORK_LEDGER.md' }],
+    });
+    setGh({ prs: without.concat(forkPr) });
+    try {
+      const frozen = run('malede', ['check', '--merge', String(mine.number)]);
+      expect(frozen.out).toMatch(/HALT \[freeze\][^\n]*docs\/fork-freeze-b/);
+      expect(frozen.code).toBe(1);
+      expect(run('malede', ['status']).out.split('\n')[0]).toMatch(/^production freeze: held by Bedrack \(@DanielBedrack\) on docs\/fork-freeze-b /);
+      // the control: that PR from this repository, merged at that commit, ends the claim, so nothing else held it
+      setGh({ prs: without.concat({ ...forkPr, state: 'MERGED', isCrossRepository: false }) });
+      const thawed = run('malede', ['check', '--merge', String(mine.number)]);
+      expect(thawed.out).not.toMatch(/\[freeze\]/);
+      decided('check --merge after the merged PR', thawed);
+    } finally {
+      setGh({ prs: saved });
+      release('docs/fork-freeze-b', 'docs/fork-freeze-m');
+    }
+  });
+
+  test('OPS-222 · an open fork PR keeps no old-dated branch in view on a fresh clone; an open PR of this repository does', () => {
+    pushOldBranch('feat/fork-stale', 'docs/fork-stale/x.md');
+    const fresh = path.join(W.root, 'clone made after the fork-stale push');
+    git(W.root, ['clone', W.origin, fresh]);
+    const saved = gh().prs;
+    const open = ghPr(9200, {
+      headRefName: 'feat/fork-stale', author: { login: 'stranger' }, isCrossRepository: true,
+      headRefOid: tipOf('feat/fork-stale'), files: [{ path: 'docs/fork-stale/x.md' }],
+    });
+    setGh({ prs: saved.concat(open) });
+    try {
+      const res = run('malede', ['check', '--paths', 'docs/fork-stale/x.md'], { cwd: fresh });
+      expect(res.out).not.toMatch(/feat\/fork-stale/);
+      expect(res.out).toMatch(NOTE);
+      decided('check with a fork PR open', res);
+      // the control: the same open PR, his, from this repository
+      setGh({ prs: saved.concat({ ...open, author: { login: 'DanielBedrack' }, isCrossRepository: false }) });
+      const halted = run('malede', ['check', '--paths', 'docs/fork-stale/x.md'], { cwd: fresh });
+      expect(halted.out).toMatch(/Bedrack \(@DanielBedrack\): unclaimed recent branch feat\/fork-stale \(40 days old\)/);
+      expect(halted.code).toBe(1);
+    } finally {
+      setGh({ prs: saved });
+      release('feat/fork-stale');
+    }
+  });
+
+  test('OPS-222 · start, release and ship never adopt a fork\'s open PR from a branch of the same name', () => {
+    const saved = gh().prs;
+    setGh({
+      prs: saved.concat(ghPr(9001, {
+        headRefName: 'docs/fork-start-m', author: { login: 'stranger' }, isCrossRepository: true, headRefOid: '6'.repeat(40), files: [{ path: 'docs/elsewhere.md' }],
+      })),
+    });
+    try {
+      const st = run('malede', ['start', '--task', 'own:fork-start', '--title', 'My own PR', '--paths', 'docs/fork-start/x.md', '--branch', 'docs/fork-start-m']);
+      decided('start', st);
+      expect(st.out).not.toMatch(/\/pull\/9001\b/);
+      const own = gh().prs.find((p) => p.headRefName === 'docs/fork-start-m' && p.number !== 9001);
+      expect(own).toMatchObject({ state: 'OPEN', author: { login: 'DanielMalede' } });
+      expect(st.out).toContain(own.url);
+      const dir = wt('malede', 'docs/fork-start-m');
+      const rel = run('malede', ['release'], { cwd: dir });
+      expect(rel.out).toMatch(new RegExp(`gh pr close ${own.number} --delete-branch`));
+      expect(rel.code).toBe(0);
+      const ship = run('malede', ['ship'], { cwd: dir });
+      expect(ship.out).toMatch(new RegExp(`in review as PR #${own.number}\\b`));
+      decided('ship', ship);
+    } finally {
+      setGh({ prs: gh().prs.filter((p) => p.number !== 9001) });
+      if (onOrigin().includes('docs/fork-start-m')) release('docs/fork-start-m');
     }
   });
 
