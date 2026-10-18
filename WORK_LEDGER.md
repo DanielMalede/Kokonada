@@ -90,7 +90,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/ops196-partner-dormant`
 - paths: `HANDOFF_2026-10-08_BEDRACK.md`, `TASKS.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-185.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #255
 - started: 2026-10-18
 
 ### M04
