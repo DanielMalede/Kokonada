@@ -13,7 +13,7 @@ amendments:
 
 # Kokonada — counsel dossier (EU, UK, US, IL) — 2026-09-29
 
-This dossier was prepared for counsel and decides nothing. The owner and counsel make every classification. Web sources for the UK, the US and Israel were fetched on 2026-09-29. The EU material comes from `r_regulatory.md` (2026-09-23) and `brief_regulatory.md` (2026-09-23) and was not re-verified. The registry IDs REG-200 to REG-263 are in the companion registry; EU items are cited by the R- and Q-numbers in those files. Status tags are RETRIEVED, REPRODUCTION, UNRETRIEVED, COM and SUPERSEDED, as defined at the top.
+This dossier was prepared for counsel and decides nothing. The owner and counsel make every classification. Web sources for the UK, the US and Israel were fetched on 2026-09-29. The EU material comes from `docs/design-v2/counsel/research-regulatory-2026-09-23.md` (2026-09-23) and `docs/design-v2/counsel/brief-regulatory-2026-09-23.md` (2026-09-23) and was not re-verified. The registry IDs REG-200 to REG-263 are in the companion registry; EU items are cited by the R- and Q-numbers in those files. Status tags are RETRIEVED, REPRODUCTION, UNRETRIEVED, COM and SUPERSEDED, as defined at the top.
 
 ## 1. The product on one page (every fact is from the repository)
 
@@ -21,7 +21,7 @@ This dossier was prepared for counsel and decides nothing. The owner and counsel
 - An Android app, launching Android-first around 2027 with no deadline (ADR-0016:89-115). It is a free app (ADR-0001).
 - The launcher label today is "KokonadaHealth" (`strings.xml:2`).
 - It selects and plays existing music through Spotify or YouTube playback. It does not synthesise audio (VISION §5, §8).
-  - **Correction, 2026-10-01:** "or YouTube playback" is not true. Kokonada plays music through Spotify only; no YouTube player exists in the mobile app (`docs/design-v2/research/2026-09-23/r_compliance.md:68`, `CMP-042`); whether the retired web client ever had one was not checked. Under the owner's ruling DEC-122 (2026-10-01), YouTube is not connected in this version: connecting it is sealed in code on the server (HX-3, on branch `fix/hx3-youtube` when this note was written). Source: the regulatory-researcher's HX-3 round-1 review (NF-R6). The sentence above is kept as prepared on 2026-09-29.
+  - **Correction, 2026-10-01:** "or YouTube playback" is not true. Kokonada plays music through Spotify only; no YouTube player exists in the mobile app (`r_compliance.md:68 (deleted; see docs/ARCHIVE.md)`, `CMP-042`); whether the retired web client ever had one was not checked. Under the owner's ruling DEC-122 (2026-10-01), YouTube is not connected in this version: connecting it is sealed in code on the server (HX-3, on branch `fix/hx3-youtube` when this note was written). Source: the regulatory-researcher's HX-3 round-1 review (NF-R6). The sentence above is kept as prepared on 2026-09-29.
 
 **Users and markets.**
 - Enrolled users: the owner only, per the 2026-09-29 update to `DAN-021`. Historically there were 5 or fewer.

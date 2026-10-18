@@ -37,6 +37,16 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 | `docs/superpowers/plans/2026-10-06-healthkit-contract-foundation.md` | `docs/plans/healthkit/plan.md#contract-foundation` | 2026-10-18 | PR 1 of the md reorganisation (OPS-270) |
 | `docs/superpowers/plans/2026-10-06-healthkit-authoritative-sample-store.md` | `docs/plans/healthkit/plan.md#authoritative-sample-store` | 2026-10-18 | PR 1 of the md reorganisation (OPS-270) |
 | `docs/research/apple-healthkit-integration-research.md` | `docs/plans/healthkit/research.md` | 2026-10-18 | PR 1 of the md reorganisation (OPS-270) |
+| `docs/design-v2/counsel/eu-questions-for-counsel-2026-09-29.md` | `docs/design-v2/counsel/questions-annex.md#eu` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/counsel/hx-questions-for-counsel-2026-09-30.md` | `docs/design-v2/counsel/questions-annex.md#hx` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/counsel/j1-questions-for-counsel-2026-10-02.md` | `docs/design-v2/counsel/questions-annex.md#j1` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/counsel/post-j2-privacy-questions-2026-10-06.md` | `docs/design-v2/counsel/questions-annex.md#pj2` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/r_regulatory.md` | `docs/design-v2/counsel/research-regulatory-2026-09-23.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/track-h/brief_regulatory.md` | `docs/design-v2/counsel/brief-regulatory-2026-09-23.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/registry/state-label-review.md` | `docs/design-v2/counsel/state-label-review.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `docs/plans/LEGAL_AI_ACT_EMOTION_RECOGNITION.md` | `docs/design-v2/counsel/legal-ai-act-emotion-recognition.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `backend/docs/garmin-health-api-application.md` | `docs/store/garmin-health-api-application.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `mobile/native-snippets/RELEASE_SIGNING.md` | `docs/runbooks/android-release-signing.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
 
 ## Deleted
 
@@ -86,6 +96,22 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 | `docs/superpowers/specs/2026-07-13-discovery-ui-design.md` | Design spec: discovery ui design; the feature shipped in July 2026 | 2026-07-13 | `2bfe5189d72490919728a3bbc7b2001c95e22970` | PR 1 of the md reorganisation (OPS-270) |
 | `docs/superpowers/specs/2026-07-13-discovery-ui-visual-direction.md` | Design spec: discovery ui visual direction; the feature shipped in July 2026 | 2026-07-13 | `2bfe5189d72490919728a3bbc7b2001c95e22970` | PR 1 of the md reorganisation (OPS-270) |
 | `docs/superpowers/specs/2026-07-14-discovery-caption-llm-design.md` | Design spec: discovery caption llm design; the feature shipped in July 2026 | 2026-07-14 | `61533c2f30006eab08e92630659d78bde60bb9b0` | PR 1 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/PLAN_APPROVED.md` | The design-v2 plan as approved on 2026-09-23; docs/plans/DESIGN_V2_PLAN.md is its living successor | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/critique.md` | Completeness critique of that plan: 50 gaps and fixes | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/plan.md` | The architect's merged plan of the September research (cited by line from TASKS and QA-056) | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/r_code-map.md` | The architect's ground-truth code map | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/r_compliance.md` | The compliance-auditor's constraints registry (C-numbers), the source of CMP- entries | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/r_design-audit.md` | The designer's audit of the v1 screens | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/r_qa-guards.md` | The resilience audit, the source of QA- entries | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/r_tools.md` | Design-tooling research | 2026-09-23 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/track-h/brief_architect.md` | Track H pre-build brief: architect | 2026-09-26 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/track-h/brief_compliance.md` | Track H pre-build brief: compliance-auditor | 2026-09-26 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/track-h/brief_designer.md` | Track H pre-build brief: designer | 2026-09-26 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/design-v2/research/2026-09-23/track-h/build_H1.md` | A JSON build report of H1 (worktree, branch, commits) | 2026-09-26 | `442d5758e243561a3a7da944bb31136c80944b37` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/runbooks/discovery-genre-relevance-t5-sweep.md` | Production sweep of the discovery genre-relevance threshold; ran once, PASS | 2026-07-16 | `9dac5878e5eca40c961d5bd4a46d5ce024187179` | PR 2 of the md reorganisation (OPS-270) |
+| `docs/runbooks/reembed-corpus-genre-dilution.md` | One-time re-embed migration of the corpus; it ran | 2026-07-15 | `2e005e42cb48981540e4b6965db4590777789daf` | PR 2 of the md reorganisation (OPS-270) |
+| `mobile/SETUP_ANDROID.md` | Setup of the legacy "drop-in kit" under mobile/src, which is not the app (OPS-273) | 2026-06 | `6e08ac93f4bf765665fe24d0d2b93cd2fe327797` | PR 2 of the md reorganisation (OPS-270) |
+| `claude_handoff.md` | Cross-session handoff of 2026-07-19 (Wave 2.8.2 rollout, providers, the standalone build); its release facts live in docs/runbooks/android-release-signing.md | 2026-07-19 | `0b42679ad4b6f63bbdd27742ad85efad1d7f940b` | PR 2 of the md reorganisation (OPS-270) |
 
 ## Missing before this reorg
 
@@ -103,7 +129,7 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 | `docs/DEP_CLEANUP_AND_LINT_TASK.md` | .claude/agents/custodian.md | The dependency-cleanup task write-up of 2026-08-26; never tracked (its finding lives in dev-items.md#cold-jest-timeout) | never tracked |
 | `docs/DESIGN_MASTER_PROMPT.md` | docs/plans/WAVE4_STATE.md | A design-session prompt; never tracked | never tracked |
 | `docs/GROUND_TRUTH_2026-08-22.md` | docs/GROUND_TRUTH_2026-09-02.md, docs/plans/WAVE4_STATE.md, docs/plans/WAVE4_ARCHIVE.md | An untracked draft from a killed session (W4-D67), superseded by GROUND_TRUTH_2026-09-02 | never tracked |
-| `docs/commands.md` | mobile/KokonadaHealth/android/app/build.gradle (comment) | A command cheat-sheet; never tracked | never tracked |
+| `docs/commands.md` | mobile/KokonadaHealth/android/app/build.gradle:59 (comment) | Not a repository path: the tail of an external URL (the react-native-community/cli documentation); a reference checker must skip URL tails | never tracked |
 | `docs/pre-sideload-checklist.md` | docs/WEB_SUNSET_D5_GAP_SCAN_2026-07-08.md (deleted above) | A web-era checklist; never tracked | never tracked |
 | `docs/design-v2/LEDGER.md` | docs/design-v2/research/2026-09-23/critique.md | A proposed design-v2 ledger that became WORK_LEDGER.md; never tracked | never tracked |
 | `docs/audits/custodian/LEDGER.md` | .claude/agents/custodian.md | The custodian's append-only ledger; not written yet (future) | never tracked |
