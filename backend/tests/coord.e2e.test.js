@@ -1312,6 +1312,8 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(chk.code).toBe(0);
     const ci = run('malede', ['ci', '--branch', 'docs/ages-m', '--author', 'DanielMalede'], { cwd: inited });
     expect(ci.out).not.toMatch(/feat\/aged/);
+    // and ci, which runs on exactly this kind of checkout, says so too (RA-4)
+    expect(ci.out).toMatch(NOTE);
 
     // once this clone sees the branch MOVE, that move is recent evidence
     pushAged('aged, a third time\n');
@@ -1385,7 +1387,8 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     const forks = Array.from({ length: 100 }, (_, i) => ghPr(3000 + i, { headRefName: `patch-${i}`, author: { login: 'stranger' }, isCrossRepository: true }));
     const outsiders = Array.from({ length: 100 }, (_, i) => ghPr(4000 + i, { headRefName: `outside/${i}`, author: { login: 'someone-else' } }));
     const fixtures = new Set([...closed, ...forks, ...outsiders].map((p) => p.number));
-    // Every command a claim lives through, on a new branch of mine: each must decide.
+    // Every command a claim lives through, on a new branch of mine: each must decide. ci writes its
+    // job summary, as the Coordination check's runner has it do, into a file of this test's own.
     const lifecycle = (branch, file) => {
       const st = run('malede', ['start', '--task', `own:${branch.replace(/\//g, '-')}`, '--title', 'Many PRs', '--paths', file, '--branch', branch]);
       decided(`start ${branch}`, st);
@@ -1393,21 +1396,29 @@ describe('OPS-155 · coordinator hardening end to end', () => {
       decided(`rescope ${branch}`, rs);
       const merge = run('malede', ['check', '--merge', String(prOf(branch).number)]);
       decided(`check --merge ${branch}`, merge);
-      decided(`ci ${branch}`, run('malede', ['ci', '--branch', branch, '--author', 'DanielMalede']));
-      return [st, rs, merge];
+      const summary = path.join(W.root, `step summary ${branch.replace(/\//g, '-')}.md`);
+      const ci = run('malede', ['ci', '--branch', branch, '--author', 'DanielMalede'], { extraEnv: { GITHUB_STEP_SUMMARY: summary } });
+      decided(`ci ${branch}`, ci);
+      return { results: [st, rs, merge, ci], ci, summary: fs.readFileSync(summary, 'utf8') };
     };
     setGh({ prs: gh().prs.concat(closed) });
     try {
       // A · 300 closed PRs: the all-states list is cut, and nothing else changes — two lists, no search
       let mark = gh().calls.length;
-      lifecycle('docs/ops221-a', 'docs/ops221/a.md');
+      const a = lifecycle('docs/ops221-a', 'docs/ops221/a.md');
       expect(ghCalls(mark).filter((c) => c.includes('--author'))).toEqual([]);
+      // so ci says nothing of a fallback, in its output or in its job summary
+      expect(a.ci.out).not.toMatch(FALLBACK);
+      expect(a.summary).not.toMatch(FALLBACK);
 
       // B · and 100 open PRs from a stranger's fork: the open list is cut, so each partner's own open
-      // PRs are listed on their own, and the output says so
+      // PRs are listed on their own, and the output says so: ci's too, and the job summary the
+      // unattended Coordination check leaves (RA-4)
       setGh({ prs: gh().prs.concat(forks) });
       mark = gh().calls.length;
-      for (const res of lifecycle('docs/ops221-b', 'docs/ops221/b.md')) expect(res.out).toMatch(FALLBACK);
+      const b = lifecycle('docs/ops221-b', 'docs/ops221/b.md');
+      for (const res of b.results) expect(res.out).toMatch(FALLBACK);
+      expect(b.summary).toMatch(FALLBACK);
       const calls = ghCalls(mark);
       expect(calls).toEqual(expect.arrayContaining([
         expect.stringMatching(/^pr list --state open --author DanielMalede --limit 100 --json /),
