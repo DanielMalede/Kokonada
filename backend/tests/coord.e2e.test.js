@@ -1331,7 +1331,7 @@ describe('OPS-155 · coordinator hardening end to end', () => {
   const ghCalls = (since) => gh().calls.slice(since).map((c) => c.args.join(' '));
   // exit 0 or 3: the command decided (CLEAR or WARN); the output is shown when it did not
   const decided = (label, res) => expect({ label, decided: [0, 3].includes(res.code), out: res.out }).toEqual({ label, decided: true, out: expect.any(String) });
-  const FALLBACK = /note: the open PR list reached gh's limit, so each person in People had his open PRs listed on their own; an open PR by anyone else may be missing, and its branch is then judged by its dates alone/;
+  const FALLBACK = /note: the open PR list reached gh's limit, so each person in People had his open PRs listed on their own; an open PR by anyone else may be missing, and its branch is then judged as if it had none/;
 
   test('OPS-221 · the fake gh, like gh, answers --author from search (one author, less what search has not indexed yet), honours --base, and says isCrossRepository', () => {
     const saved = gh().prs;

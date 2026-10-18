@@ -52,11 +52,12 @@ const PR_FIELDS = 'number,state,headRefName,headRefOid,isDraft,author,isCrossRep
 // since an open PR keeps a branch in view whatever its age; at its limit the engine lists each
 // partner's open PRs on their own instead (prListOpenBy). Forks' PRs never count, but they fill these
 // lists all the same: the engine judges the lengths before it drops them (collide.js prListsUsable).
-// What the lists still miss: a merged or closed PR older than the newest 300 (its branch is judged by
-// content and dates instead); a branch whose only PR is a fork's (`status` says "PR: none found");
-// this repository's PRs, crowded out of both windows if PR creation is ever opened to everyone again;
-// a PR reopened moments ago, which is not the newest, while search lags it in the fallback; and in the
-// fallback, an open PR by anyone outside People.
+// What the lists still miss: a merged or closed PR older than the newest 300 (the claim on a branch it
+// finished is live again, OPS-224, and an unclaimed branch it finished is judged by content and dates
+// instead); a branch whose only PR is a fork's (`status` says "PR: none found"); this repository's
+// PRs, crowded out of both windows if PR creation is ever opened to everyone again; a PR reopened
+// moments ago, which is not the newest, while search lags it in the fallback; and in the fallback, an
+// open PR by anyone outside People.
 const OPEN_LIMIT = 100;
 const ALL_LIMIT = 300;
 
