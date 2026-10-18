@@ -29,7 +29,7 @@ permissions:
 jobs:
   coordination:
     name: Coordination — work ledger check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A draft is checked once it is marked ready (ready_for_review above). A fork's branch is not on
     # origin, so the engine could not read it.
     if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
