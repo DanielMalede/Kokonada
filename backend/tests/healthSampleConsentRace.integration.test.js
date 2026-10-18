@@ -39,6 +39,11 @@ const { HealthProjectionCleanup } = require('../app/services/wearable/healthOper
 
 jest.setTimeout(120000);
 
+// RA-9 (the second audit of #256): sample dates follow the run's clock, so no row is past its
+// `expiresAt`, which the TTL index on HealthSample would remove mid-run.
+const HOUR = 60 * 60 * 1000;
+const RETENTION_MS = 90 * 24 * HOUR;
+
 let mem;
 
 beforeAll(async () => {
@@ -89,6 +94,7 @@ async function grantedUser() {
 }
 
 async function pending(owner, keyDigit, metric, value = metric === 'heart_rate' ? 72 : 58) {
+  const endAt = new Date(Date.now() - 2 * HOUR);
   return HealthSample.create({
     userId: owner._id,
     sampleKey: keyDigit.repeat(64),
@@ -96,11 +102,11 @@ async function pending(owner, keyDigit, metric, value = metric === 'heart_rate' 
     metric,
     value,
     unit: 'bpm',
-    startAt: new Date('2026-10-07T08:00:00Z'),
-    endAt: new Date('2026-10-07T08:01:00Z'),
+    startAt: new Date(endAt.getTime() - 60 * 1000),
+    endAt,
     state: 'active',
     projectionState: 'pending',
-    expiresAt: new Date('2027-01-05T08:01:00Z'),
+    expiresAt: new Date(endAt.getTime() + RETENTION_MS),
   });
 }
 

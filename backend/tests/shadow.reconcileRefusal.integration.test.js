@@ -48,6 +48,16 @@ const {
 
 jest.setTimeout(120000);
 
+// RA-9 (the second audit of #256): every date is relative to the run's clock. ingestV2Batch refuses
+// a sample that ended more than 90 days before now, and the TTL index on `expiresAt` (and on
+// MorningState's `date`) removes a row once that date has passed (shadow.sampleClock.test.js).
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const RETENTION_MS = 90 * DAY;
+const ago = (ms) => new Date(Date.now() - ms);
+const yesterday = () => new Date(`${ago(DAY).toISOString().slice(0, 10)}T00:00:00.000Z`);
+
 let mem;
 
 beforeAll(async () => {
@@ -124,34 +134,40 @@ async function derivedAggregates(owner) {
   });
   await MorningState.create({
     userId: owner._id,
-    date: new Date('2026-10-06T00:00:00Z'),
+    date: yesterday(),
     readiness: 0.6,
   });
 }
 
-const pendingRestingHr = (owner, keyDigit) => HealthSample.create({
-  userId: owner._id,
-  sampleKey: keyDigit.repeat(64),
-  source: 'apple_health',
-  metric: 'resting_heart_rate',
-  value: 58,
-  unit: 'bpm',
-  startAt: new Date('2026-10-07T08:00:00Z'),
-  endAt: new Date('2026-10-07T08:01:00Z'),
-  state: 'active',
-  projectionState: 'pending',
-  expiresAt: new Date('2027-01-05T08:01:00Z'),
-});
+function pendingRestingHr(owner, keyDigit) {
+  const endAt = ago(2 * HOUR);
+  return HealthSample.create({
+    userId: owner._id,
+    sampleKey: keyDigit.repeat(64),
+    source: 'apple_health',
+    metric: 'resting_heart_rate',
+    value: 58,
+    unit: 'bpm',
+    startAt: new Date(endAt.getTime() - MINUTE),
+    endAt,
+    state: 'active',
+    projectionState: 'pending',
+    expiresAt: new Date(endAt.getTime() + RETENTION_MS),
+  });
+}
 
-const heartRateUpsert = {
-  sampleId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',
-  operation: 'upsert',
-  type: 'heart_rate',
-  value: 72,
-  unit: 'bpm',
-  startDate: '2026-10-06T06:30:00.000Z',
-  endDate: '2026-10-06T06:31:00.000Z',
-};
+function heartRateUpsert() {
+  const endAt = ago(2 * HOUR);
+  return {
+    sampleId: '6ba7b810-9dad-41d1-80b4-00c04fd430c8',
+    operation: 'upsert',
+    type: 'heart_rate',
+    value: 72,
+    unit: 'bpm',
+    startDate: new Date(endAt.getTime() - MINUTE).toISOString(),
+    endDate: endAt.toISOString(),
+  };
+}
 
 // Holds `Model.create` before the insert; once the test commits it, signals the commit and holds
 // the caller again until the test resumes it.
@@ -218,7 +234,7 @@ async function reconcileAcrossDisconnect(owner) {
 // An ingest whose staged row commits inside the disconnect's erasure; the batch is still held.
 async function ingestAcrossDisconnect(owner) {
   const staged = holdCreate(HealthSample);
-  const ingest = settle(ingestV2Batch(owner._id, 'healthkit', [heartRateUpsert]));
+  const ingest = settle(ingestV2Batch(owner._id, 'healthkit', [heartRateUpsert()]));
   // The staged row did not exist at the erasure's delete, and its count saw it.
   await expect(eraseAroundWrite(owner, staged)).resolves.toMatchObject({
     healthSamples: 0,
