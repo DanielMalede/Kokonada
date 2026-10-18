@@ -200,15 +200,11 @@ function gather(ctx, { useGh = true, requireGh = false } = {}) {
   if (useGh) {
     const open = gh.prListOpen(root);
     const all = gh.prList(root);
-    const usable = C.prListsUsable({ open, all, openLimit: gh.OPEN_LIMIT, allLimit: gh.ALL_LIMIT });
+    const usable = C.prListsUsable({ open, all, byAuthor: null, openLimit: gh.OPEN_LIMIT });
     if (requireGh && !usable.ok) {
       throw cannotVerify(`cannot verify: ${usable.reason} — without the PR lists, open work cannot be told from finished work`);
     }
-    if (open || all) {
-      const byNumber = new Map();
-      for (const p of (all || []).concat(open || [])) byNumber.set(p.number, p);
-      prs = [...byNumber.values()];
-    }
+    prs = C.mergePrLists(all, open);
   }
   const stats = {};
   const common = git.commonDir(root);

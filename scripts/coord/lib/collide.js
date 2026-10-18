@@ -193,13 +193,42 @@ function prAuthorFor(prs, branch, tipSha) {
   return pr && pr.author && pr.author.login ? pr.author.login : null;
 }
 
-// Both PR lists came back, and neither is cut off at its limit. Otherwise a check cannot tell open
-// work from finished work and must not decide.
-function prListsUsable({ open, all, openLimit, allLimit }) {
+// Whether the PR lists gh gave can decide, judged on their RAW lengths (a fork's PR counts toward a
+// limit) before any helper drops a PR. `byAuthor`: { login: that person's open PRs }, asked for only
+// when the open list reached its limit.
+// - The all-states list may be cut: gh lists newest first, so a cut loses only the oldest PRs, and a
+//   lost PR can only make its branch look unfinished, never finished. Its length never matters.
+// - The open list must be whole: an open PR keeps a branch in view whatever its age. At its limit
+//   it may be cut, and then each partner's own open list must be whole instead.
+// - A PR without a boolean isCrossRepository could be a fork's: no list holding one decides.
+function prListsUsable({ open, all, byAuthor = null, openLimit }) {
   if (!open || !all) return { ok: false, reason: 'gh pr list failed' };
-  if (open.length >= openLimit) return { ok: false, reason: `gh listed ${open.length} open PRs, its limit: the list may be truncated` };
-  if (all.length >= allLimit) return { ok: false, reason: `gh listed ${all.length} PRs, its limit: the list may be truncated` };
+  const lists = [open, all, ...Object.values(byAuthor || {}).filter(Boolean)];
+  if (lists.some((list) => list.some((p) => typeof (p && p.isCrossRepository) !== 'boolean'))) {
+    return { ok: false, reason: 'gh listed a PR without isCrossRepository, so a fork\'s PR cannot be told from this repository\'s' };
+  }
+  if (open.length < openLimit) return { ok: true, reason: null };
+  if (!byAuthor) return { ok: false, reason: `gh listed ${open.length} open PRs, its limit: the list may be truncated` };
+  for (const [login, list] of Object.entries(byAuthor)) {
+    if (!list) {
+      return { ok: false, reason: `gh listed ${open.length} open PRs, its limit, and the list of @${login}'s open PRs (gh pr list --author ${login}) failed: the open PRs may be truncated` };
+    }
+    if (list.length >= openLimit) return { ok: false, reason: `gh listed ${list.length} open PRs by @${login}, its limit: the list may be truncated` };
+  }
   return { ok: true, reason: null };
+}
+
+// One entry per PR number across the lists gh gave. An OPEN entry is never replaced, so a PR open
+// in any list keeps its branch in view. Null when no list came back: no answer, never "no PRs".
+function mergePrLists(...lists) {
+  const given = lists.filter(Boolean);
+  if (!given.length) return null;
+  const byNumber = new Map();
+  for (const p of given.flat()) {
+    const held = byNumber.get(p.number);
+    if (!held || !isOpen(held)) byNumber.set(p.number, p);
+  }
+  return [...byNumber.values()];
 }
 
 const bodyText = (slot) => slot.body.join('\n');
@@ -795,6 +824,7 @@ module.exports = {
   prOpenFor,
   prAuthorFor,
   prListsUsable,
+  mergePrLists,
   claimPaths,
   dropSelf,
   RECENCY_NOTE,

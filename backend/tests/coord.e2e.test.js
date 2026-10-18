@@ -340,7 +340,7 @@ describe('OPS-152 · coordinator end to end', () => {
     expect(fs.existsSync(worktreeOf('bedrack', 'feat/never'))).toBe(false);
   });
 
-  test('N3 · gh pr list failing means "cannot verify" for check, start and ci → exit 2', () => {
+  test('N3 · gh pr list failing means "cannot verify" for check, start and ci → exit 2; OPS-221 · 300 closed PRs still decide', () => {
     const savedPrs = readGh().prs;
     const b = clones.bedrack;
     git(b, ['checkout', '-B', 'feat/nolist-ci', 'origin/main']);
@@ -359,6 +359,9 @@ describe('OPS-152 · coordinator end to end', () => {
       const ci = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack']);
       expect(ci.code).toBe(2);
       expect(ci.out).toMatch(/pr list/);
+      // OPS-221 · gh lists PRs newest first, so a list of every state cut at its limit has lost only
+      // the oldest PRs, which can only make a branch look unfinished: with 300 closed PRs, as the
+      // repository will hold, ci and check still decide.
       writeGh({
         failPrList: false,
         prs: Array.from({ length: 300 }, (_, i) => ({
@@ -367,9 +370,13 @@ describe('OPS-152 · coordinator end to end', () => {
           url: `https://github.example/pull/${1000 + i}`, files: [], headRefOid: String(i).padStart(40, '0'),
         })),
       });
-      const cut = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack']);
-      expect(cut.code).toBe(2);
-      expect(cut.out).toMatch(/truncated/);
+      const decided = coord('bedrack', ['ci', '--branch', 'feat/nolist-ci', '--author', 'DanielBedrack', '--mode', 'warn']);
+      expect(decided.out).not.toMatch(/truncated|its limit|cannot verify/);
+      expect(decided.out).toMatch(/WARN \[unclaimed\]/);
+      expect(decided.code).toBe(3);
+      const checked = coord('malede', ['check', '--paths', 'a/b/c.js']);
+      expect(checked.out).not.toMatch(/truncated|its limit|cannot verify/);
+      expect([0, 3]).toContain(checked.code);
     } finally {
       writeGh({ failPrList: false, prs: savedPrs });
     }

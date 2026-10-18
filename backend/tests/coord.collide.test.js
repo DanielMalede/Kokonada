@@ -37,6 +37,7 @@ const {
   actualPaths,
   ageText,
   prListsUsable,
+  mergePrLists,
   RECENCY_NOTE,
   exitCodeOf,
   STALE_DAYS,
@@ -369,14 +370,73 @@ describe('OPS-152 · collide — which claims are live', () => {
     expect(RECENCY_NOTE).toBe('note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked');
   });
 
-  test('N3 · gh answers count only when both PR lists came back and neither list is cut at its limit', () => {
-    expect(prListsUsable({ open: [], all: [], openLimit: 100, allLimit: 300 })).toEqual({ ok: true, reason: null });
-    expect(prListsUsable({ open: null, all: [], openLimit: 100, allLimit: 300 }).ok).toBe(false);
-    expect(prListsUsable({ open: [], all: null, openLimit: 100, allLimit: 300 }).ok).toBe(false);
-    const fullOpen = Array.from({ length: 100 }, (_, i) => ({ number: i }));
-    const fullAll = Array.from({ length: 300 }, (_, i) => ({ number: i }));
-    expect(prListsUsable({ open: fullOpen, all: [], openLimit: 100, allLimit: 300 })).toMatchObject({ ok: false, reason: expect.stringMatching(/truncated/) });
-    expect(prListsUsable({ open: [], all: fullAll, openLimit: 100, allLimit: 300 })).toMatchObject({ ok: false, reason: expect.stringMatching(/truncated/) });
+  describe('OPS-221 · the PR lists: the all-states list may be cut, the open list must be whole', () => {
+    // A PR as gh lists it, with every field the adapter asks for.
+    const ghPr = (number, over = {}) => ({
+      number, state: 'CLOSED', headRefName: `b/${number}`, headRefOid: String(number).padStart(40, '0'), isDraft: false,
+      author: { login: 'DanielMalede' }, isCrossRepository: false, ...over,
+    });
+    const many = (n, over = {}) => Array.from({ length: n }, (_, i) => ghPr(i + 1, over));
+    const usable = (over) => prListsUsable({ open: [], all: [], byAuthor: null, openLimit: 100, ...over });
+    const forks = () => many(100, { state: 'OPEN', author: { login: 'stranger' }, isCrossRepository: true });
+
+    test('(1, 2) an all-states list at its limit, or far past it, still decides: gh lists newest first, so a cut drops only the oldest PRs', () => {
+      // allLimit is what #239's stop read; passing it proves nothing reads it any more
+      expect(usable({ all: many(300), allLimit: 300 })).toEqual({ ok: true, reason: null });
+      expect(usable({ all: many(1000), allLimit: 300 })).toEqual({ ok: true, reason: null });
+    });
+
+    test('(3) an open list at its limit cannot decide alone: its raw length counts, a stranger\'s fork PRs included', () => {
+      expect(usable({ open: forks() })).toEqual({ ok: false, reason: expect.stringMatching(/listed 100 open PRs, its limit/) });
+    });
+
+    test('(4) at the limit, each partner\'s own open list decides when none of them is cut', () => {
+      expect(usable({ open: forks(), byAuthor: { DanielMalede: [], DanielBedrack: [] } })).toEqual({ ok: true, reason: null });
+    });
+
+    test('(5) a partner\'s own open list at its limit cannot decide, naming him', () => {
+      const his = many(100, { state: 'OPEN', author: { login: 'DanielBedrack' } });
+      expect(usable({ open: forks(), byAuthor: { DanielMalede: [], DanielBedrack: his } }))
+        .toEqual({ ok: false, reason: expect.stringMatching(/100 open PRs by @DanielBedrack, its limit/) });
+    });
+
+    test('(6) a partner\'s own open list that failed cannot decide, naming him and --author', () => {
+      const res = usable({ open: forks(), byAuthor: { DanielMalede: null, DanielBedrack: [] } });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toMatch(/@DanielMalede/);
+      expect(res.reason).toMatch(/--author/);
+    });
+
+    test('(7) a list that did not come back cannot decide', () => {
+      expect(usable({ open: null }).ok).toBe(false);
+      expect(usable({ all: null }).ok).toBe(false);
+    });
+
+    test('(8) an entry without isCrossRepository, in any list, cannot decide: a fork\'s PR could not be told apart', () => {
+      const bare = (number) => { const p = ghPr(number); delete p.isCrossRepository; return p; };
+      expect(usable({ open: [bare(1)] })).toEqual({ ok: false, reason: expect.stringMatching(/isCrossRepository/) });
+      expect(usable({ all: [ghPr(2), bare(3)] })).toEqual({ ok: false, reason: expect.stringMatching(/isCrossRepository/) });
+      expect(usable({ open: forks(), byAuthor: { DanielMalede: [bare(4)], DanielBedrack: [] } }))
+        .toEqual({ ok: false, reason: expect.stringMatching(/isCrossRepository/) });
+      // a value that is not a boolean says nothing either
+      expect(usable({ open: [ghPr(5, { isCrossRepository: 'false' })] }).ok).toBe(false);
+    });
+
+    test('(9) mergePrLists: a PR OPEN in any list stays OPEN, whichever list comes first', () => {
+      const closed = ghPr(7, { state: 'CLOSED' });
+      const open = ghPr(7, { state: 'OPEN' });
+      expect(mergePrLists([closed], [open])).toEqual([open]);
+      expect(mergePrLists([open], [closed])).toEqual([open]);
+    });
+
+    test('(10) mergePrLists: one entry per PR number across every list; a list that did not come back is skipped', () => {
+      const merged = mergePrLists([ghPr(1), ghPr(2)], null, [ghPr(2), ghPr(3, { state: 'OPEN' })], [ghPr(4, { state: 'MERGED' })]);
+      expect(merged.map((p) => p.number).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+      expect(merged.find((p) => p.number === 3).state).toBe('OPEN');
+      // no list at all is no answer, as when gh is missing: never an empty list of PRs
+      expect(mergePrLists(null, null)).toBeNull();
+      expect(mergePrLists([], null)).toEqual([]);
+    });
   });
 
   test('an unmapped commit author is resolved through the PR author login first', () => {
