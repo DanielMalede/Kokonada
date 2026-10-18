@@ -164,14 +164,20 @@ function mergedByContent(files, branchBlobs, mainBlobs) {
   return files.every((f) => ((branchBlobs || {})[f] || null) === ((mainBlobs || {})[f] || null));
 }
 
+// The PRs whose head is this branch of THIS repository, newest first. A PR from another repository (a
+// fork) can carry the same branch name and even the same commit, and anyone can open and close one:
+// it says nothing about the branch here. A PR that does not say which it is counts as a fork's.
+const forHead = (prs, branch) => (prs || [])
+  .filter((p) => p.headRefName === branch && p.isCrossRepository === false)
+  .sort((x, y) => y.number - x.number);
+
 function newestPr(prs, branch) {
-  return (prs || []).filter((p) => p.headRefName === branch).sort((x, y) => y.number - x.number)[0] || null;
+  return forHead(prs, branch)[0] || null;
 }
 
 // A merged or closed PR says the branch is done only for the commit the PR was about: a branch that
 // moved on after its PR closed (new commits on a reused name) is live work again.
 const isOpen = (pr) => /^OPEN$/i.test(String(pr.state));
-const forHead = (prs, branch) => (prs || []).filter((p) => p.headRefName === branch).sort((x, y) => y.number - x.number);
 
 function prDoneFor(prs, branch, tipSha) {
   if (prOpenFor(prs, branch)) return false;
