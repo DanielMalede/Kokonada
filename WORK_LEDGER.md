@@ -72,7 +72,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/sentinel-2026-10-17`
 - paths: `WEAKNESSES_AND_FAILURES.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #263
 - started: 2026-10-18
 
 ### M02
