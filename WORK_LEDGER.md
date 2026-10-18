@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:review-findings-2026-10-17` (own)
-- title: Review findings of 2026-10-17 as TASKS rows: #246, #241, the Actions billing stop, the DECISIONS index, Ubuntu 26
-- branch: `docs/review-findings-1017`
-- paths: `TASKS.md`
+- task: `OPS-196` (TASKS)
+- title: OPS-196: the two-partner machinery stays dormant (the owner's decision, DEC-185)
+- branch: `docs/ops196-partner-dormant`
+- paths: `HANDOFF_2026-10-08_BEDRACK.md`, `TASKS.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-185.md`
 - resources: none
-- state: in-review · PR #247
-- started: 2026-10-17
+- state: claimed
+- started: 2026-10-18
 
 ### M04
 _free_
