@@ -97,7 +97,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M05
-_free_
+- task: `own:dan019-lockout-lifted` (own)
+- title: record that the GitHub Actions lockout is lifted, on DAN-019
+- branch: `docs/dan019-lockout-lifted`
+- paths: `TASKS.md`
+- resources: none
+- state: in-review · PR #250
+- started: 2026-10-17
 
 ### M06
 - task: `own:pkg1-findings-2026-10-17` (own)
