@@ -115,3 +115,23 @@ describe('RA-2 · shadow · at the open list\'s limit, his own --author list kee
     expect(view.notes).toEqual([C.RECENCY_NOTE, C.PR_FALLBACK_NOTE]);
   });
 });
+
+// RA-10 (#257) · below the open list's limit, the open list is the only list that carries an open
+// PR older than the newest 300 PRs (the all-states list may now be cut), so gather must merge it
+// into the PR set (scripts/coord/coord.js:214). Passes at H; fails against
+// `prs = C.mergePrLists(all, ...Object.values(byAuthor || {}))`, and if any per-person list is
+// asked for below the limit.
+describe('RA-10 · shadow · below the open list\'s limit, the open list keeps an open PR the all-states window has cut', () => {
+  test('his open PR is older than the newest 300 PRs: only the open list carries it, and his 40-day-old branch stays in view', () => {
+    world([...Array.from({ length: 300 }, (_, i) => pr(2000 + i)), onHisBranch()]);
+    gh.prListOpenBy = () => { throw new Error('unexpected gh.prListOpenBy below the open list\'s limit'); };
+    expect(gh.prListOpen().map((p) => p.number)).toEqual([1500]);
+    expect(gh.prList()).toHaveLength(gh.ALL_LIMIT);
+    expect(gh.prList().map((p) => p.number)).not.toContain(1500);
+
+    const { code, view } = statusJson();
+    expect(code).toBe(0);
+    expect(view.people.find((p) => p.login === 'DanielBedrack').unclaimed.map((u) => u.branch)).toEqual([BRANCH]);
+    expect(view.notes).toEqual([]);
+  });
+});
