@@ -11,6 +11,7 @@ const { QUEUES } = require('../../queues/definitions');
 const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
 const { affectKey } = require('../biosonic/affectCache');
 const { healthWriteFence } = require('../privacy/healthWriteFence');
+const { purgeOrphanedAggregates } = require('../privacy/wearableErasure');
 const { projectTimeSeriesSample, removeTimeSeriesProjection } = require('./healthSampleProjection');
 const {
   HealthProjectionCleanup,
@@ -233,6 +234,24 @@ async function compensate(userId, source, reason, run) {
     console.warn(`[healthProjection] compensating-undo reason=${reason} outcome=${outcome}`);
   } catch (error) {
     console.error(`[healthProjection] compensating-undo reason=${reason} outcome=failed error=${errorType(error)}`);
+    throw Object.assign(new Error('health_projection_pending'), {
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
+  }
+}
+
+// RA-1 (the resilience audit of #256). A projection that commits after an erasure deleted the
+// provider's samples and before it counted what remains is seen by that count, so MedicalProfile
+// and MorningState survive the erasure. Once the refusal has undone the projection, the erasure's
+// own rule runs again, so the two never disagree about what an erasure leaves; the live lane does
+// the same (sockets/biometricHandler.js, _compensateIfConsentLapsed). The rule deletes only when no
+// sample of any provider remains. A failure is retryable, as a failed compensation is.
+async function reapplyOrphanRule(userId, reason) {
+  try {
+    await purgeOrphanedAggregates(userId);
+  } catch (error) {
+    console.error(`[healthProjection] orphan-rule reason=${reason} outcome=failed error=${errorType(error)}`);
     throw Object.assign(new Error('health_projection_pending'), {
       code: 'health_projection_pending',
       statusCode: 503,
@@ -545,8 +564,17 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
       { $set: { status: 'cleanup', leaseUntil: new Date() } },
     );
     await compensate(userId, source, refusal, run);
-    await cleanupRefusedPending(userId, source, start.connectionVersion);
+    // RA-2: a fence that could not read says nothing about the grant, so the pending authoritative
+    // rows stay for the next pass, as the start fence and both ingest fences keep them. The run's own
+    // writes are undone above all the same (fail closed).
+    if (refusal !== 'consent_read_error') {
+      await cleanupRefusedPending(userId, source, start.connectionVersion);
+    }
     await clearCleanupMarkers(userId, { _id: cleanupToken });
+    // On every refusal, the unreadable fence included, and fail-safe either way: the rule removes
+    // nothing while a sample of any provider remains, and on that reason the pending rows are kept,
+    // so it deletes nothing unless every sample, those rows included, is already gone.
+    await reapplyOrphanRule(userId, refusal);
   }
   if (failure) {
     await HealthProjectionCleanup.updateOne(
@@ -567,6 +595,13 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
       });
     }
     throw failure;
+  }
+  if (refusal === 'consent_read_error') {
+    // Retryable: the batch answers 503, and the repair worker finds the rows still pending.
+    throw Object.assign(new Error('health_projection_pending'), {
+      code: 'health_projection_pending',
+      statusCode: 503,
+    });
   }
   if (refusal) return { projected: 0, removed: 0, profileUpdated: false };
 
