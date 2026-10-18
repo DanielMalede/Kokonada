@@ -77,7 +77,8 @@ const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : u
 const out = (s) => { save(); process.stdout.write(s); process.exit(0); };
 const fail = (s) => { save(); process.stderr.write(s); process.exit(1); };
 const git = (a) => execFileSync('git', a, { encoding: 'utf8' }).trim();
-const pick = (pr, fields) => Object.fromEntries(fields.split(',').map((f) => [f, pr[f]]));
+// gh always says isCrossRepository; a PR here is from this repository unless a test says otherwise.
+const pick = (pr, fields) => Object.fromEntries(fields.split(',').map((f) => [f, f === 'isCrossRepository' ? pr.isCrossRepository === true : pr[f]]));
 const newestFirst = () => state.prs.slice().sort((a, b) => b.number - a.number);
 // Like GitHub: an OPEN PR's files and head commit follow its branch; a merged or closed PR, or one
 // whose branch is gone, keeps what it had. A rename is listed ONCE, by its new path, as GitHub's
@@ -148,6 +149,13 @@ if (args[0] === 'pr' && args[1] === 'list') {
   const st = (flag('--state') || 'open').toLowerCase();
   let list = newestFirst();
   if (flag('--head')) list = list.filter((p) => p.headRefName === flag('--head'));
+  if (flag('--base')) list = list.filter((p) => p.baseRefName === flag('--base'));
+  // gh answers --author through GitHub's search, which may not have indexed a PR opened moments ago
+  // (searchLag: the numbers of such PRs)
+  if (flag('--author')) {
+    const login = flag('--author').toLowerCase();
+    list = list.filter((p) => p.author && String(p.author.login).toLowerCase() === login && !(state.searchLag || []).includes(p.number));
+  }
   if (st !== 'all') list = list.filter((p) => p.state.toLowerCase() === st);
   list = list.slice(0, Number(flag('--limit') || 30)); // gh stops at --limit (30 by default)
   out(JSON.stringify(list.map((p) => pick(refresh(p), flag('--json') || 'number'))));
@@ -1315,7 +1323,42 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     expect(seen.code).toBe(1);
   });
 
-  test('A2 · a hundred open PRs, gh\'s page limit, cannot be told from a cut list → check and start exit 2', () => {
+  // A PR as GitHub holds it, for the tests below that fill gh with PRs.
+  const ghPr = (number, over = {}) => ({
+    number, title: `pr ${number}`, body: '', headRefName: `old/${number}`, baseRefName: 'main', isDraft: false, state: 'OPEN',
+    author: { login: 'DanielMalede' }, url: `https://github.example/pull/${number}`, files: [], headRefOid: String(number).padStart(40, '0'), ...over,
+  });
+  const ghCalls = (since) => gh().calls.slice(since).map((c) => c.args.join(' '));
+  // exit 0 or 3: the command decided (CLEAR or WARN); the output is shown when it did not
+  const decided = (label, res) => expect({ label, decided: [0, 3].includes(res.code), out: res.out }).toEqual({ label, decided: true, out: expect.any(String) });
+  const FALLBACK = /note: the open PR list reached gh's limit, so each person in People had his open PRs listed on their own; an open PR by anyone else may be missing, and its branch is then judged by its dates alone/;
+
+  test('OPS-221 · the fake gh, like gh, answers --author from search (one author, less what search has not indexed yet), honours --base, and says isCrossRepository', () => {
+    const saved = gh().prs;
+    setGh({
+      prs: saved.concat(
+        ghPr(8001, { author: { login: 'DanielBedrack' } }),
+        ghPr(8002),
+        ghPr(8003, { author: { login: 'DanielBedrack' }, baseRefName: 'dev' }),
+        ghPr(8004, { author: { login: 'DanielBedrack' }, isCrossRepository: true }),
+      ),
+      searchLag: [8001],
+    });
+    try {
+      const list = (...args) => JSON.parse(fakeGh(['pr', 'list', '--state', 'open', ...args, '--limit', '100', '--json', 'number,isCrossRepository'], W.clones.malede).stdout)
+        .filter((p) => p.number > 8000);
+      const numbers = (...args) => list(...args).map((p) => p.number);
+      expect(numbers()).toEqual([8004, 8003, 8002, 8001]);
+      expect(numbers('--author', 'DanielBedrack')).toEqual([8004, 8003]); // 8001 is not in search yet
+      expect(numbers('--author', 'danielmalede')).toEqual([8002]); // a login, as GitHub reads it, in any case
+      expect(numbers('--base', 'main')).toEqual([8004, 8002, 8001]);
+      expect(list().map((p) => [p.number, p.isCrossRepository])).toEqual([[8004, true], [8003, false], [8002, false], [8001, false]]);
+    } finally {
+      setGh({ prs: saved, searchLag: null });
+    }
+  });
+
+  test('A2 · OPS-221 · a hundred open PRs of one partner, gh\'s page limit, cannot be told from a cut list → check and start exit 2', () => {
     const saved = gh().prs;
     const bulk = Array.from({ length: 100 }, (_, i) => ({
       number: 1000 + i, title: `bulk ${i}`, body: '', headRefName: `bulk/${i}`, baseRefName: 'main', isDraft: false, state: 'OPEN',
@@ -1325,14 +1368,90 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     try {
       // the fake honours --limit, as gh does: the list comes back cut at exactly 100
       expect(JSON.parse(fakeGh(['pr', 'list', '--state', 'open', '--limit', '100', '--json', 'number'], W.clones.malede).stdout)).toHaveLength(100);
+      // so are his own open PRs, listed on their own: his list is cut too
       const chk = run('malede', ['check', '--paths', 'docs/bulk/x.md']);
-      expect(chk.out).toMatch(/listed 100 open PRs, its limit: the list may be truncated/);
+      expect(chk.out).toMatch(/listed 100 open PRs by @DanielBedrack, its limit: the list may be truncated/);
       expect(chk.code).toBe(2);
       const st = run('malede', ['start', '--task', 'own:bulk', '--title', 'Bulk', '--paths', 'docs/bulk/x.md', '--branch', 'docs/bulk-m']);
       expect(st.code).toBe(2);
       expect(onOrigin()).not.toContain('docs/bulk-m');
     } finally {
       setGh({ prs: saved });
+    }
+  });
+
+  test('OPS-221 · with 300 closed PRs, then 100 open fork PRs, then 100 open PRs of someone outside People, start, rescope, check --merge and ci still decide', () => {
+    const closed = Array.from({ length: 300 }, (_, i) => ghPr(2000 + i, { state: 'CLOSED' }));
+    const forks = Array.from({ length: 100 }, (_, i) => ghPr(3000 + i, { headRefName: `patch-${i}`, author: { login: 'stranger' }, isCrossRepository: true }));
+    const outsiders = Array.from({ length: 100 }, (_, i) => ghPr(4000 + i, { headRefName: `outside/${i}`, author: { login: 'someone-else' } }));
+    const fixtures = new Set([...closed, ...forks, ...outsiders].map((p) => p.number));
+    // Every command a claim lives through, on a new branch of mine: each must decide.
+    const lifecycle = (branch, file) => {
+      const st = run('malede', ['start', '--task', `own:${branch.replace(/\//g, '-')}`, '--title', 'Many PRs', '--paths', file, '--branch', branch]);
+      decided(`start ${branch}`, st);
+      const rs = run('malede', ['rescope', '--paths', `${file},${file.replace(/\.md$/, '2.md')}`], { cwd: wt('malede', branch) });
+      decided(`rescope ${branch}`, rs);
+      const merge = run('malede', ['check', '--merge', String(prOf(branch).number)]);
+      decided(`check --merge ${branch}`, merge);
+      decided(`ci ${branch}`, run('malede', ['ci', '--branch', branch, '--author', 'DanielMalede']));
+      return [st, rs, merge];
+    };
+    setGh({ prs: gh().prs.concat(closed) });
+    try {
+      // A · 300 closed PRs: the all-states list is cut, and nothing else changes — two lists, no search
+      let mark = gh().calls.length;
+      lifecycle('docs/ops221-a', 'docs/ops221/a.md');
+      expect(ghCalls(mark).filter((c) => c.includes('--author'))).toEqual([]);
+
+      // B · and 100 open PRs from a stranger's fork: the open list is cut, so each partner's own open
+      // PRs are listed on their own, and the output says so
+      setGh({ prs: gh().prs.concat(forks) });
+      mark = gh().calls.length;
+      for (const res of lifecycle('docs/ops221-b', 'docs/ops221/b.md')) expect(res.out).toMatch(FALLBACK);
+      const calls = ghCalls(mark);
+      expect(calls).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^pr list --state open --author DanielMalede --limit 100 --json /),
+        expect.stringMatching(/^pr list --state open --author DanielBedrack --limit 100 --json /),
+      ]));
+
+      // C · instead, 100 open PRs of this repository by someone outside People: they count toward no limit
+      setGh({ prs: gh().prs.filter((p) => !forks.some((f) => f.number === p.number)).concat(outsiders) });
+      const chk = run('malede', ['check', '--paths', 'docs/ops221/c.md']);
+      decided('check with 100 open PRs of someone else', chk);
+      expect(chk.out).toMatch(FALLBACK);
+    } finally {
+      setGh({ prs: gh().prs.filter((p) => !fixtures.has(p.number)) });
+      for (const b of ['docs/ops221-a', 'docs/ops221-b']) if (onOrigin().includes(b)) release(b);
+    }
+  });
+
+  test('OPS-221 · a PR GitHub\'s search has not indexed yet is the newest PR, so the lists that are not searches carry it: during a flood his old-dated branch with that open PR still HALTs a fresh clone', () => {
+    const forks = Array.from({ length: 100 }, (_, i) => ghPr(3000 + i, { headRefName: `patch-${i}`, author: { login: 'stranger' }, isCrossRepository: true }));
+    const saved = gh().prs;
+    pushOldBranch('feat/lagged', 'docs/lagged/x.md');
+    // a clone made after the push holds the branch from its first fetch: only an open PR keeps it in view
+    const fresh = path.join(W.root, 'clone made after the lagged push');
+    git(W.root, ['clone', W.origin, fresh]);
+    setGh({ prs: saved.concat(forks) });
+    try {
+      const unseen = run('malede', ['check', '--paths', 'docs/lagged/x.md'], { cwd: fresh });
+      expect(unseen.out).not.toMatch(/feat\/lagged/);
+      expect(unseen.out).toMatch(NOTE);
+      decided('check before his PR', unseen);
+
+      const lagged = ghPr(9000, { headRefName: 'feat/lagged', author: { login: 'DanielBedrack' }, files: [{ path: 'docs/lagged/x.md' }], headRefOid: tipOf('feat/lagged') });
+      setGh({ prs: gh().prs.concat(lagged), searchLag: [9000] });
+      const his = JSON.parse(fakeGh(['pr', 'list', '--state', 'open', '--author', 'DanielBedrack', '--limit', '100', '--json', 'number'], fresh).stdout);
+      expect(his.map((p) => p.number)).not.toContain(9000);
+      const mark = gh().calls.length;
+      const seen = run('malede', ['check', '--paths', 'docs/lagged/x.md'], { cwd: fresh });
+      expect(seen.out).toMatch(/Bedrack \(@DanielBedrack\): unclaimed recent branch feat\/lagged \(40 days old\)/);
+      expect(seen.out).toMatch(FALLBACK);
+      expect(seen.code).toBe(1);
+      expect(ghCalls(mark)).toEqual(expect.arrayContaining([expect.stringMatching(/^pr list --state open --author DanielBedrack /)]));
+    } finally {
+      setGh({ prs: saved, searchLag: null });
+      release('feat/lagged');
     }
   });
 

@@ -36,6 +36,11 @@ const FREEZE_RESOURCE = 'res:prod-deploy';
 // dates alone.
 const RECENCY_NOTE = 'note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked';
 
+// The residual of the open list's fallback (printed once when it applies): with the open list at
+// gh's limit, only the open PRs of the people in People are listed whole, so a branch whose open PR
+// someone else opened may look as if it had none.
+const PR_FALLBACK_NOTE = 'note: the open PR list reached gh\'s limit, so each person in People had his open PRs listed on their own; an open PR by anyone else may be missing, and its branch is then judged by its dates alone';
+
 // Claim paths read from a ledger slot. A folder written with a trailing slash — or a Windows
 // backslash, converted first — is a folder claim; a path that cannot be normalised is reported
 // (`bad`), never silently dropped.
@@ -834,6 +839,7 @@ module.exports = {
   claimPaths,
   dropSelf,
   RECENCY_NOTE,
+  PR_FALLBACK_NOTE,
   TIE_WINDOW,
   TASK_ID_RE,
   verdictOf,

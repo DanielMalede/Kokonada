@@ -191,22 +191,29 @@ function context(cwd, { identity = true, rulesFromCheckout = true } = {}) {
 
 // ---- reading origin ---------------------------------------------------------------------------
 
-// → { footprints, remoteNames, prs }: every other branch's live claims and unclaimed recent work.
-// With `useGh`, one `gh pr list` lets a branch whose newest PR is merged or closed drop out; without
-// it (status when gh is missing) a squash-merged branch drops out by content instead.
+// → { footprints, remoteNames, prs, stats }: every other branch's live claims and unclaimed recent
+// work. With `useGh`, the PR lists keep a branch with an open PR in view and let a branch whose newest
+// PR is merged or closed for its tip drop out; without them (status when gh is missing) a
+// squash-merged branch drops out by content instead.
 function gather(ctx, { useGh = true, requireGh = false } = {}) {
   const { root } = ctx;
+  const stats = {};
   let prs = null;
   if (useGh) {
     const open = gh.prListOpen(root);
     const all = gh.prList(root);
-    const usable = C.prListsUsable({ open, all, byAuthor: null, openLimit: gh.OPEN_LIMIT });
+    // At its limit the open list may be cut: then each person in People has his open PRs listed on
+    // their own. Below it a run makes these two calls only.
+    const byAuthor = open && open.length >= gh.OPEN_LIMIT
+      ? Object.fromEntries(ctx.rules.people.map((p) => [p.login, gh.prListOpenBy(root, p.login)]))
+      : null;
+    const usable = C.prListsUsable({ open, all, byAuthor, openLimit: gh.OPEN_LIMIT });
     if (requireGh && !usable.ok) {
       throw cannotVerify(`cannot verify: ${usable.reason} — without the PR lists, open work cannot be told from finished work`);
     }
-    prs = C.mergePrLists(all, open);
+    prs = C.mergePrLists(all, ...Object.values(byAuthor || {}), open);
+    stats.prFallback = Boolean(byAuthor);
   }
-  const stats = {};
   const common = git.commonDir(root);
   const birth = memo(() => git.cloneBirth(common));
   const mainBlobs = memo(() => git.treeBlobs(root, MAIN));
@@ -282,8 +289,12 @@ function runCheck(ctx, { declared, resources, task, taskKind, branch }) {
   return { result, footprints, remoteNames, others, stats };
 }
 
-// The recency residual, said once, only when a branch was actually judged on commit dates alone.
-const recencyNotes = (stats) => (stats && stats.ageOnly && stats.ageOnly.length ? [C.RECENCY_NOTE] : []);
+// The documented residuals, each said once and only when it applied: a branch judged on commit dates
+// alone, and open PRs listed per person because the open list reached its limit.
+const notesOf = (stats) => [
+  ...(stats && stats.ageOnly && stats.ageOnly.length ? [C.RECENCY_NOTE] : []),
+  ...(stats && stats.prFallback ? [C.PR_FALLBACK_NOTE] : []),
+];
 
 const otherName = (ctx) => (L.otherPerson(ctx.rules, ctx.me) || { name: 'the other partner' }).name;
 const counts = (others) => ({ claims: others.filter((f) => f.kind === 'claim').length, unclaimed: others.filter((f) => f.kind !== 'claim').length });
@@ -358,10 +369,10 @@ function cmdCheck(cwd, flags) {
   const verdict = C.verdictOf(reasons);
   const code = C.exitCodeOf(verdict);
   if (flags.json) {
-    out(JSON.stringify({ verdict, exitCode: code, login: ctx.me.login, note: ctx.note, notes: recencyNotes(stats), reasons }, null, 2));
+    out(JSON.stringify({ verdict, exitCode: code, login: ctx.me.login, note: ctx.note, notes: notesOf(stats), reasons }, null, 2));
   } else {
     out(R.renderCheck({ verdict, reasons }, { otherName: otherName(ctx), counted: counts(others) }));
-    for (const n of recencyNotes(stats)) out(n);
+    for (const n of notesOf(stats)) out(n);
     if (ctx.note) out(ctx.note);
   }
   return code;
@@ -533,7 +544,7 @@ function startLocked(ctx, flags) {
 
   const { result, footprints, remoteNames, stats } = runCheck(ctx, { declared, resources, task, taskKind, branch: b });
   if (result.reasons.length) out(R.renderReasons(result.reasons));
-  for (const n of recencyNotes(stats)) out(n);
+  for (const n of notesOf(stats)) out(n);
   if (result.verdict === 'HALT') {
     throw halt(existing ? `HALT — this run changed nothing; what already exists: ${already()}` : 'HALT — nothing was changed: no branch, no worktree, no claim');
   }
@@ -732,7 +743,7 @@ function cmdRescope(cwd, flags) {
     declared, resources: slot.claim.resources, task: slot.claim.task, taskKind: slot.claim.taskKind, branch: b,
   });
   if (result.reasons.length) out(R.renderReasons(result.reasons));
-  for (const n of recencyNotes(stats)) out(n);
+  for (const n of notesOf(stats)) out(n);
   if (result.verdict === 'HALT') throw halt('HALT — the new paths collide; the claim was not changed');
   const rescoped = { ...slot.claim, paths: declared };
   assertRoundTrip(rescoped);
@@ -812,10 +823,10 @@ function cmdStatus(cwd, flags) {
   const slotKey = (c) => (c.slot ? `0${c.slot}` : '1');
   for (const p of view.people) p.claims.sort((x, y) => slotKey(x).localeCompare(slotKey(y)));
   if (flags.json) {
-    out(JSON.stringify({ ...view, note: ctx.note, notes: recencyNotes(stats) }, null, 2));
+    out(JSON.stringify({ ...view, note: ctx.note, notes: notesOf(stats) }, null, 2));
   } else {
     out(R.renderStatus(view));
-    for (const n of recencyNotes(stats)) out(n);
+    for (const n of notesOf(stats)) out(n);
     if (ctx.note) out(ctx.note);
   }
   return 0;
