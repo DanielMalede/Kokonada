@@ -87,14 +87,14 @@ This predates the redesign and is the worst finding in the re-audit.
 
 `backend/package.json:18` ships `@sentry/node`; `backend/app/index.js:35` initialises it via `config/sentry.js:16-31`; and events carry an identifier — `sockets/index.js:90` and `sockets/biometricHandler.js:972` both pass `userId: String(...)` into `captureException`.
 
-`docs/PRIVACY_DECLARATIONS.md` does **not** list Sentry in its sub-processor table, and neither store form declares a crash-log / diagnostics category. `PRIVACY_DECLARATIONS.md:63` asserts "No third-party advertising or analytics SDKs" — defensible for error monitoring, but the Play **Crash logs / Diagnostics** category is unanswered.
+`docs/privacy-declarations.md` does **not** list Sentry in its sub-processor table, and neither store form declares a crash-log / diagnostics category. `docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:63)` asserts "No third-party advertising or analytics SDKs" — defensible for error monitoring, but the Play **Crash logs / Diagnostics** category is unanswered.
 
 **The canvas was more accurate than the declarations** — but it was also wrong in its own way: it said Sentry receives crash reports *"when error monitoring is on"*, implying a user control. There is none; it is gated on the `SENTRY_DSN` env var, an operator switch. And it said "crash reports" while Sentry receives an account ID.
 
 **Canvas: DONE** — now "receives error reports, which can include your account ID."
 
 **Shipped/declarations fix:**
-1. Add Sentry to the `PRIVACY_DECLARATIONS.md` sub-processor table, stating it receives error/stack context **plus userId**.
+1. Add Sentry to the `docs/privacy-declarations.md` sub-processor table, stating it receives error/stack context **plus userId**.
 2. Add Play "App info and performance → Crash logs" and Apple "Diagnostics → Crash Data".
 3. Re-check the Play "shared with third parties: No" answer against the added processor.
 4. **Reconcile Vercel** — listed in the declarations, absent from the canvas. Either it is gone (remove it) or it is live (the notice is incomplete). The two documents currently disagree in both directions.
@@ -105,7 +105,7 @@ Misdeclared Data Safety is a routine Play takedown reason.
 
 **Requirement** — Play Health Content and Services: other health and medical apps "must include a clear disclaimer in their app description indicating that the app is *'not a medical device and does not diagnose, treat, cure, or prevent any medical condition.'*" Apple 1.4.1: "Apps should remind users to check with a doctor in addition to using the app and before making medical decisions."
 
-A repo-wide search for `not a medical device` / `diagnose, treat` returns **zero matches**. The app reads HR/HRV/sleep and renders interpretations ("Wired, but running on empty", "HRV 29 ms"), so it is squarely a health app. The Play Health apps declaration is still unticked at `PRIVACY_DECLARATIONS.md:155`.
+A repo-wide search for `not a medical device` / `diagnose, treat` returns **zero matches**. The app reads HR/HRV/sleep and renders interpretations ("Wired, but running on empty", "HRV 29 ms"), so it is squarely a health app. The Play Health apps declaration is still unticked at `docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:155)`.
 
 **Fix:** add the disclaimer verbatim to the Play listing description, and echo it once in-app adjacent to the reads — Pulse and the Receipt head — which also answers Apple 1.4.1.
 
@@ -117,7 +117,7 @@ Naming sub-processors is **not required** — Art. 13(1)(e) accepts "categories 
 
 **UNVERIFIED, and it must be resolved before the notice claims anything specific:** DPF certification or SCC status for Groq, Railway, MongoDB Atlas and Sentry, per processor. The EU-US Data Privacy Framework adequacy decision stands (the General Court dismissed *Latombe v Commission* T-553/23 on 3 September 2025; appeal C-703/25 P pending), but adequacy covers **DPF-certified** organisations only.
 
-**Also standing and unexecuted:** `PRIVACY_DECLARATIONS.md:84-90` — the **Groq DPA + Zero-Data-Retention** condition is "a business/legal action that is not yet confirmed done." The canvas now states the Groq processing relationship to users in plain language. **Stating it to users while the Art. 28 contract is unexecuted is the wrong order**, and the Play "shared with third parties: No" answer depends on it.
+**Also standing and unexecuted:** `docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:84-90)` — the **Groq DPA + Zero-Data-Retention** condition is "a business/legal action that is not yet confirmed done." The canvas now states the Groq processing relationship to users in plain language. **Stating it to users while the Art. 28 contract is unexecuted is the wrong order**, and the Play "shared with third parties: No" answer depends on it.
 
 ### C7 · The consent notice is Android-only
 
@@ -128,7 +128,7 @@ Partially addressed: the Google-brand corrections ("Android Health Connect" → 
 ### What the re-audit found *right*, and must not be broken
 
 - **Decision 1 — filled Agree vs outlined Decline: PASS.** Not a recognised per-se dark pattern on the cited authorities. The EDPB Cookie Banner Taskforce Report names two failures: absence of a reject option on any layer (para 8) and contrast "so minimal that the text is unreadable" (para 18). Neither applies: identical geometry, stroke, radius, weight, size and hit area; Decline first in reading order; **Decline's label carries the highest text contrast on the screen**; anti-confirmshaming copy present. The test is explicitly case-by-case and this case passes it.
-  **Five conditions hold that PASS**, and the first is a live inconsistency: **`docs/SCREENS.md` §11 currently says the opposite** — *"Decline is exactly as easy as Accept — equal size/position/contrast."* A discoverable internal rule contradicted by the shipped UI is the worst posture in a supervisory inquiry. Update §11 with the new rule **and its reasoning**, or revert. Do not leave them disagreeing. Also: never re-tint Agree to the emotion accent; no confirm step or re-prompt loop on Decline; measure the Decline outline at 3:1 (WCAG 2.2 1.4.11) in both themes — the canvas uses `--ink` and is safe, but **shipped `ConsentSheet.tsx:233` uses `c.content.tertiary` and is unmeasured**; and file a screenshot of the rendered screen against the consent version.
+  **Five conditions hold that PASS**, and the first is a live inconsistency: **`docs/design-v1/screens.md` §11 currently says the opposite** — *"Decline is exactly as easy as Accept — equal size/position/contrast."* A discoverable internal rule contradicted by the shipped UI is the worst posture in a supervisory inquiry. Update §11 with the new rule **and its reasoning**, or revert. Do not leave them disagreeing. Also: never re-tint Agree to the emotion accent; no confirm step or re-prompt loop on Decline; measure the Decline outline at 3:1 (WCAG 2.2 1.4.11) in both themes — the canvas uses `--ink` and is safe, but **shipped `ConsentSheet.tsx:233` uses `c.content.tertiary` and is unmeasured**; and file a screenshot of the rendered screen against the consent version.
   **Shipped note:** `ConsentSheet.tsx:220-224` carries a comment asserting "equal-weight Decline · Agree" while `:233-248` renders outline-vs-fill. **A false comment on a legal control is worse than none.**
 - **Decision 4 — eight collapsed sections: PASS on layering.** Layered information is expressly endorsed (EDPB 05/2020 paras 71-72). **FAIL on what the first layer carried:** of the para-64 minimum, controller identity and purpose sat inside collapsed sections and the transfer statement was absent entirely. C6 fixes the transfer statement. **Still open:** promote purpose and controller identity into the always-visible summary, and allow multiple sections open at once (the accordion currently closes one to open another, while claiming "this is the whole notice").
 - **Least privilege: clean.** Nothing on these boards requests a scope beyond the declared minimum. Health Connect stays at heart rate / HRV / sleep / resting HR / history; the Garmin trio is disclosed-but-dormant and *enforced* dormant.
@@ -508,7 +508,7 @@ The Spotify mark on Pulse sits on a surface rendering Health Connect data. As dr
 ### Explicitly UNVERIFIED — do not assume either way
 
 - **There is no Health Connect brand-guidelines page** — the expected URL returns **404**. No required attribution line ("Powered by Health Connect" or similar) could be verified. **Do not invent one.** If the logo is ever used, it needs Android brand-team approval, which the brand guidelines say takes **at least a week**.
-- **Pre-tap platform-availability disclosure** — no Google rule found requiring it. Our post-tap alert is not a violation. (Our own `SCREENS.md:161` asks for a pre-check anyway, and `healthConnect.ts:17-23` already returns `'unsupported'` before any user action — so gating the CTA is free.)
+- **Pre-tap platform-availability disclosure** — no Google rule found requiring it. Our post-tap alert is not a violation. (Our own `docs/design-v1/screens.md (was SCREENS.md:161)` asks for a pre-check anyway, and `healthConnect.ts:17-23` already returns `'unsupported'` before any user action — so gating the CTA is free.)
 - **Data-type label matching** — no requirement found; accuracy still binds.
 
 <a id="sign-in-with-apple-entitlement"></a>
@@ -678,11 +678,11 @@ The Branding Guidelines name the right asset for exactly our case: the **YouTube
 
 Track title and artist on those rows derive from `snippet.title` and `cleanYouTubeArtist(snippet.channelTitle)` when the source is YouTube. That is YouTube content, displayed unattributed.
 
-**Missing playback-surface attribution is the standard cause of YouTube API access revocation for music clients.** `docs/SCREENS.md:30` still carries "playback-surface Spotify/YouTube attribution" as an open item — and the Components board had codified its absence as a rule.
+**Missing playback-surface attribution is the standard cause of YouTube API access revocation for music clients.** `docs/design-v1/screens.md (was SCREENS.md:30)` still carries "playback-surface Spotify/YouTube attribution" as an open item — and the Components board had codified its absence as a rule.
 
 **Canvas: DONE** — the Components attribution rule now reads: the mark *is* the attribution, each row carries the mark of the service that supplied the track and links back to it, with both an `OFFICIAL SPOTIFY MARK` and an `OFFICIAL YOUTUBE ICON` slot, and "a content row never renders without one."
 
-**Shipped:** add a provider discriminator to the mini-player / Now Playing attribution slot. For YouTube-sourced tracks render the **official YouTube Icon** from Google's asset pack — never redrawn, never recoloured — tappable, linking to `https://www.youtube.com/watch?v=<videoId>`. **NEEDS-ASSET.** Write it into the `docs/SCREENS.md` §7/§9 Definition of Done so no screen can merge without it.
+**Shipped:** add a provider discriminator to the mini-player / Now Playing attribution slot. For YouTube-sourced tracks render the **official YouTube Icon** from Google's asset pack — never redrawn, never recoloured — tappable, linking to `https://www.youtube.com/watch?v=<videoId>`. **NEEDS-ASSET.** Write it into the `docs/design-v1/screens.md` §7/§9 Definition of Done so no screen can merge without it.
 
 ### YT-3 · HALT — disconnect never revokes the token at Google
 
@@ -704,7 +704,7 @@ The only place the user is told is `Consent.dc.html` §4 — inside the **GDPR A
 **Fix, in order of preference:**
 1. **Delete the transfer.** We already fetch `topicDetails.topicCategories` (`youtube.js:252-279`) — Wikipedia music-genre URLs, a richer signal than an LLM guess. Derive YouTube genres from those and drop `youtube_music` from `LLM_BACKFILL_PROVIDERS`. One edit removes the III.E.3.2 question, the Limited Use question, and the Groq row from the YouTube story entirely.
 2. If it stays: move the disclosure into a pre-OAuth sheet on the **YouTube connect** flow, worded identically to the consent copy, and name it in the privacy policy.
-3. Separately audit the Groq prompt cache — `docs/PRIVACY_DECLARATIONS.md:73` says the key is `md5(prompt)` and the value is derived params. That value holds genres derived from YouTube artists, cross-user, with no expiry tied to the YouTube grant. Check against III.E.4.3.
+3. Separately audit the Groq prompt cache — `docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:73)` says the key is `md5(prompt)` and the value is derived params. That value holds genres derived from YouTube artists, cross-user, with no expiry tied to the YouTube grant. Check against III.E.4.3.
 
 **Worth keeping, and explicitly praised by the auditor:** the containment already built — `backend/app/utils/youtubeContent.js` fails closed on scheme and provider, `monitoring/youtubeLeakMonitor.js` counts leaks non-destructively, and `workers/youtubeRetention.worker.js` enforces the III.E.4.3 30-day ceiling with a correct terminal/transient split. None of it addresses III.E.4.8(ii), which on its face prohibits deriving new data from API Data at all — that clause is read narrowly in practice, but Google's enforcement posture **could not be confirmed → UNVERIFIED.**
 

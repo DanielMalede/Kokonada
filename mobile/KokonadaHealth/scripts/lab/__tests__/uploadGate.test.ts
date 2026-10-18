@@ -8,7 +8,7 @@ import path from 'node:path';
 // pins the line in each checklist, so it cannot drop out unnoticed.
 
 const REPO = path.resolve(__dirname, '../../../../..');
-const CHECKLISTS = ['docs/store/play-health-connect-declaration.md', 'docs/PRIVACY_DECLARATIONS.md'];
+const CHECKLISTS = ['docs/store/play-health-connect-declaration.md', 'docs/privacy-declarations.md'];
 
 describe('every pre-upload checklist requires the exact-artifact lab scan', () => {
   it.each(CHECKLISTS)('%s', (file) => {

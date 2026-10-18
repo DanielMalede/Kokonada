@@ -1,3 +1,8 @@
+---
+status: living
+verified: 2026-10-18
+---
+
 # Apple HealthKit Integration Research
 
 **Status:** server authoritative-store prerequisite merged in PR #232; isolated synthetic contract probe in PR #241; no iOS dependency, entitlement, permission, or HealthKit reader was added

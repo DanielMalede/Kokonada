@@ -739,7 +739,7 @@ describe('run - the coordinator and gh pr ready (OPS-156)', () => {
   });
 
   test('start that exits 3 (WARN) has still opened its PR: the failure event fires on it', () => {
-    const h = context(run(failed(START, `Exit code 3\n  WARN [shared] his branch also edits docs/SCREENS.md\n${STARTED}`), deps()));
+    const h = context(run(failed(START, `Exit code 3\n  WARN [shared] his branch also edits docs/design-v1/screens.md\n${STARTED}`), deps()));
     assert.equal(h.hookEventName, 'PostToolUseFailure');
     assert.match(h.additionalContext, /on PR #229, phase pre-merge/);
   });

@@ -9,7 +9,7 @@
 > **Single source of truth:** the wording here MUST match, verbatim in substance, (1) the
 > published privacy policy, (2) the in-app permission-rationale screen
 > (`PermissionsRationaleActivity` / `ViewPermissionUsageActivity`), and (3) the new consent
-> screen (`docs/SCREENS.md` §11). Any drift between them is a rejection risk. <!-- verified rationale wiring: mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:70-95 -->
+> screen (`docs/design-v1/screens.md` §11). Any drift between them is a rejection risk. <!-- verified rationale wiring: mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:70-95 -->
 >
 > **Do not submit until:** the Groq DPA is executed + Zero-Data-Retention enabled (see the
 > "Shared: No" caveat), and the consent screen + server consent gate are live.
@@ -55,7 +55,7 @@ live heart rate over Bluetooth LE from a paired Garmin "Broadcast Heart Rate" de
 (`BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT`, not a Health Connect scope), including a periodic
 foreground/background HTTP push from the watch companion. This lane is now **also** gated
 behind the same GDPR Art.9 consent record as the Health Connect paths (server-side, on the
-device token's resolved user) — H-9 is fully closed, see `docs/PRIVACY_DECLARATIONS.md`'s
+device token's resolved user) — H-9 is fully closed, see `docs/privacy-declarations.md`'s
 GDPR Art.9 section. It remains outside the scope of *this* Health Connect declaration (it is
 not a Health Connect permission), but is consent-gated identically.
 

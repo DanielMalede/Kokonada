@@ -165,7 +165,7 @@ describe('account deletion: both paths purge the learning jobs first', () => {
   });
 });
 
-// ADR-0015: a Spotify or wearable disconnect keeps the learned preferences (PRIVACY_DECLARATIONS.md,
+// ADR-0015: a Spotify or wearable disconnect keeps the learned preferences (docs/privacy-declarations.md,
 // Disconnect Spotify). Purging the learning jobs there would erase what they are about to write.
 describe('ADR-0015: no disconnect-side module purges learning jobs', () => {
   const DISCONNECT_SIDE = [

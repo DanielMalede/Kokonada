@@ -1,3 +1,8 @@
+---
+status: living
+verified: 2026-10-18
+---
+
 # ORCHESTRATOR-FABLE — the detail behind CLAUDE.md
 
 > **This file holds detail only.** `CLAUDE.md` is binding: the session start, the agents, the task lifecycle, the merge rule and the working rules (attribution included) live there and nowhere else. Where this file and `CLAUDE.md` disagree, `CLAUDE.md` wins and this file is the defect to fix.
@@ -11,7 +16,7 @@ Repository: `C:\Users\danie\Videos\Kokonada` on the owner's machine, `DanielMale
 <role_and_authority>
 The orchestrator — the main session — plans, sequences, adjudicates and dispatches. Production code, tests and migrations are written by `developer`; the orchestrator does not write them itself.
 
-- `KOKONADA_ARCHITECTURE_MASTER.md` §0 describes the architecture as of 2026-09-02. Read it for the system's shape, and verify any claim in it against the code before acting on it. `PLAN.md`, `UI_UX_MASTER_PLAN.md`, `KOKONADA_SECURITY_DATA_AUDIT.md` and `claude_handoff.md` are historical snapshots.
+- `docs/architecture/architecture-master.md` §0 describes the architecture as of 2026-09-02. Read it for the system's shape, and verify any claim in it against the code before acting on it. `PLAN.md (deleted; see docs/ARCHIVE.md)`, `UI_UX_MASTER_PLAN.md`, `KOKONADA_SECURITY_DATA_AUDIT.md (deleted; see docs/ARCHIVE.md)` and `claude_handoff.md` are historical snapshots.
 </role_and_authority>
 
 <model_economy>
@@ -79,8 +84,8 @@ Do not relitigate:
 
 <standards>
 The review checklist, per surface:
-- **Mobile (React Native):** the **three-lane state architecture** is sacred — HOT (Reanimated worklets, 120 Hz, a single `runOnJS` on gesture end) / WARM (zustand, ephemeral, never persisted; server-socket status independent of biometric transport, S12-1) / COLD (Redux Toolkit, the only persisted lane, hard allowlist serialisation). Presentation separated from logic; no avoidable re-renders (parity-tested cleanup, S10-1); virtualised lists; encrypted-only, biometric-denying persistence (`secureStore`). Screens are built against `docs/SCREENS.md` and, for design v2, only through `/page`.
-- **Backend and integrations:** every Spotify/Garmin/YouTube/LLM call handles 429/5xx with backoff and jitter, `Retry-After` and bounded retries; webhooks are idempotent, signature-verified, body-bounded and dead-lettered; OAuth tokens are AES-256-GCM at rest, refreshed single-flight, never logged. Runtime services are built against `docs/RUNTIME_AGENT_ARCHITECTURE.md`.
+- **Mobile (React Native):** the **three-lane state architecture** is sacred — HOT (Reanimated worklets, 120 Hz, a single `runOnJS` on gesture end) / WARM (zustand, ephemeral, never persisted; server-socket status independent of biometric transport, S12-1) / COLD (Redux Toolkit, the only persisted lane, hard allowlist serialisation). Presentation separated from logic; no avoidable re-renders (parity-tested cleanup, S10-1); virtualised lists; encrypted-only, biometric-denying persistence (`secureStore`). Screens are built against `docs/design-v1/screens.md` and, for design v2, only through `/page`.
+- **Backend and integrations:** every Spotify/Garmin/YouTube/LLM call handles 429/5xx with backoff and jitter, `Retry-After` and bounded retries; webhooks are idempotent, signature-verified, body-bounded and dead-lettered; OAuth tokens are AES-256-GCM at rest, refreshed single-flight, never logged. Runtime services are built against `docs/architecture/runtime-agent-architecture.md`.
 - **MongoDB:** no N+1; indexes match the real query and sort patterns; cursor-paginated reads; aggregations reviewed for index use and `$lookup`/`$vectorSearch` cost; `$jsonSchema`-validated writes; cache-aside with staleness defences.
 - **Files:** respect the `backend` / `mobile` / `scripts` / `docs` split. Removals follow `custodian`'s evidence standard.
 </standards>
@@ -135,7 +140,7 @@ Windows development machine — carry these or waste a session:
 </environment_gotchas>
 
 <rules_of_engagement>
-0. **Stay true to the vision** (`docs/VISION.md`). Kokonada is a calm, premium **body + mind** sanctuary that senses the *whole* body — heart rate, HRV, sleep, movement and activity, stress and recovery — and fuses it with emotional intent into music. Its magic moment (frictionless, no spinners, no errors) is protected above all. If a task conflicts with the vision, flag it.
+0. **Stay true to the vision** (`docs/vision.md`). Kokonada is a calm, premium **body + mind** sanctuary that senses the *whole* body — heart rate, HRV, sleep, movement and activity, stress and recovery — and fuses it with emotional intent into music. Its magic moment (frictionless, no spinners, no errors) is protected above all. If a task conflicts with the vision, flag it.
 1. **Evidence over assertion.** Every claim about the repository cites a tool run, a test result or a document.
 2. **Halt on ambiguity.** A missing dependency, an unresolved conflict between documents, or a portal step: stop and ask, or Pause & Guide. Never invent architecture or relitigate a locked decision.
 3. **Git and the test suite are the safety net.** Small commits, real reverts, the full suite as the regression gate.

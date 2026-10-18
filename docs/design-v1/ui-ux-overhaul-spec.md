@@ -1,10 +1,17 @@
+---
+status: reference
+verified: 2026-10-18
+---
+
+> **v1 design language (Wave 2.8).** Superseded in part on 2026-09-23 by design v2 (`docs/plans/design-v2-plan.md`); history wherever it conflicts; deleted once ADR-0017 lands (`UI-110`). Moved here from `docs/design-v1/ui-ux-overhaul-spec.md` on 2026-10-18.
+
 # KOKONADA — UI/UX MASTER OVERHAUL SPEC
 ## "The Synesthetic Living App" — Design Directive (Blueprint Wave 2.8)
 
 > **Design language:** *Calm / Premium Wellness × Bioluminescent Depth.*
 > The app is a living instrument that fuses the human nervous system with sound. It does not decorate data — it **breathes with the user, to calm the user.**
 > **Status:** Scheduled design phase. Persisted as the authoritative spec for Wave 2.8; the Master Blueprint references this file.
-> **Superseded in part (2026-09-23)** by `docs/plans/DESIGN_V2_PLAN.md` and ADR-0017 (pending), which supersedes ADR-0009. Where they conflict with this spec, they win. The vision, the regulator ethic (§1), the sacred contracts (§0) and the §7 rulings stand until ADR-0017 says otherwise.
+> **Superseded in part (2026-09-23)** by `docs/plans/design-v2-plan.md` and ADR-0017 (pending), which supersedes ADR-0009. Where they conflict with this spec, they win. The vision, the regulator ethic (§1), the sacred contracts (§0) and the §7 rulings stand until ADR-0017 says otherwise.
 
 ---
 
@@ -19,7 +26,7 @@ Reviewed against concept mockups and approved. Build the Vision Frame to **this*
 - **Genesis = no spinner** — a breathing neural-particle field + one calm status line.
 - **Restraint everywhere else** so the wheel + aura are the stars; WCAG 2.2 AA maintained for all text over the aura/gradients.
 
-This is the north-star feel the token system (§2) and the screen rollout (§4 / `docs/SCREENS.md`) implement.
+This is the north-star feel the token system (§2) and the screen rollout (§4 / `docs/design-v1/screens.md`) implement.
 
 ---
 
@@ -89,7 +96,7 @@ All styling flows from a centralised Tamagui token architecture; no hardcoded va
 
 ## 4. SCREEN-BY-SCREEN SCOPE
 
-> **Per-screen detail lives in `docs/SCREENS.md`** — the full catalog (layout, components, every state, interactions, data source) for each screen. Build each screen from there; this section is the design-intent summary.
+> **Per-screen detail lives in `docs/design-v1/screens.md`** — the full catalog (layout, components, every state, interactions, data source) for each screen. Build each screen from there; this section is the design-intent summary.
 
 - **FTUE / Onboarding:** a cinematic, guided **sensory** journey that teaches the body↔music connection with almost no text. Preserve the "**Try with mood only**" path (wearable optional).
 - **Auth:** Sign in with Apple / Google to **exact HIG** dimensions, fonts, and placement.

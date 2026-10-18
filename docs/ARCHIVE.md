@@ -47,6 +47,16 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 | `docs/plans/LEGAL_AI_ACT_EMOTION_RECOGNITION.md` | `docs/design-v2/counsel/legal-ai-act-emotion-recognition.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
 | `backend/docs/garmin-health-api-application.md` | `docs/store/garmin-health-api-application.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
 | `mobile/native-snippets/RELEASE_SIGNING.md` | `docs/runbooks/android-release-signing.md` | 2026-10-18 | PR 2 of the md reorganisation (OPS-270) |
+| `KOKONADA_ARCHITECTURE_MASTER.md` | `docs/architecture/architecture-master.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/GROUND_TRUTH_2026-09-02.md` | `docs/architecture/architecture-master.md#ground-truth-2026-09-02` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/RUNTIME_AGENT_ARCHITECTURE.md` | `docs/architecture/runtime-agent-architecture.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/plans/mbid-representation-recalibration-vs-genre-seam.md` | `docs/architecture/mbid-representation-recalibration-vs-genre-seam.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/SCREENS.md` | `docs/design-v1/screens.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/UI_UX_OVERHAUL_SPEC.md` | `docs/design-v1/ui-ux-overhaul-spec.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/ORCHESTRATOR_FABLE.md` | `docs/orchestrator-fable.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/VISION.md` | `docs/vision.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/PRIVACY_DECLARATIONS.md` | `docs/privacy-declarations.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
+| `docs/plans/DESIGN_V2_PLAN.md` | `docs/plans/design-v2-plan.md` | 2026-10-18 | PR 3 of the md reorganisation (OPS-270) |
 
 ## Deleted
 
@@ -112,6 +122,10 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 | `docs/runbooks/reembed-corpus-genre-dilution.md` | One-time re-embed migration of the corpus; it ran | 2026-07-15 | `2e005e42cb48981540e4b6965db4590777789daf` | PR 2 of the md reorganisation (OPS-270) |
 | `mobile/SETUP_ANDROID.md` | Setup of the legacy "drop-in kit" under mobile/src, which is not the app (OPS-273) | 2026-06 | `6e08ac93f4bf765665fe24d0d2b93cd2fe327797` | PR 2 of the md reorganisation (OPS-270) |
 | `claude_handoff.md` | Cross-session handoff of 2026-07-19 (Wave 2.8.2 rollout, providers, the standalone build); its release facts live in docs/runbooks/android-release-signing.md | 2026-07-19 | `0b42679ad4b6f63bbdd27742ad85efad1d7f940b` | PR 2 of the md reorganisation (OPS-270) |
+| `PLAN.md` | The founding prompt of the project (Python or Node, a React web app) | 2026-06 | `0d9eaf3551e261e9c5443cb6fafdd94d75691f31` | PR 3 of the md reorganisation (OPS-270) |
+| `docs/MASTER_BLUEPRINT_2026-07-07.md` | The Waves 0–3 execution plan of July, amended 2026-09-02 | 2026-07-07 | `c45b2bd7e0f17f5a92ecd5eb2547902a8d509a56` | PR 3 of the md reorganisation (OPS-270) |
+| `KOKONADA_SECURITY_DATA_AUDIT.md` | Security audit of the web app and backend of June, remediated | 2026-06-22 | `c154d660f2bf79c9ed52e0a37da5a15bb2e502ce` | PR 3 of the md reorganisation (OPS-270) |
+| `KOKONADA_ARCHITECTURE_MASTER.md §0 "2026-07-07 STATE", §4, §A–§D` | The July roadmap block and the sprint history cut from the architecture master when it moved (the rest lives on as docs/architecture/architecture-master.md) | 2026-07 | `c866bf94f8991edab2b1e03a894c5d8c8dead08b` | PR 3 of the md reorganisation (OPS-270) |
 
 ## Missing before this reorg
 
@@ -137,3 +151,5 @@ Rules: a file that moves or dies gets its row in the same commit; every live ref
 | `.claude/commands/wave2.md` | docs/design-v2/research/2026-09-23/critique.md | The Wave-2 command of the v1 era | `442d5758e243561a3a7da944bb31136c80944b37` |
 | `.claude/worktrees/sentinel/WEAKNESSES_AND_FAILURES.md` | TASKS.md (OPS-213) | The sentinel's worktree copy of the root file; a worktree path, never a tracked file | never tracked |
 | `docs/adr/ADR-0012-learning-compliance.md` | docs/plans/WAVE4_STATE.md, docs/plans/WAVE4_INTELLIGENCE_MISSION.md (deleted above) | A misspelt name; the file is `docs/adr/0012-learning-compliance.md` | never tracked under this name |
+| `.agents/skills/resilience-audit/SKILL.md` | HANDOFF_2026-10-08_BEDRACK.md (kept, DEC-185) | Exists only on the branch of #240 (`chore/resilience-auditor-max`); lands with it (future) | never tracked on main |
+| `docs/HANDOFF_2026-10-08_BEDRACK.md` | HANDOFF_2026-10-08_BEDRACK.md (its own text) | The handoff names itself with the wrong directory; the file is at the repository root | never tracked |

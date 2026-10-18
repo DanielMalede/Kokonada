@@ -96,13 +96,13 @@ behavioural half — a blanket consent gate is **disqualified**, because it woul
 mood-only users learning and falsify *"mood-only is identical in every other way."*
 
 **A residual the code change does not fix.** `MusicProfile` survives withdrawal, and
-`docs/PRIVACY_DECLARATIONS.md` describes that row in our own words as *"Music profile &
+`docs/privacy-declarations.md` describes that row in our own words as *"Music profile &
 listening-derived taste."* Erasing it is not available — `MusicProfile.library` is what
 makes playback work, and destroying it would falsify the mood-only promise. The notice must
 therefore **name what goes and what stays**. `designer` owns that wording.
 
 **The reversal must be legible in every place that argues the old position** — the module
-comment, both model registration paragraphs, `PRIVACY_DECLARATIONS.md`, and the HALT plan.
+comment, both model registration paragraphs, `docs/privacy-declarations.md`, and the HALT plan.
 A reversal recorded in one place leaves the others arguing against shipped behaviour.
 
 ## Not decided here

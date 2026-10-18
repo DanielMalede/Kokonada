@@ -631,7 +631,7 @@ Fetch Malede's latest remote work, rebase this branch, resolve the known `TASKS.
 - Modify: `backend/tests/healthSampleRepository.integration.test.js`
 - Modify: `backend/app/services/privacy/userDataExport.js`
 - Modify: `backend/tests/userDataExport.test.js`
-- Modify: `docs/PRIVACY_DECLARATIONS.md`
+- Modify: `docs/privacy-declarations.md`
 - Modify: `TASKS.md`
 
 **Interfaces:**

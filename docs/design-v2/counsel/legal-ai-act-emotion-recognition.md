@@ -144,7 +144,7 @@ Obtain the Commission's May 2026 Annex III guidance and put the Art. 3(34) quest
 
 - `docs/plans/HALT_CONSENT_VERSION_RETENTION_AND_DECLARATIONS.md` — the GDPR consent work, which is separate and does not address this.
 - `docs/canvas/Consent.dc.html` §3, §4 — where the current automated-processing language lives.
-- `docs/VISION.md` — the product's own description of what it reads and infers.
+- `docs/vision.md` — the product's own description of what it reads and infers.
 
 ---
 

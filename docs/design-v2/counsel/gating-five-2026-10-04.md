@@ -77,7 +77,7 @@
 - Both questions arise because the product has a documented down-regulation objective that no outward text states. Does the answer change if the internal documents are published?
 - **Facts.**
 1. **The record of intent.**
-   - VISION §6: "a wellness product that senses distress must help regulate it" (`VISION.md:45-47`).
+   - VISION §6: "a wellness product that senses distress must help regulate it" (`docs/vision.md (was VISION.md:45-47)`).
    - The breath law, "נשימה מווסתת" [regulated breathing]: a 5–6 s cycle at rest and about 10 s under strain, with the exhale longer than the inhale (`DEC-015`).
 2. **The engine in production.**
    - A "WELLBEING REGULATOR" that under strain "TIGHTENS the target".

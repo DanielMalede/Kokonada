@@ -1,3 +1,8 @@
+---
+status: living
+verified: 2026-10-18
+---
+
 # תוכנית: עיצוב מחדש של `Kokonada` מאפס, דף אחר דף, מקצה לקצה
 
 ## הקשר
@@ -298,9 +303,9 @@ claude mcp add mobile-mcp --env MOBILEMCP_DISABLE_TELEMETRY=1 -- cmd /c npx -y @
 ## קבצים מרכזיים
 
 - הקובץ `docs/adr/0009-calm-bioluminescent-design-language.md`, שמוחלף ב-`ADR-0017`.
-- הקבצים `docs/UI_UX_OVERHAUL_SPEC.md` ו-`docs/SCREENS.md`.
+- הקבצים `docs/design-v1/ui-ux-overhaul-spec.md` ו-`docs/design-v1/screens.md`.
 - הקבצים `.claude/settings.json`, `.claude/agents/designer.md` ו-`.claude/agents/regulatory-researcher.md`.
-- הקבצים `.claude/commands/build-screen.md`, `vision-frame.md` ו-`wave2.md`.
+- הקבצים `.claude/commands/build-screen.md`, `vision-frame.md` ו-`wave2.md`. (נמחקו ב-`2026-09-29`; רשומים ב-`docs/ARCHIVE.md` § Missing)
 - הקבצים `mobile/KokonadaHealth/src/design/*`, `eslint.design-system.js` ו-`tools/eslint-plugin-kokonada/`.
 - הקבצים `mobile/KokonadaHealth/src/navigation/*`, `appBootstrap.ts` ו-`prodBootstrap.ts`.
 - הקבצים `src/health/biometricsWiring.ts`, `src/health/liveHr.ts` ו-`src/experience/pulse/statusLabels.ts`.

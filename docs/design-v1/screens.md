@@ -1,6 +1,13 @@
+---
+status: reference
+verified: 2026-10-18
+---
+
+> **v1 design document.** Superseded by design v2 (`docs/plans/design-v2-plan.md` and `docs/design-v2/`) wherever they conflict; kept until ADR-0017 records the direction, then deleted (`UI-110`). Moved here from `docs/design-v1/screens.md` on 2026-10-18.
+
 # KOKONADA — Screen Catalog (page-by-page spec)
 
-> The single per-screen reference the `developer` agent builds each screen against. Design language: **Calm / Premium Wellness × Bioluminescent** (`docs/UI_UX_OVERHAUL_SPEC.md`); intent: `docs/VISION.md`. Every screen honors the sacred contracts (≤3-tap emotion payload, three-lane state, `screenToCircumplex`) and the honest, regulator-not-mirror ethic.
+> The single per-screen reference the `developer` agent builds each screen against. Design language: **Calm / Premium Wellness × Bioluminescent** (`docs/design-v1/ui-ux-overhaul-spec.md`); intent: `docs/vision.md`. Every screen honors the sacred contracts (≤3-tap emotion payload, three-lane state, `screenToCircumplex`) and the honest, regulator-not-mirror ethic.
 >
 > **Compliance:** every screen and its brand assets (Spotify/YouTube marks + attribution, Sign in with Apple, store screenshots) must pass the `compliance-auditor` before ship.
 >

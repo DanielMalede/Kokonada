@@ -2,7 +2,7 @@
 
 Lightweight records of non-trivial architectural decisions — **context → decision →
 consequences** — so the locked decisions and future ones are traceable and
-`KOKONADA_ARCHITECTURE_MASTER.md` can stay lean (per `docs/ORCHESTRATOR_FABLE.md`
+`docs/architecture/architecture-master.md` can stay lean (per `docs/orchestrator-fable.md`
 `<engineering_excellence>`).
 
 ## How to add one
@@ -19,9 +19,9 @@ consequences** — so the locked decisions and future ones are traceable and
 | [0004](0004-never-pure-llm-audio-features.md) | Never pure-LLM audio features | Accepted (locked) |
 | [0005](0005-zero-knowledge-biometrics.md) | Zero-knowledge biometrics (field-level AES-256-GCM) | Accepted (locked) |
 | [0006](0006-in-process-workers.md) | In-process BullMQ workers on Railway free plan | Accepted |
-| [0007](0007-mobile-ci-node-24-interim.md) | Mobile CI pinned to Node 24 (interim) | Accepted (interim — see [#84](https://github.com/DanielMalede/Kokonada/issues/84)) |
+| [0007](0007-mobile-ci-node-24-interim.md) | Mobile CI pinned to Node 24 (interim) | Accepted; RESOLVED 2026-07-07 ([#84](https://github.com/DanielMalede/Kokonada/issues/84) fixed) |
 | [0008](0008-global-feature-caches-excluded-from-erasure.md) | Global feature caches excluded from GDPR erasure | Accepted |
-| [0009](0009-calm-bioluminescent-design-language.md) | Design language: Calm/Premium × Bioluminescent Depth, biometric-regulation UI | Accepted (Vision-Frame gate pending) |
+| [0009](0009-calm-bioluminescent-design-language.md) | Design language: Calm/Premium × Bioluminescent Depth, biometric-regulation UI | Accepted; to be superseded by ADR-0017 (design v2, pending on `design/v1-vision-frame`) |
 | [0010](0010-global-corpus-cc0-only-provider-agnostic.md) | Global corpus: CC0-only, provider-agnostic identity | Accepted |
 | [0011](0011-spotify-content-containment.md) | Spotify Content containment (corpus, feature store, erasure, bandit) | Accepted |
 | [0012](0012-learning-compliance.md) | Learning compliance: state-space buckets for all, `mbid:`-only track posteriors | Accepted |

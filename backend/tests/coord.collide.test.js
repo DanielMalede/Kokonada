@@ -715,8 +715,8 @@ describe('OPS-152 · collide — check: WARN and CLEAR', () => {
     expect(res.reasons).toEqual([]);
   });
 
-  test('docs/SCREENS.md and DECISIONS.md overlap is a WARN, never a HALT', () => {
-    const res = run(malede, { declared: ['docs/SCREENS.md', 'docs/design-v2/DECISIONS.md'] }, [fp({ declared: ['docs/SCREENS.md', 'docs/design-v2/DECISIONS.md'] })]);
+  test('docs/design-v1/screens.md and DECISIONS.md overlap is a WARN, never a HALT', () => {
+    const res = run(malede, { declared: ['docs/design-v1/screens.md', 'docs/design-v2/DECISIONS.md'] }, [fp({ declared: ['docs/design-v1/screens.md', 'docs/design-v2/DECISIONS.md'] })]);
     expect(res.verdict).toBe('WARN');
     expect(classes(res)).toEqual(['WARN shared', 'WARN shared']);
   });

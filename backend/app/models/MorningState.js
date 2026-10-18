@@ -24,7 +24,7 @@ const { encryptedNumber, bindEncryptedAadOnUpdate } = require('./encryptedField'
 // ERASURE (§0.4 S5). Registered in THIS PR, in all five places: services/privacy/erasure.js,
 // scripts/gdpr-delete.js, services/privacy/userDataExport.js, services/privacy/wearableErasure.js
 // (bundled with MedicalProfile's all-or-nothing derived-aggregate treatment — see that file) and
-// docs/PRIVACY_DECLARATIONS.md's Retention table. tests/shadow.qa4.crypto.test.js discovers this
+// docs/privacy-declarations.md's Retention table. tests/shadow.qa4.crypto.test.js discovers this
 // model by its `userId` field and fails the build if any of the first three are missed.
 
 const MORNING_STATE_VERSION = 1;
