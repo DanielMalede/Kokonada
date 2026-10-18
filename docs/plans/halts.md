@@ -10,7 +10,7 @@ The open compliance HALT items raised by `compliance-auditor` on 2026-08-26, one
 | Item | Raised | Status (as last written in the item) | TASKS rows |
 |---|---|---|---|
 | [HALT — Consent version, retention truth, and the store declarations](#consent-version-retention-and-declarations) | 2026-08-26 by `compliance-auditor`, re-auditing the five scr | canvas items fixed 2026-08-26 (marked DONE). Shipped items not started. | `BE-016`, `BE-020`, `UI-005`, `UI-012` |
-| [DEV ITEM — Expose three consent fields the server already stores](#consent-field-exposure) | 2026-08-26, from the screen-13 (Health Data Vault) design re | not started. | `BE-164` |
+| [DEV ITEM — Expose three consent fields the server already stores](#consent-field-exposure) | 2026-08-26, from the screen-13 (Health Data Vault) design re | not started. | `BE-172` |
 | [HALT — Garmin branding, attribution, and a 30-day notice clock that has not started](#garmin-brand-and-attribution) | 2026-08-26 by `compliance-auditor` | canvas items fixed 2026-08-26 (marked DONE below). Everything else not started. | `BE-013`, `OPS-041`, `DAN-009`, `DAN-022` |
 | [HALT — Account deletion leaves the Garmin registration live](#garmin-deregistration-on-delete) | 2026-08-26 | not started. **Not a canvas item.** Surfaced during the screen-13 design review; it is a backend defect and be… | `DAN-009` |
 | [HALT — Health Connect / Play blockers: five in shipped Android code (2026-08-26), and the Play account type (2026-10-04)](#health-connect-play-blockers) | 2026-08-26 by `compliance-auditor`, all sources fetched that | (2026-10-04, `e4743af`) HALT 1–3 are fixed in code by HX-5 (#208) (`PermissionsRationaleActivity.kt:72-85`; `A… | `MB-034`, `MB-035`, `MB-093`, `OPS-143`, `DAN-015` |

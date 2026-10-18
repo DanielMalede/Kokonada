@@ -157,6 +157,15 @@ describe('purgeWearableData', () => {
     expect(res.morningStates).toBe(2);
   });
 
+  // BE-144: no provider is exempt from that rule. Apple Health was, and its orphaned profile kept
+  // every untagged value its own samples had produced.
+  it.each(WEARABLE_PROVIDERS)('%s: drops the orphaned MedicalProfile and MorningState like every provider', async (provider) => {
+    const res = await purgeWearableData(USER, provider);
+    expect(MedicalProfile.deleteMany).toHaveBeenCalledWith({ userId: USER });
+    expect(MorningState.deleteMany).toHaveBeenCalledWith({ userId: USER });
+    expect(res.medicalProfiles).toBe(1);
+  });
+
   it('KEEPS the MedicalProfile and MorningState when another provider still has samples (removes nothing else)', async () => {
     BiometricLog.countDocuments.mockImplementation(() => mockCountQuery(12)); // apple_health logs remain
     const res = await purgeWearableData(USER, 'garmin');
