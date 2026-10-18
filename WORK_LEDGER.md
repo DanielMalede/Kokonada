@@ -90,7 +90,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/l-check-waiver-row`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #258
 - started: 2026-10-18
 
 ### M04
