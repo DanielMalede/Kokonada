@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:j2-hold-lifted` (own)
-- title: The owner lifts the backend/** production hold; DAN-050 re-sequenced after D moved
-- branch: `docs/j2-hold-lifted`
+- task: `own:review-findings-2026-10-17` (own)
+- title: Review findings of 2026-10-17 as TASKS rows: #246, #241, the Actions billing stop, the DECISIONS index, Ubuntu 26
+- branch: `docs/review-findings-1017`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
-- started: 2026-10-10
+- state: in-review · PR #247
+- started: 2026-10-17
 
 ### M04
 _free_
