@@ -264,6 +264,9 @@ beforeAll(() => {
 
   env = { ...process.env };
   for (const k of Object.keys(env)) if (/^(GIT_|COORD_)/.test(k)) delete env[k];
+  // The Actions runner sets GITHUB_STEP_SUMMARY, so each `ci` run spawned here would append its
+  // report to the Backend job's own summary; a test that reads one sets its own (RA-4, RA-11).
+  delete env.GITHUB_STEP_SUMMARY;
   Object.assign(env, {
     GIT_CONFIG_GLOBAL: emptyConfig,
     GIT_CONFIG_NOSYSTEM: '1',
@@ -272,6 +275,7 @@ beforeAll(() => {
     FAKE_GH_STATE: path.join(root, 'gh state.json'),
     COORD_TODAY: TODAY,
   });
+  expect(env.GITHUB_STEP_SUMMARY).toBeUndefined();
 
   ({ origin, clones, ghState } = seedWorld(root));
   expect(ghState).toBe(env.FAKE_GH_STATE);
