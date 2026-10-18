@@ -67,12 +67,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `OPS-221` (TASKS)
-- title: The coordinator keeps deciding once the repository holds 300 PRs, and ignores fork PRs (OPS-221, OPS-222)
-- branch: `fix/ops221-pr-list-limit`
-- paths: `scripts/coord/lib/gh.js`, `scripts/coord/lib/collide.js`, `scripts/coord/coord.js`, `backend/tests/coord.collide.test.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.gh.test.js`, `backend/tests/shadow.coord.fallback.test.js`, `backend/tests/shadow.coord.fallbackNote.test.js`, `backend/tests/shadow.coord.prWindow.test.js`, `TASKS.md`
+- task: `own:sentinel-2026-10-17` (own)
+- title: the sentinel's 2026-10-17 run filed into WEAKNESSES_AND_FAILURES.md (sentinel.md FILING step 4)
+- branch: `docs/sentinel-2026-10-17`
+- paths: `WEAKNESSES_AND_FAILURES.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #257
+- state: in-review · PR #263
 - started: 2026-10-18
 
 ### M02
