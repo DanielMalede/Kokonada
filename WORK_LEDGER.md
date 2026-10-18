@@ -106,13 +106,13 @@ _free_
 - started: 2026-10-18
 
 ### M06
-- task: `own:pkg1-findings-2026-10-17` (own)
-- title: Package 1's findings as TASKS rows: the security-auditor's first pass over #232 and #239 (OPS-168), the merge-guard sweep, and the public repository
-- branch: `docs/pkg1-findings-1017`
+- task: `DAN-085` (TASKS)
+- title: the read-only production snapshot that sizes #232's two security BLOCKs (counts only), and update lines on six rows
+- branch: `docs/dan085-snapshot`
 - paths: `TASKS.md`
-- resources: none
-- state: in-review · PR #254
-- started: 2026-10-17
+- resources: `res:atlas-prod`
+- state: in-review · PR #260
+- started: 2026-10-18
 
 ### M07
 - task: `OPS-191` (TASKS)
