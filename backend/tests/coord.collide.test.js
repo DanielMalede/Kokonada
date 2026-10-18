@@ -31,12 +31,14 @@ const {
   firstClaimWins,
   mergedByContent,
   dropSelf,
+  newestPr,
   prDoneFor,
   prOpenFor,
   prAuthorFor,
   actualPaths,
   ageText,
   prListsUsable,
+  mergePrLists,
   RECENCY_NOTE,
   exitCodeOf,
   STALE_DAYS,
@@ -277,9 +279,9 @@ describe('OPS-152 · collide — which claims are live', () => {
 
   test('PR state counts only for the commit the PR was about (headRefOid == branch tip)', () => {
     const prs = [
-      { number: 5, headRefName: 'feat/x', state: 'MERGED', headRefOid: 'aaa', author: { login: 'DanielBedrack' } },
-      { number: 9, headRefName: 'feat/y', state: 'OPEN', headRefOid: 'bbb', author: { login: 'DanielBedrack' } },
-      { number: 3, headRefName: 'feat/y', state: 'CLOSED', headRefOid: 'ccc', author: { login: 'DanielMalede' } },
+      { number: 5, headRefName: 'feat/x', state: 'MERGED', headRefOid: 'aaa', author: { login: 'DanielBedrack' }, isCrossRepository: false },
+      { number: 9, headRefName: 'feat/y', state: 'OPEN', headRefOid: 'bbb', author: { login: 'DanielBedrack' }, isCrossRepository: false },
+      { number: 3, headRefName: 'feat/y', state: 'CLOSED', headRefOid: 'ccc', author: { login: 'DanielMalede' }, isCrossRepository: false },
     ];
     expect(prDoneFor(prs, 'feat/x', 'aaa')).toBe(true);
     expect(prDoneFor(prs, 'feat/x', 'new-commit-after-merge')).toBe(false);
@@ -292,12 +294,12 @@ describe('OPS-152 · collide — which claims are live', () => {
   });
 
   test('N1 · a stale PR author never decides who owns a reused branch name', () => {
-    const merged = { number: 20, headRefName: 'docs/reused', state: 'MERGED', headRefOid: 'old-tip', author: { login: 'DanielMalede' } };
+    const merged = { number: 20, headRefName: 'docs/reused', state: 'MERGED', headRefOid: 'old-tip', author: { login: 'DanielMalede' }, isCrossRepository: false };
     // a merged PR about an older commit says nothing about the work on the tip now
     expect(prAuthorFor([merged], 'docs/reused', 'new-tip')).toBeNull();
     expect(prAuthorFor([merged], 'docs/reused', 'old-tip')).toBe('DanielMalede');
     // ANY open PR for the head counts, even when a newer PR on that name is closed
-    const open = { number: 7, headRefName: 'docs/reused', state: 'OPEN', headRefOid: 'new-tip', author: { login: 'DanielBedrack' } };
+    const open = { number: 7, headRefName: 'docs/reused', state: 'OPEN', headRefOid: 'new-tip', author: { login: 'DanielBedrack' }, isCrossRepository: false };
     expect(prOpenFor([merged, open], 'docs/reused')).toBe(true);
     expect(prAuthorFor([merged, open], 'docs/reused', 'new-tip')).toBe('DanielBedrack');
     expect(prDoneFor([merged, open], 'docs/reused', 'old-tip')).toBe(false);
@@ -369,14 +371,73 @@ describe('OPS-152 · collide — which claims are live', () => {
     expect(RECENCY_NOTE).toBe('note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked');
   });
 
-  test('N3 · gh answers count only when both PR lists came back and neither list is cut at its limit', () => {
-    expect(prListsUsable({ open: [], all: [], openLimit: 100, allLimit: 300 })).toEqual({ ok: true, reason: null });
-    expect(prListsUsable({ open: null, all: [], openLimit: 100, allLimit: 300 }).ok).toBe(false);
-    expect(prListsUsable({ open: [], all: null, openLimit: 100, allLimit: 300 }).ok).toBe(false);
-    const fullOpen = Array.from({ length: 100 }, (_, i) => ({ number: i }));
-    const fullAll = Array.from({ length: 300 }, (_, i) => ({ number: i }));
-    expect(prListsUsable({ open: fullOpen, all: [], openLimit: 100, allLimit: 300 })).toMatchObject({ ok: false, reason: expect.stringMatching(/truncated/) });
-    expect(prListsUsable({ open: [], all: fullAll, openLimit: 100, allLimit: 300 })).toMatchObject({ ok: false, reason: expect.stringMatching(/truncated/) });
+  describe('OPS-221 · the PR lists: the all-states list may be cut, the open list must be whole', () => {
+    // A PR as gh lists it, with every field the adapter asks for.
+    const ghPr = (number, over = {}) => ({
+      number, state: 'CLOSED', headRefName: `b/${number}`, headRefOid: String(number).padStart(40, '0'), isDraft: false,
+      author: { login: 'DanielMalede' }, isCrossRepository: false, ...over,
+    });
+    const many = (n, over = {}) => Array.from({ length: n }, (_, i) => ghPr(i + 1, over));
+    const usable = (over) => prListsUsable({ open: [], all: [], byAuthor: null, openLimit: 100, ...over });
+    const forks = () => many(100, { state: 'OPEN', author: { login: 'stranger' }, isCrossRepository: true });
+
+    test('(1, 2) an all-states list at its limit, or far past it, still decides: gh lists newest first, so a cut drops only the oldest PRs', () => {
+      // allLimit is what #239's stop read; passing it proves nothing reads it any more
+      expect(usable({ all: many(300), allLimit: 300 })).toEqual({ ok: true, reason: null });
+      expect(usable({ all: many(1000), allLimit: 300 })).toEqual({ ok: true, reason: null });
+    });
+
+    test('(3) an open list at its limit cannot decide alone: its raw length counts, a stranger\'s fork PRs included', () => {
+      expect(usable({ open: forks() })).toEqual({ ok: false, reason: expect.stringMatching(/listed 100 open PRs, its limit/) });
+    });
+
+    test('(4) at the limit, each partner\'s own open list decides when none of them is cut', () => {
+      expect(usable({ open: forks(), byAuthor: { DanielMalede: [], DanielBedrack: [] } })).toEqual({ ok: true, reason: null });
+    });
+
+    test('(5) a partner\'s own open list at its limit cannot decide, naming him', () => {
+      const his = many(100, { state: 'OPEN', author: { login: 'DanielBedrack' } });
+      expect(usable({ open: forks(), byAuthor: { DanielMalede: [], DanielBedrack: his } }))
+        .toEqual({ ok: false, reason: expect.stringMatching(/100 open PRs by @DanielBedrack, its limit/) });
+    });
+
+    test('(6) a partner\'s own open list that failed cannot decide, naming him and --author', () => {
+      const res = usable({ open: forks(), byAuthor: { DanielMalede: null, DanielBedrack: [] } });
+      expect(res.ok).toBe(false);
+      expect(res.reason).toMatch(/@DanielMalede/);
+      expect(res.reason).toMatch(/--author/);
+    });
+
+    test('(7) a list that did not come back cannot decide', () => {
+      expect(usable({ open: null }).ok).toBe(false);
+      expect(usable({ all: null }).ok).toBe(false);
+    });
+
+    test('(8) an entry without isCrossRepository, in any list, cannot decide: a fork\'s PR could not be told apart', () => {
+      const bare = (number) => { const p = ghPr(number); delete p.isCrossRepository; return p; };
+      expect(usable({ open: [bare(1)] })).toEqual({ ok: false, reason: expect.stringMatching(/isCrossRepository/) });
+      expect(usable({ all: [ghPr(2), bare(3)] })).toEqual({ ok: false, reason: expect.stringMatching(/isCrossRepository/) });
+      expect(usable({ open: forks(), byAuthor: { DanielMalede: [bare(4)], DanielBedrack: [] } }))
+        .toEqual({ ok: false, reason: expect.stringMatching(/isCrossRepository/) });
+      // a value that is not a boolean says nothing either
+      expect(usable({ open: [ghPr(5, { isCrossRepository: 'false' })] }).ok).toBe(false);
+    });
+
+    test('(9) mergePrLists: a PR OPEN in any list stays OPEN, whichever list comes first', () => {
+      const closed = ghPr(7, { state: 'CLOSED' });
+      const open = ghPr(7, { state: 'OPEN' });
+      expect(mergePrLists([closed], [open])).toEqual([open]);
+      expect(mergePrLists([open], [closed])).toEqual([open]);
+    });
+
+    test('(10) mergePrLists: one entry per PR number across every list; a list that did not come back is skipped', () => {
+      const merged = mergePrLists([ghPr(1), ghPr(2)], null, [ghPr(2), ghPr(3, { state: 'OPEN' })], [ghPr(4, { state: 'MERGED' })]);
+      expect(merged.map((p) => p.number).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+      expect(merged.find((p) => p.number === 3).state).toBe('OPEN');
+      // no list at all is no answer, as when gh is missing: never an empty list of PRs
+      expect(mergePrLists(null, null)).toBeNull();
+      expect(mergePrLists([], null)).toEqual([]);
+    });
   });
 
   test('an unmapped commit author is resolved through the PR author login first', () => {
@@ -442,6 +503,118 @@ describe('OPS-152 · collide — which claims are live', () => {
     // main records the same NAME with a different body (a reused name): the branch's claim is live
     const other = setSlot(freeText, 'B03', claim('feat/landed', { title: 'an older task under the same name' }));
     expect(derive(other, branch({ contentMerged: false })).map((f) => f.kind)).toEqual(['claim']);
+  });
+});
+
+describe('OPS-222 · collide — a PR from another repository (a fork) is never evidence about a branch here', () => {
+  const { freezeHolders } = lib('collide.js');
+  const main = parseLedger(freeText);
+  const TIP = 'a'.repeat(40);
+  const HIS = { name: 'DanielBedrack', email: '111690772+DanielBedrack@users.noreply.github.com' };
+  // A PR of this repository on feat/x at TIP; `fork` is the same PR opened from another repository.
+  const pr = (over = {}) => ({
+    number: 50, headRefName: 'feat/x', state: 'OPEN', headRefOid: TIP, isDraft: false, author: { login: 'DanielBedrack' }, isCrossRepository: false, ...over,
+  });
+  const fork = (over = {}) => pr({ author: { login: 'stranger' }, isCrossRepository: true, ...over });
+  // The thunks gather hands deriveFootprints, over one PR list.
+  const prThunks = (prs, name, sha) => ({
+    prDone: () => prDoneFor(prs, name, sha), prOpen: () => prOpenFor(prs, name), prAuthor: () => prAuthorFor(prs, name, sha),
+  });
+
+  test('(11) a CLOSED fork PR at the exact tip does not finish the branch; the same PR from this repository, MERGED, does', () => {
+    expect(prDoneFor([fork({ state: 'CLOSED' })], 'feat/x', TIP)).toBe(false);
+    expect(prDoneFor([pr({ state: 'MERGED' })], 'feat/x', TIP)).toBe(true);
+  });
+
+  test('(12) an open fork PR does not make a branch\'s PR open', () => {
+    expect(prOpenFor([fork()], 'feat/x')).toBe(false);
+    expect(prOpenFor([pr()], 'feat/x')).toBe(true);
+  });
+
+  test('(13) an open fork PR names nobody as the branch\'s owner, even when its author is a partner', () => {
+    expect(prAuthorFor([fork({ author: { login: 'DanielBedrack' } })], 'feat/x', TIP)).toBeNull();
+    expect(prAuthorFor([pr()], 'feat/x', TIP)).toBe('DanielBedrack');
+  });
+
+  test('(14) newestPr skips a newer fork PR', () => {
+    const own = pr({ number: 5, state: 'MERGED' });
+    expect(newestPr([own, fork({ number: 9 })], 'feat/x')).toBe(own);
+  });
+
+  test('(15) a MERGED PR without isCrossRepository is no evidence: it could be a fork\'s', () => {
+    const bare = pr({ state: 'MERGED' });
+    delete bare.isCrossRepository;
+    expect(prDoneFor([bare], 'feat/x', TIP)).toBe(false);
+    expect(newestPr([bare], 'feat/x')).toBeNull();
+  });
+
+  test('(16) a CLOSED fork PR at the tip of a claim holding res:prod-deploy leaves the claim live and the freeze held', () => {
+    const b = 'docs/fork-freeze';
+    const ledger = setSlot(freeText, 'B02', {
+      task: 'own:recount', taskKind: 'own', title: 'Recount', branch: b, paths: ['docs/recount.md'], resources: ['res:prod-deploy'], state: 'claimed', pr: null, started: '2026-10-06',
+    });
+    const derive = (prs) => deriveFootprints({
+      mainLedger: main,
+      rules,
+      now: NOW,
+      branches: [{
+        name: b, sha: TIP, headLedgerText: ledger, baseLedgerText: freeText, changed: ['WORK_LEDGER.md'], merged: false, contentMerged: false,
+        tipTime: NOW - DAY, author: HIS, ...prThunks(prs, b, TIP),
+      }],
+    });
+    const fps = derive([fork({ headRefName: b, state: 'CLOSED' })]);
+    expect(fps).toEqual([expect.objectContaining({ kind: 'claim', slot: 'B02', branch: b, resources: ['res:prod-deploy'] })]);
+    expect(freezeHolders(fps).map((f) => [f.branch, f.slot])).toEqual([[b, 'B02']]);
+    // the same PR from this repository, merged at that tip, does finish the claim: nothing else kept it
+    expect(derive([pr({ headRefName: b, state: 'MERGED' })])).toEqual([]);
+  });
+
+  test('(17) an open fork PR keeps no 40-day-old branch in view; an open PR from this repository does', () => {
+    const b = 'feat/stale';
+    const derive = (prs) => deriveFootprints({
+      mainLedger: main,
+      rules,
+      now: NOW,
+      branches: [{
+        name: b, sha: TIP, headLedgerText: null, baseLedgerText: null, changed: ['docs/stale/x.md'], merged: false, contentMerged: false,
+        tipTime: NOW - 40 * DAY, seenTime: null, author: HIS, ...prThunks(prs, b, TIP),
+      }],
+    });
+    expect(derive([fork({ headRefName: b })])).toEqual([]);
+    expect(derive([pr({ headRefName: b })]).map((f) => [f.kind, f.branch])).toEqual([['unclaimed', b]]);
+  });
+});
+
+describe('OPS-223 · collide — a malformed slot never hides a valid claim on the same branch', () => {
+  const { freezeHolders } = lib('collide.js');
+  const MINE = { name: 'Full Stack Developer', email: '102303436+DanielMalede@users.noreply.github.com' };
+  const b = 'chore/recount';
+  const valid = setSlot(freeText, 'M01', {
+    task: 'own:recount', taskKind: 'own', title: 'Recount', branch: b, paths: ['docs/recount.md'], resources: ['res:prod-deploy'], state: 'claimed', pr: null, started: '2026-10-06',
+  });
+  // M02 written by hand, three lines short: it does not parse
+  const both = valid.replace('### M02\n_free_\n', '### M02\n- task: `own:other` (own)\n- branch: `chore/recount`\n- paths: `docs/other.md`\n');
+  const derive = (prDone) => deriveFootprints({
+    mainLedger: parseLedger(freeText),
+    rules,
+    now: NOW,
+    branches: [{
+      name: b, headLedgerText: both, baseLedgerText: freeText, changed: ['WORK_LEDGER.md'], merged: false, contentMerged: false, prDone,
+      tipTime: NOW - DAY, author: MINE,
+    }],
+  });
+
+  test('(31) a valid M01 claim holding res:prod-deploy and a malformed M02 on one branch: both footprints, and freezeHolders returns M01', () => {
+    expect(both).not.toBe(valid);
+    const fps = derive(false);
+    expect(fps.map((f) => [f.slot, Boolean(f.malformed)])).toEqual([['M02', true], ['M01', false]]);
+    expect(freezeHolders(fps).map((f) => f.slot)).toEqual(['M01']);
+  });
+
+  test('(31) beside a broken slot, a PR finished at the tip hides neither: the done-skip runs only when nothing is broken', () => {
+    const fps = derive(true);
+    expect(fps.map((f) => [f.slot, Boolean(f.malformed)])).toEqual([['M02', true], ['M01', false]]);
+    expect(freezeHolders(fps).map((f) => f.slot)).toEqual(['M01']);
   });
 });
 

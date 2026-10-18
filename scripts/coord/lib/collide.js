@@ -36,6 +36,11 @@ const FREEZE_RESOURCE = 'res:prod-deploy';
 // dates alone.
 const RECENCY_NOTE = 'note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked';
 
+// The residual of the open list's fallback (printed once when it applies): with the open list at
+// gh's limit, only the open PRs of the people in People are listed whole, so a branch whose open PR
+// someone else opened may look as if it had none.
+const PR_FALLBACK_NOTE = 'note: the open PR list reached gh\'s limit, so each person in People had his open PRs listed on their own; an open PR by anyone else may be missing, and its branch is then judged as if it had none';
+
 // Claim paths read from a ledger slot. A folder written with a trailing slash — or a Windows
 // backslash, converted first — is a folder claim; a path that cannot be normalised is reported
 // (`bad`), never silently dropped.
@@ -164,14 +169,20 @@ function mergedByContent(files, branchBlobs, mainBlobs) {
   return files.every((f) => ((branchBlobs || {})[f] || null) === ((mainBlobs || {})[f] || null));
 }
 
+// The PRs whose head is this branch of THIS repository, newest first. A PR from another repository (a
+// fork) can carry the same branch name and even the same commit, and anyone can open and close one:
+// it says nothing about the branch here. A PR that does not say which it is counts as a fork's.
+const forHead = (prs, branch) => (prs || [])
+  .filter((p) => p.headRefName === branch && p.isCrossRepository === false)
+  .sort((x, y) => y.number - x.number);
+
 function newestPr(prs, branch) {
-  return (prs || []).filter((p) => p.headRefName === branch).sort((x, y) => y.number - x.number)[0] || null;
+  return forHead(prs, branch)[0] || null;
 }
 
 // A merged or closed PR says the branch is done only for the commit the PR was about: a branch that
 // moved on after its PR closed (new commits on a reused name) is live work again.
 const isOpen = (pr) => /^OPEN$/i.test(String(pr.state));
-const forHead = (prs, branch) => (prs || []).filter((p) => p.headRefName === branch).sort((x, y) => y.number - x.number);
 
 function prDoneFor(prs, branch, tipSha) {
   if (prOpenFor(prs, branch)) return false;
@@ -193,13 +204,42 @@ function prAuthorFor(prs, branch, tipSha) {
   return pr && pr.author && pr.author.login ? pr.author.login : null;
 }
 
-// Both PR lists came back, and neither is cut off at its limit. Otherwise a check cannot tell open
-// work from finished work and must not decide.
-function prListsUsable({ open, all, openLimit, allLimit }) {
+// Whether the PR lists gh gave can decide, judged on their RAW lengths (a fork's PR counts toward a
+// limit) before any helper drops a PR. `byAuthor`: { login: that person's open PRs }, asked for only
+// when the open list reached its limit.
+// - The all-states list may be cut: gh lists newest first, so a cut loses only the oldest PRs, and a
+//   lost PR can only make its branch look unfinished, never finished. Its length never matters.
+// - The open list must be whole: an open PR keeps a branch in view whatever its age. At its limit
+//   it may be cut, and then each partner's own open list must be whole instead.
+// - A PR without a boolean isCrossRepository could be a fork's: no list holding one decides.
+function prListsUsable({ open, all, byAuthor = null, openLimit }) {
   if (!open || !all) return { ok: false, reason: 'gh pr list failed' };
-  if (open.length >= openLimit) return { ok: false, reason: `gh listed ${open.length} open PRs, its limit: the list may be truncated` };
-  if (all.length >= allLimit) return { ok: false, reason: `gh listed ${all.length} PRs, its limit: the list may be truncated` };
+  const lists = [open, all, ...Object.values(byAuthor || {}).filter(Boolean)];
+  if (lists.some((list) => list.some((p) => typeof (p && p.isCrossRepository) !== 'boolean'))) {
+    return { ok: false, reason: 'gh listed a PR without isCrossRepository, so a fork\'s PR cannot be told from this repository\'s' };
+  }
+  if (open.length < openLimit) return { ok: true, reason: null };
+  if (!byAuthor) return { ok: false, reason: `gh listed ${open.length} open PRs, its limit: the list may be truncated` };
+  for (const [login, list] of Object.entries(byAuthor)) {
+    if (!list) {
+      return { ok: false, reason: `gh listed ${open.length} open PRs, its limit, and the list of @${login}'s open PRs (gh pr list --author ${login}) failed: the open PRs may be truncated` };
+    }
+    if (list.length >= openLimit) return { ok: false, reason: `gh listed ${list.length} open PRs by @${login}, its limit: the list may be truncated` };
+  }
   return { ok: true, reason: null };
+}
+
+// One entry per PR number across the lists gh gave. An OPEN entry is never replaced, so a PR open
+// in any list keeps its branch in view. Null when no list came back: no answer, never "no PRs".
+function mergePrLists(...lists) {
+  const given = lists.filter(Boolean);
+  if (!given.length) return null;
+  const byNumber = new Map();
+  for (const p of given.flat()) {
+    const held = byNumber.get(p.number);
+    if (!held || !isOpen(held)) byNumber.set(p.number, p);
+  }
+  return [...byNumber.values()];
 }
 
 const bodyText = (slot) => slot.body.join('\n');
@@ -341,11 +381,11 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
         resources: m.resources,
       });
     }
-    if (broken.length) continue;
     // A finished exact tip is no longer live even when its branch still carries the claim it used
-    // while the PR was open. A malformed claim remains visible so PR metadata cannot hide damage to
-    // the coordination ledger.
-    if (val(b.prDone) && claims.every((slot) => claimPaths(slot.claim.paths).bad.length === 0)) continue;
+    // while the PR was open — unless something on the branch is broken: a malformed claim, and every
+    // valid claim beside it, remains visible so PR metadata cannot hide damage to the coordination
+    // ledger, and a broken slot never hides a valid one (its resources included).
+    if (!broken.length && val(b.prDone) && claims.every((slot) => claimPaths(slot.claim.paths).bad.length === 0)) continue;
     if (claims.length) {
       const actual = actualPaths(val(b.changed) || []);
       for (const slot of claims) {
@@ -369,6 +409,8 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
       }
       continue;
     }
+    // Its broken slots are its claim: never read as unclaimed work besides.
+    if (broken.length) continue;
     // Recent: an OPEN PR keeps a branch whatever its commit dates; otherwise the newer of the tip's
     // commit date and the last time this clone saw the ref move (a revived branch with old dates).
     const seen = Math.max(Number(b.tipTime) || 0, Number(val(b.seenTime)) || 0);
@@ -795,9 +837,11 @@ module.exports = {
   prOpenFor,
   prAuthorFor,
   prListsUsable,
+  mergePrLists,
   claimPaths,
   dropSelf,
   RECENCY_NOTE,
+  PR_FALLBACK_NOTE,
   TIE_WINDOW,
   TASK_ID_RE,
   verdictOf,
