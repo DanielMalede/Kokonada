@@ -1,5 +1,7 @@
 # Handoff 2026-10-08 — for Bedrack: two sessions, two jobs
 
+> **SUPERSEDED on 2026-10-18 (`DEC-185`).** Bedrack has stopped working on the repository (the closing comments of #246 and #238, 2026-10-17). Nothing below is a plan for anyone: the owner took the HealthKit probe over as #249, the rows opened to Bedrack are the owner's again, and the two-partner machinery stays on main, dormant. Kept as history.
+
 Written by the owner's side for Daniel Bedrack and his Codex, as of 2026-10-08, about 14:30 UTC, with `origin/main` at `6aab9b6`. Read it in full before you run a command. Every statement is a fact with its source or an instruction with its reason; where something is unknown it says so.
 
 ## START HERE — the work is split in two sessions. Do not mix them.
