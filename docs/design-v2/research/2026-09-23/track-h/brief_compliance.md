@@ -54,7 +54,7 @@
 
 **Garmin: UNVERIFIED today**
 - Both PDFs came back as binary and no renderer is available here: the brand guidelines and the Developer Program Agreement (the live agreement PDF's metadata shows it was created 2026-03-03).
-- Garmin rules below come from the repo extraction of 2026-08-26 (`C:\Users\danie\Videos\Kokonada\docs\plans\HALT_GARMIN_BRAND_AND_ATTRIBUTION.md`).
+- Garmin rules below come from the repo extraction of 2026-08-26 (`docs/plans/halts.md#garmin-brand-and-attribution` (was `C:\Users\danie\Videos\Kokonada\docs\plans\HALT_GARMIN_BRAND_AND_ATTRIBUTION.md`)).
 - Only secondary search snippets corroborate them.
 
 ## A. H1: MUST / MUST NOT
