@@ -1455,6 +1455,87 @@ describe('OPS-155 · coordinator hardening end to end', () => {
     }
   });
 
+  test('OPS-222 · a stranger\'s CLOSED fork PR at the tip of his claim holding res:prod-deploy does not lift the freeze; the same PR from this repository, merged, does', () => {
+    decided('his start', run('bedrack', ['start', '--task', 'own:fork-freeze', '--title', 'Hold production', '--paths', 'docs/fork-freeze/hold.md', '--resources', 'res:prod-deploy', '--branch', 'docs/fork-freeze-b']));
+    decided('my start', run('malede', ['start', '--task', 'own:fork-freeze-m', '--title', 'A PR to merge', '--paths', 'docs/fork-freeze/pr.md', '--branch', 'docs/fork-freeze-m']));
+    const mine = prOf('docs/fork-freeze-m');
+    const saved = gh().prs;
+    // his claim's own PR gone from the lists; a fork's PR of the same name, at the same commit, opened and closed
+    const without = saved.filter((p) => p.headRefName !== 'docs/fork-freeze-b');
+    const forkPr = ghPr(9100, {
+      headRefName: 'docs/fork-freeze-b', state: 'CLOSED', author: { login: 'stranger' }, isCrossRepository: true,
+      headRefOid: tipOf('docs/fork-freeze-b'), files: [{ path: 'WORK_LEDGER.md' }],
+    });
+    setGh({ prs: without.concat(forkPr) });
+    try {
+      const frozen = run('malede', ['check', '--merge', String(mine.number)]);
+      expect(frozen.out).toMatch(/HALT \[freeze\][^\n]*docs\/fork-freeze-b/);
+      expect(frozen.code).toBe(1);
+      expect(run('malede', ['status']).out.split('\n')[0]).toMatch(/^production freeze: held by Bedrack \(@DanielBedrack\) on docs\/fork-freeze-b /);
+      // the control: that PR from this repository, merged at that commit, ends the claim, so nothing else held it
+      setGh({ prs: without.concat({ ...forkPr, state: 'MERGED', isCrossRepository: false }) });
+      const thawed = run('malede', ['check', '--merge', String(mine.number)]);
+      expect(thawed.out).not.toMatch(/\[freeze\]/);
+      decided('check --merge after the merged PR', thawed);
+    } finally {
+      setGh({ prs: saved });
+      release('docs/fork-freeze-b', 'docs/fork-freeze-m');
+    }
+  });
+
+  test('OPS-222 · an open fork PR keeps no old-dated branch in view on a fresh clone; an open PR of this repository does', () => {
+    pushOldBranch('feat/fork-stale', 'docs/fork-stale/x.md');
+    const fresh = path.join(W.root, 'clone made after the fork-stale push');
+    git(W.root, ['clone', W.origin, fresh]);
+    const saved = gh().prs;
+    const open = ghPr(9200, {
+      headRefName: 'feat/fork-stale', author: { login: 'stranger' }, isCrossRepository: true,
+      headRefOid: tipOf('feat/fork-stale'), files: [{ path: 'docs/fork-stale/x.md' }],
+    });
+    setGh({ prs: saved.concat(open) });
+    try {
+      const res = run('malede', ['check', '--paths', 'docs/fork-stale/x.md'], { cwd: fresh });
+      expect(res.out).not.toMatch(/feat\/fork-stale/);
+      expect(res.out).toMatch(NOTE);
+      decided('check with a fork PR open', res);
+      // the control: the same open PR, his, from this repository
+      setGh({ prs: saved.concat({ ...open, author: { login: 'DanielBedrack' }, isCrossRepository: false }) });
+      const halted = run('malede', ['check', '--paths', 'docs/fork-stale/x.md'], { cwd: fresh });
+      expect(halted.out).toMatch(/Bedrack \(@DanielBedrack\): unclaimed recent branch feat\/fork-stale \(40 days old\)/);
+      expect(halted.code).toBe(1);
+    } finally {
+      setGh({ prs: saved });
+      release('feat/fork-stale');
+    }
+  });
+
+  test('OPS-222 · start, release and ship never adopt a fork\'s open PR from a branch of the same name', () => {
+    const saved = gh().prs;
+    setGh({
+      prs: saved.concat(ghPr(9001, {
+        headRefName: 'docs/fork-start-m', author: { login: 'stranger' }, isCrossRepository: true, headRefOid: '6'.repeat(40), files: [{ path: 'docs/elsewhere.md' }],
+      })),
+    });
+    try {
+      const st = run('malede', ['start', '--task', 'own:fork-start', '--title', 'My own PR', '--paths', 'docs/fork-start/x.md', '--branch', 'docs/fork-start-m']);
+      decided('start', st);
+      expect(st.out).not.toMatch(/\/pull\/9001\b/);
+      const own = gh().prs.find((p) => p.headRefName === 'docs/fork-start-m' && p.number !== 9001);
+      expect(own).toMatchObject({ state: 'OPEN', author: { login: 'DanielMalede' } });
+      expect(st.out).toContain(own.url);
+      const dir = wt('malede', 'docs/fork-start-m');
+      const rel = run('malede', ['release'], { cwd: dir });
+      expect(rel.out).toMatch(new RegExp(`gh pr close ${own.number} --delete-branch`));
+      expect(rel.code).toBe(0);
+      const ship = run('malede', ['ship'], { cwd: dir });
+      expect(ship.out).toMatch(new RegExp(`in review as PR #${own.number}\\b`));
+      decided('ship', ship);
+    } finally {
+      setGh({ prs: gh().prs.filter((p) => p.number !== 9001) });
+      if (onOrigin().includes('docs/fork-start-m')) release('docs/fork-start-m');
+    }
+  });
+
   test('A2 · ship refuses a branch whose claim has landed on main, though the branch was never deleted', () => {
     expect(run('malede', ['start', '--task', 'own:land', '--title', 'Lands', '--paths', 'docs/land/x.md', '--branch', 'docs/land-m']).code).toBe(0);
     squashOntoMain('docs/land-m', 'docs: lands (#500)');
