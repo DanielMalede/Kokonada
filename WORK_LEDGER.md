@@ -67,12 +67,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `OPS-221` (TASKS)
-- title: The coordinator keeps deciding once the repository holds 300 PRs, and ignores fork PRs (OPS-221, OPS-222)
-- branch: `fix/ops221-pr-list-limit`
-- paths: `scripts/coord/lib/gh.js`, `scripts/coord/lib/collide.js`, `scripts/coord/coord.js`, `backend/tests/coord.collide.test.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.gh.test.js`, `backend/tests/shadow.coord.fallback.test.js`, `backend/tests/shadow.coord.fallbackNote.test.js`, `backend/tests/shadow.coord.prWindow.test.js`, `TASKS.md`
+- task: `own:sentinel-2026-10-17` (own)
+- title: the sentinel's 2026-10-17 run filed into WEAKNESSES_AND_FAILURES.md (sentinel.md FILING step 4)
+- branch: `docs/sentinel-2026-10-17`
+- paths: `WEAKNESSES_AND_FAILURES.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #257
+- state: in-review · PR #263
 - started: 2026-10-18
 
 ### M02
@@ -106,13 +106,13 @@ _free_
 - started: 2026-10-18
 
 ### M06
-- task: `own:pkg1-findings-2026-10-17` (own)
-- title: Package 1's findings as TASKS rows: the security-auditor's first pass over #232 and #239 (OPS-168), the merge-guard sweep, and the public repository
-- branch: `docs/pkg1-findings-1017`
+- task: `DAN-085` (TASKS)
+- title: the read-only production snapshot that sizes #232's two security BLOCKs (counts only), and update lines on six rows
+- branch: `docs/dan085-snapshot`
 - paths: `TASKS.md`
-- resources: none
-- state: in-review · PR #254
-- started: 2026-10-17
+- resources: `res:atlas-prod`
+- state: in-review · PR #260
+- started: 2026-10-18
 
 ### M07
 - task: `OPS-191` (TASKS)

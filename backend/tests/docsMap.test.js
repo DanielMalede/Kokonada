@@ -12,7 +12,7 @@ const LEDGER = 'docs/ARCHIVE.md';
 const ROOT_ALLOWLIST = [
   'AGENTS.md',
   'CLAUDE.md',
-  'HANDOFF_2026-10-08_BEDRACK.md', // kept as history under DEC-185, on the owner's words (OPS-272)
+  'HANDOFF_2026-10-08_BEDRACK.md', // kept as history under DEC-185, on the owner's words (OPS-280)
   'README.md',
   'TASKS.md',
   'WEAKNESSES_AND_FAILURES.md',
