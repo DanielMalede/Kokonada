@@ -72,7 +72,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `fix/ops221-pr-list-limit`
 - paths: `scripts/coord/lib/gh.js`, `scripts/coord/lib/collide.js`, `scripts/coord/coord.js`, `backend/tests/coord.collide.test.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.gh.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #257
 - started: 2026-10-18
 
 ### M02
