@@ -178,10 +178,9 @@ describe('health sample reconciliation privacy fences', () => {
     hold.release();
     await run;
 
-    const profile = await MedicalProfile.findOne({ userId: owner._id });
-    expect(profile).not.toBeNull();
-    expect(profile.maxHeartRate).toBe(181);
-    expect(profile.restingHeartRate).toBeNull();
+    // BE-144: the disconnect left no sample, so it deleted the whole profile; the held Apple write
+    // must not re-create it, not even as an emptied row.
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(enqueue).not.toHaveBeenCalled();
   });
@@ -198,12 +197,9 @@ describe('health sample reconciliation privacy fences', () => {
     hold.release();
     await run;
 
-    const profile = await MedicalProfile.findOne({ userId: owner._id });
-    expect(profile).not.toBeNull();
-    // Withdrawal owns all health data, so the legacy value was erased by that path; the held
-    // Apple write may not restore it and compensation must leave no Apple field behind.
-    expect(profile.maxHeartRate).toBeNull();
-    expect(profile.restingHeartRate).toBeNull();
+    // Withdrawal erases all health data, so the whole profile was deleted by that path; the held
+    // Apple write may not re-create it, and compensation must leave no row behind.
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(enqueue).not.toHaveBeenCalled();
   });
@@ -224,12 +220,50 @@ describe('health sample reconciliation privacy fences', () => {
     hold.release();
     await run;
 
-    const profile = await MedicalProfile.findOne({ userId: owner._id });
-    expect(profile).not.toBeNull();
-    expect(profile.maxHeartRate).toBe(181);
-    expect(profile.restingHeartRate).toBeNull();
+    // The disconnect deleted the orphaned profile; the reconnect is a new generation, and the old
+    // generation's held write may not re-create the profile for it.
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  // BE-144 guard: with no profile beforehand, the held write is the first projection, so it upserts;
+  // the run's compensation deletes the profile it created ("created without a prior profile").
+  it('removes the profile a held first projection creates after the provider was disconnected', async () => {
+    const owner = await grantedUser();
+    await pending(owner, 'c', 'resting_heart_rate');
+    const hold = holdBefore(MedicalProfile, 'findOneAndUpdate');
+
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    await hold.entered;
+    await eraseWearableProvider(await User.findById(owner._id), 'apple_health');
+    hold.release();
+    await run;
+
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  // BE-144, the trade-off it accepts: a profile this run READ and someone deleted during the write
+  // is not re-created, even with consent and the connection unchanged. The samples still project
+  // and are applied, and the state recompute is queued; the next reconcile with a pending row
+  // rebuilds the profile from every active row.
+  it('does not re-create a profile deleted mid-run while consent and the connection hold', async () => {
+    const owner = await grantedUser();
+    await existingAppleProfile(owner);
+    const row = await pending(owner, 'd', 'resting_heart_rate');
+    const hold = holdBefore(MedicalProfile, 'findOneAndUpdate');
+
+    const run = reconcileHealthSamples(owner._id, 'apple_health');
+    await hold.entered;
+    await MedicalProfile.deleteOne({ userId: owner._id });
+    hold.release();
+
+    await expect(run).resolves.toEqual({ projected: 1, removed: 0, profileUpdated: false });
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
+    expect((await HealthSample.findById(row._id)).projectionState).toBe('applied');
+    expect(enqueue).toHaveBeenCalledTimes(1);
   });
 
   it('does not recreate a vital row after account deletion erased the user and children', async () => {
