@@ -1,12 +1,113 @@
-# HealthKit Authoritative Sample Store Design
+---
+status: living
+verified: 2026-10-18
+---
 
-## Intent
+# HealthKit designs (MB-900)
+
+The two design specifications of the iOS HealthKit lane (`MB-900`), in dependency order: the data contract first, then the authoritative sample store it feeds. Text kept verbatim with headings one level down. The implementation plans are `docs/plans/healthkit/plan.md`; the research is `docs/plans/healthkit/research.md`.
+
+| Design | Date | Status | TASKS rows |
+|---|---|---|---|
+| [HealthKit Data Contract Foundation Design](#data-contract) | — | — | `MB-900` |
+| [HealthKit Authoritative Sample Store Design](#authoritative-sample-store) | — | — | — |
+
+---
+
+<a id="data-contract"></a>
+## HealthKit Data Contract Foundation Design
+_Was `docs/superpowers/specs/2026-10-06-healthkit-data-contract-design.md` until 2026-10-18 (`docs/ARCHIVE.md` § Moved); its history is under that path._
+
+### Intent
+
+Kokonada needs an iOS HealthKit lane that can later synchronize Apple Watch data without breaking the existing Android Health Connect lane, weakening explicit health-data consent, or silently broadening collection. The first implementation increment is the server contract foundation only. It does not install an iOS package, request HealthKit permission, or collect a new metric.
+
+### Current state
+
+`POST /api/integrations/health/batch` currently accepts `{ platform, samples }`, recognizes heart rate, resting heart rate, generic HRV and three sleep-stage duration types, and caps a request at 2,000 samples. It identifies stored readings by source and timestamp. It does not retain a HealthKit object UUID, distinguish Apple SDNN from Android RMSSD, process deleted HealthKit objects, version the wire contract, or make a whole batch retry idempotent.
+
+The shipped Android client posts the unversioned body and hardcodes `platform: 'health_connect'`. That flow must remain compatible throughout this increment.
+
+### Decision
+
+Add a versioned v2 envelope beside the existing unversioned request. Legacy requests remain accepted and unchanged. A v2 request has:
+
+```json
+{
+  "schemaVersion": 2,
+  "batchId": "UUID",
+  "platform": "healthkit",
+  "samples": [
+    {
+      "sampleId": "HealthKit HKObject UUID",
+      "operation": "upsert",
+      "type": "heart_rate",
+      "value": 72,
+      "unit": "bpm",
+      "startDate": "2026-10-06T06:30:00.000Z",
+      "endDate": "2026-10-06T06:30:00.000Z",
+      "tzOffsetMinutes": 180,
+      "method": null
+    }
+  ]
+}
+```
+
+The first increment accepts and processes v2 `upsert` samples through the existing persistence lane. It validates the new identity and method fields but does not yet claim sample-level idempotency, because that requires persistent identity fields and migration/index review.
+
+A batch containing any `delete` operation fails atomically with HTTP `501` and `{ "error": "health_delete_not_implemented" }` before any sample is written. Returning success while ignoring a deletion is forbidden. Persistent tombstones and aggregate recomputation belong to the next server-storage increment.
+
+### Validation rules
+
+- `schemaVersion`, when present, must equal `2`.
+- A v2 `batchId` is a non-empty UUID string.
+- `platform` remains `healthkit` or `health_connect`.
+- `samples` must be an array of at most 2,000 items.
+- Every v2 sample has a UUID `sampleId` and `operation` of `upsert` or `delete`.
+- An upsert also has a recognized type, finite numeric value and valid ISO timestamps.
+- `method` is required for HRV: `sdnn` for HealthKit and `rmssd` for Health Connect. Other metrics omit it.
+- Existing unversioned requests keep their current tolerant normalizer behavior for backward compatibility.
+- Validation errors contain no submitted physiological value and write nothing.
+
+### Response behavior
+
+Legacy responses remain unchanged. A successful v2 response echoes only non-sensitive operational identity: `schemaVersion: 2` and `batchId`, plus the existing counts. It never echoes individual samples or values.
+
+### Privacy boundary
+
+This increment does not add ECG, AFib burden, oxygen saturation, respiratory rate, wrist temperature, workouts, routes or clinical records. It does not request write access. Existing consent middleware remains in front of the endpoint. Logs may contain counts, platform, schema version and batch ID, but never a sample ID, value, timestamp, device name or source metadata.
+
+### Compatibility and rollout
+
+The v2 path is additive. Health Connect continues using its legacy request until its client is deliberately migrated. HealthKit has no shipped reader, so its future client starts on v2. No package or native capability is added in this increment.
+
+### Verification
+
+- Pure contract tests cover legacy compatibility, valid v2 batches, malformed envelopes, HRV-method separation, the 2,000-item boundary and atomic delete refusal.
+- Controller tests prove invalid or delete-bearing batches never call persistence.
+- Existing health-store, consent and zero-knowledge log tests remain green.
+- The full backend suite and lint run before commit; the PR must be green at its current head before merge.
+
+### Deferred work
+
+- Persist `sampleId` and batch idempotency safely.
+- Store tombstones and recompute affected aggregates after deletes.
+- Decide and migrate the canonical HRV storage model so SDNN and RMSSD never share an unlabeled baseline.
+- Run the `@kingstinct/react-native-healthkit` compatibility spike.
+- Add HealthKit capability, purpose text, anchored queries, an outbox and background delivery.
+- Verify on a signed real-device build paired with an Apple Watch.
+
+<a id="authoritative-sample-store"></a>
+## HealthKit Authoritative Sample Store Design
+_Was `docs/superpowers/specs/2026-10-06-healthkit-authoritative-sample-store-design.md` until 2026-10-18 (`docs/ARCHIVE.md` § Moved); its history is under that path._
+
+### Intent
 
 Kokonada needs a durable server-side source of truth for versioned HealthKit samples before an iPhone can safely use anchored synchronization. The store must make a retried upload harmless, preserve the distinction between HRV methods, process HealthKit deletions, and repair the existing derived models without relying on a multi-document MongoDB transaction.
 
 This is a server-storage increment. It does not install an iOS dependency, add the HealthKit entitlement, request permission, or start collecting data from a device.
 
-## Current problem
+### Current problem
 
 The v2 wire contract already validates a HealthKit UUID and requires `method: "sdnn"` for HealthKit HRV, but the persistence lane discards both fields. Existing persistence deduplicates by source and timestamp in application code. That has four gaps:
 
@@ -17,7 +118,7 @@ The v2 wire contract already validates a HealthKit UUID and requires `method: "s
 
 `BiometricLog`, `VitalSample`, and `MedicalProfile` remain useful read models for the current application. They are not suitable as the authoritative HealthKit event history because identity and deletion would be split across several collections.
 
-## Decision
+### Decision
 
 Add a `HealthSample` collection as the authoritative source for v2 OS health-store operations. A HealthKit UUID is converted into a purpose-namespaced, user-scoped HMAC before persistence. The raw UUID is never stored or logged.
 
@@ -30,7 +131,7 @@ The existing health models become projections:
 
 The authoritative row is written first. Projection is idempotent and retryable. A synchronous projection attempt keeps the common path current; a bounded reconciliation worker repairs rows left pending by a process crash or transient datastore failure. This replaces the need for a multi-document MongoDB transaction.
 
-## Terminology
+### Terminology
 
 - **Source of truth:** the record that decides what really exists. A derived row may be deleted and rebuilt from it.
 - **Projection:** a copy or summary shaped for an existing reader, such as a `BiometricLog` row or a sleep total.
@@ -41,7 +142,7 @@ The authoritative row is written first. Projection is idempotent and retryable. 
 - **SDNN / RMSSD:** two different mathematical summaries of heartbeat timing variation. Both use milliseconds, but their numbers are not interchangeable.
 - **MongoDB transaction:** a mechanism that commits changes to multiple documents together or rolls all of them back. This design does not require it.
 
-## Authoritative model
+### Authoritative model
 
 Create `backend/app/models/HealthSample.js` with these logical fields:
 
@@ -76,7 +177,7 @@ Active rows expire at the earlier of 90 days after `endAt` and 90 days after ser
 
 The v2 contract accepts only JSON numbers and canonical units: heart rate and resting heart rate use `bpm` in the existing physiological range 30–220; HRV uses `ms` in `(0, 1000]`; sleep stages use `min` in `(0, 1440]`. It rejects non-finite values, numeric strings, reversed intervals and timestamps outside the allowed future-skew boundary. A sleep-stage sample must span more than zero and no more than 24 hours, and its supplied minute value must match the timestamp-derived duration within one second of precision. Reconciliation still derives sleep from the timestamps rather than trusting the aggregate value.
 
-## Identity and key rotation
+### Identity and key rotation
 
 The identity input is namespaced and user scoped:
 
@@ -88,7 +189,7 @@ The existing rotation-aware blind-index primitives produce the current write key
 
 The `sampleKey`, staged-ingest token and consent-fence id are internal metadata. They are removed from the subject-facing data export. Logs contain counts and fixed error codes, never `sampleId`, `sampleKey`, values, timestamps, device names, or source metadata.
 
-## Upsert semantics
+### Upsert semantics
 
 Before database work, the service validates the whole envelope and collapses repeated operations for the same identity. If both an upsert and a delete for one UUID appear in a batch, delete wins independent of array order.
 
@@ -103,7 +204,7 @@ A database duplicate-key race is resolved by rereading the winning row and apply
 
 `batchId` remains an operational correlation ID and is not the correctness boundary. A client may retry the same samples under a new batch ID and still get the same result.
 
-## Delete semantics
+### Delete semantics
 
 For a delete:
 
@@ -115,7 +216,7 @@ A delete never needs the sample type. This matches HealthKit deleted-object beha
 
 Deleting wins over a delayed upsert for the same identity. The API returns success only after the synchronous reconciliation attempt finishes. If projection cleanup cannot finish, the endpoint returns a retryable `503 health_projection_pending`; the authoritative tombstone remains stored and the repair worker continues trying.
 
-## Projection and recomputation
+### Projection and recomputation
 
 `BiometricLog` and `VitalSample` gain an optional internal `healthSampleKey` with a sparse unique index. Only rows projected from the authoritative store populate it, so legacy ingest remains compatible.
 
@@ -131,7 +232,7 @@ The profile records which provider produced its supported health projection. A H
 
 After applying or deleting projections, reconciliation invalidates the baseline and affect caches and schedules the existing state-vector recomputation. Only after all required writes complete does it mark authoritative rows `projectionState: applied`.
 
-## Failure and repair model
+### Failure and repair model
 
 MongoDB transactions are deliberately not required. Local integration tests use standalone `mongodb-memory-server`, and transaction-only correctness would require a replica set in tests and deployment. More importantly, a transaction cannot include Redis cache invalidation or a queue publish.
 
@@ -149,7 +250,7 @@ Instead:
 
 This gives eventual repair after a crash while preserving a deterministic retry path.
 
-## Compatibility boundary
+### Compatibility boundary
 
 - Legacy unversioned Health Connect requests continue through `metricStore.persistMetrics` unchanged.
 - Versioned v2 HealthKit requests use the authoritative store.
@@ -157,7 +258,7 @@ This gives eventual repair after a crash while preserving a deterministic retry 
 - Existing rows in `BiometricLog`, `VitalSample`, and `MedicalProfile` are not migrated in this increment.
 - No new metric category is authorized. The accepted metrics remain the six already present in the v2 contract.
 
-## Privacy lifecycle
+### Privacy lifecycle
 
 The new collection is special-category health data and must be added in the same change to:
 
@@ -172,7 +273,7 @@ Provider disconnect deletes its `HealthSample` rows, then rebuilds or removes de
 
 Production creation of the unique and TTL indexes remains a human-run, verified Atlas action. Code and tests may define the indexes, but an agent must not silently mutate production indexes.
 
-## Response shape
+### Response shape
 
 A successful v2 response continues to echo `schemaVersion` and `batchId`, and adds only operational counts:
 
@@ -190,7 +291,7 @@ A successful v2 response continues to echo `schemaVersion` and `batchId`, and ad
 
 No individual sample identity or physiological value is returned. Legacy response shape remains unchanged.
 
-## Verification requirements
+### Verification requirements
 
 - concurrent identical upserts create exactly one authoritative row and one projection;
 - a retry with a different batch ID remains a replay;
@@ -207,7 +308,7 @@ No individual sample identity or physiological value is returned. Legacy respons
 - erasure, export, provider disconnect, retention, encryption/AAD, TTL, and unique-index tests pass;
 - the complete GitHub CI-equivalent local gate runs before every commit.
 
-## Deferred work
+### Deferred work
 
 - native iOS bridge selection and installation;
 - HealthKit capability and permission copy;

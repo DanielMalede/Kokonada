@@ -16,7 +16,7 @@ Exit codes: `0` = the synthetic payload satisfies the server contract (including
 
 ## Documented shape under test
 
-The research candidate is `@kingstinct/react-native-healthkit` **16.0.0**, npm `gitHead` **6473f892c48dece1adbca978513b3e75d5041e48**. This spike neither installs the candidate nor proves its compatibility with Kokonada's React Native version, iOS configuration, native build or release build. See the [research record](../../docs/research/apple-healthkit-integration-research.md) for the verified source references and remaining native questions.
+The research candidate is `@kingstinct/react-native-healthkit` **16.0.0**, npm `gitHead` **6473f892c48dece1adbca978513b3e75d5041e48**. This spike neither installs the candidate nor proves its compatibility with Kokonada's React Native version, iOS configuration, native build or release build. See the [research record](../../docs/plans/healthkit/research.md) for the verified source references and remaining native questions.
 
 The adapter accepts one query result with `{ samples, deletedSamples, newAnchor }`, a query `identifier`, a caller-supplied batch UUID and a valid `Date` clock. Quantity samples carry `uuid`, `startDate: Date`, `endDate: Date`, `quantityType`, numeric `quantity` and `unit`. Sleep samples carry `categoryType` and numeric `value`. Deletions carry `uuid`, with no original sample required. The demo also supplies documented base fields (`sampleType`, `sourceRevision`, `device`, `metadata`, `hasUndeterminedDuration`) to exercise their exclusion from the payload.
 
