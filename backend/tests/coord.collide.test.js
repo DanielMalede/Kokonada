@@ -585,6 +585,39 @@ describe('OPS-222 · collide — a PR from another repository (a fork) is never 
   });
 });
 
+describe('OPS-223 · collide — a malformed slot never hides a valid claim on the same branch', () => {
+  const { freezeHolders } = lib('collide.js');
+  const MINE = { name: 'Full Stack Developer', email: '102303436+DanielMalede@users.noreply.github.com' };
+  const b = 'chore/recount';
+  const valid = setSlot(freeText, 'M01', {
+    task: 'own:recount', taskKind: 'own', title: 'Recount', branch: b, paths: ['docs/recount.md'], resources: ['res:prod-deploy'], state: 'claimed', pr: null, started: '2026-10-06',
+  });
+  // M02 written by hand, three lines short: it does not parse
+  const both = valid.replace('### M02\n_free_\n', '### M02\n- task: `own:other` (own)\n- branch: `chore/recount`\n- paths: `docs/other.md`\n');
+  const derive = (prDone) => deriveFootprints({
+    mainLedger: parseLedger(freeText),
+    rules,
+    now: NOW,
+    branches: [{
+      name: b, headLedgerText: both, baseLedgerText: freeText, changed: ['WORK_LEDGER.md'], merged: false, contentMerged: false, prDone,
+      tipTime: NOW - DAY, author: MINE,
+    }],
+  });
+
+  test('(31) a valid M01 claim holding res:prod-deploy and a malformed M02 on one branch: both footprints, and freezeHolders returns M01', () => {
+    expect(both).not.toBe(valid);
+    const fps = derive(false);
+    expect(fps.map((f) => [f.slot, Boolean(f.malformed)])).toEqual([['M02', true], ['M01', false]]);
+    expect(freezeHolders(fps).map((f) => f.slot)).toEqual(['M01']);
+  });
+
+  test('(31) beside a broken slot, a PR finished at the tip hides neither: the done-skip runs only when nothing is broken', () => {
+    const fps = derive(true);
+    expect(fps.map((f) => [f.slot, Boolean(f.malformed)])).toEqual([['M02', true], ['M01', false]]);
+    expect(freezeHolders(fps).map((f) => f.slot)).toEqual(['M01']);
+  });
+});
+
 describe('OPS-152 · collide — check: HALT classes', () => {
   test('ci.yml against his workflow-permission test is ONE exclusive group → HALT', () => {
     const res = run(malede, { declared: ['.github/workflows/ci.yml'] }, [fp({ declared: ['backend/tests/ciWorkflowPermissions.test.js'] })]);

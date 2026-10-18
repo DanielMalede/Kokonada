@@ -381,11 +381,11 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
         resources: m.resources,
       });
     }
-    if (broken.length) continue;
     // A finished exact tip is no longer live even when its branch still carries the claim it used
-    // while the PR was open. A malformed claim remains visible so PR metadata cannot hide damage to
-    // the coordination ledger.
-    if (val(b.prDone) && claims.every((slot) => claimPaths(slot.claim.paths).bad.length === 0)) continue;
+    // while the PR was open — unless something on the branch is broken: a malformed claim, and every
+    // valid claim beside it, remains visible so PR metadata cannot hide damage to the coordination
+    // ledger, and a broken slot never hides a valid one (its resources included).
+    if (!broken.length && val(b.prDone) && claims.every((slot) => claimPaths(slot.claim.paths).bad.length === 0)) continue;
     if (claims.length) {
       const actual = actualPaths(val(b.changed) || []);
       for (const slot of claims) {
@@ -409,6 +409,8 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
       }
       continue;
     }
+    // Its broken slots are its claim: never read as unclaimed work besides.
+    if (broken.length) continue;
     // Recent: an OPEN PR keeps a branch whatever its commit dates; otherwise the newer of the tip's
     // commit date and the last time this clone saw the ref move (a revived branch with old dates).
     const seen = Math.max(Number(b.tipTime) || 0, Number(val(b.seenTime)) || 0);
