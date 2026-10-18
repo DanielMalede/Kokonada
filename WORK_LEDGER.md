@@ -100,7 +100,7 @@ _free_
 - task: `BE-144` (TASKS)
 - title: Disconnecting Apple Health deletes an orphaned MedicalProfile again (SEC-232-1)
 - branch: `fix/be144-apple-disconnect-profile`
-- paths: `backend/app/services/privacy/wearableErasure.js`, `backend/app/services/wearable/healthSampleReconciliation.js`, `backend/app/services/wearable/healthStoreV2.js`, `backend/tests/wearableErasure.integration.test.js`, `backend/tests/wearableErasure.test.js`, `backend/tests/healthSampleConsentRace.integration.test.js`, `backend/tests/healthSampleReconciliation.integration.test.js`, `backend/tests/shadow.reconcileRefusal.integration.test.js`, `backend/tests/healthStoreV2.integration.test.js`, `TASKS.md`
+- paths: `backend/app/services/privacy/wearableErasure.js`, `backend/app/services/wearable/healthSampleReconciliation.js`, `backend/app/services/wearable/healthStoreV2.js`, `backend/tests/wearableErasure.integration.test.js`, `backend/tests/wearableErasure.test.js`, `backend/tests/healthSampleConsentRace.integration.test.js`, `backend/tests/healthSampleReconciliation.integration.test.js`, `backend/tests/shadow.reconcileRefusal.integration.test.js`, `backend/tests/healthStoreV2.integration.test.js`, `backend/tests/shadow.orphanRuleDurability.integration.test.js`, `backend/tests/shadow.sampleClock.test.js`, `TASKS.md`
 - resources: none
 - state: in-review · PR #256
 - started: 2026-10-18
