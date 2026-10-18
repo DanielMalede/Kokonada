@@ -97,7 +97,7 @@ Each agent also reviews every row and trigger of the jurisdiction table that nam
 - `architect` — read-only principal analysis; dependency-ordered plans and decision tables. Before any non-trivial change; /page G0 and G4.
 - `designer` — read-only design lead: the Vision Frame, tokens, per-page direction, SHIP/REVISE from device evidence. All UI work; /page G0, G3, G4, G8, G12.
 - `developer` — full tools; builds one claimed task under strict TDD, closing on real device evidence. Never a reviewer.
-- `resilience-auditor` — read-only master QA: stress and boundary tests, false-green hunting, regression guards. After every implementation, and on every agent file in place of its own agent.
+- `resilience-auditor` — read-only master QA with no shell: judges the diff against the suite output the session ran on its own branch at the head, or CI on the head for a PR under review; stress and boundary tests, false-green hunting, a calibrated severity (S0–S3) and origin for every finding, each with its regression guard. After every implementation (`/ship`, before `gh pr ready`), and on every agent file in place of its own agent.
 - `security-auditor` — read-only security owner: auth, sessions, tokens, secrets, crypto, the biometric and health-data path, logging, permissions, deep links, exports, dependencies, CI and hooks. Its BLOCK is terminal.
 - `compliance-auditor` — read-only + web: providers' terms, the stores, brand marks and licences; HALTs on ban or rejection risk. /page G1, G5, G12; before any store submission.
 - `regulatory-researcher` — read-only + web: the law in every market the app ships to; prepares, never decides. Open classification questions; /page G1, G5.
@@ -116,7 +116,7 @@ Each agent also reviews every row and trigger of the jurisdiction table that nam
 - `/runtime-agent` — build one runtime agent from `docs/RUNTIME_AGENT_ARCHITECTURE.md`.
 - `/page` — one design-v2 page through G0–G14; the only way a page is built.
 - `/vision-frame` — Stage 0, V0 and V1.
-- `/ship` — the full-suite gate, the PR made ready, the resilience audit.
+- `/ship` — the full-suite gate, the resilience audit, the PR made ready, then `/review-pr` and `/merge`.
 - `/review-pr` — runs the approvers a PR's diff requires and `merge-guard`, and posts the approvals comment; Bedrack's PRs too.
 - `/merge` — merges PRs that meet the merge rule, one at a time.
 - `/compliance-check` — `compliance-auditor` on one surface.

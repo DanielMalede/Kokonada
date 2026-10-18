@@ -67,12 +67,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:healthkit-spike-takeover` (own)
-- title: HealthKit offline contract probe (MB-900), taken over from #241
-- branch: `feat/healthkit-spike-takeover`
-- paths: `scripts/healthkit-spike/adapter.js`, `scripts/healthkit-spike/cli.js`, `scripts/healthkit-spike/syntheticFixtures.js`, `scripts/healthkit-spike/README.md`, `backend/tests/healthkitSpike.test.js`, `docs/research/apple-healthkit-integration-research.md`, `TASKS.md`
+- task: `own:resilience-auditor-max-2` (own)
+- title: the resilience audit at full depth, pinned whole on both sides (completes #240)
+- branch: `chore/resilience-auditor-max-2`
+- paths: `.claude/agents/resilience-auditor.md`, `.claude/commands/ship.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #249
+- state: in-review · PR #251
 - started: 2026-10-17
 
 ### M02
