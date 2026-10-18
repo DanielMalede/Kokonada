@@ -60,11 +60,12 @@ async function clearOwnedHealthProjection(userId, provider) {
 // attribution of its own — so it rides the identical all-or-nothing rule rather than a fourth,
 // disagreeing scoping scheme.
 //
-// Its own export (HX-1, F1) because it has a second caller: the live lane's compensating delete
-// (sockets/biometricHandler.js). A live reading that lands mid-erasure is seen by every count
-// purgeWearableData takes, so the aggregates survive the erasure; once the compensation removes
-// the reading it re-applies THIS rule, so the two can never disagree about what erasure leaves.
-// It deletes no sample and touches no Redis key. A store failure propagates to the caller.
+// Its own export (HX-1, F1) because the compensations call it too: the live lane's compensating
+// delete (sockets/biometricHandler.js) and, since the resilience audit of #256 (RA-1), the v2 lane's
+// refusals (healthSampleReconciliation.js, healthStoreV2.js). A write that lands mid-erasure is seen
+// by every count purgeWearableData takes, so the aggregates survive the erasure; once the
+// compensation removes the write it re-applies THIS rule, so the two can never disagree about what
+// erasure leaves. It deletes no sample and touches no Redis key. A store failure propagates to the caller.
 //
 // Both counts are pinned to the PRIMARY, like ConsentRecord.latestFor: they must see the delete that
 // runs just before them (the erasure's own, or the compensation's), and a lagging secondary would

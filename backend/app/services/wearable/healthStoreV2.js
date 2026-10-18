@@ -6,6 +6,7 @@ const { applyHealthOperations } = require('./healthSampleRepository');
 const { reconcileHealthSamples } = require('./healthSampleReconciliation');
 const { removeTimeSeriesProjection } = require('./healthSampleProjection');
 const { healthWriteFence } = require('../privacy/healthWriteFence');
+const { purgeOrphanedAggregates } = require('../privacy/wearableErasure');
 const User = require('../../models/User');
 const {
   HealthIngestBatch,
@@ -58,6 +59,18 @@ async function removeStagedRows(selector) {
     ...(selector.ingestToken ? { ingestToken: selector.ingestToken } : {}),
   });
   return removed?.deletedCount ?? 0;
+}
+
+// RA-1 (the resilience audit of #256). A staged row is a HealthSample, so an erasure that ran while
+// it stood counted it and kept MedicalProfile and MorningState. Once a refusal removes the row, the
+// erasure's own rule runs again, as the reconcile's refusal and the live lane's compensation do. It
+// deletes only when no sample of any provider remains. A failure is retryable.
+async function reapplyOrphanRule(userId) {
+  try {
+    await purgeOrphanedAggregates(userId);
+  } catch {
+    throw fixedError('health_projection_pending', 503);
+  }
 }
 
 async function renewIngestLease(ingestToken) {
@@ -135,6 +148,8 @@ async function recoverStagedHealthSamples({ userId = null, source = null, limit 
         await HealthIngestBatch.deleteOne({ _id: batch._id, status: 'complete' });
       } else if (status === 'aborted' || fence.reason !== 'consent_read_error') {
         removed += await removeStagedRows(selector);
+        // Before the journal goes: if the rule fails, the journal stays and the next pass reapplies it.
+        await reapplyOrphanRule(batch.userId);
         await HealthIngestBatch.deleteOne({ _id: batch._id });
       } else {
         failed += 1;
@@ -204,6 +219,7 @@ async function ingestV2Batch(userId, platform, samples, options = {}) {
           { $set: { status: 'aborted' } },
         );
         await removeStagedRows({ userId, source, ingestToken });
+        await reapplyOrphanRule(userId);
         await HealthIngestBatch.deleteOne({ _id: ingestToken, status: 'aborted' });
       }
       if (after.reason === 'consent_read_error') throw fixedError('health_projection_pending', 503);
