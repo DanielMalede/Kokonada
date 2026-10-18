@@ -38,10 +38,10 @@ Every task is executed by a squad: one `developer` paired with the reviewers its
 
 <resilience_audit>
 The QA gate is the **Resilience Audit** — Stability Engineering, not a generic review. (On-disk guard tests keep their historical `shadow.*.test.js` / `src/__tests__/shadow.*.test.ts` names; the practice is resilience and boundary validation.)
-1. After the build is green, `resilience-auditor` writes **stress and boundary tests first** (RED where a stability defect is suspected) in `backend/tests/shadow.*.test.js` or mobile `src/__tests__/shadow.*.test.ts`: degenerate inputs, rate-limit storms, clock drift, cache staleness, concurrency bursts, env misconfiguration, NaN/∞ poisoning, resource exhaustion.
-2. Validate boundaries across the new code **and every prior phase** — the full suite is the regression gate.
-3. Fix every CONFIRMED stability finding in the same PR; **pin every hardened boundary as a permanent regression test**.
-4. Post the audit as a PR comment: a table per surface with **CONFIRMED→FIXED / HARDENED (pinned) / ACCEPTED (documented)** verdicts and a stability score line.
+1. After the build is green, `resilience-auditor` (`.claude/agents/resilience-auditor.md`) audits by its Method and reports in its Report format: findings by calibrated severity (S0–S3) and origin (INTRODUCED, EXPOSED, PRE-EXISTING), each with its regression guard, and the full source of every RED stress or boundary test it proposes. It has no shell: the session hands it the raw output of the full suite run on the task's branch at the head, and CI on the head.
+2. The developer adds the PROPOSED TEST of every finding fixed in this PR, RED first, then the fix, in `backend/tests/shadow.*.test.js` or mobile `src/__tests__/shadow.*.test.ts`, after reading it as untrusted; a test for a finding not fixed here is cited in its `TASKS.md` row by the report's comment URL and RA-id. The full suite is the regression gate across the new code **and every prior phase**.
+3. Fix every INTRODUCED or EXPOSED blocking finding in the same PR, unless the owner accepts it in his own words (`/ship` step 4); **pin every hardened boundary as a permanent regression test**. A PRE-EXISTING finding becomes a `TASKS.md` row.
+4. `/ship` posts the report as a PR comment and makes the PR ready only as its step 4 allows.
 5. Respect the permanent purge-scan guards (`backend/tests/shadow.flip.test.js` bans reintroduced legacy identifiers across `app/`).
 </resilience_audit>
 
@@ -54,7 +54,7 @@ A task is done only when ALL of these hold — judgement does not override a red
 1. **Backend:** `npm test` from `<worktree>/backend` fully green, with no regression against the last green `Backend — lint & test` run on `main`; backend lint clean.
 2. **Mobile:** from `<worktree>/mobile/KokonadaHealth`, `./node_modules/.bin/jest` green and `npm run lint:design-system` clean. CI also runs `Mobile — jest`, the Android compile check and, when iOS-affecting files change, the iOS build. The sprint's own files are `tsc`-clean.
 3. **Secrets:** the PR passes gitleaks (CI) and GitGuardian; the diff carries no token shapes (`AIza|ghp_|sk-|-----BEGIN|eyJ…`, 40+ character blobs) and no token-shaped fixtures.
-4. **Resilience Audit** posted, every CONFIRMED finding fixed and every hardened boundary pinned.
+4. **Resilience Audit** posted, and the PR made ready, under `/ship` step 4; every INTRODUCED or EXPOSED S0 or S1 that the owner did not accept fixed, every other finding a `TASKS.md` row, every hardened boundary pinned.
 5. **CI green on the PR's head commit.** Never add a `railway up` job: Railway deploys natively from `main` with root `/backend`, and a CLI deploy fights the service's Root Directory.
 6. **Approvals:** the merge rule in `CLAUDE.md` holds.
 Any red gate means the task FAILED. No partial credit.
