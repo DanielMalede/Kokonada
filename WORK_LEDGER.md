@@ -141,13 +141,7 @@ _free_
 ## Bedrack
 
 ### B01
-- task: `own:coord-ci-pr-metadata` (own)
-- title: Use GitHub PR state in coordination CI
-- branch: `codex/coord-ci-pr-metadata`
-- paths: `scripts/coord/coord.js`, `scripts/coord/lib/gh.js`, `scripts/coord/lib/render.js`, `scripts/coord/lib/collide.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.collide.test.js`, `.github/workflows/coordination.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `TASKS.md`
-- resources: none
-- state: in-review · PR #239
-- started: 2026-10-08
+_free_
 
 ### B02
 _free_
