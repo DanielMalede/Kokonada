@@ -102,7 +102,7 @@ _free_
 - branch: `fix/be144-apple-disconnect-profile`
 - paths: `backend/app/services/privacy/wearableErasure.js`, `backend/app/services/wearable/healthSampleReconciliation.js`, `backend/tests/wearableErasure.integration.test.js`, `backend/tests/wearableErasure.test.js`, `backend/tests/healthSampleConsentRace.integration.test.js`, `backend/tests/healthSampleReconciliation.integration.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #256
 - started: 2026-10-18
 
 ### M06
