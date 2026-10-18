@@ -54,7 +54,7 @@ Only Malede changes these.
 
 `.claude/**` · `docs/design-v2/pages/**` · `docs/plans/WAVE4_STATE.md`
 
-On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). The list above still says `.claude/**`, because `backend/tests/coord.collide.test.js` pins it and `backend/**` is under a production hold; `OPS-187` narrows the list and the test together. Until it lands, the engine HALTs his claim on those files.
+On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). Bedrack stopped working on the repository on 2026-10-17: `OPS-187` closed as no longer needed, those rows are the owner's again, and the two-partner machinery stays dormant (`DEC-185`). The list above still says `.claude/**`.
 
 ## Resources
 
@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:review-findings-2026-10-17` (own)
-- title: Review findings of 2026-10-17 as TASKS rows: #246, #241, the Actions billing stop, the DECISIONS index, Ubuntu 26
-- branch: `docs/review-findings-1017`
-- paths: `TASKS.md`
+- task: `OPS-196` (TASKS)
+- title: OPS-196: the two-partner machinery stays dormant (the owner's decision, DEC-185)
+- branch: `docs/ops196-partner-dormant`
+- paths: `HANDOFF_2026-10-08_BEDRACK.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-156.md`
 - resources: none
-- state: in-review · PR #247
-- started: 2026-10-17
+- state: in-review · PR #255
+- started: 2026-10-18
 
 ### M04
 _free_
