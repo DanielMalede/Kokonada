@@ -88,7 +88,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `OPS-244` (TASKS)
 - title: OPS-244: the L-check waiver in CLAUDE.md; Bedrack stays a partner (DAN-065); his inactive items closed; the full-history scan recorded
 - branch: `docs/ops244-waiver-partner`
-- paths: `CLAUDE.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/DECISIONS.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `backend/tests/instructionLayerWaiver.test.js`
+- paths: `CLAUDE.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/DECISIONS.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`
 - resources: none
 - state: in-review · PR #259
 - started: 2026-10-18
