@@ -296,9 +296,10 @@ describe('v2 reconcile refusals (resilience audit of #256)', () => {
     expect(errors.mock.calls.map((call) => call.join(' '))).toContain(
       '[healthProjection] orphan-rule reason=provider_not_current outcome=failed error=MongoServerSelectionError',
     );
-    // The run's own writes are still undone, and its marker is discharged.
+    // The run's own writes are still undone, and its marker stays, so the repair worker re-applies
+    // the rule (RA-6, the second audit of #256; shadow.orphanRuleDurability.integration.test.js).
     expect(await VitalSample.countDocuments({ userId: owner._id })).toBe(0);
-    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthProjectionCleanup.countDocuments({ userId: owner._id })).toBe(1);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -378,9 +379,14 @@ describe('v2 ingest refusals (resilience audit of #256)', () => {
 
     const ingest = await ingestAcrossDisconnect(owner);
     jest.spyOn(MedicalProfile, 'deleteMany').mockRejectedValueOnce(primaryLost());
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
     ingest.resume();
 
     expect(await ingest.outcome).toMatchObject({ code: 'health_projection_pending', statusCode: 503 });
+    // One closed-token line, as the reconcile's: no user reference and no value (RA-6).
+    expect(errors.mock.calls.map((call) => call.join(' '))).toContain(
+      '[healthIngest] orphan-rule reason=connection_changed outcome=failed error=MongoServerSelectionError',
+    );
     expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
   });
 
