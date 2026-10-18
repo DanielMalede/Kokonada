@@ -244,9 +244,11 @@ async function compensate(userId, source, reason, run) {
 // RA-1 (the resilience audit of #256). A projection that commits after an erasure deleted the
 // provider's samples and before it counted what remains is seen by that count, so MedicalProfile
 // and MorningState survive the erasure. Once the refusal has undone the projection, the erasure's
-// own rule runs again, so the two never disagree about what an erasure leaves; the live lane does
-// the same (sockets/biometricHandler.js, _compensateIfConsentLapsed). The rule deletes only when no
-// sample of any provider remains. A failure is retryable, as a failed compensation is.
+// own rule runs again and restores what the erasure would have left; the live lane does the same
+// (sockets/biometricHandler.js, _compensateIfConsentLapsed). The rule deletes only when no sample of
+// any provider remains. A failure answers 503, and what carries the rule from there is the run's
+// cleanup marker, not a retry of the batch: the refusal discharges the marker only after this call,
+// so the repair worker's marker recovery applies it (RA-6, the second audit of #256).
 async function reapplyOrphanRule(userId, reason) {
   try {
     await purgeOrphanedAggregates(userId);
@@ -464,7 +466,17 @@ async function recoverOwedHealthProjectionCleanups({ limit = 100 } = {}) {
         }
         await cleanupMarker(marker.userId, marker, { keepMarker: true });
       } else {
-        await cleanupMarker(marker.userId, marker);
+        // RA-6 (the second audit of #256): a refusal that failed before it had re-applied the
+        // erasure's rule leaves its marker in this state, so the rule runs here, before the marker
+        // goes, whenever the fence refuses. An unreadable fence decides nothing: the undo still runs
+        // (fail closed), the rule does not (RA-8), and the marker stays for a pass that can read it.
+        await cleanupMarker(marker.userId, marker, { keepMarker: true });
+        if (fence.reason === 'consent_read_error') {
+          deferred += 1;
+          continue;
+        }
+        if (!fence.admitted) await reapplyOrphanRule(marker.userId, fence.reason);
+        await clearCleanupMarkers(marker.userId, { _id: marker._id });
       }
       cleaned += 1;
     } catch {
@@ -570,11 +582,13 @@ async function reconcileHealthSamples(userId, source, { connectionVersion = null
     if (refusal !== 'consent_read_error') {
       await cleanupRefusedPending(userId, source, start.connectionVersion);
     }
-    await clearCleanupMarkers(userId, { _id: cleanupToken });
     // On every refusal, the unreadable fence included, and fail-safe either way: the rule removes
     // nothing while a sample of any provider remains, and on that reason the pending rows are kept,
-    // so it deletes nothing unless every sample, those rows included, is already gone.
+    // so it deletes nothing unless every sample, those rows included, is already gone. It runs before
+    // the marker is discharged, so when it fails, or a step above it does, the marker stays and the
+    // repair worker applies it (RA-6, the second audit of #256).
     await reapplyOrphanRule(userId, refusal);
+    await clearCleanupMarkers(userId, { _id: cleanupToken });
   }
   if (failure) {
     await HealthProjectionCleanup.updateOne(
