@@ -88,13 +88,13 @@ async function grantedUser() {
   return owner;
 }
 
-async function pending(owner, keyDigit, metric) {
+async function pending(owner, keyDigit, metric, value = metric === 'heart_rate' ? 72 : 58) {
   return HealthSample.create({
     userId: owner._id,
     sampleKey: keyDigit.repeat(64),
     source: 'apple_health',
     metric,
-    value: metric === 'heart_rate' ? 72 : 58,
+    value,
     unit: 'bpm',
     startAt: new Date('2026-10-07T08:00:00Z'),
     endAt: new Date('2026-10-07T08:01:00Z'),
@@ -264,6 +264,19 @@ describe('health sample reconciliation privacy fences', () => {
     expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(0);
     expect((await HealthSample.findById(row._id)).projectionState).toBe('applied');
     expect(enqueue).toHaveBeenCalledTimes(1);
+
+    // RA-4 (the resilience audit of #256): the recovery half, asserted. The next reconcile with a
+    // pending row rebuilds the one profile from every active row, the median of 58 and 62.
+    await pending(owner, 'e', 'resting_heart_rate', 62);
+    await expect(reconcileHealthSamples(owner._id, 'apple_health')).resolves.toEqual({
+      projected: 1,
+      removed: 0,
+      profileUpdated: true,
+    });
+    const profiles = await MedicalProfile.find({ userId: owner._id });
+    expect(profiles).toHaveLength(1);
+    expect(Number(profiles[0].restingHeartRate)).toBe(60);
+    expect(enqueue).toHaveBeenCalledTimes(2);
   });
 
   it('does not recreate a vital row after account deletion erased the user and children', async () => {
