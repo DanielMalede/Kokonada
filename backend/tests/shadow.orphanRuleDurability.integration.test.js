@@ -243,6 +243,37 @@ async function ingestAcrossDisconnect(owner, samples) {
   return { resume: staged.resume, outcome: ingest };
 }
 
+// The same batch, whose own cleanup fails twice, at its refusal and in its catch, so the staged row
+// and the aborted journal are left for the repair pass.
+async function abortedAcrossDisconnect(owner) {
+  const { resume, outcome } = await ingestAcrossDisconnect(owner, [heartRate(IN_RETENTION, 2 * HOUR)]);
+  const deleteMany = jest.spyOn(HealthSample, 'deleteMany')
+    .mockRejectedValueOnce(new Error('temporary mongo failure'))
+    .mockRejectedValueOnce(new Error('temporary mongo failure'));
+  resume();
+  expect(await outcome).toMatchObject({ message: 'temporary mongo failure' });
+  deleteMany.mockRestore();
+  expect(await HealthSample.countDocuments({ userId: owner._id, ingestState: 'staged' })).toBe(1);
+  expect(await HealthIngestBatch.countDocuments({ userId: owner._id, status: 'aborted' })).toBe(1);
+}
+
+// A v1 user's profile: the v1 lane writes sleep to it alone, so no sample row backs it.
+async function v1SleepAndMorningState(owner) {
+  await MedicalProfile.create({
+    userId: owner._id,
+    sleepStages: { deep: 80, light: 220, rem: 95 },
+    maxHeartRate: 181,
+  });
+  await MorningState.create({ userId: owner._id, date: yesterday(), readiness: 0.6 });
+}
+
+async function expectV1SleepAndMorningState(owner) {
+  const profile = await MedicalProfile.findOne({ userId: owner._id });
+  expect(profile).not.toBeNull();
+  expect(Number(profile.sleepStages.deep)).toBe(80);
+  expect(await MorningState.countDocuments({ userId: owner._id })).toBe(1);
+}
+
 // From here on the write fence's account read fails as an unreachable primary does. Only
 // healthWriteFence selects `deletedAt` alone (healthWriteFence.js:40); every other read passes.
 function failFenceReads() {
@@ -415,6 +446,30 @@ describe('RA-7: the ingest catch re-applies the rule after a write-phase error',
     expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
     await expectNoAggregates(owner);
   });
+
+  // The catch cannot read the fence, so it decides nothing: the aborted journal stays, and the
+  // worker's pass, which can read it, applies the rule.
+  it('RA-7 with an unreadable fence: the catch keeps the aborted journal, and the worker applies the rule once the fence reads', async () => {
+    const owner = await appleUserWithGrant();
+    await derivedAggregates(owner);
+
+    const ingest = await ingestAcrossDisconnect(owner, [
+      heartRate(IN_RETENTION, 2 * HOUR),
+      heartRate(OUT_OF_RETENTION, 91 * DAY, 70),
+    ]);
+    const fenceReads = failFenceReads();
+    ingest.resume();
+
+    expect(await ingest.outcome).toMatchObject({ code: 'health_sample_outside_retention', statusCode: 422 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id, status: 'aborted' })).toBe(1);
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(1);
+
+    fenceReads.mockRestore();
+    await repairWorker.process();
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+    await expectNoAggregates(owner);
+  });
 });
 
 describe('RA-8: the repair pass leaves a connected, consenting user\'s profile alone', () => {
@@ -467,5 +522,42 @@ describe('RA-8: the repair pass leaves a connected, consenting user\'s profile a
     expect(profile).not.toBeNull();
     expect(Number(profile.sleepStages.deep)).toBe(80);
     expect(await MorningState.countDocuments({ userId: owner._id })).toBe(1);
+  });
+
+  // The ingest's catch runs on every failed batch, so it takes the same gate: a write-phase error
+  // under an unchanged grant and connection removes the batch's own rows and nothing else.
+  it('RA-8: a write-phase 422 under an unchanged grant and connection keeps v1 sleep and MorningState', async () => {
+    const owner = await appleUserWithGrant();
+    await v1SleepAndMorningState(owner);
+
+    await expect(ingestV2Batch(owner._id, 'healthkit', [
+      heartRate(IN_RETENTION, 2 * HOUR),
+      heartRate(OUT_OF_RETENTION, 91 * DAY, 70),
+    ])).rejects.toMatchObject({ code: 'health_sample_outside_retention', statusCode: 422 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+    await expectV1SleepAndMorningState(owner);
+  });
+
+  // An unreadable fence says nothing about the grant: the repair pass removes the aborted batch's
+  // rows but neither runs the rule nor drops the journal, and the next pass that reads it decides.
+  it('RA-8: an unreadable fence keeps the aborted journal, and the pass that reads it applies the rule', async () => {
+    const owner = await appleUserWithGrant();
+    await derivedAggregates(owner);
+    await abortedAcrossDisconnect(owner);
+
+    const fenceReads = failFenceReads();
+    await expect(recoverStagedHealthSamples({ userId: owner._id }))
+      .resolves.toEqual({ recovered: 0, removed: 1, failed: 1 });
+    expect(await HealthSample.countDocuments({ userId: owner._id })).toBe(0);
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id, status: 'aborted' })).toBe(1);
+    expect(await MedicalProfile.countDocuments({ userId: owner._id })).toBe(1);
+    expect(await MorningState.countDocuments({ userId: owner._id })).toBe(1);
+
+    fenceReads.mockRestore();
+    await expect(recoverStagedHealthSamples({ userId: owner._id }))
+      .resolves.toEqual({ recovered: 0, removed: 0, failed: 0 });
+    expect(await HealthIngestBatch.countDocuments({ userId: owner._id })).toBe(0);
+    await expectNoAggregates(owner);
   });
 });
