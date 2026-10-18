@@ -85,12 +85,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:l-check-waiver-row` (own)
-- title: TASKS: the L-check deviation of #255 (OPS-244) and J18's status reading (OPS-169)
-- branch: `docs/l-check-waiver-row`
-- paths: `TASKS.md`
+- task: `OPS-244` (TASKS)
+- title: OPS-244: the L-check waiver in CLAUDE.md; Bedrack stays a partner (DAN-065); his inactive items closed; the full-history scan recorded
+- branch: `docs/ops244-waiver-partner`
+- paths: `CLAUDE.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/decisions/DEC-185.md`
 - resources: none
-- state: in-review · PR #258
+- state: claimed
 - started: 2026-10-18
 
 ### M04
