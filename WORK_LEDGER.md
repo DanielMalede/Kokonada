@@ -111,7 +111,7 @@ _free_
 - branch: `docs/dan085-snapshot`
 - paths: `TASKS.md`
 - resources: `res:atlas-prod`
-- state: claimed
+- state: in-review · PR #260
 - started: 2026-10-18
 
 ### M07
