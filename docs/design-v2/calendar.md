@@ -1,7 +1,7 @@
 ---
 title: External-dates calendar
 status: living
-verified: 2026-10-18
+verified: 2026-10-04
 owner: compliance-auditor
 author agent: sentinel
 source: 'sentinel-calendar.md (whole file)'

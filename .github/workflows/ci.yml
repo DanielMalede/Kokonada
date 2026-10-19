@@ -146,7 +146,7 @@ jobs:
         run: npm ci
         working-directory: mobile/KokonadaHealth
       # jest only — NOT `tsc`: pre-existing src/health/* typing errors are documented and
-      # unrelated (see ORCHESTRATOR_FABLE definition_of_done). Local gate parity.
+      # unrelated (see docs/orchestrator-fable.md definition_of_done). Local gate parity.
       - name: Run tests
         run: ./node_modules/.bin/jest --ci
         working-directory: mobile/KokonadaHealth

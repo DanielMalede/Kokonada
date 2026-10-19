@@ -18,7 +18,7 @@
 // What it does not reach: a job a worker is running (BullMQ refuses to remove a locked job; it is
 // counted as `inFlight`, and the queue deletes it once it has run, after its write has landed), and a
 // job queued after the purge by a play that ends while the request is processed. Both are declared in
-// docs/PRIVACY_DECLARATIONS.md.
+// docs/privacy-declarations.md.
 //
 // FAILS FAST, NEVER WAITS. It runs inside DELETE /api/auth/account and POST /api/consent/withdraw, and
 // both report a failure rather than block on it. A new BullMQ queue never settles while Redis is down

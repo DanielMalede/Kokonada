@@ -1,9 +1,9 @@
 ---
 status: reference
-verified: 2026-10-18
+verified: 2026-10-02
 ---
 
-> **v1 design language (Wave 2.8).** Superseded in part on 2026-09-23 by design v2 (`docs/plans/design-v2-plan.md`); history wherever it conflicts; deleted once ADR-0017 lands (`UI-110`). Moved here from `docs/design-v1/ui-ux-overhaul-spec.md` on 2026-10-18.
+> **v1 design language (Wave 2.8).** Superseded in part on 2026-09-23 by design v2 (`docs/plans/design-v2-plan.md`); history wherever it conflicts; deleted once ADR-0017 lands (`UI-110`). Moved here from `docs/UI_UX_OVERHAUL_SPEC.md` on 2026-10-18.
 
 # KOKONADA — UI/UX MASTER OVERHAUL SPEC
 ## "The Synesthetic Living App" — Design Directive (Blueprint Wave 2.8)

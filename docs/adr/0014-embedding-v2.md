@@ -4,7 +4,7 @@
 - **Date:** 2026-08-22 (Wave 4 — Runtime Intelligence, W4-014)
 - **Extends:** [ADR 0010](0010-global-corpus-cc0-only-provider-agnostic.md) (CC0-only global corpus),
   [ADR 0011](0011-spotify-content-containment.md) and [ADR 0012](0012-learning-compliance.md) (learning compliance)
-- **Implements:** `docs/plans/WAVE4_INTELLIGENCE_MISSION.md` §M.16, §M.10; kills D19
+- **Implements:** `docs/plans/WAVE4_INTELLIGENCE_MISSION.md (deleted; see docs/ARCHIVE.md)` §M.16, §M.10; kills D19
 - **Required reading:** `docs/architecture/mbid-representation-recalibration-vs-genre-seam.md`
   (prod-measured corpus composition and per-dim feature distributions, 2026-07-15)
 

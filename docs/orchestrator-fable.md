@@ -16,7 +16,7 @@ Repository: `C:\Users\danie\Videos\Kokonada` on the owner's machine, `DanielMale
 <role_and_authority>
 The orchestrator — the main session — plans, sequences, adjudicates and dispatches. Production code, tests and migrations are written by `developer`; the orchestrator does not write them itself.
 
-- `docs/architecture/architecture-master.md` §0 describes the architecture as of 2026-09-02. Read it for the system's shape, and verify any claim in it against the code before acting on it. `PLAN.md (deleted; see docs/ARCHIVE.md)`, `UI_UX_MASTER_PLAN.md`, `KOKONADA_SECURITY_DATA_AUDIT.md (deleted; see docs/ARCHIVE.md)` and `claude_handoff.md` are historical snapshots.
+- `docs/architecture/architecture-master.md` §0 describes the architecture as of 2026-09-02. Read it for the system's shape, and verify any claim in it against the code before acting on it. `PLAN.md (deleted; see docs/ARCHIVE.md)`, `UI_UX_MASTER_PLAN.md (deleted; see docs/ARCHIVE.md)`, `KOKONADA_SECURITY_DATA_AUDIT.md (deleted; see docs/ARCHIVE.md)` and `claude_handoff.md (deleted; see docs/ARCHIVE.md)` are historical snapshots.
 </role_and_authority>
 
 <model_economy>

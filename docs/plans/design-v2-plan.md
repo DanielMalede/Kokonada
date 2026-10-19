@@ -1,6 +1,6 @@
 ---
 status: living
-verified: 2026-10-18
+verified: 2026-10-08
 ---
 
 # תוכנית: עיצוב מחדש של `Kokonada` מאפס, דף אחר דף, מקצה לקצה
@@ -78,7 +78,7 @@ verified: 2026-10-18
 | הכלי | הפסיקה | הסיבה |
 |---|---|---|
 | הכלי `Taste Skill` | לא מתקינים | מיועד לאתרים בלבד. הכלל שלו נגד זוהר סגול סותר את הרגש העוצמתי שלנו, והוא כפול לכישור `frontend-design` שכבר מותקן |
-| הכלי `awesome-design-md` | לא מתקינים, אבל לוקחים את הפורמט | העתקת עיצוב של מותג אחר מסכנת את זכויות המותג שלו. אנחנו מייצרים `DESIGN.md` משלנו מתוך הטוקנים |
+| הכלי `awesome-design-md` | לא מתקינים, אבל לוקחים את הפורמט | העתקת עיצוב של מותג אחר מסכנת את זכויות המותג שלו. אנחנו מייצרים `DESIGN.md` (future) משלנו מתוך הטוקנים |
 | הכלי `UI UX Pro Max` | לא מתקינים | אחד הסקריפטים שלו קורא קבצי `.env`, ובמאגר יש `backend/.env`. הוא גם שולח בקשות רשת, והפלטות שלו ממוצעי קטגוריה, כלומר בדיוק הכשל הנוכחי |
 
 פקודות ההתקנה שלהם, לתיעוד בלבד (לא מריצים):
@@ -94,7 +94,7 @@ npx getdesign@latest add <slug>
 כל כישור חיצוני נקרא ונבדק, מועתק ידנית לתיקייה `.claude/skills/<name>/` בגרסה נעולה (`SHA`) ונכנס דרך `PR`. לא משתמשים ב-`/plugin marketplace add`, כי הוא לא נועל גרסה ומתעדכן אוטומטית.
 
 - **חובה:**
-  - תקן הטוקנים `DTCG` עם `Style Dictionary v5`, שמייצר את `tokens.generated.ts`, את `tokens.css` לקנבס ואת `DESIGN.md`.
+  - תקן הטוקנים `DTCG` עם `Style Dictionary v5`, שמייצר את `tokens.generated.ts`, את `tokens.css` לקנבס ואת `DESIGN.md` (future).
   - הכלים `Skia RuntimeEffect` ו-`Skottie`, שכבר מותקנים.
   - ממשק ה-`CSS` של `Reanimated 4`, שכבר מותקן.
   - הכישורים `animate-expo` ו-`review-animations` של `emilkowalski/skills`, שהם התשובה האמיתית ל-`Taste Skill` בעולם ה-`React Native`. צריך לבדוק שהם לא מניחים `Expo`.
@@ -305,7 +305,7 @@ claude mcp add mobile-mcp --env MOBILEMCP_DISABLE_TELEMETRY=1 -- cmd /c npx -y @
 - הקובץ `docs/adr/0009-calm-bioluminescent-design-language.md`, שמוחלף ב-`ADR-0017`.
 - הקבצים `docs/design-v1/ui-ux-overhaul-spec.md` ו-`docs/design-v1/screens.md`.
 - הקבצים `.claude/settings.json`, `.claude/agents/designer.md` ו-`.claude/agents/regulatory-researcher.md`.
-- הקבצים `.claude/commands/build-screen.md`, `vision-frame.md` ו-`wave2.md`. (נמחקו ב-`2026-09-29`; רשומים ב-`docs/ARCHIVE.md` § Missing)
+- הקבצים `.claude/commands/build-screen.md` ו-`wave2.md` (נמחקו ב-`2026-09-29`; רשומים ב-`docs/ARCHIVE.md` § Missing), והקובץ `.claude/commands/vision-frame.md`, שנכתב מחדש ומריץ את `V0` ו-`V1` של שלב `0`.
 - הקבצים `mobile/KokonadaHealth/src/design/*`, `eslint.design-system.js` ו-`tools/eslint-plugin-kokonada/`.
 - הקבצים `mobile/KokonadaHealth/src/navigation/*`, `appBootstrap.ts` ו-`prodBootstrap.ts`.
 - הקבצים `src/health/biometricsWiring.ts`, `src/health/liveHr.ts` ו-`src/experience/pulse/statusLabels.ts`.

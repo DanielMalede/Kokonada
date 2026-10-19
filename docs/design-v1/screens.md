@@ -1,9 +1,9 @@
 ---
 status: reference
-verified: 2026-10-18
+verified: 2026-10-02
 ---
 
-> **v1 design document.** Superseded by design v2 (`docs/plans/design-v2-plan.md` and `docs/design-v2/`) wherever they conflict; kept until ADR-0017 records the direction, then deleted (`UI-110`). Moved here from `docs/design-v1/screens.md` on 2026-10-18.
+> **v1 screen catalog.** Design v2 (`docs/plans/design-v2-plan.md`, `docs/design-v2/`) wins wherever they conflict, and its v1 visual language is history. Its data, states and normative rules stay the reference for a page until that page's G4 spec pack holds them; it is deleted once every page it covers has passed G4 and each rule still read from here has a registry entry (`UI-110`). Moved here from `docs/SCREENS.md` on 2026-10-18.
 
 # KOKONADA — Screen Catalog (page-by-page spec)
 

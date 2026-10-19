@@ -1,6 +1,6 @@
 ---
 status: reference
-verified: 2026-10-18
+verified: 2026-09-30
 ---
 
 # Kokonada architecture (master)
@@ -13,10 +13,11 @@ verified: 2026-10-18
 
 ## 0. CURRENT STATE (READ THIS FIRST)
 
-### WAVE 4 UPDATE — RUNTIME INTELLIGENCE (2026-09-02, READ THIS BEFORE THE 2026-07-07 BLOCK BELOW)
+### WAVE 4 UPDATE — RUNTIME INTELLIGENCE (2026-09-02, READ THIS FIRST)
 
-> Supersedes the 2026-07-07 state below for everything backend/intelligence. That block is **kept as
-> history** and is still correct about what shipped through PR #78 — it is simply ~340 commits stale.
+> Supersedes the 2026-07-07 state for everything backend/intelligence. That block was cut from this file
+> on 2026-10-18 (`docs/ARCHIVE.md` names the commit that holds it); it was correct about what shipped
+> through PR #78 and is ~340 commits stale.
 > Authoritative measured facts: `docs/architecture/architecture-master.md#ground-truth-2026-09-02`. Closeout package:
 > `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)`. Live run state: `docs/plans/WAVE4_STATE.md`.
 
@@ -346,6 +347,108 @@ output is a whitelisted derived-targets shape.
 
 ---
 
+## 4. Mobile: standing design
+
+> Restored on 2026-10-19 from §A.1–A.4 and §B.1, §B.2, §B.4 of the July master (`KOKONADA_ARCHITECTURE_MASTER.md` at commit `c866bf9`), which the move had cut as sprint history: they are the standing design of `mobile/KokonadaHealth`. The sprint narrative around them is a Deleted row in `docs/ARCHIVE.md`. Written in July 2026; verify any line against the code before relying on it.
+
+### A.1 Three-lane state architecture
+The single most important mobile concept. Sensor/gesture data, live device state,
+and committed intent live in **three separate lanes** so a 120 Hz gesture never
+touches the JS thread and biometrics never touch disk:
+
+- **HOT lane** — Reanimated SharedValues + worklets on the UI thread (120 Hz). The
+  radial-wheel gesture math runs here; only a *single* `runOnJS` crosses to JS on
+  gesture-end. The commit boundary is `src/state/hot/laneCommit.ts` (pure, tested):
+  `clampToDisc` (unit-disc clamp, NaN→center), `TapCommitter` (aliasing-safe COPY +
+  gesture-end debounce so a reused worklet frame object can't retro-corrupt a
+  committed tap), `smoothTowards` (TIME-based exponential smoothing → frame-rate
+  independent, the aura's degrade-gracefully-at-30fps guarantee).
+- **WARM lane** — `zustand/vanilla` store `src/state/warm/warmStore.ts`. Live,
+  EPHEMERAL, **never persisted**: `liveHr` (plausibility-gated 30–220), `connection`
+  (**the Kokonada SERVER-socket status — NOT the biometric transport; keep these
+  lanes independent, see S12-1**), `biometricSource`, `permissions`. Holds the
+  Background-Permission-Revocation reconciler (`setPermissions` severs biometrics
+  → source `none`, drops stale HR).
+- **COLD lane** — Redux Toolkit `src/state/cold/emotionSlice.ts`. Committed intent
+  (`taps[]` ≤3 ring buffer, `activity`, `textPrompt`), the ONLY persisted lane.
+  `serializeForPersist`/`deserializeForPersist` are a **hard allowlist** — a
+  tampered/stale blob can't inject a biometric field, a privilege flag, or a
+  `__proto__` payload, and can't grow the tap buffer past 3. `setTextPrompt` and
+  deserialize both run `sanitizePrompt` (see B.4).
+
+### A.2 Encrypted persistence (`SecureStore`)
+`src/storage/secureStore.ts` — the ONLY sanctioned persistence path. Ports
+`KVBackend` + `Cipher` (injected; tests use fakes, prod uses `mmkvBackend` = an
+AES-encrypted MMKV instance whose 256-bit key lives in the hardware Keychain). It is
+**encrypted-only** (refuses a backend not flagged `encrypted`), **biometric-denying**
+(a hard `bio:/hr:/biometric:` key denylist — raw HR can never reach disk even by a
+coding mistake), and **fail-soft** (a full/interrupted device returns `false`/`null`,
+never throws into the UI thread). `ColdPersistence` namespaces the persisted key by
+`userId` (shared-device isolation — user A's intent never rehydrates into user B),
+and `wipe()` detaches the writer BEFORE resetting so logout leaves zero bytes.
+
+### A.3 Socket & Spotify lifecycle (the fragile edges)
+- **`src/net/socketClient.ts` (`KokonadaSocket`)** — typed Socket.IO client, the one
+  module owning connection lifecycle: **reqId gating** (stale responses dropped —
+  zombie-navigation defense), **reconnect re-hydration** (re-emits `emotion_update`
+  on EVERY connect because the server's emotion cache is keyed by socketId),
+  `auth_expired` → **refresh-then-reconnect-ONCE** with a loop cap (self-DoS defense),
+  and `teardown()` detaches a replaced/closed socket's listeners so a late buffered
+  event can't corrupt the new session (S9-1). Transient reconnects delegate to
+  socket.io's own backoff — never a manual parallel-socket storm. Handles
+  `playlist`, `playlist_error` (reqId-gated), `auth_expired`, `disconnect`.
+- **`src/experience/player/spotifyController.ts` (`SpotifyPlayerController`)** — wraps
+  the notoriously fragile `react-native-spotify-remote` behind a `SpotifyRemoteLike`
+  port. EVERY failure mode (connect reject, command throw mid-song,
+  `remoteDisconnected`, revoked auth) collapses into a clean `disconnected` state and
+  a `{ok:false}` result — **never** an unhandled rejection that white-screens the app.
+  Capped reconnect. `getPlaybackState()` reads the native truth for the foreground
+  reconcile.
+- **Auth bridge** — `src/auth/authSession.ts` (`AuthSession`) solves the async→sync
+  gap: `KokonadaSocket` needs a SYNCHRONOUS `getAccessToken()` but tokens live in the
+  async Keychain. It loads once into memory, serves the access token synchronously,
+  and does **single-flight** rotating refresh (concurrent `auth_expired` + a 401 can't
+  double-rotate and burn the token family).
+
+### A.4 Navigation & bootstrap
+`src/navigation/RootNavigator.tsx` — 5-tab shell (Generate / Now Playing / Pulse /
+History / Profile). `src/experience/playback/playbackServices.ts` composes the app
+singletons (session → socket → player → orchestrator → nowPlaying/error stores);
+`App.tsx` wraps in `GestureHandlerRootView` + Redux + SafeArea, calls `startPlayback()`
+and mounts `<AppLifecycle/>` (the AppState foreground hook).
+
+### B.1 The Skia Radial Wheel
+`src/experience/wheel/wheelGeometry.ts` (pure) + `RadialWheel.tsx` (Skia + gesture-
+handler + Reanimated). `screenToCircumplex` maps a finger position to a circumplex
+coord (x=valence −1..1, y=arousal −1..1), **Y-flipped** (screen-down → arousal-up),
+unit-disc clamped, NaN/Infinity/zero-radius safe, signed-zero normalized. The gesture
+worklet commits ONE tap per gesture-end via a single `runOnJS` — the ≤3-tap payload
+contract is byte-identical to the web. Committed dots draw back with
+`circumplexToScreen` at recency-ordered opacity.
+
+### B.2 The Bio-aura Shader (NaN-clamped)
+`src/experience/aura/auraUniforms.ts` (pure) + `BioAura.tsx` (Skia `Blur` glow).
+`deriveAuraUniforms(hr)` → `{hue 0–360, intensity 0–1, pulseHz 0.1–4}`, **every output
+hard-clamped and finite** — a single NaN/Infinity uniform crashes the whole Skia
+surface, so a null HR yields a calm `RESTING_AURA` and an absurd HR spike (0, 300,
+9999, ∞) is clamped, strobe-capped at 4 Hz. `advancePulsePhase` advances the breathing
+by ELAPSED TIME (frame-rate independent, wrapped to [0,2π), dropped-frame safe).
+
+### B.4 The Emotional Prompt Box (sanitized, 500-char)
+`promptSanitizer.ts` (`MAX_PROMPT_LENGTH = 500`) + `PromptBox.tsx`. **Critical
+contract:** the backend stores `textPrompt` VERBATIM with **no server-side cap** and
+prints it into the Groq prompt, so the CLIENT is the only enforcement point.
+`sanitizePrompt` caps to 500, strips C0/DEL/NUL control bytes, collapses whitespace to
+a single line, trims, and never throws on any paste. It runs **in the cold-slice
+reducer AND in deserialize**, so state, the persisted MMKV blob, and the socket payload
+are all bounded even against a 50k-char injection paste or a poisoned persisted blob.
+The `TextInput` sets native `maxLength={500}` as a first line of defense (UI/UX: the
+box is single-line; on-device the wheel scales to a compact mini-ring on keyboard focus
+so committed taps stay visible — the keyboard-resize behavior from the approved
+blueprint, verified on-device).
+
+---
+
 ---
 
 <a id="ground-truth-2026-09-02"></a>
@@ -360,7 +463,7 @@ _Was `docs/GROUND_TRUTH_2026-09-02.md` until 2026-10-18 (`docs/ARCHIVE.md` § Mo
 >
 > **Supersedes `docs/GROUND_TRUTH_2026-08-22.md`**, which is an untracked draft from a killed session
 > (W4-D67). That draft is written in the past tense about work that had not happened — it claims the
-> `docs/architecture/architecture-master.md` §0 refresh and `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` as done when neither existed — and
+> `KOKONADA_ARCHITECTURE_MASTER.md` §0 refresh and `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` as done when neither existed — and
 > its baseline (222/3523) is five re-baselines stale. **It is safe to delete.** Its §1 table was
 > independently reproduced at the time and nothing in it is lost: everything still true has been carried
 > forward here, re-measured.

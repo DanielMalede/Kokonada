@@ -1,6 +1,6 @@
 ---
 status: living
-verified: 2026-10-18
+verified: 2026-10-08
 ---
 
 # HealthKit designs (MB-900)

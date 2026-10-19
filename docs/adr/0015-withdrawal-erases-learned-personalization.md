@@ -2,7 +2,7 @@
 
 **Status:** Accepted · 2026-08-29
 **Supersedes:** the exclusion rationale in `backend/app/services/privacy/wearableErasure.js` **at withdrawal scope only** (it stands, unchanged, at per-provider-disconnect scope)
-**Amends:** `docs/plans/HALT_CONSENT_VERSION_RETENTION_AND_DECLARATIONS.md` §C1
+**Amends:** `docs/plans/halts.md#consent-version-retention-and-declarations` (was HALT_CONSENT_VERSION_RETENTION_AND_DECLARATIONS.md) §C1
 
 ## Context
 

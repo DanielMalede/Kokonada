@@ -1,6 +1,6 @@
 ---
 status: living
-verified: 2026-10-18
+verified: 2026-10-07
 ---
 
 # Compliance HALTs

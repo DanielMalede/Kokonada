@@ -1,6 +1,6 @@
 ---
 status: reference
-verified: 2026-10-18
+verified: 2026-07-14
 ---
 
 # KOKONADA — RUNTIME AGENT ARCHITECTURE

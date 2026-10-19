@@ -25,7 +25,7 @@ jest.mock('../app/config/redis', () => ({
 }));
 
 // Loaded at module scope, outside any test timeout: a cold transform of the whole app is slow on
-// Windows (docs/COLD_JEST_TIMEOUT_TASK.md), and that cost says nothing about the line under test.
+// Windows (docs/plans/dev-items.md#cold-jest-timeout), and that cost says nothing about the line under test.
 const { start } = require('../app/index');
 
 const STARTUP_LINE = /^Kokonada backend on port /;

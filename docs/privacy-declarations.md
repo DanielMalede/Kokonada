@@ -1,6 +1,6 @@
 ---
 status: living
-verified: 2026-10-18
+verified: 2026-10-08
 ---
 
 # Kokonada — Store Privacy Declarations
@@ -85,7 +85,7 @@ Kokonada uses the following processors. None is an advertiser; none receives raw
 | **Vercel** | Legacy web client hosting (being sunset) | Web-client static assets / SPA | — |
 <!-- NEEDS VERIFICATION: the Railway / MongoDB Atlas / Vercel provider identities are architectural facts (prod deploy topology) not confirmed from source this pass — reconfirm the current hosting/DB provider list before filing. -->
 
-- **Biometrics are never shipped to any LLM or external AI**, never logged, and decrypted only in worker scope ([ADR 0005](adr/0005-zero-knowledge-biometrics.md); audit F3/F16).
+- **Biometrics are never shipped to any LLM or external AI**, never logged, and decrypted only in worker scope ([ADR 0005](adr/0005-zero-knowledge-biometrics.md); audit F3/F16 in `KOKONADA_SECURITY_DATA_AUDIT.md (deleted; see docs/ARCHIVE.md)`).
 - Raw HR/HRV/sleep are **AES-256-GCM field-encrypted at rest**; the serve ledger stores only **coarse bands**, never raw vitals.
 
 > **Standing condition — Groq DPA + Zero-Data-Retention.** Because derived music/mood tokens
