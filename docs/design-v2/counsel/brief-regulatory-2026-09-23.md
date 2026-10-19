@@ -92,7 +92,7 @@ Everything in this section is a **draft for counsel, not cleared copy**. One exp
 
 > Kokonada is not a medical device and does not diagnose, treat, cure, or prevent any medical condition.
 
-- It matches the store-listing wording `compliance-auditor` registered (`r_compliance.md:236 (deleted; see docs/ARCHIVE.md)`, P-HEALTH). I did not re-verify that wording.
+- It matches the store-listing wording `compliance-auditor` registered (`r_compliance.md:236 (deleted; see docs/ARCHIVE.md)`, now `CMP-084`; P-HEALTH). I did not re-verify that wording.
 - Render it in the Pulse body wherever readings or a state appear, not only inside the StateCard.
 - **The disclaimer is not a safe harbour.**
   - MDR Art. 2(12) sets the intended purpose from "promotional or sales materials or statements" (REP).
@@ -164,7 +164,7 @@ Backend keys stay as they are. Every string that can reach the screen today goes
 | **H-A.** Yes, it is health data | Art. 9(1) prohibits the processing unless 9(2)(a) applies: "explicit consent… for one or more specified purposes" (REP). Today's code runs these steps without that consent: display on the device, sending to `/watch/hr` (then refused with a 403), and N1, where the server saves the value and feeds it to the affect engine. |
 | **H-B.** No, it is not health data | GDPR still needs a lawful basis under Art. 6. ePrivacy 5(3) applies when locally produced data is sent to a server (EDPB 2/2023 para 53; paras 58 and 60 cover a device relaying over Bluetooth: "a 'gaining of access'", RET). The exemption for a service "explicitly requested by the subscriber or user" has no obvious footing for a mood-only user. |
 | **H-C.** Data stays on the device only | EDPB para 44 (RET): no "gaining of access… as long as the information does not leave the device". **The current code is not in this branch**, because both `pushLiveHr` and N1 send the data off the device. |
-| **Every branch** | N2 (a stranger's heart rate) is not cured by any consent gate and needs device selection or an ownership check. Play policy P-UD requires a prominent disclosure immediately before the Bluetooth permission (`compliance-auditor` finding C6, a HALT). |
+| **Every branch** | N2 (a stranger's heart rate) is not cured by any consent gate and needs device selection or an ownership check. Play policy P-UD requires a prominent disclosure immediately before the Bluetooth permission (`compliance-auditor` finding C6, a HALT; now `CMP-078`). |
 
 **The gate** (prepared as the configuration defensible on every branch; not a ruling). The live heart-rate lane covers token minting, the Bluetooth permission request, scanning, the REST fallback and writes to `warmStore.liveHr`. Start it only when all of these hold:
 1. A signed-in identity is present.

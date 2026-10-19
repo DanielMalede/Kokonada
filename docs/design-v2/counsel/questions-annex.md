@@ -6,7 +6,9 @@ owner: regulatory-researcher
 
 # Questions for counsel — the annexes
 
-The four question annexes to `counsel-dossier-2026-09-29.md`, in the order they were filed, each kept verbatim with its headings one level down. `gating-five-2026-10-04.md` Appendix A cites them by the keys in the first column. New questions for counsel are new sections here, never new files.
+The four question annexes to `counsel-dossier-2026-09-29.md`, in the order they were filed, each kept verbatim as filed with its headings one level down; later notes are dated and marked as notes (`OPS-082`). `gating-five-2026-10-04.md` Appendix A cites them by the keys in the first column. New questions for counsel are new sections here, never new files.
+
+The front matter's `verified:` date is when this file's structure and links were last checked, not when the facts in the questions were true: each section is as of its own filing date, 2026-09-29 to 2026-10-06. `owner:` names the agent that maintains the file; the questions are the owner's, prepared by `regulatory-researcher` (`gating-five-2026-10-04.md`, line 3).
 
 | Key | Annex | Was |
 |---|---|---|
