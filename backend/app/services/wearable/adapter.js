@@ -69,8 +69,12 @@ const ACTIVITY_MAP = {
   },
 };
 
+// Own keys only (BE-070): a plain read also finds what every object inherits, so a device type of
+// 'constructor' resolved to the Object function and '__proto__' to Object.prototype, and the socket
+// lane stored that as the listener's activity.
 function resolveActivity(source, rawType) {
-  return ACTIVITY_MAP[source]?.[rawType] ?? 'unknown';
+  const map = ACTIVITY_MAP[source];
+  return map && Object.hasOwn(map, rawType) ? map[rawType] : 'unknown';
 }
 
 /**
