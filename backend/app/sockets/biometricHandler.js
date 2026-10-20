@@ -1960,6 +1960,63 @@ function _admitChipActivity(activity) {
   return OFFERED_CHIPS.has(key) ? key : null;
 }
 
+// BE-070: a listener's payload is whatever the client sent, and socket.io calls each listener inside
+// process.nextTick with no try/catch while backend/app registers no uncaughtException or
+// unhandledRejection handler, so one throw at a door ends the process for every user. A `= {}`
+// parameter default covers only an ABSENT payload, never `null`, so every door reads its fields
+// through this view.
+function _payloadOf(payload) {
+  return payload !== null && typeof payload === 'object' ? payload : {};
+}
+
+// BE-070: a client value that a log line or a reply interpolates must not be an object: `{"toString":1}`
+// is valid JSON, and interpolating it throws "Cannot convert object to primitive value", the same exit
+// as a null payload. An object or an array is treated as not sent.
+function _scalarOf(value) {
+  return value !== null && typeof value === 'object' ? undefined : value;
+}
+
+// BE-070: the taps the PlaylistSession schema stores (1 to 3, x and y each in [-1, 1]), kept the way the
+// app's cold lane keeps them (emotionSlice.ts sanitizeTaps): finite numbers only, the LAST three, rebuilt
+// as {x, y} so nothing else rides along. Four taps, or one malformed tap, failed the session write, and
+// the moment never reached History. A tap outside [-1, 1] is DROPPED, not clamped: the app clamps every
+// tap to the unit disc before sending it (laneCommit.ts clampToDisc), so such a tap is malformed, not
+// imprecise, and clamping it would store, and generate from, the strongest feeling on that axis, one the
+// listener never chose.
+const MAX_EMOTION_TAPS = 3;
+const _isTapAxis = (v) => Number.isFinite(v) && v >= -1 && v <= 1;
+function _admitTaps(taps) {
+  if (!Array.isArray(taps)) return [];
+  return taps
+    .filter((t) => t !== null && typeof t === 'object' && _isTapAxis(t.x) && _isTapAxis(t.y))
+    .slice(-MAX_EMOTION_TAPS)
+    .map(({ x, y }) => ({ x, y }));
+}
+
+// BE-070: the app caps the prompt at 500 characters (promptSanitizer.ts MAX_PROMPT_LENGTH), and nothing
+// here did, so any client's prompt reached the stored row and the model as sent. A string is cut to the
+// same cap; anything else is no prompt.
+const MAX_PROMPT_LENGTH = 500;
+function _admitPrompt(prompt) {
+  return typeof prompt === 'string' ? prompt.slice(0, MAX_PROMPT_LENGTH) : '';
+}
+
+function _admitEmotionUpdate(payload) {
+  const { taps, textPrompt, activity, mode } = _payloadOf(payload);
+  return {
+    taps:       _admitTaps(taps),
+    textPrompt: _admitPrompt(textPrompt),
+    activity:   _admitChipActivity(activity),
+    mode:       _scalarOf(mode),
+  };
+}
+
+// The heart request's heartRate is not read here: H3a reads it only behind the consent gate.
+function _admitRequest(payload) {
+  const { mode, reqId } = _payloadOf(payload);
+  return { mode: _scalarOf(mode), reqId: _scalarOf(reqId) };
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
@@ -1969,7 +2026,8 @@ function registerBiometricHandler(socket) {
   // authenticated, a reading must not be processed without a CURRENT consent grant on the socket's
   // user — the SAME definition every ingest route enforces (healthConsentGate). A missing/stale
   // grant, or a consent-store error, DROPS the reading (fail closed) without ever crashing the socket.
-  socket.on('biometric_push', async ({ source, raw } = {}) => {
+  socket.on('biometric_push', async (payload) => {
+    const { source, raw } = _payloadOf(payload);
     const uid = socket?.data?.user?._id;
     if (!uid) return;
     if (!(await admitHealthProcessing(uid))) {
@@ -1985,17 +2043,19 @@ function registerBiometricHandler(socket) {
   // Dual-path mode toggle (Part 2b). The client echoes its persisted Live/Manual choice
   // here on connect + on every toggle. Live mode is the ONLY state in which a band
   // transition auto-recalibrates (serves the buffer); Manual users are never auto-driven.
-  socket.on('live_mode', ({ enabled } = {}) => {
+  socket.on('live_mode', (payload) => {
+    const { enabled } = _payloadOf(payload);
     const state = getState(socketId);
     state.liveMode = !!enabled;
     log(`[live_mode] enabled=${state.liveMode}`);
   });
 
-  socket.on('emotion_update', ({ taps = [], textPrompt = '', activity = null, mode } = {}) => {
+  socket.on('emotion_update', (payload) => {
+    const { taps, textPrompt, activity, mode } = _admitEmotionUpdate(payload);
     const state = getState(socketId);
     state.lastEmotionTaps = taps;
     state.lastTextPrompt  = textPrompt;
-    state.lastActivity    = _admitChipActivity(activity);
+    state.lastActivity    = activity;
     if (mode) state.lastMode = mode;
     log(`[emotion_update] taps=${taps.length} activity=${state.lastActivity ?? 'none'} mode=${state.lastMode}`);
   });
@@ -2003,7 +2063,8 @@ function registerBiometricHandler(socket) {
   // Generation trigger for the mood/emotion flow. The client emits emotion_update
   // (to cache taps + mode) immediately followed by request_playlist on the same
   // socket; Socket.IO preserves per-socket order so the cache is set first.
-  socket.on('request_playlist', ({ mode, reqId } = {}) => {
+  socket.on('request_playlist', (payload) => {
+    const { mode, reqId } = _admitRequest(payload);
     const state = getState(socketId);
     if (mode) state.lastMode = mode;
     if (reqId !== undefined) state.lastReqId = reqId;
@@ -2023,7 +2084,8 @@ function registerBiometricHandler(socket) {
   // heartRate is dropped unread, no stored source is read, whatever this socket already holds is
   // withheld, and a biometric-free generation still answers — same event, same keys, no consent
   // toast, and its receipt claims no heart-rate tuning (hrDriven is false with no HR).
-  socket.on('request_heart_playlist', async ({ mode, reqId, heartRate } = {}) => {
+  socket.on('request_heart_playlist', async (payload) => {
+    const { mode, reqId } = _admitRequest(payload);
     const state = getState(socketId);
     if (mode) state.lastMode = mode;
     if (reqId !== undefined) state.lastReqId = reqId;
@@ -2037,7 +2099,7 @@ function registerBiometricHandler(socket) {
       return;
     }
 
-    const ctx = await resolveHeartContext(socket, state, heartRate);
+    const ctx = await resolveHeartContext(socket, state, _payloadOf(payload).heartRate);
     if (!ctx) {
       emitToUser(socket, 'playlist_error', { message: 'No heart-rate data yet — connect your watch or wait for a reading', reqId });
       return;
