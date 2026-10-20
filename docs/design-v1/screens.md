@@ -3,7 +3,7 @@ status: reference
 verified: 2026-10-02
 ---
 
-> **v1 screen catalog.** Design v2 (`docs/plans/design-v2-plan.md`, `docs/design-v2/`) wins wherever they conflict, and its v1 visual language is history. Its data and states, and the rules design v2 has not yet re-homed (§7b's ceiling encoding and one-constant trust line, §10's rights-above-preferences order, §11's equal-choice consent rules), stay the reference for a page until that page's G4 spec pack holds them; it is deleted once every page it covers has passed G4 and each rule still read from here has a registry entry (`UI-110`). Moved here from `docs/SCREENS.md` on 2026-10-18.
+> **v1 screen catalog.** Design v2 (`docs/plans/design-v2-plan.md`, `docs/design-v2/`) wins wherever they conflict, and its v1 visual language is history. Its data and states, and §7b's ceiling encoding and one-constant trust line (no registry entry holds them yet), stay the reference for a page until that page's G4 spec pack holds them; §10's rights-above-preferences order and §11's consent-choice rules are read from their registry entries (REG-050, QA-153; REG-068, QA-138, QA-139, REG-069), and where §11 differs, REG-068 governs (it leaves §11's filled Agree to counsel); it is deleted once every page it covers has passed G4 and each rule still read from here has a registry entry (`UI-110`). Moved here from `docs/SCREENS.md` on 2026-10-18.
 
 # KOKONADA — Screen Catalog (page-by-page spec)
 

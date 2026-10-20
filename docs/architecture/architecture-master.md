@@ -389,7 +389,9 @@ layer (`MB-133`; corrected 2026-10-20). It is
 inspects a value), and **fail-soft** (a full/interrupted device returns `false`/`null`,
 never throws into the UI thread). `ColdPersistence` namespaces the persisted key by
 `userId` (shared-device isolation — user A's intent never rehydrates into user B),
-and `wipe()` detaches the writer BEFORE resetting so logout leaves zero bytes.
+and `wipe()` detaches the writer BEFORE resetting so logout leaves no `cold.` key
+(it deletes keys; MMKV appends writes, so older encrypted copies can stay in the file
+until MMKV rewrites it, `MB-133`).
 
 ### A.3 Socket & Spotify lifecycle (the fragile edges)
 - **`src/net/socketClient.ts` (`KokonadaSocket`)** — typed Socket.IO client, the one

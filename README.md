@@ -22,7 +22,7 @@ Kokonada turns live biometrics and emotion into music: a Node.js backend (`backe
 | `docs/plans/` | Plans in flight: `design-v2-plan.md` (J16), `halts.md` (the open compliance HALTs, one section each), `dev-items.md` (small development items, one section each), `healthkit/` (the one large plan in flight), and the frozen Wave-4 state files `WAVE4_STATE.md` and `WAVE4_ARCHIVE.md` that `scripts/wave4/state-guard.js` reads | J19 |
 | `docs/runbooks/` | Operating procedures (Atlas indexes, seed ingestion, HealthSample rollout, Android release signing) | J17 (security-auditor + resilience-auditor, owner class b) |
 | `docs/store/` | The store declarations and provider applications | J11 (compliance-auditor) and J18 (regulatory-researcher, compliance-auditor, owner class c) |
-| `backend/`, `mobile/`, `scripts/` README files | Notes that must sit next to the code they describe (the Design Lab, the brand assets, the fonts, the HealthKit spike) | J19 (the code rows exclude `*.md`), except the two under `mobile/KokonadaHealth/assets/` (the brand assets, the fonts): J9 (designer) and J11 (compliance-auditor) |
+| `backend/`, `mobile/`, `scripts/` README files | Notes that must sit next to the code they describe (the Design Lab, the brand assets, the fonts, the HealthKit spike) | J19 for four of the six that exist; the two under `mobile/KokonadaHealth/assets/` (the brand assets, the fonts) are J9 (designer) and J11 (compliance-auditor). Only J2 excludes `*.md`, so a new README in a folder that a J3–J18 row names takes that row's approvers |
 
 ## Where a new file goes
 
@@ -33,17 +33,17 @@ Kokonada turns live biometrics and emotion into music: a Node.js backend (`backe
 - **A store declaration or a provider application** is a file under `docs/store/`. **Material prepared for counsel** is under `docs/design-v2/counsel/` until the owner settles `DAN-100`. **A measured ground-truth brief** is part of the architecture of record, under `docs/architecture/`.
 - **A /page record** (charter, brief, spec, row, verdicts) is under `docs/design-v2/pages/<page>/`, named as `.claude/commands/page.md` names it.
 - **Not documents:** an agent, a command or a skill is born under `.claude/` or `.agents/` (J16); a note that must sit beside the code it describes is that folder's `README.md`; a generated file lands where the step that generates it writes it, and the design file the design-v2 token build generates is `design-tokens/DESIGN.md` (future).
-- **History** is deleted, with one row in `docs/ARCHIVE.md` naming the last commit that holds it. No banners, no archive folder, no stub at the old path. A file that dies first carries each open item it holds into `TASKS.md`.
+- **History** is deleted, with one row in `docs/ARCHIVE.md` naming the last commit that holds it. No banners, no archive folder, no stub at the old path. From 2026-10-21 on, a file that dies first carries each open item it holds into `TASKS.md`.
 - **Nothing new lands at the repository root.** The root holds the six files above plus the partner handoff, and `backend/tests/docsMap.test.js` fails on any other `.md` there.
 
 ## When a file moves or dies
 
-Its row goes into `docs/ARCHIVE.md` in the same commit (Moved: old path → new path or `#anchor`; Deleted: path, what it was (with the `TASKS.md` rows that carry its open items, or that nothing was open), the last commit holding it), and every live reference to it is rewritten in that commit. Frozen records are not edited and resolve through the ledger: `docs/design-v2/decisions/**`, `docs/design-v2/registry/**`, `docs/plans/WAVE4_STATE.md`, `docs/plans/WAVE4_ARCHIVE.md`, `WEAKNESSES_AND_FAILURES.md`, `HANDOFF_2026-10-08_BEDRACK.md`. A reference checker never rewrites a command span or the rows a PR itself adds. A reference to a path that is planned but does not exist yet carries `(future)` directly after the path.
+Its row goes into `docs/ARCHIVE.md` in the same commit (Moved: old path → new path or `#anchor`; Deleted: path, what it was (from 2026-10-21 on, with the `TASKS.md` rows that carry its open items, or that nothing was open), the last commit holding it), and every live reference to it is rewritten in that commit. Frozen records are not edited and resolve through the ledger: `docs/design-v2/decisions/**`, `docs/design-v2/registry/**`, `docs/plans/WAVE4_STATE.md`, `docs/plans/WAVE4_ARCHIVE.md`, `WEAKNESSES_AND_FAILURES.md`, `HANDOFF_2026-10-08_BEDRACK.md`. A reference checker never rewrites a command span or the rows a PR itself adds. A reference to a path that is planned but does not exist yet carries `(future)` directly after the path.
 
 ## Names and front matter
 
 - Ledgers and indexes are upper case: `README.md`, `CLAUDE.md`, `AGENTS.md`, `TASKS.md`, `WORK_LEDGER.md`, `WEAKNESSES_AND_FAILURES.md`, `docs/ARCHIVE.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/registry/INDEX.md`.
-- Numbered records keep their identifier: `DEC-001.md`, `QA-001.md`, `0012-learning-compliance.md`.
+- Numbered records keep their identifier: `DEC-001.md`, `QA-001.md`, `CMP-001.md`, `REG-001.md`, `DSN-001.md` (future) (the registry and the rulings, prefixes as `CLAUDE.md` names them), `0012-learning-compliance.md`.
 - Every other content file is lower-case kebab-case, with a date in the name only when it is a dated record (`gating-five-2026-10-04.md`). The two Wave-4 state files are the exception, pinned by code, and so are the /page verdict files, which keep the name `/page` gives them.
 - Every living document under `docs/` (the top level, `architecture/`, `design-v1/`, `plans/`) opens with front matter: `status:` (`living`, `reference` or `frozen`) and `verified:` (the date someone last checked it against the code). `/status` lists the ones older than 90 days.
 

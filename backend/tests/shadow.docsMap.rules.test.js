@@ -178,6 +178,8 @@ describe('docsMap names and front matter (OPS-278)', () => {
     expect(isNamedByRule('docs/plans/Halts.md')).toBe(false);
     expect(isNamedByRule('docs/plans/halts.md')).toBe(true);
     expect(isNamedByRule('docs/design-v2/decisions/DEC-155.md')).toBe(true);
+    expect(isNamedByRule('docs/design-v2/registry/DSN-001.md')).toBe(true);
+    expect(isNamedByRule('docs/design-v2/registry/XYZ-001.md')).toBe(false);
     expect(isNamedByRule('docs/ARCHIVE.md')).toBe(true);
   });
 

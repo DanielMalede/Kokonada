@@ -239,7 +239,7 @@ function createChecker({ tracked, ledgerText }) {
 // The naming rule under docs/ (README.md § Names and front matter). The /page record keeps the names
 // .claude/commands/page.md gives it (`verdicts/<seq>-G<k>-<agent>-r<round>-<sha12>.md`).
 const UPPER_NAMES = new Set(['ARCHIVE.md', 'DECISIONS.md', 'INDEX.md', 'README.md', 'WAVE4_STATE.md', 'WAVE4_ARCHIVE.md']);
-const NUMBERED = /^(?:DEC|QA|CMP|REG)-\d+\.md$/;
+const NUMBERED = /^(?:DEC|QA|CMP|REG|DSN)-\d+\.md$/;
 const KEBAB = /^[a-z0-9][a-z0-9.-]*\.md$/;
 const PAGE_RECORD = 'docs/design-v2/pages/';
 
