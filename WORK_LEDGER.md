@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:sentinel-2026-10-17` (own)
-- title: the sentinel's 2026-10-17 run filed into WEAKNESSES_AND_FAILURES.md (sentinel.md FILING step 4)
-- branch: `docs/sentinel-2026-10-17`
-- paths: `WEAKNESSES_AND_FAILURES.md`, `TASKS.md`
+- task: `BE-070` (TASKS)
+- title: the socket handlers normalize the client's payload, so a null payload no longer crashes the backend
+- branch: `fix/be070-socket-payloads`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #263
-- started: 2026-10-18
+- state: claimed
+- started: 2026-10-20
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
