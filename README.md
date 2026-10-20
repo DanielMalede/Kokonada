@@ -28,7 +28,7 @@ Kokonada turns live biometrics and emotion into music: a Node.js backend (`backe
 
 - **A task** is a row in `TASKS.md`, never a file. A large piece of work earns a plan under `docs/plans/<area>/` or `docs/plans/<name>.md`, and the row links to it. The custodian's ledger is `docs/plans/custodian-ledger.md` (future).
 - **A compliance HALT** is a section of `docs/plans/halts.md`; **a small development item** is a section of `docs/plans/dev-items.md`.
-- **A ruling** is a `DEC-` entry under `docs/design-v2/decisions/`, indexed in `DECISIONS.md`. **An obligation** is a registry entry (`QA-`, `CMP-`, `REG-`). **A question for counsel** is a section of `docs/design-v2/counsel/questions-annex.md`.
+- **A ruling** is a `DEC-` entry under `docs/design-v2/decisions/`, indexed in `DECISIONS.md`. **An obligation** is a registry entry (`QA-`, `CMP-`, `REG-`); **a design rule** is a `DSN-` registry entry, which ADR-0017 mints. **A question for counsel** is a section of `docs/design-v2/counsel/questions-annex.md`.
 - **An operating procedure** is a runbook under `docs/runbooks/`. **An architecture decision** is an ADR under `docs/adr/` (`/adr`); **the architecture of record** is under `docs/architecture/`.
 - **A store declaration or a provider application** is a file under `docs/store/`. **Material prepared for counsel** is under `docs/design-v2/counsel/` until the owner settles `DAN-100`. **A measured ground-truth brief** is part of the architecture of record, under `docs/architecture/`.
 - **A /page record** (charter, brief, spec, row, verdicts) is under `docs/design-v2/pages/<page>/`, named as `.claude/commands/page.md` names it.
@@ -43,7 +43,7 @@ Its row goes into `docs/ARCHIVE.md` in the same commit (Moved: old path → new 
 ## Names and front matter
 
 - Ledgers and indexes are upper case: `README.md`, `CLAUDE.md`, `AGENTS.md`, `TASKS.md`, `WORK_LEDGER.md`, `WEAKNESSES_AND_FAILURES.md`, `docs/ARCHIVE.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/registry/INDEX.md`.
-- Numbered records keep their identifier: `DEC-001.md`, `QA-001.md`, `CMP-001.md`, `REG-001.md`, `DSN-001.md` (future) (the registry and the rulings, prefixes as `CLAUDE.md` names them), `0012-learning-compliance.md`.
+- Numbered records keep their identifier: `DEC-001.md`, `QA-001.md`, `CMP-001.md`, `REG-001.md`, `DSN-001.md` (future; docs/ARCHIVE.md § Missing) (the registry and the rulings, prefixes as `CLAUDE.md` names them), `0012-learning-compliance.md`.
 - Every other content file is lower-case kebab-case, with a date in the name only when it is a dated record (`gating-five-2026-10-04.md`). The two Wave-4 state files are the exception, pinned by code, and so are the /page verdict files, which keep the name `/page` gives them.
 - Every living document under `docs/` (the top level, `architecture/`, `design-v1/`, `plans/`) opens with front matter: `status:` (`living`, `reference` or `frozen`) and `verified:` (the date someone last checked it against the code). `/status` lists the ones older than 90 days.
 
