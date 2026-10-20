@@ -5,7 +5,7 @@ verified: 2026-09-30
 
 # Kokonada architecture (master)
 
-> **Purpose:** the architecture of the backend and the mobile app as built. Section 0 is the authoritative current state (refreshed 2026-09-02, Wave 4); sections 1–3 are the standing design. The July 2026 roadmap blocks and the sprint history that this file once carried (the "2026-07-07 STATE" block of section 0, section 4, and sections A–D) are history: `docs/ARCHIVE.md` § Deleted names the last commit that holds them. The measured-facts brief of 2026-09-02 is the appendix at the end.
+> **Purpose:** the architecture of the backend and the mobile app as built. Section 0 is the authoritative current state (refreshed 2026-09-02, Wave 4); sections 1–4 are the standing design (section 4 is the mobile design restored from the July §A and §B). The July 2026 roadmap blocks and the sprint history that this file once carried (the "2026-07-07 STATE" block of section 0, the July section 4, and the rest of sections A–D) are history: `docs/ARCHIVE.md` § Deleted names the last commit that holds them. The measured-facts brief of 2026-09-02 is the appendix at the end.
 
 > Written 2026-07-03 at the completion of the backend (Phases 0–7); **last updated 2026-09-02**; moved here from `KOKONADA_ARCHITECTURE_MASTER.md` at the repository root on 2026-10-18.
 
@@ -349,7 +349,7 @@ output is a whitelisted derived-targets shape.
 
 ## 4. Mobile: standing design
 
-> Restored on 2026-10-19 from §A.1–A.4 and §B.1, §B.2, §B.4 of the July master (`KOKONADA_ARCHITECTURE_MASTER.md` at commit `c866bf9`), which the move had cut as sprint history: they are the standing design of `mobile/KokonadaHealth`. The sprint narrative around them is a Deleted row in `docs/ARCHIVE.md`. Written in July 2026; verify any line against the code before relying on it.
+> Restored on 2026-10-19 from §A.1–A.4 and §B.1, §B.2, §B.4 of the July master (`KOKONADA_ARCHITECTURE_MASTER.md` at commit `c866bf9`), which the move had cut as sprint history: they are the standing design of `mobile/KokonadaHealth`. The sprint narrative around them is a Deleted row in `docs/ARCHIVE.md`. Written in July 2026; verify any line against the code before relying on it. A.2's on-device encryption and B.4's prompt path were corrected against the code on 2026-10-20.
 
 ### A.1 Three-lane state architecture
 The single most important mobile concept. Sensor/gesture data, live device state,
@@ -378,11 +378,15 @@ touches the JS thread and biometrics never touch disk:
 
 ### A.2 Encrypted persistence (`SecureStore`)
 `src/storage/secureStore.ts` — the ONLY sanctioned persistence path. Ports
-`KVBackend` + `Cipher` (injected; tests use fakes, prod uses `mmkvBackend` = an
-AES-encrypted MMKV instance whose 256-bit key lives in the hardware Keychain). It is
+`KVBackend` + `Cipher` (injected; tests use fakes). In production `mmkvBackend` is an
+MMKV instance under MMKV's native AES (AES-128 in CFB mode, unauthenticated), keyed by
+a random key held in the Keychain / Keystore; MMKV uses at most 16 bytes of key and the
+app hands it 64 hex characters, so only the first 16 characters (64 bits) count, and
+the production `Cipher` (`src/platform/mmkvCipher.ts`) is a passthrough, not a second
+layer (`MB-133`; corrected 2026-10-20). It is
 **encrypted-only** (refuses a backend not flagged `encrypted`), **biometric-denying**
-(a hard `bio:/hr:/biometric:` key denylist — raw HR can never reach disk even by a
-coding mistake), and **fail-soft** (a full/interrupted device returns `false`/`null`,
+(a hard `bio:/hr:/biometric:` key-prefix denylist; it refuses those keys and never
+inspects a value), and **fail-soft** (a full/interrupted device returns `false`/`null`,
 never throws into the UI thread). `ColdPersistence` namespaces the persisted key by
 `userId` (shared-device isolation — user A's intent never rehydrates into user B),
 and `wipe()` detaches the writer BEFORE resetting so logout leaves zero bytes.
@@ -436,8 +440,12 @@ by ELAPSED TIME (frame-rate independent, wrapped to [0,2π), dropped-frame safe)
 
 ### B.4 The Emotional Prompt Box (sanitized, 500-char)
 `promptSanitizer.ts` (`MAX_PROMPT_LENGTH = 500`) + `PromptBox.tsx`. **Critical
-contract:** the backend stores `textPrompt` VERBATIM with **no server-side cap** and
-prints it into the Groq prompt, so the CLIENT is the only enforcement point.
+contract:** the backend stores `textPrompt` with **no server-side type or length
+bound** (`BE-070`; corrected 2026-10-20) and keeps it encrypted as
+`PlaylistSession.contextPrompt`; only closed-vocabulary tags derived from it reach an
+LLM (`extractIntent` in `backend/app/services/geminiEngine.js`, pinned by
+`backend/tests/geminiEngine.egress.test.js`). The 500-character cap below is client UX,
+not a boundary: the server must enforce its own.
 `sanitizePrompt` caps to 500, strips C0/DEL/NUL control bytes, collapses whitespace to
 a single line, trims, and never throws on any paste. It runs **in the cold-slice
 reducer AND in deserialize**, so state, the persisted MMKV blob, and the socket payload
