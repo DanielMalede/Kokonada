@@ -534,7 +534,7 @@ exports.garminCallback = async (req, res) => {
 // GDPR-grade disconnect: this is the LIVE "Disconnect Garmin" button's path. It must do the
 // full per-provider erasure — clear the Garmin credentials, PURGE Garmin's biometric/medical
 // footprint, and best-effort deregister with Garmin — not merely null the fields. Delegating to
-// eraseWearableProvider keeps this route honest with docs/PRIVACY_DECLARATIONS.md; the local
+// eraseWearableProvider keeps this route honest with docs/privacy-declarations.md; the local
 // data purge always completes even if the (flag-gated) Garmin deregistration call fails.
 exports.garminDisconnect = async (req, res, next) => {
   try {

@@ -1,21 +1,24 @@
-# KOKONADA ARCHITECTURE MASTER — Session Handoff Document
+---
+status: reference
+verified: 2026-09-30
+---
 
-> **Purpose:** A new AI session reads this file and instantly resumes the exact persona,
-> context, protocols, and architectural state of the Kokonada "Monster Machine" build.
-> Written 2026-07-03 at the completion of the backend (Phases 0–7).
-> **Last updated 2026-09-02** — Wave 4 (Runtime Intelligence) complete and merged; see the WAVE 4 UPDATE block at the top of Section 0.
-> **START WITH SECTION 0 below** — it is the authoritative current state and supersedes
-> the older "Current State & Next Step" blocks in Sections 4 and D.
+# Kokonada architecture (master)
+
+> **Purpose:** the architecture of the backend and the mobile app as built. Section 0 is the authoritative current state (refreshed 2026-09-02, Wave 4); sections 1–4 are the standing design (section 4 is the mobile design restored from the July §A and §B). The July 2026 roadmap blocks and the sprint history that this file once carried (the "2026-07-07 STATE" block of section 0, the July section 4, and the rest of sections A–D) are history: `docs/ARCHIVE.md` § Deleted names the last commit that holds them. The measured-facts brief of 2026-09-02 is the appendix at the end.
+
+> Written 2026-07-03 at the completion of the backend (Phases 0–7); **last updated 2026-09-02**; moved here from `KOKONADA_ARCHITECTURE_MASTER.md` at the repository root on 2026-10-18.
 
 ---
 
 ## 0. CURRENT STATE (READ THIS FIRST)
 
-### WAVE 4 UPDATE — RUNTIME INTELLIGENCE (2026-09-02, READ THIS BEFORE THE 2026-07-07 BLOCK BELOW)
+### WAVE 4 UPDATE — RUNTIME INTELLIGENCE (2026-09-02, READ THIS FIRST)
 
-> Supersedes the 2026-07-07 state below for everything backend/intelligence. That block is **kept as
-> history** and is still correct about what shipped through PR #78 — it is simply ~340 commits stale.
-> Authoritative measured facts: `docs/GROUND_TRUTH_2026-09-02.md`. Closeout package:
+> Supersedes the 2026-07-07 state for everything backend/intelligence. That block was cut from this file
+> on 2026-10-18 (`docs/ARCHIVE.md` names the commit that holds it); it was correct about what shipped
+> through PR #78 and is ~340 commits stale.
+> Authoritative measured facts: `docs/architecture/architecture-master.md#ground-truth-2026-09-02`. Closeout package:
 > `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)`. Live run state: `docs/plans/WAVE4_STATE.md`.
 
 **Wave 4 (Runtime Intelligence) is complete and merged.** PRs #179 (`44fd951`) and #180 (`0e19ad8`) are
@@ -27,7 +30,7 @@ all of which are addressed; one (D19, embedding v2) ships dark behind flags awai
 untouched this wave (backend-only) — `./node_modules/.bin/jest` from `mobile/KokonadaHealth`.
 
 **What is new, structurally:**
-- **`backend/app/agents/runtime/`** — 16 modules implementing `docs/RUNTIME_AGENT_ARCHITECTURE.md`.
+- **`backend/app/agents/runtime/`** — 16 modules implementing `docs/architecture/runtime-agent-architecture.md`.
   These are backend services, **not** Claude Code sub-agents. Ingestion (Hampel + slew + Kalman anomaly
   filter), physiology (personal baselines, cosinor chronobiology, the affect engine, nightly analysis,
   the live state adapter), knowledge (a **34-state / 6-domain** taxonomy, novelty bandit, explain
@@ -57,118 +60,6 @@ no deploy (`WAVE4_*_DISABLED`, parsed by `backend/app/utils/envFlag.js`, pinned 
 retune), the user-facing taxonomy vocabulary (compliance review), consent v2 metrics (built and dormant),
 and every mobile-side follow-up — `tzOffsetMinutes` emission, `playback_event` emission, and rendering
 the Pulse/MorningState superset. See `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` §8 and §10.
-
----
-
-### 2026-07-07 STATE — ROAD TO LAUNCH (history; superseded above for anything backend/intelligence)
-
-> Supersedes the "Current State & Next Step" blocks in Section 4 and Section D below
-> (both predate Sprint A11 and the Road-to-Launch squads). Everything through **Sprint
-> A11 is SHIPPED**; we are now in the launch-hardening phase, run as an **Agent Squad**.
-
-**Shipped & merged to `main` (currently PR #78 merged):**
-- **Backend Phases 0–7** — the variance engine (queues, canonical identity, feature store,
-  serve ledger, biosonic `translate`, selection pipeline, vector layer). PRs #35–#41.
-- **Mobile Sprints A6–A10** — auth, RN foundation, Skia experience, playback, wearable/
-  background. PRs #42–#46.
-- **QA4 Red Team hardening** (PR #47) — a 4-agent full-system stress audit. Fixed 4
-  confirmed architectural suspects (**the socket never connected in prod**; cold persistence
-  never bootstrapped; warm `liveHr` never fed; player status unobservable) + 5 more bugs
-  (`translate` 0/0 NaN-poison; foreground HR-wipe; aura NaN-phase Skia crash; unbounded
-  persisted `activity`; stuck generation guard) + a permanent GDPR erasure-completeness guard.
-- **Sprint A11 — Intelligence** (PR #48) — `GET /api/sessions` history feed +
-  `GET /api/pulse/state` (both explicit whitelist DTOs), a shared mobile `apiClient`
-  (single-flight 401-refresh-retry) on a unified `AuthSession` token plane, the auth-gated
-  `startApp` ignition, HistoryScreen server feed, ProfileScreen (logout + server-first GDPR
-  delete), and the richer state-vector Pulse screen.
-- **Road-to-Launch Squads 1–2** (PRs #49–#51) — prod runbooks (Atlas vector index, Railway
-  Redis auth, in-process workers, SIGTERM fix) + tech-debt janitor (single JWT plane).
-- **Launch-hardening + biosonic wave (PRs #52–#78, through 2026-07-06/07):** generation heap
-  OOM fix (#56), generation wall-clock timeout wedge (#63), never-empty L4 anti-repetition
-  (#64), WS1 feature-hydration + pool-uncap (#66), texture-outlier gates + rhythmic rotation
-  (#72), Spotify playlist-read scopes (#73), OAuth deep-link back into the app (#74), Groq
-  429-retry so generation stops collapsing to the 10-track fallback (#75), the **biometric
-  shadow buffer** — precompiled Live-mode playlists (#76), **Spotify App Remote playback +
-  biosonic Part 2** — Neural-Analysis loader, dual-path, Live-mode band-drive (#77), and
-  **music-vs-non-music classification + hard-purge** with an unclassified pool + periodic
-  reclassifier (#78). Playback + Live-mode band recalibration are now shipped end-to-end.
-
-**Test baselines (both green):** backend **91 suites / 1126 tests** (1125 pass + 1 todo);
-mobile **48 suites / 416 tests**. Backend: `cd backend && npm test`. Mobile:
-`./node_modules/.bin/jest` from `mobile/KokonadaHealth` (mobile is NOT in CI — run locally).
-Ground truth for this update: `GROUND_TRUTH_2026-07-07.md (deleted; see docs/ARCHIVE.md)`; execution plan:
-`docs/MASTER_BLUEPRINT_2026-07-07.md`.
-
-### Operating model — the Agent Squad
-Every task spawns a **Developer Agent** (executes end-to-end, strict TDD) paired with a
-dedicated **Shadow QA/Security Agent** (attacks the Dev's work, pins regression tests).
-Reconcile both branches, apply QA fixes, then PR → `gh pr merge --squash --delete-branch`.
-- **Pause & Guide:** any manual cloud-portal action (Atlas, Railway, Apple Developer) STOPS
-  the sprint — hand the human a step-by-step tutorial and wait for an explicit "DONE".
-  (The AI cannot log into cloud portals.)
-- **100% FREE app (product decision):** no paywalls, no paid tiers yet. A12's Entitlements/
-  RevenueCat must scaffold a fully free tier with **NO subscription UI**.
-
-### Squad 1 — Production Runbooks (✅ CLOSED — PRs #49, #50)
-Executed the backend prod infra so the queue + vector layers actually run:
-- **Atlas Vector Search index** — created in MongoDB Atlas on collection `trackembeddings`,
-  name `track_embedding_index`, def `{ "fields":[{ "type":"vector","path":"vector",
-  "numDimensions":70,"similarity":"cosine" }] }`. Status **Active**. (70 dims = 6 feature +
-  64 hashed-genre-bag, from `embedding.js buildVector`.)
-- **Legacy index dropped** — the orphaned `userId_1_moodKey_1_createdAt_-1` index on
-  `playlistsessions` was **manually deleted** (schema removed it in Phase 6; the physical
-  index lingered).
-- **Railway Redis auth (NOAUTH resolved)** — provisioned Railway Redis; the first `REDIS_URL`
-  was host-only → `NOAUTH Authentication required`. Fixed by pointing `REDIS_URL` at the
-  **authenticated** Redis URL (`redis://default:<pw>@…`, via a `${{Redis.…}}` reference).
-- **DELIBERATE ARCHITECTURE — in-process workers.** Railway's free plan blocks creating a
-  2nd (worker) service; a separate project would force public-Redis egress + manual key
-  parity. So workers run **inside the web service** via **`RUN_WORKERS_IN_PROCESS=true`** —
-  `startInProcessWorkers()` launches the 3 BullMQ consumers in `app/index.js` with graceful
-  SIGTERM shutdown. The standalone `app/worker.js` (`npm run worker`) is kept for a future
-  dedicated worker (zero rework once on a paid tier). `scripts/verifyProdRunbooks.js`
-  read-only-verifies all three runbooks.
-- **SIGTERM crash-loop fixed** — the backend booted cleanly then was killed every ~4s. Root
-  cause: the Railway health check hit a non-200 path. Fix: **Health Check Path = `/health`**
-  (returns 200 JSON) + **Restart Policy = On Failure**. Loop stopped.
-- **Env facts (load-bearing):** the app reads **`MONGO_URI`** (NOT `DATABASE_URL`). Prod
-  Mongo is **Atlas** (literal `MONGO_URI`, not a Railway ref — hence no graph arrow); a
-  separate Railway MongoDB service exists but is **unused**. In-process workers inherit the
-  web service's `ENCRYPTION_KEY`/`MONGO_URI` — automatic parity (a key benefit of in-process).
-
-### Squad 2 — Tech Debt Janitor (✅ CLOSED — PR #51)
-Cleared the dual token-plane debt:
-- **Deleted `src/auth/tokenStore.ts`** entirely — the app now has a **single JWT plane on
-  `AuthSession`**.
-- `liveHrClient.ts` + `uploadClient.ts` JWT calls routed through the shared `apiClient`
-  (inheriting single-flight 401→refresh→retry). Login dropped the `saveToken` dual-write;
-  `isLoggedIn`/`signOut` route through `AuthSession`. The separate **watch device token**
-  (`com.kokonadahealth.watchToken`) is untouched.
-- Logout keeps a **direct legacy purge** — `Keychain.resetGenericPassword(
-  'com.kokonadahealth.jwt')` — so an upgrading user's pre-migration JWT is still wiped
-  ("zero bytes after logout" holds).
-- **QA fallback fix (found during reconciliation):** login now installs an **access-only**
-  `AuthSession` when the backend returns no refresh token — previously that path left BOTH
-  planes empty (a silent no-auth state once the `tokenStore` fallback was removed).
-- Pinned `src/__tests__/shadow.authMigration.test.ts` — 9 guards that fail the build if
-  anyone reintroduces `tokenStore`, drops the logout purge, or leaks a token to logs/URL/disk.
-
-### Pending Roadmap
-- **Squad 3 — A12 Compliance:** Apple Sign-In (App-Store-mandatory once social login
-  exists); **FREE-tier RevenueCat/Entitlements scaffold — NO paywalls, no subscription UI**
-  (product decision); privacy declarations (App Store nutrition / Play Data Safety); a11y +
-  i18n/RTL completion.
-- **Squad 4 — A13 DevOps:** get mobile into CI (currently local-only); release/build
-  pipeline (fastlane or EAS); crash + telemetry reporting; store submission.
-- **Squad 5 — Web Sunset:** remove the retired web surfaces (DiscoverPage stub, ActivityPanel,
-  PlaylistDetailPage, Garmin credentials form, offline-buffer player); keep the Vercel domain
-  for AASA/assetlinks deep links + OG cards.
-- **Squad 6 — On-Device Verification:** a strict manual QA checklist run on the physical
-  Galaxy device (login → history → profile → logout → GDPR delete → pulse gauges), exercising
-  the A11 features that are unit-green but not yet device-verified.
-
-### ⏭️ IMMEDIATE NEXT ACTION (updated 2026-07-06)
-**Execute the Unified Variance Architecture** (spec: `2026-07-06-unified-pool-dualpath-shadowbuffer-design.md (deleted; see docs/ARCHIVE.md)`), which SUPERSEDES the Squad-6-first ordering. Root cause of "same playlist" was proven (prod Mongo read) to be the `SELECTION_POOL_MAX=500` cap + the L4 mood-strip — NOT empty features (the library is 64% measured-hydrated; the 2026-07-05 "empty features" diagnosis is retired). Order: **Part 1** (pool uncap to 10 000 + un-relaxable hard biosonic band, backend) → **Part 2** (manual/live dual-path + reanimated UI-thread analysis loader, mobile) → **Part 3** (shadow-worker biometric buffer, background). Squad 6 (On-Device Verification) + Squad 3 (A12) follow.
 
 ---
 
@@ -456,72 +347,9 @@ output is a whitelisted derived-targets shape.
 
 ---
 
-## 4. Current State & Next Step
+## 4. Mobile: standing design
 
-**BACKEND: 100% FINISHED.** Suite: **844/844 across 65 suites** (includes every
-shadow-attack suite as permanent regression guards).
-
-- Merged: PR #35, #36, #37, #38, #39, #40.
-- **PR #41 (Phase 7 — THE SEAL) is OPEN and audit-passed, awaiting merge approval**
-  (branch `feat/monster-s7-seal`, commit `af0186a`).
-- Prod runbooks pending after #41 merges:
-  1. Create the Atlas Vector Search index (spec in `models/TrackEmbedding.js` comment).
-  2. `db.playlistsessions.dropIndex('userId_1_moodKey_1_createdAt_-1')`.
-  3. Set `REDIS_URL` on Railway + run the worker process (`startWorkers`) — until then
-     all queue paths no-op gracefully.
-
-**EXACT NEXT STEP — React Native Sprints (S5+)** per blueprint Part 8:
-> ⚠️ **HISTORICAL / SUPERSEDED by Section 0.** Sprints A6–A11 are all DONE and merged;
-> the "next step" below is the original plan, kept for context. Current state is Section 0.
-1. **A6 — Auth & Accounts:** provider-agnostic `Identity` collection (google/apple/
-   facebook/password), argon2id email flow, JWT + rotating refresh, entitlements/
-   RevenueCat scaffolding, GDPR cascade extension. (Apple Sign-In is App Store-mandatory
-   once social login exists.)
-2. **A7 — RN Foundation:** grow `mobile/KokonadaHealth` into the Kokonada app —
-   react-navigation, encrypted MMKV, socket client with typed contracts, the
-   **three-lane state architecture** (Reanimated SharedValues hot lane for sensor ticks;
-   throttled Zustand warm lane; Redux Toolkit cold lane ported from the web slices),
-   i18n/RTL/a11y groundwork, deep links.
-3. **A8 — RN Experience:** the **Skia radial emotion wheel** (gesture-handler taps →
-   worklets → Skia, 120Hz, zero JS-thread round-trip, same ≤3-tap emotionSlice payload —
-   backend contract unchanged), bio-aura shader, Spotify **App Remote** player
-   (Web Playback SDK is desktop-only), mix receipts, Pulse screen.
-- Screens: Generate / Now Playing / Pulse / History / Profile+Integrations.
-  REMOVE from web before/at sunset: DiscoverPage stub, ActivityPanel,
-  PlaylistDetailPage, Garmin credentials form, offline-buffer player.
-- The web app stays alive during RN development as the production harness; the domain
-  survives sunset for AASA/assetlinks + OG cards.
-
-**Environment gotchas for the new session (Windows dev box):**
-- Always `cd /c/Users/danie/Videos/AI-Music-App/backend` before npm/jest in Bash
-  (the shell drops cwd; a root `npm install` once created a stray root package.json).
-- `npm install` may prune devDeps (NODE_ENV=production) — restore with
-  `npm install --include=dev`. Backend jest is v29 (`npm test` = `jest --runInBand --forceExit`).
-- PowerShell 5.1 mangles jest stderr — run tests through the Bash tool with
-  `2>&1 | grep -aE "Test Suites:|Tests:"`.
-- Mobile builds: JDK/SDK configured; Windows path-length solved via directory junction;
-  release APK proven on Galaxy S22+ with live BLE HR + Health Connect backfill.
-
----
-
-# FRONTEND ARCHITECTURE & MOBILE SPRINTS (Phases A6–A10)
-
-> **STATUS UPDATE (supersedes Section 4 above):** Section 3's backend is now fully
-> merged — **PR #41 (Phase 7 Seal) MERGED**, backend at **909/909** after the A6
-> auth additions. The React Native migration is well underway: **Sprints A6, A7,
-> A8, A9, A10 are 100% COMPLETE and MERGED to `main`** (PRs #42, #43, #44, #45,
-> #46). The app boots, captures emotion, generates playlists, and **plays music**
-> through Spotify with a full 5-tab UI. This section is the authoritative handoff
-> for the mobile app; read it before touching `mobile/KokonadaHealth`.
-
-The app lives in `mobile/KokonadaHealth` (bare **React Native 0.86**, React 19.2,
-jest 29). Doctrine, identical to the backend: **pure logic behind ports, TDD'd under
-jest; native modules (Skia, Reanimated, gesture-handler, socket.io, Spotify SDK,
-MMKV, Keychain) are thin adapters verified ON-DEVICE, never fake-snapshotted.** Every
-sprint ends with a mobile Shadow Audit, an OPEN MANDATE to find bugs beyond the
-dictated list, and a PR + audit comment before STOP-and-await-merge.
-
-## A. The Mobile Foundation (Sprint A7 — PR #43)
+> Restored on 2026-10-19 from §A.1–A.4 and §B.1, §B.2, §B.4 of the July master (`KOKONADA_ARCHITECTURE_MASTER.md` at commit `c866bf9`), which the move had cut as sprint history: they are the standing design of `mobile/KokonadaHealth`. The sprint narrative around them is a Deleted row in `docs/ARCHIVE.md`. Written in July 2026; verify any line against the code before relying on it. A.2's on-device encryption and B.4's prompt path were corrected against the code on 2026-10-20.
 
 ### A.1 Three-lane state architecture
 The single most important mobile concept. Sensor/gesture data, live device state,
@@ -550,14 +378,20 @@ touches the JS thread and biometrics never touch disk:
 
 ### A.2 Encrypted persistence (`SecureStore`)
 `src/storage/secureStore.ts` — the ONLY sanctioned persistence path. Ports
-`KVBackend` + `Cipher` (injected; tests use fakes, prod uses `mmkvBackend` = an
-AES-encrypted MMKV instance whose 256-bit key lives in the hardware Keychain). It is
+`KVBackend` + `Cipher` (injected; tests use fakes). In production `mmkvBackend` is an
+MMKV instance under MMKV's native AES (AES-128 in CFB mode, unauthenticated), keyed by
+a random key held in the Keychain / Keystore; MMKV uses at most 16 bytes of key and the
+app hands it 64 hex characters, so only the first 16 characters (64 bits) count, and
+the production `Cipher` (`src/platform/mmkvCipher.ts`) is a passthrough, not a second
+layer (`MB-133`; corrected 2026-10-20). It is
 **encrypted-only** (refuses a backend not flagged `encrypted`), **biometric-denying**
-(a hard `bio:/hr:/biometric:` key denylist — raw HR can never reach disk even by a
-coding mistake), and **fail-soft** (a full/interrupted device returns `false`/`null`,
+(a hard `bio:/hr:/biometric:` key-prefix denylist; it refuses those keys and never
+inspects a value), and **fail-soft** (a full/interrupted device returns `false`/`null`,
 never throws into the UI thread). `ColdPersistence` namespaces the persisted key by
 `userId` (shared-device isolation — user A's intent never rehydrates into user B),
-and `wipe()` detaches the writer BEFORE resetting so logout leaves zero bytes.
+and `wipe()` detaches the writer BEFORE resetting so logout leaves no `cold.` key
+(it deletes keys; MMKV appends writes, so older encrypted copies can stay in the file
+until MMKV rewrites it, `MB-133`).
 
 ### A.3 Socket & Spotify lifecycle (the fragile edges)
 - **`src/net/socketClient.ts` (`KokonadaSocket`)** — typed Socket.IO client, the one
@@ -589,14 +423,6 @@ singletons (session → socket → player → orchestrator → nowPlaying/error 
 `App.tsx` wraps in `GestureHandlerRootView` + Redux + SafeArea, calls `startPlayback()`
 and mounts `<AppLifecycle/>` (the AppState foreground hook).
 
-## B. The Context & Emotion Input Suite (Sprints A8 + A10 — PRs #44, #46)
-
-The **Generate tab** (`src/experience/generate/GenerateScreen.tsx`) is the live suite:
-a vertical composition of bio-aura + radial wheel (hero), Activity chips, Prompt box,
-and a CTA that morphs Generate ↔ "Listen to your heart" ↔ disabled. `GenerateController`
-(pure, tested) is the `hotLane → laneCommit → cold store` handoff + CTA logic + submit
-→ live socket.
-
 ### B.1 The Skia Radial Wheel
 `src/experience/wheel/wheelGeometry.ts` (pure) + `RadialWheel.tsx` (Skia + gesture-
 handler + Reanimated). `screenToCircumplex` maps a finger position to a circumplex
@@ -614,16 +440,14 @@ surface, so a null HR yields a calm `RESTING_AURA` and an absurd HR spike (0, 30
 9999, ∞) is clamped, strobe-capped at 4 Hz. `advancePulsePhase` advances the breathing
 by ELAPSED TIME (frame-rate independent, wrapped to [0,2π), dropped-frame safe).
 
-### B.3 Activity Chips (single-select)
-`activities.ts` (8 presets, natural-language keys the backend prints verbatim into the
-Groq prompt) + `ActivityChips.tsx` — single-select ToggleGroup; re-tapping the active
-chip clears it (→ null). Writes straight to `emotion.activity`, rides the existing
-`emotion_update` payload.
-
 ### B.4 The Emotional Prompt Box (sanitized, 500-char)
 `promptSanitizer.ts` (`MAX_PROMPT_LENGTH = 500`) + `PromptBox.tsx`. **Critical
-contract:** the backend stores `textPrompt` VERBATIM with **no server-side cap** and
-prints it into the Groq prompt, so the CLIENT is the only enforcement point.
+contract:** the backend stores `textPrompt` with **no server-side type or length
+bound** (`BE-070`; corrected 2026-10-20) and keeps it encrypted as
+`PlaylistSession.contextPrompt`; only closed-vocabulary tags derived from it reach an
+LLM (`extractIntent` in `backend/app/services/geminiEngine.js`, pinned by
+`backend/tests/geminiEngine.egress.test.js`). The 500-character cap below is client UX,
+not a boundary: the server must enforce its own.
 `sanitizePrompt` caps to 500, strips C0/DEL/NUL control bytes, collapses whitespace to
 a single line, trims, and never throws on any paste. It runs **in the cold-slice
 reducer AND in deserialize**, so state, the persisted MMKV blob, and the socket payload
@@ -633,90 +457,149 @@ box is single-line; on-device the wheel scales to a compact mini-ring on keyboar
 so committed taps stay visible — the keyboard-resize behavior from the approved
 blueprint, verified on-device).
 
-### B.5 Playback + Now Playing + Pulse/History (Sprints A9 + A10)
-- `PlaybackQueue` (cursor over PLAYABLE tracks; skips YouTube-only null-URI tracks;
-  clamps both edges) + `PlaybackOrchestrator` (THE conductor: `handlePlaylist`→play,
-  track-end auto-advance with **stale-end guard**, skip **coalescing** via injected
-  scheduler [burst → 1 play command], **single-flight generation guard** [skip-past-end
-  spam → 1 request, not N], **URI-aware `reconcile`**).
-- `foregroundReconcile` (reads native player state + OS permissions → orchestrator +
-  warm store, each guarded, never throws) driven by `AppLifecycle` (AppState 'active').
-- `NowPlayingScreen` (transport via orchestrator), `PulseScreen` (live HR/source/socket),
-  `HistoryScreen` (session play history) — all subscribe with `useEffect` cleanup.
+---
 
-## C. Shadow Agent — Mobile Victories
+---
 
-**Mobile QA doctrine:** same as backend — hostile tests FIRST, stateful fakes with real
-semantics (in-memory MMKV, EventEmitter sockets, flaky Spotify remotes), integration-
-level attacks that cross lanes. Since A7 the **OPEN MANDATE** stands: the Shadow Agent
-must research and exploit mobile edge cases beyond the dictated list. Each audit posts a
-verdict table (DEFENDED-pinned / CONFIRMED→FIXED / ACCEPTED-documented) as a PR comment.
+<a id="ground-truth-2026-09-02"></a>
+## Appendix · GROUND TRUTH BRIEF — 2026-09-02 (Wave 4 closeout, W4-015)
+_Was `docs/GROUND_TRUTH_2026-09-02.md` until 2026-10-18 (`docs/ARCHIVE.md` § Moved); its history is under that path. Stale since Tracks H, HX and J1; every number is as measured on 2026-09-02._
 
-**Confirmed kills fixed pre-merge (all pinned as permanent regression tests):**
-- **S9-1 — Zombie socket handler:** a late buffered event on a REPLACED (dead) socket
-  after `auth_expired` spawned a 3rd socket / could spuriously log the user out mid-
-  session. Fixed: `teardown()` detaches listeners on every socket swap + manual close.
-- **S10-1 — Silent React 18 memory leak:** `GenerateScreen` subscribed to the warm store
-  **in render body with no cleanup**, leaking a dead closure on every tab switch. React
-  18+ REMOVED the "setState on unmounted component" warning, so it's invisible at
-  runtime — the first detection attempt FALSE-GREENED. The pinned test tracks
-  subscribe/unsubscribe **parity** directly (found 1 subscribe, 0 unsubscribes). Fixed
-  with `useEffect` cleanup. **Lesson: React 18+ leak detection MUST use parity, not the
-  removed warning.**
-- **S11-1 — The Desync Ghost:** `reconcile` ignored the remote's actual track URI, so
-  after the user played a FOREIGN song in the Spotify app, Now Playing falsely kept
-  claiming our track was playing. Fixed: URI-aware reconcile.
-- **S11-2 — Skip-spam backlog:** spamming Next PAST the queue end fired one generation
-  request PER TAP (20 taps → 20 requests = rate-limit storm). Fixed: single-flight
-  `generationPending` guard + `onGenerationError` unblock.
-- **S12-1 — Bluetooth/Socket decoupling:** the warm-store permission reconciler CONFLATED
-  the biometric transport with the server-socket status — turning off Bluetooth falsely
-  set `connection='disconnected'` (Pulse would lie "socket: disconnected" while the socket
-  was fine), violating three-lane independence. The A7 test had VACUOUSLY pinned the bug
-  (socket defaulted to disconnected → assertion passed for the wrong reason). Fixed:
-  severance touches only biometric fields; A7 test corrected to prove lane independence.
+> Persisted per the rule `GROUND_TRUTH_2026-07-07.md (deleted; see docs/ARCHIVE.md)` established: every claim below cites a real
+> tool run on this machine, so a later session does not re-spend budget re-deriving it. The narrative
+> lives in `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` (the closeout package) and `docs/plans/WAVE4_STATE.md` (the run's
+> live task table, HITL queue and per-session evidence). This brief is the measured-facts snapshot the
+> other two summarise.
+>
+> **Supersedes `docs/GROUND_TRUTH_2026-08-22.md`**, which is an untracked draft from a killed session
+> (W4-D67). That draft is written in the past tense about work that had not happened — it claims the
+> `KOKONADA_ARCHITECTURE_MASTER.md` §0 refresh and `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` as done when neither existed — and
+> its baseline (222/3523) is five re-baselines stale. **It is safe to delete.** Its §1 table was
+> independently reproduced at the time and nothing in it is lost: everything still true has been carried
+> forward here, re-measured.
 
-**Also DEFENDED-and-pinned** (open-mandate discoveries, no fix needed): shared-device
-cross-user cold-state leak, prototype pollution via persisted blob, reqId type-confusion,
-token-in-cold-persist, auth-refresh storm single-flight, prompt overflow/injection bound
-everywhere, control-only-prompt phantom input.
+### 0. Where this was measured
 
-## D. Current State & Next Step (mobile)
+Isolated git worktree at `C:/tmp/kokonada-wave4`, branch `feat/intelligence-wave`, code HEAD `6ede4f8`,
+**clean tree** (`git status --porcelain` empty apart from this session's own deliverables). The shared
+working tree at `C:/Users/danie/Videos/Kokonada` was checked out on an unrelated branch with 11 live
+`claude` processes and a concurrent session's uncommitted work in it, so it was not touched.
 
-**SPRINTS A6–A10 = 100% COMPLETE and MERGED** (PRs #42–#46). Mobile suite: **23 suites /
-213 tests green**; A-sprint production code `tsc --noEmit` clean. The app boots →
-restores session → connects socket + Spotify → captures emotion (wheel + activity +
-prompt) → generates → **plays music** → reconciles on foreground.
+### 1. Test baseline (real runs, 2026-09-02)
 
-**EXACT NEXT STEP — Sprint A11 (do NOT start until the new session is briefed):**
-> ⚠️ **HISTORICAL / SUPERSEDED by Section 0.** Sprint A11 is DONE and merged (PR #48);
-> the three items below all shipped. Current state + next action are in Section 0.
-1. **Persistent server-side history feed** — a `GET /api/sessions` backend endpoint
-   returning the user's `PlaylistSession` history, and wire `HistoryScreen` to fetch it
-   (today History only reflects the live in-memory session via `nowPlayingStore`).
-2. **Profile + Integrations screen** — the 5th tab: Spotify connect/reconnect, Garmin/
-   wearable connect, display name/avatar, logout, and **GDPR account deletion wiring**
-   (call `DELETE /api/auth/account` — the backend cascade already erases Mongo + Redis;
-   the mobile side must confirm, call it, and `ColdPersistence.wipe()` + clear the
-   Keychain session locally).
-3. **Richer Pulse** — HRV / recovery / body-battery from the backend state vector
-   (`MedicalProfile.stateVector`), not just live HR.
+| Surface | Result | 2026-07-07 baseline | Delta |
+| :--- | :--- | :--- | :--- |
+| Backend, `cd backend && RUN_SOAK=1 npm test` | **232 suites / 3866 tests** (3865 passed + 1 todo), `exit 0`, **0** `^FAIL` lines over the complete 869 KB log, 475.357 s | 91 suites / 1126 tests | +141 suites / +2740 tests |
+| Lint, `npm run lint` | **0 errors / 22 warnings** — unchanged from every prior Wave-4 session's figure | no linter existed pre-wave (W4-D11) | linter added this wave |
+| Mobile, `./node_modules/.bin/jest` | **out of scope this wave** (backend-only per the mission's §0.3) | 48 suites / 416 tests | untouched |
+| Secret scan of the wave diff | `git diff 44fd951..HEAD` against `AIza\|ghp_\|sk-\|-----BEGIN\|eyJ[A-Za-z0-9_-]{30,}` — **29 matches, all of them the substring `sk-` inside ordinary words** (`risk-register`, `task-`). No credential material. | n/a | n/a |
+| Attribution scan of the wave commits | `git log 44fd951..HEAD --format=%B` against `claude\|anthropic\|generated with\|co-authored-by` — **1 match, and it is a filename** (`docs/CLAUDE_DESIGN_PROMPT.md` in a commit subject), not attribution. | n/a | n/a |
 
-**Mobile environment gotchas (for the new session):**
-- Run mobile jest from `mobile/KokonadaHealth` with `./node_modules/.bin/jest` — the
-  Bash cwd drifts and a bare `npx jest` resolves a stale cached global that no-ops.
-- The RN jest resolver prefers the `react-native`/`src` package field, so **RTK, zustand,
-  @react-navigation, react-native-screens** must be allowlisted in
-  `jest.config.js` `transformIgnorePatterns`; native visual libs (Skia, Reanimated,
-  gesture-handler, MMKV, Spotify remote) are stubbed in `jest.setup.js` for the headless
-  App smoke test.
-- **Whole-app `tsc --noEmit` has PRE-EXISTING errors** in `src/health/*` (react-native-
-  health-connect lib typings) and test files using Node globals (`Buffer`/`global`,
-  provided by jest at runtime) — these predate the A-sprints and are unrelated; verify
-  only that the sprint's OWN files are clean. (An early sprint's "tsc clean" claim relied
-  on a misleading `npx tsc` no-op — the honest statement is per-file.)
-- Reanimated's babel plugin is in `babel.config.js` (must be last); it is jest-safe.
-- Mobile is NOT in CI (CI = backend lint/test + frontend typecheck/build only); run the
-  mobile suite locally and report. GitGuardian scans PRs — avoid token-shaped test
-  fixtures (use inert placeholders) and the `Password` keyword next to a literal in
-  Keychain calls (alias the accessors).
+> **On 232/3866 vs STATE's recorded 232/3868.** The difference is exactly two tests and it is explained,
+> not unexplained: STATE's session-77 figure was measured in the shared tree, where a concurrent
+> workstream's uncommitted `measureDiscoveryComposition.test.js` additions contribute +2. A clean
+> checkout does not carry them. Suite count, pass count and exit code are otherwise identical, so the
+> baseline is met, not regressed.
+
+`RUN_SOAK=1` widens the two soak lanes from their strided defaults to the full population; it adds no
+test cases, so the counts are directly comparable to a plain `npm test`.
+
+### 2. The wave is merged into `main` — verified by content, not by PR status
+
+- `origin/main` is at **`06af5d6`**. STATE's `lastMainSha` was `44fd951`; main has advanced by three
+  commits since, and one of them is **`0e19ad8` — "Wave4 W4-007+W4-008" (PR #180)**.
+- `git diff --stat origin/main feat/intelligence-wave -- backend/app/agents/runtime backend/sim
+  backend/app/models` is **empty**. Every Wave-4 runtime module, the whole simulator and all four new
+  collections are byte-identical on `main`.
+- `docs/plans/WAVE4_STATE.md` differs from `main`'s copy by **one line** (this session's own edit), so
+  the run's state files are on `main` too — which settles H8's question (1) by event.
+- The only backend differences between `origin/main` and the wave branch run the *other* way: `main`
+  carries the cookie-auth retirement (PR #184) and the Garmin Connect IQ watch-app retirement (PR #181),
+  which the wave branch does not.
+
+### 3. What exists now that did not exist on 2026-07-07
+
+**New runtime subsystem, `backend/app/agents/runtime/`** — 16 modules. These are *not* Claude Code
+sub-agents; see `docs/architecture/runtime-agent-architecture.md` and `CLAUDE.md`'s disambiguation note.
+
+- `ingestion/anomalyFilter.js` — Hampel → slew gate → irregular-Δt Kalman, per-reading confidence.
+- `physiology/{baselineEngine,chronobiology,affectEngine,dailyAnalysis,liveStateAdapter}.js` — personal
+  baselines (D1/D2/D14/D15), the cosinor circadian model (D13), the four-layer affect stack, nightly
+  consolidation with CUSUM, and the live lane's O(1) per-reading posterior update (D11).
+- `knowledge/{stateTaxonomy,noveltyController,explain}.js` — **34 states across 6 domains**, verified at
+  source this session (`STATES.length === 34`, `DOMAINS` = 6), replacing the 9-rule classifier (D12).
+- `translation/wellbeingRegulator.js` — the iso-principle `meet-then-lower` mechanism.
+- `delivery/trajectoryPlanner.js` — 7 playlist arc archetypes.
+- `learning/{feedbackLoop,personalization,playbackEvent,playWindow}.js` — the two-track ADR-0012 loop.
+- `_shared/dto/telemetry.js` — zod schemas at the ingestion boundary.
+
+**New collections** — `VitalSample`, `RewardEvent`, `MorningState`, `PersonalWeights`. All four are
+registered in the account-erasure cascade, `userRedisPurge`, wearable-scoped erasure and
+`userDataExport`, in the same PR that introduced them (S5), and the completeness guard discovers models
+mechanically off the models directory rather than from a hand-maintained list.
+
+**New simulator**, `backend/sim/` — `rng`, `personas`, `generator`, `replay`, `soak`, `stateScripts`,
+`stateCoverage`. Seeded and deterministic, with holdout personas on a different noise family so
+validation is not circular.
+
+**New ADRs** — `docs/adr/0012-learning-compliance.md`, `0013-state-model.md`, `0014-embedding-v2.md`.
+
+**Kill switches** (grepped fresh: `grep -rohE "WAVE4_[A-Z_0-9]+" backend/app backend/sim | sort -u`) —
+`WAVE4_AFFECT_DISABLED`, `WAVE4_AFFINITY_DECAY_DISABLED`, `WAVE4_ANOMALY_FILTER_DISABLED`,
+`WAVE4_BASELINE_ABSTENTION_DISABLED`, `WAVE4_BASELINE_ENGINE_DISABLED`, `WAVE4_CONSENT_V2_METRICS`,
+`WAVE4_FEEDBACK_DISABLED`, `WAVE4_GENRE_FAMILIES_DISABLED`, `WAVE4_LLM_BAND_FROM_STATE_DISABLED`,
+`WAVE4_NOVELTY_BANDIT`, `WAVE4_PERSONAL_WEIGHTS`, `WAVE4_PULSE_SUPERSET_DISABLED`,
+`WAVE4_RECAL_STATE_TRIGGER_DISABLED`, `WAVE4_SCORING_V2_DISABLED`, `WAVE4_SERVE_LATCH_DISABLED`,
+`WAVE4_TRAJECTORY_DISABLED`. Plus `EMBEDDING_V2_WRITE` / `_READ` / `_BACKFILL` and `SCORING_V2_SHADOW`.
+(A seventeenth grep hit, `WAVE4_X_DISABLED`, is a literal inside a comment in `app/utils/envFlag.js`, not
+a flag.) All parsing goes through one function and is pinned by `tests/wave4.killSwitchSpelling.test.js`.
+You audited Railway's Variables on 2026-08-23 (H14): **no `WAVE4_` variable is set in production**, so
+every flag is at its default.
+
+### 4. Defect closure — spot-verified at source this session, not taken on trust
+
+| Defect | Check run | Result |
+| :--- | :--- | :--- |
+| D4 (high stress forced happier music) | `grep "Math.max(moodValence" app/services/biosonic/translate.js` | 1 hit, and it is the **comment** explaining the removal. The live line is `valenceTarget = round3(clamp01(moodValence + Math.min(COMFORT_BIAS_MAX, COMFORT_BIAS_SLOPE * S)))`. |
+| D5 (LLM prompt axis swap) | `grep -o "x = [a-z]*, y = [a-z]*" app/services/geminiEngine.js` | `x = valence, y = arousal` — matches the code's own definition. |
+| D1 (personal HRV baseline never computed) | `grep -B2 -A2 hrvMedian app/services/biosonic/baselines.js` | present, and gated on `hasHrvEvidence` rather than a population constant. |
+| D10 (live samples never persisted) | `grep -c _maybePersistLiveReading app/sockets/biometricHandler.js` | 4 |
+| D12 (9-rule classifier) | `require('.../stateTaxonomy')` at runtime | `STATES.length = 34`, `DOMAINS` = 6 |
+| D17 (cross-provider affinity scale collision) | `grep SOURCE_WEIGHTS.saved app/services/musicProfileService.js` | YouTube path now scores on the same `SOURCE_WEIGHTS` scale as Spotify. |
+
+### 5. Taxonomy state coverage — the measured floors
+
+Reproduced this session under `RUN_SOAK=1` (`tests/sim.stateCoverage.soak.test.js`, 25.1 s, 10/10 green),
+exactly matching W4-D63's cited numbers:
+
+| Lane | Real seam driven | Reached | Coverage | Structural blind spots |
+| :--- | :--- | :--- | :--- | :--- |
+| serving | `buildTargets` | **21 / 34** | 0.618 | **0** — every miss is `outcompeted`, `absent=none` |
+| live | `liveStateAdapter.onlineUpdate` | **13 / 34** | 0.382 | **7** — 4 on `valence`, 3 on `recovery`/`stress` |
+
+Both are pinned as floors. The serving lane's 13 misses are a geometry question, not a data question:
+more simulated days cannot move them. The live lane's 7 need a client signal that does not exist yet.
+Full per-state reasons: `WAVE4_SOAK_2026-09-02.md (deleted; see docs/ARCHIVE.md)` §3.
+
+### 6. Repo reality
+
+- 336 commits on `feat/intelligence-wave` since `44fd951`; 79 sessions; 15 reflection passes.
+- **`feat/intelligence-wave` is no longer a Wave-4-only branch.** It locally carries 12 design commits
+  from a concurrent workstream, and `origin/feat/intelligence-wave` carries 2 commits the local branch
+  lacks, so it cannot be fast-forward pushed. The Wave-4 code is unaffected — it is already on `main`.
+- `docs/plans/WAVE4_STATE.md` is **336 KB** and `docs/plans/WAVE4_ARCHIVE.md` is **471 KB** — 807 KB of
+  run state, now in `main`'s permanent history. STATE is 124 % over the mission's own 150 KB archival
+  threshold; archival is a reflection-only action and the run's cutoff has passed, so it is recorded here
+  as known debt (W4-D64) rather than actioned.
+- Untracked in the shared tree and **deliberately not touched**: a concurrent design workstream's files
+  (`design_handoff_quiet_instrument/`, several `docs/*_PROMPT.md`, `WEAKNESSES_AND_FAILURES.md`), the
+  `mobile/src/health/config.ts` credential fill-in, and the path-mangled Android keystore duplicate that
+  H15 / W4-D83 is about.
+
+### 7. Open, and where it is tracked
+
+- **6 open HITL items**, one of which (H16) this closeout answers with its own documented default. Full
+  matrix: `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` §8.
+- **46 open discovered-backlog rows**, all `class: improve`. **Zero `repair`-class rows are open.**
+  Exactly one is MUST-tier: W4-D83, the keystore ignore glob.
+- **Error budget: 0 consecutive failed sessions.** No task ever hit the rule-of-2.

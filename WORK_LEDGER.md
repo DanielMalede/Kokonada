@@ -37,7 +37,7 @@ Only one live claim may hold a row at a time. Claiming any path in a row claims 
 | `backend/app/models/User.js` | |
 | `backend/app/sockets/biometricHandler.js` | `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/biometricHandler.contextUri.test.js` |
 | `backend/app/controllers/integrationsController.js` | `backend/tests/integrationsController.test.js`, `backend/tests/integrations.test.js` |
-| `docs/PRIVACY_DECLARATIONS.md` | `backend/tests/sessionHealthDeclarations.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/garminDisconnectErasure.integration.test.js`, `backend/tests/userJobPurge.guards.test.js`, `backend/tests/geminiEngine.cacheKey.test.js`, `mobile/KokonadaHealth/scripts/lab/__tests__/uploadGate.test.ts` |
+| `docs/privacy-declarations.md` | `backend/tests/sessionHealthDeclarations.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/garminDisconnectErasure.integration.test.js`, `backend/tests/userJobPurge.guards.test.js`, `backend/tests/geminiEngine.cacheKey.test.js`, `mobile/KokonadaHealth/scripts/lab/__tests__/uploadGate.test.ts` |
 | `CLAUDE.md` | |
 | `AGENTS.md` | |
 | `.claude/settings.json` | |
@@ -46,7 +46,7 @@ Only one live claim may hold a row at a time. Claiming any path in a row claims 
 
 Both partners may edit these at the same time; each edits only his own rows or his own section.
 
-`TASKS.md` · `WORK_LEDGER.md` · `docs/SCREENS.md` · `docs/design-v2/DECISIONS.md`
+`TASKS.md` · `WORK_LEDGER.md` · `docs/design-v1/screens.md` · `docs/design-v2/DECISIONS.md`
 
 ## Owner-only paths
 

@@ -31,7 +31,7 @@ const { disabled } = require('../../utils/envFlag');
  * names the band the music targeted), so the job asks to be deleted once it has run, success or
  * failure (`REWARD_JOB_OPTIONS`), and the worker's failure reason names only the error type. Account
  * deletion and a withdrawal of health-data consent remove the user's waiting jobs
- * (queues/userJobPurge.js). docs/PRIVACY_DECLARATIONS.md declares all of it, in its own row.
+ * (queues/userJobPurge.js). docs/privacy-declarations.md declares all of it, in its own row.
  *
  * ── WHAT HAPPENS WITHOUT REDIS ──────────────────────────────────────────────────────────────
  *

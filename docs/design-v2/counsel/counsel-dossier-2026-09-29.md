@@ -13,7 +13,7 @@ amendments:
 
 # Kokonada — counsel dossier (EU, UK, US, IL) — 2026-09-29
 
-This dossier was prepared for counsel and decides nothing. The owner and counsel make every classification. Web sources for the UK, the US and Israel were fetched on 2026-09-29. The EU material comes from `r_regulatory.md` (2026-09-23) and `brief_regulatory.md` (2026-09-23) and was not re-verified. The registry IDs REG-200 to REG-263 are in the companion registry; EU items are cited by the R- and Q-numbers in those files. Status tags are RETRIEVED, REPRODUCTION, UNRETRIEVED, COM and SUPERSEDED, as defined at the top.
+This dossier was prepared for counsel and decides nothing. The owner and counsel make every classification. Web sources for the UK, the US and Israel were fetched on 2026-09-29. The EU material comes from `docs/design-v2/counsel/research-regulatory-2026-09-23.md` (2026-09-23; cited below as `r_regulatory`, RR in `gating-five-2026-10-04.md` Appendix A) and `docs/design-v2/counsel/brief-regulatory-2026-09-23.md` (2026-09-23; cited below as `brief_regulatory`, BR there) and was not re-verified. The registry IDs REG-200 to REG-263 are in the companion registry; EU items are cited by the R- and Q-numbers in those files. Status tags are RETRIEVED, REPRODUCTION, UNRETRIEVED, COM and SUPERSEDED, as defined at the top.
 
 ## 1. The product on one page (every fact is from the repository)
 
@@ -21,19 +21,19 @@ This dossier was prepared for counsel and decides nothing. The owner and counsel
 - An Android app, launching Android-first around 2027 with no deadline (ADR-0016:89-115). It is a free app (ADR-0001).
 - The launcher label today is "KokonadaHealth" (`strings.xml:2`).
 - It selects and plays existing music through Spotify or YouTube playback. It does not synthesise audio (VISION §5, §8).
-  - **Correction, 2026-10-01:** "or YouTube playback" is not true. Kokonada plays music through Spotify only; no YouTube player exists in the mobile app (`docs/design-v2/research/2026-09-23/r_compliance.md:68`, `CMP-042`); whether the retired web client ever had one was not checked. Under the owner's ruling DEC-122 (2026-10-01), YouTube is not connected in this version: connecting it is sealed in code on the server (HX-3, on branch `fix/hx3-youtube` when this note was written). Source: the regulatory-researcher's HX-3 round-1 review (NF-R6). The sentence above is kept as prepared on 2026-09-29.
+  - **Correction, 2026-10-01:** "or YouTube playback" is not true. Kokonada plays music through Spotify only; no YouTube player exists in the mobile app (`docs/design-v2/research/2026-09-23/r_compliance.md:68 (deleted; see docs/ARCHIVE.md)`, `CMP-042`); whether the retired web client ever had one was not checked. Under the owner's ruling DEC-122 (2026-10-01), YouTube is not connected in this version: connecting it is sealed in code on the server (HX-3, on branch `fix/hx3-youtube` when this note was written). Source: the regulatory-researcher's HX-3 round-1 review (NF-R6). The sentence above is kept as prepared on 2026-09-29.
 
 **Users and markets.**
 - Enrolled users: the owner only, per the 2026-09-29 update to `DAN-021`. Historically there were 5 or fewer.
 - The owner's decision is worldwide distribution through Google Play (DESIGN_V2_PLAN, decisions table).
 - There is no age gate, and the user model has no age field (`User.js`; r_regulatory F13).
 - Sign-in uses Google. Apple sign-in appears on iOS only and is unused at launch (`SignInScreen.tsx:51-57`).
-- Sign-in collects the email address, an optional name and the SSO id (`PRIVACY_DECLARATIONS.md:40-42`). The sign-in screen has no privacy or terms link (`MB-034`).
+- Sign-in collects the email address, an optional name and the SSO id (`docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:40-42)`). The sign-in screen has no privacy or terms link (`MB-034`).
 
 **Inputs from the mind (always).**
 - A tap on a valence-and-arousal wheel.
 - Activity chips, such as "Working" and "Focus".
-- Optional free text. The server reduces it to closed-vocabulary tags before any LLM sees it, and the raw text is never sent (`geminiEngine.js:182`). The text is stored encrypted as `PlaylistSession.contextPrompt` (`PRIVACY_DECLARATIONS.md:58`).
+- Optional free text. The server reduces it to closed-vocabulary tags before any LLM sees it, and the raw text is never sent (`geminiEngine.js:182`). The text is stored encrypted as `PlaylistSession.contextPrompt` (`docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:58)`).
 
 **Inputs from the body (optional, only after an Art. 9 consent grant).**
 - Health Connect: heart rate, HRV, sleep and resting heart rate, plus history of about 6 months (`AndroidManifest.xml:12-18`; `consentApi.ts:24-30`).
@@ -59,7 +59,7 @@ This dossier was prepared for counsel and decides nothing. The owner and counsel
 - The backend runs on Railway, whose DPA says its "primary processing operations take place in the United States".
 - The database is MongoDB Atlas; its region is not recorded in the repo.
 - Vitals are field-encrypted.
-- Retention: 90 days for biometric samples, 365 days of inactivity for learned data, and until deletion for account data (`PRIVACY_DECLARATIONS.md:93-105`).
+- Retention: 90 days for biometric samples, 365 days of inactivity for learned data, and until deletion for account data (`docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:93-105)`).
 - A US LLM inference sub-processor receives derived tokens only. Its DPA and zero-data-retention setting are unconfirmed (`:74,85-91`).
 - Sentry is in the backend code (`sentry.js:16-31`) but is not declared (`BE-020`). Whether it is live is unknown (`DAN-018`).
 - There is no analytics SDK, no advertising and no sale of data (`:64`).
@@ -72,8 +72,8 @@ This dossier was prepared for counsel and decides nothing. The owner and counsel
 
 **Planned store listing.**
 - Google Play only.
-- It needs the Data safety form, the Health apps declaration and the Health Connect declaration (`PRIVACY_DECLARATIONS.md:127-141`).
-- It carries the Play "not a medical device" sentence (r_compliance A5).
+- It needs the Data safety form, the Health apps declaration and the Health Connect declaration (`docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:127-141)`).
+- It carries the Play "not a medical device" sentence (r_compliance A5, now `CMP-084`; the research file is deleted, see `docs/ARCHIVE.md`).
 - No listing draft exists in the repo.
 
 ## 2. IN FORCE NOW / APPLIES FROM (as of 2026-09-29)
@@ -318,7 +318,7 @@ The markets diverge only on the mood-only lane. Counsel should answer yes or no,
 
 | Slot | Page | Constraints the wording must meet |
 |---|---|---|
-| **Consent text** (v3, archived by version and locale per F7). This replaces the placeholder `CONSENT_SECTIONS` (`ConsentSheet.tsx:37-74`) | P5 | **Explicit and specific** (EU and UK Art. 4(11) and 9(2)(a)).<br>**Purpose** includes emotional-state inference and baseline profiling (EU R2).<br>**Data categories** are identical to the OS request (`consentApi.ts:24-51`) and drop the untrue "Training Readiness — from a connected Garmin device" (`UI-012`).<br>**Retention** is stated and true to the code (`PRIVACY_DECLARATIONS.md:93-105`).<br>**Withdrawal:** says what goes and what stays (ADR-0015), and tells the user about the right before consent (UK Art. 7(3)).<br>**Recipients and countries** are named.<br>**Washington content list:** categories, purpose with specific uses, categories of entities, how to withdraw (REG-230).<br>**Israel s.11 items** (REG-252).<br>**Form:** clearly distinguishable, no bundling, decline-first with equal geometry, no emotional tint. |
+| **Consent text** (v3, archived by version and locale per F7). This replaces the placeholder `CONSENT_SECTIONS` (`ConsentSheet.tsx:37-74`) | P5 | **Explicit and specific** (EU and UK Art. 4(11) and 9(2)(a)).<br>**Purpose** includes emotional-state inference and baseline profiling (EU R2).<br>**Data categories** are identical to the OS request (`consentApi.ts:24-51`) and drop the untrue "Training Readiness — from a connected Garmin device" (`UI-012`).<br>**Retention** is stated and true to the code (`docs/privacy-declarations.md (was PRIVACY_DECLARATIONS.md:93-105)`).<br>**Withdrawal:** says what goes and what stays (ADR-0015), and tells the user about the right before consent (UK Art. 7(3)).<br>**Recipients and countries** are named.<br>**Washington content list:** categories, purpose with specific uses, categories of entities, how to withdraw (REG-230).<br>**Israel s.11 items** (REG-252).<br>**Form:** clearly distinguishable, no bundling, decline-first with equal geometry, no emotional tint. |
 | **Sign-in first layer** | P11 | **Content:** controller identity and contact; representative(s) if required; purposes and legal basis; recipient categories; link to the full notice; a terms of use link; a link to the consumer health data policy (REG-232).<br>**Form:** no pre-ticked boxes, and no Art. 9 consent or marketing consent bundled into sign-in.<br>**Play:** the privacy-policy link must be inside the app. |
 | **AI disclosure, final form.** The drafts are `AI_DISCLOSURE_LONG` and `AI_DISCLOSURE_SHORT` (`legalCopy.ts:11-15`) | P2, P7, P10, P5 chrome | **Terms:** says "AI system" and "emotional state", and says it can be wrong.<br>**Barred:** no efficacy or medical claim; no workplace or education wording.<br>**Form:** meets accessibility requirements (EU Art. 50(5)); the same text across markets; covers the Israeli PPA draft's bot disclosure and the Utah on-request duty. |
 | **"Not a medical device" line, per market.** The current drafts are `MEDICAL_DISCLAIMER` and `MEDICAL_CONSULT_REMINDER` | P4, P7, P13, P14 | **Play:** the sentence Play requires, word for word.<br>**US:** no disease or threshold reference (REG-226).<br>**UK:** no claim about a physiological function (REG-208).<br>**Israel:** a Hebrew version with no "טיפול" (treatment) framing (REG-260).<br>**Always:** it must not be used as a safe harbour, and a market variant must never add a claim. |

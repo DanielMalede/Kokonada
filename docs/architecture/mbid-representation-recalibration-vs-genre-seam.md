@@ -1,3 +1,8 @@
+---
+status: reference
+verified: 2026-07-15
+---
+
 # Design Plan — Restoring `mbid:` Corpus Representation in Discovery: Feature Recalibration (a) vs Genre-Jaccard Seam (b)
 
 > **Status:** DRAFT — awaiting Daniel's approval before implementation.

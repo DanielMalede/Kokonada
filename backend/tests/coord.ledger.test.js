@@ -62,7 +62,7 @@ Only one live claim may hold a row at a time.
 
 Both partners may edit these at the same time.
 
-\`TASKS.md\` · \`WORK_LEDGER.md\` · \`docs/SCREENS.md\` · \`docs/design-v2/DECISIONS.md\`
+\`TASKS.md\` · \`WORK_LEDGER.md\` · \`docs/design-v1/screens.md\` · \`docs/design-v2/DECISIONS.md\`
 
 ## Owner-only paths
 
@@ -214,7 +214,7 @@ describe('OPS-152 · ledger — parsing the header tables', () => {
   });
 
   test('the dotted lists: shared, owner-only, resources', () => {
-    expect(ledger.shared).toEqual(['TASKS.md', 'WORK_LEDGER.md', 'docs/SCREENS.md', 'docs/design-v2/DECISIONS.md']);
+    expect(ledger.shared).toEqual(['TASKS.md', 'WORK_LEDGER.md', 'docs/design-v1/screens.md', 'docs/design-v2/DECISIONS.md']);
     expect(ledger.ownerOnly).toEqual(['.claude/**', 'docs/design-v2/pages/**', 'docs/plans/WAVE4_STATE.md']);
     expect(ledger.resources).toEqual(['res:atlas-prod', 'res:railway-vars', 'res:secrets']);
   });

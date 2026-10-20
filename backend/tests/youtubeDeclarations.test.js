@@ -1,6 +1,6 @@
 'use strict';
 
-// HX-3 T9 (DEC-122, DEC-040; CMP-038, CMP-046) — docs/PRIVACY_DECLARATIONS.md says what the code does
+// HX-3 T9 (DEC-122, DEC-040; CMP-038, CMP-046) — docs/privacy-declarations.md says what the code does
 // with YouTube now: nothing. Connecting it is sealed in code, no account holds a token, no YouTube
 // data is imported, and none goes to Groq or any other service. The store-facing document is
 // what the compliance gate reads, so its YouTube statements are pinned against the code here
@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '../..');
-const DOC = path.join(REPO_ROOT, 'docs/PRIVACY_DECLARATIONS.md');
+const DOC = path.join(REPO_ROOT, 'docs/privacy-declarations.md');
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 const doc = () => fs.readFileSync(DOC, 'utf8');
 

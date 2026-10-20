@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (execution gated behind the Wave 2.8 Vision-Frame approval)
 - **Date:** 2026-07-08
-- **Spec:** `docs/UI_UX_OVERHAUL_SPEC.md` (authoritative Wave 2.8 directive)
+- **Spec:** `docs/design-v1/ui-ux-overhaul-spec.md` (authoritative Wave 2.8 directive)
 
 ## Context
 The app's logic plane is device-verified (playback, live biometric mode, intelligence

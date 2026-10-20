@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '../..');
-const PRIVACY_DOC = path.join(REPO_ROOT, 'docs/PRIVACY_DECLARATIONS.md');
+const PRIVACY_DOC = path.join(REPO_ROOT, 'docs/privacy-declarations.md');
 const APP = path.join(__dirname, '../app');
 
 const { erasedFields, CHIP_ONLY_ACTIVITIES } = require('../app/services/privacy/sessionHealthPolicy');

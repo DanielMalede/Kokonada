@@ -56,7 +56,7 @@ const { PERSONAL_TERMS, DELTA_LIMIT } = require('../agents/runtime/learning/pers
  * ── S5 REGISTRATION (done in THIS PR) ───────────────────────────────────────────────────────
  *
  * User-scoped, and registered in `services/privacy/erasure.js`, `scripts/gdpr-delete.js`,
- * `services/privacy/userDataExport.js`, the Retention table in `docs/PRIVACY_DECLARATIONS.md`,
+ * `services/privacy/userDataExport.js`, the Retention table in `docs/privacy-declarations.md`,
  * and `services/privacy/wearableErasure.js` — there as a DELIBERATE EXCLUSION with the same
  * reasoning `RewardEvent` carries, since a scoring weight is not wearable-derived. The
  * completeness guards discover it automatically by the `userId` field below.

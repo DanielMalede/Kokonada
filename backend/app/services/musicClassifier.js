@@ -5,7 +5,7 @@
 // module makes no LLM call at all, so no video title, channel or artist string reaches a model
 // from here. The ambiguous residue is pooled as `unclassified` and revisited later, never
 // guessed by an LLM. Spotify tracks come from a music catalog and are never classified. See
-// docs/superpowers/specs/2026-07-07-music-classification-purge-design.md.
+// docs/superpowers/specs/2026-07-07-music-classification-purge-design.md (deleted; see docs/ARCHIVE.md).
 
 const youtube = require('./youtube');
 

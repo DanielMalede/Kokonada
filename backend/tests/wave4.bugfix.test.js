@@ -1,7 +1,7 @@
 'use strict';
 
 // Wave-4 W4-001 — the surgical bug backlog. One describe per confirmed ground-truth
-// defect (see docs/plans/WAVE4_INTELLIGENCE_MISSION.md §0.1). Every block is a
+// defect (see docs/plans/WAVE4_INTELLIGENCE_MISSION.md (deleted; see docs/ARCHIVE.md) §0.1). Every block is a
 // permanent regression pin: these are the exact behaviours the wave promised to kill.
 
 process.env.NODE_ENV       = 'test';

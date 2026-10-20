@@ -1,7 +1,7 @@
 # ADR-0016 — Launch platform: Android-first or dual
 
 **Status:** ACCEPTED — **Option A, Android-first.** Ruled by Daniel 2026-09-02.
-**Asked by:** `MASTER_BLUEPRINT_2026-07-07.md` § "OPEN DECISION — Launch platform", which says
+**Asked by:** `MASTER_BLUEPRINT_2026-07-07.md (deleted; see docs/ARCHIVE.md)` § "OPEN DECISION — Launch platform", which says
 *"Both options are presented for Daniel; do not decide by default … Once ruled, record the decision
 as a new ADR."* It was never recorded. This is that ADR, re-costed against today's evidence rather
 than July's.
@@ -103,7 +103,7 @@ it. Concretely, from here:
 - The macOS CI job stays, stays gated (#185), and stays skipped. Keep it building so it does not rot,
   but nothing waits on it.
 - PR **#183** (Apple sign-in hardening) may merge and sit unused. It is not on any critical path.
-- **PREREQ-iOS as written in `MASTER_BLUEPRINT_2026-07-07.md` is now factually wrong** and should be
+- **PREREQ-iOS as written in `MASTER_BLUEPRINT_2026-07-07.md (deleted; see docs/ARCHIVE.md)` is now factually wrong** and should be
   struck. Its build clause — *"iOS is not buildable today"* — is false (`OPS-008`, run
   `32992549921`). Replace it with the narrow, true statement: **signing, submission and on-device
   iOS verification require an Apple enrolment and hardware that do not exist.**
@@ -115,7 +115,7 @@ it. Concretely, from here:
 **Launch is around 2027. It is not near-term, and there is no deadline.**
 
 This is written into the ADR because the opposite belief is load-bearing elsewhere and wrong.
-`MASTER_BLUEPRINT_2026-07-07.md` reads as though store submission (Wave 3) is the next thing after
+`MASTER_BLUEPRINT_2026-07-07.md (deleted; see docs/ARCHIVE.md)` reads as though store submission (Wave 3) is the next thing after
 the current wave. It is not. Daniel's own assessment, 2026-09-02: **the app is not stable and there
 is a lot still to improve.**
 

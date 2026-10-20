@@ -1,9 +1,14 @@
+---
+status: reference
+verified: 2026-07-14
+---
+
 # KOKONADA — RUNTIME AGENT ARCHITECTURE
 ## A Master-Level Multi-Agent System (MAS) for Body + Mind → Music
 
 > **Scope:** the *runtime* agents inside the running Kokonada app (backend services that turn live biometrics + emotion into an evolving Spotify playlist). This is a **different layer** from the build-time Claude Code sub-agents (`architect`, `designer`, `developer`, `resilience-auditor`, `compliance-auditor`) that *write* Kokonada. Those build; these *run*.
 > **Audience:** the `developer` build-agent. Every runtime agent below is specified with Responsibility · I/O DTOs · Port/Adapter · State & Cache · Failure modes · Patterns · Code home — enough to write production Node.js directly.
-> **Authoritative for runtime intent.** Cross-references: `KOKONADA_ARCHITECTURE_MASTER.md` (the existing engine), `docs/VISION.md` (why), `docs/ORCHESTRATOR_FABLE.md` (build rules).
+> **Authoritative for runtime intent.** Cross-references: `docs/architecture/architecture-master.md` (the existing engine), `docs/vision.md` (why), `docs/orchestrator-fable.md` (build rules).
 
 ---
 

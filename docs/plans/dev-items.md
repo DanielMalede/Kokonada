@@ -1,6 +1,6 @@
 ---
 status: living
-verified: 2026-10-18
+verified: 2026-09-02
 ---
 
 # Development items
@@ -238,7 +238,7 @@ _Was `docs/plans/DEV_EMAIL_SIGNIN_PATH.md` until 2026-10-18 (`docs/ARCHIVE.md` �
 
 ### Why this exists
 
-`docs/SCREENS.md` §3 specifies an email flow. The Sign in screen draws a **"Continue with email"** button. Daniel's decision (2026-08-26) is that **both stay** and the code catches up.
+`docs/design-v1/screens.md` §3 specifies an email flow. The Sign in screen draws a **"Continue with email"** button. Daniel's decision (2026-08-26) is that **both stay** and the code catches up.
 
 Today the mobile client cannot perform that action.
 
@@ -277,7 +277,7 @@ This is **not** a build-from-scratch. The backend email path is complete:
 
 ### Risk flag — read before shipping the screen
 
-**Shipping the Sign in screen ahead of this code puts a dead control in front of users.** The button is drawn on the canvas and specified in `SCREENS.md`, but until `auth.ts` gains the path, tapping it can do nothing. Either this item lands first, or the screen ships with the button withheld. It must not ship visible-and-inert.
+**Shipping the Sign in screen ahead of this code puts a dead control in front of users.** The button is drawn on the canvas and specified in `docs/design-v1/screens.md`, but until `auth.ts` gains the path, tapping it can do nothing. Either this item lands first, or the screen ships with the button withheld. It must not ship visible-and-inert.
 
 ### Compliance notes for the gate
 
@@ -288,7 +288,7 @@ This is **not** a build-from-scratch. The backend email path is complete:
 ### Related
 
 - Screen 03 review: `docs/review/03-signin.html`
-- `docs/SCREENS.md` §3 — keep the email flow in the spec; it is now backed by a dated dev item rather than being aspirational.
+- `docs/design-v1/screens.md` §3 — keep the email flow in the spec; it is now backed by a dated dev item rather than being aspirational.
 
 <a id="history-state-colour"></a>
 ## DEV ITEM — The archive's colour history: a title→quadrant mapping, and two fields it needs
@@ -517,7 +517,7 @@ The auditor's framing is the one to keep: **a redraw is worse than a labelled pl
 
 The mini-player artwork tiles are `linear-gradient(140deg, var(--accentfill), var(--artph))` — a mood gradient standing in for album art, on rows that show real track and artist metadata.
 
-**Fix:** convert every artwork tile to a labelled cover-art slot, the same way the marks were converted. Write into the `docs/SCREENS.md` Definition of Done: **real cover art is required for Spotify-sourced tracks; the gradient placeholder may never ship.**
+**Fix:** convert every artwork tile to a labelled cover-art slot, the same way the marks were converted. Write into the `docs/design-v1/screens.md` Definition of Done: **real cover art is required for Spotify-sourced tracks; the gradient placeholder may never ship.**
 
 ### Open · Geometry
 

@@ -5,7 +5,7 @@
 // module (services/privacy/wearableErasure.js) was fully built and unit-tested, but the actual
 // disconnect handler only nulled the credential fields and NEVER purged the biometric/medical
 // footprint — so a user's Garmin physiology survived a "disconnect", contradicting
-// docs/PRIVACY_DECLARATIONS.md. Prior tests only asserted the OLD field-nulling behavior against
+// docs/privacy-declarations.md. Prior tests only asserted the OLD field-nulling behavior against
 // a mocked user; NONE exercised the real route against real Mongo, so the gap went unseen.
 //
 // This test creates real BiometricLog + MedicalProfile rows and calls the REAL garminDisconnect

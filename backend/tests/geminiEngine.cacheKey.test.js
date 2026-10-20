@@ -3,7 +3,7 @@
 // The generation cache (Redis, 24 h) is keyed on the prompt. Keyed on the prompt ALONE, a model
 // switch (a deploy, or LLM_MODEL flipped on Railway) keeps serving the previous model's params for
 // a day, and a result produced by a model later found broken outlives the fix. The model is part
-// of the key; the prompt still enters it only as md5(prompt), as PRIVACY_DECLARATIONS states.
+// of the key; the prompt still enters it only as md5(prompt), as docs/privacy-declarations.md states.
 
 process.env.NODE_ENV = 'test';
 process.env.LLM_API_KEY = 'test-llm-key';

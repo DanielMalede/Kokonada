@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-19 (Wave 4 — Runtime Intelligence, W4-005)
 - **Extends:** [ADR 0005](0005-zero-knowledge-biometrics.md) (zero-knowledge biometrics)
-- **Implements:** `docs/plans/WAVE4_INTELLIGENCE_MISSION.md` §M.5, §M.6, §M.8; kills D1, D3, D14
+- **Implements:** `docs/plans/WAVE4_INTELLIGENCE_MISSION.md (deleted; see docs/ARCHIVE.md)` §M.5, §M.6, §M.8; kills D1, D3, D14
 
 ## Context
 

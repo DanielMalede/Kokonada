@@ -1,3 +1,8 @@
+---
+status: living
+verified: 2026-07-11
+---
+
 # 🌌 Kokonada — Product Vision
 ## A Multisensory Emotional Sanctuary
 
@@ -20,7 +25,7 @@ The body signal is the *whole* picture — heart rate, HRV, sleep and recovery, 
 
 ## 3. Visual Identity (Look & Feel)
 
-The design must convey **air, premium calm, and enveloping minimalism.** No cluttered buttons, no dashboards. The design language is **Calm / Premium Wellness × Bioluminescent depth** (see `docs/UI_UX_OVERHAUL_SPEC.md`).
+The design must convey **air, premium calm, and enveloping minimalism.** No cluttered buttons, no dashboards. The design language is **Calm / Premium Wellness × Bioluminescent depth** (see `docs/design-v1/ui-ux-overhaul-spec.md`).
 
 - **Fluid & organic UI.** Screens don't jump — they *flow*. Backgrounds are subtle gradients moving slowly, at the rhythm of a deep breath. (Realized through the bio-aura and motion tokens with organic, spring-based easing.)
 - **Reactive color palette.** The palette shifts with the user's state — warm earth tones to deep space blue. The app *wears* the emotion. (Realized through the `emotionAccent` tokens derived from the valence×arousal circumplex and the live bio-aura.)
@@ -57,5 +62,7 @@ So the vision is buildable, not just beautiful — every agent applies these:
 - **Restraint.** Every added element must earn its place against "room for feeling." When in doubt, remove.
 
 ## 8. Where We Are Today (honest current state)
+
+> **Stale section (`KW-049`).** Written before Wave 4 and design v2; for the current state read `docs/architecture/architecture-master.md` § 0 and `TASKS.md`. Section 6 above is the ethic and is not edited (`KW-055`).
 
 The engine and the app exist; the *magic* is the gap. The backend variance/biosonic engine and vector layer are shipped and hardened; the React Native app boots, captures emotion, reads biometrics, generates, and plays through Spotify with a 5-tab UI. What's still between here and the vision: the **UI/UX overhaul** (Wave 2.8 — the calm/premium redesign that turns "functional" into "magic"), a handful of live functional bugs (playback sync, Pulse hydration, live-mode serving), and launch hardening (compliance, release, submission). The vision above is the bar every one of those steps is measured against.

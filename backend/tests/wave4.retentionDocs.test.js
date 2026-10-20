@@ -6,7 +6,7 @@
 // §0.4 S5 names five places a new user-scoped collection must be registered in the SAME PR that
 // introduces it. Four of them are code (account erasure, gdpr-delete, the GDPR export, per-wearable
 // erasure) and are already guarded by shadow.qa4.crypto + consentPrivacyLockstep. The fifth is a
-// DOCUMENT — docs/PRIVACY_DECLARATIONS.md — and a document is the one surface nobody can fail:
+// DOCUMENT — docs/privacy-declarations.md — and a document is the one surface nobody can fail:
 // W4-004 registered VitalSample in all four code surfaces and left the doc describing a
 // nine-collection erasure cascade the code had outgrown. That document is store-facing (Play Data
 // safety, App Store privacy) and is what compliance-auditor gates a submission on, so drift there
@@ -23,7 +23,7 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '../..');
 const MODELS_DIR = path.join(__dirname, '../app/models');
-const PRIVACY_DOC = path.join(REPO_ROOT, 'docs/PRIVACY_DECLARATIONS.md');
+const PRIVACY_DOC = path.join(REPO_ROOT, 'docs/privacy-declarations.md');
 const ERASURE_SRC = path.join(__dirname, '../app/services/privacy/erasure.js');
 const HEALTH_SAMPLE_REPOSITORY_SRC = path.join(__dirname, '../app/services/wearable/healthSampleRepository.js');
 

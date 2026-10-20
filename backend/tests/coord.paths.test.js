@@ -30,7 +30,7 @@ describe('OPS-152 · paths — normalisation', () => {
     ['backend\\app\\index.js', 'backend/app/index.js'],
     ['./backend/app/index.js', 'backend/app/index.js'],
     ['././AGENTS.md', 'AGENTS.md'],
-    ['  docs/SCREENS.md  ', 'docs/SCREENS.md'],
+    ['  docs/design-v1/screens.md  ', 'docs/design-v1/screens.md'],
     ['backend//tests/x.test.js', 'backend/tests/x.test.js'],
   ])('%s -> %s', (input, expected) => {
     expect(normalizePath(input)).toBe(expected);

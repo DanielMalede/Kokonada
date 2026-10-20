@@ -67,7 +67,7 @@ const { HOUR_BINS } = require('../agents/runtime/learning/feedbackLoop');
  * `RewardEvent` is user-scoped and is registered in `services/privacy/erasure.js`,
  * `scripts/gdpr-delete.js`, `services/privacy/userDataExport.js`,
  * `services/privacy/wearableErasure.js` (all-or-nothing derived-aggregate rule, alongside
- * `MedicalProfile`/`MorningState`) and the Retention table in `docs/PRIVACY_DECLARATIONS.md`.
+ * `MedicalProfile`/`MorningState`) and the Retention table in `docs/privacy-declarations.md`.
  * The completeness guards discover it automatically by the `userId` field below.
  */
 

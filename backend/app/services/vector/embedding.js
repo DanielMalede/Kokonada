@@ -101,7 +101,7 @@ function cosine(a, b) {
 // product, instead of masquerading as a measurement (the W4-D21 defect class: v1 read an absent
 // loudness as a measured value). It also fixes a measured pathology: v1 vectors live in the
 // all-positive orthant, where every pair scores ~0.99 (prod evidence,
-// `docs/plans/mbid-representation-recalibration-vs-genre-seam.md`) and `DISCOVERY_MIN_COSINE` is
+// `docs/architecture/mbid-representation-recalibration-vs-genre-seam.md`) and `DISCOVERY_MIN_COSINE` is
 // nearly inert. Centred, cosine spans [-1,1] and discriminates.
 // CONSEQUENCE FOR THE READ CUTOVER: `DISCOVERY_MIN_COSINE` is calibrated against v1's compressed
 // scale and MUST be re-tuned before `EMBEDDING_V2_READ` is switched on. Recorded in ADR-0014.

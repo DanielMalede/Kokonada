@@ -4,8 +4,8 @@
 - **Date:** 2026-08-22 (Wave 4 — Runtime Intelligence, W4-014)
 - **Extends:** [ADR 0010](0010-global-corpus-cc0-only-provider-agnostic.md) (CC0-only global corpus),
   [ADR 0011](0011-spotify-content-containment.md) and [ADR 0012](0012-learning-compliance.md) (learning compliance)
-- **Implements:** `docs/plans/WAVE4_INTELLIGENCE_MISSION.md` §M.16, §M.10; kills D19
-- **Required reading:** `docs/plans/mbid-representation-recalibration-vs-genre-seam.md`
+- **Implements:** `docs/plans/WAVE4_INTELLIGENCE_MISSION.md (deleted; see docs/ARCHIVE.md)` §M.16, §M.10; kills D19
+- **Required reading:** `docs/architecture/mbid-representation-recalibration-vs-genre-seam.md`
   (prod-measured corpus composition and per-dim feature distributions, 2026-07-15)
 
 ## Context
@@ -132,7 +132,7 @@ Centring also fixes the ~0.99 collapse: cosine now spans `[-1, 1]` and discrimin
   relative to 128 bins, and block L2-normalisation plus the 0.6 weight bound the damage. Revisit if
   measured collision bias shows up in the composition sweep.
 - **Quantile-matching feature recalibration ("lever (a)").** Assessed and rejected in
-  `docs/plans/mbid-representation-recalibration-vs-genre-seam.md` §2–3: it reaches into the shared
+  `docs/architecture/mbid-representation-recalibration-vs-genre-seam.md` §2–3: it reaches into the shared
   `AudioFeature` store that the biosonic band and the runtime resolver read, and it risks a *false*
   recovery — forcing genuinely calm CC0 tracks toward loud targets. v2 changes the geometry without
   touching a single stored feature value.
