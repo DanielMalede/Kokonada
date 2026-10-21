@@ -407,7 +407,8 @@ function scriptProblems(src: string): string[] {
       p.push(`[out] $${name} is assigned more than once`);
     }
   }
-  if (/Set-Content|Add-Content|Out-File|Tee-Object|New-Item|Copy-Item|Move-Item|Rename-Item|Export-|Start-Transcript|WriteAll|AppendAll|OpenWrite|CreateText|AppendText|FileStream|FileMode|::Create\(|::Copy\(|::Replace\(|::Open\(/i.test(code)) {
+  // Cmdlet names at word boundaries: Move-Item is not the tail of Remove-Item.
+  if (/\b(?:Set-Content|Add-Content|Out-File|Tee-Object|New-Item|Copy-Item|Move-Item|Rename-Item|Start-Transcript|Export-\w+)\b|WriteAll|AppendAll|OpenWrite|CreateText|AppendText|FileStream|FileMode|::Create\(|::Copy\(|::Replace\(|::Open\(/i.test(code)) {
     p.push("[out] a write other than the tools' outputs, the final move and the cleanup");
   }
   if (/>/.test(bare)) {
@@ -592,6 +593,7 @@ describe('every rule bites on a planted violation', () => {
     ['the raw -In handed to zipalign', (s) => s.replace("'4', $inPath,", "'4', $In,"), '[align]'],
     ['an output folder elsewhere', (s) => s.replace("$OutDir = 'C:\\KokonadaSigner\\out\\'", "$OutDir = 'C:\\Elsewhere\\'"), '[out]'],
     ['a write with Set-Content', (s) => `${s}\nSet-Content -LiteralPath $outPath -Value planted\n`, '[out]'],
+    ['a move out of the folder with Move-Item', (s) => `${s}\nMove-Item -LiteralPath $outPath -Destination C:\\Elsewhere\\\n`, '[out]'],
     ['a redirection', (s) => `${s}\nWrite-Output $certSha256 > planted.txt\n`, '[out]'],
     ['an existing output overwritten', (s) => s.replace(/^if \(Test-Path -LiteralPath \$outPath\) \{ throw[^\n]*\n/m, ''), '[out]'],
     ['zipalign without -p', (s) => s.replace("@('-p', '-f', '4',", "@('-f', '4',"), '[align]'],
