@@ -260,6 +260,8 @@ const SCRIPT_RULES: Array<[string, string]> = [
   ['[exit]', "checks every tool's exit code"],
   ['[print]', "prints the signer certificate's SHA-256 (exactly one signer) and the delivered APK's SHA-256"],
   ['[javaenv]', 'removes the variables that inject options into a JVM from every child environment'],
+  ['[read]', 'reads no file but the input (once, held open), the password file and its own output'],
+  ['[egress]', 'has no network, clipboard or printer path out of the signer'],
 ];
 
 function scriptProblems(src: string): string[] {
@@ -493,6 +495,23 @@ function scriptProblems(src: string): string[] {
     p.push("[javaenv] JAVA_TOOL_OPTIONS, _JAVA_OPTIONS and JDK_JAVA_OPTIONS are not removed from the children's environment");
   }
 
+  // [read] the key and its password reach no stream this script could print or write.
+  const hashes = (code.match(/Get-FileHash (?:-InputStream \$lock|-LiteralPath \$outPath) -Algorithm SHA256/g) ?? []).length;
+  if (
+    count(/Get-Content/gi) !== 1 ||
+    count(/OpenRead/gi) !== 1 ||
+    count(/\[System\.IO\.File\]::OpenRead\(\$inPath\)/g) !== 1 ||
+    count(/Get-FileHash/gi) !== hashes ||
+    /ReadAll|OpenText|StreamReader|BinaryReader|Import-|Select-String|-Stream\b/i.test(code)
+  ) {
+    p.push('[read] the script reads a file other than the input (once, held open), the password file and its own output');
+  }
+
+  // [egress]
+  if (/Invoke-WebRequest|Invoke-RestMethod|\biwr\b|\birm\b|WebClient|WebRequest|HttpClient|TcpClient|UdpClient|\[(?:System\.)?Net\.|Send-MailMessage|Start-BitsTransfer|PSSession|Set-Clipboard|Out-Printer|\bcurl\b|\bwget\b/i.test(code)) {
+    p.push('[egress] a network, clipboard or printer path out of the signer');
+  }
+
   return p;
 }
 
@@ -607,6 +626,12 @@ describe('every rule bites on a planted violation', () => {
     ['zipalign from the SDK', (s) => s.replace("'C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe'", "'C:\\Android\\Sdk\\build-tools\\36.0.0\\zipalign.exe'"), '[tools]'],
     ['a tool through the call operator', (s) => `${s}\n& $Zipalign -c 4 $outPath\n`, '[tools]'],
     ['a JVM option variable kept', (s) => s.replace("'JAVA_TOOL_OPTIONS', ", ''), '[javaenv]'],
+    ['the key read as text', (s) => `${s}\nGet-Content -LiteralPath $KeyStore\n`, '[read]'],
+    ['the key read as bytes', (s) => `${s}\n$planted = [System.IO.File]::ReadAllBytes($KeyStore)\n`, '[read]'],
+    ['the key hashed', (s) => `${s}\nGet-FileHash -LiteralPath $KeyStore -Algorithm SHA256\n`, '[read]'],
+    ['an upload', (s) => `${s}\nInvoke-WebRequest -Uri $planted -Method Post -InFile $KeyStore\n`, '[egress]'],
+    ['a .NET socket', (s) => `${s}\n$planted = New-Object System.Net.Sockets.TcpClient\n`, '[egress]'],
+    ['the clipboard', (s) => `${s}\nSet-Clipboard -Value $certSha256\n`, '[egress]'],
     ['a character outside ASCII', (s) => s.replace(/^(# A plain \.apk file name)/m, '$1 \u2014'), '[ascii]'],
     ['a here-string', (s) => `${s}\n$planted = @'\nplanted\n'@\n`, '[parse]'],
     ['the runbook pin dropped from the header', (s) => s.replace('docs/runbooks/android-release-signing.md', 'the runbook'), '[header]'],
