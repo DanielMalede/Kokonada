@@ -35,9 +35,10 @@ In order, stopping at the first failure:
      signed APK's SHA-256.
 
 It writes its files only in C:\KokonadaSigner\out\, where its two working files are removed at the
-end (the JVM keeps only its transient run data in this account's own %TEMP%). zipalign.exe and lib\apksigner.jar come from C:\KokonadaSigner\bin\build-tools\ (build-tools
-35 or newer) and Java from Android Studio's JBR under C:\Program Files; nothing is looked up on
-PATH, and every child process runs without the variables that inject options into a JVM.
+end; the JVM keeps only its transient run data in this account's own %TEMP%. zipalign.exe and
+lib\apksigner.jar come from C:\KokonadaSigner\bin\build-tools\ (build-tools 35 or newer) and Java
+from Android Studio's JBR under C:\Program Files; nothing is looked up on PATH, and every child
+process runs without the variables that inject options into a JVM.
 Windows PowerShell 5.1 compatible; ASCII only.
 #>
 [CmdletBinding()]
