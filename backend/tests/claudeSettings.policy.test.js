@@ -1,9 +1,19 @@
 'use strict';
 
-// OPS-171 — the policy that pins `.claude/settings.json` `permissions` so that no pre-allowed
-// command can read a secret and publish it without a prompt (security-auditor SEC-264-L4, S1), and
-// so that a wrong `attribution`/`sessionUrl` value — which makes the runtime silently drop the
-// whole file, deny list and hooks included — turns this suite red instead of going unnoticed.
+// OPS-171 — the policy that pins `.claude/settings.json` `permissions`, and the `attribution` and
+// `sessionUrl` values whose wrong type makes the runtime silently drop the whole file, deny list
+// and hooks included.
+//
+// What the policy closes (security-auditor SEC-264-L4 and SEC-264-L1 on #264; SEC-270-01 to -10,
+// RA-2, RA-7, CU270-02 and F6 on #270): a secret read through the file tools (Read and Edit denies
+// for the J4 shapes), a secret read through an allowed git form (`--no-index` denied; the implicit
+// no-index of `git diff <outside path> <file>` asked), a file published through an allowed gh form
+// (`gh pr merge` with a body, subject or author flag denied; `gh pr create|comment|edit|close|
+// review`, `gh gist|api|secret|release|repo` asked), a force or refspec fetch, a git escape hatch
+// (`--output`, `--ext-diff`, `--exec`, `add --force`), and the destructive forms DEC-145 names.
+// What it does not close: `npm run`, `npm test`, `npm ci`, `npm install`, `npm --prefix <pkg> ci`,
+// `npx jest`, `./node_modules/.bin/jest` and `./node_modules/.bin/tsc` execute repository code and
+// no deny reaches a subprocess; the owner's ruling F2 B accepts that development surface.
 //
 // It reads the committed settings and runs a conservative model of Claude Code's permission
 // matcher (https://code.claude.com/docs/en/permissions, read 2026-10-21): deny is evaluated first,
@@ -12,12 +22,24 @@
 // before a subcommand — as in `Bash(git * main)` — matches every option in its place, including
 // `-c <k>=<v>` and `-C <dir>`, which is how an option-prefixed form dodges a narrow `git push …`
 // deny. Read/Edit rules use gitignore semantics; on Windows paths normalise to POSIX, so `//c/**`.
+// PowerShell rules match case-insensitively, so a PowerShell rule cannot tell `-d` from `-D`.
 //
-// The model is deliberately conservative: it never strips wrappers or environment assignments
-// before matching an allow rule, so it can under-approve what an allow rule covers (safe for the
-// "must not be auto-allowed" checks) and is pinned against the documentation's own examples by the
-// matcher self-test below. It does not model PowerShell alias canonicalisation; our rules and the
-// commands checked here use canonical forms.
+// The model is deliberately conservative: it never strips wrappers, redirections or environment
+// assignments before matching an allow rule, so it can under-approve what an allow rule covers
+// (safe for the "must not be auto-allowed" checks) and is pinned against the documentation's own
+// examples by the matcher self-test below. It does not model PowerShell alias canonicalisation;
+// our rules and the commands checked here use canonical forms. Known limits, by design:
+//  - an exact-form allow (`./node_modules/.bin/jest`, `git merge --no-edit origin/main`, `ps -W`)
+//    matches the bare string only; whether the runtime strips a redirection such as `2>&1` before
+//    matching is not modelled here — the live capture on the PR records what the runtime did;
+//  - a starred deny reads free text too, so a commit message that spells a denied token is refused
+//    (`git commit -m "never git push origin main again"` matches `git *push * main *`): reword the
+//    message. Only a quote-aware matcher would lift this, and the runtime's is not;
+//  - this model and the one in `.claude/hooks/merge-guard-trigger.test.mjs` (`globMatch`) differ
+//    on one rule: here a trailing ` *` matches the bare command (`npm test` under `npm test *`),
+//    there it needs the space. At most one is the runtime's reading; the live capture's `npm test`
+//    item settles it, and a shared model is a later row. Every deny is written so that it holds
+//    under both readings (`backend/tests/shadow.claudeSettings.policy.test.js` pins that).
 
 const fs = require('fs');
 const path = require('path');
@@ -29,6 +51,8 @@ const perm = settings.permissions || {};
 const allow = perm.allow || [];
 const ask = perm.ask || [];
 const deny = perm.deny || [];
+
+const TOOLS = ['Bash', 'PowerShell'];
 
 function escapeRegExp(s) {
   return s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
@@ -85,12 +109,14 @@ function shellDecision(command, tool) {
   return 'prompt';
 }
 
-function readDecision(p) {
-  const hits = (list) => specsFor(list, 'Read').some((spec) => pathGlobToRegex(spec).test(p));
+function fileDecision(p, tool) {
+  const hits = (list) => specsFor(list, tool).some((spec) => pathGlobToRegex(spec).test(p));
   if (hits(deny)) return 'deny';
   if (hits(ask)) return 'ask';
   return 'allow';
 }
+const readDecision = (p) => fileDecision(p, 'Read');
+const editDecision = (p) => fileDecision(p, 'Edit');
 
 describe('OPS-171 settings policy — matcher self-test (pins the model against the docs)', () => {
   const m = (spec, cmd) => shellSpecToRegex(spec, false).test(cmd);
@@ -104,6 +130,7 @@ describe('OPS-171 settings policy — matcher self-test (pins the model against 
   it('an exact rule matches only the exact command', () => {
     expect(m('npm run build', 'npm run build')).toBe(true);
     expect(m('npm run build', 'npm run build --watch')).toBe(false);
+    expect(m('ps -W', 'ps -W | grep -ci claude')).toBe(false);
   });
 
   it('a "*" before the subcommand stands in for every option, including -c and -C', () => {
@@ -112,6 +139,13 @@ describe('OPS-171 settings policy — matcher self-test (pins the model against 
     expect(m('git * main', 'git -c core.fsmonitor=x diff main')).toBe(true);
     expect(m('git * main', 'git -C /some/dir push origin main')).toBe(true);
     expect(m('git * main', 'git log')).toBe(false);
+  });
+
+  it('a "*" glued to the subcommand covers the -C and -c prefixed spellings', () => {
+    expect(m('git *diff */dev/null*', 'git -C /x diff /dev/null y')).toBe(true);
+    expect(m('git *diff */dev/null*', 'git -c a=b diff /dev/null y')).toBe(true);
+    expect(m('git *diff */dev/null*', 'git -c a=b -C /x diff --quiet /dev/null y')).toBe(true);
+    expect(m('git *diff */dev/null*', 'git diff --quiet origin/main -- x')).toBe(false);
   });
 
   it('a mid-rule "*" does not make the trailing one match the bare command', () => {
@@ -131,6 +165,11 @@ describe('OPS-171 settings policy — matcher self-test (pins the model against 
     expect(m('ls*', 'lsof')).toBe(true);
   });
 
+  it('PowerShell rules match case-insensitively, so -d and -D are one token there', () => {
+    expect(shellSpecToRegex('git branch -D*', true).test('git branch -d x')).toBe(true);
+    expect(shellSpecToRegex('git branch -D*', false).test('git branch -d x')).toBe(false);
+  });
+
   it('Read globs follow gitignore depth semantics', () => {
     const blocks = (glob, p) => pathGlobToRegex(glob).test(p);
     expect(blocks('**/.env', '.env')).toBe(true);
@@ -145,10 +184,12 @@ describe('OPS-171 settings policy — matcher self-test (pins the model against 
 });
 
 describe('OPS-171 settings policy — structure (a wrong value silently drops the whole file)', () => {
-  it('attribution.commit and attribution.pr are strings, sessionUrl is a boolean', () => {
+  it('attribution.commit and attribution.pr are the empty string, sessionUrl is a boolean', () => {
     expect(settings.attribution).toBeDefined();
     expect(typeof settings.attribution.commit).toBe('string');
     expect(typeof settings.attribution.pr).toBe('string');
+    expect(settings.attribution.commit).toBe('');
+    expect(settings.attribution.pr).toBe('');
     expect(typeof settings.attribution.sessionUrl).toBe('boolean');
   });
 
@@ -156,32 +197,38 @@ describe('OPS-171 settings policy — structure (a wrong value silently drops th
     expect(settings.includeCoAuthoredBy).toBe(false);
   });
 
-  it('the deny list is non-empty and carries every DEC-145 deny (Bash and PowerShell)', () => {
+  it('the deny list is non-empty and carries every DEC-145 deny (DEC-145.md:63) for Bash and PowerShell', () => {
     expect(deny.length).toBeGreaterThan(0);
-    const required = [
-      'Bash(git push --force*)',
-      'Bash(git push -f*)',
-      'Bash(git push --force-with-lease*)',
-      'Bash(git push origin main*)',
-      'Bash(git reset --hard*)',
-      'Bash(git clean*)',
-      'Bash(git stash drop*)',
-      'Bash(git stash clear*)',
-      'Bash(gh pr merge * --admin*)',
-      'PowerShell(git push --force*)',
-      'PowerShell(git reset --hard*)',
-      'PowerShell(git clean*)',
+    const dec145 = [
+      'git push --force*',
+      'git push -f*',
+      'git push --force-with-lease*',
+      'git push origin main*',
+      'git push * main',
+      'git push * HEAD:main*',
+      'git reset --hard*',
+      'git clean*',
+      'git stash drop*',
+      'git stash clear*',
+      'gh pr merge * --admin*',
     ];
-    for (const r of required) expect(deny).toContain(r);
+    for (const r of dec145) {
+      expect(deny).toContain(`Bash(${r})`);
+      expect(deny).toContain(`PowerShell(${r})`);
+    }
   });
 
-  it('no allow rule puts a "*" where a git subcommand belongs (the startup-warning form)', () => {
+  it('no allow rule puts a "*" where a git subcommand belongs, nor as the value of -C or -c', () => {
     const offenders = [];
     for (const r of [...specsFor(allow, 'Bash'), ...specsFor(allow, 'PowerShell')]) {
       const tokens = r.split(/\s+/);
       if (tokens[0] !== 'git') continue;
       let i = 1;
-      while (tokens[i] === '-C' || tokens[i] === '-c') i += 2; // skip option+value pairs
+      while (tokens[i] === '-C' || tokens[i] === '-c') {
+        // `git -C * push *` or `git -c * …` would stand in for any directory or any config key.
+        if (!tokens[i + 1] || tokens[i + 1].includes('*')) offenders.push(r);
+        i += 2;
+      }
       if (tokens[i] === '*' || (tokens[i] && tokens[i].startsWith('*'))) offenders.push(r);
     }
     expect(offenders).toEqual([]);
@@ -193,6 +240,16 @@ describe('OPS-171 settings policy — structure (a wrong value silently drops th
     expect(offenders).toEqual([]);
   });
 
+  it('no allow entry is a bare tool name or Tool(*) (that would allow everything the tool does)', () => {
+    const bare = allow.filter((r) => /^[A-Za-z_]+$/.test(r) || /^[A-Za-z_]+\(\s*\*+\s*\)$/.test(r));
+    expect(bare).toEqual([]);
+  });
+
+  it('every Read deny has an Edit twin and every Edit deny a Read twin', () => {
+    for (const r of specsFor(deny, 'Read')) expect(deny).toContain(`Edit(${r})`);
+    for (const r of specsFor(deny, 'Edit')) expect(deny).toContain(`Read(${r})`);
+  });
+
   it('no Read allow reaches outside the repo except //tmp, and none at //k/ or AI-Music-App', () => {
     const outside = specsFor(allow, 'Read').filter((r) => r.startsWith('//') && !r.startsWith('//tmp/'));
     expect(outside).toEqual([]);
@@ -201,23 +258,42 @@ describe('OPS-171 settings policy — structure (a wrong value silently drops th
   });
 });
 
-describe('OPS-171 settings policy — secrets are not readable, the example file stays readable', () => {
+describe('OPS-171 settings policy — secrets are not readable or editable, the example file stays both', () => {
   const denied = [
     'mobile/KokonadaHealth/android/keystore.properties',
     'x/kokonada-release.keystore',
     'x.jks',
     'x.p12',
+    'x.p8',
+    'x.pem',
+    'x.key',
+    'x.pfx',
     '.env',
+    '.env.local',
     'backend/.env.production',
+    'backend/.env.development',
+    'backend/.env.test',
+    '.env.staging',
+    '.env.prod',
+    '.env.dev',
+    '.env.bak',
+    '.env.backup',
+    '.env.orig',
+    '.env.production.local',
+    'x/google-services.json',
+    'ios/GoogleService-Info.plist',
+    '/c/KokonadaSigner/release.jks',
   ];
   for (const p of denied) {
-    it(`Read is denied: ${p}`, () => {
+    it(`Read and Edit are denied: ${p}`, () => {
       expect(readDecision(p)).toBe('deny');
+      expect(editDecision(p)).toBe('deny');
     });
   }
 
-  it('backend/.env.example stays readable', () => {
+  it('backend/.env.example stays readable and editable', () => {
     expect(readDecision('backend/.env.example')).not.toBe('deny');
+    expect(editDecision('backend/.env.example')).not.toBe('deny');
   });
 });
 
@@ -228,20 +304,48 @@ describe('OPS-171 settings policy — exfiltration and destructive commands are 
     'git diff --no-index /dev/null x',
     'git -c core.hooksPath=/dev/null diff --no-index /dev/null x',
     'git checkout -- .',
-    'git branch -D x',
     'git stash pop',
+    'git stash apply',
     'git add -f x',
+    'git add x -f',
     'git commit --no-verify -m x',
     'git fetch --upload-pack=x .',
     'git ls-remote --upload-pack=x .',
     'git -c core.hooksPath=/dev/null push --force origin x',
     'git -c core.hooksPath=/dev/null push origin main',
     'git -c core.hooksPath=/dev/null reset --hard HEAD',
+    'gh pr update-branch --rebase 1',
+    'gh pr update-branch 1 --rebase',
+    // SEC-270-09: a fetch refspec that force-moves or writes a local branch.
+    'git fetch origin +refs/heads/x:refs/heads/y',
+    'git fetch origin refs/heads/x:refs/heads/y',
+    'git fetch origin -u x:refs/heads/y',
+    'git fetch origin +x:y',
+    'git -C /x fetch origin +a:b',
+    // SEC-270-02, route (b): the /merge form stays allowed (below); any body, subject or author
+    // flag — which would publish a file's bytes as the squash message on main — is denied.
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc --body-file x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc --body x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc --body=x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc -F x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc -b x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc --subject x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc -t x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc --author-email x',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit abc -A x',
+    'gh pr merge --body-file x 1 --squash --delete-branch --match-head-commit abc',
+    'gh pr merge -F x 1 --squash --delete-branch --match-head-commit abc',
+    // F6: auto-merge would merge later, outside the GREEN verdict's H and M.
+    'gh pr merge 1 --auto --squash --delete-branch --match-head-commit X',
+    'gh pr merge 1 --squash --delete-branch --match-head-commit X --auto',
+    'gh pr merge --auto 1',
   ];
-  for (const cmd of mustDeny) {
-    it(`denied: ${cmd}`, () => {
-      expect(shellDecision(cmd, 'Bash')).toBe('deny');
-    });
+  for (const tool of TOOLS) {
+    for (const cmd of mustDeny) {
+      it(`${tool} denied: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).toBe('deny');
+      });
+    }
   }
 
   // Each of these must at least not run without a prompt (deny or ask or prompt — never allow).
@@ -255,48 +359,182 @@ describe('OPS-171 settings policy — exfiltration and destructive commands are 
     'npm install https://example.invalid/x.tgz',
     'ADB="/c/x/adb.exe" cat x',
     'git pull https://example.invalid/r',
+    // SEC-270-01: git enters no-index mode by itself when a path lies outside the working tree,
+    // so a plain `git diff` reads any file. The kept `git diff *` allow must not reach these.
+    'git diff /dev/null backend/.env',
+    'git diff --quiet /dev/null backend/.env',
+    'git diff --text /dev/null x.jks',
+    'git diff C:/x C:/y',
+    'git diff /c/x y',
+    'git diff ~/.ssh/id_ed25519 x',
+    'git diff nul backend/.env',
+    'git diff -a /dev/null x.jks',
+    // SEC-270-05: the two package forms are exact; any other --prefix, and npx tsc, prompt.
+    'npm --prefix /tmp/x ci',
+    'npm --prefix /c/Users/danie/Videos/Kokonada-review/x ci',
+    'npx tsc -p /tmp/x',
+    'npx tsc',
+    // Rows that rest on the absence of an allow alone (no ask or deny shadows them): a widened
+    // `Bash(gh pr *)`, `PowerShell(gh pr *)` or `*(git push *)` allow turns these red.
+    'gh pr merge 1 --squash',
+    'gh pr merge 1 --squash --delete-branch',
+    'gh pr merge 1 --merge --delete-branch --match-head-commit abc',
+    'gh pr merge 1 --rebase --delete-branch --match-head-commit abc',
+    'gh pr reopen 1',
+    'gh pr lock 1',
+    'git push --tags',
+    'git push origin x',
+    'git push origin HEAD:refs/heads/x',
+    'git fetch https://example.invalid/r',
+    'git ls-remote https://example.invalid/r',
   ];
-  for (const cmd of mustNotAllow) {
-    it(`not auto-allowed: ${cmd}`, () => {
-      expect(shellDecision(cmd, 'Bash')).not.toBe('allow');
-    });
+  for (const tool of TOOLS) {
+    for (const cmd of mustNotAllow) {
+      it(`${tool} not auto-allowed: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).not.toBe('allow');
+      });
+    }
+  }
+
+  // Each of these hits an ask rule: a prompt in every mode, bypass included, and one that beats any
+  // allow in the owner's local or user settings — stronger than the default prompt of no match.
+  const mustAsk = [
+    'git -C /x diff /dev/null y',
+    'git -c a=b diff /dev/null y',
+    'git diff /dev/null backend/.env',
+    'gh pr comment 1 --body-file x',
+    'gh pr edit 1 --body-file x',
+    'gh pr create --fill',
+    'gh pr close 1',
+    'gh pr review 1 --approve',
+    // SEC-270-10: the other gh verbs that publish bytes or change the repository.
+    'gh gist create x',
+    'gh api repos/DanielMalede/Kokonada/issues -f title=x',
+    'gh secret set X',
+    'gh release create v1 x',
+    'gh repo delete x',
+    // CU270-02: a force delete, and every force form under the allowed `git branch -d *`, asks.
+    'git branch -D x',
+    'git -C /x branch -D y',
+    'git branch -d -f x',
+    'git branch -d x -f',
+    'git branch -d --force x',
+    'git branch -d x --force',
+    'git branch -d -D x',
+    'git branch --delete --force x',
+  ];
+  for (const tool of TOOLS) {
+    for (const cmd of mustAsk) {
+      it(`${tool} asks: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).toBe('ask');
+      });
+    }
   }
 
   it('an ordinary commit carrying a -c option is not denied (M5 must not over-reach)', () => {
     expect(shellDecision('git -c user.name=x commit -m msg', 'Bash')).not.toBe('deny');
   });
+
+  it('a commit message that spells a denied token is refused by the starred denies (reword it)', () => {
+    expect(shellDecision('git commit -m "never git push origin main again"', 'Bash')).toBe('deny');
+    expect(shellDecision('git commit -m "chore: reword the message that tripped a deny"', 'Bash')).not.toBe('deny');
+  });
 });
 
 describe('OPS-171 settings policy — the flows keep working', () => {
+  const SENTINEL = '/c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel';
+  const ADB = '/c/Users/danie/AppData/Local/Android/Sdk/platform-tools/adb.exe';
+  const MERGE_FORM = 'gh pr merge 1 --squash --delete-branch --match-head-commit 0123456789abcdef0123456789abcdef01234567';
   const stillAllowed = [
     // CLAUDE.md session-start step 2, verbatim, the three fast-forward strings:
     'git -C /c/Users/danie/Videos/Kokonada symbolic-ref --short HEAD',
     'git -C /c/Users/danie/Videos/Kokonada status --porcelain --untracked-files=no',
     'git -C /c/Users/danie/Videos/Kokonada merge --ff-only origin/main',
+    // CLAUDE.md session-start step 3 — .claude/agents/sentinel.md § FILING, verbatim:
+    `git -c core.hooksPath=/dev/null --no-optional-locks -C ${SENTINEL} diff --quiet origin/main -- WEAKNESSES_AND_FAILURES.md`,
+    `git -c core.hooksPath=/dev/null --no-optional-locks -C ${SENTINEL} status --porcelain --untracked-files=no`,
+    `git -c core.hooksPath=/dev/null --no-optional-locks -C ${SENTINEL} diff --quiet HEAD origin/main -- WEAKNESSES_AND_FAILURES.md`,
+    `git -c core.hooksPath=/dev/null -C ${SENTINEL} checkout -- WEAKNESSES_AND_FAILURES.md`,
+    `git -c core.hooksPath=/dev/null -C ${SENTINEL} checkout --detach origin/main`,
+    // CLAUDE.md steps 1, 5 and 6, /ship, /review-pr, /merge and merge-guard:
     'git fetch origin --prune',
+    'git fetch origin',
+    'git fetch --unshallow',
     'git fetch origin pull/264/head',
+    'git ls-remote origin',
+    'git ls-remote origin refs/heads/main',
+    'git merge origin/main',
+    'git merge --no-edit origin/main',
+    'git push',
     'git push -u origin HEAD',
+    'git push origin HEAD',
+    'git branch --show-current',
+    'git branch --list',
+    'git branch -d fix/ops171-settings-policy',
+    'git rev-list --count HEAD',
+    'git fsck --no-dangling',
+    'git check-ignore -v x',
     'gh pr view 1 --json state',
-    'gh pr merge 1 --squash --delete-branch --match-head-commit 0123456789abcdef0123456789abcdef01234567',
+    'gh pr list --state open',
+    'gh pr checks 270',
+    'gh pr diff 270 --name-only',
+    'gh pr status',
+    'gh pr update-branch 270',
+    MERGE_FORM,
     'gh pr ready 1',
     'npm test',
+    'npm ci',
+    'npm install',
+    'npm run lint',
+    'npm run lint:design-system',
+    'npm --prefix backend ci',
+    'npm --prefix mobile/KokonadaHealth ci',
     'npx jest tests/x.test.js',
     './node_modules/.bin/jest', // /ship step 2: the mobile jest gate, run in mobile/KokonadaHealth
+    './node_modules/.bin/tsc --noEmit -p tsconfig.json', // /ship step 2: the mobile tsc gate, exact
+    'ps -W', // the custodian's precondition 3
+    `${ADB} logcat -d`,
+    `${ADB} reverse tcp:8081 tcp:8081`,
+    // git diff on repository paths and revisions stays unprompted; only outside paths ask.
     'git diff --quiet A B -- x',
+    'git diff --stat',
+    'git diff --stat origin/main...HEAD',
+    'git diff origin/main -- TASKS.md',
+    'git diff HEAD~1 -- backend/app/index.js',
+    'git diff --cached --no-color --no-ext-diff',
     'git status --porcelain',
   ];
   for (const cmd of stillAllowed) {
-    it(`still allowed: ${cmd}`, () => {
+    it(`Bash still allowed: ${cmd}`, () => {
       expect(shellDecision(cmd, 'Bash')).toBe('allow');
+    });
+    // The allows are Bash rules and the flows run in Bash; the PowerShell twin may prompt, but a
+    // PowerShell deny on a flow string would be a rule written too wide.
+    it(`PowerShell never denies: ${cmd}`, () => {
+      expect(shellDecision(cmd, 'PowerShell')).not.toBe('deny');
     });
   }
 
-  it('the CLAUDE.md step-2 L-check stays NOT allowed (it must prompt)', () => {
+  it('the /merge step-4 form is allowed and matches no deny, while every body spelling is denied', () => {
+    expect(shellDecision(MERGE_FORM, 'Bash')).toBe('allow');
+    expect(shellDecision(MERGE_FORM, 'PowerShell')).not.toBe('deny');
+    expect(specsFor(deny, 'Bash').filter((s) => shellSpecToRegex(s, false).test(MERGE_FORM))).toEqual([]);
+    for (const flag of ['--body ""', '--body-file x', '-F x', '-b x', '--subject x', '-t x', '--author-email x', '-A x']) {
+      expect(shellDecision(`${MERGE_FORM} ${flag}`, 'Bash')).toBe('deny');
+    }
+  });
+
+  it('in PowerShell, git branch -d asks (its rules cannot tell -d from -D)', () => {
+    expect(shellDecision('git branch -d x', 'PowerShell')).toBe('ask');
+  });
+
+  it('the CLAUDE.md step-2 L-check prompts: no rule matches it in either direction', () => {
     const lCheck =
       "git -C /c/Users/danie/Videos/Kokonada diff --quiet L HEAD -- ':(icase)*CLAUDE.md' " +
       "':(icase)*CLAUDE.local.md' ':(icase)*AGENTS.md' ':(icase)*AGENTS.override.md' " +
       "':(icase)*.claude/*' ':(icase)*.agents/*' ':(icase)*.codex/*' ':(icase)*.mcp.json'";
-    expect(shellDecision(lCheck, 'Bash')).not.toBe('allow');
+    expect(shellDecision(lCheck, 'Bash')).toBe('prompt');
+    expect(shellDecision(lCheck, 'PowerShell')).not.toBe('deny');
   });
 
   it('the /claim coordinator invocation is never newly blocked (deny or ask)', () => {
