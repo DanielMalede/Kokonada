@@ -70,7 +70,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `BE-070` (TASKS)
 - title: the socket handlers normalize the client's payload, so a null payload no longer crashes the backend
 - branch: `fix/be070-socket-payloads`
-- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `TASKS.md`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/art9GateClass.structural.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-10-20
