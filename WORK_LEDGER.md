@@ -102,7 +102,7 @@ _free_
 - branch: `fix/ops002-secret-commit-guard`
 - paths: `.githooks/pre-commit`, `.gitignore`, `mobile/KokonadaHealth/.gitignore`, `backend/tests/preCommitSecretGuard.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #267
 - started: 2026-10-20
 
 ### M06
