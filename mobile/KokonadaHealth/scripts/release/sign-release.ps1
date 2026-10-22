@@ -24,7 +24,7 @@ In order, stopping at the first failure:
      yet present in C:\KokonadaSigner\out\. Each is resolved to a full path and compared with its
      folder; a folder, a drive, '..' or a link (a reparse point) on either path is refused. The
      input stays open for reading, so nobody can change it, until zipalign has read it.
-  3. zipalign -p -f 4, then apksigner sign. The password reaches apksigner as
+  3. zipalign -P 16 -f 4, then apksigner sign. The password reaches apksigner as
      --ks-pass env:KOKONADA_SIGNER_KS_PASS, set in that one child process's environment and removed,
      with its plain text zeroed, as soon as the child exits. It is never a parameter, never typed
      here and never on a command line.
@@ -144,7 +144,7 @@ try {
     Assert-NoLink -Path $inPath
     $inputSha256 = (Get-FileHash -InputStream $lock -Algorithm SHA256).Hash.ToLowerInvariant()
 
-    $aligned = Wait-Tool (New-ToolStart -File $Zipalign -Arguments @('-p', '-f', '4', $inPath, $alignedTmp))
+    $aligned = Wait-Tool (New-ToolStart -File $Zipalign -Arguments @('-P', '16', '-f', '4', $inPath, $alignedTmp))
     if ($aligned.ExitCode -ne 0) { throw "zipalign failed (exit $($aligned.ExitCode))." }
     $lock.Dispose()
     $lock = $null
@@ -174,7 +174,7 @@ try {
     $certSha256 = $certs[0].Groups[1].Value
 
     $page = Wait-Tool (New-ToolStart -File $Zipalign -Arguments @('-c', '-P', '16', '4', $signedTmp))
-    if ($page.ExitCode -ne 0) { throw "The signed APK's native libraries are not 16 KB aligned (exit $($page.ExitCode)); use build-tools 35 or newer." }
+    if ($page.ExitCode -ne 0) { throw "The signed APK's native libraries are not 16 KB aligned (exit $($page.ExitCode)) although zipalign -P 16 ran; check that build-tools is 35 or newer and that the APK stores its native libraries uncompressed." }
 
     [System.IO.File]::Move($signedTmp, $outPath)
     $artifactSha256 = (Get-FileHash -LiteralPath $outPath -Algorithm SHA256).Hash.ToLowerInvariant()
