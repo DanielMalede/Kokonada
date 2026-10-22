@@ -36,29 +36,32 @@ In order, stopping at the first failure:
   2. -In must be a plain .apk file name in C:\KokonadaSigner\in\ and -Out a plain .apk file name not
      yet present in C:\KokonadaSigner\out\. Each is resolved to a full path and compared with its
      folder; a folder, a drive, '..' or a link (a reparse point) is refused.
-  3. Checks zipalign.exe, lib\apksigner.jar and java.exe against the SHA-256 pinned in this script
-     (Get-FileHash) and refuses a link on any tool path, on the key and on ks.pass, before any tool
-     runs and before ks.pass is read. A pin left at its placeholder refuses every run: the owner
-     records the real values, one line each, when he provisions bin\ (the runbook's provisioning
-     step). The pin covers the launcher; the folder's permissions (administrators only) cover the
-     rest of the JDK and the build-tools.
+  3. Checks zipalign.exe, aapt2.exe, lib\apksigner.jar and java.exe against the SHA-256 pinned in
+     this script (Get-FileHash) and refuses a link on any tool path, on the key and on ks.pass,
+     before any tool runs and before ks.pass is read. A pin left at its placeholder refuses every
+     run: the owner records the real values, one line each, when he provisions bin\ (the runbook's
+     provisioning step). The pin covers the launcher; the folder's permissions (administrators
+     only) cover the rest of the JDK and the build-tools.
   4. Opens the input and asks the open handle which file it really refers to
      (GetFinalPathNameByHandle). Unless that is C:\KokonadaSigner\in\<-In> itself, a link was
      followed somewhere on the way and the run is refused: through the handle, not the path, so no
      swap between a check and a read slips by. Then copies the bytes through that handle into
      C:\KokonadaSigner\work\ and closes the input; every later step reads that copy, and the input
      SHA-256 printed at the end is the copy's.
-  5. zipalign -P 16 -f 4 on the copy, then apksigner sign. The password reaches apksigner as
+  5. aapt2 dump badging on the copy: the package must be com.kokonadahealth, not debuggable and not
+     testOnly, so no debug build, no Design Lab APK and no foreign package is ever signed. This and
+     zipalign parse the owner's file with native code, so both run before ks.pass is read.
+  6. zipalign -P 16 -f 4 on the copy, then apksigner sign. The password reaches apksigner as
      --ks-pass env:KOKONADA_SIGNER_KS_PASS, set in that one child process's environment and removed
      as soon as the child exits. Its decrypted text exists in two places: the BSTR, which is zeroed
      and freed in the finally block; and the managed string that fills the child's environment,
      which stays in this process's heap until the garbage collector reclaims it. It is never a
      parameter, never typed here and never on a command line. Every JVM starts with
      -XX:+DisableAttachMechanism and -XX:-UsePerfData, and its crash log, if any, goes to work\.
-  6. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
+  7. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
      alignment of the native libraries, one of Google Play's two 16 KB checks. ELF LOAD-segment
      alignment is checked separately, on a real release build, before the first upload.
-  7. Moves the signed APK from work\ to C:\KokonadaSigner\out\<-Out>, then prints the input's
+  8. Moves the signed APK from work\ to C:\KokonadaSigner\out\<-Out>, then prints the input's
      SHA-256, the signer certificate's SHA-256 (the value to compare with Play Console's upload
      certificate once a bundle step exists) and the signed APK's SHA-256.
 
@@ -67,8 +70,8 @@ Modify, nobody else: the copy of the input, the aligned and the signed working f
 are removed at the end, and a JVM crash log, if one is ever written, lands here too), out\ (receives
 the verified APK alone), bin\ (the tools; writable by administrators only), vault\ (the key and
 ks.pass). Every tool runs by its full path, with no shell, with work\ as its working folder:
-zipalign.exe and lib\apksigner.jar from C:\KokonadaSigner\bin\build-tools\ (build-tools 35 or newer)
-and java.exe from the dedicated JDK in C:\KokonadaSigner\bin\jdk\, never from the IDE's runtime,
+zipalign.exe, aapt2.exe and lib\apksigner.jar from C:\KokonadaSigner\bin\build-tools\ (build-tools 35
+or newer) and java.exe from the dedicated JDK in C:\KokonadaSigner\bin\jdk\, never from the IDE's runtime,
 which an IDE the owner's account runs keeps updating. Nothing is looked up on PATH, every child
 process runs without the variables that inject options into a JVM, and the JVM keeps only its
 transient run data in this account's own %TEMP%.
@@ -122,12 +125,14 @@ $KeyStore = 'C:\KokonadaSigner\vault\kokonada-upload.p12'
 $KeyAlias = 'kokonada-upload'
 $PassFile = 'C:\KokonadaSigner\vault\ks.pass'
 $Zipalign = 'C:\KokonadaSigner\bin\build-tools\zipalign.exe'
+$Aapt2 = 'C:\KokonadaSigner\bin\build-tools\aapt2.exe'
 $Apksigner = 'C:\KokonadaSigner\bin\build-tools\lib\apksigner.jar'
 $Java = 'C:\KokonadaSigner\bin\jdk\bin\java.exe'
 # The SHA-256 of each tool, lower-case hex (SEC-271-2). The owner replaces these lines, one each, with the
 # values he records when he provisions bin\ (docs/runbooks/android-release-signing.md), and the runbook pins
 # this script's SHA-256 after that edit. While any of them is still the placeholder, every run is refused.
 $ZipalignSha256 = '<pin after provisioning>'
+$Aapt2Sha256 = '<pin after provisioning>'
 $ApksignerSha256 = '<pin after provisioning>'
 $JavaSha256 = '<pin after provisioning>'
 # Every JVM starts with these (SEC-271-6): no attach mechanism (nothing loads into the process that holds the
@@ -212,6 +217,7 @@ function Wait-Tool([System.Diagnostics.ProcessStartInfo] $Start) {
 Assert-PlainApkName -Name $In -Parameter 'In'
 Assert-PlainApkName -Name $Out -Parameter 'Out'
 Assert-ToolHash -Path $Zipalign -Sha256 $ZipalignSha256
+Assert-ToolHash -Path $Aapt2 -Sha256 $Aapt2Sha256
 Assert-ToolHash -Path $Apksigner -Sha256 $ApksignerSha256
 Assert-ToolHash -Path $Java -Sha256 $JavaSha256
 foreach ($file in @($KeyStore, $PassFile)) {
@@ -248,6 +254,17 @@ try {
     $lock.Dispose()
     $lock = $null
     $inputSha256 = (Get-FileHash -LiteralPath $inCopy -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    # The manifest of the copy, from the pinned aapt2, before the password exists in this process (SEC-271-4): a
+    # debuggable build of com.kokonadahealth signed with the upload key would install as an update over QA
+    # installs and open their data to run-as and the debugger; the Design Lab is another package.
+    $badging = New-ToolStart -File $Aapt2 -Arguments @('dump', 'badging', $inCopy)
+    $badging.RedirectStandardOutput = $true
+    $manifest = Wait-Tool $badging
+    if ($manifest.ExitCode -ne 0) { throw "aapt2 dump badging failed (exit $($manifest.ExitCode)); the input is not a readable APK." }
+    if ($manifest.Output -notmatch '(?m)^package: name=''com\.kokonadahealth''(?:\s|$)') { throw "The input is not the package com.kokonadahealth; the Design Lab and every other package stay unsigned." }
+    if ($manifest.Output -match '(?m)^application-debuggable\r?$') { throw "The input is debuggable; a debug build is never signed with the upload key." }
+    if ($manifest.Output -match 'testOnly=''-1''') { throw "The input is testOnly; it is never signed with the upload key." }
 
     $aligned = Wait-Tool (New-ToolStart -File $Zipalign -Arguments @('-P', '16', '-f', '4', $inCopy, $alignedTmp))
     if ($aligned.ExitCode -ne 0) { throw "zipalign failed (exit $($aligned.ExitCode))." }
