@@ -132,7 +132,7 @@ _free_
 - branch: `fix/ops303-release-custody`
 - paths: `mobile/KokonadaHealth/android/app/build.gradle`, `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #271
 - started: 2026-10-21
 
 ### M10
