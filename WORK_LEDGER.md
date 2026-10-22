@@ -115,13 +115,13 @@ _free_
 - started: 2026-10-18
 
 ### M07
-- task: `OPS-191` (TASKS)
-- title: pin every Ubuntu job to ubuntu-24.04 before ubuntu-latest moves to Ubuntu 26 on 2026-10-19
-- branch: `chore/ops191-pin-ubuntu-2404`
-- paths: `.github/workflows/ci.yml`, `.github/workflows/coordination.yml`, `.github/workflows/secret-scan-history.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `TASKS.md`
+- task: `own:dan101-delete-classify-purge` (own)
+- title: delete the July purge script classifyAndHydrate and the code only it uses (DAN-101)
+- branch: `chore/dan101-delete-classify-purge`
+- paths: `backend/app/scripts/classifyAndHydrate.js`, `backend/tests/classifyAndHydrate.test.js`, `backend/app/services/musicPurge.js`, `backend/tests/musicPurge.test.js`, `backend/app/scripts/countFeatureless.js`, `backend/tests/youtubeTokenWriters.structural.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #253
-- started: 2026-10-17
+- state: in-review · PR #269
+- started: 2026-10-20
 
 ### M08
 _free_
