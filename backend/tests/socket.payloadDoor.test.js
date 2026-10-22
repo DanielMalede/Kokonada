@@ -65,7 +65,8 @@ jest.mock('../app/services/biosonic/baselines', () => ({ peekBaselines: jest.fn(
 jest.mock('../app/repositories/sleepHistoryRepo', () => ({ readNightHistory: jest.fn(async () => []) }));
 jest.mock('../app/services/discovery/discoveryFetch', () => ({ vectorDiscoveryFetch: jest.fn(async () => []) }));
 jest.mock('../app/services/discovery/captionService', () => ({ captionDiscovery: jest.fn(async () => new Map()) }));
-jest.mock('../app/services/ledger/serveLedger', () => ({ recordServes: jest.fn(async () => ({ recorded: 0 })) }));
+// The serve ledger is REAL (ServeEvent rows on the in-memory MongoDB): the shape cases below read back
+// what a generation wrote into sessionId.
 jest.mock('../app/repositories/shadowBufferRepo', () => ({
   getBuffer: jest.fn(async () => null),
   setBuffer: jest.fn(async () => true),
@@ -85,6 +86,7 @@ const { io: Client } = require('socket.io-client');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const User = require('../app/models/User');
+const ServeEvent = require('../app/models/ServeEvent');
 const { signToken } = require('../app/utils/jwt');
 const { recordConsent, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
 const { createSocketServer } = require('../app/sockets');
@@ -96,6 +98,7 @@ let mem;
 let io;
 let port;
 let token;
+let userId;
 const clients = [];
 
 beforeAll(async () => {
@@ -107,6 +110,7 @@ beforeAll(async () => {
   const user = new User({ ssoProvider: 'google', ssoId: 'sso-payload-door', email: 'payload-door@example.com' });
   user.setToken('spotifyToken', { accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
   await user.save();
+  userId = user._id;
   await recordConsent(user._id, { purpose: HEALTH_CONSENT_PURPOSE, dataCategories: ['heart_rate'] });
   token = signToken({ userId: user._id });
 
@@ -166,6 +170,16 @@ function nextEvent(client, names, { where = () => true, timeoutMs = 5000 } = {})
       client.on(name, onEvent);
     }
   });
+}
+
+async function until(check, label, timeoutMs) {
+  const start = Date.now();
+  for (;;) {
+    const value = await check();
+    if (value) return value;
+    if (Date.now() - start > timeoutMs) throw new Error(`timed out waiting for ${label}`);
+    await new Promise((r) => setTimeout(r, 20));
+  }
 }
 
 // What the app sends on Generate: its intent, then the request, on the SAME socket.
@@ -248,5 +262,69 @@ describe('every socket door survives a payload the client controls (BE-070, real
     expect(ready.reqId).toBe(reqId);
     expect(ready.tracks.length).toBeGreaterThan(0);
     expect(client.connected).toBe(true);
+  });
+});
+
+// BE-070 round 2 (SEC-266-1, ARCH-266-3): reqId and mode were kept as ANY non-object, so a string reqId up
+// to socket.io's 1 MB packet limit was printed by the always-on `[gen]` lines (a "\n" inside it forges a
+// log line, the [biometric-access] accountability line included), echoed on playlist_ready, and written
+// into ServeEvent.sessionId on every served track, about fifty rows per request kept thirty days. The app
+// sends a non-negative integer counter and never sends mode (socketClient.ts). The door now keeps reqId
+// only as a non-negative safe integer and mode only as 'live' or 'export'; anything else counts as not sent.
+const ONE_MB = 1_000_000;             // engine.io's default maxHttpBufferSize: the most a client can send
+const BIG = 'r'.repeat(ONE_MB - 256); // the packet's framing takes the rest
+const FORGED = '7\n[biometric-access] user=someone-else purpose=forged';
+
+describe("a reqId or mode outside the app's shape counts as not sent (BE-070 round 2, real server)", () => {
+  const consoleLines = () => quiet.flatMap((s) => s.mock.calls.map((c) => c.map(String).join(' ')));
+  const rowsSince = (since) => until(async () => {
+    const rows = await ServeEvent.find({ userId, servedAt: { $gte: since } }).lean();
+    return rows.length > 0 ? rows : null;
+  }, 'the serve ledger row of the door\'s own generation', 5000);
+
+  // The fourth column is what a log line or a stored row would carry if the value got through.
+  it.each([
+    ['request_playlist', 'a reqId just under the 1 MB packet limit', { reqId: BIG }, BIG.slice(0, 64)],
+    ['request_playlist', 'a reqId that forges a log line', { reqId: FORGED }, '[biometric-access]'],
+    ['request_playlist', 'a boolean reqId', { reqId: true }, 'reqId=true'],
+    ['request_playlist', 'a negative reqId', { reqId: -1 }, 'reqId=-1'],
+    ['request_playlist', 'a mode just under the 1 MB packet limit', { mode: BIG }, BIG.slice(0, 64)],
+    ['emotion_update', "a mode of '__proto__'", { taps: [{ x: 0.3, y: 0.4 }], mode: '__proto__' }, '__proto__'],
+  ])('%s with %s: not held, not logged, not echoed, not written, and the socket still generates', async (event, _label, payload, needle) => {
+    const client = await connect();
+    const since = new Date();
+    const doorReady = nextEvent(client, ['playlist_ready']);
+    if (event === 'request_playlist') client.emit('emotion_update', { taps: [{ x: 0.3, y: 0.4 }] });
+    client.emit(event, payload);
+    if (event === 'emotion_update') client.emit('request_playlist', {});
+    const reply = (await doorReady).payload;
+
+    // Not echoed: the reply carries no reqId (none was sent) and the default mode.
+    expect(reply.reqId).toBeUndefined();
+    expect(reply.mode).toBe('live');
+    // Not held.
+    const held = _debounceMap.get(client.id);
+    expect(held.lastReqId).toBeUndefined();
+    expect(held.lastMode).toBe('live');
+    // Not logged: no always-on line carries the value (an 80-character prefix names an offender).
+    expect(consoleLines().filter((l) => l.includes(needle)).map((l) => l.slice(0, 80))).toEqual([]);
+    // Not written: every row of the door's own generation has an empty sessionId.
+    const rows = await rowsSince(since);
+    expect(rows.map((r) => (r.sessionId ?? '').slice(0, 80))).toEqual(rows.map(() => ''));
+
+    const reqId = (nextReqId += 1);
+    const ready = await generateOn(client, reqId);
+    expect(ready.reqId).toBe(reqId);
+    expect(client.connected).toBe(true);
+  });
+
+  it.each([0, 7, Number.MAX_SAFE_INTEGER])("the app's integer reqId %s comes back on playlist_ready and reaches the ledger", async (reqId) => {
+    const client = await connect();
+    const since = new Date();
+    const ready = await generateOn(client, reqId);
+    expect(ready.reqId).toBe(reqId);
+    expect(_debounceMap.get(client.id).lastReqId).toBe(reqId);
+    const rows = await rowsSince(since);
+    expect(rows.map((r) => r.sessionId)).toEqual(rows.map(() => String(reqId)));
   });
 });
