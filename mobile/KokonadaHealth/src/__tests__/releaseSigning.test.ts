@@ -137,6 +137,10 @@ const RELEASE_SCOPE = ['for sideloaded QA builds only', 'App Bundle', 'does not 
 /** A comment as prose: '//' prefixes dropped and whitespace collapsed, so a pin does not depend on where a line wraps. */
 const prose = (text: string) => text.replace(/^\s*\/\/ ?/gm, '').replace(/\s+/g, ' ');
 
+/** A phrase as a regex that tolerates a line wrap (and a '//' prefix) at any of its spaces, for the plants. */
+const wrapped = (phrase: string) =>
+  new RegExp(phrase.split(' ').map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+(?:\\/\\/ )?'));
+
 function gradleProblems(src: string): string[] {
   const problems: string[] = [];
   const code = groovyCode(src);
@@ -280,6 +284,9 @@ const HEADER_MUST = [
   'GetFinalPathNameByHandle',
   'work\\ (kokonada-signer Modify, nobody else',
   'out\\ (receives the verified APK alone)',
+  // SEC-271-4: the manifest check.
+  'aapt2 dump badging',
+  'not debuggable and not testOnly',
   // SEC-271-6: exactly what is zeroed, and the JVM flags.
   'the BSTR, which is zeroed and freed',
   "stays in this process's heap until the garbage collector reclaims it",
@@ -315,7 +322,14 @@ const NATIVE_MEMBERS = [
 const FINAL_PATH_CHECK = "if (-not [string]::Equals($finalPath.ToString(), '\\\\?\\' + $inPath, [System.StringComparison]::OrdinalIgnoreCase)) {";
 
 /** The tools whose SHA-256 the script pins (SEC-271-2); $<tool>Sha256 holds each pin. */
-const PINNED_TOOLS = ['Zipalign', 'Apksigner', 'Java'];
+const PINNED_TOOLS = ['Zipalign', 'Aapt2', 'Apksigner', 'Java'];
+
+/** SEC-271-4: what aapt2 dump badging must show on the copy, as the script's own lines. */
+const BADGING_CHECKS = [
+  "if ($manifest.Output -notmatch '(?m)^package: name=''com\\.kokonadahealth''(?:\\s|$)') { throw",
+  "if ($manifest.Output -match '(?m)^application-debuggable\\r?$') { throw",
+  "if ($manifest.Output -match 'testOnly=''-1''') { throw",
+];
 
 const SCRIPT_RULES: Array<[string, string]> = [
   ['[parse]', 'is readable by this check: no here-string, no glued #, no variable set but by plain assignment'],
@@ -332,9 +346,10 @@ const SCRIPT_RULES: Array<[string, string]> = [
   ['[in]', 'reads the input only by a plain name resolved inside C:\\KokonadaSigner\\in\\, refusing .. and, through the open handle, any link'],
   ['[out]', 'writes only inside C:\\KokonadaSigner\\out\\, never over an existing file and never through a link'],
   ['[work]', 'copies the input through its handle into C:\\KokonadaSigner\\work\\, hashes and aligns that copy, runs every tool there and keeps every working file there'],
-  ['[tools]', 'runs zipalign and apksigner from C:\\KokonadaSigner\\bin\\build-tools\\ and Java from the dedicated JDK in bin\\jdk, never from PATH or a shell'],
+  ['[tools]', 'runs zipalign, aapt2 and apksigner from C:\\KokonadaSigner\\bin\\build-tools\\ and Java from the dedicated JDK in bin\\jdk, never from PATH or a shell'],
   ['[pins]', 'checks each tool against the SHA-256 pinned in the script (refusing the placeholder, a link or a mismatch) and refuses a link on the key and ks.pass, before any tool runs and before the password is read'],
-  ['[align]', 'runs zipalign -P 16 -f 4 (not the deprecated -p) on the input before apksigner sign'],
+  ['[align]', 'runs zipalign -P 16 -f 4 (not the deprecated -p) on the copy before apksigner sign, and before the password is read'],
+  ['[badging]', 'runs aapt2 dump badging on the copy before the password is read, refusing any package but com.kokonadahealth, a debuggable build and a testOnly build'],
   ['[sign]', 'signs the aligned file into a working file in the work folder'],
   ['[verify]', 'runs apksigner verify --print-certs and a 16 KB page check on the signed file before delivering it'],
   ['[exit]', "checks every tool's exit code"],
@@ -594,18 +609,19 @@ function scriptProblems(src: string): string[] {
   // [tools]
   if (
     !constant('Zipalign', "'C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe'") ||
+    !constant('Aapt2', "'C:\\KokonadaSigner\\bin\\build-tools\\aapt2.exe'") ||
     !constant('Apksigner', "'C:\\KokonadaSigner\\bin\\build-tools\\lib\\apksigner.jar'")
   ) {
-    p.push('[tools] zipalign and apksigner are not C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe and lib\\apksigner.jar');
+    p.push('[tools] zipalign, aapt2 and apksigner are not C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe, aapt2.exe and lib\\apksigner.jar');
   }
   if (!constant('Java', "'C:\\KokonadaSigner\\bin\\jdk\\bin\\java.exe'")) {
     p.push('[tools] Java is not the dedicated JDK at C:\\KokonadaSigner\\bin\\jdk\\bin\\java.exe (SEC-271-2: not the IDE runtime)');
   }
   const started = [...code.matchAll(/New-ToolStart -File \$(\w+)/gi)].map((m) => m[1].toLowerCase());
-  if (started.length === 0 || started.some((name) => name !== 'zipalign' && name !== 'java') || count(/New-ToolStart\b/gi) !== started.length + 1) {
-    p.push('[tools] a process is started other than $Zipalign or $Java, by full path');
+  if (started.length === 0 || started.some((name) => !['zipalign', 'aapt2', 'java'].includes(name)) || count(/New-ToolStart\b/gi) !== started.length + 1) {
+    p.push('[tools] a process is started other than $Zipalign, $Aapt2 or $Java, by full path');
   }
-  if (/&|Start-Process|Invoke-Expression|\biex\b|Invoke-Item|Invoke-Command|Import-Module|\bcmd(?:\.exe)?\b|Get-Command|where\.exe|apksigner\.bat|(?<![\w$-])(?:java|zipalign|apksigner)(?:\.exe)?\b/i.test(bare)) {
+  if (/&|Start-Process|Invoke-Expression|\biex\b|Invoke-Item|Invoke-Command|Import-Module|\bcmd(?:\.exe)?\b|Get-Command|where\.exe|apksigner\.bat|(?<![\w$-])(?:java|zipalign|aapt2|apksigner)(?:\.exe)?\b/i.test(bare)) {
     p.push('[tools] a tool started by name, through a shell or the call operator, or looked up on PATH');
   }
   if (!/\.UseShellExecute = \$false$/m.test(code)) {
@@ -667,6 +683,26 @@ function scriptProblems(src: string): string[] {
   }
   if (!sign || !page || !move || page[1] !== sign[1] || page.index < sign.index || move.index < page.index) {
     p.push('[verify] zipalign -c -P 16 does not check the signed file before delivery');
+  }
+  if (!align || align.index > decrypt) {
+    p.push('[align] zipalign, which parses the input with native code, runs after the password is read');
+  }
+
+  // [badging] SEC-271-4: the manifest of the copy, read by the pinned aapt2 before the password exists in this
+  // process. A debuggable build of the real package signed with the upload key would install as an update over
+  // QA installs and open their data to run-as and the debugger; the Design Lab is another package.
+  const badging = at(/^\s*\$badging = New-ToolStart -File \$Aapt2 -Arguments @\('dump', 'badging', \$inCopy\)$/m);
+  const badgingChecks = BADGING_CHECKS.map((check) => code.indexOf(check));
+  if (
+    badging < 0 ||
+    !/^\s*\$badging\.RedirectStandardOutput = \$true$/m.test(code) ||
+    !/^\s*\$manifest = Wait-Tool \$badging$/m.test(code) ||
+    !/^\s*if \(\$manifest\.ExitCode -ne 0\) \{ throw\b/m.test(code) ||
+    badgingChecks.some((index) => index < badging) ||
+    badging < copied ||
+    Math.max(...badgingChecks) > decrypt
+  ) {
+    p.push('[badging] aapt2 dump badging is not run on the copy, after the copy and before the password is read, with the package (com.kokonadahealth alone), application-debuggable and testOnly each refused');
   }
 
   // [exit]
@@ -828,7 +864,7 @@ describe('every rule bites on a planted violation', () => {
     ['the sign-in procedure dropped', (s) => s.replace(/Switch user/g, 'runas'), '[header]'],
     ['the sign-out step dropped', (s) => s.replace(/Sign out/g, 'leave the session'), '[header]'],
     ['the full powershell.exe path dropped', (s) => s.replace('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile', 'powershell.exe -NoProfile'), '[header]'],
-    ['the elevation precondition dropped', (s) => s.replace(/holds only against code that does not\s+elevate/, 'holds against everything'), '[header]'],
+    ['the elevation precondition dropped', (s) => s.replace(wrapped('holds only against code that does not elevate'), 'holds against everything'), '[header]'],
     ['--ks-pass pass:', (s) => s.replace("'env:KOKONADA_SIGNER_KS_PASS'", "'pass:planted'"), '[literal]'],
     ['a -storepass flag in a comment', (s) => s.replace(/^Set-StrictMode/m, '# keytool -storepass planted\nSet-StrictMode'), '[literal]'],
     ['a prompt for the password', (s) => s.replace('(Get-Content -LiteralPath $PassFile -Raw).Trim() | ConvertTo-SecureString', 'Read-Host -AsSecureString'), '[password]'],
@@ -888,11 +924,23 @@ describe('every rule bites on a planted violation', () => {
     ['zipalign from the SDK', (s) => s.replace("'C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe'", "'C:\\Android\\Sdk\\build-tools\\36.0.0\\zipalign.exe'"), '[tools]'],
     ['a tool through the call operator', (s) => `${s}\n& $Zipalign -c 4 $outPath\n`, '[tools]'],
     ['a JVM option variable kept', (s) => s.replace("'JAVA_TOOL_OPTIONS', ", ''), '[javaenv]'],
+    ['badging on the input path, not the copy (SEC-271-4)', (s) => s.replace("@('dump', 'badging', $inCopy)", "@('dump', 'badging', $inPath)"), '[badging]'],
+    ['the package check dropped', (s) => s.replace(BADGING_CHECKS[0], 'if ($false) { throw'), '[badging]'],
+    ['the lab package accepted', (s) => s.replace("name=''com\\.kokonadahealth''(?:\\s|$)", "name=''com\\.kokonadahealth"), '[badging]'],
+    ['a debuggable build accepted', (s) => s.replace(BADGING_CHECKS[1], 'if ($false) { throw'), '[badging]'],
+    ['a testOnly build accepted', (s) => s.replace(BADGING_CHECKS[2], 'if ($false) { throw'), '[badging]'],
+    ['the badging exit code unchecked', (s) => s.replace(/^\s*if \(\$manifest\.ExitCode -ne 0\) \{ throw[^\n]*\n/m, ''), '[badging]'],
+    ['the password read before badging', (s) => s.replace(/^\s*\$password = .*\n/m, '').replace(/^(\s*\$badging = New-ToolStart[^\n]*\n)/m, (line) => `    $password = (Get-Content -LiteralPath $PassFile -Raw).Trim() | ConvertTo-SecureString\n${line}`), '[badging]'],
+    ['the password read before zipalign', (s) => s.replace(/^\s*\$password = .*\n/m, '').replace(/^(\s*\$aligned = Wait-Tool[^\n]*\n)/m, (line) => `    $password = (Get-Content -LiteralPath $PassFile -Raw).Trim() | ConvertTo-SecureString\n${line}`), '[align]'],
+    ['aapt2 from the SDK', (s) => s.replace("'C:\\KokonadaSigner\\bin\\build-tools\\aapt2.exe'", "'C:\\Android\\Sdk\\build-tools\\36.0.0\\aapt2.exe'"), '[tools]'],
+    ['aapt2 not pinned', (s) => s.replace('Assert-ToolHash -Path $Aapt2 -Sha256 $Aapt2Sha256\n', ''), '[pins]'],
+    ['the badging step dropped from the header (SEC-271-4)', (s) => s.replace('aapt2 dump badging', 'nothing'), '[header]'],
+    ['the manifest conditions dropped from the header', (s) => s.replace(wrapped('not debuggable and not testOnly'), 'anything'), '[header]'],
     ['the attach mechanism left on (SEC-271-6)', (s) => s.replace("'-XX:+DisableAttachMechanism', ", ''), '[javaflags]'],
     ['the crash log pointed into out', (s) => s.replace('-XX:ErrorFile=C:\\KokonadaSigner\\work\\hs_err_%p.log', '-XX:ErrorFile=C:\\KokonadaSigner\\out\\hs_err_%p.log'), '[javaflags]'],
     ['a JVM started without the flags', (s) => s.replace("New-ToolStart -File $Java -Arguments ($JavaFlags + @('-jar', $Apksigner, 'verify', '--print-certs', $signedTmp))", "New-ToolStart -File $Java -Arguments @('-jar', $Apksigner, 'verify', '--print-certs', $signedTmp)"), '[javaflags]'],
-    ['the zeroing overstated in the header (SEC-271-6)', (s) => s.replace(/the BSTR, which is zeroed\s+and freed/, 'the password, with its plain text zeroed'), '[header]'],
-    ['the managed copy forgotten in the header', (s) => s.replace(/stays in this process's heap\s+until the garbage collector reclaims it/, 'is gone'), '[header]'],
+    ['the zeroing overstated in the header (SEC-271-6)', (s) => s.replace(wrapped('the BSTR, which is zeroed and freed'), 'the password, with its plain text zeroed'), '[header]'],
+    ['the managed copy forgotten in the header', (s) => s.replace(wrapped("stays in this process's heap until the garbage collector reclaims it"), 'is gone'), '[header]'],
     ['the key read as text', (s) => `${s}\nGet-Content -LiteralPath $KeyStore\n`, '[read]'],
     ['the key read as bytes', (s) => `${s}\n$planted = [System.IO.File]::ReadAllBytes($KeyStore)\n`, '[read]'],
     ['the key hashed', (s) => `${s}\nGet-FileHash -LiteralPath $KeyStore -Algorithm SHA256\n`, '[read]'],
@@ -905,10 +953,10 @@ describe('every rule bites on a planted violation', () => {
     ['the header claims store uploads again (C271-1)', (s) => s.replace('for sideloaded QA builds only', 'for store uploads and QA builds alike'), '[header]'],
     ['the bundle gap dropped from the header', (s) => s.replace(' (SEC-271-5)', ''), '[header]'],
     ['the Play comparison stated as if a bundle step existed', (s) => s.replace(/\s+once\s+a bundle step exists/, ''), '[header]'],
-    ['the ELF caveat dropped from the header (C271-4)', (s) => s.replace(/ELF LOAD-segment\s+alignment is checked separately/, 'nothing else is checked'), '[header]'],
-    ['the placeholder rule dropped from the header (SEC-271-2)', (s) => s.replace(/A pin left at its placeholder\s+refuses every run/, 'A pin is optional'), '[header]'],
-    ['the work folder opened to everyone in the header (SEC-271-3)', (s) => s.replace(/work\\ \(kokonada-signer\s+Modify, nobody else/, 'work\\ (everyone Modify'), '[header]'],
-    ['the out folder described as a working folder', (s) => s.replace(/out\\ \(receives\s+the verified APK alone\)/, 'out\\ (the working files)'), '[header]'],
+    ['the ELF caveat dropped from the header (C271-4)', (s) => s.replace(wrapped('ELF LOAD-segment alignment is checked separately'), 'nothing else is checked'), '[header]'],
+    ['the placeholder rule dropped from the header (SEC-271-2)', (s) => s.replace(wrapped('A pin left at its placeholder refuses every run'), 'A pin is optional'), '[header]'],
+    ['the work folder opened to everyone in the header (SEC-271-3)', (s) => s.replace(wrapped('work\\ (kokonada-signer Modify, nobody else'), 'work\\ (everyone Modify'), '[header]'],
+    ['the out folder described as a working folder', (s) => s.replace(wrapped('out\\ (receives the verified APK alone)'), 'out\\ (the working files)'), '[header]'],
   ];
 
   it.each(SCRIPT_PLANTS)('sign-release.ps1: %s', (_name, plant, tag) => {
