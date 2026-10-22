@@ -26,22 +26,30 @@ In order, stopping at the first failure:
      yet present in C:\KokonadaSigner\out\. Each is resolved to a full path and compared with its
      folder; a folder, a drive, '..' or a link (a reparse point) on either path is refused. The
      input stays open for reading, so nobody can change it, until zipalign has read it.
-  3. zipalign -P 16 -f 4, then apksigner sign. The password reaches apksigner as
+  3. Checks zipalign.exe, lib\apksigner.jar and java.exe against the SHA-256 pinned in this script
+     (Get-FileHash) and refuses a link on any tool path, on the key and on ks.pass, before any tool
+     runs and before ks.pass is read. A pin left at its placeholder refuses every run: the owner
+     records the real values, one line each, when he provisions bin\ (the runbook's provisioning
+     step). The pin covers the launcher; the folder's permissions (administrators only) cover the
+     rest of the JDK and the build-tools.
+  4. zipalign -P 16 -f 4, then apksigner sign. The password reaches apksigner as
      --ks-pass env:KOKONADA_SIGNER_KS_PASS, set in that one child process's environment and removed,
      with its plain text zeroed, as soon as the child exits. It is never a parameter, never typed
      here and never on a command line.
-  4. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
+  5. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
      alignment of the native libraries, one of Google Play's two 16 KB checks. ELF LOAD-segment
      alignment is checked separately, on a real release build, before the first upload.
-  5. Moves the signed APK to C:\KokonadaSigner\out\<-Out>, then prints the input's SHA-256, the
+  6. Moves the signed APK to C:\KokonadaSigner\out\<-Out>, then prints the input's SHA-256, the
      signer certificate's SHA-256 (the value to compare with Play Console's upload certificate once
      a bundle step exists) and the signed APK's SHA-256.
 
 It writes its files only in C:\KokonadaSigner\out\, where its two working files are removed at the
 end; the JVM keeps only its transient run data in this account's own %TEMP%. zipalign.exe and
-lib\apksigner.jar come from C:\KokonadaSigner\bin\build-tools\ (build-tools 35 or newer) and Java
-from Android Studio's JBR under C:\Program Files; nothing is looked up on PATH, and every child
-process runs without the variables that inject options into a JVM.
+lib\apksigner.jar come from C:\KokonadaSigner\bin\build-tools\ (build-tools 35 or newer) and
+java.exe from the dedicated JDK in C:\KokonadaSigner\bin\jdk\, never from the IDE's runtime, which an
+IDE the owner's account runs keeps updating; bin\ is writable by administrators only. Nothing is
+looked up on PATH, and every child process runs without the variables that inject options into a
+JVM.
 Windows PowerShell 5.1 compatible; ASCII only.
 #>
 [CmdletBinding()]
@@ -64,7 +72,13 @@ $KeyAlias = 'kokonada-upload'
 $PassFile = 'C:\KokonadaSigner\vault\ks.pass'
 $Zipalign = 'C:\KokonadaSigner\bin\build-tools\zipalign.exe'
 $Apksigner = 'C:\KokonadaSigner\bin\build-tools\lib\apksigner.jar'
-$Java = 'C:\Program Files\Android\Android Studio\jbr\bin\java.exe'
+$Java = 'C:\KokonadaSigner\bin\jdk\bin\java.exe'
+# The SHA-256 of each tool, lower-case hex (SEC-271-2). The owner replaces these lines, one each, with the
+# values he records when he provisions bin\ (docs/runbooks/android-release-signing.md), and the runbook pins
+# this script's SHA-256 after that edit. While any of them is still the placeholder, every run is refused.
+$ZipalignSha256 = '<pin after provisioning>'
+$ApksignerSha256 = '<pin after provisioning>'
+$JavaSha256 = '<pin after provisioning>'
 
 # A plain .apk file name: no folder, drive, stream, '..' or device name.
 function Assert-PlainApkName([string] $Name, [string] $Parameter) {
@@ -93,6 +107,20 @@ function Assert-NoLink([string] $Path) {
         }
         if ($item -is [System.IO.DirectoryInfo]) { $item = $item.Parent } else { $item = $item.Directory }
     }
+}
+
+# A tool is what its pinned SHA-256 says, or nothing runs: the placeholder, a malformed pin, a missing file, a
+# link on the path or a hash that differs each refuse. Runs before any tool starts and before ks.pass is read,
+# so no unpinned code ever runs in the account that holds the key.
+function Assert-ToolHash([string] $Path, [string] $Sha256) {
+    if ($Sha256 -eq '<pin after provisioning>') {
+        throw "$Path has no SHA-256 pin yet: the owner records it in this script when he provisions bin\ (docs/runbooks/android-release-signing.md), and until then the signer refuses every run. The input, the key and its password were not touched."
+    }
+    if ($Sha256 -notmatch '^[0-9a-f]{64}$') { throw "The pin for $Path is not a lower-case SHA-256." }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Missing: $Path" }
+    Assert-NoLink -Path $Path
+    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $Sha256) { throw "$Path is not the pinned tool: its SHA-256 is $actual, the pin is $Sha256." }
 }
 
 # A tool started by its full path, with no shell, in the out folder. Its environment is a copy of this
@@ -127,9 +155,14 @@ function Wait-Tool([System.Diagnostics.ProcessStartInfo] $Start) {
 
 Assert-PlainApkName -Name $In -Parameter 'In'
 Assert-PlainApkName -Name $Out -Parameter 'Out'
-foreach ($file in @($Zipalign, $Apksigner, $Java, $KeyStore, $PassFile)) {
+Assert-ToolHash -Path $Zipalign -Sha256 $ZipalignSha256
+Assert-ToolHash -Path $Apksigner -Sha256 $ApksignerSha256
+Assert-ToolHash -Path $Java -Sha256 $JavaSha256
+foreach ($file in @($KeyStore, $PassFile)) {
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing: $file" }
 }
+Assert-NoLink -Path $KeyStore
+Assert-NoLink -Path $PassFile
 $inPath = Resolve-Inside -Dir $InDir -Name $In
 $outPath = Resolve-Inside -Dir $OutDir -Name $Out
 $token = [guid]::NewGuid().ToString('N')
