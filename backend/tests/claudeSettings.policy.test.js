@@ -281,6 +281,7 @@ describe('OPS-171 settings policy — the flows keep working', () => {
     'gh pr ready 1',
     'npm test',
     'npx jest tests/x.test.js',
+    './node_modules/.bin/jest', // /ship step 2: the mobile jest gate, run in mobile/KokonadaHealth
     'git diff --quiet A B -- x',
     'git status --porcelain',
   ];
