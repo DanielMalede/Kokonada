@@ -254,7 +254,7 @@ const SCRIPT_RULES: Array<[string, string]> = [
   ['[in]', 'reads the input only by a plain name resolved inside C:\\KokonadaSigner\\in\\, refusing .. and links'],
   ['[out]', 'writes only inside C:\\KokonadaSigner\\out\\, never over an existing file and never through a link'],
   ['[tools]', 'runs zipalign and apksigner from C:\\KokonadaSigner\\bin\\build-tools\\ and Java from the JBR, never from PATH or a shell'],
-  ['[align]', 'runs zipalign -p -f 4 on the input before apksigner sign'],
+  ['[align]', 'runs zipalign -P 16 -f 4 (not the deprecated -p) on the input before apksigner sign'],
   ['[sign]', 'signs the aligned file into a working file in the out folder'],
   ['[verify]', 'runs apksigner verify --print-certs and a 16 KB page check on the signed file before delivering it'],
   ['[exit]', "checks every tool's exit code"],
@@ -450,13 +450,13 @@ function scriptProblems(src: string): string[] {
   }
 
   // [align] [sign] [verify]
-  const align = /New-ToolStart -File \$Zipalign -Arguments @\('-p', '-f', '4', \$(\w+), \$(\w+)\)/.exec(code);
+  const align = /New-ToolStart -File \$Zipalign -Arguments @\('-P', '16', '-f', '4', \$(\w+), \$(\w+)\)/.exec(code);
   const sign = /New-ToolStart -File \$Java -Arguments @\('-jar', \$Apksigner, 'sign',[^)]*'--out', \$(\w+), \$(\w+)\)/.exec(code);
   const verify = /New-ToolStart -File \$Java -Arguments @\('-jar', \$Apksigner, 'verify', '--print-certs', \$(\w+)\)/.exec(code);
   const page = /New-ToolStart -File \$Zipalign -Arguments @\('-c', '-P', '16', '4', \$(\w+)\)/.exec(code);
   const move = /\[System\.IO\.File\]::Move\(/.exec(code);
   if (!align || align[1] !== 'inPath' || !outVars.has(align[2].toLowerCase())) {
-    p.push('[align] zipalign -p -f 4 does not align $inPath into a working file in the out folder');
+    p.push('[align] zipalign -P 16 -f 4 does not align $inPath into a working file in the out folder');
   }
   if (!align || !sign || sign[2] !== align[2] || !outVars.has(sign[1].toLowerCase()) || sign.index < align.index) {
     p.push('[sign] apksigner sign does not sign the aligned file, after zipalign, into a working file in the out folder');
@@ -615,7 +615,8 @@ describe('every rule bites on a planted violation', () => {
     ['a move out of the folder with Move-Item', (s) => `${s}\nMove-Item -LiteralPath $outPath -Destination C:\\Elsewhere\\\n`, '[out]'],
     ['a redirection', (s) => `${s}\nWrite-Output $certSha256 > planted.txt\n`, '[out]'],
     ['an existing output overwritten', (s) => s.replace(/^if \(Test-Path -LiteralPath \$outPath\) \{ throw[^\n]*\n/m, ''), '[out]'],
-    ['zipalign without -p', (s) => s.replace("@('-p', '-f', '4',", "@('-f', '4',"), '[align]'],
+    ['zipalign with the deprecated -p (C271-3)', (s) => s.replace("@('-P', '16', '-f', '4',", "@('-p', '-f', '4',"), '[align]'],
+    ['zipalign without a page size', (s) => s.replace("@('-P', '16', '-f', '4',", "@('-f', '4',"), '[align]'],
     ['the unaligned input signed', (s) => s.replace("'--out', $signedTmp, $alignedTmp)", "'--out', $signedTmp, $inPath)"), '[sign]'],
     ['no verify --print-certs', (s) => s.replace("'verify', '--print-certs',", "'verify',"), '[verify]'],
     ['no 16 KB page check', (s) => s.replace("@('-c', '-P', '16', '4',", "@('-c', '4',"), '[verify]'],
@@ -641,5 +642,12 @@ describe('every rule bites on a planted violation', () => {
     const planted = plant(script);
     expect(planted).not.toBe(script);
     expect(scriptProblems(planted).filter((problem) => problem.startsWith(tag))).not.toEqual([]);
+  });
+
+  it('every rule has at least one plant, so no rule can stop biting unnoticed', () => {
+    const gradleTags = new Set(GRADLE_PLANTS.map(([, , tag]) => tag));
+    const scriptTags = new Set(SCRIPT_PLANTS.map(([, , tag]) => tag));
+    expect(GRADLE_RULES.map(([tag]) => tag).filter((tag) => !gradleTags.has(tag))).toEqual([]);
+    expect(SCRIPT_RULES.map(([tag]) => tag).filter((tag) => !scriptTags.has(tag))).toEqual([]);
   });
 });
