@@ -1059,7 +1059,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
       // Serve ledger (write path): record every served track under this generation's mood context.
       writes.push(serveLedger.recordServes({
         userId,
-        sessionId: String(reqId ?? ''),
+        sessionId: String(reqId ?? '').slice(0, 64), // a second layer under the door's integer-only reqId (BE-070 round 2)
         entries: builtPlaylist.merged.map(t => ({
           canonicalKey: t.canonicalKey ?? canonicalKey(t),
           moodKey,
@@ -1532,7 +1532,7 @@ async function _serveForBand(socket, state, userId, bioMoodKey, claim = null) {
   const watchActivity = state.latestActivity ?? null;
   serveLedger.recordServes({
     userId,
-    sessionId: String(reqId ?? ''),
+    sessionId: String(reqId ?? '').slice(0, 64), // a second layer under the door's integer-only reqId (BE-070 round 2)
     entries: tracks.map((t) => ({
       canonicalKey: t.canonicalKey ?? canonicalKey(t),
       moodKey: bioMoodKey,
@@ -1994,10 +1994,14 @@ function _payloadOf(payload) {
 
 // BE-070: a client value that a log line or a reply interpolates must not be an object: `{"toString":1}`
 // is valid JSON, and interpolating it throws "Cannot convert object to primitive value", the same exit
-// as a null payload. An object or an array is treated as not sent.
-function _scalarOf(value) {
-  return value !== null && typeof value === 'object' ? undefined : value;
-}
+// as a null payload. Round 2 (SEC-266-1): nor may it be any string, because a string reqId up to
+// socket.io's 1 MB packet limit was printed by every always-on `[gen]` line (a "\n" inside it forges a
+// log line), echoed on playlist_ready and written into ServeEvent.sessionId on every served track. So
+// each field keeps only the shape the app sends (socketClient.ts): reqId a non-negative safe integer,
+// mode one of the two playback modes; anything else counts as not sent, and the state keeps its default.
+const REQUEST_MODES = new Set(['live', 'export']);
+const _admitMode = (mode) => (REQUEST_MODES.has(mode) ? mode : undefined);
+const _admitReqId = (reqId) => (Number.isSafeInteger(reqId) && reqId >= 0 ? reqId : undefined);
 
 // BE-070: the taps the PlaylistSession schema stores (1 to 3, x and y each in [-1, 1]), kept the way the
 // app's cold lane keeps them (emotionSlice.ts sanitizeTaps): finite numbers only, the LAST three, rebuilt
@@ -2030,14 +2034,14 @@ function _admitEmotionUpdate(payload) {
     taps:       _admitTaps(taps),
     textPrompt: _admitPrompt(textPrompt),
     activity:   _admitChipActivity(activity),
-    mode:       _scalarOf(mode),
+    mode:       _admitMode(mode),
   };
 }
 
 // The heart request's heartRate is not read here: H3a reads it only behind the consent gate.
 function _admitRequest(payload) {
   const { mode, reqId } = _payloadOf(payload);
-  return { mode: _scalarOf(mode), reqId: _scalarOf(reqId) };
+  return { mode: _admitMode(mode), reqId: _admitReqId(reqId) };
 }
 
 // ── Socket event registration ──────────────────────────────────────────────────
