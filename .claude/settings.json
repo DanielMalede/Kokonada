@@ -14,6 +14,7 @@
       "Bash(npm --prefix * ci)",
       "Bash(npx tsc *)",
       "Bash(npx jest *)",
+      "Bash(./node_modules/.bin/jest)",
       "Bash(npm --prefix mobile/KokonadaHealth start)",
       "Bash(npm --prefix mobile/KokonadaHealth start -- --reset-cache)",
       "Bash(git status *)",
