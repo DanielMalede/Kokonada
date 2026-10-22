@@ -276,6 +276,10 @@ const HEADER_MUST = [
   'ELF LOAD-segment alignment is checked separately',
   // SEC-271-2: the pins, and what an unprovisioned copy does.
   'A pin left at its placeholder refuses every run',
+  // SEC-271-3: the handle, the copy, and the folders.
+  'GetFinalPathNameByHandle',
+  'work\\ (kokonada-signer Modify, nobody else',
+  'out\\ (receives the verified APK alone)',
 ];
 const HEADER_MUST_NOT: Array<[string, RegExp]> = [
   ['claims to serve store uploads (C271-1)', /store uploads/i],
@@ -284,8 +288,9 @@ const HEADER_MUST_NOT: Array<[string, RegExp]> = [
 ];
 
 /**
- * SEC-271-1: the one Add-Type in the script, verbatim. It declares the two Terminal Services calls that name
- * the interactive user of the session this process runs in; nothing else is compiled.
+ * The one Add-Type in the script, verbatim. It declares the two Terminal Services calls that name the
+ * interactive user of the session this process runs in (SEC-271-1) and the kernel call that names the file an
+ * open handle really refers to (SEC-271-3); nothing else is compiled.
  */
 const NATIVE_MEMBERS = [
   "$native = Add-Type -Namespace KokonadaSigner -Name Native -PassThru -MemberDefinition '",
@@ -293,8 +298,13 @@ const NATIVE_MEMBERS = [
   'public static extern bool WTSQuerySessionInformationW(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytes);',
   '[DllImport("wtsapi32.dll")]',
   'public static extern void WTSFreeMemory(IntPtr buffer);',
+  '[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]',
+  'public static extern int GetFinalPathNameByHandleW(IntPtr file, System.Text.StringBuilder path, int capacity, int flags);',
   "'",
 ].join('\n');
+
+/** SEC-271-3: the open handle is compared with the path it was opened by, in the \\?\ form the kernel returns. */
+const FINAL_PATH_CHECK = "if (-not [string]::Equals($finalPath.ToString(), '\\\\?\\' + $inPath, [System.StringComparison]::OrdinalIgnoreCase)) {";
 
 /** The tools whose SHA-256 the script pins (SEC-271-2); $<tool>Sha256 holds each pin. */
 const PINNED_TOOLS = ['Zipalign', 'Apksigner', 'Java'];
@@ -311,17 +321,18 @@ const SCRIPT_RULES: Array<[string, string]> = [
   ['[literal]', 'holds no pass: form, no -storepass or -keypass flag, no injected Gradle signing, comments included'],
   ['[kspass]', 'hands the password to apksigner only as --ks-pass env:<VAR>, set on that child alone and removed after it (or stdin)'],
   ['[key]', 'signs with C:\\KokonadaSigner\\vault\\kokonada-upload.p12, PKCS12, alias kokonada-upload'],
-  ['[in]', 'reads the input only by a plain name resolved inside C:\\KokonadaSigner\\in\\, refusing .. and links'],
+  ['[in]', 'reads the input only by a plain name resolved inside C:\\KokonadaSigner\\in\\, refusing .. and, through the open handle, any link'],
   ['[out]', 'writes only inside C:\\KokonadaSigner\\out\\, never over an existing file and never through a link'],
+  ['[work]', 'copies the input through its handle into C:\\KokonadaSigner\\work\\, hashes and aligns that copy, runs every tool there and keeps every working file there'],
   ['[tools]', 'runs zipalign and apksigner from C:\\KokonadaSigner\\bin\\build-tools\\ and Java from the dedicated JDK in bin\\jdk, never from PATH or a shell'],
   ['[pins]', 'checks each tool against the SHA-256 pinned in the script (refusing the placeholder, a link or a mismatch) and refuses a link on the key and ks.pass, before any tool runs and before the password is read'],
   ['[align]', 'runs zipalign -P 16 -f 4 (not the deprecated -p) on the input before apksigner sign'],
-  ['[sign]', 'signs the aligned file into a working file in the out folder'],
+  ['[sign]', 'signs the aligned file into a working file in the work folder'],
   ['[verify]', 'runs apksigner verify --print-certs and a 16 KB page check on the signed file before delivering it'],
   ['[exit]', "checks every tool's exit code"],
   ['[print]', "prints the signer certificate's SHA-256 (exactly one signer) and the delivered APK's SHA-256"],
   ['[javaenv]', 'removes the variables that inject options into a JVM from every child environment'],
-  ['[read]', 'reads no file but the input (once, held open), the password file and its own output'],
+  ['[read]', 'reads no file but the input (once, through one handle), the password file, the tools it hashes and its own files'],
   ['[egress]', 'has no network, clipboard or printer path out of the signer'],
 ];
 
@@ -485,8 +496,28 @@ function scriptProblems(src: string): string[] {
   if (!/^\$inPath = Resolve-Inside -Dir \$InDir -Name \$In$/m.test(code) || assignments('inPath') !== 1) {
     p.push('[in] the input path is not Resolve-Inside -Dir $InDir -Name $In, assigned once');
   }
-  if (!/^\s*Assert-NoLink -Path \$inPath$/m.test(code) || !/\[System\.IO\.FileAttributes\]::ReparsePoint\b/.test(code)) {
-    p.push('[in] a link on the input path is not refused');
+  if (!/\[System\.IO\.FileAttributes\]::ReparsePoint\b/.test(code)) {
+    p.push('[in] Assert-NoLink does not look for a reparse point');
+  }
+  // SEC-271-3: the opened handle, not the path, says which file was opened. A link that was followed never
+  // shows in the opened file's attributes; it shows as a final path other than \\?\C:\KokonadaSigner\in\<-In>.
+  const opened = at(/^\s*\$lock = \[System\.IO\.File\]::OpenRead\(\$inPath\)$/m);
+  const finalPath = at(/^\s*\$length = \$native::GetFinalPathNameByHandleW\(\$lock\.SafeFileHandle\.DangerousGetHandle\(\), \$finalPath, \$finalPath\.Capacity, 0\)$/m);
+  const finalCheck = code.indexOf(FINAL_PATH_CHECK);
+  const copied = at(/^\s*try \{ \$lock\.CopyTo\(\$copy\) \} finally \{ \$copy\.Dispose\(\) \}$/m);
+  if (
+    opened < 0 ||
+    finalPath < 0 ||
+    finalCheck < 0 ||
+    copied < 0 ||
+    finalPath < opened ||
+    finalCheck < finalPath ||
+    copied < finalCheck ||
+    !/^\s*if \(\$length -le 0 -or \$length -ge \$finalPath\.Capacity\) \{ throw\b/m.test(code) ||
+    !/\n\s*throw\b/.test(code.slice(finalCheck, finalCheck + FINAL_PATH_CHECK.length + 200)) ||
+    /Assert-NoLink -Path \$inPath/.test(code)
+  ) {
+    p.push('[in] the open handle is not asked for its final path (GetFinalPathNameByHandle) and refused unless that is \\\\?\\$inPath itself, before the copy; a path check instead of the handle is a race');
   }
 
   // [out]
@@ -494,28 +525,61 @@ function scriptProblems(src: string): string[] {
     p.push('[out] $OutDir is not C:\\KokonadaSigner\\out\\, assigned once');
   }
   const outVars = new Set([...code.matchAll(/^\$(\w+) = Resolve-Inside -Dir \$OutDir -Name /gim)].map((m) => m[1].toLowerCase()));
-  for (const name of outVars) {
+  const workVars = new Set([...code.matchAll(/^\$(\w+) = Resolve-Inside -Dir \$WorkDir -Name /gim)].map((m) => m[1].toLowerCase()));
+  for (const name of [...outVars, ...workVars]) {
     if (assignments(name) !== 1) {
       p.push(`[out] $${name} is assigned more than once`);
     }
   }
-  // Cmdlet names at word boundaries: Move-Item is not the tail of Remove-Item.
-  if (/\b(?:Set-Content|Add-Content|Out-File|Tee-Object|New-Item|Copy-Item|Move-Item|Rename-Item|Start-Transcript|Export-\w+)\b|WriteAll|AppendAll|OpenWrite|CreateText|AppendText|FileStream|FileMode|::Create\(|::Copy\(|::Replace\(|::Open\(/i.test(code)) {
-    p.push("[out] a write other than the tools' outputs, the final move and the cleanup");
+  if ([...outVars].join() !== 'outpath') {
+    p.push(`[out] ${[...outVars].map((name) => `$${name}`).join(', ') || 'nothing'} resolved in the out folder; only $outPath belongs there, the working files live in work\\ (SEC-271-3)`);
+  }
+  // Cmdlet names at word boundaries: Move-Item is not the tail of Remove-Item. The one stream opened for
+  // writing is the copy of the input, pinned under [work].
+  if (/\b(?:Set-Content|Add-Content|Out-File|Tee-Object|New-Item|Copy-Item|Move-Item|Rename-Item|Start-Transcript|Export-\w+)\b|WriteAll|AppendAll|OpenWrite|CreateText|AppendText|FileStream|::Create\(|::Copy\(|::Replace\(|\.Write(?:Byte|Async)?\(/i.test(code)) {
+    p.push("[out] a write other than the tools' outputs, the copy of the input, the final move and the cleanup");
   }
   if (/>/.test(bare)) {
     p.push('[out] a redirection');
   }
   const moves = [...code.matchAll(/\[System\.IO\.File\]::Move\(\$(\w+), \$(\w+)\)/gi)];
-  if (count(/::Move\(/gi) !== 1 || moves.length !== 1 || !outVars.has(moves[0][1].toLowerCase()) || moves[0][2].toLowerCase() !== 'outpath' || !outVars.has('outpath')) {
-    p.push('[out] the signed file is not moved once, from the out folder to $outPath');
+  if (count(/::Move\(/gi) !== 1 || moves.length !== 1 || !workVars.has(moves[0][1].toLowerCase()) || moves[0][2].toLowerCase() !== 'outpath' || !outVars.has('outpath')) {
+    p.push('[out] the signed file is not moved once, from the work folder to $outPath');
   }
   const removes = [...code.matchAll(/Remove-Item -LiteralPath \$(\w+) -Force/gi)].map((m) => m[1].toLowerCase());
-  if (count(/Remove-Item/gi) !== removes.length || removes.some((name) => !outVars.has(name) || name === 'outpath')) {
-    p.push('[out] something other than a working file in the out folder is removed');
+  if (count(/Remove-Item/gi) !== removes.length || removes.some((name) => !workVars.has(name))) {
+    p.push('[out] something other than a working file in the work folder is removed');
   }
   if (!/^if \(Test-Path -LiteralPath \$outPath\) \{ throw\b/m.test(code) || !/^Assert-NoLink -Path \$OutDir$/m.test(code)) {
     p.push('[out] an existing output, or a link on the out folder, is not refused');
+  }
+
+  // [work] SEC-271-3: the copy and the working files live where only the signer writes, and the tools run there
+  // (Windows loads DLLs from a process's working folder; the JVM writes its crash log there).
+  if (!constant('WorkDir', "'C:\\KokonadaSigner\\work\\'")) {
+    p.push('[work] $WorkDir is not C:\\KokonadaSigner\\work\\, assigned once');
+  }
+  if ([...workVars].sort().join() !== 'alignedtmp,incopy,signedtmp') {
+    p.push(`[work] the files resolved in the work folder are ${[...workVars].map((name) => `$${name}`).join(', ') || 'none'}, not $inCopy, $alignedTmp and $signedTmp`);
+  }
+  if (!/^\s*\$start\.WorkingDirectory = \$WorkDir$/m.test(code) || count(/WorkingDirectory/g) !== 1) {
+    p.push('[work] the tools do not run with the work folder as their working directory');
+  }
+  if (!/^Assert-NoLink -Path \$WorkDir$/m.test(code)) {
+    p.push('[work] a link on the work folder is not refused');
+  }
+  if (
+    !/^\s*\$copy = \[System\.IO\.File\]::Open\(\$inCopy, \[System\.IO\.FileMode\]::CreateNew, \[System\.IO\.FileAccess\]::Write, \[System\.IO\.FileShare\]::None\)$/m.test(code) ||
+    count(/::Open\(/g) !== 1 ||
+    count(/FileMode\]/g) !== 1 ||
+    count(/CopyTo/g) !== 1 ||
+    copied < 0
+  ) {
+    p.push('[work] the input is not copied exactly once, through the open handle, into a new file $inCopy (CreateNew, no sharing) in the work folder');
+  }
+  const inputHash = at(/^\s*\$inputSha256 = \(Get-FileHash -LiteralPath \$inCopy -Algorithm SHA256\)\.Hash/m);
+  if (inputHash < 0 || inputHash < copied || assignments('inputSha256') !== 1) {
+    p.push("[work] the printed input SHA-256 is not the copy's, taken after the copy");
   }
 
   // [tools]
@@ -583,11 +647,11 @@ function scriptProblems(src: string): string[] {
   const verify = /New-ToolStart -File \$Java -Arguments @\('-jar', \$Apksigner, 'verify', '--print-certs', \$(\w+)\)/.exec(code);
   const page = /New-ToolStart -File \$Zipalign -Arguments @\('-c', '-P', '16', '4', \$(\w+)\)/.exec(code);
   const move = /\[System\.IO\.File\]::Move\(/.exec(code);
-  if (!align || align[1] !== 'inPath' || !outVars.has(align[2].toLowerCase())) {
-    p.push('[align] zipalign -P 16 -f 4 does not align $inPath into a working file in the out folder');
+  if (!align || align[1] !== 'inCopy' || !workVars.has(align[2].toLowerCase())) {
+    p.push('[align] zipalign -P 16 -f 4 does not align the copy $inCopy into a working file in the work folder');
   }
-  if (!align || !sign || sign[2] !== align[2] || !outVars.has(sign[1].toLowerCase()) || sign.index < align.index) {
-    p.push('[sign] apksigner sign does not sign the aligned file, after zipalign, into a working file in the out folder');
+  if (!align || !sign || sign[2] !== align[2] || !workVars.has(sign[1].toLowerCase()) || sign.index < align.index) {
+    p.push('[sign] apksigner sign does not sign the aligned file, after zipalign, into a working file in the work folder');
   }
   if (!sign || !verify || !move || verify[1] !== sign[1] || verify.index < sign.index || move.index < verify.index) {
     p.push('[verify] apksigner verify --print-certs does not check the signed file between signing and delivery');
@@ -625,7 +689,7 @@ function scriptProblems(src: string): string[] {
 
   // [read] the key and its password reach no stream this script could print or write. The tools' hash form
   // (-LiteralPath $Path) lives in Assert-ToolHash alone, which [pins] lets run on the tool constants only.
-  const hashes = (code.match(/Get-FileHash (?:-InputStream \$lock|-LiteralPath \$outPath|-LiteralPath \$Path) -Algorithm SHA256/g) ?? []).length;
+  const hashes = (code.match(/Get-FileHash (?:-LiteralPath \$inCopy|-LiteralPath \$outPath|-LiteralPath \$Path) -Algorithm SHA256/g) ?? []).length;
   if (
     count(/Get-Content/gi) !== 1 ||
     count(/OpenRead/gi) !== 1 ||
@@ -762,7 +826,21 @@ describe('every rule bites on a planted violation', () => {
     ['an input folder elsewhere', (s) => s.replace("$InDir = 'C:\\KokonadaSigner\\in\\'", "$InDir = 'C:\\Elsewhere\\'"), '[in]'],
     ["'..' let through", (s) => s.replace(" -or $Name.Contains('..')", ''), '[in]'],
     ['no link check', (s) => s.replace('[System.IO.FileAttributes]::ReparsePoint', '[System.IO.FileAttributes]::Hidden'), '[in]'],
-    ['the raw -In handed to zipalign', (s) => s.replace("'4', $inPath,", "'4', $In,"), '[align]'],
+    ['the raw -In handed to zipalign', (s) => s.replace("'4', $inCopy,", "'4', $In,"), '[align]'],
+    ['zipalign reads the input path, not the copy (SEC-271-3)', (s) => s.replace("'4', $inCopy, $alignedTmp", "'4', $inPath, $alignedTmp"), '[align]'],
+    ['a working folder elsewhere', (s) => s.replace("$WorkDir = 'C:\\KokonadaSigner\\work\\'", "$WorkDir = 'C:\\Elsewhere\\'"), '[work]'],
+    ['the aligned file placed in out', (s) => s.replace('$alignedTmp = Resolve-Inside -Dir $WorkDir', '$alignedTmp = Resolve-Inside -Dir $OutDir'), '[out]'],
+    ['the signed file placed in out', (s) => s.replace('$signedTmp = Resolve-Inside -Dir $WorkDir', '$signedTmp = Resolve-Inside -Dir $OutDir'), '[work]'],
+    ['the tools run in out', (s) => s.replace('$start.WorkingDirectory = $WorkDir', '$start.WorkingDirectory = $OutDir'), '[work]'],
+    ['no link check on the work folder', (s) => s.replace('Assert-NoLink -Path $WorkDir\n', ''), '[work]'],
+    ['the copy overwrites an existing file', (s) => s.replace('[System.IO.FileMode]::CreateNew', '[System.IO.FileMode]::Create'), '[work]'],
+    ['no copy through the handle', (s) => s.replace('try { $lock.CopyTo($copy) } finally { $copy.Dispose() }', '$copy.Dispose()'), '[work]'],
+    ['the input hashed by its path', (s) => s.replace('Get-FileHash -LiteralPath $inCopy', 'Get-FileHash -LiteralPath $inPath'), '[work]'],
+    ['the final path not checked', (s) => s.replace(/^\s*if \(-not \[string\]::Equals\(\$finalPath\.ToString\(\)[^\n]*\n[^\n]*\n\s*\}\n/m, ''), '[in]'],
+    ['the final path compared with the in folder only', (s) => s.replace("'\\\\?\\' + $inPath", "'\\\\?\\' + $InDir"), '[in]'],
+    ['the path checked instead of the handle', (s) => s.replace('$lock = [System.IO.File]::OpenRead($inPath)\n', '$lock = [System.IO.File]::OpenRead($inPath)\n    Assert-NoLink -Path $inPath\n'), '[in]'],
+    ['the final path taken before the open', (s) => s.replace(/^(\s*)(\$length = \$native::GetFinalPathNameByHandleW[^\n]*\n)/m, '').replace(/^(\s*\$lock = \[System\.IO\.File\]::OpenRead\(\$inPath\)\n)/m, (line) => `    $length = 1\n${line}`), '[in]'],
+    ['a write on the copy stream', (s) => `${s}\n$copy.Write($planted, 0, 1)\n`, '[out]'],
     ['an output folder elsewhere', (s) => s.replace("$OutDir = 'C:\\KokonadaSigner\\out\\'", "$OutDir = 'C:\\Elsewhere\\'"), '[out]'],
     ['a write with Set-Content', (s) => `${s}\nSet-Content -LiteralPath $outPath -Value planted\n`, '[out]'],
     ['a move out of the folder with Move-Item', (s) => `${s}\nMove-Item -LiteralPath $outPath -Destination C:\\Elsewhere\\\n`, '[out]'],
@@ -805,6 +883,8 @@ describe('every rule bites on a planted violation', () => {
     ['the Play comparison stated as if a bundle step existed', (s) => s.replace(/\s+once\s+a bundle step exists/, ''), '[header]'],
     ['the ELF caveat dropped from the header (C271-4)', (s) => s.replace(/ELF LOAD-segment\s+alignment is checked separately/, 'nothing else is checked'), '[header]'],
     ['the placeholder rule dropped from the header (SEC-271-2)', (s) => s.replace(/A pin left at its placeholder\s+refuses every run/, 'A pin is optional'), '[header]'],
+    ['the work folder opened to everyone in the header (SEC-271-3)', (s) => s.replace(/work\\ \(kokonada-signer\s+Modify, nobody else/, 'work\\ (everyone Modify'), '[header]'],
+    ['the out folder described as a working folder', (s) => s.replace(/out\\ \(receives\s+the verified APK alone\)/, 'out\\ (the working files)'), '[header]'],
   ];
 
   it.each(SCRIPT_PLANTS)('sign-release.ps1: %s', (_name, plant, tag) => {
