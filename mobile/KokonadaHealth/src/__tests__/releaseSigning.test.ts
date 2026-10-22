@@ -127,7 +127,15 @@ const GRADLE_RULES: Array<[string, string]> = [
   ['[gradle-fallback]', 'has two signingConfig statements, debug and lab, so release falls back to no key'],
   ['[gradle-debug]', 'keeps debug signing exactly as it was'],
   ['[gradle-lab]', 'keeps the lab build type exactly as it was: initWith release, debug-signed, not debuggable'],
+  ['[gradle-scope]', 'says in the release comment that the script signs sideloaded QA APKs only, and that the bundle step does not exist yet (C271-1)'],
 ];
+
+// C271-1: Play takes an App Bundle, apksigner cannot sign one, and no reviewed step signs one yet. Neither
+// file may call the APK path the store signing step.
+const RELEASE_SCOPE = ['for sideloaded QA builds only', 'App Bundle', 'does not exist yet (SEC-271-5)'];
+
+/** A comment as prose: '//' prefixes dropped and whitespace collapsed, so a pin does not depend on where a line wraps. */
+const prose = (text: string) => text.replace(/^\s*\/\/ ?/gm, '').replace(/\s+/g, ' ');
 
 function gradleProblems(src: string): string[] {
   const problems: string[] = [];
@@ -164,6 +172,16 @@ function gradleProblems(src: string): string[] {
   }
   if (codeLines(blockBody(buildTypes, /^ {8}lab \{/m)).join('\n') !== LAB_BUILD_TYPE.join('\n')) {
     problems.push('[gradle-lab] the lab build type changed (MB-084: release-equivalent, debug-signed, not debuggable)');
+  }
+  // [gradle-scope] the release block with its comments, cut by indentation.
+  const releaseText = prose(/^ {8}release \{\n([\s\S]*?)^ {8}\}/m.exec(src)?.[1] ?? '');
+  for (const must of RELEASE_SCOPE) {
+    if (!releaseText.includes(must)) {
+      problems.push(`[gradle-scope] the release comment does not say ${must}`);
+    }
+  }
+  if (/store upload/i.test(releaseText)) {
+    problems.push('[gradle-scope] the release comment claims store uploads');
   }
   return problems;
 }
@@ -240,10 +258,23 @@ function parenBody(code: string, open: number): string | null {
   return null;
 }
 
+/** Every phrase the opening comment must carry (each has a plant below) and every claim it must not make. */
+const HEADER_MUST = [
+  'kokonada-signer',
+  'runas',
+  'SHA-256',
+  'docs/runbooks/android-release-signing.md',
+  ...RELEASE_SCOPE,
+  'once a bundle step exists',
+  // C271-4: zipalign -c -P 16 is the zip-alignment check only.
+  'ELF LOAD-segment alignment is checked separately',
+];
+const HEADER_MUST_NOT: Array<[string, RegExp]> = [['claims to serve store uploads (C271-1)', /store uploads/i]];
+
 const SCRIPT_RULES: Array<[string, string]> = [
   ['[parse]', 'is readable by this check: no here-string, no glued #, no variable set but by plain assignment'],
   ['[ascii]', 'is plain ASCII: PowerShell 5.1 reads a script that has no BOM in the ANSI code page'],
-  ['[header]', 'opens with a comment naming kokonada-signer, runas and its SHA-256 pinned in the runbook'],
+  ['[header]', 'opens with a comment naming kokonada-signer, runas, its SHA-256 pinned in the runbook, the QA-only scope and the 16 KB caveat'],
   ['[strict]', "opens with Set-StrictMode -Version Latest and $ErrorActionPreference = 'Stop'"],
   ['[params]', 'takes exactly -In and -Out, so no password can be handed in'],
   ['[user]', 'refuses to run unless [Environment]::UserName is kokonada-signer, before it touches anything'],
@@ -286,10 +317,15 @@ function scriptProblems(src: string): string[] {
   }
 
   // [header]
-  const header = src.startsWith('<#') ? src.slice(0, src.indexOf('#>') + 2) : '';
-  for (const must of ['kokonada-signer', 'runas', 'SHA-256', 'docs/runbooks/android-release-signing.md']) {
+  const header = prose(src.startsWith('<#') ? src.slice(0, src.indexOf('#>') + 2) : '');
+  for (const must of HEADER_MUST) {
     if (!header.includes(must)) {
-      p.push(`[header] the opening comment does not name ${must}`);
+      p.push(`[header] the opening comment does not say ${must}`);
+    }
+  }
+  for (const [claim, re] of HEADER_MUST_NOT) {
+    if (re.test(header)) {
+      p.push(`[header] the opening comment ${claim}`);
     }
   }
 
@@ -577,6 +613,8 @@ describe('every rule bites on a planted violation', () => {
     ['the lab signed with another config', (g) => g.replace(/(^ {8}lab \{[\s\S]*?)signingConfig signingConfigs\.debug/m, '$1signingConfig signingConfigs.upload'), '[gradle-lab]'],
     ['the lab made debuggable', (g) => g.replace(/^( {8}lab \{\n)/m, '$1            debuggable true\n'), '[gradle-lab]'],
     ['the lab no longer release-equivalent', (g) => g.replace(/^( {12})initWith release$/m, '$1initWith debug'), '[gradle-lab]'],
+    ['the release comment claims store uploads (C271-1)', (g) => g.replace('for sideloaded QA builds only', 'QA builds included, for store uploads'), '[gradle-scope]'],
+    ['the bundle row dropped from the release comment', (g) => g.replace(' (SEC-271-5)', ''), '[gradle-scope]'],
   ];
 
   it.each(GRADLE_PLANTS)('build.gradle: %s', (_name, plant, tag) => {
@@ -636,6 +674,10 @@ describe('every rule bites on a planted violation', () => {
     ['a character outside ASCII', (s) => s.replace(/^(# A plain \.apk file name)/m, '$1 \u2014'), '[ascii]'],
     ['a here-string', (s) => `${s}\n$planted = @'\nplanted\n'@\n`, '[parse]'],
     ['the runbook pin dropped from the header', (s) => s.replace('docs/runbooks/android-release-signing.md', 'the runbook'), '[header]'],
+    ['the header claims store uploads again (C271-1)', (s) => s.replace('for sideloaded QA builds only', 'for store uploads and QA builds alike'), '[header]'],
+    ['the bundle gap dropped from the header', (s) => s.replace(' (SEC-271-5)', ''), '[header]'],
+    ['the Play comparison stated as if a bundle step existed', (s) => s.replace(/\s+once\s+a bundle step exists/, ''), '[header]'],
+    ['the ELF caveat dropped from the header (C271-4)', (s) => s.replace(/ELF LOAD-segment\s+alignment is checked separately/, 'nothing else is checked'), '[header]'],
   ];
 
   it.each(SCRIPT_PLANTS)('sign-release.ps1: %s', (_name, plant, tag) => {
