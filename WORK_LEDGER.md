@@ -111,7 +111,7 @@ _free_
 - branch: `test/pii-guard`
 - paths: `backend/tests/personalDataGuard.test.js`, `backend/tests/shadow.personalDataGuard.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #268
 - started: 2026-10-20
 
 ### M07
