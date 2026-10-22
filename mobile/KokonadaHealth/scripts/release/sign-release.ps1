@@ -5,11 +5,21 @@ Gradle signs no release build: assembleRelease yields app-release-unsigned.apk, 
 installs. This script signs that APK for sideloaded QA builds only. Google Play takes an App Bundle,
 bundleRelease yields an unsigned one, and the jarsigner step that would sign it as kokonada-signer
 does not exist yet (SEC-271-5); nothing is uploaded until it does. The script runs only as the
-Windows account kokonada-signer, which alone (with SYSTEM) can read C:\KokonadaSigner\vault. Start
-the reviewed copy in C:\KokonadaSigner\bin from the owner's own account through runas, and close
-the window once you have read the result:
+Windows account kokonada-signer, which alone (with SYSTEM) can read C:\KokonadaSigner\vault, and
+only inside that account's own Windows session. Lock the screen, choose Switch user, sign in as
+kokonada-signer on the Windows sign-in screen, and in that session run the reviewed copy in
+C:\KokonadaSigner\bin:
 
-  runas /user:kokonada-signer "powershell.exe -NoProfile -NoExit -ExecutionPolicy Bypass -File C:\KokonadaSigner\bin\sign-release.ps1 -In app-release-unsigned.apk -Out <name>.apk"
+  C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\KokonadaSigner\bin\sign-release.ps1 -In <name>.apk -Out <name>.apk
+
+Read the result, then choose Sign out (not Switch user). Never start it from the owner's session:
+never runas, never /savecred, never -NoExit. runas asks for the signer's password inside the
+caller's session, where the caller's code can read it and then sign in as the signer whenever it
+likes; it looks a bare program name up through the caller's folder; and it leaves the signer's
+window on the caller's desktop, where that code can type into it. The script refuses a session
+whose interactive user is not the account it runs as (WTSQuerySessionInformation, WTSUserName),
+which is what runas gives. Precondition: this design holds only against code that does not
+elevate; an administrator reads any account's files and memory.
 
 Its SHA-256 is pinned in docs/runbooks/android-release-signing.md. Compare the copy in
 C:\KokonadaSigner\bin with that value (Get-FileHash) before every run; a copy that differs is not
@@ -21,7 +31,8 @@ lives only in C:\KokonadaSigner\vault\ks.pass, written once by kokonada-signer w
 so DPAPI binds it to that account on this machine.
 
 In order, stopping at the first failure:
-  1. Refuses to run unless [Environment]::UserName is kokonada-signer.
+  1. Refuses to run unless [Environment]::UserName is kokonada-signer, and unless the interactive
+     user of this Windows session (WTSQuerySessionInformation, WTSUserName) is that same account.
   2. -In must be a plain .apk file name in C:\KokonadaSigner\in\ and -Out a plain .apk file name not
      yet present in C:\KokonadaSigner\out\. Each is resolved to a full path and compared with its
      folder; a folder, a drive, '..' or a link (a reparse point) on either path is refused. The
@@ -62,7 +73,32 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ([Environment]::UserName -ne 'kokonada-signer') {
-    throw "sign-release.ps1 runs only as kokonada-signer, started through runas; this is $([Environment]::UserName). Nothing was read."
+    throw "sign-release.ps1 runs only as kokonada-signer, in that account's own Windows session; this is $([Environment]::UserName). Nothing was read."
+}
+
+# The interactive user of the Windows session this process runs in, from Terminal Services (SEC-271-1). Under
+# runas the token is kokonada-signer's but the session is the caller's, so the two names differ; a sign-in as
+# kokonada-signer on the Windows sign-in screen (Switch user) is the only start that passes. The one Add-Type
+# in this script declares these two calls and nothing else. Nothing is read before this check.
+$native = Add-Type -Namespace KokonadaSigner -Name Native -PassThru -MemberDefinition '
+[DllImport("wtsapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool WTSQuerySessionInformationW(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytes);
+[DllImport("wtsapi32.dll")]
+public static extern void WTSFreeMemory(IntPtr buffer);
+'
+$buffer = [IntPtr]::Zero
+$bytes = 0
+# WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION (-1), WTSUserName (5).
+if (-not $native::WTSQuerySessionInformationW([IntPtr]::Zero, -1, 5, [ref] $buffer, [ref] $bytes)) {
+    throw "WTSQuerySessionInformation failed (Win32 error $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error())). Nothing was read."
+}
+try {
+    $sessionUser = [System.Runtime.InteropServices.Marshal]::PtrToStringUni($buffer)
+} finally {
+    $native::WTSFreeMemory($buffer)
+}
+if ($sessionUser -ne [Environment]::UserName) {
+    throw "sign-release.ps1 runs only inside kokonada-signer's own Windows session (Switch user on the sign-in screen), never through runas: this session's interactive user is '$sessionUser'. Nothing was read."
 }
 
 $InDir = 'C:\KokonadaSigner\in\'
