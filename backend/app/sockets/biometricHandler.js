@@ -1984,10 +1984,11 @@ function _admitChipActivity(activity) {
 }
 
 // BE-070: a listener's payload is whatever the client sent, and socket.io calls each listener inside
-// process.nextTick with no try/catch while backend/app registers no uncaughtException or
-// unhandledRejection handler, so one throw at a door ends the process for every user. A `= {}`
-// parameter default covers only an ABSENT payload, never `null`, so every door reads its fields
-// through this view.
+// process.nextTick with no try/catch while backend/app registers no handler of its own: without
+// SENTRY_DSN, Node ends the process on a throw and on an unhandled rejection; with it, Sentry's
+// defaults still exit on a synchronous throw and only log a rejection, so the listener gets no answer.
+// Either way one throw at a door took the process, or the reply, from every user. A `= {}` parameter
+// default covers only an ABSENT payload, never `null`, so every door reads its fields through this view.
 function _payloadOf(payload) {
   return payload !== null && typeof payload === 'object' ? payload : {};
 }
@@ -2006,10 +2007,11 @@ const _admitReqId = (reqId) => (Number.isSafeInteger(reqId) && reqId >= 0 ? reqI
 // BE-070: the taps the PlaylistSession schema stores (1 to 3, x and y each in [-1, 1]), kept the way the
 // app's cold lane keeps them (emotionSlice.ts sanitizeTaps): finite numbers only, the LAST three, rebuilt
 // as {x, y} so nothing else rides along. Four taps, or one malformed tap, failed the session write, and
-// the moment never reached History. A tap outside [-1, 1] is DROPPED, not clamped: the app clamps every
-// tap to the unit disc before sending it (laneCommit.ts clampToDisc), so such a tap is malformed, not
-// imprecise, and clamping it would store, and generate from, the strongest feeling on that axis, one the
-// listener never chose.
+// the moment never reached History. A tap outside [-1, 1] is DROPPED, not clamped: the app clamps its
+// WHEEL taps to the unit disc before sending them (laneCommit.ts clampToDisc), its list presets are fixed
+// at ±0.55 and a rehydrated tap is checked for finiteness only (emotionSlice.ts), so a tap outside the
+// range is malformed or stale, not imprecise, and clamping it would store, and generate from, the
+// strongest feeling on that axis, one the listener never chose.
 const MAX_EMOTION_TAPS = 3;
 const _isTapAxis = (v) => Number.isFinite(v) && v >= -1 && v <= 1;
 function _admitTaps(taps) {
@@ -2021,8 +2023,10 @@ function _admitTaps(taps) {
 }
 
 // BE-070: the app caps the prompt at 500 characters (promptSanitizer.ts MAX_PROMPT_LENGTH), and nothing
-// here did, so any client's prompt reached the stored row and the model as sent. A string is cut to the
-// same cap; anything else is no prompt.
+// here did, so any client's prompt reached the stored row as sent (the raw text never reaches an LLM:
+// geminiEngine's extractIntent reduces it to closed-vocabulary tags first). A string is cut to the same
+// cap; anything else is no prompt. The bound is type and length only; the app alone strips control
+// characters.
 const MAX_PROMPT_LENGTH = 500;
 function _admitPrompt(prompt) {
   return typeof prompt === 'string' ? prompt.slice(0, MAX_PROMPT_LENGTH) : '';

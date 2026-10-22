@@ -3,12 +3,13 @@
 // BE-070 (HIGH) — one packet from any signed-in client could stop the backend for every user.
 //
 // socket.io calls each listener inside process.nextTick with no try/catch (socket.io's
-// Socket#dispatch), and backend/app registers no uncaughtException or unhandledRejection handler,
-// so a listener that throws ends the process. Five doors destructured the client's payload with a
-// `= {}` default, which only covers a payload that is ABSENT: `null` threw at the destructure,
-// `{taps:null}` threw at `taps.length`, and the two async doors (biometric_push,
-// request_heart_playlist) turned the same throw into an unhandled rejection, which Node also treats
-// as fatal. A field that a log line interpolates threw the same way when it was an object whose own
+// Socket#dispatch), and backend/app registers no handler of its own: without SENTRY_DSN Node ends the
+// process on a throw and on an unhandled rejection; with it, Sentry's defaults still exit on a
+// synchronous throw and only log a rejection, so the listener gets no answer. Five doors destructured
+// the client's payload with a `= {}` default, which only covers a payload that is ABSENT: `null`
+// threw at the destructure, `{taps:null}` threw at `taps.length`, and the two async doors
+// (biometric_push, request_heart_playlist) turned the same throw into an unhandled rejection. A field
+// that a log line interpolates threw the same way when it was an object whose own
 // `toString` is not a function: `{"toString":1}` is valid JSON, and interpolating it throws
 // "Cannot convert object to primitive value".
 //

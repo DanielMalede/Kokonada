@@ -5,7 +5,8 @@
 // The handler held the client's taps and prompt exactly as sent. The PlaylistSession schema stores 1 to
 // 3 taps, each with a numeric x and y in [-1, 1] (models/PlaylistSession.js), so four taps, or one
 // malformed tap, failed the write: the row was dropped and the moment never reached History. The
-// prompt had no server-side type or length bound, so it reached the stored row and the model as sent.
+// prompt had no server-side type or length bound, so it reached the stored row as sent (the raw text
+// never reaches an LLM: geminiEngine's extractIntent reduces it to closed-vocabulary tags first).
 //
 // The door now keeps what the app's own cold lane keeps (emotionSlice.ts sanitizeTaps): taps whose x
 // and y are finite numbers, the LAST three of them, rebuilt as {x, y}; and a string prompt cut to the
