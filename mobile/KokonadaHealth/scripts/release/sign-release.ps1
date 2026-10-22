@@ -35,32 +35,40 @@ In order, stopping at the first failure:
      user of this Windows session (WTSQuerySessionInformation, WTSUserName) is that same account.
   2. -In must be a plain .apk file name in C:\KokonadaSigner\in\ and -Out a plain .apk file name not
      yet present in C:\KokonadaSigner\out\. Each is resolved to a full path and compared with its
-     folder; a folder, a drive, '..' or a link (a reparse point) on either path is refused. The
-     input stays open for reading, so nobody can change it, until zipalign has read it.
+     folder; a folder, a drive, '..' or a link (a reparse point) is refused.
   3. Checks zipalign.exe, lib\apksigner.jar and java.exe against the SHA-256 pinned in this script
      (Get-FileHash) and refuses a link on any tool path, on the key and on ks.pass, before any tool
      runs and before ks.pass is read. A pin left at its placeholder refuses every run: the owner
      records the real values, one line each, when he provisions bin\ (the runbook's provisioning
      step). The pin covers the launcher; the folder's permissions (administrators only) cover the
      rest of the JDK and the build-tools.
-  4. zipalign -P 16 -f 4, then apksigner sign. The password reaches apksigner as
+  4. Opens the input and asks the open handle which file it really refers to
+     (GetFinalPathNameByHandle). Unless that is C:\KokonadaSigner\in\<-In> itself, a link was
+     followed somewhere on the way and the run is refused: through the handle, not the path, so no
+     swap between a check and a read slips by. Then copies the bytes through that handle into
+     C:\KokonadaSigner\work\ and closes the input; every later step reads that copy, and the input
+     SHA-256 printed at the end is the copy's.
+  5. zipalign -P 16 -f 4 on the copy, then apksigner sign. The password reaches apksigner as
      --ks-pass env:KOKONADA_SIGNER_KS_PASS, set in that one child process's environment and removed,
      with its plain text zeroed, as soon as the child exits. It is never a parameter, never typed
      here and never on a command line.
-  5. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
+  6. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
      alignment of the native libraries, one of Google Play's two 16 KB checks. ELF LOAD-segment
      alignment is checked separately, on a real release build, before the first upload.
-  6. Moves the signed APK to C:\KokonadaSigner\out\<-Out>, then prints the input's SHA-256, the
-     signer certificate's SHA-256 (the value to compare with Play Console's upload certificate once
-     a bundle step exists) and the signed APK's SHA-256.
+  7. Moves the signed APK from work\ to C:\KokonadaSigner\out\<-Out>, then prints the input's
+     SHA-256, the signer certificate's SHA-256 (the value to compare with Play Console's upload
+     certificate once a bundle step exists) and the signed APK's SHA-256.
 
-It writes its files only in C:\KokonadaSigner\out\, where its two working files are removed at the
-end; the JVM keeps only its transient run data in this account's own %TEMP%. zipalign.exe and
-lib\apksigner.jar come from C:\KokonadaSigner\bin\build-tools\ (build-tools 35 or newer) and
-java.exe from the dedicated JDK in C:\KokonadaSigner\bin\jdk\, never from the IDE's runtime, which an
-IDE the owner's account runs keeps updating; bin\ is writable by administrators only. Nothing is
-looked up on PATH, and every child process runs without the variables that inject options into a
-JVM.
+Folders under C:\KokonadaSigner: in\ (the owner drops the unsigned APK there), work\ (kokonada-signer
+Modify, nobody else: the copy of the input, the aligned and the signed working files live here and
+are removed at the end, and a JVM crash log, if one is ever written, lands here too), out\ (receives
+the verified APK alone), bin\ (the tools; writable by administrators only), vault\ (the key and
+ks.pass). Every tool runs by its full path, with no shell, with work\ as its working folder:
+zipalign.exe and lib\apksigner.jar from C:\KokonadaSigner\bin\build-tools\ (build-tools 35 or newer)
+and java.exe from the dedicated JDK in C:\KokonadaSigner\bin\jdk\, never from the IDE's runtime,
+which an IDE the owner's account runs keeps updating. Nothing is looked up on PATH, every child
+process runs without the variables that inject options into a JVM, and the JVM keeps only its
+transient run data in this account's own %TEMP%.
 Windows PowerShell 5.1 compatible; ASCII only.
 #>
 [CmdletBinding()]
@@ -79,12 +87,15 @@ if ([Environment]::UserName -ne 'kokonada-signer') {
 # The interactive user of the Windows session this process runs in, from Terminal Services (SEC-271-1). Under
 # runas the token is kokonada-signer's but the session is the caller's, so the two names differ; a sign-in as
 # kokonada-signer on the Windows sign-in screen (Switch user) is the only start that passes. The one Add-Type
-# in this script declares these two calls and nothing else. Nothing is read before this check.
+# in this script declares these two calls and, for the input (SEC-271-3), GetFinalPathNameByHandle; nothing
+# else is compiled. Nothing is read before this check.
 $native = Add-Type -Namespace KokonadaSigner -Name Native -PassThru -MemberDefinition '
 [DllImport("wtsapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
 public static extern bool WTSQuerySessionInformationW(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytes);
 [DllImport("wtsapi32.dll")]
 public static extern void WTSFreeMemory(IntPtr buffer);
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern int GetFinalPathNameByHandleW(IntPtr file, System.Text.StringBuilder path, int capacity, int flags);
 '
 $buffer = [IntPtr]::Zero
 $bytes = 0
@@ -103,6 +114,7 @@ if ($sessionUser -ne [Environment]::UserName) {
 
 $InDir = 'C:\KokonadaSigner\in\'
 $OutDir = 'C:\KokonadaSigner\out\'
+$WorkDir = 'C:\KokonadaSigner\work\'
 $KeyStore = 'C:\KokonadaSigner\vault\kokonada-upload.p12'
 $KeyAlias = 'kokonada-upload'
 $PassFile = 'C:\KokonadaSigner\vault\ks.pass'
@@ -159,8 +171,10 @@ function Assert-ToolHash([string] $Path, [string] $Sha256) {
     if ($actual -ne $Sha256) { throw "$Path is not the pinned tool: its SHA-256 is $actual, the pin is $Sha256." }
 }
 
-# A tool started by its full path, with no shell, in the out folder. Its environment is a copy of this
-# one without the variables a JVM takes options from, so nothing can load into the JVM that holds the key.
+# A tool started by its full path, with no shell, in the work folder, where only the signer writes (Windows
+# loads DLLs from a process's working folder, and the JVM writes its crash log there). Its environment is a
+# copy of this one without the variables a JVM takes options from, so nothing can load into the JVM that
+# holds the key.
 function New-ToolStart([string] $File, [string[]] $Arguments) {
     foreach ($argument in $Arguments) {
         if ($argument -match '[\s"]') { throw "Internal error: the argument '$argument' would need quoting." }
@@ -169,7 +183,7 @@ function New-ToolStart([string] $File, [string[]] $Arguments) {
     $start.FileName = $File
     $start.Arguments = $Arguments -join ' '
     $start.UseShellExecute = $false
-    $start.WorkingDirectory = $OutDir
+    $start.WorkingDirectory = $WorkDir
     foreach ($name in @('JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'CLASSPATH')) {
         $start.EnvironmentVariables.Remove($name)
     }
@@ -202,24 +216,35 @@ Assert-NoLink -Path $PassFile
 $inPath = Resolve-Inside -Dir $InDir -Name $In
 $outPath = Resolve-Inside -Dir $OutDir -Name $Out
 $token = [guid]::NewGuid().ToString('N')
-$alignedTmp = Resolve-Inside -Dir $OutDir -Name "$Out.$token.aligned"
-$signedTmp = Resolve-Inside -Dir $OutDir -Name "$Out.$token.signed"
+$inCopy = Resolve-Inside -Dir $WorkDir -Name "$Out.$token.input"
+$alignedTmp = Resolve-Inside -Dir $WorkDir -Name "$Out.$token.aligned"
+$signedTmp = Resolve-Inside -Dir $WorkDir -Name "$Out.$token.signed"
 if (-not (Test-Path -LiteralPath $inPath -PathType Leaf)) { throw "There is no input file $inPath." }
 if (Test-Path -LiteralPath $outPath) { throw "$outPath exists already; the signer never replaces a file." }
 Assert-NoLink -Path $OutDir
+Assert-NoLink -Path $WorkDir
 
 $lock = $null
 try {
-    # Others may read the input but not write, rename or delete it while this handle is open, so the
-    # hash printed below is the hash of the bytes zipalign reads.
+    # The handle, not the path, says which file was opened (SEC-271-3): a link anywhere on the way makes the
+    # final path differ (the opened file's own attributes never show a link that was followed), and no swap
+    # after the open changes what this handle reads. Its bytes are copied into work\, where only
+    # kokonada-signer writes; every later step reads that copy, and the hash printed at the end is the copy's.
     $lock = [System.IO.File]::OpenRead($inPath)
-    Assert-NoLink -Path $inPath
-    $inputSha256 = (Get-FileHash -InputStream $lock -Algorithm SHA256).Hash.ToLowerInvariant()
-
-    $aligned = Wait-Tool (New-ToolStart -File $Zipalign -Arguments @('-P', '16', '-f', '4', $inPath, $alignedTmp))
-    if ($aligned.ExitCode -ne 0) { throw "zipalign failed (exit $($aligned.ExitCode))." }
+    $finalPath = New-Object System.Text.StringBuilder 1024
+    $length = $native::GetFinalPathNameByHandleW($lock.SafeFileHandle.DangerousGetHandle(), $finalPath, $finalPath.Capacity, 0)
+    if ($length -le 0 -or $length -ge $finalPath.Capacity) { throw "GetFinalPathNameByHandle failed (length $length, Win32 error $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error()))." }
+    if (-not [string]::Equals($finalPath.ToString(), '\\?\' + $inPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "The open input is $($finalPath.ToString()), not $inPath; a link was followed, and the signer follows no link."
+    }
+    $copy = [System.IO.File]::Open($inCopy, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try { $lock.CopyTo($copy) } finally { $copy.Dispose() }
     $lock.Dispose()
     $lock = $null
+    $inputSha256 = (Get-FileHash -LiteralPath $inCopy -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    $aligned = Wait-Tool (New-ToolStart -File $Zipalign -Arguments @('-P', '16', '-f', '4', $inCopy, $alignedTmp))
+    if ($aligned.ExitCode -ne 0) { throw "zipalign failed (exit $($aligned.ExitCode))." }
 
     $sign = New-ToolStart -File $Java -Arguments @('-jar', $Apksigner, 'sign', '--ks', $KeyStore, '--ks-type', 'PKCS12',
         '--ks-key-alias', $KeyAlias, '--ks-pass', 'env:KOKONADA_SIGNER_KS_PASS', '--v4-signing-enabled', 'false',
@@ -252,6 +277,7 @@ try {
     $artifactSha256 = (Get-FileHash -LiteralPath $outPath -Algorithm SHA256).Hash.ToLowerInvariant()
 } finally {
     if ($null -ne $lock) { $lock.Dispose() }
+    if (Test-Path -LiteralPath $inCopy) { Remove-Item -LiteralPath $inCopy -Force }
     if (Test-Path -LiteralPath $alignedTmp) { Remove-Item -LiteralPath $alignedTmp -Force }
     if (Test-Path -LiteralPath $signedTmp) { Remove-Item -LiteralPath $signedTmp -Force }
 }
