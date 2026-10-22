@@ -5,10 +5,10 @@ import * as path from 'path';
 // OPS-303 · the owner's rulings of 2026-10-20 (F1 B, F3 A, F7). Release signing leaves the reach of
 // every session on this machine. android/app/build.gradle signs no release build and keeps no debug
 // fallback, so assembleRelease yields app-release-unsigned.apk, which no device installs: a build that
-// skipped the signer fails closed. The owner signs that file, QA builds included, with
-// scripts/release/sign-release.ps1, started through runas as the Windows account kokonada-signer, the
-// one account (with SYSTEM) that can read the vault holding the new upload key and its DPAPI-bound
-// password.
+// skipped the signer fails closed. The owner signs that file, for sideloaded QA builds, with
+// scripts/release/sign-release.ps1, run inside the own Windows session of the account kokonada-signer
+// (never through runas: SEC-271-1), the one account (with SYSTEM) that can read the vault holding the
+// new upload key and its DPAPI-bound password.
 //
 // Both files are read as text, as appVersion.test.ts reads build.gradle. Every rule also runs on a
 // planted violation of the real file (the last describe), so a rule that stops biting fails here too.
@@ -261,9 +261,15 @@ function parenBody(code: string, open: number): string | null {
 /** Every phrase the opening comment must carry (each has a plant below) and every claim it must not make. */
 const HEADER_MUST = [
   'kokonada-signer',
-  'runas',
   'SHA-256',
   'docs/runbooks/android-release-signing.md',
+  // SEC-271-1: a separate Windows session, started from the sign-in screen, and nothing else.
+  'Switch user',
+  'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\KokonadaSigner\\bin\\sign-release.ps1 -In',
+  'Sign out',
+  'never runas, never /savecred, never -NoExit',
+  'WTSQuerySessionInformation',
+  'holds only against code that does not elevate',
   ...RELEASE_SCOPE,
   'once a bundle step exists',
   // C271-4: zipalign -c -P 16 is the zip-alignment check only.
@@ -271,7 +277,24 @@ const HEADER_MUST = [
   // SEC-271-2: the pins, and what an unprovisioned copy does.
   'A pin left at its placeholder refuses every run',
 ];
-const HEADER_MUST_NOT: Array<[string, RegExp]> = [['claims to serve store uploads (C271-1)', /store uploads/i]];
+const HEADER_MUST_NOT: Array<[string, RegExp]> = [
+  ['claims to serve store uploads (C271-1)', /store uploads/i],
+  ['starts the script through runas (SEC-271-1)', /runas \/user:/i],
+  ['passes -NoExit on a command line (SEC-271-1)', /-NoExit -/],
+];
+
+/**
+ * SEC-271-1: the one Add-Type in the script, verbatim. It declares the two Terminal Services calls that name
+ * the interactive user of the session this process runs in; nothing else is compiled.
+ */
+const NATIVE_MEMBERS = [
+  "$native = Add-Type -Namespace KokonadaSigner -Name Native -PassThru -MemberDefinition '",
+  '[DllImport("wtsapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]',
+  'public static extern bool WTSQuerySessionInformationW(IntPtr server, int sessionId, int infoClass, out IntPtr buffer, out int bytes);',
+  '[DllImport("wtsapi32.dll")]',
+  'public static extern void WTSFreeMemory(IntPtr buffer);',
+  "'",
+].join('\n');
 
 /** The tools whose SHA-256 the script pins (SEC-271-2); $<tool>Sha256 holds each pin. */
 const PINNED_TOOLS = ['Zipalign', 'Apksigner', 'Java'];
@@ -279,10 +302,11 @@ const PINNED_TOOLS = ['Zipalign', 'Apksigner', 'Java'];
 const SCRIPT_RULES: Array<[string, string]> = [
   ['[parse]', 'is readable by this check: no here-string, no glued #, no variable set but by plain assignment'],
   ['[ascii]', 'is plain ASCII: PowerShell 5.1 reads a script that has no BOM in the ANSI code page'],
-  ['[header]', 'opens with a comment naming kokonada-signer, runas, its SHA-256 pinned in the runbook, the QA-only scope and the 16 KB caveat'],
+  ['[header]', "opens with a comment naming kokonada-signer, the separate session (never runas, /savecred or -NoExit), the runbook's SHA-256 pin, the QA-only scope and the 16 KB caveat"],
   ['[strict]', "opens with Set-StrictMode -Version Latest and $ErrorActionPreference = 'Stop'"],
   ['[params]', 'takes exactly -In and -Out, so no password can be handed in'],
   ['[user]', 'refuses to run unless [Environment]::UserName is kokonada-signer, before it touches anything'],
+  ['[session]', "refuses, right after that and before anything is touched, unless this session's interactive user (WTSQuerySessionInformation, WTS_CURRENT_SESSION, WTSUserName) is that same account: runas never passes"],
   ['[password]', 'reads the password only from the DPAPI file C:\\KokonadaSigner\\vault\\ks.pass'],
   ['[literal]', 'holds no pass: form, no -storepass or -keypass flag, no injected Gradle signing, comments included'],
   ['[kspass]', 'hands the password to apksigner only as --ks-pass env:<VAR>, set on that child alone and removed after it (or stdin)'],
@@ -362,6 +386,30 @@ function scriptProblems(src: string): string[] {
     p.push("[user] no refusal unless [Environment]::UserName is 'kokonada-signer'");
   } else if (actions.some((index) => index < guard)) {
     p.push('[user] the script touches a file, a secret or a process before the account check');
+  }
+
+  // [session] SEC-271-1: under runas the token is kokonada-signer's but the session is the caller's, so the
+  // session's interactive user differs from [Environment]::UserName; a sign-in on the Windows sign-in screen
+  // is the only start that passes. Pinned: one Add-Type with exactly the two WTS calls, WTS_CURRENT_SESSION
+  // (-1) and WTSUserName (5), the buffer freed, and the comparison between the account check and any action.
+  const addType = at(/^\$native = Add-Type /m);
+  const query = at(/^if \(-not \$native::WTSQuerySessionInformationW\(\[IntPtr\]::Zero, -1, 5, \[ref\] \$buffer, \[ref\] \$bytes\)\) \{\n\s*throw\b/m);
+  const sessionGuard = at(/^if \(\$sessionUser -ne \[Environment\]::UserName\) \{\n\s*throw\b/m);
+  if (
+    count(/Add-Type/gi) !== 1 ||
+    !code.includes(NATIVE_MEMBERS) ||
+    addType < 0 ||
+    query < 0 ||
+    sessionGuard < 0 ||
+    !/^\s*\$sessionUser = \[System\.Runtime\.InteropServices\.Marshal\]::PtrToStringUni\(\$buffer\)$/m.test(code) ||
+    !/\} finally \{\n\s*\$native::WTSFreeMemory\(\$buffer\)\n\s*\}/.test(code) ||
+    guard < 0 ||
+    addType < guard ||
+    query < addType ||
+    sessionGuard < query ||
+    actions.some((index) => index < sessionGuard)
+  ) {
+    p.push("[session] this session's interactive user (one pinned Add-Type; WTSQuerySessionInformation, WTS_CURRENT_SESSION, WTSUserName) is not required to equal [Environment]::UserName right after the account check and before anything is touched");
   }
 
   // [password]
@@ -484,7 +532,7 @@ function scriptProblems(src: string): string[] {
   if (started.length === 0 || started.some((name) => name !== 'zipalign' && name !== 'java') || count(/New-ToolStart\b/gi) !== started.length + 1) {
     p.push('[tools] a process is started other than $Zipalign or $Java, by full path');
   }
-  if (/&|Start-Process|Invoke-Expression|\biex\b|Invoke-Item|Invoke-Command|Import-Module|Add-Type|\bcmd(?:\.exe)?\b|Get-Command|where\.exe|apksigner\.bat|(?<![\w$-])(?:java|zipalign|apksigner)(?:\.exe)?\b/i.test(bare)) {
+  if (/&|Start-Process|Invoke-Expression|\biex\b|Invoke-Item|Invoke-Command|Import-Module|\bcmd(?:\.exe)?\b|Get-Command|where\.exe|apksigner\.bat|(?<![\w$-])(?:java|zipalign|apksigner)(?:\.exe)?\b/i.test(bare)) {
     p.push('[tools] a tool started by name, through a shell or the call operator, or looked up on PATH');
   }
   if (!/\.UseShellExecute = \$false$/m.test(code)) {
@@ -677,7 +725,27 @@ describe('every rule bites on a planted violation', () => {
   });
 
   const GUARD = /^if \(\[Environment\]::UserName -ne 'kokonada-signer'\) \{\n[^\n]*\n\}\n/m;
+  const SESSION_GUARD = /^if \(\$sessionUser -ne \[Environment\]::UserName\) \{\n[^\n]*\n\}\n/m;
+  const SESSION_BLOCK = /^\$native = Add-Type [\s\S]*?^if \(\$sessionUser -ne \[Environment\]::UserName\) \{\n[^\n]*\n\}\n/m;
   const SCRIPT_PLANTS: Array<[string, (s: string) => string, string]> = [
+    ['no session check (SEC-271-1)', (s) => s.replace(SESSION_GUARD, ''), '[session]'],
+    ['the session user compared with another name', (s) => s.replace('if ($sessionUser -ne [Environment]::UserName) {', "if ($sessionUser -ne 'danie') {"), '[session]'],
+    ['another WTS class queried', (s) => s.replace('[IntPtr]::Zero, -1, 5, [ref] $buffer', '[IntPtr]::Zero, -1, 6, [ref] $buffer'), '[session]'],
+    ['another session queried', (s) => s.replace('[IntPtr]::Zero, -1, 5, [ref] $buffer', '[IntPtr]::Zero, 1, 5, [ref] $buffer'), '[session]'],
+    ['the query result unchecked', (s) => s.replace('if (-not $native::WTSQuerySessionInformationW(', 'if ($false -and $native::WTSQuerySessionInformationW('), '[session]'],
+    ['the native members changed', (s) => s.replace('[DllImport("wtsapi32.dll", CharSet', '[DllImport("planted.dll", CharSet'), '[session]'],
+    ['a second Add-Type', (s) => `${s}\nAdd-Type -TypeDefinition $planted\n`, '[session]'],
+    ['the session check after the constants', (s) => s.replace(SESSION_BLOCK, '').replace(/^(\$Java = .*)$/m, (line) => `${line}\n${SESSION_BLOCK.exec(s)?.[0] ?? ''}`), '[session]'],
+    ['the session check before the account check', (s) => s.replace(SESSION_BLOCK, '').replace(/^(\$ErrorActionPreference = 'Stop'\n)/m, (line) => `${line}${SESSION_BLOCK.exec(s)?.[0] ?? ''}`), '[session]'],
+    ['runas as the start procedure again (SEC-271-1)', (s) => s.replace(/^Read the result/m, 'runas /user:kokonada-signer "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\KokonadaSigner\\bin\\sign-release.ps1"\nRead the result'), '[header]'],
+    ['-NoExit on the command line', (s) => s.replace('powershell.exe -NoProfile -ExecutionPolicy', 'powershell.exe -NoProfile -NoExit -ExecutionPolicy'), '[header]'],
+    ['the runas ban dropped', (s) => s.replace('never runas, ', ''), '[header]'],
+    ['the /savecred ban dropped', (s) => s.replace('never /savecred, ', ''), '[header]'],
+    ['the -NoExit ban dropped', (s) => s.replace(', never -NoExit', ''), '[header]'],
+    ['the sign-in procedure dropped', (s) => s.replace(/Switch user/g, 'runas'), '[header]'],
+    ['the sign-out step dropped', (s) => s.replace(/Sign out/g, 'leave the session'), '[header]'],
+    ['the full powershell.exe path dropped', (s) => s.replace('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile', 'powershell.exe -NoProfile'), '[header]'],
+    ['the elevation precondition dropped', (s) => s.replace(/holds only against code that does not\s+elevate/, 'holds against everything'), '[header]'],
     ['--ks-pass pass:', (s) => s.replace("'env:KOKONADA_SIGNER_KS_PASS'", "'pass:planted'"), '[literal]'],
     ['a -storepass flag in a comment', (s) => s.replace(/^Set-StrictMode/m, '# keytool -storepass planted\nSet-StrictMode'), '[literal]'],
     ['a prompt for the password', (s) => s.replace('(Get-Content -LiteralPath $PassFile -Raw).Trim() | ConvertTo-SecureString', 'Read-Host -AsSecureString'), '[password]'],
