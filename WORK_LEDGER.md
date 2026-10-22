@@ -120,7 +120,7 @@ _free_
 - branch: `chore/dan101-delete-classify-purge`
 - paths: `backend/app/scripts/classifyAndHydrate.js`, `backend/tests/classifyAndHydrate.test.js`, `backend/app/services/musicPurge.js`, `backend/tests/musicPurge.test.js`, `backend/app/scripts/countFeatureless.js`, `backend/tests/youtubeTokenWriters.structural.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #269
 - started: 2026-10-20
 
 ### M08
