@@ -268,8 +268,13 @@ const HEADER_MUST = [
   'once a bundle step exists',
   // C271-4: zipalign -c -P 16 is the zip-alignment check only.
   'ELF LOAD-segment alignment is checked separately',
+  // SEC-271-2: the pins, and what an unprovisioned copy does.
+  'A pin left at its placeholder refuses every run',
 ];
 const HEADER_MUST_NOT: Array<[string, RegExp]> = [['claims to serve store uploads (C271-1)', /store uploads/i]];
+
+/** The tools whose SHA-256 the script pins (SEC-271-2); $<tool>Sha256 holds each pin. */
+const PINNED_TOOLS = ['Zipalign', 'Apksigner', 'Java'];
 
 const SCRIPT_RULES: Array<[string, string]> = [
   ['[parse]', 'is readable by this check: no here-string, no glued #, no variable set but by plain assignment'],
@@ -284,7 +289,8 @@ const SCRIPT_RULES: Array<[string, string]> = [
   ['[key]', 'signs with C:\\KokonadaSigner\\vault\\kokonada-upload.p12, PKCS12, alias kokonada-upload'],
   ['[in]', 'reads the input only by a plain name resolved inside C:\\KokonadaSigner\\in\\, refusing .. and links'],
   ['[out]', 'writes only inside C:\\KokonadaSigner\\out\\, never over an existing file and never through a link'],
-  ['[tools]', 'runs zipalign and apksigner from C:\\KokonadaSigner\\bin\\build-tools\\ and Java from the JBR, never from PATH or a shell'],
+  ['[tools]', 'runs zipalign and apksigner from C:\\KokonadaSigner\\bin\\build-tools\\ and Java from the dedicated JDK in bin\\jdk, never from PATH or a shell'],
+  ['[pins]', 'checks each tool against the SHA-256 pinned in the script (refusing the placeholder, a link or a mismatch) and refuses a link on the key and ks.pass, before any tool runs and before the password is read'],
   ['[align]', 'runs zipalign -P 16 -f 4 (not the deprecated -p) on the input before apksigner sign'],
   ['[sign]', 'signs the aligned file into a working file in the out folder'],
   ['[verify]', 'runs apksigner verify --print-certs and a 16 KB page check on the signed file before delivering it'],
@@ -471,8 +477,8 @@ function scriptProblems(src: string): string[] {
   ) {
     p.push('[tools] zipalign and apksigner are not C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe and lib\\apksigner.jar');
   }
-  if (!constant('Java', "'C:\\Program Files\\Android\\Android Studio\\jbr\\bin\\java.exe'")) {
-    p.push("[tools] Java is not Android Studio's JBR under C:\\Program Files");
+  if (!constant('Java', "'C:\\KokonadaSigner\\bin\\jdk\\bin\\java.exe'")) {
+    p.push('[tools] Java is not the dedicated JDK at C:\\KokonadaSigner\\bin\\jdk\\bin\\java.exe (SEC-271-2: not the IDE runtime)');
   }
   const started = [...code.matchAll(/New-ToolStart -File \$(\w+)/gi)].map((m) => m[1].toLowerCase());
   if (started.length === 0 || started.some((name) => name !== 'zipalign' && name !== 'java') || count(/New-ToolStart\b/gi) !== started.length + 1) {
@@ -483,6 +489,44 @@ function scriptProblems(src: string): string[] {
   }
   if (!/\.UseShellExecute = \$false$/m.test(code)) {
     p.push('[tools] the process start may go through the shell');
+  }
+
+  // [pins] SEC-271-2: a tool is what its pinned SHA-256 says, or nothing runs. The placeholder is refused at
+  // run time, so an unprovisioned copy signs nothing; the owner replaces each line with the real hash.
+  const toolHash = /^function Assert-ToolHash\(\[string\] \$Path, \[string\] \$Sha256\) \{\n([\s\S]*?)\n\}/m.exec(code)?.[1] ?? '';
+  const placeholder = toolHash.indexOf("if ($Sha256 -eq '<pin after provisioning>') {");
+  if (
+    placeholder < 0 ||
+    !/^\s*throw\b/m.test(toolHash.slice(placeholder)) ||
+    !/^\s*if \(\$Sha256 -notmatch '\^\[0-9a-f\]\{64\}\$'\) \{ throw\b/m.test(toolHash) ||
+    !/^\s*Assert-NoLink -Path \$Path$/m.test(toolHash) ||
+    !/^\s*\$actual = \(Get-FileHash -LiteralPath \$Path -Algorithm SHA256\)\.Hash\.ToLowerInvariant\(\)$/m.test(toolHash) ||
+    !/^\s*if \(\$actual -ne \$Sha256\) \{ throw\b/m.test(toolHash)
+  ) {
+    p.push('[pins] Assert-ToolHash does not refuse the placeholder, a malformed pin, a link on the tool, or a hash that differs');
+  }
+  for (const tool of PINNED_TOOLS) {
+    const value = new RegExp(`^\\$${tool}Sha256 = '([^'\\n]*)'$`, 'm').exec(code)?.[1];
+    if (assignments(`${tool}Sha256`) !== 1 || value === undefined || (value !== '<pin after provisioning>' && !/^[0-9a-f]{64}$/.test(value))) {
+      p.push(`[pins] $${tool}Sha256 is not assigned once, as the placeholder or a lower-case SHA-256`);
+    }
+  }
+  const pinChecks = [...code.matchAll(/^Assert-ToolHash -Path \$(\w+) -Sha256 \$(\w+)$/gm)];
+  const firstRun = at(/New-ToolStart -File \$/);
+  const decrypt = at(/ConvertTo-SecureString/);
+  if (
+    count(/Assert-ToolHash\b/g) !== pinChecks.length + 1 ||
+    pinChecks.map((m) => m[1]).sort().join() !== [...PINNED_TOOLS].sort().join() ||
+    pinChecks.some((m) => m[2] !== `${m[1]}Sha256`) ||
+    pinChecks.some((m) => (m.index ?? -1) > firstRun || (m.index ?? -1) > decrypt)
+  ) {
+    p.push(`[pins] $${PINNED_TOOLS.join(', $')} are not each checked once with Assert-ToolHash against their own pin, before any tool runs and before the password is read`);
+  }
+  for (const vaultFile of ['KeyStore', 'PassFile']) {
+    const link = at(new RegExp(`^Assert-NoLink -Path \\$${vaultFile}$`, 'm'));
+    if (link < 0 || link > decrypt) {
+      p.push(`[pins] a link on $${vaultFile} is not refused before the password is read`);
+    }
   }
 
   // [align] [sign] [verify]
@@ -531,13 +575,16 @@ function scriptProblems(src: string): string[] {
     p.push("[javaenv] JAVA_TOOL_OPTIONS, _JAVA_OPTIONS and JDK_JAVA_OPTIONS are not removed from the children's environment");
   }
 
-  // [read] the key and its password reach no stream this script could print or write.
-  const hashes = (code.match(/Get-FileHash (?:-InputStream \$lock|-LiteralPath \$outPath) -Algorithm SHA256/g) ?? []).length;
+  // [read] the key and its password reach no stream this script could print or write. The tools' hash form
+  // (-LiteralPath $Path) lives in Assert-ToolHash alone, which [pins] lets run on the tool constants only.
+  const hashes = (code.match(/Get-FileHash (?:-InputStream \$lock|-LiteralPath \$outPath|-LiteralPath \$Path) -Algorithm SHA256/g) ?? []).length;
   if (
     count(/Get-Content/gi) !== 1 ||
     count(/OpenRead/gi) !== 1 ||
     count(/\[System\.IO\.File\]::OpenRead\(\$inPath\)/g) !== 1 ||
     count(/Get-FileHash/gi) !== hashes ||
+    count(/Get-FileHash -LiteralPath \$Path /g) !== 1 ||
+    !toolHash.includes('Get-FileHash -LiteralPath $Path -Algorithm SHA256') ||
     /ReadAll|OpenText|StreamReader|BinaryReader|Import-|Select-String|-Stream\b/i.test(code)
   ) {
     p.push('[read] the script reads a file other than the input (once, held open), the password file and its own output');
@@ -661,7 +708,18 @@ describe('every rule bites on a planted violation', () => {
     ['an unchecked exit code', (s) => s.replace(/^\s*if \(\$signed\.ExitCode -ne 0\) \{ throw[^\n]*\n/m, ''), '[exit]'],
     ['the certificate not printed', (s) => s.replace(/^Write-Host "[^"\n]*\$certSha256[^\n]*\n/m, ''), '[print]'],
     ['the artifact hashed with MD5', (s) => s.replace('-LiteralPath $outPath -Algorithm SHA256', '-LiteralPath $outPath -Algorithm MD5'), '[print]'],
-    ['Java from PATH', (s) => s.replace("'C:\\Program Files\\Android\\Android Studio\\jbr\\bin\\java.exe'", "'java.exe'"), '[tools]'],
+    ['Java from PATH', (s) => s.replace("'C:\\KokonadaSigner\\bin\\jdk\\bin\\java.exe'", "'java.exe'"), '[tools]'],
+    ['Java from the IDE runtime (SEC-271-2)', (s) => s.replace("'C:\\KokonadaSigner\\bin\\jdk\\bin\\java.exe'", "'C:\\Program Files\\Android\\Android Studio\\jbr\\bin\\java.exe'"), '[tools]'],
+    ['a pin that is not a hash', (s) => s.replace("$JavaSha256 = '<pin after provisioning>'", "$JavaSha256 = 'planted'"), '[pins]'],
+    ['the placeholder pin accepted', (s) => s.replace(/^ {4}if \(\$Sha256 -eq '<pin after provisioning>'\) \{\n[^\n]*\n {4}\}\n/m, ''), '[pins]'],
+    ['a differing tool hash accepted', (s) => s.replace('if ($actual -ne $Sha256) { throw', 'if ($false) { throw'), '[pins]'],
+    ['a tool path not checked for a link', (s) => s.replace(/^ {4}Assert-NoLink -Path \$Path\n/m, ''), '[pins]'],
+    ['a tool not hashed', (s) => s.replace('Assert-ToolHash -Path $Apksigner -Sha256 $ApksignerSha256\n', ''), '[pins]'],
+    ['a tool hash checked after the password is read', (s) => s.replace('Assert-ToolHash -Path $Java -Sha256 $JavaSha256\n', '').replace(/^(\s*\$password = .*)$/m, '$1\nAssert-ToolHash -Path $Java -Sha256 $JavaSha256'), '[pins]'],
+    ['the key hashed as a tool', (s) => s.replace('Assert-ToolHash -Path $Java -Sha256 $JavaSha256\n', 'Assert-ToolHash -Path $Java -Sha256 $JavaSha256\nAssert-ToolHash -Path $KeyStore -Sha256 $JavaSha256\n'), '[pins]'],
+    ['the link check on the key dropped', (s) => s.replace('Assert-NoLink -Path $KeyStore\n', ''), '[pins]'],
+    ['the link check on the password file dropped', (s) => s.replace('Assert-NoLink -Path $PassFile\n', ''), '[pins]'],
+    ["the key hashed through the tool check's form", (s) => `${s}\n$planted = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash\n`, '[read]'],
     ['zipalign from the SDK', (s) => s.replace("'C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe'", "'C:\\Android\\Sdk\\build-tools\\36.0.0\\zipalign.exe'"), '[tools]'],
     ['a tool through the call operator', (s) => `${s}\n& $Zipalign -c 4 $outPath\n`, '[tools]'],
     ['a JVM option variable kept', (s) => s.replace("'JAVA_TOOL_OPTIONS', ", ''), '[javaenv]'],
@@ -678,6 +736,7 @@ describe('every rule bites on a planted violation', () => {
     ['the bundle gap dropped from the header', (s) => s.replace(' (SEC-271-5)', ''), '[header]'],
     ['the Play comparison stated as if a bundle step existed', (s) => s.replace(/\s+once\s+a bundle step exists/, ''), '[header]'],
     ['the ELF caveat dropped from the header (C271-4)', (s) => s.replace(/ELF LOAD-segment\s+alignment is checked separately/, 'nothing else is checked'), '[header]'],
+    ['the placeholder rule dropped from the header (SEC-271-2)', (s) => s.replace(/A pin left at its placeholder\s+refuses every run/, 'A pin is optional'), '[header]'],
   ];
 
   it.each(SCRIPT_PLANTS)('sign-release.ps1: %s', (_name, plant, tag) => {
