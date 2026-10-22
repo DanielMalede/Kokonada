@@ -109,7 +109,7 @@ _free_
 - task: `own:pii-guard` (own)
 - title: a forward-only guard against the partners' full names, emails and user paths in tracked files; two fixtures take a made-up name
 - branch: `test/pii-guard`
-- paths: `backend/tests/personalDataGuard.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `TASKS.md`
+- paths: `backend/tests/personalDataGuard.test.js`, `backend/tests/shadow.personalDataGuard.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-10-20
