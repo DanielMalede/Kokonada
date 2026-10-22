@@ -210,7 +210,7 @@ describe('a database fault inside a generation is answered and reported, never a
     client.emit('request_playlist', { reqId: 41 });
     const { payload } = await answer;
     expect(payload.message).toMatch(/try again/i);
-    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ trigger: 'emotion', reqId: 41 }));
+    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ scope: 'generate.emotion', reqId: 41 }));
     expect(findById).toHaveBeenCalledTimes(1);
     findById.mockRestore();
     expect(unhandled).toEqual([]);
@@ -230,7 +230,7 @@ describe('a database fault inside a generation is answered and reported, never a
     client.emit('request_heart_playlist', { reqId: 51, heartRate: 72 });
     const { payload } = await answer;
     expect(payload.message).toMatch(/try again/i);
-    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ trigger: 'heart', reqId: 51 }));
+    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ scope: 'generate.heart', reqId: 51 }));
     expect(findById).toHaveBeenCalledTimes(1);
     findById.mockRestore();
     expect(unhandled).toEqual([]);
@@ -249,7 +249,7 @@ describe('a database fault inside a generation is answered and reported, never a
     client.emit('track_skipped');
     client.emit('track_skipped');
     await until(() => captureException.mock.calls.length > 0, 'the fault reported', 3000);
-    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ trigger: 'skip_loop' }));
+    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ scope: 'generate.skip_loop' }));
     expect(findById).toHaveBeenCalledTimes(1);
     findById.mockRestore();
     expect(unhandled).toEqual([]);
@@ -319,7 +319,7 @@ describe('a database fault inside a generation is answered and reported, never a
     });
     await assembling; // the cold-key fallback started: its generation is the one that fails
     await until(() => captureException.mock.calls.length > 0, 'the fault reported', 3000);
-    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ trigger: 'biometric' }));
+    expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ scope: 'generate.biometric' }));
     expect(findById).toHaveBeenCalledTimes(1);
     findById.mockRestore();
     expect(unhandled).toEqual([]);

@@ -578,7 +578,16 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
 
   // Resting-HR fallback: the baseline lives on the ENCRYPTED MedicalProfile (T3.3), not on
   // MusicProfile (which no longer stores plaintext vitals). The getter decrypts on access.
-  const profile = await MedicalProfile.findOne({ userId });
+  // BE-070 round 2: this read sat outside any try, so a failed query rejected the async listener
+  // awaiting it (an unhandled rejection); it now degrades to "no heart data", as the BiometricLog
+  // read above does.
+  let profile;
+  try {
+    profile = await MedicalProfile.findOne({ userId });
+  } catch (e) {
+    log(`[heart] MedicalProfile query failed: ${e.message}`);
+    return null;
+  }
   if (profile && isPhysiologicalHR(profile.restingHeartRate)) {
     logBiometricAccess(userId, 'live-heart-context'); // ADR-0005: reading the encrypted resting-HR baseline
     return { heartRate: profile.restingHeartRate, activity: 'resting', source: 'resting' };
@@ -1397,6 +1406,16 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // set the no-playback short-circuit records, via one shared helper so the two ready-paths cannot
     // diverge. Fire-and-forget inside the helper; never blocks or fails generation.
     recordServeSideEffects(playlist, clientTracks, aiResult.params);
+  } catch (err) {
+    // BE-070 round 2 (RA-266-1): a fault OUTSIDE the pipeline's own recovery above — the User read,
+    // the provider or token step, a profile read — left this try with no answer and reached the
+    // caller as a rejection that no fire-and-forget caller handled. Reported here with the run's
+    // trigger and reqId, and answered through the epoch-guarded `emit`, so a run the wall-clock
+    // already abandoned (and answered) cannot answer a newer request's reqId with an error. The
+    // function therefore never rejects; its callers' `.catch` are a second layer, not the first.
+    // Scoped by trigger, as the heart door's own catch labelled it (BE-026).
+    captureException(err, { scope: `generate.${trigger}`, reqId });
+    if (userInitiated) emit('playlist_error', { message: 'Generation failed — please try again', reqId });
   } finally {
     await readyEmitSettled; // the context-attach ready emit must land before the lock frees
     clearTimeout(timer);
@@ -1830,9 +1849,11 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
         // both the same, but only one of them is byte-identical to the pre-W4-D72 call.
         sleep: nights.value.length ? { history: nights.value } : {},
       },
-    )).then((result) => {
-      if (result.regimeChanged) recalibrateForBand(socket, state);
-    }).catch(() => {});
+    )).then((result) => (
+      // Returned, so the catch below covers the recalibration too (BE-070 round 2): a serve that
+      // threw here was an unhandled rejection, the one path this chain's catch did not reach.
+      result.regimeChanged ? recalibrateForBand(socket, state) : undefined
+    )).catch((err) => captureException(err, { scope: 'live.regimeChange', reqId: state.lastReqId }));
   }
 
   // Immediate (trusted) mode for the 5-minute watch ingest path: no 60s debounce.
@@ -1855,7 +1876,8 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     if (prev === null || bandChanged || activityChanged) {
       log(`[handleBiometric] immediate band=${_hrBand(effectiveHR)} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
       state.servedHR = effectiveHR;
-      recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+      recalibrateForBand(socket, state) // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+        .catch((err) => captureException(err, { scope: 'recalibrate.immediate', reqId: state.lastReqId }));
     }
     return;
   }
@@ -1912,7 +1934,8 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
       s.stableHR       = s.pendingHR;
       s.stableActivity = s.pendingActivity;
       if (serveChanged) {
-        recalibrateForBand(socket, s); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+        recalibrateForBand(socket, s) // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+          .catch((err) => captureException(err, { scope: 'recalibrate.debounced', reqId: s.lastReqId }));
       } else {
         socket.emit('recalibration_cancelled', { reason: 'band_unchanged' });
       }
@@ -2071,7 +2094,10 @@ function registerBiometricHandler(socket) {
     // Always-on: confirms the app's Generate request actually reached the server (vs an
     // automatic biometric trigger) so request delivery is visible in prod.
     console.warn(`[gen] recv request_playlist reqId=${reqId} sid=${socketId} user=${socket?.data?.user?._id ?? ''}`);
-    generateAndEmitPlaylist(socket, 'emotion', state);
+    // The generation answers and reports its own faults (its catch); this second layer keeps a
+    // fault in that report from becoming the unhandled rejection it exists to prevent.
+    generateAndEmitPlaylist(socket, 'emotion', state)
+      .catch((err) => captureException(err, { scope: 'generate.emotion', reqId: state.lastReqId }));
   });
 
   // "Listen to your heart" — an explicit, user-initiated biometric playlist.
@@ -2093,7 +2119,7 @@ function registerBiometricHandler(socket) {
     if (!(await admitHealthProcessing(socket?.data?.user?._id))) {
       _withholdBiometrics(state);
       console.warn(`[consent] heart request without a current Art.9 grant — biometrics withheld, biometric-free mix reqId=${reqId}`);
-      // Captured, never an unhandled rejection (BE-026): generateAndEmitPlaylist has no catch of its own.
+      // A second layer (BE-026): the generation answers and reports its own faults in its catch.
       generateAndEmitPlaylist(socket, 'heart', state)
         .catch((err) => captureException(err, { scope: 'generate.heart', reqId }));
       return;
@@ -2150,7 +2176,8 @@ function registerBiometricHandler(socket) {
 
     if (state.consecutiveSkips >= 2) {
       clearTimer(state);
-      generateAndEmitPlaylist(socket, 'skip_loop', state);
+      generateAndEmitPlaylist(socket, 'skip_loop', state)
+        .catch((err) => captureException(err, { scope: 'generate.skip_loop', reqId: state.lastReqId }));
       state.consecutiveSkips = 0;
     }
   });
