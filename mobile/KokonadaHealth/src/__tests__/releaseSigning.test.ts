@@ -280,12 +280,20 @@ const HEADER_MUST = [
   'GetFinalPathNameByHandle',
   'work\\ (kokonada-signer Modify, nobody else',
   'out\\ (receives the verified APK alone)',
+  // SEC-271-6: exactly what is zeroed, and the JVM flags.
+  'the BSTR, which is zeroed and freed',
+  "stays in this process's heap until the garbage collector reclaims it",
+  '-XX:+DisableAttachMechanism and -XX:-UsePerfData',
 ];
 const HEADER_MUST_NOT: Array<[string, RegExp]> = [
   ['claims to serve store uploads (C271-1)', /store uploads/i],
   ['starts the script through runas (SEC-271-1)', /runas \/user:/i],
   ['passes -NoExit on a command line (SEC-271-1)', /-NoExit -/],
+  ['claims the plain text is zeroed as a whole (SEC-271-6)', /plain text zeroed/],
 ];
+
+/** SEC-271-6: the flags in front of every JVM start. */
+const JAVA_FLAGS = "@('-XX:+DisableAttachMechanism', '-XX:-UsePerfData', '-XX:ErrorFile=C:\\KokonadaSigner\\work\\hs_err_%p.log')";
 
 /**
  * The one Add-Type in the script, verbatim. It declares the two Terminal Services calls that name the
@@ -332,6 +340,7 @@ const SCRIPT_RULES: Array<[string, string]> = [
   ['[exit]', "checks every tool's exit code"],
   ['[print]', "prints the signer certificate's SHA-256 (exactly one signer) and the delivered APK's SHA-256"],
   ['[javaenv]', 'removes the variables that inject options into a JVM from every child environment'],
+  ['[javaflags]', 'starts every JVM with -XX:+DisableAttachMechanism, -XX:-UsePerfData and its crash log in the work folder'],
   ['[read]', 'reads no file but the input (once, through one handle), the password file, the tools it hashes and its own files'],
   ['[egress]', 'has no network, clipboard or printer path out of the signer'],
 ];
@@ -643,8 +652,8 @@ function scriptProblems(src: string): string[] {
 
   // [align] [sign] [verify]
   const align = /New-ToolStart -File \$Zipalign -Arguments @\('-P', '16', '-f', '4', \$(\w+), \$(\w+)\)/.exec(code);
-  const sign = /New-ToolStart -File \$Java -Arguments @\('-jar', \$Apksigner, 'sign',[^)]*'--out', \$(\w+), \$(\w+)\)/.exec(code);
-  const verify = /New-ToolStart -File \$Java -Arguments @\('-jar', \$Apksigner, 'verify', '--print-certs', \$(\w+)\)/.exec(code);
+  const sign = /New-ToolStart -File \$Java -Arguments \(\$JavaFlags \+ @\('-jar', \$Apksigner, 'sign',[^)]*'--out', \$(\w+), \$(\w+)\)\)/.exec(code);
+  const verify = /New-ToolStart -File \$Java -Arguments \(\$JavaFlags \+ @\('-jar', \$Apksigner, 'verify', '--print-certs', \$(\w+)\)\)/.exec(code);
   const page = /New-ToolStart -File \$Zipalign -Arguments @\('-c', '-P', '16', '4', \$(\w+)\)/.exec(code);
   const move = /\[System\.IO\.File\]::Move\(/.exec(code);
   if (!align || align[1] !== 'inCopy' || !workVars.has(align[2].toLowerCase())) {
@@ -685,6 +694,16 @@ function scriptProblems(src: string): string[] {
     !/\$start\.EnvironmentVariables\.Remove\(\$name\)/.test(code)
   ) {
     p.push("[javaenv] JAVA_TOOL_OPTIONS, _JAVA_OPTIONS and JDK_JAVA_OPTIONS are not removed from the children's environment");
+  }
+
+  // [javaflags] SEC-271-6: no attach mechanism (nothing loads into the process that holds the password), no
+  // shared perf-data file, and a crash log, which holds memory snippets, only in the work folder.
+  if (!constant('JavaFlags', JAVA_FLAGS)) {
+    p.push(`[javaflags] $JavaFlags is not ${JAVA_FLAGS}, assigned once`);
+  }
+  const jvms = count(/New-ToolStart -File \$Java\b/g);
+  if (jvms === 0 || jvms !== count(/New-ToolStart -File \$Java -Arguments \(\$JavaFlags \+ @\(/g)) {
+    p.push('[javaflags] a JVM is started without $JavaFlags in front of its arguments');
   }
 
   // [read] the key and its password reach no stream this script could print or write. The tools' hash form
@@ -869,6 +888,11 @@ describe('every rule bites on a planted violation', () => {
     ['zipalign from the SDK', (s) => s.replace("'C:\\KokonadaSigner\\bin\\build-tools\\zipalign.exe'", "'C:\\Android\\Sdk\\build-tools\\36.0.0\\zipalign.exe'"), '[tools]'],
     ['a tool through the call operator', (s) => `${s}\n& $Zipalign -c 4 $outPath\n`, '[tools]'],
     ['a JVM option variable kept', (s) => s.replace("'JAVA_TOOL_OPTIONS', ", ''), '[javaenv]'],
+    ['the attach mechanism left on (SEC-271-6)', (s) => s.replace("'-XX:+DisableAttachMechanism', ", ''), '[javaflags]'],
+    ['the crash log pointed into out', (s) => s.replace('-XX:ErrorFile=C:\\KokonadaSigner\\work\\hs_err_%p.log', '-XX:ErrorFile=C:\\KokonadaSigner\\out\\hs_err_%p.log'), '[javaflags]'],
+    ['a JVM started without the flags', (s) => s.replace("New-ToolStart -File $Java -Arguments ($JavaFlags + @('-jar', $Apksigner, 'verify', '--print-certs', $signedTmp))", "New-ToolStart -File $Java -Arguments @('-jar', $Apksigner, 'verify', '--print-certs', $signedTmp)"), '[javaflags]'],
+    ['the zeroing overstated in the header (SEC-271-6)', (s) => s.replace(/the BSTR, which is zeroed\s+and freed/, 'the password, with its plain text zeroed'), '[header]'],
+    ['the managed copy forgotten in the header', (s) => s.replace(/stays in this process's heap\s+until the garbage collector reclaims it/, 'is gone'), '[header]'],
     ['the key read as text', (s) => `${s}\nGet-Content -LiteralPath $KeyStore\n`, '[read]'],
     ['the key read as bytes', (s) => `${s}\n$planted = [System.IO.File]::ReadAllBytes($KeyStore)\n`, '[read]'],
     ['the key hashed', (s) => `${s}\nGet-FileHash -LiteralPath $KeyStore -Algorithm SHA256\n`, '[read]'],
