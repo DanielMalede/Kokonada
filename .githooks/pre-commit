@@ -1,28 +1,51 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Kokonada pre-commit — fast guards (secrets + binaries). Enable once:
 #   git config core.hooksPath .githooks
 # Override in an emergency: git commit --no-verify
-staged=$(git diff --cached --name-only --diff-filter=ACM)
+# POSIX sh, committed executable (100755), so git runs it on Linux and macOS as well as Windows.
+# backend/tests/preCommitSecretGuard.test.js runs it through sh in throwaway repositories (OPS-002).
+
+# Every staged path but a deletion: a rename (R), copy (C) or type change (T) brings content in too.
+staged=$(git diff --cached --name-only --diff-filter=d)
 [ -z "$staged" ] && exit 0
 fail=0
 
 # 1) Block committed binaries / build artifacts
-if echo "$staged" | grep -Eiq '\.(apk|aab|keystore|jks|p12|so)$|/\.cxx/|/[Bb]uild/'; then
+if printf '%s\n' "$staged" | grep -Eiq '\.(apk|aab|so)$|/\.cxx/|/[Bb]uild/'; then
   echo "X pre-commit: build artifact/binary staged — gitignore it, don't commit:"
-  echo "$staged" | grep -Ei '\.(apk|aab|keystore|jks|p12|so)$|/\.cxx/|/[Bb]uild/' | sed 's/^/    /'
+  printf '%s\n' "$staged" | grep -Ei '\.(apk|aab|so)$|/\.cxx/|/[Bb]uild/' | sed 's/^/    /'
   fail=1
 fi
 
-# 2) Secret scan on the staged diff (gitleaks if available, else regex on added lines)
+# 2) Android signing: a keystore (.keystore, .jks, .p12) or keystore.properties, which holds the
+#    store and key passwords, under any name a copy gets (a .bak, "- Copy", a path flattened into
+#    the name). The tracked placeholder file is exempt by its exact path; its lines are scanned below.
+signing=$(printf '%s\n' "$staged" | grep -Ei '(keystore[^/]*\.properties|\.(keystore|jks|p12))[^/]*$' | grep -vxF 'mobile/native-snippets/keystore.properties.example')
+if [ -n "$signing" ]; then
+  echo "X pre-commit: an Android signing key or its passwords file is staged — never commit it:"
+  printf '%s\n' "$signing" | sed 's/^/    /'
+  fail=1
+fi
+
+# 3) Secret scan on the staged diff (gitleaks if available, else regex on added lines). A user's
+#    color.ui=always or diff.external would hide every + line, so neither applies here.
+diff=$(git diff --cached --no-color --no-ext-diff --diff-filter=d)
 if command -v gitleaks >/dev/null 2>&1; then
-  if ! git diff --cached | gitleaks stdin --no-banner >/dev/null 2>&1; then
+  if ! printf '%s\n' "$diff" | gitleaks stdin --no-banner >/dev/null 2>&1; then
     echo "X pre-commit: gitleaks flagged a secret in the staged diff."
     fail=1
   fi
 else
-  added=$(git diff --cached -U0 --diff-filter=ACM | grep -aE '^\+' | grep -av '^\+\+\+')
-  if echo "$added" | grep -aiEq '(AIza[0-9A-Za-z_-]{10,}|ghp_[0-9A-Za-z]{20,}|sk-[0-9A-Za-z]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|whr_[0-9A-Za-z]{16,})'; then
+  # The added lines. [+] is a plus sign in every grep; GNU's basic syntax reads \+ as "one or more".
+  added=$(printf '%s\n' "$diff" | grep -a '^[+]' | grep -av '^[+][+][+] ')
+  if printf '%s\n' "$added" | grep -aiEq '(AIza[0-9A-Za-z_-]{10,}|ghp_[0-9A-Za-z]{20,}|sk-[0-9A-Za-z]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|whr_[0-9A-Za-z]{16,})'; then
     echo "X pre-commit: possible secret/token in staged diff — remove it."
+    fail=1
+  fi
+  # A signing password (storePassword, keyPassword, MYAPP_UPLOAD_STORE_PASSWORD, ...) set to anything
+  # but the example's CHANGE_ME; each assignment on a line is judged on its own.
+  if printf '%s\n' "$added" | grep -aioE '(store|key)[._-]?password[[:space:]]*=[[:space:]]*[^[:space:]]+' | grep -aivqE '=[[:space:]]*CHANGE_ME$'; then
+    echo "X pre-commit: a signing password is staged — only CHANGE_ME belongs in a tracked file."
     fail=1
   fi
 fi
