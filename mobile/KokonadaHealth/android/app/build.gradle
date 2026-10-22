@@ -124,10 +124,12 @@ android {
         release {
             // OPS-303: Gradle signs no release build, and there is no debug fallback. assembleRelease
             // yields app-release-unsigned.apk, which no device installs, so a build that skipped the
-            // signer fails closed. The owner signs it, QA builds included, with
+            // signer fails closed. The owner signs that APK for sideloaded QA builds only, with
             // scripts/release/sign-release.ps1, run as the Windows account kokonada-signer, which alone
-            // can read the upload key; no checkout holds a release key. The JS bundle is embedded
-            // (release is NOT a debuggableVariant), so the installed app runs with no Metro bundler.
+            // can read the upload key; no checkout holds a release key. Google Play takes an App Bundle,
+            // bundleRelease yields an unsigned one, and the jarsigner step that would sign it does not
+            // exist yet (SEC-271-5). The JS bundle is embedded (release is NOT a debuggableVariant), so
+            // the installed app runs with no Metro bundler.
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

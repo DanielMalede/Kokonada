@@ -2,10 +2,12 @@
 sign-release.ps1 - signs one Kokonada Android APK with the upload key (OPS-303).
 
 Gradle signs no release build: assembleRelease yields app-release-unsigned.apk, which no device
-installs, and this script is the one signing step, for store uploads and QA builds alike. It runs
-only as the Windows account kokonada-signer, which alone (with SYSTEM) can read
-C:\KokonadaSigner\vault. Start the reviewed copy in C:\KokonadaSigner\bin from the owner's own
-account through runas, and close the window once you have read the result:
+installs. This script signs that APK for sideloaded QA builds only. Google Play takes an App Bundle,
+bundleRelease yields an unsigned one, and the jarsigner step that would sign it as kokonada-signer
+does not exist yet (SEC-271-5); nothing is uploaded until it does. The script runs only as the
+Windows account kokonada-signer, which alone (with SYSTEM) can read C:\KokonadaSigner\vault. Start
+the reviewed copy in C:\KokonadaSigner\bin from the owner's own account through runas, and close
+the window once you have read the result:
 
   runas /user:kokonada-signer "powershell.exe -NoProfile -NoExit -ExecutionPolicy Bypass -File C:\KokonadaSigner\bin\sign-release.ps1 -In app-release-unsigned.apk -Out <name>.apk"
 
@@ -28,11 +30,12 @@ In order, stopping at the first failure:
      --ks-pass env:KOKONADA_SIGNER_KS_PASS, set in that one child process's environment and removed,
      with its plain text zeroed, as soon as the child exits. It is never a parameter, never typed
      here and never on a command line.
-  4. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16, so native libraries
-     keep the 16 KB page alignment Google Play requires.
+  4. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
+     alignment of the native libraries, one of Google Play's two 16 KB checks. ELF LOAD-segment
+     alignment is checked separately, on a real release build, before the first upload.
   5. Moves the signed APK to C:\KokonadaSigner\out\<-Out>, then prints the input's SHA-256, the
-     signer certificate's SHA-256 (compare it with the upload certificate in Play Console) and the
-     signed APK's SHA-256.
+     signer certificate's SHA-256 (the value to compare with Play Console's upload certificate once
+     a bundle step exists) and the signed APK's SHA-256.
 
 It writes its files only in C:\KokonadaSigner\out\, where its two working files are removed at the
 end; the JVM keeps only its transient run data in this account's own %TEMP%. zipalign.exe and
