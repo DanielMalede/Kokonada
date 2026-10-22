@@ -49,9 +49,12 @@ In order, stopping at the first failure:
      C:\KokonadaSigner\work\ and closes the input; every later step reads that copy, and the input
      SHA-256 printed at the end is the copy's.
   5. zipalign -P 16 -f 4 on the copy, then apksigner sign. The password reaches apksigner as
-     --ks-pass env:KOKONADA_SIGNER_KS_PASS, set in that one child process's environment and removed,
-     with its plain text zeroed, as soon as the child exits. It is never a parameter, never typed
-     here and never on a command line.
+     --ks-pass env:KOKONADA_SIGNER_KS_PASS, set in that one child process's environment and removed
+     as soon as the child exits. Its decrypted text exists in two places: the BSTR, which is zeroed
+     and freed in the finally block; and the managed string that fills the child's environment,
+     which stays in this process's heap until the garbage collector reclaims it. It is never a
+     parameter, never typed here and never on a command line. Every JVM starts with
+     -XX:+DisableAttachMechanism and -XX:-UsePerfData, and its crash log, if any, goes to work\.
   6. apksigner verify --print-certs (exactly one signer), and zipalign -c -P 16: the 16 KB zip
      alignment of the native libraries, one of Google Play's two 16 KB checks. ELF LOAD-segment
      alignment is checked separately, on a real release build, before the first upload.
@@ -127,6 +130,9 @@ $Java = 'C:\KokonadaSigner\bin\jdk\bin\java.exe'
 $ZipalignSha256 = '<pin after provisioning>'
 $ApksignerSha256 = '<pin after provisioning>'
 $JavaSha256 = '<pin after provisioning>'
+# Every JVM starts with these (SEC-271-6): no attach mechanism (nothing loads into the process that holds the
+# password), no shared perf-data file, and a crash log, which holds memory snippets, only in work\.
+$JavaFlags = @('-XX:+DisableAttachMechanism', '-XX:-UsePerfData', '-XX:ErrorFile=C:\KokonadaSigner\work\hs_err_%p.log')
 
 # A plain .apk file name: no folder, drive, stream, '..' or device name.
 function Assert-PlainApkName([string] $Name, [string] $Parameter) {
@@ -246,9 +252,9 @@ try {
     $aligned = Wait-Tool (New-ToolStart -File $Zipalign -Arguments @('-P', '16', '-f', '4', $inCopy, $alignedTmp))
     if ($aligned.ExitCode -ne 0) { throw "zipalign failed (exit $($aligned.ExitCode))." }
 
-    $sign = New-ToolStart -File $Java -Arguments @('-jar', $Apksigner, 'sign', '--ks', $KeyStore, '--ks-type', 'PKCS12',
+    $sign = New-ToolStart -File $Java -Arguments ($JavaFlags + @('-jar', $Apksigner, 'sign', '--ks', $KeyStore, '--ks-type', 'PKCS12',
         '--ks-key-alias', $KeyAlias, '--ks-pass', 'env:KOKONADA_SIGNER_KS_PASS', '--v4-signing-enabled', 'false',
-        '--out', $signedTmp, $alignedTmp)
+        '--out', $signedTmp, $alignedTmp))
     $password = (Get-Content -LiteralPath $PassFile -Raw).Trim() | ConvertTo-SecureString
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
     try {
@@ -261,7 +267,7 @@ try {
     }
     if ($signed.ExitCode -ne 0) { throw "apksigner sign failed (exit $($signed.ExitCode))." }
 
-    $verify = New-ToolStart -File $Java -Arguments @('-jar', $Apksigner, 'verify', '--print-certs', $signedTmp)
+    $verify = New-ToolStart -File $Java -Arguments ($JavaFlags + @('-jar', $Apksigner, 'verify', '--print-certs', $signedTmp))
     $verify.RedirectStandardOutput = $true
     $verified = Wait-Tool $verify
     Write-Host $verified.Output
