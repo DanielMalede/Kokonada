@@ -124,7 +124,13 @@ _free_
 - started: 2026-10-20
 
 ### M08
-_free_
+- task: `OPS-171` (TASKS)
+- title: narrow .claude/settings.json so no pre-allowed command can read a secret and publish it, pinned by a settings policy test (SEC-264-L4, SEC-264-L1)
+- branch: `fix/ops171-settings-policy`
+- paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-10-21
 
 ### M09
 - task: `own:ops303-release-custody` (own)
