@@ -72,7 +72,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `fix/be070-socket-payloads`
 - paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/art9GateClass.structural.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #266
 - started: 2026-10-20
 
 ### M02
