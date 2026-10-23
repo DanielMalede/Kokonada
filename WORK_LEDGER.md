@@ -127,7 +127,13 @@ _free_
 _free_
 
 ### M09
-_free_
+- task: `own:ops303-release-custody` (own)
+- title: the release build no longer reads keystore.properties and yields an unsigned APK with no debug fallback; a reviewed signing script the owner runs as kokonada-signer (OPS-303)
+- branch: `fix/ops303-release-custody`
+- paths: `mobile/KokonadaHealth/android/app/build.gradle`, `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`, `TASKS.md`
+- resources: none
+- state: in-review · PR #271
+- started: 2026-10-21
 
 ### M10
 _free_
