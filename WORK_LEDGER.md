@@ -106,13 +106,13 @@ _free_
 - started: 2026-10-20
 
 ### M06
-- task: `DAN-085` (TASKS)
-- title: the read-only production snapshot that sizes #232's two security BLOCKs (counts only), and update lines on six rows
-- branch: `docs/dan085-snapshot`
-- paths: `TASKS.md`
-- resources: `res:atlas-prod`
-- state: in-review · PR #260
-- started: 2026-10-18
+- task: `own:pii-guard` (own)
+- title: a forward-only guard against the partners' full names, emails and user paths in tracked files; two fixtures take a made-up name
+- branch: `test/pii-guard`
+- paths: `backend/tests/personalDataGuard.test.js`, `backend/tests/shadow.personalDataGuard.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #268
+- started: 2026-10-20
 
 ### M07
 - task: `own:dan101-delete-classify-purge` (own)
