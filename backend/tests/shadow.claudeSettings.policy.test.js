@@ -18,6 +18,10 @@
 // matches the bare command, here the strict reading needs one character for every `*` and never
 // matches the bare command; the capture's `npm test` item settles which the runtime follows, and a
 // shared model is a later row. Every deny must hold under the strict reading too.
+// The sentinel's five strings and the adb path are derived from `.claude/settings.json`'s allow
+// list by path-free patterns instead of being quoted (round 3): `backend/tests/personalDataGuard.
+// test.js` counts every absolute user path in a tracked file. The auditor's intent is unchanged:
+// the flows CLAUDE.md step 3 names must stay allowed, and never be denied under the strict reading.
 
 const fs = require('fs');
 const path = require('path');
@@ -49,6 +53,13 @@ function decide(cmd, tool = 'Bash', strict = false) {
   if (hits(allow, tool, cmd, strict)) return 'allow';
   return 'prompt';
 }
+
+// The owner's-path commands, derived from the allow list (see the header): the five sentinel
+// strings of CLAUDE.md step 3, and the adb binary the five adb rules share.
+const allowCommands = specs(allow, 'Bash');
+const SENTINEL_COMMANDS = allowCommands.filter((c) => c.startsWith('git -c core.hooksPath=/dev/null') && c.includes('/.claude/worktrees/sentinel '));
+const ADB_MARK = '/platform-tools/adb.exe ';
+const ADB_PATHS = [...new Set(allowCommands.filter((c) => c.includes(ADB_MARK)).map((c) => c.slice(0, c.indexOf(ADB_MARK) + ADB_MARK.length - 1)))];
 
 describe('shadow: denies that must not depend on `*` matching nothing (RED at 1f88913)', () => {
   const bare = [
@@ -133,16 +144,18 @@ describe('shadow: structure pins the policy test leaves loose', () => {
     for (const r of specs(deny, 'Read')) expect(deny).toContain(`Edit(${r})`);
     expect(specs(allow, 'Read').filter((r) => r.startsWith('~'))).toEqual([]);
   });
+
+  it('the derived flow strings are the sentinel\'s five exact allows and one adb binary', () => {
+    expect(SENTINEL_COMMANDS).toHaveLength(5);
+    expect(ADB_PATHS).toHaveLength(1);
+  });
 });
 
 describe('shadow: the flows the policy test does not pin (green at 1f88913; red when a deny edit catches one)', () => {
   const flows = [
-    // CLAUDE.md session start step 3 — .claude/agents/sentinel.md:39-45, verbatim:
-    'git -c core.hooksPath=/dev/null --no-optional-locks -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel diff --quiet origin/main -- WEAKNESSES_AND_FAILURES.md',
-    'git -c core.hooksPath=/dev/null -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel checkout -- WEAKNESSES_AND_FAILURES.md',
-    'git -c core.hooksPath=/dev/null -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel checkout --detach origin/main',
-    'git -c core.hooksPath=/dev/null --no-optional-locks -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel status --porcelain --untracked-files=no',
-    'git -c core.hooksPath=/dev/null --no-optional-locks -C /c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel diff --quiet HEAD origin/main -- WEAKNESSES_AND_FAILURES.md',
+    // CLAUDE.md session start step 3 — .claude/agents/sentinel.md § FILING, the five strings, as
+    // the allow list carries them:
+    ...SENTINEL_COMMANDS,
     // CLAUDE.md steps 1 and 6, /ship, /merge, merge-guard:
     'git fetch --unshallow',
     'git fetch origin',
@@ -160,7 +173,7 @@ describe('shadow: the flows the policy test does not pin (green at 1f88913; red 
     'npm run lint',
     'npm run lint:design-system',
     'npm --prefix mobile/KokonadaHealth ci',
-    '/c/Users/danie/AppData/Local/Android/Sdk/platform-tools/adb.exe logcat -d',
+    ...ADB_PATHS.map((adb) => `${adb} logcat -d`),
   ];
   for (const cmd of flows) {
     it(`allowed, and never denied under the strict reading: ${cmd}`, () => {

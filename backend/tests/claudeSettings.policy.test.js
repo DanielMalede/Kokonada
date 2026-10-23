@@ -40,11 +40,18 @@
 //    there it needs the space. At most one is the runtime's reading; the live capture's `npm test`
 //    item settles it, and a shared model is a later row. Every deny is written so that it holds
 //    under both readings (`backend/tests/shadow.claudeSettings.policy.test.js` pins that).
+//
+// The commands that carry the owner's absolute paths — CLAUDE.md step 2's three strings and its
+// L-check, the sentinel's five strings of step 3, the adb rules — are never quoted here:
+// `backend/tests/personalDataGuard.test.js` counts every absolute user path in a tracked file. They
+// are derived from the allow list and from CLAUDE.md by path-free patterns, and pinned against each
+// other below.
 
 const fs = require('fs');
 const path = require('path');
 
-const SETTINGS_PATH = path.resolve(__dirname, '..', '..', '.claude', 'settings.json');
+const ROOT = path.resolve(__dirname, '..', '..');
+const SETTINGS_PATH = path.join(ROOT, '.claude', 'settings.json');
 const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
 const settings = JSON.parse(raw);
 const perm = settings.permissions || {};
@@ -117,6 +124,31 @@ function fileDecision(p, tool) {
 }
 const readDecision = (p) => fileDecision(p, 'Read');
 const editDecision = (p) => fileDecision(p, 'Edit');
+
+// ---- the owner's-path commands, derived rather than quoted (see the header) -------------------
+function one(list, what) {
+  if (list.length !== 1) throw new Error(`expected exactly one ${what}, found ${list.length}: ${list.join(' | ')}`);
+  return list[0];
+}
+const allowCommands = specsFor(allow, 'Bash');
+const allowedWhere = (pred, what) => one(allowCommands.filter(pred), what);
+// CLAUDE.md session-start step 2: the three exact allows, selected by their git form.
+const STEP2_SUFFIXES = [' symbolic-ref --short HEAD', ' status --porcelain --untracked-files=no', ' merge --ff-only origin/main'];
+const STEP2_COMMANDS = STEP2_SUFFIXES.map((suffix) =>
+  allowedWhere((c) => c.startsWith('git -C ') && c.endsWith(suffix), `step-2 allow ending in "${suffix}"`));
+// CLAUDE.md session-start step 3 — .claude/agents/sentinel.md § FILING: the five exact allows that
+// read or reset the sentinel's worktree with the hooks of that tree disabled.
+const SENTINEL_COMMANDS = allowCommands.filter((c) => c.startsWith('git -c core.hooksPath=/dev/null') && c.includes('/.claude/worktrees/sentinel '));
+// The adb rules name the SDK's platform-tools binary by its absolute path; the path is one.
+const ADB_MARK = '/platform-tools/adb.exe ';
+const ADB = one([...new Set(allowCommands.filter((c) => c.includes(ADB_MARK)).map((c) => c.slice(0, c.indexOf(ADB_MARK) + ADB_MARK.length - 1)))], 'adb path');
+// CLAUDE.md's own text of step 2: the line that begins its item 2, its backticked strings.
+const CLAUDE_MD = fs.readFileSync(path.join(ROOT, 'CLAUDE.md'), 'utf8');
+const STEP2_LINE = CLAUDE_MD.split('\n').find((l) => /^2\. The owner's machine only/.test(l)) || '';
+const STEP2_STRINGS = [...STEP2_LINE.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+const stepTwoString = (pred, what) => one(STEP2_STRINGS.filter((s) => s.startsWith('git -C ') && pred(s)), `CLAUDE.md step-2 string ${what}`);
+const CLAUDE_STEP2_COMMANDS = STEP2_SUFFIXES.map((suffix) => stepTwoString((s) => s.endsWith(suffix), `ending in "${suffix}"`));
+const CLAUDE_L_CHECK = stepTwoString((s) => s.includes(' diff --quiet <L> HEAD -- '), 'with the L-check').replace('<L>', 'L');
 
 describe('OPS-171 settings policy — matcher self-test (pins the model against the docs)', () => {
   const m = (spec, cmd) => shellSpecToRegex(spec, false).test(cmd);
@@ -256,6 +288,18 @@ describe('OPS-171 settings policy — structure (a wrong value silently drops th
     const stale = specsFor(allow, 'Read').filter((r) => r.startsWith('//k/') || r.includes('AI-Music-App'));
     expect(stale).toEqual([]);
   });
+
+  it('the step-2 allows are exactly the three strings CLAUDE.md step 2 names, and the L-check is not among them', () => {
+    expect(STEP2_COMMANDS).toEqual(CLAUDE_STEP2_COMMANDS);
+    expect(CLAUDE_L_CHECK).toContain(' diff --quiet L HEAD -- ');
+    expect(allowCommands).not.toContain(CLAUDE_L_CHECK);
+  });
+
+  it('the sentinel has exactly five exact allows and the adb rules share one binary path', () => {
+    expect(SENTINEL_COMMANDS).toHaveLength(5);
+    expect(SENTINEL_COMMANDS.every((c) => !c.includes('*'))).toBe(true);
+    expect(allowCommands.filter((c) => c.startsWith(`${ADB} `))).toHaveLength(5);
+  });
 });
 
 describe('OPS-171 settings policy — secrets are not readable or editable, the example file stays both', () => {
@@ -369,9 +413,11 @@ describe('OPS-171 settings policy — exfiltration and destructive commands are 
     'git diff ~/.ssh/id_ed25519 x',
     'git diff nul backend/.env',
     'git diff -a /dev/null x.jks',
-    // SEC-270-05: the two package forms are exact; any other --prefix, and npx tsc, prompt.
+    // SEC-270-05: the two package forms are exact; any other --prefix (a review tree, a temp
+    // directory), and npx tsc, prompt.
     'npm --prefix /tmp/x ci',
-    'npm --prefix /c/Users/danie/Videos/Kokonada-review/x ci',
+    'npm --prefix /mnt/review/x ci',
+    'npm --prefix C:/review/x ci',
     'npx tsc -p /tmp/x',
     'npx tsc',
     // Rows that rest on the absence of an allow alone (no ask or deny shadows them): a widened
@@ -442,20 +488,13 @@ describe('OPS-171 settings policy — exfiltration and destructive commands are 
 });
 
 describe('OPS-171 settings policy — the flows keep working', () => {
-  const SENTINEL = '/c/Users/danie/Videos/Kokonada/.claude/worktrees/sentinel';
-  const ADB = '/c/Users/danie/AppData/Local/Android/Sdk/platform-tools/adb.exe';
   const MERGE_FORM = 'gh pr merge 1 --squash --delete-branch --match-head-commit 0123456789abcdef0123456789abcdef01234567';
   const stillAllowed = [
-    // CLAUDE.md session-start step 2, verbatim, the three fast-forward strings:
-    'git -C /c/Users/danie/Videos/Kokonada symbolic-ref --short HEAD',
-    'git -C /c/Users/danie/Videos/Kokonada status --porcelain --untracked-files=no',
-    'git -C /c/Users/danie/Videos/Kokonada merge --ff-only origin/main',
-    // CLAUDE.md session-start step 3 — .claude/agents/sentinel.md § FILING, verbatim:
-    `git -c core.hooksPath=/dev/null --no-optional-locks -C ${SENTINEL} diff --quiet origin/main -- WEAKNESSES_AND_FAILURES.md`,
-    `git -c core.hooksPath=/dev/null --no-optional-locks -C ${SENTINEL} status --porcelain --untracked-files=no`,
-    `git -c core.hooksPath=/dev/null --no-optional-locks -C ${SENTINEL} diff --quiet HEAD origin/main -- WEAKNESSES_AND_FAILURES.md`,
-    `git -c core.hooksPath=/dev/null -C ${SENTINEL} checkout -- WEAKNESSES_AND_FAILURES.md`,
-    `git -c core.hooksPath=/dev/null -C ${SENTINEL} checkout --detach origin/main`,
+    // CLAUDE.md session-start step 2, the three fast-forward strings (derived; pinned equal to
+    // CLAUDE.md's text in the structure block):
+    ...STEP2_COMMANDS,
+    // CLAUDE.md session-start step 3 — .claude/agents/sentinel.md § FILING, the five strings (derived):
+    ...SENTINEL_COMMANDS,
     // CLAUDE.md steps 1, 5 and 6, /ship, /review-pr, /merge and merge-guard:
     'git fetch origin --prune',
     'git fetch origin',
@@ -528,13 +567,9 @@ describe('OPS-171 settings policy — the flows keep working', () => {
     expect(shellDecision('git branch -d x', 'PowerShell')).toBe('ask');
   });
 
-  it('the CLAUDE.md step-2 L-check prompts: no rule matches it in either direction', () => {
-    const lCheck =
-      "git -C /c/Users/danie/Videos/Kokonada diff --quiet L HEAD -- ':(icase)*CLAUDE.md' " +
-      "':(icase)*CLAUDE.local.md' ':(icase)*AGENTS.md' ':(icase)*AGENTS.override.md' " +
-      "':(icase)*.claude/*' ':(icase)*.agents/*' ':(icase)*.codex/*' ':(icase)*.mcp.json'";
-    expect(shellDecision(lCheck, 'Bash')).toBe('prompt');
-    expect(shellDecision(lCheck, 'PowerShell')).not.toBe('deny');
+  it('the CLAUDE.md step-2 L-check (its text, with L substituted) prompts: no rule matches it in either direction', () => {
+    expect(shellDecision(CLAUDE_L_CHECK, 'Bash')).toBe('prompt');
+    expect(shellDecision(CLAUDE_L_CHECK, 'PowerShell')).not.toBe('deny');
   });
 
   it('the /claim coordinator invocation is never newly blocked (deny or ask)', () => {
