@@ -62,6 +62,10 @@ async function persistVitalSamples(userId, metrics) {
       source: m.source,
       recordedAt: m.recordedAt,
       tzOffsetMinutes: sanitizeTzOffset(m.tzOffsetMinutes),
+      // RMSSD and SDNN are different statistics, so a normaliser that knows which one its device
+      // reports says so (Garmin: RMSSD), and the label rides on HRV rows only. The model refuses it
+      // on any other metric, and a stray label must not cost a resting-HR row its write.
+      ...(m.metric === 'hrv' && m.hrvMethod != null ? { hrvMethod: m.hrvMethod } : {}),
     }));
 
   if (!docs.length) return { inserted: 0, rejected: NO_REJECTS };
