@@ -12,8 +12,7 @@
 // Real semantics: the REAL ingest seam on a REAL Mongo (mongodb-memory-server). The line the test
 // expects is read off the models' own TTL indexes, the same place Mongo reads it, so neither this file
 // nor the code under test restates the 90. Redis is absent, so the recompute enqueue is a no-op.
-// Every timestamp is relative to the clock, on a UTC midnight, so the suite never ages out of its own
-// fixtures.
+// Every timestamp is relative to the clock, so the suite never ages out of its own fixtures.
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
 process.env.NODE_ENV = 'test';
 delete process.env.REDIS_URL;
@@ -39,8 +38,9 @@ afterAll(async () => {
 
 const HOUR = 60 * 60;
 const DAY = 24 * HOUR;
-const TODAY = Math.floor(Date.now() / 1000 / DAY) * DAY; // today's UTC midnight
-const daysAgo = (n) => TODAY - n * DAY;
+// Read from the clock at each call, not once at load: a fixed anchor would age a "one day inside"
+// fixture past the line whenever a run crossed midnight between loading this file and using it.
+const daysAgo = (n) => Math.floor(Date.now() / 1000) - n * DAY;
 
 // The TTL a store enforces, in days, read from its schema index: what Mongo builds and reaps by.
 const ttlDays = (Model) => {
