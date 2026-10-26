@@ -102,7 +102,7 @@ _free_
 - branch: `feat/garmin-personal-normaliser`
 - paths: `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminPersonalEnvelope.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/wave4.vitalIngest.test.js`, `backend/tests/metricStore.test.js`
 - resources: none
-- state: claimed
+- state: in-review · PR #273
 - started: 2026-10-26
 
 ### M06
