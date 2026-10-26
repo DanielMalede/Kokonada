@@ -397,4 +397,6 @@ module.exports = {
   normalize, normalizeHealthStoreSamples, normalizeGarminSummaries,
   // shared with metricStore so the capability gate has ONE definition, not two that drift
   consentV2Enabled, sanitizeTzOffset,
+  // shared with the personal-lane envelope, so it admits exactly the windows this file can end a night on
+  MAX_WINDOW_SECONDS,
 };
