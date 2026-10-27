@@ -303,14 +303,19 @@ describe('the detectors are not vacuous', () => {
     expect(functionBody(seam(`${gate} ${sinks}`), 'ingestSummaries').startsWith('{const { status }')).toBe(true);
   });
 
-  it('BE-205: the caller scan finds a new caller and does not count the definition', () => {
+  // RA-6 of #275: an alias calls the seam without ever naming `ingestSummaries(`, and a re-export hands it on, so
+  // both are callers; the defining file's own definition and export are not.
+  it('BE-205: the caller scan finds every reference, an alias and a re-export included, and does not count the definition or its export', () => {
     const files = [
       { file: 'controllers/integrationsController.js', code: 'await garminIngest.ingestSummaries(user._id, items);' },
       { file: 'services/wearable/garminIngest.js', code: 'async function ingestSummaries(userId, items) {}\nmodule.exports = { ingestSummaries };' },
       { file: 'workers/garminPersonalPull.js', code: 'const res = await ingestSummaries(userId, admitted.items);' },
-      { file: 'services/wearable/mapper.js', code: 'const seam = garminIngest.ingestSummaries;' },
+      { file: 'services/wearable/mapper.js', code: 'const seam = garminIngest.ingestSummaries;\nawait seam(userId, items);' },
+      { file: 'services/wearable/barrel.js', code: "module.exports = { ingestSummaries: require('./garminIngest').ingestSummaries };" },
     ];
-    expect(callersOf(files, 'ingestSummaries')).toEqual(['controllers/integrationsController.js', 'workers/garminPersonalPull.js']);
+    expect(callersOf(files, 'ingestSummaries')).toEqual([
+      'controllers/integrationsController.js', 'services/wearable/barrel.js', 'services/wearable/mapper.js', 'workers/garminPersonalPull.js',
+    ]);
   });
 
   it('the scan found what it guards: ≥8 socket handlers and ≥5 biometric REST controllers', () => {
