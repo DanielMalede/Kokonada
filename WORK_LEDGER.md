@@ -85,12 +85,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:garmin-personal-pull` (own)
-- title: Garmin personal lane PR 3 (T4): the garmin-personal-pull repeatable job, its fences and exit-gate tests; BE-205, BE-189, BE-190, BE-191, BE-206, BE-211, BE-213 (own:garmin-personal-pull)
-- branch: `feat/garmin-personal-pull`
-- paths: `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/healthBatchContract.js`, `backend/tests/art9GateClass.structural.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/garminFutureCap.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminWebhook.integration.test.js`, `backend/tests/integrations.test.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/metricStore.test.js`, `backend/tests/healthBatchContract.test.js`, `backend/tests/garminPersonal*.test.js`, `backend/tests/shadow.garmin*.test.js`, `TASKS.md`
+- task: `BE-221` (TASKS)
+- title: No health-derived token reaches Groq: drop the intensity band from the generation prompt and the HR band and target tempo from the caption prompt; declarations follow
+- branch: `fix/be221-groq-health-egress`
+- paths: `backend/app/services/geminiEngine.js`, `backend/app/services/moodDescriptors.js`, `backend/app/services/discovery/captionService.js`, `backend/app/sockets/biometricHandler.js`, `docs/PRIVACY_DECLARATIONS.md`, `TASKS.md`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/captionService.test.js`, `backend/tests/captionPipeline.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/groqHealthEgress.test.js`
 - resources: none
-- state: in-review · PR #275
+- state: claimed
 - started: 2026-10-27
 
 ### M04
