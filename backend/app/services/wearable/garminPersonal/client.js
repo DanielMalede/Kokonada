@@ -557,7 +557,9 @@ function keyExpiryStatus(options = {}) {
   const expiresAt = Object.hasOwn(options, 'expiresAt') ? options.expiresAt : process.env.GARMIN_PERSONAL_KEY_EXPIRES_AT;
   const now = Object.hasOwn(options, 'now') ? options.now : Date.now();
   const expiry = parseExpiry(expiresAt);
-  if (expiry === null) return { status: 'unknown', daysLeft: null };
+  // A clock or an expiry that is not a finite number is unknown, never ok: NaN compares false both
+  // ways, and the warning would fail open (RA-7).
+  if (!Number.isFinite(expiry) || !Number.isFinite(now)) return { status: 'unknown', daysLeft: null };
   const left = expiry - now;
   if (left <= 0) return { status: 'expired', daysLeft: 0 };
   return { status: left <= KEY_EXPIRY_WARNING_MS ? 'expiring' : 'ok', daysLeft: Math.floor(left / DAY_MS) };

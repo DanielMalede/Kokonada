@@ -932,6 +932,15 @@ describe('the key-expiry warning (no key material involved)', () => {
     }
   });
 
+  // RA-7. Arithmetic on a clock that is not a finite number gave NaN, and NaN is neither `<= 0` nor
+  // `<= 14 days`, so the warning failed OPEN: 'ok', with NaN days left. Only a finite number is a clock.
+  it.each([NaN, Infinity, -Infinity, undefined, null, '2027-01-01', new Date('2027-01-01T00:00:00.000Z')])(
+    'a clock reading that is not a finite number (%p) is unknown, never ok',
+    (now) => {
+      expect(keyExpiryStatus({ expiresAt: EXPIRES, now })).toEqual({ status: 'unknown', daysLeft: null });
+    },
+  );
+
   it('reads GARMIN_PERSONAL_KEY_EXPIRES_AT by default', () => {
     const before = process.env.GARMIN_PERSONAL_KEY_EXPIRES_AT;
     process.env.GARMIN_PERSONAL_KEY_EXPIRES_AT = '2027-01-24';
