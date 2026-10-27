@@ -410,7 +410,10 @@ function normalizeGarminSummaries(type, s) {
   if (drop.count > 0) {
     console.warn(`[garmin] dropped ${drop.count} out-of-range ${type} value(s)`);
   }
-  return out;
+  // RA-2 of #275: a finite number of seconds can still lie past the 8.64e12 s a Date can hold, and then the
+  // record's time is an Invalid Date, which no filter can compare and Mongo cannot cast. A summary whose start
+  // or end a Date cannot hold yields nothing, and a reading whose own time it cannot hold is left out.
+  return out.filter((m) => Number.isFinite(m.recordedAt.getTime()));
 }
 
 module.exports = {
