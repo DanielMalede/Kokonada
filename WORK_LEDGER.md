@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `BE-070` (TASKS)
-- title: the socket handlers normalize the client's payload, so a null payload no longer crashes the backend
-- branch: `fix/be070-socket-payloads`
-- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/art9GateClass.structural.test.js`, `TASKS.md`
+- task: `own:garmin-access-domain` (own)
+- title: the owner's Garmin access request decisions of 2026-10-25 — the domain kokonada.com, the submitter, the free model (DAN-009, DAN-007, DAN-015)
+- branch: `docs/garmin-access-domain`
+- paths: `TASKS.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-044.md`, `docs/design-v2/decisions/DEC-116.md`, `docs/design-v2/decisions/DEC-186.md`, `docs/design-v2/decisions/DEC-187.md`, `docs/design-v2/decisions/DEC-188.md`, `docs/design-v2/decisions/DEC-189.md`
 - resources: none
-- state: in-review · PR #266
-- started: 2026-10-20
+- state: claimed
+- started: 2026-10-25
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
