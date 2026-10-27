@@ -331,6 +331,34 @@ function applyBiometricBands(params, ctx) {
   return out;
 }
 
+// BE-221 — the heart-rate branch's params, built here with NO LLM call. The owner's ruling
+// (class c, 2026-10-27): no health information, and nothing derived from it, reaches Groq, and a
+// band derived from a reading is derived from it. So the branch that used to ask the model to
+// "match a <band> intensity" takes the band's own targets instead: the same bpm/energy/acousticness
+// formula applyBiometricBands blends toward, a neutral valence, the user's top genres and a CLOSED
+// per-band keyword list. applyBiometricBands then runs on top exactly as before, so the W4-016
+// kill switch keeps its meaning; on the same context the blend is a fixed point.
+const _BIO_BAND_KEYWORDS = Object.freeze({
+  resting: Object.freeze(['calm', 'mellow', 'soft']),
+  active:  Object.freeze(['upbeat', 'groovy', 'steady']),
+  peak:    Object.freeze(['energetic', 'driving', 'high-energy']),
+});
+
+function buildBioParams(ctx, musicProfile = {}) {
+  // No usable signal: the active band, the default the old prompt fell back to.
+  const band = biometricBand(ctx) || 'active';
+  const e = _BIO_BAND_ENERGY[band];
+  return {
+    target_bpm:          _clampBpm(70 + e * 90),
+    target_energy:       e,
+    target_valence:      0.5,
+    target_acousticness: _clamp01(1 - e),
+    seed_artists:        [],
+    seed_genres:         ((musicProfile && musicProfile.topGenres) || []).slice(0, 2),
+    mood_keywords:       [..._BIO_BAND_KEYWORDS[band]],
+  };
+}
+
 // Wave-0 hardening (H1): the client-supplied activity chip is untrusted and is
 // interpolated into the LLM prompt. Validate it against the KNOWN preset enum so a
 // non-standard client can never inject arbitrary free-text (undermining the closed-
@@ -421,6 +449,7 @@ module.exports = {
   moodCoords,
   biometricBand,
   applyBiometricBands,
+  buildBioParams,
   extractIntent,
   normalizeActivity,
 };
