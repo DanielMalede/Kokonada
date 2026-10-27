@@ -62,6 +62,10 @@ async function persistVitalSamples(userId, metrics) {
       source: m.source,
       recordedAt: m.recordedAt,
       tzOffsetMinutes: sanitizeTzOffset(m.tzOffsetMinutes),
+      // RMSSD and SDNN are different statistics, so a normaliser that knows which one its device
+      // reports says so (Garmin: RMSSD), and the label rides on HRV rows only. The model refuses it
+      // on any other metric, and a stray label must not cost a resting-HR row its write.
+      ...(m.metric === 'hrv' && m.hrvMethod != null ? { hrvMethod: m.hrvMethod } : {}),
     }));
 
   if (!docs.length) return { inserted: 0, rejected: NO_REJECTS };
@@ -97,20 +101,66 @@ async function persistVitalSamples(userId, metrics) {
   }
 }
 
+// ── Retention (T2) ──────────────────────────────────────────────────────────────
+//
+// BiometricLog and VitalSample expire rows on `recordedAt` through a TTL index, so a row already
+// older than its window is deleted on the TTL monitor's next pass. Writing one only churns the
+// collection, queues a recompute over data about to vanish, and folds the reading into the TTL-less
+// MedicalProfile, where it outlives the raw data it came from. A caller that receives history asks
+// persistMetrics to drop those metrics before any write (the Garmin lane: a 182-day backfill, and the
+// personal lane's first pull).
+//
+// The windows are read off the models' own TTL indexes, so BIOMETRIC_RETENTION_DAYS and
+// VITAL_SAMPLE_RETENTION_DAYS stay defined in one place each and this filter cannot drift from the
+// reaper. A metric with no TTL'd store of its own (sleep stages land only on MedicalProfile) takes
+// the shortest window: no derivative outlives its raw data.
+function ttlMsOf(Model) {
+  const ttl = Model.schema.indexes().find(([fields, options]) => Object.keys(fields).length === 1
+    && fields.recordedAt === 1 && Number.isFinite(options?.expireAfterSeconds));
+  return ttl ? ttl[1].expireAfterSeconds * 1000 : null;
+}
+
+function withinRetention(metrics, now = Date.now()) {
+  const heartRateMs = ttlMsOf(BiometricLog);
+  const vitalMs = ttlMsOf(VitalSample);
+  const known = [heartRateMs, vitalMs].filter((ms) => ms !== null);
+  const shortestMs = known.length ? Math.min(...known) : null;
+  const windowOf = (metric) => {
+    if (metric === 'heartRate') return heartRateMs;
+    return VitalSample.VITAL_METRICS.includes(metric) ? vitalMs : shortestMs;
+  };
+
+  const kept = [];
+  let dropped = 0;
+  for (const m of metrics) {
+    const windowMs = windowOf(m?.metric);
+    const at = m?.recordedAt instanceof Date ? m.recordedAt.getTime() : NaN;
+    if (windowMs !== null && at < now - windowMs) { dropped += 1; continue; }
+    kept.push(m);
+  }
+  return { kept, dropped };
+}
+
 /**
  * @param {string} userId
  * @param {Array<{metric,value,unit,recordedAt,source}>} metrics  canonical records
- * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, vitals:object, profileMetrics:object}>}
+ * @param {{dropOutsideRetention?: boolean}} [options]  drop, before any write, every metric older
+ *   than its store keeps (withinRetention above). Off by default; only the Garmin lane opts in.
+ * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, vitals:object, profileMetrics:object, droppedOutsideRetention:number}>}
  *   `inserted` is what Mongo actually took — NOT the attempted count (W4-D08).
  */
-async function persistMetrics(userId, metrics) {
+async function persistMetrics(userId, metrics, { dropOutsideRetention = false } = {}) {
   let inserted = 0;
   let rejected = NO_REJECTS;
+
+  let batch = metrics || [];
+  let droppedOutsideRetention = 0;
+  if (dropOutsideRetention) ({ kept: batch, dropped: droppedOutsideRetention } = withinRetention(batch));
 
   // heartRate → encrypted time-series rows, idempotent (skip already-stored
   // (source,recordedAt); collapse duplicate timestamps within the batch). App-level
   // dedupe (no DB unique index) so the live watch path is untouched.
-  let hrDocs = (metrics || [])
+  let hrDocs = batch
     .filter(m => m.metric === 'heartRate')
     .map(m => ({
       userId, heartRate: m.value, activity: 'unknown', source: m.source, recordedAt: m.recordedAt,
@@ -142,14 +192,14 @@ async function persistMetrics(userId, metrics) {
   }
 
   // Per-metric physiological rows — the fuel for the personal HRV/RHR baselines (D1).
-  const vitals = await persistVitalSamples(userId, metrics);
+  const vitals = await persistVitalSamples(userId, batch);
 
   // Profile scalars → aggregate (median) → upsert. Pass RAW values: Mongoose 9 DOES run
   // the encryptedNumber setter on findOneAndUpdate($set), so it encrypts once. Pre-encrypting
   // here (the old audit-F3 pattern, correct for Mongoose <9 where update setters didn't run)
   // DOUBLE-encrypted every scalar — the getter then decrypted one layer and Number(ciphertext)
   // was NaN, so Pulse showed "—" for restingHR/sleep despite a successful ingest.
-  const profileMetrics = aggregateProfileMetrics(metrics);
+  const profileMetrics = aggregateProfileMetrics(batch);
   const $set = {};
   for (const [field, value] of Object.entries(profileMetrics)) {
     $set[METRIC_FIELD_PATHS[field] || field] = value;
@@ -159,7 +209,7 @@ async function persistMetrics(userId, metrics) {
   // Night-date guard: a 6-month backfill's "latest" night must never overwrite
   // a fresher night already stored. Guard read is best-effort — an unreadable
   // profile counts as no-existing-night (ingestion never blocks on it).
-  const lastNight = computeLastNightSleep(metrics);
+  const lastNight = computeLastNightSleep(batch);
   if (lastNight) {
     const nightDate = new Date(lastNight.date);
     let existingDate = null;
@@ -195,7 +245,7 @@ async function persistMetrics(userId, metrics) {
     }
   }
 
-  return { inserted, rejected, vitals, profileMetrics };
+  return { inserted, rejected, vitals, profileMetrics, droppedOutsideRetention };
 }
 
 module.exports = { persistMetrics, persistVitalSamples, VITAL_METRICS_PERSISTED };

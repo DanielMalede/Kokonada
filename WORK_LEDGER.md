@@ -97,13 +97,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M05
-- task: `OPS-002` (TASKS)
-- title: the secret-commit guard catches keystore.properties copies, renamed files and password lines, and a test pins it
-- branch: `fix/ops002-secret-commit-guard`
-- paths: `.githooks/pre-commit`, `.gitignore`, `mobile/KokonadaHealth/.gitignore`, `backend/tests/preCommitSecretGuard.test.js`, `TASKS.md`
+- task: `own:garmin-personal-normaliser` (own)
+- title: Garmin personal lane PR 1: harden the shared Garmin normaliser and add the personal-lane envelope with a shared retention filter in garminIngest
+- branch: `feat/garmin-personal-normaliser`
+- paths: `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminPersonalEnvelope.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/wave4.vitalIngest.test.js`, `backend/tests/metricStore.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #267
-- started: 2026-10-20
+- state: in-review · PR #273
+- started: 2026-10-26
 
 ### M06
 - task: `own:pii-guard` (own)
