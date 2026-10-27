@@ -27,6 +27,14 @@
 //   load user modules (PSReadLine) and resolve bare program names through a user PATH. Provisioning
 //   now runs from a separate administrator, kokonada-admin, created with no password typed in the
 //   daily account's window; every Windows program runs by its full System32 path.
+// - RA-46 = SEC-264-17 (28bbef0): step 0 opened PowerShell elevated in the daily account, so a planted
+//   PSReadLine ran as administrator; step 0 is now cmd.exe /d with full paths, a fixed ComSpec and one
+//   && chain. RA-47 (28bbef0): both accounts are created with /logonpasswordchg:yes. RA-48 (28bbef0):
+//   an extra $sd line, or kokonada-signer made an administrator, passed this test.
+// - SEC-264-16 (28bbef0): an empty password can still be changed by any program that knows it; the
+//   Security-log sign-in check (auditing on before the accounts exist) and its stop branch detect it.
+// - SEC-264-18 (28bbef0): the root's owner alone did not prove its descriptor was applied.
+// - SEC-264-19 (28bbef0): the script copy read from the owner's %TEMP% went straight into bin\.
 //
 // A pure read of one markdown file: no fs writes, no child process, no network.
 
@@ -104,7 +112,23 @@ const JDK_SHA256 = 'e53a79c3c3d86865bd7e787903884331068e71321714ffd44f145785affc
 const PSMODULEPATH = '$env:PSModulePath = "$PSHOME\\Modules"';
 const NOPROFILE = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile';
 const PSREADLINE = '(Get-Module PSReadLine).Path';
-const LBPU = '(Get-ItemProperty HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa).LimitBlankPasswordUse';
+const COMSPEC = `set ComSpec=${CMD}`;
+const LBPU_QUERY = `${SYS32}reg.exe query HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa /v LimitBlankPasswordUse`;
+const AUDIT_CATS = '/category:"Account Management","Logon/Logoff"';
+const AUDIT_GET = `${SYS32}auditpol.exe /get ${AUDIT_CATS}`;
+const AUDIT_SET = `${SYS32}auditpol.exe /set ${AUDIT_CATS} /success:enable /failure:enable`;
+const ADMIN_CHAIN = `${AUDIT_SET} && ${LBPU_QUERY} | ${SYS32}findstr.exe /e /c:" 0x1" && ${NET} user kokonada-admin /add /logonpasswordchg:yes && ${NET} localgroup Administrators kokonada-admin /add`;
+// The descriptor of the root (and of step 4's staging folder), exactly these five lines in this order (RA-48).
+const SD_RULE = (sid) =>
+  `$sd.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.SecurityIdentifier]'${sid}', 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))`;
+const SD_LINES = [
+  '$sd = New-Object System.Security.AccessControl.DirectorySecurity',
+  "$sd.SetOwner([System.Security.Principal.SecurityIdentifier]'S-1-5-32-544')",
+  '$sd.SetAccessRuleProtection($true, $false)',
+  SD_RULE('S-1-5-32-544'),
+  SD_RULE('S-1-5-18'),
+];
+const ADMIN_SYSTEM_ONLY = ['BUILTIN\\Administrators Allow  FullControl', 'NT AUTHORITY\\SYSTEM Allow  FullControl'];
 
 describe('the provisioning commands give each folder exactly its owner and its permissions (SEC-264-10, RA-32, RA-41)', () => {
   it('has a provisioning section with commands', () => {
@@ -173,16 +197,39 @@ describe('the provisioning commands give each folder exactly its owner and its p
 
 describe('the root is made with its final security descriptor in one call, refusing an existing path, and checked before any child (RA-43, SEC-264-13)', () => {
   const firstChild = () => idx(createsChild);
-  const SD = [
-    '$sd = New-Object System.Security.AccessControl.DirectorySecurity',
-    "$sd.SetOwner([System.Security.Principal.SecurityIdentifier]'S-1-5-32-544')",
-    '$sd.SetAccessRuleProtection($true, $false)',
-  ];
-  const rule = (sid) =>
-    `$sd.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.SecurityIdentifier]'${sid}', 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))`;
+  const SD = SD_LINES.slice(0, 3);
+  const rule = SD_RULE;
   const CREATE = `if (Test-Path ${ROOT}) { 'STOP: ${ROOT} exists' } else { [void][System.IO.Directory]::CreateDirectory('${ROOT}', $sd) }`;
   const ATTR = `(Get-Item ${ROOT} -Force).Attributes`;
   const OWNER = `(Get-Acl ${ROOT}).Owner`;
+  const PROTECTED = `(Get-Acl ${ROOT}).AreAccessRulesProtected`;
+  const ACCESS = `(Get-Acl ${ROOT}).AccessToString`;
+
+  it('has exactly the five descriptor lines, in order, as the only lines that start with $sd, and uses $sd elsewhere only in a guarded CreateDirectory (RA-48)', () => {
+    expect(CMDS.filter((l) => l.startsWith('$sd'))).toEqual(SD_LINES);
+    const others = CMDS.filter((l) => l.includes('$sd') && !SD_LINES.includes(l));
+    expect(others.length).toBeGreaterThan(0);
+    for (const l of others) expect(l).toMatch(/^if \(Test-Path C:\\KokonadaSigner(\\bin\\stage)?\) \{ 'STOP: [^']*' \} else \{ \[void\]\[System\.IO\.Directory\]::CreateDirectory\('C:\\KokonadaSigner(\\bin\\stage)?', \$sd\) \}$/);
+  });
+
+  it('never makes kokonada-signer an administrator (RA-48)', () => {
+    for (const l of [...CMDS, ...codeSpans(PROVISIONING)]) expect(l).not.toMatch(/localgroup\s+Administrators\s+kokonada-signer/i);
+  });
+
+  it('proves the descriptor was applied: protected, and exactly Administrators and SYSTEM Full Control, before any child (SEC-264-18)', () => {
+    const create = idx((l) => l === CREATE);
+    for (const c of [PROTECTED, ACCESS]) {
+      const at = idx((l) => l === c);
+      expect(at).toBeGreaterThan(create);
+      expect(at).toBeLessThan(firstChild());
+    }
+    const step2 = between(PROVISIONING, '2. **The folders', '3. **');
+    expect(step2).toMatch(/`\(Get-Acl C:\\KokonadaSigner\)\.AreAccessRulesProtected` must print `True`/);
+    expect(step2).toMatch(/`\(Get-Acl C:\\KokonadaSigner\)\.AccessToString` exactly these two lines[^.]*and no other/);
+    const expected = fencedLines(between(step2, 'exactly these two lines', 'The owner alone'));
+    expect(expected).toEqual(ADMIN_SYSTEM_ONLY);
+    expect(step2).toMatch(/all five pass/);
+  });
 
   it('never makes the root with New-Item, mkdir or md, and makes it in exactly one CreateDirectory', () => {
     for (const l of CMDS) {
@@ -203,7 +250,7 @@ describe('the root is made with its final security descriptor in one call, refus
       prev = at;
     }
     expect(prev).toBeLessThan(create);
-    const rules = CMDS.filter((l) => l.startsWith('$sd.AddAccessRule('));
+    const rules = CMDS.filter((l) => l.startsWith('$sd.AddAccessRule'));
     expect(rules.sort()).toEqual([rule('S-1-5-18'), rule('S-1-5-32-544')].sort());
     for (const r of rules) expect(idx((c) => c === r)).toBeLessThan(create);
     expect(create).toBeLessThan(firstChild());
@@ -237,47 +284,132 @@ describe('the root is made with its final security descriptor in one call, refus
 describe('provisioning runs from a separate administrator account, kokonada-admin, created with no password typed in the daily account\'s window (the owner\'s ruling of 2026-10-27, RA-45)', () => {
   const STEP0 = between(PROVISIONING, '0. **The provisioning administrator.**', '**The elevated window.**');
   const STEP0_CMDS = fencedLines(STEP0);
-  const CREATE_ADMIN = `if (${LBPU} -eq 1) { ${NET} user kokonada-admin /add } else { 'STOP: blank passwords are not limited to console sign-in' }`;
 
   it('has a step 0 before step 1', () => {
     expect(STEP0.length).toBeGreaterThan(0);
     expect(PROVISIONING.indexOf('0. **The provisioning administrator.**')).toBeLessThan(PROVISIONING.indexOf('1. **The account.**'));
   });
 
-  it('types exactly four lines in the daily account\'s elevated window: PSModulePath, the LimitBlankPasswordUse check, the guarded create and the Administrators membership', () => {
-    expect(STEP0_CMDS).toEqual([PSMODULEPATH, LBPU, CREATE_ADMIN, `${NET} localgroup Administrators kokonada-admin /add`]);
-    expect(STEP0).toContain(NOPROFILE);
+  it('opens the daily account\'s one elevated window as cmd.exe /d by its full path, never PowerShell, and says code there runs as administrator (RA-46, SEC-264-17)', () => {
+    expect(STEP0).toContain(`\`${CMD} /d\``);
     expect(STEP0).toMatch(/Ctrl\+Shift\+Enter/);
+    expect(STEP0).not.toMatch(/powershell\.exe/i);
+    expect(STEP0).toMatch(/code in that window runs as administrator/);
+    for (const l of STEP0_CMDS) expect(l).not.toMatch(/\$env:|Get-ItemProperty|\(Get-/);
   });
 
-  it('checks LimitBlankPasswordUse prints 1 before the account exists, and marks it not verified on this machine', () => {
-    expect(STEP0).toMatch(/must print `1`/);
+  it('types exactly five lines: ComSpec fixed, the LimitBlankPasswordUse query, the audit policy before, one && chain, the audit policy after (RA-46, SEC-264-16)', () => {
+    expect(STEP0_CMDS).toEqual([COMSPEC, LBPU_QUERY, AUDIT_GET, ADMIN_CHAIN, AUDIT_GET]);
+    const chain = STEP0_CMDS[3];
+    expect(chain).toMatch(/LimitBlankPasswordUse.*&&.*net\.exe user kokonada-admin \/add.*&&.*net\.exe localgroup Administrators kokonada-admin \/add$/);
+    expect(chain.split(' && ')).toHaveLength(4);
+    expect(chain).not.toMatch(/(^|[^&])&([^&]|$)|\|\|/);
+  });
+
+  it('turns auditing of account management and logon on, success and failure, before the account exists, after recording it (SEC-264-16)', () => {
+    const chain = STEP0_CMDS[3];
+    expect(chain.indexOf(AUDIT_SET)).toBe(0);
+    expect(chain.indexOf(AUDIT_SET)).toBeLessThan(chain.indexOf(`${NET} user kokonada-admin /add`));
+    expect(STEP0_CMDS.indexOf(AUDIT_GET)).toBeLessThan(3);
+    expect(STEP0).toMatch(/before either account exists/);
+    expect(STEP0).toMatch(/must show `Success and Failure` for `User Account Management` and for `Logon`/);
+    expect(STEP0).toMatch(/cannot pass as evidence/);
+  });
+
+  it('fixes ComSpec before the pipe, and checks LimitBlankPasswordUse is 0x1 at the end of the line, marking its reach not verified', () => {
+    expect(STEP0_CMDS[0]).toBe(COMSPEC);
+    expect(STEP0).toMatch(/must print `0x1`/);
+    expect(STEP0).toMatch(/not `0x10`/);
     expect(STEP0).toMatch(/console/);
-    expect(STEP0).toMatch(/NOT VERIFIED on this machine/);
+    expect(STEP0).toMatch(/NOT VERIFIED/);
   });
 
-  it('types no password in that window, and sets it at the sign-in screen through Ctrl+Alt+Del', () => {
+  it('types no password in that window, and has the new password set on the secure sign-in screen by the forced change, with no separate Ctrl+Alt+Del step (RA-47)', () => {
     expect(STEP0).toMatch(/type no password/i);
     expect(STEP0).toMatch(/\*\*Switch user\*\*/);
     expect(STEP0).toMatch(/Windows sign-in screen/);
-    expect(STEP0).toMatch(/Ctrl\+Alt\+Del[^.]*\*\*Change a password\*\*/);
+    expect(STEP0).toMatch(/must be changed: on that same secure screen, leave the old password empty and type the new one twice/);
+    expect(STEP0).not.toMatch(/Ctrl\+Alt\+Del/);
     expect(STEP0).toMatch(/password manager the owner's Windows account cannot read/);
   });
 
-  it('never puts a password, or a password prompt, on any net.exe user line', () => {
+  it('stops, deletes the account and treats the machine as compromised when the empty-password sign-in or the change is refused (SEC-264-16)', () => {
+    const stop = between(STEP0, '**If the sign-in is refused**', '\n   - From here on');
+    expect(stop).toMatch(/sign-in with the empty password is refused, or the change refuses the empty old password/);
+    expect(stop).toMatch(/Stop provisioning/);
+    expect(stop).toContain(`\`${NET} user kokonada-admin /delete\``);
+    expect(stop).toMatch(/compromised/);
+    expect(stop).toContain('`DAN-121`');
+  });
+
+  it('creates both accounts with exactly /add /logonpasswordchg:yes, and never puts a password or a prompt on any net.exe user line (RA-47)', () => {
     const users = [...CMDS, ...codeSpans(PROVISIONING)].filter((l) => /net(\.exe)? user /i.test(l));
-    expect(users.length).toBeGreaterThan(1);
+    const added = new Set();
     for (const l of users) {
-      for (const m of l.matchAll(/net(\.exe)? user (\S+)(.*?)(?=\s*\}|$)/gi)) {
+      for (const m of l.matchAll(/net(\.exe)? user (\S+)(.*?)(?=\s*(\}|&&)|$)/gi)) {
         expect(m[2]).toMatch(/^kokonada-(admin|signer)$/);
-        expect(m[3].trim()).toBe('/add');
+        const args = m[3].trim().split(/\s+/);
+        if (args[0] === '/delete') expect(args).toEqual(['/delete']);
+        else {
+          expect(args).toEqual(['/add', '/logonpasswordchg:yes']);
+          added.add(m[2]);
+        }
       }
     }
+    expect([...added].sort()).toEqual(['kokonada-admin', 'kokonada-signer']);
   });
 
   it('runs steps 1 to 6 in kokonada-admin\'s own session, never by elevating the daily account or typing its password into his session', () => {
     expect(PROVISIONING).toMatch(/Steps 1 to 6 run in `kokonada-admin`'s own session/);
     expect(PROVISIONING).toMatch(/never typed into a User Account Control prompt, a `runas`/);
+  });
+});
+
+describe('the Security log shows that nothing changed the empty passwords or signed in with them before the owner did (SEC-264-16)', () => {
+  const SIGNIN = between(PROVISIONING, '**The sign-in check.**', '1. **The account.**');
+  const S = fencedLines(SIGNIN);
+  const EVENTS = "Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4720,4723,4724,4624,4648} | Where-Object { $_.Message -match 'kokonada-(admin|signer)' } | Format-List TimeCreated,Id,KeywordsDisplayNames,Message";
+  const OLDEST = '(Get-WinEvent -LogName Security -Oldest -MaxEvents 1).TimeCreated';
+  const AUDIT_GET_PS = `${SYS32}auditpol.exe --% /get ${AUDIT_CATS}`;
+
+  it('runs the audit policy, the event query and the oldest event, exactly, in kokonada-admin\'s elevated window', () => {
+    expect(SIGNIN.length).toBeGreaterThan(0);
+    expect(S).toEqual([AUDIT_GET_PS, EVENTS, OLDEST]);
+    expect(PROVISIONING.indexOf('**The sign-in check.**')).toBeGreaterThan(PROVISIONING.indexOf('**The elevated window.**'));
+  });
+
+  it('runs before kokonada-signer exists, and again after step 1 for both accounts', () => {
+    const check = idx((l) => l === EVENTS);
+    const signer = idx((l) => isCmd(l, `${NET} user kokonada-signer`));
+    expect(check).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(signer);
+    const step1 = between(PROVISIONING, '1. **The account.**', '2. **');
+    expect(step1).toMatch(/the sign-in check above, run again, must pass for both accounts/);
+  });
+
+  it('states the pass rule: auditing on, the log not cleared, one 4723, no 4724, no 4648, only logon types 2, 7 and 11', () => {
+    expect(SIGNIN).toMatch(/still shows `Success and Failure` for `User Account Management` and for `Logon`/);
+    expect(SIGNIN).toMatch(/oldest event of the log is older than it/);
+    expect(SIGNIN).toMatch(/exactly one 4723/);
+    expect(SIGNIN).toMatch(/A second 4723, or one marked `Audit Failure`/);
+    expect(SIGNIN).toMatch(/There is no 4724/);
+    expect(SIGNIN).toMatch(/There is no 4648/);
+    expect(SIGNIN).toMatch(/Every 4624[^.]*`Logon Type` 2 \(the sign-in screen\), 7 \(an unlock\) or 11 \(cached\)/);
+  });
+
+  it('only tolerates a 4724 at the creation and a 4648 from winlogon.exe at a console sign-in, both marked not verified', () => {
+    expect(SIGNIN).toMatch(/no 4724[^.]*except one in the same second as the account's 4720[^.]*NOT VERIFIED/);
+    expect(SIGNIN).toMatch(/no 4648[^.]*except one whose `Process Name` is `C:\\Windows\\System32\\winlogon\.exe`[^.]*`Logon Type` 2[^.]*NOT VERIFIED/);
+  });
+
+  it('stops, deletes both accounts and treats the machine as compromised when the check fails', () => {
+    const stop = between(SIGNIN, 'If any of these fails', '\n\n');
+    expect(stop).toMatch(/stop provisioning/);
+    expect(stop).toContain(`\`${NET} user kokonada-signer /delete\``);
+    expect(stop).toContain(`\`${NET} user kokonada-admin /delete\``);
+    expect(stop).toMatch(/compromised/);
+    expect(stop).toContain('`DAN-121`');
+    expect(stop).toMatch(/not an administrator that hid them/);
   });
 });
 
@@ -287,9 +419,10 @@ describe('every elevated window runs no code from a profile, user modules, cmd A
     expect(PROVISIONING).toMatch(/Ctrl\+Shift\+Enter/);
   });
 
-  it('fixes PSModulePath before any other command, and in kokonada-admin\'s window then prints where PSReadLine came from', () => {
-    expect(CMDS[0]).toBe(PSMODULEPATH);
-    const admin = between(PROVISIONING, '**The elevated window.**', '1. **The account.**');
+  it('fixes PSModulePath before any other command of kokonada-admin\'s window, and then prints where PSReadLine came from', () => {
+    const step0 = fencedLines(between(PROVISIONING, '0. **The provisioning administrator.**', '**The elevated window.**'));
+    expect(CMDS[step0.length]).toBe(PSMODULEPATH);
+    const admin = between(PROVISIONING, '**The elevated window.**', '**The sign-in check.**');
     expect(fencedLines(admin)).toEqual([PSMODULEPATH, PSREADLINE]);
     expect(admin).toContain('C:\\Program Files\\WindowsPowerShell\\Modules\\');
     expect(admin).toMatch(/\$PSHOME|C:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\/);
@@ -300,14 +433,16 @@ describe('every elevated window runs no code from a profile, user modules, cmd A
     expect(RUNBOOK).not.toMatch(/cmd(\.exe)? \/(?!d)/i);
   });
 
-  it('runs icacls, net, cmd and curl only by their full System32 path, in every command of provisioning and of the signer session (RA-45)', () => {
+  it('runs icacls, net, cmd, curl, reg, findstr and auditpol only by their full System32 path, in every command of provisioning and of the signer session (RA-45, RA-46)', () => {
     expect(TYPED.length).toBeGreaterThan(40);
     for (const l of TYPED) {
-      for (const m of l.matchAll(/(^|[\s;{(|&"])(icacls|net|cmd|curl)(\.exe)?(?=\s)/gi)) {
+      for (const m of l.matchAll(/(^|[\s;{(|&"])(icacls|net|cmd|curl|reg|findstr|auditpol)(\.exe)?(?=\s)/gi)) {
         throw new Error(`bare ${m[2]} in: ${l}`);
       }
-      for (const m of l.matchAll(/(\S*)\b(icacls|net|cmd|curl)\.exe\b/gi)) {
-        if (m[1] !== '') expect(m[1]).toBe(SYS32);
+      for (const m of l.matchAll(/(\S*)\b(icacls|net|cmd|curl|reg|findstr|auditpol)\.exe\b/gi)) {
+        // The one line that names cmd.exe as a value: step 0's ComSpec, itself a full path.
+        if (l === COMSPEC) expect(m[1]).toBe(`ComSpec=${SYS32}`);
+        else if (m[1] !== '') expect(m[1]).toBe(SYS32);
         else throw new Error(`bare ${m[2]}.exe in: ${l}`);
       }
     }
@@ -323,11 +458,45 @@ describe('every elevated window runs no code from a profile, user modules, cmd A
     expect(CMDS).toContain(
       `${CMD} /d /c "git -C <checkout> show origin/main:mobile/KokonadaHealth/scripts/release/sign-release.ps1 > %TEMP%\\sign-release.ps1"`,
     );
-    const copy = idx((l) => l === `${CMD} /d /c copy /b <temp>\\sign-release.ps1 ${ROOT}\\bin\\sign-release.ps1`);
-    const hash = idx((l) => l === `Get-FileHash ${ROOT}\\bin\\sign-release.ps1 -Algorithm SHA256`);
+    const copy = idx((l) => l === `${CMD} /d /c copy /b <temp>\\sign-release.ps1 ${ROOT}\\bin\\stage\\sign-release.ps1`);
+    const hash = idx((l) => l === `Get-FileHash ${ROOT}\\bin\\stage\\sign-release.ps1 -Algorithm SHA256`);
     expect(copy).toBeGreaterThan(-1);
     expect(hash).toBeGreaterThan(copy);
     expect(between(PROVISIONING, '4. **The script.**', '5. **')).toMatch(/normal window/);
+  });
+});
+
+describe('the script read from the owner\'s %TEMP% lands in an administrators-only staging folder and moves into bin\\ only when its hash matches (SEC-264-19)', () => {
+  const STEP4 = between(PROVISIONING, '4. **The script.**', '5. **');
+  const STAGE = `${ROOT}\\bin\\stage`;
+  const ORDER = [
+    `if (Test-Path ${STAGE}) { 'STOP: bin\\stage exists' } else { [void][System.IO.Directory]::CreateDirectory('${STAGE}', $sd) }`,
+    `(Get-Acl ${STAGE}).AreAccessRulesProtected`,
+    `(Get-Acl ${STAGE}).AccessToString`,
+    `${CMD} /d /c copy /b <temp>\\sign-release.ps1 ${STAGE}\\sign-release.ps1`,
+    `Get-FileHash ${STAGE}\\sign-release.ps1 -Algorithm SHA256`,
+    `Move-Item ${STAGE}\\sign-release.ps1 ${ROOT}\\bin\\sign-release.ps1`,
+    `Remove-Item ${STAGE}`,
+    `${ICACLS} ${ROOT}\\bin\\sign-release.ps1 /reset`,
+    `Get-FileHash ${ROOT}\\bin\\sign-release.ps1 -Algorithm SHA256`,
+  ];
+
+  it('makes the staging folder with the descriptor, proves it, copies, hashes, then moves, resets and hashes again, in that order', () => {
+    const S4 = fencedLines(STEP4).filter((l) => !OWNER_WINDOW.has(l));
+    expect(S4).toEqual(ORDER);
+  });
+
+  it('copies nothing from <temp> anywhere but the staging folder', () => {
+    const copies = TYPED.filter((l) => /<temp>/.test(l) && /\bcopy\b/i.test(l));
+    expect(copies).toEqual([ORDER[3]]);
+  });
+
+  it('states the checks, the pin comparison before the move, and why an attribute check would not do', () => {
+    expect(STEP4).toMatch(/`AreAccessRulesProtected` must print `True` and `AccessToString` exactly the root's two lines of step 2/);
+    expect(STEP4).toMatch(/swapped in between the check and the copy/);
+    expect(STEP4).toMatch(/only a file whose hash equals the pin moves into `bin\\`/);
+    expect(STEP4.indexOf('e5e738923aa03af15473261ca7c7abe859ef17031aed248cb9c466cd0e9d2606')).toBeLessThan(STEP4.indexOf(ORDER[5]));
+    expect(STEP4).toMatch(/A copy that differs: remove `bin\\stage`/);
   });
 });
 
@@ -428,12 +597,14 @@ describe('the tools are checked against exact hashes before they are unpacked, a
       expect(l).toMatch(/\.Count -eq 1/);
       expect(l).toMatch(/\} else \{ 'STOP/);
     }
-    expect(CMDS.filter((l) => /Move-Item/.test(l))).toHaveLength(2);
+    const moves = CMDS.filter((l) => /Move-Item/.test(l));
+    expect(moves).toHaveLength(3);
+    expect(moves[2]).toBe(`Move-Item ${ROOT}\\bin\\stage\\sign-release.ps1 ${ROOT}\\bin\\sign-release.ps1`);
     expect(RUNBOOK).not.toMatch(/android-37\.0/);
   });
 
   it('resets bin\\\'s owners and the two trees\' permissions after the move', () => {
-    const lastMove = lastIdx((l) => /Move-Item/.test(l));
+    const lastMove = lastIdx((l) => /Move-Item/.test(l) && !l.includes(`${ROOT}\\bin\\stage\\sign-release.ps1`));
     for (const c of [`${ICACLS} ${ROOT}\\bin /setowner *S-1-5-32-544 /T /C`, `${ICACLS} ${ROOT}\\bin\\build-tools /reset /T /C`, `${ICACLS} ${ROOT}\\bin\\jdk /reset /T /C`]) {
       expect(lastIdx((l) => l === c)).toBeGreaterThan(lastMove);
     }
@@ -498,10 +669,12 @@ describe('step 7 lists every entry under the root and checks it against the expe
 describe('the signer\'s Windows password never enters the owner\'s session (SEC-264-12)', () => {
   const STEP1 = between(PROVISIONING, '1. **The account.**', '2. **');
 
-  it('step 1 creates the account with no password and sets it only at the sign-in screen through Ctrl+Alt+Del, kept where the owner\'s account cannot read it, never through the clipboard', () => {
-    expect(fencedLines(STEP1)).toContain(`${NET} user kokonada-signer /add`);
+  it('step 1 creates the account with an empty password that must be changed, and sets it only on the secure sign-in screen, kept where the owner\'s account cannot read it, never through the clipboard (RA-47)', () => {
+    expect(fencedLines(STEP1)).toEqual([`${NET} user kokonada-signer /add /logonpasswordchg:yes`]);
     expect(STEP1).toMatch(/Windows sign-in screen/);
-    expect(STEP1).toMatch(/Ctrl\+Alt\+Del[^.]*\*\*Change a password\*\*/);
+    expect(STEP1).toMatch(/must be changed, and on that same secure screen leave the old one empty and type the new one twice/);
+    expect(STEP1).not.toMatch(/Ctrl\+Alt\+Del/);
+    expect(STEP1).toMatch(/If that sign-in or that change is refused, stop as step 0 says/);
     expect(STEP1).not.toMatch(/net(\.exe)? user kokonada-signer \*/);
     expect(STEP1).toMatch(/password manager the owner's Windows account cannot read/);
     expect(STEP1).toMatch(/separate device/);
