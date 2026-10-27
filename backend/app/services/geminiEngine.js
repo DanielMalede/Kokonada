@@ -6,7 +6,7 @@ const { captureException } = require('../config/sentry');
 const { disabled }     = require('../utils/envFlag');
 const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
 const { chatJson, failureMessage, LlmTruncatedError } = require('./llmCall');
-const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, bandFromHeartRate, biometricBand, extractIntent, normalizeActivity } = require('./moodDescriptors');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, buildBioParams, extractIntent, normalizeActivity } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -158,12 +158,13 @@ function _strictMoodLine(emotionTaps) {
 // ── Prompt builders ────────────────────────────────────────────────────────────
 
 /**
- * Builds the contextual prompt for the emotion-driven pipeline.
- * Wave-0 egress containment: NO PII and NO special-category vitals. The prompt carries
- * ONLY anonymised abstract signals — emotion coordinates, the user's selected activity,
- * and closed-vocabulary derived-intent tags. Numeric vitals (HR/HRV/SpO2/sleep/…) never
- * appear here; they steer the audio targets deterministically AFTER the LLM returns
- * (buildEmotionPlaylist → applyBiometricBands).
+ * Builds the contextual prompt for the emotion-driven pipeline — the ONLY generation prompt.
+ * NO PII and NO health information of any kind, nor anything derived from it (BE-221, the
+ * owner's ruling of 2026-10-27): no reading, no band, no state label, no ratio, no activity a
+ * wearable detected. The prompt carries only the emotion coordinates the user tapped, the
+ * activity chip the user chose, closed-vocabulary intent tags from the user's note and the
+ * mood descriptor's genres. Stored vitals steer the audio targets deterministically AFTER the
+ * LLM returns (buildEmotionPlaylist → applyBiometricBands), and never enter this string.
  */
 function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null } = {}) {
   const { tempoBaseline, energy, valence, acousticness } = musicProfile;
@@ -186,7 +187,7 @@ function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null,
 
   // Only nudge the LLM to weigh the activity when one is present.
   const contextDirective = effectiveActivity
-    ? ` Also weigh the user's current activity ("${effectiveActivity}") against the emotion: a winding-down activity (preparing for sleep, meditating) calls for calmer, lower-tempo, more acoustic music, while an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
+    ? ` Also weigh the user's current activity ("${effectiveActivity}") against the emotion: a winding-down activity (getting ready for bed, meditating) calls for calmer, lower-tempo, more acoustic music, while an energetic activity (gym, running) supports higher tempo and energy — always staying within the user's taste profile.`
     : '';
 
   return `You are an expert musicologist.
@@ -218,60 +219,19 @@ Analyse the emotional coordinates in the context of the user's taste profile and
 
 // W4-016 kill switch — true restores the pre-W4-016 behaviour (band from raw HR alone)
 // byte-for-byte, without a revert. Read per call (S11 convention — a switch that needs a
-// redeploy is not an escape hatch).
+// redeploy is not an escape hatch). Since BE-221 the band only shapes the heart-rate branch's
+// deterministic params (adjustBiometricPlaylist); it never reaches a prompt.
 const llmBandFromStateDisabled = () => disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED);
-
-// Routes the biometric branch's band through biometricBand's real preference chain
-// (stateLabel → hrRatio → raw HR) instead of a fixed population ladder, so two bodies at the
-// same raw HR can land in different bands, and so the prompt and applyBiometricBands can
-// never disagree about which band the session is in (W4-016). biometricBand already falls
-// through to bandFromHeartRate(ctx.heartRate) with no richer fields present, so a cold-start
-// context (heartRate only) resolves identically to today either way.
-function _resolveHrBand(biometric) {
-  if (llmBandFromStateDisabled()) return bandFromHeartRate(biometric?.heartRate) || 'active';
-  return biometricBand(biometric) || 'active';
-}
-
-/**
- * Builds the lightweight prompt for the biometric-driven pipeline.
- * Wave-0 egress containment: the numeric heart rate and resting HR NEVER appear in the
- * prompt — only the COARSE physiological intensity band (derived server-side from HR, or,
- * when available, from the user's personal baseline / real taxonomy state — W4-016). The
- * exact target BPM/energy is mapped from the HR deterministically AFTER the LLM returns
- * (adjustBiometricPlaylist → applyBiometricBands).
- */
-function _buildBiometricPrompt(musicProfile, biometric, seed = null) {
-  // H1: normalize the activity to the known preset enum before it enters the prompt.
-  const activity = normalizeActivity(biometric.activity);
-  const band = _resolveHrBand(biometric);
-
-  return `You are a music curator matching a listener's physiological intensity.
-
-Session context (anonymised — no vitals, no identifiers):
-- Physiological intensity band: ${band}
-${activity ? `- Current activity: ${activity}` : ''}
-
-Choose musical parameters that match a "${band}" intensity. Output ONLY a valid JSON object — no explanation, no markdown — with exactly these fields:
-{
-  "target_bpm": <number>,
-  "target_energy": <number 0–1>,
-  "target_valence": <number 0–1>,
-  "target_acousticness": <number 0–1>,
-  "seed_artists": [],
-  "seed_genres": <array of 1–2 genres matching a "${band}" intensity>,
-  "mood_keywords": <array of 2–4 short search descriptors matching this intensity>
-}${_variationLine(seed)}`;
-}
 
 // ── Gemini call ────────────────────────────────────────────────────────────────
 
 // DATA EGRESS NOTE (audit F16): prompts are sent to the VETTED provider (Groq) — list it
-// as a sub-processor in the privacy policy / DPA. Wave-0 egress containment: prompts carry
-// NO name/email/userId, NO special-category vitals, NO raw free-text, and NO Spotify Content
-// — only abstract emotion coords, activity, closed-vocabulary intent tags, and mood-descriptor
-// genres. The Redis cache key is `gemini:<model>:md5(prompt)` and the cached VALUE is only
-// the derived AI params (target_bpm, etc.); the md5 is not reversible. The model is in the
-// key so a model switch never replays the previous model's params for the 24 h TTL.
+// as a sub-processor in the privacy policy / DPA. Prompts carry NO name/email/userId, NO health
+// information or anything derived from it (BE-221), NO raw free-text, and NO Spotify Content
+// — only the tapped emotion coords, the chosen activity chip, closed-vocabulary intent tags, and
+// mood-descriptor genres. The Redis cache key is `gemini:<model>:md5(prompt)` and the cached
+// VALUE is only the derived AI params (target_bpm, etc.); the md5 is not reversible. The model is
+// in the key so a model switch never replays the previous model's params for the 24 h TTL.
 async function _callLlm(prompt) {
   const redis = getRedis();
   const model = _resolveModel();
@@ -327,22 +287,24 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
  * Biometric pipeline — lightweight BPM / energy adjustment.
  * Intended for automatic triggers after the 60 s sustained HR change.
  *
+ * BE-221: makes NO LLM call. The owner's ruling (class c, 2026-10-27) is that no health
+ * information, and nothing derived from it, reaches Groq; everything this branch knows is
+ * health-derived (the reading, the band, the state label, the baseline ratio, the watch
+ * activity). The params are the band's own targets (moodDescriptors.buildBioParams), then
+ * applyBiometricBands as before. W4-016: both read the SAME context, so they can never disagree
+ * about the band — the kill switch strips it back to {heartRate} for both.
+ *
  * @param {{ musicProfile, biometric, fetchTracks }} opts
  * @returns {Promise<{ params, tracks }>}
  */
-async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks, seed = null }) {
-  const prompt = _buildBiometricPrompt(musicProfile, biometric, seed);
-  const rawParams = await _callLlm(prompt);
-  // Wave-0 two-stage split: the numeric HR never crossed the LLM boundary — map it to the
-  // audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here, after the
-  // LLM returns, reusing the moodDescriptors band machinery. W4-016: the SAME context (and
-  // therefore the SAME resolved band) that built the prompt is passed here, so the prompt and
-  // the post-LLM mapping can never disagree — the kill switch strips it back to {heartRate}.
-  const params = applyBiometricBands(rawParams, llmBandFromStateDisabled() ? { heartRate: biometric.heartRate } : biometric);
+// A caller's `seed` is ignored: with no prompt there is no cache key for it to vary.
+async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks }) {
+  const ctx = llmBandFromStateDisabled() ? { heartRate: biometric?.heartRate } : biometric;
+  const params = applyBiometricBands(buildBioParams(ctx, musicProfile), ctx);
   // Robustness: an empty genre seed makes Spotify discovery early-return [] — backfill
   // from the user's top genres so the heart-rate branch always has something to search.
   if (!Array.isArray(params.seed_genres) || params.seed_genres.length === 0) {
-    params.seed_genres = (musicProfile.topGenres || []).slice(0, 2);
+    params.seed_genres = (musicProfile?.topGenres || []).slice(0, 2);
   }
   return { params, tracks: await fetchTracks(params) };
 }
@@ -411,6 +373,5 @@ module.exports = {
   // Exported for unit testing
   _parseAndValidate,
   _buildEmotionPrompt,
-  _buildBiometricPrompt,
   TEMPO_CATEGORIES,
 };
