@@ -90,7 +90,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `feat/garmin-personal-pull`
 - paths: `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/healthBatchContract.js`, `backend/tests/art9GateClass.structural.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/garminFutureCap.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminWebhook.integration.test.js`, `backend/tests/integrations.test.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/metricStore.test.js`, `backend/tests/healthBatchContract.test.js`, `backend/tests/garminPersonal*.test.js`, `backend/tests/shadow.garmin*.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #275
 - started: 2026-10-27
 
 ### M04
