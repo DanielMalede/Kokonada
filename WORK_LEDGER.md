@@ -97,13 +97,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M05
-- task: `own:garmin-personal-normaliser` (own)
-- title: Garmin personal lane PR 1: harden the shared Garmin normaliser and add the personal-lane envelope with a shared retention filter in garminIngest
-- branch: `feat/garmin-personal-normaliser`
-- paths: `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminPersonalEnvelope.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/wave4.vitalIngest.test.js`, `backend/tests/metricStore.test.js`, `TASKS.md`
+- task: `DAN-092` (TASKS)
+- title: close DAN-092 on the read-only MCP evidence; DAN-112 deploy evidence of 62041da and 1a5186a
+- branch: `docs/dan092-close`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #273
-- started: 2026-10-26
+- state: claimed
+- started: 2026-10-27
 
 ### M06
 - task: `own:garmin-personal-client` (own)
