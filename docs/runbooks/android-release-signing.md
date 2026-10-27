@@ -6,9 +6,9 @@ owner: the owner (DAN- rows); security-auditor and resilience-auditor review (J1
 
 # Android release signing and the standalone build
 
-How the production Android build of `mobile/KokonadaHealth` is produced and signed. Since #271 (`3a5e28a`, `OPS-303`) Gradle signs no release build: `assembleRelease` yields `app-release-unsigned.apk`, which no device installs, and the one signing step is `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, run by the owner as the Windows account `kokonada-signer`, the only account (with SYSTEM) that can read the upload key. Every statement below was checked on 2026-10-27 against `main` at `0f4674f`: `mobile/KokonadaHealth/android/app/build.gradle`, the script, `.gitignore`, `.githooks/pre-commit`, `.claude/settings.json` and `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`. Writing it ran none of the commands.
+How the production Android build of `mobile/KokonadaHealth` is produced and signed. Since #271 (`3a5e28a`, `OPS-303`) Gradle signs no release build: `assembleRelease` yields `app-release-unsigned.apk`, which no device installs, and the one signing step is `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, run by the owner as the Windows account `kokonada-signer`, the only account (with SYSTEM) that can read the upload key. Every statement below was checked on 2026-10-27 against `main` at `0f4674f`: `mobile/KokonadaHealth/android/app/build.gradle`, the script, `.gitignore`, `.githooks/pre-commit`, `.claude/settings.json` and `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`. None of them changed between `0f4674f` and `1846fe0`. Writing it ran none of the commands; `backend/tests/releaseRunbookCustody.test.js` pins the custody steps of section 2 and 3 as text.
 
-**Not provisioned yet.** On 2026-10-27 `C:\KokonadaSigner` does not exist on the owner's machine, so the account, the vault, the tools and the upload key described here are still to be set up (section 2). Until they are, no release-signed build can be made, and the old release key (`kokonada-release.keystore` with its `keystore.properties`) is still in the main checkout, git-ignored (`OPS-303`). CI builds the release JS bundle (`:app:createBundleReleaseJsAndAssets`, `.github/workflows/ci.yml:244`) but packages no APK and runs no `bundleRelease`, so that `assembleRelease` really yields an unsigned APK has not been checked by a build yet (RA-271-5). The older kit documents (`mobile/native-snippets/RELEASE_SIGNING.md` and `mobile/SETUP_ANDROID.md`, now Deleted rows in `docs/ARCHIVE.md`) described a generated project that no longer exists.
+**Not provisioned yet.** On 2026-10-27 `C:\KokonadaSigner` does not exist on the owner's machine, so the account, the vault, the tools and the upload key described here are still to be set up (section 2). Until they are, no release-signed build can be made. The old release key (`kokonada-release.keystore`, alias `kokonada`) and its plaintext `keystore.properties`, which holds both of its passwords, are still on this machine, git-ignored, in three places: the main checkout and the `.claude/worktrees/h1-evidence` and `.claude/worktrees/hx3-evidence` worktrees (`OPS-303`, checked by file name only). Until every copy is deleted, treat the old key and both passwords as exposed to every session on this machine. The denies of section 1 bind only the Read and Edit tools, and the commands `.claude/settings.json` pre-allows, `npm test *`, `npm run *` (`:10-11`) and `npx jest *` (`:17`), run code that can read both files and send them anywhere (SEC-264-8). So the rotation (`F7`, section 2) is mandatory, and nothing is signed with the old key again. CI builds the release JS bundle (`:app:createBundleReleaseJsAndAssets`, `.github/workflows/ci.yml:244`) but packages no APK and runs no `bundleRelease`, so that `assembleRelease` really yields an unsigned APK has not been checked by a build yet (RA-271-5). The older kit documents (`mobile/native-snippets/RELEASE_SIGNING.md` and `mobile/SETUP_ANDROID.md`, now Deleted rows in `docs/ARCHIVE.md`) described a generated project that no longer exists.
 
 ## 1. What the build does, and does not, read
 
@@ -17,7 +17,7 @@ How the production Android build of `mobile/KokonadaHealth` is produced and sign
 - `signingConfigs` holds the debug config only (`:109-119`). `buildTypes.release` (`:125-135`) names no `signingConfig`, loads no `keystore.properties` and has no debug fallback, so a release build that skips the signer cannot be installed. `releaseSigning.test.ts` pins this as text (rules `[gradle-keystore]`, `[gradle-configs]`, `[gradle-release]`, `[gradle-fallback]` at `:124-127`) and fails on any signing config, fallback or `keystore.properties` read in the release path.
 - The debug key is `android/app/debug.keystore`, or the file named by the `kokonadaDebugKeystore` project property, which `scripts/lab` passes (`:111-114`). It is untracked (`.gitignore:40`) and each checkout holds its own copy (`MB-089`). The `lab` build type (`:141-144`, `applicationIdSuffix ".lab"`, the Design Lab, `MB-084`) always signs with the debug key, is never built as an App Bundle and is never uploaded.
 - Identity: `applicationId "com.kokonadahealth"` (`:98`), `versionCode 1` (`:101`), `versionName "1.0"` (`:102`). `versionCode` must strictly increase on every upload to Play. Whether the package stays `com.kokonadahealth` is `DAN-045`; once the app is published it can never change.
-- `mobile/native-snippets/keystore.properties.example` is still tracked, but the build no longer reads any `keystore.properties`. Three places name it by its exact path: `.gitignore:48`, `.githooks/pre-commit:23` and `backend/tests/preCommitSecretGuard.test.js:37`. Its text still describes the old flow (L-271-1).
+- `mobile/native-snippets/keystore.properties.example` is still tracked, but the build no longer reads any `keystore.properties`. Three places name it by its exact path: `.gitignore:48`, `.githooks/pre-commit:23` and `backend/tests/preCommitSecretGuard.test.js:37`. Its comment header says it is obsolete, that no signing password goes into any checkout, and points to section 2 of this runbook; its four value lines still carry the retired key's names and the placeholders (`OPS-338`).
 
 What keeps a signing secret out of git if one ever reaches a checkout:
 
@@ -35,7 +35,7 @@ What keeps a signing secret out of git if one ever reaches a checkout:
 
 The key is meant to live only under `kokonada-signer`, so no checkout and no session can read it: the owner's rulings of 2026-10-20 `F1` (a separate Windows account) and `F7` (rotate the key now), recorded under `OPS-303`.
 
-- **The key.** It is `C:\KokonadaSigner\vault\kokonada-upload.p12`: PKCS12, alias `kokonada-upload` (`sign-release.ps1:28`, `:124-125`; the script reads no other name). The owner generates it as `kokonada-signer` inside the vault.
+- **The key.** It is `C:\KokonadaSigner\vault\kokonada-upload.p12`: PKCS12, alias `kokonada-upload` (`sign-release.ps1:28`, `:124-125`; the script reads no other name). The owner generates it as `kokonada-signer` inside the vault (provisioning step 8).
 - **Its password.** It lives only in `C:\KokonadaSigner\vault\ks.pass`. That account writes it once with `Read-Host -AsSecureString | ConvertFrom-SecureString | Set-Content C:\KokonadaSigner\vault\ks.pass` (`:29-31`), which binds it to that account on this machine through DPAPI.
 - **The old key.** `kokonada-release.keystore` (alias `kokonada`) is retired by the rotation. The old certificate's removal from the Google Cloud and Spotify consoles, and the new certificate's registration there, are `DAN-097`. Each copy of the old key is deleted, or kept only on offline media.
 - **Fingerprints.** The new certificate's SHA-1 and SHA-256 are registered before any release-signed build reaches a tester. They go on the Android OAuth client of the Kokonada project (package `com.kokonadahealth`) in the Google Cloud Console, and in the Spotify developer dashboard (`DAN-097`). A build signed with an unregistered certificate cannot sign in with Google or connect Spotify. Read the fingerprints from `apksigner verify --print-certs` on a signed build. They are public and are not written here.
@@ -47,37 +47,166 @@ The key is meant to live only under `kokonada-signer`, so no checkout and no ses
   - never in a synced folder, and never in any git repository, `Kokonada-private` included.
 
   Where the copies are is recorded outside this public repository. Prove the restore by signing one test APK with the restored copy.
-- **Play App Signing.** It is decided before the first bundle upload, in the owner's own words (`DAN-096`). `security-auditor` recommended on #264 that Google keeps the app-signing key and `kokonada-upload.p12` serves as the upload key, because Google can reset a lost upload key but nobody can recover a lost app-signing key. Under that choice:
-  - Register Google's app-signing certificate beside the upload certificate, with Google sign-in and in the Spotify dashboard. It is under Play Console → Protected with Play → Play Store distribution → Play app signing.
+- **Play App Signing.** It is decided before the first bundle upload, in the owner's own words (`DAN-096`). `security-auditor` recommended on #264 that Google keeps the app-signing key and `kokonada-upload.p12` serves as the upload key, because Google can reset a lost upload key but nobody can recover a lost app-signing key. This runbook prepares for that choice, a Google-generated app signing key, until the owner rules on `DAN-096`. Under it:
+  - At enrolment, let Google generate the app signing key; never upload your own, so no copy of the key that signs store installs ever exists on this machine.
+  - At launch, register Play's app-signing certificate beside the upload certificate, with Google sign-in (the Android OAuth client) and in the Spotify dashboard. It is under Play Console → Protected with Play → Play Store distribution → Play app signing. Once sideloaded QA builds stop, remove the upload certificate from the OAuth client.
   - Store installs and sideloaded installs carry different signatures, so neither can update the other.
   - Check Google sign-in and Spotify connect on the internal testing track before any wider track.
+- **If the upload key or its password leaks.** Stop signing. Ask for an upload key reset in Play Console (Play app signing → request upload key reset), which Play App Signing allows because Google holds the app signing key. Generate the new key by provisioning step 8, register its certificate and remove the leaked one on the Android OAuth client and in the Spotify dashboard (`DAN-097`), and uninstall every sideloaded QA build signed with the leaked key, since a build under the new key cannot update it. Record the incident on `OPS-303`.
 
 ### Provisioning, once, by the owner
 
-1. **The account and its folders.** Create the standard Windows account `kokonada-signer`, then create these folders under `C:\KokonadaSigner`:
+What protects the key is who owns each folder, not only who may write it: the owner of a file or a folder can always rewrite its permissions, elevated or not. Folders made from the owner's normal window would be owned by his account and would inherit `C:\`'s defaults (Authenticated Users Modify, CREATOR OWNER Full Control). Code in his session could then grant itself `bin\` and replace a file of the JDK (only `java.exe` is pinned, `sign-release.ps1:130`, `:137`), or rename `bin\` away, and the next run would load that code into the JVM that holds the password (SEC-264-10, RA-32). So the owner's account owns nothing under `C:\KokonadaSigner`, and nothing there inherits from `C:\`.
 
-   | Folder | Who may use it | What it holds |
-   |---|---|---|
-   | `in\` | the owner's account writes, `kokonada-signer` reads | the unsigned APK |
-   | `work\` | `kokonada-signer` Modify, SYSTEM Full Control, nobody else | the script's working copies, removed at the end of every run (`:301-306`) |
-   | `out\` | receives the verified APK, and nothing else (`:299`) | the signed APK |
-   | `bin\` | writable by administrators only | the tools and the script |
-   | `vault\` | `kokonada-signer` and SYSTEM only | the key and `ks.pass` |
+**The owner rule.** Administrators (`BUILTIN\Administrators`, SID `S-1-5-32-544`) own the root, `in\`, `out\` and `bin\`, and every file under `bin\`. `kokonada-signer` owns `vault\` and `work\`. Every file in those two folders is created by `kokonada-signer` and is owned by it anyway, so the folder's owner matches its contents, and the one account each folder exists for is the only one that can change its permissions short of elevation. `security-auditor` also allowed SYSTEM as the vault's owner; one owner is chosen so that the expected listing of step 7 is exact.
 
-   A JVM crash log `hs_err_*.log` can land in `work\` (`:140`); the script never removes it. After reading one, delete it from the signer session (RA-271-R2-4).
-2. **The tools.** Put the four tools in `bin\`:
-   - `zipalign.exe`, `aapt2.exe` and `lib\apksigner.jar` from Android build-tools 35 or newer, under `C:\KokonadaSigner\bin\build-tools\` (`:127-129`);
-   - the dedicated JDK under `C:\KokonadaSigner\bin\jdk\`, so that `java.exe` sits at `bin\jdk\bin\java.exe` (`:130`).
+Steps 1 to 7 run in one elevated window: Windows PowerShell opened with **Run as administrator**. Leave that window in its own folder (`C:\Windows\System32`): `cmd` runs a program from its current folder before `PATH`, and a checkout is a folder every session can write. In the commands, `<owner>` is the owner's own account as `whoami` prints it in his normal window, and `<PC>` is this computer's name.
 
-   The JDK is Eclipse Temurin 17, an OpenJDK build under GPLv2 with the Classpath Exception, release `jdk-17.0.20.1+1`. The file is `OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip`, SHA-256 `e53a79c3c3d86865bd7e787903884331068e71321714ffd44f145785affc7cb0`. That value was read on 2026-10-27 from the Adoptium API and from the release's `.sha256.txt` on github.com/adoptium/temurin17-binaries, and both agree. Compare the downloaded zip with it (`Get-FileHash <zip> -Algorithm SHA256`) before extracting. Do not use Oracle JDK (its NFTC licence) or the IDE's JBR, which an IDE in the owner's account keeps updating. Moving to a later Temurin 17 build is a change to this runbook in its own PR, with its own hash.
-3. **The script.** Copy the repository's script into `bin\` as `C:\KokonadaSigner\bin\sign-release.ps1`.
-   - Copy its LF bytes (`git show origin/main:mobile/KokonadaHealth/scripts/release/sign-release.ps1`). A copy from a CRLF checkout hashes differently.
-   - Check the copy with `Get-FileHash -Algorithm SHA256`. The value must be `e5e738923aa03af15473261ca7c7abe859ef17031aed248cb9c466cd0e9d2606`: the copy on `main`, landed in #271 (`3a5e28a`) and unchanged at `0f4674f`.
+1. **The account.** `net user kokonada-signer * /add` creates a standard account (a member of Users only, never of Administrators) and asks for its Windows password at the prompt. Keep that password in the password manager. Sign in to the account once (Switch user) so Windows creates its profile, then sign out.
+2. **The folders, their owners and their permissions.** If `C:\KokonadaSigner` exists already, stop: something else made it. Delete it from the elevated window and start again.
+
+   | Folder | Owner | Permissions, and nothing else (inheritance removed) | What it holds |
+   |---|---|---|---|
+   | `C:\KokonadaSigner` | Administrators | Administrators and SYSTEM Full Control; the owner's account and `kokonada-signer` Read & execute, this folder only | the five folders |
+   | `in\` | Administrators | Administrators and SYSTEM Full Control; the owner's account Modify; `kokonada-signer` Read & execute | the unsigned APK |
+   | `work\` | `kokonada-signer` | `kokonada-signer` Modify; SYSTEM Full Control | the script's working copies, removed at the end of every run (`:301-306`) |
+   | `out\` | Administrators | Administrators and SYSTEM Full Control; `kokonada-signer` Modify; the owner's account Read & execute | the signed APK, and nothing else (`:299`) |
+   | `bin\` | Administrators | Administrators and SYSTEM Full Control; `kokonada-signer` and the owner's account Read & execute | the tools and the script |
+   | `vault\` | `kokonada-signer` | `kokonada-signer` Modify; SYSTEM Full Control | the key and `ks.pass` |
+
+   Run these in this order: the owners first, then the grants while the inherited permissions still let the elevated window in, then the removal of inheritance, folders before the root.
+
+   ```
+   New-Item -ItemType Directory -Path C:\KokonadaSigner, C:\KokonadaSigner\in, C:\KokonadaSigner\work, C:\KokonadaSigner\out, C:\KokonadaSigner\bin, C:\KokonadaSigner\vault
+   icacls C:\KokonadaSigner /setowner *S-1-5-32-544 /T /C
+   icacls C:\KokonadaSigner\work /setowner kokonada-signer
+   icacls C:\KokonadaSigner\vault /setowner kokonada-signer
+   icacls C:\KokonadaSigner /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' '<owner>:RX' 'kokonada-signer:RX'
+   icacls C:\KokonadaSigner\in /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '<owner>:(OI)(CI)M' 'kokonada-signer:(OI)(CI)RX'
+   icacls C:\KokonadaSigner\work /grant:r '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M'
+   icacls C:\KokonadaSigner\out /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M' '<owner>:(OI)(CI)RX'
+   icacls C:\KokonadaSigner\bin /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)RX' '<owner>:(OI)(CI)RX'
+   icacls C:\KokonadaSigner\vault /grant:r '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M'
+   icacls C:\KokonadaSigner\in /inheritance:r
+   icacls C:\KokonadaSigner\work /inheritance:r
+   icacls C:\KokonadaSigner\out /inheritance:r
+   icacls C:\KokonadaSigner\bin /inheritance:r
+   icacls C:\KokonadaSigner\vault /inheritance:r
+   icacls C:\KokonadaSigner /inheritance:r
+   ```
+
+   The quotes matter: unquoted, PowerShell reads `(OI)` as an expression and `<` as a redirection. A JVM crash log `hs_err_*.log` can land in `work\` (`:140`); the script never removes it. After reading one, delete it from the signer session (RA-271-R2-4).
+3. **The tools.** Both archives are downloaded into `C:\KokonadaSigner\bin\stage`, which inherits `bin\`'s permissions, so only administrators can write it, and are hashed and unpacked there in the same elevated window. Nothing is hashed in one folder and unpacked from another that the owner's account can write (RA-33).
+   - **Android build-tools 37.0.0**, `build-tools_r37_windows.zip`, from `https://dl.google.com/android/repository/build-tools_r37_windows.zip`. Google's SDK repository manifest, `https://dl.google.com/android/repository/repository2-3.xml`, lists it under `build-tools;37.0.0` for `windows`, size `61077164`, SHA-1 `e9c97e26b5b5678002e9d3fed632c841ae62d99f`; the manifest gives SHA-1 only. A download of 2026-10-27 whose size and SHA-1 matched the manifest has SHA-256 `68075aa319ed8a01cf1a565ed1e61a3c1a801dd49191c35851248dc293c33b1a`. Re-read the manifest's entry in a browser, then compare both values before unpacking. Its `lib\apksigner.jar` is Java 8 bytecode and runs on the JDK below. The whole folder goes into `bin\build-tools\`, not three files: `zipalign.exe` and `aapt2.exe` load the DLLs beside them, and the script's header leaves the rest of the build-tools to `bin\`'s permissions (`:43-44`). The script needs build-tools 35 or newer (`:127-129`).
+   - **The JDK** is Eclipse Temurin 17, an OpenJDK build under GPLv2 with the Classpath Exception, release `jdk-17.0.20.1+1`. The file is `OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip`, SHA-256 `e53a79c3c3d86865bd7e787903884331068e71321714ffd44f145785affc7cb0`. That value was read on 2026-10-27 from the Adoptium API and from the release's `.sha256.txt` on github.com/adoptium/temurin17-binaries, and both agree. Do not use Oracle JDK (its NFTC licence) or the IDE's JBR, which an IDE in the owner's account keeps updating. Its top folder becomes `bin\jdk\`, so that `java.exe` sits at `bin\jdk\bin\java.exe` (`:130`).
+
+   ```
+   New-Item -ItemType Directory -Path C:\KokonadaSigner\bin\stage
+   C:\Windows\System32\curl.exe -fL -o C:\KokonadaSigner\bin\stage\build-tools_r37_windows.zip https://dl.google.com/android/repository/build-tools_r37_windows.zip
+   C:\Windows\System32\curl.exe -fL -o C:\KokonadaSigner\bin\stage\OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip
+   Get-FileHash C:\KokonadaSigner\bin\stage\build-tools_r37_windows.zip -Algorithm SHA1
+   Get-FileHash C:\KokonadaSigner\bin\stage\build-tools_r37_windows.zip -Algorithm SHA256
+   Get-FileHash C:\KokonadaSigner\bin\stage\OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip -Algorithm SHA256
+   ```
+
+   `Get-FileHash` prints upper case; compare the letters, not the case. Only when all three match:
+
+   ```
+   Expand-Archive -LiteralPath C:\KokonadaSigner\bin\stage\build-tools_r37_windows.zip -DestinationPath C:\KokonadaSigner\bin\stage\bt
+   Expand-Archive -LiteralPath C:\KokonadaSigner\bin\stage\OpenJDK17U-jdk_x64_windows_hotspot_17.0.20.1_1.zip -DestinationPath C:\KokonadaSigner\bin\stage\jdk
+   Move-Item C:\KokonadaSigner\bin\stage\bt\android-37.0 C:\KokonadaSigner\bin\build-tools
+   Move-Item (Get-ChildItem C:\KokonadaSigner\bin\stage\jdk -Directory).FullName C:\KokonadaSigner\bin\jdk
+   Remove-Item C:\KokonadaSigner\bin\stage -Recurse -Force
+   icacls C:\KokonadaSigner\bin /setowner *S-1-5-32-544 /T /C
+   icacls C:\KokonadaSigner\bin\build-tools /reset /T /C
+   icacls C:\KokonadaSigner\bin\jdk /reset /T /C
+   ```
+
+   Moving to a later build-tools or Temurin 17 build is a change to this runbook in its own PR, with its own hashes.
+4. **The script.** Copy its LF bytes, as they are on `main`, into `C:\KokonadaSigner\bin\sign-release.ps1`.
+   - In the owner's normal window, run `git fetch origin` in a checkout, `<checkout>` below.
+   - In the elevated window: `cmd /c "git -C <checkout> show origin/main:mobile/KokonadaHealth/scripts/release/sign-release.ps1 > C:\KokonadaSigner\bin\sign-release.ps1"`. `cmd`'s `>` writes git's bytes unchanged. Windows PowerShell 5.1's own `>` re-encodes them as UTF-16, and that copy never matches.
+   - `Get-FileHash C:\KokonadaSigner\bin\sign-release.ps1 -Algorithm SHA256` must equal `e5e738923aa03af15473261ca7c7abe859ef17031aed248cb9c466cd0e9d2606`: the copy on `main`, landed in #271 (`3a5e28a`) and unchanged at `1846fe0`. Read that value from this runbook on github.com, `https://github.com/DanielMalede/Kokonada/blob/main/docs/runbooks/android-release-signing.md`, not from a checkout, which every session on this machine can write. A copy that differs: delete it and stop.
    - Any change to the script on `main` changes this line in the same PR.
-4. **The four tool pins.** Run `Get-FileHash -Algorithm SHA256` on the four tools. Write the lower-case values into the four lines `$ZipalignSha256`, `$Aapt2Sha256`, `$ApksignerSha256` and `$JavaSha256` of the copy in `C:\KokonadaSigner\bin` (`:134-137`). Only that copy changes: the repository copy keeps the placeholders `<pin after provisioning>`. Until all four are filled, every run is refused by design (`:174-177`).
-5. **The edited copy's hash.** Record `Get-FileHash` of the edited copy in the owner's private record, outside this public repository. Compare it before every run (section 3, step 2). A copy that differs must not run.
-6. **The ACLs.** Record `icacls` of `work\`, `out\`, `vault\` and `bin\` with the build record (RA-271-R2-3). The script refuses a link on these folders but never reads their permissions, so this listing is the only check that `work\` admits nobody else.
-7. **The key and its password.** As `kokonada-signer`, generate the key in `vault\` and write `ks.pass` as above.
+5. **The four tool pins.** Run `Get-FileHash C:\KokonadaSigner\bin\build-tools\zipalign.exe, C:\KokonadaSigner\bin\build-tools\aapt2.exe, C:\KokonadaSigner\bin\build-tools\lib\apksigner.jar, C:\KokonadaSigner\bin\jdk\bin\java.exe -Algorithm SHA256`. Write the lower-case values into the four lines `$ZipalignSha256`, `$Aapt2Sha256`, `$ApksignerSha256` and `$JavaSha256` of the copy in `C:\KokonadaSigner\bin` (`:134-137`), with Notepad opened by **Run as administrator**, since only administrators can write `bin\`. Change nothing else. Only that copy changes: the repository copy keeps the placeholders `<pin after provisioning>`. Until all four are filled, every run is refused by design (`:174-177`).
+6. **The edited copy's hash.** Keep the edited copy's SHA-256 in the password manager, beside the key's password, never in a file: every file the owner's account can write, a session can change. Compare it before every run (section 3, step 2). A copy that differs must not run.
+7. **The permission check.** Run these two commands now, in the elevated window, and in the signer's window before every run (section 3, step 2):
+
+   ```
+   Get-Acl -Path C:\KokonadaSigner, C:\KokonadaSigner\in, C:\KokonadaSigner\work, C:\KokonadaSigner\out, C:\KokonadaSigner\bin, C:\KokonadaSigner\vault | Format-List Path,Owner,AreAccessRulesProtected,AccessToString
+   Get-ChildItem C:\KokonadaSigner\bin -Recurse -Force | Get-Acl | Where-Object { $_.Owner -ne 'BUILTIN\Administrators' -or $_.AreAccessRulesProtected -or @($_.Access | Where-Object { -not $_.IsInherited }).Count -gt 0 } | Format-List Path,Owner
+   ```
+
+   The expected listing of the first command, entry by entry (the order of the lines inside `AccessToString` may differ):
+
+   ```
+   Path                    : Microsoft.PowerShell.Core\FileSystem::C:\KokonadaSigner
+   Owner                   : BUILTIN\Administrators
+   AreAccessRulesProtected : True
+   AccessToString          : BUILTIN\Administrators Allow  FullControl
+                             NT AUTHORITY\SYSTEM Allow  FullControl
+                             <PC>\<owner> Allow  ReadAndExecute, Synchronize
+                             <PC>\kokonada-signer Allow  ReadAndExecute, Synchronize
+
+   Path                    : Microsoft.PowerShell.Core\FileSystem::C:\KokonadaSigner\in
+   Owner                   : BUILTIN\Administrators
+   AreAccessRulesProtected : True
+   AccessToString          : BUILTIN\Administrators Allow  FullControl
+                             NT AUTHORITY\SYSTEM Allow  FullControl
+                             <PC>\<owner> Allow  Modify, Synchronize
+                             <PC>\kokonada-signer Allow  ReadAndExecute, Synchronize
+
+   Path                    : Microsoft.PowerShell.Core\FileSystem::C:\KokonadaSigner\work
+   Owner                   : <PC>\kokonada-signer
+   AreAccessRulesProtected : True
+   AccessToString          : NT AUTHORITY\SYSTEM Allow  FullControl
+                             <PC>\kokonada-signer Allow  Modify, Synchronize
+
+   Path                    : Microsoft.PowerShell.Core\FileSystem::C:\KokonadaSigner\out
+   Owner                   : BUILTIN\Administrators
+   AreAccessRulesProtected : True
+   AccessToString          : BUILTIN\Administrators Allow  FullControl
+                             NT AUTHORITY\SYSTEM Allow  FullControl
+                             <PC>\kokonada-signer Allow  Modify, Synchronize
+                             <PC>\<owner> Allow  ReadAndExecute, Synchronize
+
+   Path                    : Microsoft.PowerShell.Core\FileSystem::C:\KokonadaSigner\bin
+   Owner                   : BUILTIN\Administrators
+   AreAccessRulesProtected : True
+   AccessToString          : BUILTIN\Administrators Allow  FullControl
+                             NT AUTHORITY\SYSTEM Allow  FullControl
+                             <PC>\kokonada-signer Allow  ReadAndExecute, Synchronize
+                             <PC>\<owner> Allow  ReadAndExecute, Synchronize
+
+   Path                    : Microsoft.PowerShell.Core\FileSystem::C:\KokonadaSigner\vault
+   Owner                   : <PC>\kokonada-signer
+   AreAccessRulesProtected : True
+   AccessToString          : NT AUTHORITY\SYSTEM Allow  FullControl
+                             <PC>\kokonada-signer Allow  Modify, Synchronize
+   ```
+
+   **Pass criterion.** The check passes only when all four hold; otherwise sign nothing, and find out why first.
+   - There are six entries, and each `Owner` is the one the table names. No `Owner` is the owner's account.
+   - `AreAccessRulesProtected` is `True` on all six.
+   - Each `AccessToString` holds exactly its lines above and no other. No line names Everyone, `BUILTIN\Users`, `NT AUTHORITY\Authenticated Users` or `CREATOR OWNER`, and the owner's account holds Modify on `in\` alone.
+   - The second command prints nothing: every file under `bin\` is owned by Administrators and carries only the permissions it inherits from `bin\`.
+
+   Record the provisioning output with the build record on `OPS-304` (RA-271-R2-3). The script refuses a link on these folders but never reads their permissions (`MB-140` (6)), so this check is the only one that does.
+8. **The key and its password.** In `kokonada-signer`'s own session (lock the screen, Switch user, sign in as `kokonada-signer`), in a Windows PowerShell window:
+
+   ```
+   C:\KokonadaSigner\bin\jdk\bin\keytool.exe -genkeypair -storetype PKCS12 -keystore C:\KokonadaSigner\vault\kokonada-upload.p12 -alias kokonada-upload -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Kokonada"
+   ```
+
+   - keytool asks for the password at its prompt, twice. It is one password for the store and the key: a PKCS12 store gives its key the store's password and asks for no other, which is why the script hands `apksigner` only `--ks-pass`. Never add `-storepass` or `-keypass` (see "No password on a command line" above).
+   - The password is a random one of at least 24 characters that the password manager generates and keeps. It is new: never the old key's password, which sat in plaintext in `keystore.properties`.
+   - `-validity 10000` is about 27 years. Android asks for at least 25, and keytool's default is 90 days.
+   - The name fields are published in every APK the key signs, so `-dname` holds the app's name and nothing personal.
+   - Then write `ks.pass` with the same password, as section 2 says: `Read-Host -AsSecureString | ConvertFrom-SecureString | Set-Content C:\KokonadaSigner\vault\ks.pass` (`:29-31`).
+9. **Acceptance.** The first runs prove the signer on real input (`MB-139`). Capture each of these, as console text or a screenshot, and record it on `OPS-304`:
+   - (a) Before step 8, while the vault is still empty: from the owner's own session, `runas /user:kokonada-signer` with the run command of section 3 exits 1 with the session-check message (`:118`), and `work\` stays empty. This is the only time `runas` is used. It types the signer's Windows password into the owner's session, so change that password right after it, from the elevated window: `net user kokonada-signer *`.
+   - (b) In the signer's own session, the run passes the session check (`:117`). The badging check refuses `app-debug.apk` as debuggable (`:266`) and the Design Lab's `app-lab.apk` as another package (`:265`).
+   - (c) `app-release-unsigned.apk` from section 3, step 1, passes the badging check, is signed and verified, and passes the 16 KB check (`:296-297`). Keep the three SHA-256 lines.
 
 ## 3. Build unsigned, then sign as `kokonada-signer`
 
@@ -97,18 +226,22 @@ The output is `app/build/outputs/apk/release/app-release-unsigned.apk`. The JS b
 
 **Step 2, in the signer's own Windows session.** Do it exactly as the script's header says (`sign-release.ps1:9-22`):
 
-1. Lock the screen, choose **Switch user**, and sign in as `kokonada-signer` on the Windows sign-in screen.
-2. Open a Windows PowerShell window in that session first. Started from the Run dialog or a shortcut, the console closes with the three hashes still unread (RA-271-R2-6).
-3. Compare `Get-FileHash C:\KokonadaSigner\bin\sign-release.ps1 -Algorithm SHA256` with the edited copy's hash in the owner's private record (provisioning step 5).
-4. Run the full-path command:
+1. First, in the owner's own session: close every agent session and terminal it opened, and the IDE, run `./gradlew --stop` in `mobile/KokonadaHealth/android`, stop Metro, and check that the sentinel's scheduled run is not due during the signing. This is hygiene, not a control: it removes what you forgot to close, never code that hides, and the custody of the key rests on the signer account and the checks below.
+2. Lock the screen, choose **Switch user**, and sign in as `kokonada-signer` on the Windows sign-in screen.
+3. Open a Windows PowerShell window in that session first. Started from the Run dialog or a shortcut, the console closes with the three hashes still unread (RA-271-R2-6).
+4. Check the custody, before every run. Both checks must pass; if either fails, sign nothing and sign out.
+   - `Get-FileHash C:\KokonadaSigner\bin\sign-release.ps1 -Algorithm SHA256` equals the edited copy's SHA-256 kept in the password manager (provisioning step 6).
+   - The two `Get-Acl` commands of provisioning step 7 meet its pass criterion.
+5. Run the full-path command:
 
    ```
    C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\KokonadaSigner\bin\sign-release.ps1 -In <name>.apk -Out <name>.apk
    ```
 
-5. Read the result, then choose **Sign out**, not Switch user.
+6. Read the result. The script moves the signed APK out of `work\` (`:299`), and a move keeps `work\`'s permissions, so the owner's account cannot read the file yet (RA-34). Run `icacls C:\KokonadaSigner\out\<name>.apk /reset`, which gives it `out\`'s permissions. `MB-140` (8) moves this step into the script.
+7. Choose **Sign out**, not Switch user.
 
-Never start the script from the owner's session: never `runas`, never `/savecred`, never `-NoExit` (`:15-19`). The script refuses a session whose interactive user is not the account it runs as (WTSQuerySessionInformation, WTSUserName; `:106-119`), which is exactly what `runas` gives.
+Never start the script from the owner's session: never `runas`, never `/savecred`, never `-NoExit` (`:15-19`). The script refuses a session whose interactive user is not the account it runs as (WTSQuerySessionInformation, WTSUserName; `:106-119`), which is exactly what `runas` gives. The one exception is the acceptance capture of provisioning step 9 (a), made before the key exists.
 
 What the script does, in order, stopping at the first failure (`:33-66`):
 
@@ -124,7 +257,8 @@ What the script does, in order, stopping at the first failure (`:33-66`):
 **Residuals the design accepts:**
 
 - **The C# compile.** The script's one `Add-Type` (`:98-105`) compiles its P/Invoke declarations with the .NET Framework's `csc.exe` into the signer's `%TEMP%`, before the session check (SEC-271-R2-1). Only the `bin\` and profile permissions and the precondition below protect that step.
-- **No elevation.** The design holds only against code that does not elevate (`:21-22`). An administrator can read any account's files and memory.
+- **No elevation.** The design holds only against code that does not elevate (`:21-22`). An administrator can read any account's files and memory. Microsoft does not treat User Account Control as a security boundary, so when the owner's daily account is an administrator, code in his session may reach elevation without a prompt he notices; the design is strongest when that account is a standard one (`DAN-121`).
+- **The password in the heap.** The script zeroes and frees the password's BSTR, but the managed string that fills the child's environment stays in the script's process heap until the garbage collector reclaims it (`:56-58`). Only `kokonada-signer`, SYSTEM and an administrator can read that process's memory, and the process ends with the run; sign out after every run.
 - **ELF alignment.** `zipalign -c -P 16` checks the 16 KB zip alignment only. The ELF LOAD-segment 16 KB alignment of every native library is checked separately, on a real release build, before the first upload (`:61-63`, C271-4).
 - **No bundle signing yet.** There is no App Bundle signing step (SEC-271-5). Play takes an `.aab`, `bundleRelease` yields an unsigned one and the script signs APKs only (`:4-7`). The `jarsigner` step, run under the same account and the same rules, is its own row. Until it exists, nothing is uploaded to Play.
 
@@ -132,7 +266,7 @@ What the script does, in order, stopping at the first failure (`:33-66`):
 
 ## 4. Sideload for on-device QA
 
-QA builds are to be release-signed through the same signer step, under the owner's ruling `F3` of 2026-10-20 (`OPS-303`). Copy the signed APK from `out\` to the phone and install it. The same signature keeps the installed data and sign-in.
+QA builds are to be release-signed through the same signer step, under the owner's ruling `F3` of 2026-10-20 (`OPS-303`). Copy the signed APK from `out\` to the phone, after the `/reset` of section 3, step 2, and install it. The same signature keeps the installed data and sign-in.
 
 - **Until the signer is provisioned,** device QA uses debug builds (`installDebug`, `.claude/commands/device-qa.md:6`).
 - **A debug build stops signing in with Google** once no debug certificate is registered on the production OAuth client (`DAN-097`).
