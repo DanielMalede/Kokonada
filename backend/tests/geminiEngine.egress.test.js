@@ -40,8 +40,11 @@ const SENTINEL_PROFILE = {
 function mockLLM(obj = VALID) {
   axios.post.mockResolvedValue({ data: { choices: [{ message: { content: JSON.stringify(obj) } }] } });
 }
+// Every message of every outbound call, joined: a prompt split into a system and a user message, or a
+// second call, still meets every assertion below (RA-5 on #268).
 function outboundBody() {
-  return axios.post.mock.calls[0][1].messages[0].content;
+  expect(axios.post).toHaveBeenCalled();
+  return axios.post.mock.calls.flatMap(([, request]) => (request.messages || []).map((m) => m.content)).join('\n');
 }
 
 beforeEach(() => jest.clearAllMocks());
@@ -116,7 +119,7 @@ describe('outbound body — no special-category vitals (T0.1)', () => {
 // ── T0.2: raw free-text never leaves the process ──────────────────────────────
 
 describe('outbound body — no raw free-text (T0.2)', () => {
-  const NOTE = 'my name is Daniel Malede and my SSN is 123-45-6789, I want to go for a run';
+  const NOTE = 'my name is Ysolde Quillfeather and my SSN is 123-45-6789, I want to go for a run';
 
   it('the EMOTION request contains no substring of the raw note', async () => {
     mockLLM();
@@ -125,10 +128,12 @@ describe('outbound body — no raw free-text (T0.2)', () => {
       textPrompt: NOTE, fetchTracks: jest.fn().mockResolvedValue([]),
     });
     const body = outboundBody();
-    expect(body).not.toContain('Daniel');
-    expect(body).not.toContain('Malede');
+    // Case-folded, so a redacted-and-lower-cased forward of the note still fails; the digits stay exact.
+    const lower = body.toLowerCase();
+    expect(lower).not.toContain('ysolde');
+    expect(lower).not.toContain('quillfeather');
     expect(body).not.toContain('123-45-6789');
-    expect(body).not.toContain('SSN');
+    expect(lower).not.toMatch(/\bssn\b/);
     expect(body).not.toMatch(/user note/i);
   });
 

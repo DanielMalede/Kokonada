@@ -38,6 +38,14 @@ backend/wave1_seed_dump.ndjson
 
 # Android signing keystores (never commit — even the debug one)
 **/debug.keystore
+# Every copy of a signing key or of keystore.properties (the store and key passwords), under any
+# name a copy gets: a .bak or "- Copy", a path flattened into the name (OPS-002). The pre-commit
+# hook refuses the same names. Only the placeholder example is tracked.
+**/*keystore*.properties*
+**/*.keystore*
+**/*.jks*
+**/*.p12*
+!/mobile/native-snippets/keystore.properties.example
 
 # Headless-Chrome probe output from scripts/design/ — disposable, regenerated on every run
 /.design-probe/

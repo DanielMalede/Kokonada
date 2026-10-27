@@ -7,6 +7,8 @@
 //
 //   • socket: every handler in app/sockets that reads a client biometric or reaches an Art.9 sink
 //     must call admitHealthProcessing BEFORE the first read or sink;
+//   • socket helpers (BE-070 round 2): every module-level function a handler hands its raw payload to
+//     names no biometric field at all, so the gated handler body stays the only reader;
 //   • REST: every controller that reaches a biometric ingest sink must be gated before it —
 //     requireConsent on its route, or getConsentStatus + isCurrentGrant/denialReason inline;
 //   • ONE definition of a current grant: staleVersion is read only by the consent service and the
@@ -103,6 +105,62 @@ function socketViolation({ event, params, body }) {
   return null;
 }
 
+// BE-070 round 2 (SEC-266-4, ARCH-266-6): every socket door now hands its raw payload to a module-level
+// helper (`_payloadOf`, `_admitRequest`, `_admitEmotionUpdate`) that the handler scan above never reads,
+// so a helper that read `payload.heartRate` ahead of the gate would pass it. This follows the payload:
+// every module-level function a handler calls with its raw payload parameter, and every one those call
+// with their own, may name no biometric field at all — the gated handler body is the only reader.
+const PAYLOAD_FIELD_NAMES = [...BIOMETRIC_NAMES, 'hr', 'bpm', 'heart_rate', 'heartrate'];
+
+// Every module-level `function name(params) {`, `const name = (params) => {` and `const name = (params) => expr;`.
+function moduleFunctions(code) {
+  const out = [];
+  const re = /^(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)\s*\{|^const\s+(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>\s*(\{)?/gm;
+  let m;
+  while ((m = re.exec(code))) {
+    const name = m[1] ?? m[3];
+    const params = m[2] ?? m[4];
+    let body;
+    if (m[1] !== undefined || m[5] !== undefined) {
+      const open = m.index + m[0].length - 1;
+      const end = blockEnd(code, open);
+      body = end > 0 ? code.slice(open, end) : null;
+    } else {
+      const start = m.index + m[0].length;
+      const stop = code.indexOf(';\n', start);
+      body = code.slice(start, stop > 0 ? stop : undefined);
+    }
+    out.push({ name, params, body });
+  }
+  return out;
+}
+
+// The module-level functions a handler hands its raw payload to, and the ones those hand it on to.
+function payloadHelpers(code) {
+  const byName = new Map(moduleFunctions(code).map((f) => [f.name, f]));
+  const calledWith = (body, param) => [...body.matchAll(new RegExp(`\\b(\\w+)\\(\\s*${param}\\b`, 'g'))].map((c) => c[1]);
+  const found = new Map();
+  const follow = (name, from) => {
+    const fn = byName.get(name);
+    if (!fn || found.has(name)) return;
+    found.set(name, { ...fn, from });
+    const own = fn.params.split(',')[0].trim();
+    if (/^\w+$/.test(own) && fn.body) calledWith(fn.body, own).forEach((n) => follow(n, name));
+  };
+  for (const h of socketHandlers(code)) {
+    const param = h.params.trim();
+    if (!/^\w+$/.test(param) || !h.body) continue; // a destructured payload has no single raw name
+    calledWith(h.body, param).forEach((n) => follow(n, h.event));
+  }
+  return [...found.values()];
+}
+
+function helperViolation({ name, body, from }) {
+  if (body === null) return `${name}: body could not be parsed`;
+  const named = PAYLOAD_FIELD_NAMES.filter((n) => new RegExp(`\\b${n}\\b`).test(body));
+  return named.length ? `${name} (reached from ${from}): names ${named.join(', ')}` : null;
+}
+
 // Every `exports.<name> = (async) (<params>) => { ... }` controller body.
 function controllers(code) {
   const out = [];
@@ -166,6 +224,25 @@ describe('the detectors are not vacuous', () => {
     expect(h.body.endsWith('state.stableHR = heartRate; }')).toBe(true);
   });
 
+  it('flags a payload helper that reads a biometric ahead of the gate, one hop away, which the handler scan alone cannot see; its clean twin passes', () => {
+    const planted = [
+      "socket.on('x', async (payload) => { const { hr } = _admitHeart(payload); if (!(await admitHealthProcessing(uid))) return; state.stableHR = hr; });",
+      'function _admitHeart(payload) { return { hr: _payloadOf(payload).heartRate }; }',
+      "function _payloadOf(payload) { return payload !== null && typeof payload === 'object' ? payload : {}; }",
+    ].join('\n');
+    // The handler itself names no biometric before its gate, so the handler scan is blind to the read.
+    expect(socketViolation(socketHandlers(planted)[0])).toBeNull();
+    const helpers = payloadHelpers(planted);
+    expect(helpers.map((h) => h.name).sort()).toEqual(['_admitHeart', '_payloadOf']);
+    expect(helpers.map(helperViolation).filter(Boolean)).toEqual(['_admitHeart (reached from x): names heartRate, hr']);
+
+    const clean = planted.replace('{ hr: _payloadOf(payload).heartRate }', '{ reqId: _payloadOf(payload).reqId }');
+    expect(payloadHelpers(clean).map(helperViolation).filter(Boolean)).toEqual([]);
+    // Arrow helpers are read too, brace-bodied and expression-bodied alike.
+    const arrows = "socket.on('y', (p) => { const r = _admitOne(p); });\nconst _admitOne = (p) => _pick(p);\nconst _pick = (p) => { return p.bpm; };";
+    expect(payloadHelpers(arrows).map(helperViolation).filter(Boolean)).toEqual(['_pick (reached from _admitOne): names bpm']);
+  });
+
   it('the scan found what it guards: ≥8 socket handlers and ≥5 biometric REST controllers', () => {
     const handlers = SOCKET_FILES.flatMap((f) => socketHandlers(f.code));
     expect(handlers.length).toBeGreaterThanOrEqual(8);
@@ -174,6 +251,10 @@ describe('the detectors are not vacuous', () => {
     // would slip past the body scan, so the count of all registrations must match.
     const registrations = SOCKET_FILES.reduce((n, f) => n + (f.code.match(/socket\.on\(/g) || []).length, 0);
     expect(handlers.length).toBe(registrations);
+    // The three door helpers BE-070 added are reached from the handlers' raw payload.
+    const helpers = SOCKET_FILES.flatMap((f) => payloadHelpers(f.code));
+    expect(helpers.map((h) => h.name)).toEqual(expect.arrayContaining(['_payloadOf', '_admitEmotionUpdate', '_admitRequest']));
+    expect(helpers.every((h) => h.body !== null)).toBe(true);
 
     const ingest = CONTROLLER_FILES.flatMap((f) => controllers(f.code)).filter((c) => firstIndex(c.body || '', REST_SINKS) !== Infinity);
     expect(ingest.map((c) => c.name).sort()).toEqual(expect.arrayContaining(['appleHealthPush', 'garminWebhook', 'healthBatchIngest', 'suuntoWebhook', 'watchHrIngest']));
@@ -183,6 +264,11 @@ describe('the detectors are not vacuous', () => {
 describe('Art.9 gate — the whole class of biometric boundaries', () => {
   it('socket: every handler that reads a client biometric or reaches an Art.9 sink calls admitHealthProcessing before it', () => {
     const violations = SOCKET_FILES.flatMap((f) => socketHandlers(f.code).map(socketViolation).filter(Boolean).map((v) => `${f.file} ${v}`));
+    expect(violations).toEqual([]);
+  });
+
+  it('socket helpers: no module-level function a door hands its raw payload to names a biometric field (BE-070 round 2)', () => {
+    const violations = SOCKET_FILES.flatMap((f) => payloadHelpers(f.code).map(helperViolation).filter(Boolean).map((v) => `${f.file} ${v}`));
     expect(violations).toEqual([]);
   });
 

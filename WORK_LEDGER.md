@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:sentinel-2026-10-17` (own)
-- title: the sentinel's 2026-10-17 run filed into WEAKNESSES_AND_FAILURES.md (sentinel.md FILING step 4)
-- branch: `docs/sentinel-2026-10-17`
-- paths: `WEAKNESSES_AND_FAILURES.md`, `TASKS.md`
+- task: `BE-070` (TASKS)
+- title: the socket handlers normalize the client's payload, so a null payload no longer crashes the backend
+- branch: `fix/be070-socket-payloads`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/art9GateClass.structural.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #263
-- started: 2026-10-18
+- state: in-review · PR #266
+- started: 2026-10-20
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
@@ -97,37 +97,43 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M05
-- task: `BE-144` (TASKS)
-- title: Disconnecting Apple Health deletes an orphaned MedicalProfile again (SEC-232-1)
-- branch: `fix/be144-apple-disconnect-profile`
-- paths: `backend/app/services/privacy/wearableErasure.js`, `backend/app/services/wearable/healthSampleReconciliation.js`, `backend/app/services/wearable/healthStoreV2.js`, `backend/tests/wearableErasure.integration.test.js`, `backend/tests/wearableErasure.test.js`, `backend/tests/healthSampleConsentRace.integration.test.js`, `backend/tests/healthSampleReconciliation.integration.test.js`, `backend/tests/shadow.reconcileRefusal.integration.test.js`, `backend/tests/healthStoreV2.integration.test.js`, `backend/tests/shadow.orphanRuleDurability.integration.test.js`, `backend/tests/shadow.sampleClock.test.js`, `TASKS.md`
+- task: `own:garmin-personal-normaliser` (own)
+- title: Garmin personal lane PR 1: harden the shared Garmin normaliser and add the personal-lane envelope with a shared retention filter in garminIngest
+- branch: `feat/garmin-personal-normaliser`
+- paths: `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminPersonalEnvelope.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/wave4.vitalIngest.test.js`, `backend/tests/metricStore.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #256
-- started: 2026-10-18
+- state: in-review · PR #273
+- started: 2026-10-26
 
 ### M06
-- task: `DAN-085` (TASKS)
-- title: the read-only production snapshot that sizes #232's two security BLOCKs (counts only), and update lines on six rows
-- branch: `docs/dan085-snapshot`
-- paths: `TASKS.md`
-- resources: `res:atlas-prod`
-- state: in-review · PR #260
-- started: 2026-10-18
+- task: `own:pii-guard` (own)
+- title: a forward-only guard against the partners' full names, emails and user paths in tracked files; two fixtures take a made-up name
+- branch: `test/pii-guard`
+- paths: `backend/tests/personalDataGuard.test.js`, `backend/tests/shadow.personalDataGuard.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #268
+- started: 2026-10-20
 
 ### M07
-- task: `OPS-191` (TASKS)
-- title: pin every Ubuntu job to ubuntu-24.04 before ubuntu-latest moves to Ubuntu 26 on 2026-10-19
-- branch: `chore/ops191-pin-ubuntu-2404`
-- paths: `.github/workflows/ci.yml`, `.github/workflows/coordination.yml`, `.github/workflows/secret-scan-history.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `TASKS.md`
+- task: `own:dan101-delete-classify-purge` (own)
+- title: delete the July purge script classifyAndHydrate and the code only it uses (DAN-101)
+- branch: `chore/dan101-delete-classify-purge`
+- paths: `backend/app/scripts/classifyAndHydrate.js`, `backend/tests/classifyAndHydrate.test.js`, `backend/app/services/musicPurge.js`, `backend/tests/musicPurge.test.js`, `backend/app/scripts/countFeatureless.js`, `backend/tests/youtubeTokenWriters.structural.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #253
-- started: 2026-10-17
+- state: in-review · PR #269
+- started: 2026-10-20
 
 ### M08
 _free_
 
 ### M09
-_free_
+- task: `own:ops303-release-custody` (own)
+- title: the release build no longer reads keystore.properties and yields an unsigned APK with no debug fallback; a reviewed signing script the owner runs as kokonada-signer (OPS-303)
+- branch: `fix/ops303-release-custody`
+- paths: `mobile/KokonadaHealth/android/app/build.gradle`, `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`, `TASKS.md`
+- resources: none
+- state: in-review · PR #271
+- started: 2026-10-21
 
 ### M10
 _free_

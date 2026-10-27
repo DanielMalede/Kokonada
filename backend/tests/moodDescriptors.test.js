@@ -325,10 +325,10 @@ describe('extractIntent (deterministic, zero-LLM)', () => {
   });
 
   it('emits ONLY closed-vocabulary tokens — never the raw user words / PII', () => {
-    const out = extractIntent('my name is Daniel Malede, play some energetic music');
+    const out = extractIntent('my name is Ysolde Quillfeather, play some energetic music');
     const joined = JSON.stringify(out).toLowerCase();
-    expect(joined).not.toContain('daniel');
-    expect(joined).not.toContain('malede');
+    expect(joined).not.toContain('ysolde');
+    expect(joined).not.toContain('quillfeather');
     expect(out.keywords).toContain('energetic');
   });
 
