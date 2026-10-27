@@ -336,8 +336,9 @@ function applyBiometricBands(params, ctx) {
 // band derived from a reading is derived from it. So the branch that used to ask the model to
 // "match a <band> intensity" takes the band's own targets instead: the same bpm/energy/acousticness
 // formula applyBiometricBands blends toward, a neutral valence, the user's top genres and a CLOSED
-// per-band keyword list. applyBiometricBands then runs on top exactly as before, so the W4-016
-// kill switch keeps its meaning; on the same context the blend is a fixed point.
+// per-band keyword list. On the same context applyBiometricBands would be a fixed point of these
+// params, so adjustBiometricPlaylist does not re-apply it (RA-6 on #279); the W4-016 kill switch
+// keeps its meaning through the context the caller passes.
 const _BIO_BAND_KEYWORDS = Object.freeze({
   resting: Object.freeze(['calm', 'mellow', 'soft']),
   active:  Object.freeze(['upbeat', 'groovy', 'steady']),

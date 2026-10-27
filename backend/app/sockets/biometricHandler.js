@@ -1227,8 +1227,8 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
         // The HR branch maps the CURRENT heart rate to a coarse band server-side and builds its
-        // params from that band with NO LLM call (adjustBiometricPlaylist → buildBioParams →
-        // applyBiometricBands; BE-221: nothing derived from health data reaches Groq). W4-016:
+        // params from that band with NO LLM call (adjustBiometricPlaylist → buildBioParams;
+        // BE-221: nothing derived from health data reaches Groq). W4-016:
         // the band routes through biometricBand's real preference chain — stateLabel (the
         // taxonomy state this wave maintains, from bandTargets.stateId when band-aware discovery
         // has resolved a confident one) then hrRatio (this user's HR relative to THEIR OWN resting

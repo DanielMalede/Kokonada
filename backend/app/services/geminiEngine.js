@@ -290,9 +290,11 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
  * BE-221: makes NO LLM call. The owner's ruling (class c, 2026-10-27) is that no health
  * information, and nothing derived from it, reaches Groq; everything this branch knows is
  * health-derived (the reading, the band, the state label, the baseline ratio, the watch
- * activity). The params are the band's own targets (moodDescriptors.buildBioParams), then
- * applyBiometricBands as before. W4-016: both read the SAME context, so they can never disagree
- * about the band — the kill switch strips it back to {heartRate} for both.
+ * activity). The params are the band's own targets (moodDescriptors.buildBioParams), seeded with
+ * the user's top genres. applyBiometricBands is NOT re-applied: on the band's own targets it is a
+ * fixed point, so it could only ever change them through a lookup buildBioParams already guards
+ * (RA-6 on #279). W4-016: the band follows biometricBand's chain; the kill switch strips the
+ * context back to {heartRate}, so the band comes from the raw heart rate alone.
  *
  * @param {{ musicProfile, biometric, fetchTracks }} opts
  * @returns {Promise<{ params, tracks }>}
@@ -300,12 +302,9 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
 // A caller's `seed` is ignored: with no prompt there is no cache key for it to vary.
 async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks }) {
   const ctx = llmBandFromStateDisabled() ? { heartRate: biometric?.heartRate } : biometric;
-  const params = applyBiometricBands(buildBioParams(ctx, musicProfile), ctx);
-  // Robustness: an empty genre seed makes Spotify discovery early-return [] — backfill
-  // from the user's top genres so the heart-rate branch always has something to search.
-  if (!Array.isArray(params.seed_genres) || params.seed_genres.length === 0) {
-    params.seed_genres = (musicProfile?.topGenres || []).slice(0, 2);
-  }
+  // buildBioParams seeds the user's top genres itself (an empty seed makes Spotify discovery
+  // early-return []), so there is no backfill to do here.
+  const params = buildBioParams(ctx, musicProfile);
   return { params, tracks: await fetchTracks(params) };
 }
 
