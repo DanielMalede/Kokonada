@@ -164,6 +164,57 @@ describe('Garmin personal rate policy: deferUntil holds every later request (a b
   });
 });
 
+// RA-2. A request can wait behind another for seconds, or for hours behind a backoff, and the lane
+// can be stopped while it waits. `admit` is the caller's check at the moment the request's turn
+// comes: after every wait, before the request is counted or sent.
+describe('Garmin personal rate policy: admit decides at the request\'s turn, not when it was queued', () => {
+  const stopped = () => Object.assign(new Error('lane stopped'), { code: 'lane_stopped' });
+
+  it('runs admit after the spacing wait; a throw refuses the request unsent, uncounted, and the caller gets that error', async () => {
+    const clock = fakeClock('2026-10-26T06:00:00.000Z');
+    const policy = createRatePolicy({ now: clock.now, sleep: clock.sleep });
+    const log = [];
+    let open = true;
+
+    await policy.schedule(async () => log.push(['ran', 'first', clock.now()]));
+    const firstSettledAt = clock.now();
+    const second = policy.schedule(async () => log.push(['ran', 'second', clock.now()]), () => {
+      log.push(['admit', 'second', clock.now()]);
+      if (!open) throw stopped();
+    });
+    open = false; // the lane stops while the second request waits for its turn
+
+    await expect(second).rejects.toMatchObject({ code: 'lane_stopped', message: 'lane stopped' });
+    expect(log).toEqual([
+      ['ran', 'first', firstSettledAt],
+      ['admit', 'second', firstSettledAt + 5000], // asked at its turn, after the 5 s wait
+    ]);
+    expect(policy.snapshot().requestsToday).toBe(1);
+  });
+
+  it('a refused request does not reset the spacing: the next request is spaced from the last one that ran', async () => {
+    const clock = fakeClock('2026-10-26T06:00:00.000Z');
+    const policy = createRatePolicy({ now: clock.now, sleep: clock.sleep });
+    const startedAt = [];
+
+    await policy.schedule(async () => startedAt.push(clock.now()));
+    await expect(policy.schedule(async () => startedAt.push(clock.now()), () => { throw stopped(); })).rejects.toMatchObject({ code: 'lane_stopped' });
+    await policy.schedule(async () => startedAt.push(clock.now()), () => {});
+
+    expect(startedAt).toEqual([Date.parse('2026-10-26T06:00:00.000Z'), Date.parse('2026-10-26T06:00:05.000Z')]);
+    expect(policy.snapshot().requestsToday).toBe(2);
+  });
+
+  it('admit is asked before the daily cap: a stopped lane reports its stop, not the cap', async () => {
+    const clock = fakeClock('2026-10-26T06:00:00.000Z');
+    const policy = createRatePolicy({ now: clock.now, sleep: clock.sleep, dailyCap: 1 });
+
+    await policy.schedule(async () => 'the one request of the day');
+
+    await expect(policy.schedule(async () => 'over the cap', () => { throw stopped(); })).rejects.toMatchObject({ code: 'lane_stopped' });
+  });
+});
+
 describe('Garmin personal rate policy: real time by default', () => {
   it('with no clock injected it waits on real time between requests', async () => {
     const policy = createRatePolicy({ minIntervalMs: 40 });

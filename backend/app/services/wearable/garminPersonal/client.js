@@ -44,8 +44,9 @@
  *     (Garmin suspended the key); a 429 waits for Retry-After (60 s at least) or a jittered backoff
  *     of 60 s..6 h, and three 429s in a row pause the lane for 24 h; a 5xx, a timeout or a network
  *     failure waits a jittered 30 s..1 h, at most 5 attempts. A stop or a pause is remembered: later
- *     calls are refused without a request. The process's memory is all it has, so the caller keeps
- *     its own persisted record of a stop or a pause.
+ *     calls are refused without a request, and so is a request already waiting in the queue when it
+ *     lands, at the moment its turn comes (unsent, uncounted). The process's memory is all it has, so
+ *     the caller keeps its own persisted record of a stop or a pause.
  */
 
 const https = require('https');
@@ -358,9 +359,11 @@ function createGarminPersonalClient({
     return fail('garmin_personal_paused', 429);
   }
 
+  // assertUsable runs again at the request's turn (RA-2): a request can wait behind another, or behind
+  // a backoff, and a 403, a second 401 or a third 429 that lands meanwhile refuses it unsent.
   async function attempt(method, path, headers, maxBytes) {
     try {
-      return await policy.schedule(() => send(method, path, headers, maxBytes));
+      return await policy.schedule(() => send(method, path, headers, maxBytes), assertUsable);
     } catch (err) {
       if (err instanceof GarminPersonalError) throw err;
       if (err?.code === DAILY_CAP_CODE) throw fail(DAILY_CAP_CODE);

@@ -12,6 +12,9 @@
  *     failed still counts: Garmin received it.
  *   · deferUntil(ms) holds EVERY later request until that moment. A backoff after a 429 or a 5xx
  *     is global: while Garmin asks the lane to wait, no request goes out, whoever sends it.
+ *   · A request is admitted at ITS TURN, not when it was queued: the caller's `admit` check runs
+ *     after every wait and before the request is counted or sent, so a stop that lands while a
+ *     request waits (Garmin's 403 to the request ahead of it) refuses that request unsent.
  *
  * The state lives in this process only. A caller that restarts the process (a worker deploy) starts
  * a fresh count, so the caller keeps its own persisted record of a pause.
@@ -54,8 +57,10 @@ function createRatePolicy({
     }
   }
 
-  async function run(task) {
+  async function run(task, admit) {
     await waitForTurn();
+    // A refusal here sends nothing, counts nothing and leaves the spacing to the last request sent.
+    if (admit) admit();
     const today = utcDay(now());
     if (today !== day) {
       day = today;
@@ -70,9 +75,13 @@ function createRatePolicy({
     }
   }
 
-  /** Runs `task` (one request) when the cadence allows it; rejects with DAILY_CAP_CODE instead of sending past the cap. */
-  function schedule(task) {
-    const result = queue.then(() => run(task));
+  /**
+   * Runs `task` (one request) when the cadence allows it; rejects with DAILY_CAP_CODE instead of
+   * sending past the cap. `admit`, when given, is called at the request's turn, after every wait and
+   * before the cap: whatever it throws rejects the request, which is never sent and never counted.
+   */
+  function schedule(task, admit) {
+    const result = queue.then(() => run(task, admit));
     queue = result.catch(() => {});
     return result;
   }
