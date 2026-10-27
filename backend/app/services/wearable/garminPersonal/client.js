@@ -29,9 +29,11 @@
  *     never stored by this module, never returned and never part of an error.
  *   · THE JWT lives in this module's memory only: a closure no caller can reach, never returned,
  *     never persisted (this file requires nothing that writes), never in an error. It is exchanged
- *     once and reused until one hour before it expires (its `exp`, capped at 24 h), and two requests
- *     that need one share a single exchange. getGarminPersonalClient keeps one client per process,
- *     so a job that runs every 6 h exchanges about once a day.
+ *     once and reused until one hour before it expires (its `exp`, capped at 24 h), or until half of
+ *     what it had left has passed when that was under two hours, and two requests that need one
+ *     share a single exchange. At most 3 exchanges start in a UTC day; a 4th is refused with
+ *     garmin_personal_exchange_budget, without reading the key. getGarminPersonalClient keeps one
+ *     client per process, so a job that runs every 6 h exchanges about once a day.
  *   · THE WIRE: https://personal.connectapi.garmin.com only, port 443, no redirect is followed (one
  *     would carry the Bearer elsewhere), no proxy is used (an environment variable cannot route the
  *     credential through one), a deadline on every request, and at most 5 MB of body, counted after
@@ -64,6 +66,8 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const TOKEN_LIFETIME_CAP_MS = DAY_MS;
 const TOKEN_REFRESH_WINDOW_MS = HOUR_MS;
+// Each exchange sends the key. Garmin's token lasts 24 h, so a day needs one, and one more after a 401.
+const MAX_EXCHANGES_PER_UTC_DAY = 3;
 const KEY_EXPIRY_WARNING_MS = 14 * DAY_MS;
 
 const RETRY_POLICY = Object.freeze({
@@ -87,6 +91,7 @@ const GARMIN_PERSONAL_ERROR_CODES = Object.freeze([
   'garmin_personal_response_too_large',
   'garmin_personal_malformed_response',
   'garmin_personal_token_invalid',
+  'garmin_personal_exchange_budget',
   'garmin_personal_internal',
 ]);
 
@@ -285,7 +290,9 @@ function parseRetryAfterMs(value, nowMs) {
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
 // The token endpoint's body is the JWT itself. Its signature is Garmin's to check; this side reads
-// only `exp`, and never trusts a lifetime longer than the 24 h Garmin documents.
+// only `exp`, and never trusts a lifetime longer than the 24 h Garmin documents. It is refreshed an
+// hour before it expires, or halfway through what it had left when that was under two hours (RA-3):
+// a fixed hour early would re-exchange, and send the key, on every call once a token came with less.
 function parseToken(body, nowMs) {
   const value = typeof body === 'string' ? body.trim() : '';
   if (!JWT_SHAPE.test(value)) return null;
@@ -298,8 +305,10 @@ function parseToken(body, nowMs) {
   if (typeof exp !== 'number' || !Number.isFinite(exp)) return null;
   const expiresAt = Math.min(exp * 1000, nowMs + TOKEN_LIFETIME_CAP_MS);
   if (expiresAt <= nowMs) return null;
-  return { value, refreshAt: expiresAt - TOKEN_REFRESH_WINDOW_MS };
+  return { value, refreshAt: expiresAt - Math.min(TOKEN_REFRESH_WINDOW_MS, (expiresAt - nowMs) / 2) };
 }
+
+const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 function readKey(getApiKey) {
   const raw = getApiKey();
@@ -339,6 +348,8 @@ function createGarminPersonalClient({
   let halted = null; // { code, status } once a 401 outlived its re-exchange, or a 403
   let pausedUntil = -Infinity;
   let consecutive429 = 0;
+  let exchangeDay = null;
+  let exchangesToday = 0;
 
   const fail = (code, status) => new GarminPersonalError(code, status);
 
@@ -390,8 +401,22 @@ function createGarminPersonalClient({
     policy.deferUntil(now() + delay);
   }
 
+  // At most MAX_EXCHANGES_PER_UTC_DAY exchanges start in a UTC day (the retries inside one are part of
+  // it); the count starts again at UTC midnight.
+  function exchangeAllowedToday() {
+    const today = utcDay(now());
+    if (today !== exchangeDay) {
+      exchangeDay = today;
+      exchangesToday = 0;
+    }
+    return exchangesToday < MAX_EXCHANGES_PER_UTC_DAY;
+  }
+
   async function exchange() {
+    // Past the day's budget the key is not even read.
+    if (!exchangeAllowedToday()) throw fail('garmin_personal_exchange_budget');
     const key = readKey(getApiKey);
+    exchangesToday += 1;
     let failures = 0;
     for (;;) {
       assertUsable();

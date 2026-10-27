@@ -187,6 +187,71 @@ describe('the key-for-token exchange', () => {
     expect(garmin.tokenRequests()).toHaveLength(2);
   });
 
+  // RA-3. Refreshing a fixed hour early re-exchanged on EVERY call once a token came with an hour or
+  // less, and each exchange sends the key. A short token is reused for half of what it has left.
+  it('a token that comes with 30 min left serves three calls within a minute with one exchange', async () => {
+    const { client, garmin, clock } = await setup();
+    garmin.scriptToken(makeJwt({ exp: Math.floor(clock.now() / 1000) + 30 * 60, marker: 'SHORT-LIVED' }));
+
+    for (const date of ['2026-10-25', '2026-10-24', '2026-10-23']) await client.get('hrv', { date });
+
+    expect(garmin.tokenRequests()).toHaveLength(1);
+    expect(garmin.dataRequests()).toHaveLength(3);
+    expect(clock.now() - garmin.tokenRequests()[0].at).toBeLessThan(60 * 1000);
+  });
+
+  it('a token with 30 min left is refreshed once half of it has passed, not before', async () => {
+    const { client, garmin, clock } = await setup();
+    garmin.scriptToken(makeJwt({ exp: Math.floor(clock.now() / 1000) + 30 * 60, marker: 'SHORT-LIVED' }));
+
+    await client.get('hrv', { date: '2026-10-25' });
+    const exchangedAt = garmin.tokenRequests()[0].at;
+    clock.set(exchangedAt + 15 * 60 * 1000 - 1000);
+    await client.get('hrv', { date: '2026-10-24' });
+    expect(garmin.tokenRequests()).toHaveLength(1);
+
+    clock.set(exchangedAt + 15 * 60 * 1000);
+    await client.get('hrv', { date: '2026-10-23' });
+    expect(garmin.tokenRequests()).toHaveLength(2);
+  });
+
+  it('exchanges at most 3 times in a UTC day: the 4th is garmin_personal_exchange_budget, sent nowhere, and the next UTC day exchanges again', async () => {
+    const { client, garmin, clock, keyReads } = await setup();
+
+    for (let n = 1; n <= 3; n += 1) {
+      garmin.scriptToken(makeJwt({ exp: Math.floor(clock.now() / 1000) + 120, marker: `SHORT-${n}` }));
+      await client.get('hrv', { date: '2026-10-25' });
+      clock.advance(10 * 60 * 1000); // past the token's two minutes
+    }
+    expect(garmin.tokenRequests()).toHaveLength(3);
+
+    const err = await client.get('hrv', { date: '2026-10-25' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(GarminPersonalError);
+    expect(err).toMatchObject({ code: 'garmin_personal_exchange_budget' });
+    expect(err).not.toHaveProperty('status');
+    expect(garmin.tokenRequests()).toHaveLength(3);
+    expect(garmin.dataRequests()).toHaveLength(3);
+    expect(keyReads.count).toBe(3); // the key is not even read for an exchange that will not be made
+    expect(client.status().stopped).toBeNull(); // a budget for the day, not a stop
+
+    clock.set(Date.parse('2026-10-27T00:00:00.000Z'));
+    await expect(client.get('hrv', { date: '2026-10-26' })).resolves.toEqual({ ok: true, path: hrvPath('2026-10-26') });
+    expect(garmin.tokenRequests()).toHaveLength(4);
+  });
+
+  it('an exchange refused for a missing key spends none of the day\'s budget', async () => {
+    const reads = [];
+    const { client, garmin } = await setup({ getApiKey: () => { reads.push(1); return reads.length <= 3 ? '' : SENTINEL_KEY; } });
+
+    for (let n = 0; n < 3; n += 1) {
+      await expect(client.get('hrv', { date: '2026-10-25' })).rejects.toMatchObject({ code: 'garmin_personal_key_missing' });
+    }
+
+    await expect(client.get('hrv', { date: '2026-10-25' })).resolves.toEqual({ ok: true, path: hrvPath('2026-10-25') });
+    expect(garmin.tokenRequests()).toHaveLength(1);
+  });
+
   it('shares one exchange between two requests that start together', async () => {
     const { client, garmin } = await setup();
 
