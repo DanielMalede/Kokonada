@@ -149,4 +149,24 @@ describe('a Garmin night is filed under its local date (RA-1 of #275)', () => {
     const rows = await VitalSample.find({ userId, metric: 'hrv' }).sort({ recordedAt: 1 });
     expect(rows.map((r) => [Number(r.value), r.tzOffsetMinutes])).toEqual([[47, -480], [49, -480]]);
   });
+
+  // The read reaches every row that can share a local date. Two rows of one local date can lie up to a day plus
+  // the width of the offset band apart in UTC: a traveller who flies east across the date line lives one date
+  // twice, and a night that ends at 06:00 on it at UTC+12 (18:00Z the day before) and one that ends at 07:00 on
+  // it at UTC-12 (19:00Z on it) are 25 hours apart. The key files both under that date, so the store must give
+  // the same answer however they arrive; a read of a day either side saw the first only within one push.
+  it('two rows of one local date 25 hours apart in UTC are judged alike in one push and in two', async () => {
+    const date = MIDNIGHT - DAY; // the local date both nights end on, as a UTC midnight
+    const atPlus12 = date + 6 * HOUR - 12 * HOUR; // 06:00 at UTC+12, 18:00Z the day before
+    const atMinus12 = date + 7 * HOUR + 12 * HOUR; // 07:00 at UTC-12, 19:00Z
+
+    const onePush = await consentedUser();
+    await ingestSummaries(onePush, [worn(atPlus12, 12, 47), worn(atMinus12, -12, 49)]);
+    const twoPushes = await consentedUser();
+    await ingestSummaries(twoPushes, [worn(atPlus12, 12, 47)]);
+    await ingestSummaries(twoPushes, [worn(atMinus12, -12, 49)]);
+
+    expect((await hrvRows(onePush)).map((r) => r.value)).toEqual([47]);
+    expect((await hrvRows(twoPushes)).map((r) => r.value)).toEqual([47]);
+  });
 });
