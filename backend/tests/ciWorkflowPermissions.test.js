@@ -331,7 +331,9 @@ describe('CI runner images (OPS-191)', () => {
       'ci.yml ios-changes',
       'ci.yml mobile',
       'ci.yml mobile-android-compile',
+      'ci.yml mobile-sweeps',
       'ci.yml secret-scan',
+      'ci.yml sweeps-changes',
       'coordination.yml coordination',
       'secret-scan-history.yml gitleaks-history',
     ]);

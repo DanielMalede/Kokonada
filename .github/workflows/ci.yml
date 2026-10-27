@@ -378,7 +378,7 @@ jobs:
   # always-run mobile job.
   sweeps-changes:
     name: Detect changes to the never-red sweeps' inputs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       # dorny/paths-filter resolves the changed-file set through listFiles(pull_number).
@@ -409,12 +409,17 @@ jobs:
 
   # UI-073: QA-065 at full resolution (the sweeps project, jest.sweeps.config.js), one file per
   # direction, two workers; with it, QA-068's E3 ledger storms on their full grid, one file per
-  # direction. The default run keeps the coarse grids, which hid up to 0.004 of check-band chroma,
+  # direction, E4's flash count, and (project sweeps-skia, CanvasKit from `npm ci`) the never-red
+  # scenes in real Skia. The default run keeps the coarse grids, which hid up to 0.004 of check-band chroma,
   # so this job is the never-red check whenever its filter fires. Gated by `needs` + `if`, so an
   # unrelated PR shows it as skipped, not as a silent green.
   mobile-sweeps:
     name: Mobile — never-red sweeps at full resolution
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # About twice the measured run: the sweeps took 319 s at two workers after the close-out (5.3 min,
+    # Abyss only), so about 11 min, plus checkout, setup-node and npm ci. A hung sweep stops here, not
+    # after the default six hours of Actions minutes.
+    timeout-minutes: 15
     needs: sweeps-changes
     if: needs.sweeps-changes.outputs.sweeps == 'true'
     permissions:

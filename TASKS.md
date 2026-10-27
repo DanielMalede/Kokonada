@@ -1452,6 +1452,10 @@ _(put anything you are unsure about here rather than losing it)_
   - where: `mobile/KokonadaHealth/src/design/v2/tokens/neverRedSweeps.ts` · the tripwire in `src/design/v2/tokens/__tests__/neverRed.field.test.ts` · done when: the sampler certifies every reachable P, with its plants, before a token gives a plate shadow a strength · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
 - [ ] `UI-098` `P3` **jest `--selectProjects` is variadic: path patterns placed after it are read as project names, and the run silently covers the whole project (hit twice in D1).**
   - where: the `wip\run.sh` briefs and any script that passes patterns after `--selectProjects` · done when: every such command puts its patterns before `--selectProjects` (or ends it with a flag), checked by grep · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
+- [ ] `UI-100` `P2` **After the close-out, Abyss names only `seam` among the never-red scenes: `backlight`, `ringHalo`, `restToIntense` and the deferred `ctaKeyline` were named only by Linen and Basin, and no shipped direction asks for them now (still drawable in `fieldScenes.ts`).** The designer rules which scenes Abyss must name.
+  - where: `design-tokens/direction.abyss.tokens.json` (`$root.neverRedScenes`) · `mobile/KokonadaHealth/src/design/v2/field/fieldScenes.ts` (`FIELD_SCENES`, `DEFERRED`) · the inventory in `field/__tests__/fieldScenes.skia.test.ts` · done when: a recorded designer ruling, and Abyss's scene list (or `FIELD_SCENES`) changed to match it, at `fd37b06` or later · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
+- [ ] `UI-101` `P3` **`opaqueSurfaces` in `design-tokens/base.tokens.json` is consumed by no code.** Wire it to a check or remove it.
+  - where: `design-tokens/base.tokens.json` (`$extensions.com.kokonada.opaqueSurfaces`) · done when: a test or a lab check reads it, or it is removed with the designer's agreement (found at `fd37b06`) · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
 ---
 
 ## Infra · CI · repo hygiene

@@ -205,6 +205,9 @@ describe('the two jest projects (MB-086)', () => {
     expect(perms).toBeGreaterThan(-1);
     expect(job.slice(perms + 1, perms + 3)).toEqual(['contents: read', 'steps:']);
     expect(job).toContain('run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2');
+    // A hung sweep must not burn the default six hours: the job has its own whole-minute limit.
+    const timeout = job.find((l) => /^timeout-minutes:/.test(l));
+    expect(timeout).toMatch(/^timeout-minutes: [1-9]\d*$/);
     const mobile = jobBlock(lines, 'mobile').join('\n');
     expect(mobile).toContain('run: ./node_modules/.bin/jest --ci');
     expect(mobile).not.toContain('jest.sweeps.config.js');
