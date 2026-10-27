@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `OPS-244` (TASKS)
-- title: OPS-244: the L-check waiver in CLAUDE.md; Bedrack stays a partner (DAN-065); his inactive items closed; the full-history scan recorded
-- branch: `docs/ops244-waiver-partner`
-- paths: `CLAUDE.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/DECISIONS.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`
+- task: `own:garmin-personal-pull` (own)
+- title: Garmin personal lane PR 3 (T4): the garmin-personal-pull repeatable job, its fences and exit-gate tests; BE-205, BE-189, BE-190, BE-191, BE-206, BE-211, BE-213 (own:garmin-personal-pull)
+- branch: `feat/garmin-personal-pull`
+- paths: `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/healthBatchContract.js`, `backend/tests/art9GateClass.structural.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/garminFutureCap.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminWebhook.integration.test.js`, `backend/tests/integrations.test.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/metricStore.test.js`, `backend/tests/healthBatchContract.test.js`, `backend/tests/garminPersonal*.test.js`, `backend/tests/shadow.garmin*.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #259
-- started: 2026-10-18
+- state: in-review · PR #275
+- started: 2026-10-27
 
 ### M04
 _free_

@@ -22,9 +22,20 @@ const mongoose = require('mongoose');
 const BiometricLog = require('../app/models/BiometricLog');
 const VitalSample = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const ConsentRecord = require('../app/models/ConsentRecord');
+const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consentState');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
 
 jest.setTimeout(120000);
+
+// The seam refuses a user without a current Art. 9 grant (BE-205), so every user here holds one.
+async function consentedUser() {
+  const userId = new mongoose.Types.ObjectId();
+  await ConsentRecord.create({
+    userId, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date(),
+  });
+  return userId;
+}
 
 let mem;
 beforeAll(async () => {
@@ -64,7 +75,7 @@ const counts = async (userId) => ({
 
 describe('the Garmin lane drops what its stores would reap', () => {
   it('a dailies summary 120 days old writes 0 rows, and its 3 metrics are counted as dropped', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     const res = await ingestSummaries(userId, [daily(daysAgo(120))]);
 
     expect(res.accepted).toBe(3); // still what cleared the normaliser and the consent gate
@@ -74,7 +85,7 @@ describe('the Garmin lane drops what its stores would reap', () => {
   });
 
   it('one 10 days old writes its rows and drops nothing', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     const res = await ingestSummaries(userId, [daily(daysAgo(10))]);
 
     expect(res.droppedOutsideRetention).toBe(0);
@@ -83,7 +94,7 @@ describe('the Garmin lane drops what its stores would reap', () => {
   });
 
   it('a backfill reaching back 182 days keeps only its in-window summaries', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     const res = await ingestSummaries(userId, [182, 120, 60, 10].map((n) => daily(daysAgo(n))));
 
     expect(res.accepted).toBe(12);
@@ -93,8 +104,8 @@ describe('the Garmin lane drops what its stores would reap', () => {
   });
 
   it('the line is the stores\' own TTL: a day inside it is written, a day past it is not', async () => {
-    const inside = new mongoose.Types.ObjectId();
-    const outside = new mongoose.Types.ObjectId();
+    const inside = await consentedUser();
+    const outside = await consentedUser();
     const shortest = Math.min(ttlDays(BiometricLog), ttlDays(VitalSample));
     const longest = Math.max(ttlDays(BiometricLog), ttlDays(VitalSample));
 
@@ -106,7 +117,7 @@ describe('the Garmin lane drops what its stores would reap', () => {
   });
 
   it('an out-of-window night never reaches MedicalProfile: no median, no last night', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     const res = await ingestSummaries(userId, [{
       type: 'sleeps',
       summary: { startTimeInSeconds: daysAgo(120), durationInSeconds: 8 * HOUR, deepSleepDurationInSeconds: 3600, lightSleepDurationInSeconds: 14400 },

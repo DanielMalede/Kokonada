@@ -1,7 +1,7 @@
 'use strict';
 
 // T1 — what a Garmin night writes, read back from a REAL Mongo (mongodb-memory-server) through the
-// REAL ingest seam: normaliser → consent gate → persistMetrics → VitalSample / MedicalProfile.
+// REAL ingest seam: consent gate → normaliser → version gate → persistMetrics → VitalSample / MedicalProfile.
 // Nothing on the write path is mocked; Redis is absent, so the recompute enqueue at the tail of
 // persistMetrics is a no-op.
 //
@@ -19,9 +19,20 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const VitalSample = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const ConsentRecord = require('../app/models/ConsentRecord');
+const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consentState');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
 
 jest.setTimeout(120000);
+
+// The seam refuses a user without a current Art. 9 grant (BE-205), so every user here holds one.
+async function consentedUser() {
+  const userId = new mongoose.Types.ObjectId();
+  await ConsentRecord.create({
+    userId, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date(),
+  });
+  return userId;
+}
 
 let mem;
 beforeAll(async () => {
@@ -46,7 +57,7 @@ const utcDate = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
 
 describe('a Garmin HRV summary in VitalSample', () => {
   it('is stored at the end of its window with hrvMethod rmssd, and its value round-trips', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     await ingestSummaries(userId, [{
       type: 'hrv',
       summary: { startTimeInSeconds: NIGHT_START, startTimeOffsetInSeconds: 3 * HOUR, durationInSeconds: NIGHT_LENGTH, lastNightAvg: 48 },
@@ -65,7 +76,7 @@ describe('a Garmin HRV summary in VitalSample', () => {
   });
 
   it('labels only HRV: the resting-HR row from the same push carries no method', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     await ingestSummaries(userId, [
       { type: 'hrv', summary: { startTimeInSeconds: NIGHT_START, durationInSeconds: NIGHT_LENGTH, lastNightAvg: 48 } },
       { type: 'dailies', summary: { startTimeInSeconds: MIDNIGHT, restingHeartRateInBeatsPerMinute: 52 } },
@@ -79,7 +90,7 @@ describe('a Garmin HRV summary in VitalSample', () => {
 describe('a Garmin night in MedicalProfile.lastNightSleep', () => {
   it('lands under the UTC date of the night\'s end, not of its start', async () => {
     expect(utcDate(NIGHT_START)).not.toBe(utcDate(NIGHT_END)); // the fixture really straddles midnight
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     await ingestSummaries(userId, [{
       type: 'sleeps',
       summary: {

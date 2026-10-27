@@ -24,10 +24,21 @@ const mongoose = require('mongoose');
 const BiometricLog = require('../app/models/BiometricLog');
 const VitalSample = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const ConsentRecord = require('../app/models/ConsentRecord');
+const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consentState');
 const { normalizeGarminSummaries } = require('../app/services/wearable/adapter');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
 
 jest.setTimeout(120000);
+
+// The seam refuses a user without a current Art. 9 grant (BE-205), so every user here holds one.
+async function consentedUser() {
+  const userId = new mongoose.Types.ObjectId();
+  await ConsentRecord.create({
+    userId, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date(),
+  });
+  return userId;
+}
 
 const HOUR = 60 * 60;
 const DAY = 24 * HOUR;
@@ -135,7 +146,7 @@ describe('nothing positional reaches the database', () => {
   };
 
   it('the stored documents hold no coordinate, polyline, place or location key', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     await ingestSummaries(userId, laden());
 
     const docs = await stored(userId);
@@ -152,7 +163,7 @@ describe('nothing positional reaches the database', () => {
   });
 
   it('no decrypted reading equals a coordinate: a value leak is caught, not only a key leak', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await consentedUser();
     await ingestSummaries(userId, laden());
 
     const heartRates = (await BiometricLog.find({ userId })).map((d) => Number(d.heartRate));
