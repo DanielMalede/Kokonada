@@ -135,8 +135,7 @@ async function persistVitalSamples(userId, metrics) {
 // older than its window is deleted on the TTL monitor's next pass. Writing one only churns the
 // collection, queues a recompute over data about to vanish, and folds the reading into the TTL-less
 // MedicalProfile, where it outlives the raw data it came from. A caller that receives history asks
-// persistMetrics to drop those metrics before any write (the Garmin lane: a 182-day backfill, and the
-// personal lane's first pull).
+// persistMetrics to drop those metrics before any write (the Garmin lane: a 182-day backfill).
 //
 // The windows are read off the models' own TTL indexes, so BIOMETRIC_RETENTION_DAYS and
 // VITAL_SAMPLE_RETENTION_DAYS stay defined in one place each and this filter cannot drift from the
@@ -173,9 +172,9 @@ function withinRetention(metrics, now = Date.now()) {
 //
 // A reading stamped past the clock is not a reading yet. Written, a far-future night wins
 // MedicalProfile.lastNightSleep for good (the night-date guard below keeps the LATEST night) and its rows
-// outlive their TTL, which counts from recordedAt. The Health Connect contract and the personal-lane
-// envelope refuse such stamps at their door; the Garmin webhook lane has no door of its own, so the
-// Garmin seam asks the store to drop them, with the same allowance (adapter.js MAX_FUTURE_SKEW_MS).
+// outlive their TTL, which counts from recordedAt. The Health Connect contract refuses such stamps at
+// its door; the Garmin webhook lane has no door of its own, so the Garmin seam asks the store to drop
+// them, with the same allowance (adapter.js MAX_FUTURE_SKEW_MS).
 //
 // A metric is kept only when its time is provably at or before that moment. A time a Date cannot hold is NaN,
 // and NaN fails every comparison, so `at > latestMs` used to keep it: the heart-rate read then cast it and

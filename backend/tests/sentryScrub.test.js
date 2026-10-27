@@ -455,13 +455,11 @@ describe('console lines never become breadcrumbs', () => {
   });
 });
 
-// T3, the Garmin personal lane. Its secrets are the personal API key (Garmin prefixes it GCDC_) and
-// the JWT the key buys; under the Supplemental Terms §1 either one in a Sentry event is a disclosure.
-// The structural scrub above knows where credentials SIT (headers, cookies, query strings); a secret
-// can also be quoted in a message, an exception value, a breadcrumb, extra, contexts, tags or a
-// stack frame's variables. Every string in the event is passed through the one definition of a
-// secret, utils/redact.js.
-describe('sentry scrubber — secret values anywhere in the event (Garmin personal lane)', () => {
+// Secret VALUES. The structural scrub above knows where credentials SIT (headers, cookies, query
+// strings); a secret can also be quoted in a message, an exception value, a breadcrumb, extra,
+// contexts, tags or a stack frame's variables. Every string in the event is passed through the one
+// definition of a secret, utils/redact.js: an ApiKey or Bearer credential, a bare GCDC_ key, a bare JWT.
+describe('sentry scrubber — secret values anywhere in the event', () => {
   const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/redactSentinels');
   const JWT = makeJwt({ exp: 1793000000 });
 
@@ -477,9 +475,9 @@ describe('sentry scrubber — secret values anywhere in the event (Garmin person
         }],
       },
       breadcrumbs: [{ category: 'http', message: `GET with ${SENTINEL_KEY}`, data: { note: `Bearer ${JWT}`, status_code: 401 } }],
-      extra: { scope: 'garmin-personal', nested: [{ k: SENTINEL_KEY }] },
+      extra: { scope: 'wearable-sync', nested: [{ k: SENTINEL_KEY }] },
       contexts: { lane: { token: JWT } },
-      tags: { lane: 'garmin-personal', leaked: SENTINEL_KEY },
+      tags: { lane: 'wearable-sync', leaked: SENTINEL_KEY },
       request: { url: `https://api.kokonada.app/x/${SENTINEL_KEY}` },
     });
 
@@ -492,20 +490,20 @@ describe('sentry scrubber — secret values anywhere in the event (Garmin person
     expect(out.exception.values[0].value).toBe('Bearer [REDACTED]');
     expect(out.exception.values[0].stacktrace.frames[0].function).toBe('exchange');
     expect(out.breadcrumbs[0].data.status_code).toBe(401);
-    expect(out.extra.scope).toBe('garmin-personal');
-    expect(out.tags.lane).toBe('garmin-personal');
+    expect(out.extra.scope).toBe('wearable-sync');
+    expect(out.tags.lane).toBe('wearable-sync');
   });
 
   it('redacts a transaction the same way (beforeSendTransaction is the same scrubber)', () => {
     const out = scrubEvent({
       type: 'transaction',
-      transaction: 'garmin-personal-pull',
+      transaction: 'wearable-sync-pull',
       spans: [{ description: `POST ApiKey ${SENTINEL_KEY}`, data: { 'http.request.header.x_note': `Bearer ${JWT}` } }],
     });
 
     expect(JSON.stringify(out)).not.toContain(SENTINEL_KEY);
     expect(JSON.stringify(out)).not.toContain(signatureOf(JWT));
-    expect(out.transaction).toBe('garmin-personal-pull');
+    expect(out.transaction).toBe('wearable-sync-pull');
   });
 
   // sdkProcessingMetadata is the SDK's in-process state (the captured scopes, the client, the raw

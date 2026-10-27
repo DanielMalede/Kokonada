@@ -39,7 +39,7 @@ const refusal = (code) => ({
  */
 async function ingestSummaries(userId, items, { now = new Date() } = {}) {
   // The Art. 9 gate, FIRST (BE-205, SEC-273-1). This seam used to trust its caller: only the webhook
-  // controller read consent, so any other caller (the personal lane's pull job) would have stored heart
+  // controller read consent, so any other caller (a job, a script, a new route) would have stored heart
   // rate, HRV and sleep with no record, after a withdrawal or on a stale version. It now decides for
   // itself, from the latest consent row and the one definition of a current grant, before a summary is
   // normalised or a store is touched. A read error is not caught.
@@ -62,10 +62,9 @@ async function ingestSummaries(userId, items, { now = new Date() } = {}) {
     : metrics.filter((m) => !GARMIN_SPECIAL_CATEGORY_METRICS.has(m.metric));
 
   // Retention (T2). Garmin hands this lane history: the webhook's backfill reaches back 182 days
-  // (garmin.js requestSixMonthBackfill) and the personal lane's first pull covers the whole window,
-  // while BiometricLog and VitalSample keep 90 days by default. The part older than that used to be
-  // written, folded into MedicalProfile, and reaped on arrival; the store now drops it before any
-  // write and reports how many metrics it dropped.
+  // (garmin.js requestSixMonthBackfill), while BiometricLog and VitalSample keep 90 days by default.
+  // The part older than that used to be written, folded into MedicalProfile, and reaped on arrival;
+  // the store now drops it before any write and reports how many metrics it dropped.
   // Future cap (BE-206). The webhook lane has no contract in front of it, so a summary stamped past the
   // clock would be written, and a far-future night would hold MedicalProfile.lastNightSleep for good. The
   // store drops those too, with the one allowance the other ingest doors use, and counts them.

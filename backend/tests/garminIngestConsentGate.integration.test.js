@@ -3,9 +3,9 @@
 // BE-205 (security-auditor SEC-273-1): the Garmin ingest seam checks the Art. 9 grant itself.
 //
 // garminIngest.ingestSummaries trusted its caller. Only the webhook controller read consent, so any
-// other caller (the personal lane's pull job is not a controller) would have stored heart rate, resting
-// HR, HRV and sleep for a user with no consent record, after a withdrawal, or on a grant of an older
-// version. The seam now reads the latest consent row FIRST and fails closed: anything but a current
+// other caller (a job, a script or a new route) would have stored heart rate, resting HR, HRV and
+// sleep for a user with no consent record, after a withdrawal, or on a grant of an older version.
+// The seam now reads the latest consent row FIRST and fails closed: anything but a current
 // grant returns a refusal with zero counts, the normaliser never runs and no store is touched. A consent
 // read that fails throws, so the webhook answers 500 and Garmin retries.
 //
