@@ -85,34 +85,34 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:l-check-waiver-row` (own)
-- title: TASKS: the L-check deviation of #255 (OPS-244) and J18's status reading (OPS-169)
-- branch: `docs/l-check-waiver-row`
-- paths: `TASKS.md`
+- task: `own:garmin-personal-pull` (own)
+- title: Garmin personal lane PR 3 (T4): the garmin-personal-pull repeatable job, its fences and exit-gate tests; BE-205, BE-189, BE-190, BE-191, BE-206, BE-211, BE-213 (own:garmin-personal-pull)
+- branch: `feat/garmin-personal-pull`
+- paths: `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/healthBatchContract.js`, `backend/tests/art9GateClass.structural.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/garminFutureCap.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminWebhook.integration.test.js`, `backend/tests/integrations.test.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/metricStore.test.js`, `backend/tests/healthBatchContract.test.js`, `backend/tests/garminPersonal*.test.js`, `backend/tests/shadow.garmin*.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #258
-- started: 2026-10-18
+- state: in-review · PR #275
+- started: 2026-10-27
 
 ### M04
 _free_
 
 ### M05
-- task: `OPS-002` (TASKS)
-- title: the secret-commit guard catches keystore.properties copies, renamed files and password lines, and a test pins it
-- branch: `fix/ops002-secret-commit-guard`
-- paths: `.githooks/pre-commit`, `.gitignore`, `mobile/KokonadaHealth/.gitignore`, `backend/tests/preCommitSecretGuard.test.js`, `TASKS.md`
+- task: `DAN-092` (TASKS)
+- title: close DAN-092 on the read-only MCP evidence; DAN-112 deploy evidence of 62041da and 1a5186a
+- branch: `docs/dan092-close`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #267
-- started: 2026-10-20
+- state: in-review · PR #276
+- started: 2026-10-27
 
 ### M06
-- task: `own:pii-guard` (own)
-- title: a forward-only guard against the partners' full names, emails and user paths in tracked files; two fixtures take a made-up name
-- branch: `test/pii-guard`
-- paths: `backend/tests/personalDataGuard.test.js`, `backend/tests/shadow.personalDataGuard.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `TASKS.md`
+- task: `own:garmin-personal-client` (own)
+- title: Garmin personal lane PR 2: the Connect Personal API client, rate policy, the personal-to-summary mapper, and key redaction in Sentry and logs
+- branch: `feat/garmin-personal-client`
+- paths: `backend/app/services/wearable/garminPersonal/client.js`, `backend/app/services/wearable/garminPersonal/mapper.js`, `backend/app/services/wearable/garminPersonal/redact.js`, `backend/app/services/wearable/garminPersonal/ratePolicy.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/fixtures/garminPersonal/**`, `backend/tests/sentryScrub.test.js`, `backend/tests/sentryCapture.test.js`, `backend/tests/shadow.garminPersonalRedactionLinear.test.js`, `backend/tests/shadow.garminPersonalStopHoldsQueue.test.js`, `backend/tests/garminPersonalEnvelopeHop.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #268
-- started: 2026-10-20
+- state: in-review · PR #274
+- started: 2026-10-26
 
 ### M07
 - task: `own:dan101-delete-classify-purge` (own)
@@ -124,7 +124,13 @@ _free_
 - started: 2026-10-20
 
 ### M08
-_free_
+- task: `OPS-171` (TASKS)
+- title: narrow .claude/settings.json so no pre-allowed command can read a secret and publish it, pinned by a settings policy test (SEC-264-L4, SEC-264-L1)
+- branch: `fix/ops171-settings-policy`
+- paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #270
+- started: 2026-10-21
 
 ### M09
 - task: `own:ops303-release-custody` (own)

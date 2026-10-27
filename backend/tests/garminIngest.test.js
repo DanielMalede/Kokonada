@@ -23,7 +23,7 @@ describe('garminIngest.ingestSummaries', () => {
   });
 
   it('flattens mixed summaries to canonical metrics and persists them', async () => {
-    persistMetrics.mockResolvedValue({ inserted: 1, profileMetrics: { sleepDeep: 60 } });
+    persistMetrics.mockResolvedValue({ inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0, droppedInFuture: 0 });
 
     const res = await ingestSummaries('user-1', [
       { type: 'sleeps', summary: { startTimeInSeconds: START, deepSleepDurationInSeconds: 3600 } },
@@ -37,13 +37,56 @@ describe('garminIngest.ingestSummaries', () => {
       expect.objectContaining({ metric: 'sleepDeep', value: 60, source: 'garmin' }),
       expect.objectContaining({ metric: 'heartRate', value: 60, source: 'garmin' }),
     ]));
-    expect(res).toEqual({ accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 } });
+    // Additive (T2): every earlier field keeps its meaning; the retention count is the one new field.
+    // BE-205: an admitted push says so, `refused: null`; a refusal names its code. BE-206 adds the
+    // future-cap count, passed on from the store.
+    expect(res).toEqual({
+      accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0, droppedInFuture: 0, refused: null,
+    });
+  });
+
+  // BE-205: the seam reads consent before anything else; without a current grant it returns a refusal
+  // with zero counts and never reaches the store. The real-Mongo pin is garminIngestConsentGate.integration.test.js.
+  it('refuses with zero counts and never persists when the latest row is not a current grant', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: 0 });
+    const res = await ingestSummaries('u', [
+      { type: 'dailies', summary: { startTimeInSeconds: START, restingHeartRateInBeatsPerMinute: 52 } },
+    ]);
+    expect(persistMetrics).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ accepted: 0, inserted: 0, droppedOutsideRetention: 0, refused: 'consent_not_current' });
   });
 
   it('skips unknown summary types (accepted=0, no metrics)', async () => {
-    persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {} });
+    persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {}, droppedOutsideRetention: 0 });
     const res = await ingestSummaries('u', [{ type: 'userMetrics', summary: { startTimeInSeconds: START } }]);
-    expect(persistMetrics).toHaveBeenCalledWith('u', []);
+    expect(persistMetrics).toHaveBeenCalledWith('u', [], { dropOutsideRetention: true, dropInFuture: true, now: expect.any(Date) });
     expect(res.accepted).toBe(0);
+  });
+
+  // BE-206: the seam asks the store to drop what is stamped past its clock, measured against one `now`
+  // it passes down (injectable, so a test can sit on the boundary), and reports the count it gets back.
+  // The drop itself runs on a real Mongo in garminFutureCap.integration.test.js.
+  it('asks the store to drop what is in the future against its own clock, and reports the count', async () => {
+    persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {}, droppedOutsideRetention: 0, droppedInFuture: 1 });
+    const now = new Date('2026-10-27T12:00:00.000Z');
+    const res = await ingestSummaries('u', [
+      { type: 'dailies', summary: { startTimeInSeconds: START, restingHeartRateInBeatsPerMinute: 52 } },
+    ], { now });
+    expect(persistMetrics.mock.calls[0][2]).toEqual({ dropOutsideRetention: true, dropInFuture: true, now });
+    expect(persistMetrics.mock.calls[0][2].now).toBe(now);
+    expect(res.droppedInFuture).toBe(1);
+  });
+
+  // T2: Garmin hands this lane history (a 182-day backfill, the personal lane's first pull), so it is
+  // the one caller that asks the store to drop what its TTL would reap, and it passes the count on.
+  // The drop itself runs on a real Mongo in garminRetentionFilter.integration.test.js.
+  it('asks the store to drop what is past retention, and reports the count it gets back', async () => {
+    persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {}, droppedOutsideRetention: 4 });
+    const res = await ingestSummaries('u', [
+      { type: 'dailies', summary: { startTimeInSeconds: START, restingHeartRateInBeatsPerMinute: 52, timeOffsetHeartRateSamples: { 0: 60, 60: 61, 120: 62 } } },
+    ]);
+    expect(persistMetrics.mock.calls[0][2]).toMatchObject({ dropOutsideRetention: true });
+    expect(res.accepted).toBe(4);
+    expect(res.droppedOutsideRetention).toBe(4);
   });
 });
