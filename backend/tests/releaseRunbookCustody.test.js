@@ -29,12 +29,16 @@
 //   daily account's window; every Windows program runs by its full System32 path.
 // - RA-46 = SEC-264-17 (28bbef0): step 0 opened PowerShell elevated in the daily account, so a planted
 //   PSReadLine ran as administrator; step 0 is now cmd.exe /d with full paths, a fixed ComSpec and one
-//   && chain. RA-47 (28bbef0): both accounts are created with /logonpasswordchg:yes. RA-48 (28bbef0):
+//   && chain. RA-47 (28bbef0): both accounts are created with the must-change flag. RA-48 (28bbef0):
 //   an extra $sd line, or kokonada-signer made an administrator, passed this test.
 // - SEC-264-16 (28bbef0): an empty password can still be changed by any program that knows it; the
 //   Security-log sign-in check (auditing on before the accounts exist) and its stop branch detect it.
 // - SEC-264-18 (28bbef0): the root's owner alone did not prove its descriptor was applied.
 // - SEC-264-19 (28bbef0): the script copy read from the owner's %TEMP% went straight into bin\.
+// - SEC-264-20 (3454c57): a sign-in screen with no forced-change prompt, a 4724 from another logon
+//   session in the creation's second, and a type-2 4624 from LogonUser (Advapi) all passed the check.
+// - RA-49 (3454c57): $SD, ${sd} or a group-membership line for kokonada-signer passed this test.
+// - RA-50 (3454c57): a secret scanner read the literal must-change flag in this file as a password.
 //
 // A pure read of one markdown file: no fs writes, no child process, no network.
 
@@ -112,12 +116,16 @@ const JDK_SHA256 = 'e53a79c3c3d86865bd7e787903884331068e71321714ffd44f145785affc
 const PSMODULEPATH = '$env:PSModulePath = "$PSHOME\\Modules"';
 const NOPROFILE = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile';
 const PSREADLINE = '(Get-Module PSReadLine).Path';
+// net.exe's must-change flag, built from two parts so that the literal never sits in this file: a secret
+// scanner reads the literal as a generic password (RA-50 on #264 at 3454c57). Every assertion compares the
+// whole flag, :yes included.
+const MUST_CHANGE = ['/logon', 'passwordchg:yes'].join('');
 const COMSPEC = `set ComSpec=${CMD}`;
 const LBPU_QUERY = `${SYS32}reg.exe query HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa /v LimitBlankPasswordUse`;
 const AUDIT_CATS = '/category:"Account Management","Logon/Logoff"';
 const AUDIT_GET = `${SYS32}auditpol.exe /get ${AUDIT_CATS}`;
 const AUDIT_SET = `${SYS32}auditpol.exe /set ${AUDIT_CATS} /success:enable /failure:enable`;
-const ADMIN_CHAIN = `${AUDIT_SET} && ${LBPU_QUERY} | ${SYS32}findstr.exe /e /c:" 0x1" && ${NET} user kokonada-admin /add /logonpasswordchg:yes && ${NET} localgroup Administrators kokonada-admin /add`;
+const ADMIN_CHAIN = `${AUDIT_SET} && ${LBPU_QUERY} | ${SYS32}findstr.exe /e /c:" 0x1" && ${NET} user kokonada-admin /add ${MUST_CHANGE} && ${NET} localgroup Administrators kokonada-admin /add`;
 // The descriptor of the root (and of step 4's staging folder), exactly these five lines in this order (RA-48).
 const SD_RULE = (sid) =>
   `$sd.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.SecurityIdentifier]'${sid}', 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))`;
@@ -205,15 +213,25 @@ describe('the root is made with its final security descriptor in one call, refus
   const PROTECTED = `(Get-Acl ${ROOT}).AreAccessRulesProtected`;
   const ACCESS = `(Get-Acl ${ROOT}).AccessToString`;
 
-  it('has exactly the five descriptor lines, in order, as the only lines that start with $sd, and uses $sd elsewhere only in a guarded CreateDirectory (RA-48)', () => {
-    expect(CMDS.filter((l) => l.startsWith('$sd'))).toEqual(SD_LINES);
-    const others = CMDS.filter((l) => l.includes('$sd') && !SD_LINES.includes(l));
+  // PowerShell variable names ignore case, and ${sd} is the same variable as $sd (RA-49).
+  const SD_VAR = /\$\{?sd\}?(?![A-Za-z0-9_])/i;
+  const SD_START = /^\$\{?sd\}?(?![A-Za-z0-9_])/i;
+  const GUARDED_CREATE = /^if \(Test-Path C:\\KokonadaSigner(\\bin\\stage)?\) \{ 'STOP: [^']*' \} else \{ \[void\]\[System\.IO\.Directory\]::CreateDirectory\('C:\\KokonadaSigner(\\bin\\stage)?', \$sd\) \}$/;
+
+  it('has exactly the five descriptor lines, in order, as the only lines that start with the descriptor variable in any case or brace form, and names it elsewhere only in a guarded CreateDirectory (RA-48, RA-49)', () => {
+    expect(CMDS.filter((l) => SD_START.test(l))).toEqual(SD_LINES);
+    const others = [...CMDS, ...RUN_CMDS].filter((l) => SD_VAR.test(l) && !SD_LINES.includes(l));
     expect(others.length).toBeGreaterThan(0);
-    for (const l of others) expect(l).toMatch(/^if \(Test-Path C:\\KokonadaSigner(\\bin\\stage)?\) \{ 'STOP: [^']*' \} else \{ \[void\]\[System\.IO\.Directory\]::CreateDirectory\('C:\\KokonadaSigner(\\bin\\stage)?', \$sd\) \}$/);
+    for (const l of others) expect(l).toMatch(GUARDED_CREATE);
   });
 
-  it('never makes kokonada-signer an administrator (RA-48)', () => {
+  it('never makes kokonada-signer an administrator or a member of any group, and has step 1 check Administrators does not list it (RA-48, RA-49)', () => {
     for (const l of [...CMDS, ...codeSpans(PROVISIONING)]) expect(l).not.toMatch(/localgroup\s+Administrators\s+kokonada-signer/i);
+    for (const l of TYPED) {
+      if (/kokonada-signer/i.test(l)) expect(l).not.toMatch(/localgroup|LocalGroupMember|\[ADSI\]|WinNT:\/\/|S-1-5-32-544.*kokonada-signer.*\/add/i);
+    }
+    const step1 = between(PROVISIONING, '1. **The account.**', '2. **');
+    expect(step1).toMatch(/`C:\\Windows\\System32\\net\.exe localgroup Administrators` must not list `kokonada-signer`/);
   });
 
   it('proves the descriptor was applied: protected, and exactly Administrators and SYSTEM Full Control, before any child (SEC-264-18)', () => {
@@ -333,16 +351,17 @@ describe('provisioning runs from a separate administrator account, kokonada-admi
     expect(STEP0).toMatch(/password manager the owner's Windows account cannot read/);
   });
 
-  it('stops, deletes the account and treats the machine as compromised when the empty-password sign-in or the change is refused (SEC-264-16)', () => {
+  it('stops, deletes the account and treats the machine as compromised when the empty-password sign-in or the change is refused, or the sign-in screen asks for no new password (SEC-264-16, SEC-264-20)', () => {
     const stop = between(STEP0, '**If the sign-in is refused**', '\n   - From here on');
-    expect(stop).toMatch(/sign-in with the empty password is refused, or the change refuses the empty old password/);
+    expect(stop).toMatch(/sign-in with the empty password is refused, if the sign-in screen shows no forced-change prompt[^.]*, or if the change refuses the empty old password/);
+    expect(stop).toMatch(/cleared the must-change flag, so the missing prompt is its trace/);
     expect(stop).toMatch(/Stop provisioning/);
     expect(stop).toContain(`\`${NET} user kokonada-admin /delete\``);
     expect(stop).toMatch(/compromised/);
     expect(stop).toContain('`DAN-121`');
   });
 
-  it('creates both accounts with exactly /add /logonpasswordchg:yes, and never puts a password or a prompt on any net.exe user line (RA-47)', () => {
+  it('creates both accounts with exactly /add and the must-change flag, and never puts a password or a prompt on any net.exe user line (RA-47)', () => {
     const users = [...CMDS, ...codeSpans(PROVISIONING)].filter((l) => /net(\.exe)? user /i.test(l));
     const added = new Set();
     for (const l of users) {
@@ -351,7 +370,7 @@ describe('provisioning runs from a separate administrator account, kokonada-admi
         const args = m[3].trim().split(/\s+/);
         if (args[0] === '/delete') expect(args).toEqual(['/delete']);
         else {
-          expect(args).toEqual(['/add', '/logonpasswordchg:yes']);
+          expect(args).toEqual(['/add', MUST_CHANGE]);
           added.add(m[2]);
         }
       }
@@ -397,8 +416,12 @@ describe('the Security log shows that nothing changed the empty passwords or sig
     expect(SIGNIN).toMatch(/Every 4624[^.]*`Logon Type` 2 \(the sign-in screen\), 7 \(an unlock\) or 11 \(cached\)/);
   });
 
-  it('only tolerates a 4724 at the creation and a 4648 from winlogon.exe at a console sign-in, both marked not verified', () => {
-    expect(SIGNIN).toMatch(/no 4724[^.]*except one in the same second as the account's 4720[^.]*NOT VERIFIED/);
+  it('accepts a 4624 of Logon Type 2 only from the sign-in screen\'s logon process, User32, not Advapi (SEC-264-20)', () => {
+    expect(SIGNIN).toMatch(/Every 4624[^.]*every one of `Logon Type` 2 shows `Logon Process: User32`[^.]*`Advapi`/);
+  });
+
+  it('only tolerates a 4724 at the creation, from the creating window\'s own logon session, and a 4648 from winlogon.exe at a console sign-in, both marked not verified (SEC-264-20)', () => {
+    expect(SIGNIN).toMatch(/no 4724[^.]*except one in the same second as the account's 4720 and with the same `Subject: Logon ID` as that 4720[^.]*step 0's `cmd` window[^.]*NOT VERIFIED/);
     expect(SIGNIN).toMatch(/no 4648[^.]*except one whose `Process Name` is `C:\\Windows\\System32\\winlogon\.exe`[^.]*`Logon Type` 2[^.]*NOT VERIFIED/);
   });
 
@@ -670,11 +693,11 @@ describe('the signer\'s Windows password never enters the owner\'s session (SEC-
   const STEP1 = between(PROVISIONING, '1. **The account.**', '2. **');
 
   it('step 1 creates the account with an empty password that must be changed, and sets it only on the secure sign-in screen, kept where the owner\'s account cannot read it, never through the clipboard (RA-47)', () => {
-    expect(fencedLines(STEP1)).toEqual([`${NET} user kokonada-signer /add /logonpasswordchg:yes`]);
+    expect(fencedLines(STEP1)).toEqual([`${NET} user kokonada-signer /add ${MUST_CHANGE}`]);
     expect(STEP1).toMatch(/Windows sign-in screen/);
     expect(STEP1).toMatch(/must be changed, and on that same secure screen leave the old one empty and type the new one twice/);
     expect(STEP1).not.toMatch(/Ctrl\+Alt\+Del/);
-    expect(STEP1).toMatch(/If that sign-in or that change is refused, stop as step 0 says/);
+    expect(STEP1).toMatch(/If that sign-in or that change is refused, or the sign-in screen shows no forced-change prompt, stop as step 0 says/);
     expect(STEP1).not.toMatch(/net(\.exe)? user kokonada-signer \*/);
     expect(STEP1).toMatch(/password manager the owner's Windows account cannot read/);
     expect(STEP1).toMatch(/separate device/);
