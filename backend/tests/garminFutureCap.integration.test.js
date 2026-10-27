@@ -86,12 +86,13 @@ describe('the Garmin seam drops what is stamped past the clock (BE-206)', () => 
     expect(await stored(userId)).toEqual({ heartRate: 0, vitals: 0, profile: 0 });
   });
 
-  // RA-5 of #275: the case runs on its own clock, today's and one past 2030-01-01, so a fixed far date cannot
-  // turn into a past night, and fail for good, once the real clock reaches it.
+  // RA-5 of #275: the far night is three years past the case's own clock, never a fixed date, which turned into a
+  // past night (and failed for good) once the real clock reached it. The case runs on today's clock and on one
+  // past the old fixed date, 2030-01-01.
   it.each([
     ['today', () => new Date()],
     ['a clock past 2030', () => new Date(Date.UTC(2031, 0, 1, 12))],
-  ])('on %s, a night that ends in 2030 is not stored, and lastNightSleep stays on the real night', async (_label, clock) => {
+  ])('on %s, a night that ends three years ahead is not stored, and lastNightSleep stays on the real night', async (_label, clock) => {
     const userId = await consentedUser();
     const now = clock();
     const today = Math.floor(now.getTime() / 1000 / DAY) * DAY;
@@ -100,13 +101,13 @@ describe('the Garmin seam drops what is stamped past the clock (BE-206)', () => 
     const real = await MedicalProfile.findOne({ userId });
     expect(real.lastNightSleep.date).toEqual(new Date(utcDate(realStart + 8 * HOUR)));
 
-    const futureStart = Date.UTC(2030, 0, 1) / 1000 - 2 * HOUR; // ends 2030-01-01, 06:00 UTC
+    const futureStart = today + 3 * 365 * DAY - 2 * HOUR; // ends three years ahead, 06:00 UTC
     const res = await ingestSummaries(userId, [night(futureStart, 7200), nightHrv(futureStart)], { now });
 
     expect(res.droppedInFuture).toBe(4); // three sleep stages and the night's HRV
     const after = await MedicalProfile.findOne({ userId });
     expect(after.lastNightSleep.date).toEqual(real.lastNightSleep.date);
-    expect(Number(after.lastNightSleep.deep)).toBe(60); // the 2030 night's would be 120
+    expect(Number(after.lastNightSleep.deep)).toBe(60); // the far night's would be 120
     expect(Number(after.sleepStages.deep)).toBe(60); // and it is in no median
     expect(await VitalSample.countDocuments({ userId })).toBe(0);
   });
