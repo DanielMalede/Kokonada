@@ -96,10 +96,13 @@ describe('the egress block covers every agent, not just the global ones', () => 
 
     expect(err).toBeInstanceOf(GarminPersonalError);
     expect(err).toMatchObject({ code: 'garmin_personal_network' });
-    // The exchange's five transient attempts: each went for Garmin itself, and none got a socket.
+    // The exchange's five transient attempts: each went for Garmin itself, and none got a socket. The
+    // TLS options are those tls.connect would have been given (RA-12).
     const attempts = egress.slice(before);
     expect(attempts).toHaveLength(5);
-    for (const attempt of attempts) expect(attempt).toMatchObject({ host: HOST, port: 443, servername: HOST });
+    for (const attempt of attempts) {
+      expect(attempt).toEqual({ host: HOST, port: 443, servername: HOST, rejectUnauthorized: true, minVersion: 'TLSv1.2' });
+    }
   });
 
   it('the fake Garmin\'s own agent still connects: its own createConnection wins over the blocked prototype', async () => {
@@ -340,6 +343,21 @@ describe('only https://personal.connectapi.garmin.com, with a timeout and a size
     for (const request of garmin.state.requests) expect(request.host).toBe(HOST);
     expect(BASE_URL).toBe('https://personal.connectapi.garmin.com');
     expect(TOKEN_PATH).toBe('/personalapitoken-service/personal-api/personal-api-key/token');
+  });
+
+  // RA-12. Node verifies certificates and refuses TLS below 1.2 by default, but an environment
+  // variable (NODE_TLS_REJECT_UNAUTHORIZED=0) or a CLI flag (--tls-min-v1.0) changes both process-wide.
+  // The agent that carries the key pins them.
+  it('the default agent pins certificate verification and TLS 1.2 or newer, one socket, no keep-alive', () => {
+    const spy = jest.spyOn(https, 'Agent');
+    try {
+      createGarminPersonalClient();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith({ keepAlive: false, maxSockets: 1, rejectUnauthorized: true, minVersion: 'TLSv1.2' });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('ignores HTTPS_PROXY and HTTP_PROXY: the credential goes straight to Garmin, never through a proxy', async () => {

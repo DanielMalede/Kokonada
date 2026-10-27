@@ -347,7 +347,9 @@ function readKey(getApiKey) {
  */
 function createGarminPersonalClient({
   getApiKey = () => process.env.GARMIN_PERSONAL_API_KEY,
-  httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 1 }),
+  // Certificate checks and TLS 1.2+ pinned here: NODE_TLS_REJECT_UNAUTHORIZED=0 or --tls-min-v1.0
+  // would otherwise loosen them for the one connection that carries the key (RA-12).
+  httpsAgent = new https.Agent({ keepAlive: false, maxSockets: 1, rejectUnauthorized: true, minVersion: 'TLSv1.2' }),
   now = Date.now,
   sleep,
   random = Math.random,
