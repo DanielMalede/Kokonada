@@ -129,7 +129,7 @@ _free_
 - branch: `fix/ops171-settings-policy`
 - paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #270
 - started: 2026-10-21
 
 ### M09
