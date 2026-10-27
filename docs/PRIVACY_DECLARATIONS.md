@@ -24,12 +24,16 @@
 > windows, and the export/erasure rights below are current.
 >
 > **Egress summary (verify before every store submission):** outbound LLM prompts carry
-> **no health information of any kind and nothing derived from it, no raw free-text, no
-> account identifiers (name/email/userId), and no Spotify Content** — only the emotion
-> coordinates the user tapped, the activity the user chose, closed-vocabulary derived-intent
-> tags, and mood-descriptor genres. The heart-rate branch makes no LLM call, and a session
-> that health data shaped gets no discovery captions. Stored vitals map to audio targets
-> **deterministically after the model returns**, never in the prompt. <!-- verified: backend/app/services/geminiEngine.js _callLlm (egress note), _buildEmotionPrompt (allow-list genres + coords + chip + intent, not Spotify genres), adjustBiometricPlaylist (no LLM call: moodDescriptors.buildBioParams), buildEmotionPlaylist (deterministic post-return banding); backend/app/services/discovery/captionService.js _sessionLine; backend/app/sockets/biometricHandler.js healthShapedCaption (fails closed on targetsBuilder.js buildTargets healthInputs); backend/tests/llmHealthEgress.test.js, llmHealthEgress.structural.test.js, shadow.captionHealthShapedTargets.test.js -->
+> **no data from a health source and nothing derived from it** (Garmin, Health Connect,
+> HealthKit, a Bluetooth heart-rate strap, the live heart-rate stream, the stored health
+> profile), **no raw free-text, no account identifiers (name/email/userId), and no Spotify
+> Content** — only the emotion coordinates the user tapped, the activity chip the user chose,
+> closed-vocabulary intent tags derived from the user's note, and mood-descriptor genres.
+> Whether a note-derived tag such as `sleep` is itself health data is a question open with
+> counsel (TASKS `BE-229`). The heart-rate branch makes no LLM call, and a session that
+> health data shaped gets no discovery captions. Stored and live vitals map to audio
+> targets **deterministically after the model returns**, never in the prompt (with
+> band-aware discovery on, the band window is computed before the call and applied after it). <!-- verified: backend/app/services/geminiEngine.js _callLlm (egress note), _buildEmotionPrompt (allow-list genres + coords + chip + intent, not Spotify genres), adjustBiometricPlaylist (no LLM call: moodDescriptors.buildBioParams), buildEmotionPlaylist (deterministic post-return banding); backend/app/services/discovery/captionService.js _sessionLine; backend/app/sockets/biometricHandler.js healthShapedCaption (fails closed on targetsBuilder.js buildTargets healthInputs); backend/tests/llmHealthEgress.test.js, llmHealthEgress.structural.test.js, shadow.captionHealthShapedTargets.test.js -->
 >
 > Any NEW external egress, permission, brand asset, or store field forces a diff of this
 > document and a `compliance-auditor` re-review before submission.
@@ -144,7 +148,7 @@ Kokonada uses the following processors. None is an advertiser; none receives raw
 
 ## Google Play — Data Safety Form
 
-- **Data collected & shared:** Collected: **yes.** **Shared with third parties: No** — OAuth tokens go only to the respective provider APIs (Spotify/Garmin) **at the user's direction**, and derived tokens go to Groq as a **service provider/sub-processor** under the standing DPA/ZDR condition; neither is a transfer to another party for that party's own use, which is Play's definition of "sharing." **This "No" is conditional on the Groq DPA being executed and ZDR enabled** (Sub-processors, above) — if that condition is not met before launch, re-evaluate the answer. <!-- verified sub-processor egress: backend/app/services/geminiEngine.js:255-262 --> <!-- NEEDS VERIFICATION: DPA/ZDR execution -->
+- **Data collected & shared:** Collected: **yes.** **Shared with third parties: No** — OAuth tokens go only to the respective provider APIs (Spotify/Garmin) **at the user's direction**, and derived tokens go to Groq as a **service provider/sub-processor** under the standing DPA/ZDR condition; neither is a transfer to another party for that party's own use, which is Play's definition of "sharing." **This "No" is conditional on the Groq DPA being executed and ZDR enabled** (Sub-processors, above) — if that condition is not met before launch, re-evaluate the answer. <!-- verified sub-processor egress: backend/app/services/geminiEngine.js _callLlm (egress note) --> <!-- NEEDS VERIFICATION: DPA/ZDR execution -->
 - **Categories collected:**
   - Personal info → **Email address**, **Name** (optional). Purpose: Account management. Linked to user. Optional/required: required (email).
   - **Health and fitness** → **Health info** (heart rate, HRV) + **Fitness info** (sleep, resting heart rate). Purpose: App functionality. Linked to user. **Optional** (app works "mood only" without a wearable — the "Try with mood only" path). SpO₂/respiratory rate are **not** collected.
