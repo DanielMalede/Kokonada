@@ -28,7 +28,9 @@ describe('E4’s planted controls: the counter and the guard bite', () => {
 describe('E4: the rendered flash count, at most 2 a second at every sample point', () => {
   it('the cases and samples are the ruled ones', () => {
     expect(E4_CADENCES).toEqual([50, 100, 143, 167, 250]);
-    expect(E4_CASES).toHaveLength(3 * 2 * 2 * 5 + 2 * 2 * 5);
+    expect(E4_CASES).toHaveLength(2 * 2 * 2 * 5 + 2 * 2 * 5);
+    expect(new Set(E4_CASES.map((c) => c.id))).toEqual(new Set(['abyss']));
+    expect(E4_CASES.filter((c) => c.kind === 'neutral3').map((c) => c.face).sort()).toEqual([...Array(10).fill('dark'), ...Array(10).fill('light')]);
     expect(samplePoints('toggle').length).toBeGreaterThan(144);
     expect(samplePoints('cycle4').length - 144).toBe(4 * (samplePoints('toggle').length - 144));
   });

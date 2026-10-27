@@ -42,9 +42,16 @@ describe('tokens.generated.ts is fresh', () => {
     expect(committedExtensions.EXTENSIONS_SOURCE).toEqual(committed.TOKENS_SOURCE);
   });
 
+  // The close-out: Abyss is the only shipped direction (the owner's Round 5 choice). Test-only fixture
+  // directions exist, but never in design-tokens/ and never in the committed module.
+  it('ships exactly one direction, Abyss', () => {
+    expect(Object.keys(committed.DIRECTIONS)).toEqual(['abyss']);
+    expect(Object.keys(committedExtensions.EXTENSIONS).sort()).toEqual(['abyss', 'base']);
+  });
+
   it('a planted edit to one token makes it stale', () => {
     const planted = readTokenSources(DESIGN_TOKENS).map((s: { name: string; bytes: Buffer; json: any }) => {
-      if (s.name !== 'direction.linen.tokens.json') return s;
+      if (s.name !== 'direction.abyss.tokens.json') return s;
       const json = structuredClone(s.json);
       json.field.pivot.$value = 0.25;
       return { ...s, json, bytes: Buffer.from(JSON.stringify(json, null, 2)) };
@@ -68,7 +75,7 @@ describe('node scripts/tokens/generate.mjs', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokens-'));
     try {
       for (const name of fs.readdirSync(DESIGN_TOKENS)) fs.copyFileSync(path.join(DESIGN_TOKENS, name), path.join(dir, name));
-      const file = path.join(dir, 'direction.basin.tokens.json');
+      const file = path.join(dir, 'direction.abyss.tokens.json');
       const json = JSON.parse(fs.readFileSync(file, 'utf8'));
       json.field.shimmer.deg.$value = 4;
       fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\n');

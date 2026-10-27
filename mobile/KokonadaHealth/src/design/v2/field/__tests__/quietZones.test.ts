@@ -35,7 +35,7 @@ const state = (id: DirectionId, face: Face, more: Partial<FieldState> = {}): Fie
 const frameOf = (id: DirectionId, face: Face, rects: readonly QuietRect[], more: Partial<FieldState> = {}) => buildFieldFrame(state(id, face, more), geometry(rects), statics(id));
 
 describe('the builder: quiet rects in render pixels, grow and feather from the tokens', () => {
-  it.each(['abyss', 'linen', 'basin'] as DirectionId[])('%s: grow is quiet.grow, feather is field.mask.quietFeather, both in render px', (id) => {
+  it.each(['abyss'] as DirectionId[])('%s: grow is quiet.grow, feather is field.mask.quietFeather, both in render px', (id) => {
     for (const pxPerDp of [0.5, 1, 1.4]) {
       const f = buildFieldFrame(state(id, 'dark'), geometry([{ cx: 10, cy: 20, hx: 30, hy: 4 }], pxPerDp), statics(id));
       expect(f.quiet.grow).toBeCloseTo(BASE.quiet.grow * pxPerDp, 12);
@@ -44,8 +44,9 @@ describe('the builder: quiet rects in render pixels, grow and feather from the t
     }
   });
 
-  it('Basin takes the step path (quietFeather 0); Abyss and Linen feather', () => {
-    expect(['abyss', 'linen', 'basin'].map((id) => DIRECTIONS[id as DirectionId].field.mask.quietFeather > 0)).toEqual([true, true, false]);
+  // The step path (quietFeather 0) is held on the fixture direction fixture-inner (fixturePaths.test.ts).
+  it('Abyss takes the feather path (quietFeather above 0)', () => {
+    expect(DIRECTIONS.abyss.field.mask.quietFeather).toBeGreaterThan(0);
   });
 
   // Architect round 1 §5: every build throws above QUIET_SLOTS (no lab/shipped switch in the builder,
@@ -59,7 +60,7 @@ describe('the builder: quiet rects in render pixels, grow and feather from the t
     expect(() => checkQuietRects(seven.slice(0, 6))).not.toThrow();
     for (const bad of [{ cx: NaN, cy: 0, hx: 1, hy: 1 }, { cx: 0, cy: Infinity, hx: 1, hy: 1 }, { cx: 0, cy: 0, hx: -1, hy: 1 }]) {
       expect(() => checkQuietRects([bad])).toThrow(RangeError);
-      expect(() => frameOf('basin', 'light', [bad])).toThrow(RangeError);
+      expect(() => frameOf('abyss', 'light', [bad])).toThrow(RangeError);
     }
   });
 
@@ -79,13 +80,13 @@ describe('the law: the rounded grown rect, exactly (designer r3 §1)', () => {
   const RECT: QuietRect = { cx: 100, cy: 100, hx: 40, hy: 10 };
   const corner = [RECT.cx + RECT.hx, RECT.cy + RECT.hy];
 
-  it.each([['abyss', 'feather'], ['basin', 'step']] as const)('%s (%s path): the bound’s corner + 0.70·g on each axis (0.99·g away) is quiet; + 0.75·g (1.06·g away) is not', (id, path) => {
+  it.each([['abyss', 'feather']] as const)('%s (%s path): the bound’s corner + 0.70·g on each axis (0.99·g away) is quiet; + 0.75·g (1.06·g away) is not', (id, path) => {
     const f = frameOf(id, 'dark', [RECT]);
     const g = f.quiet.grow;
     expect(quietFactor(f, corner[0] + 0.7 * g, corner[1] + 0.7 * g)).toBe(0);
     const out = quietFactor(f, corner[0] + 0.75 * g, corner[1] + 0.75 * g);
-    if (path === 'step') expect(out).toBe(1);
-    else expect(out).toBeGreaterThan(0);
+    // The feather path; the step path's exact 1 is held on fixture-inner (fixturePaths.test.ts).
+    expect([path, out > 0, out < 1]).toEqual(['feather', true, true]);
   });
 
   it('on the grown boundary and inside it the factor is exactly 0; at the feather’s width it is 1', () => {
@@ -98,12 +99,14 @@ describe('the law: the rounded grown rect, exactly (designer r3 §1)', () => {
     expect(quietFactor(f, RECT.cx + RECT.hx + g + F / 2, RECT.cy)).toBeCloseTo(0.5, 12);
   });
 
-  it('a zero-size rect is not empty: it carves a disc of radius g', () => {
-    const f = frameOf('basin', 'dark', [{ cx: 50, cy: 60, hx: 0, hy: 0 }]);
+  it('a zero-size rect is not empty: it carves a disc of radius g, feathered out to g + F', () => {
+    const f = frameOf('abyss', 'dark', [{ cx: 50, cy: 60, hx: 0, hy: 0 }]);
     const g = f.quiet.grow;
+    const F = f.quiet.feather;
     expect(quietFactor(f, 50 + 0.99 * g, 60)).toBe(0);
     expect(quietFactor(f, 50 + (0.99 * g) / Math.SQRT2, 60 + (0.99 * g) / Math.SQRT2)).toBe(0);
-    expect(quietFactor(f, 50 + 1.01 * g, 60)).toBe(1);
+    expect(quietFactor(f, 50 + 1.01 * g, 60)).toBeGreaterThan(0);
+    expect(quietFactor(f, 50 + g + F + 0.01, 60)).toBe(1);
   });
 
   it('rects multiply: where two feathers overlap, the factors multiply, with no crease', () => {
@@ -130,8 +133,7 @@ describe('a planted quiet rect: nothing the field does reaches inside it', () =>
   const cases: Array<[DirectionId, Face, QuietRect]> = [
     ['abyss', 'dark', { cx: 300, cy: 40, hx: 120, hy: 12 }], // above the plate, in the field
     ['abyss', 'light', { cx: 300, cy: 40, hx: 120, hy: 12 }],
-    ['linen', 'light', { cx: 300, cy: 520, hx: 150, hy: 14 }], // below the plate: the backlight and the outer shadow
-    ['basin', 'dark', { cx: 300, cy: 250, hx: 30, hy: 8 }], // on the floor
+    // Under a plate shadow, and on the step path: the fixture directions (fixturePaths.test.ts).
   ];
   const moments: Array<Partial<FieldState>> = [
     { stress: 0, confidence: 1, genesis: true, tMs: 1000, breathPhase: 0.1 },

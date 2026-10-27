@@ -87,7 +87,7 @@
           "restIntenseRule": "R0-I is a waypoint edge when field.graph.restIntenseRoute is \"waypoint\", and a straight edge when it is \"straight\"",
           "waypoint": "N = (lerp(L_a, L_b, 0.5), 0, 0): two straight OKLab segments a→N→b",
           "selection": "per node weight e_i = extent(x)·f_i + λ·h_i (λ = 1000); e1 ≥ e2 ≥ e3; colour = (e1·a1 + max(0, e2 − e3)·a2) / (e1 + max(0, e2 − e3)); if (a1, a2) is a waypoint edge, mix along a→N→b",
-          "nodeColour": "A bead node's colour is mix(its field colour turned by the shimmer, its steady halo colour, smoothstep(−0.05, 0, h_i − k_field)). A rest lobe's colour is its turned field colour. Selection weights are e_i = extent(x)·f_i + λ·h_i. So wherever the field is absent (extent = 0: the ring and moat in every direction, Linen's dish face, Basin's screen ground), a pixel depends only on the halos and is identical across t, s, c and the shimmer.",
+          "nodeColour": "A bead node's colour is mix(its field colour turned by the shimmer, its steady halo colour, smoothstep(−0.05, 0, h_i − k_field)). A rest lobe's colour is its turned field colour. Selection weights are e_i = extent(x)·f_i + λ·h_i. So wherever the field is absent (extent = 0: the ring and moat in every direction, and a face or ground a direction's mask leaves empty), a pixel depends only on the halos and is identical across t, s, c and the shimmer.",
           "sameNode": "straight: two beads of one quadrant differ only in chroma",
           "groundComposite": "every node, and N, to the local ground (ground / plate.face / plate.ring), with pivot kp",
           "pixelK": "k = max(k_field, H), where H = max over beads of halo h_j"
@@ -430,48 +430,31 @@
             "element": "hero.ground.sample",
             "token": "color.<face>.ground",
             "sample": "24×24 dp patch at the trailing end of the AI-line band, glyph pixels excluded, median (grain has zero mean)",
-            "directions": ["abyss","linen","basin"]
+            "directions": ["abyss"]
           },
           {
             "element": "hero.plate.ring.sample",
             "token": "color.<face>.plate.ring",
             "sample": "8×8 dp at the band centre, at 225°, in scene rest",
-            "directions": ["abyss","linen","basin"]
-          },
-          {
-            "element": "hero.plate.face.sample",
-            "token": "color.<face>.plate.face",
-            "sample": {
-              "linen": "16×16 dp at the plate centre, in rest",
-              "basin": "8×8 dp at 0.85R, 225°, in rest (outside the rest lobe, where m = 0)"
-            },
-            "directions": ["linen","basin"],
-            "note": "abyss is not sampled: the field shows through"
+            "directions": ["abyss"]
           },
           {
             "element": "hero.cta.fill",
             "token": "the tint token, or color.<face>.text.primary",
             "sample": "8×8 dp, 8 dp from the leading edge, vertically centred",
-            "directions": ["abyss","linen","basin"]
-          },
-          {
-            "element": "hero.nav.surface",
-            "token": "color.<face>.nav.surface",
-            "sample": "8×8 dp away from the items",
-            "directions": ["linen","basin"],
-            "note": "in abyss this is the ground, already covered by hero.ground.sample"
+            "directions": ["abyss"]
           },
           {
             "element": "hero.nav.active.fill",
             "token": "color.<face>.nav.activeFill",
-            "sample": {"abyss":"the 2×2 centre of the 4 dp dot","linen":"the capsule","basin":"the well"},
-            "directions": ["abyss","linen","basin"]
+            "sample": {"abyss":"the 2×2 centre of the 4 dp dot"},
+            "directions": ["abyss"]
           },
           {
             "element": "hero.avatar.fill",
             "token": "color.<face>.avatar.fill",
             "sample": "6×6 dp, avoiding the initial",
-            "directions": ["abyss","linen","basin"]
+            "directions": ["abyss"]
           }
         ],
         "glyphCores": [

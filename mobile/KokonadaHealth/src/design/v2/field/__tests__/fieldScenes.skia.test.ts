@@ -27,15 +27,19 @@ const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as nev
 const { scenesOf, restTo, drawn } = sceneCatalogue(EXTENSIONS, deps);
 
 describe('the never-red scenes the designer named, and the two the plan adds', () => {
-  it('every token scene of every direction is drawn here or named as deferred, and each kind is drawn somewhere', () => {
+  // Since the close-out, Abyss names only the seam; backlight, ringHalo, restToIntense and the deferred
+  // ctaKeyline stay drawable or listed here, but no shipped direction names them (the designer rules
+  // whether Abyss should). So the drawn kinds are exactly the named ones, and the replace dissolve.
+  it('every token scene of every direction is drawn here or named as deferred, and exactly the named kinds are drawn', () => {
     const ids = IDS.flatMap((id) => scenesOf(id).map((scene) => scene.id));
     expect(ids.filter((s) => !FIELD_SCENES.includes(s) && !(s in DEFERRED))).toEqual([]);
-    expect([...new Set(drawn.map((d) => d.scene))].sort()).toEqual([...FIELD_SCENES, 'replaceDissolve'].sort());
+    expect([...new Set(drawn.map((d) => d.scene))].sort()).toEqual([...new Set([...ids.filter((s) => FIELD_SCENES.includes(s)), 'replaceDissolve'])].sort());
+    expect([...new Set(ids)].sort()).toEqual(['seam']);
     expect(restTo.map((b) => b.node)).toEqual(['I']);
   });
 
   it('restToIntense runs through the ledger along u and 1 − u²; the replace dissolve swaps the seam’s pair in one crossfade', () => {
-    const rest = throughLedger(deps('linen'), [], restTo.map((b) => ({ x: b.x, y: b.y })));
+    const rest = throughLedger(deps('abyss'), [], restTo.map((b) => ({ x: b.x, y: b.y })));
     expect(rest.map((s) => s.ms)).toEqual(Array.from({ length: 13 }, (_, k) => k * STEP_MS));
     const mid = rest[6].shown;
     expect(mid.placements).toHaveLength(1);
@@ -54,11 +58,11 @@ describe('the never-red scenes the designer named, and the two the plan adds', (
     expect(Skia.RuntimeEffect.Make(planted)).toBeTruthy();
   });
 
-  // The plate's shadows on the drawn pixels (designer 2.9): Linen light's outer shadow below the plate,
-  // Basin's inner ones on the face; Abyss draws none. The fixtures carry the same paths: fixture-outer's
-  // outer shadow on its light face only, fixture-inner's inner shadows on both faces.
+  // The plate's shadows on the drawn pixels (designer 2.9): Abyss draws none, so the positive rows are
+  // the fixture directions': fixture-outer's outer shadow below the plate on its light face only,
+  // fixture-inner's inner shadows on the face on both faces.
   it.each([
-    ['abyss', 'dark', false], ['linen', 'light', true], ['linen', 'dark', false], ['basin', 'dark', true], ['basin', 'light', true],
+    ['abyss', 'dark', false], ['abyss', 'light', false],
     ['fixture-outer', 'light', true], ['fixture-outer', 'dark', false], ['fixture-inner', 'dark', true], ['fixture-inner', 'light', true],
   ] as const)(
     '%s, %s face: shadowed grounds drawn: %s',

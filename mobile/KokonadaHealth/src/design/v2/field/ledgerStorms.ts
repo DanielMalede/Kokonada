@@ -1,6 +1,6 @@
 // The ledger storms (QA-068, the event path, E3): one harness for the default run's coarse grid
 // (field/__tests__/ledgerStorms.test.ts) and the sweeps project's full grid
-// (field/__tests__/ledgerStorms.{abyss,linen,basin}.sweeps.test.ts), so the two cannot drift apart.
+// (field/__tests__/ledgerStorms.<id>.sweeps.test.ts, one per shipped direction), so the two cannot drift apart.
 // Test-only: never imported by app code. It is not a worklet module, and it never imports the token
 // extensions: the caller passes the statics in (stormDeps).
 //
@@ -8,7 +8,7 @@
 // amended by resilience round 1 F2):
 //
 // "Ledger storms, run in every direction under {settle, reduced}. Storms: {toggle, cycle4, reemit,
-//  neutral3 (Linen: three neutral placements, then three new neutral taps inside one settle window)},
+//  neutral3 ([a direction whose neutral placements carry no lobe]: three neutral placements, then three new neutral taps inside one settle window)},
 //  with taps every {17, 50, 100, 143, 167, 250} ms, for 3 s and for 10 s, sampled every 1 ms.
 //  - Demand: the ledger's node demand is at most NODE_SLOTS (6). Demand counts live, entering and
 //    leaving placements, plus rest lobes whose fade is above 0 or rising. It is counted from the

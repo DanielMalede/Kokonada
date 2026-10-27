@@ -1,8 +1,7 @@
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { buildFieldFrame, type FieldState } from '../fieldFrame.ts';
-import { SHADOW_SLOTS, fieldOklab, inertShadow, regionOf, shadowFactor, smoothstep, type FieldFrame } from '../fieldLaw.ts';
-import { packFrame } from '../uniforms.ts';
+import { SHADOW_SLOTS, inertShadow, regionOf, shadowFactor } from '../fieldLaw.ts';
 import { staticsFor } from '../statics.ts';
 
 // Plate shadows (designer ruling 2.9, r2 text; the critic's wording, accepted): terms of the one field
@@ -58,114 +57,19 @@ describe('the shadows come from the tokens', () => {
     });
   });
 
-  it('which directions shade: Abyss none; Linen outer, light face only; Basin inner, both faces, with a lift on light', () => {
+  it('Abyss draws no shadow on either face', () => {
     const modes = (id: DirectionId, face: Face) => frameOf(id, face).shadows.map((s) => [s.mode, Math.sign(s.strength)]);
     expect(modes('abyss', 'dark')).toEqual([[0, 0], [0, 0]]);
     expect(modes('abyss', 'light')).toEqual([[0, 0], [0, 0]]);
-    expect(modes('linen', 'dark')).toEqual([[0, 0], [0, 0]]);
-    expect(modes('linen', 'light')).toEqual([[1, 1], [1, 1]]);
-    expect(modes('basin', 'dark')).toEqual([[-1, 1], [0, 0]]);
-    expect(modes('basin', 'light')).toEqual([[-1, 1], [-1, -1]]);
-  });
-
-  it('static: no clock, breath, tension, confidence or placement moves a shadow', () => {
-    const a = frameOf('basin', 'light');
-    const b = frameOf('basin', 'light', { tMs: 41234, breathPhase: 0.9, stress: 1, confidence: null, genesis: true, placements: [] , restFade: 1 });
-    expect(b.shadows).toEqual(a.shadows);
   });
 });
 
-describe('the law: the shadow factor, exactly as ruled', () => {
-  /** r2's form, by hand, in plate units. */
-  const expected = (f: FieldFrame, qx: number, qy: number) => {
-    const d = Math.sqrt(qx * qx + qy * qy);
-    const region = regionOf(d, f);
-    let sum = 0;
-    for (const s of f.shadows) {
-      if (s.mode === 0) continue;
-      const dist = Math.sqrt(qx * qx + (qy - s.offset) * (qy - s.offset));
-      if (s.mode > 0 && (region === 'moat' || region === 'outside')) sum += s.strength * smoothstep(-s.blur, s.blur, 1 - dist);
-      if (s.mode < 0 && region === 'face') sum += s.strength * smoothstep(-s.blur, s.blur, dist - f.ringInner);
-    }
-    return 1 - sum;
-  };
-
-  it.each([['linen', 'light'], ['basin', 'dark'], ['basin', 'light']] as const)('%s, %s face: at points across the plate and beyond', (id, face) => {
-    const f = frameOf(id, face);
-    let shaded = 0;
-    for (let qy = -1.4; qy <= 1.4; qy += 0.01) {
-      for (const qx of [0, 0.3, -0.7]) {
-        const region = regionOf(Math.hypot(qx, qy), f);
-        const got = shadowFactor(f, region, qx, qy);
-        expect(got).toBe(expected(f, qx, qy));
-        if (got !== 1) shaded++;
-      }
-    }
-    expect(shaded).toBeGreaterThan(20);
-  });
-
-  it('outer shadows fall only outside the rim, darkest below the plate (the light is from above)', () => {
-    const f = frameOf('linen', 'light');
-    const at = (qx: number, qy: number) => shadowFactor(f, regionOf(Math.hypot(qx, qy), f), qx, qy);
-    for (const [qx, qy] of [[0, 0], [0, 0.9], [0, -0.99], [0.7, -0.7]]) expect(at(qx, qy)).toBe(1); // inside the rim
-    expect(at(0, -1.03)).toBeLessThan(at(0, 1.03));
-    expect(at(0, -1.03)).toBeLessThan(1);
-  });
-
-  it('inner shadows fall only on the face, darkest at the top inner lip; a negative strength lifts', () => {
-    const f = frameOf('basin', 'dark');
-    const at = (qx: number, qy: number) => shadowFactor(f, regionOf(Math.hypot(qx, qy), f), qx, qy);
-    const lip = f.ringInner - 0.005;
-    expect(at(0, lip)).toBeLessThan(at(0, -lip));
-    expect(at(0, 0.95)).toBe(1); // the ring
-    expect(at(0, 1.05)).toBe(1); // beyond the rim
-    const lift = { ...frameOf('basin', 'light'), shadows: [inertShadow(), frameOf('basin', 'light').shadows[1]] };
-    const atLift = (qx: number, qy: number) => shadowFactor(lift, regionOf(Math.hypot(qx, qy), lift), qx, qy);
-    expect(atLift(0, -lip)).toBeGreaterThan(1);
-  });
-
-  it('L only: on a neutral ground the shadows change L and leave a and b exactly 0', () => {
-    const grey = { L: 0.6, a: 0, b: 0 };
-    for (const [id, face] of [['linen', 'light'], ['basin', 'dark'], ['basin', 'light']] as const) {
-      const f = { ...frameOf(id, face, { placements: [] }), grounds: { outside: grey, face: grey, ring: grey }, grain: { inside: 0, ground: 0 }, dither: 0, vignette: 0, centreLift: 0, kField: 0 };
-      let changed = 0;
-      for (let y = 100; y < 520; y += 3) {
-        const c = fieldOklab(f, 300.5, y + 0.5);
-        expect([c.a, c.b]).toEqual([0, 0]);
-        if (c.L !== 0.6) changed++;
-      }
-      expect(changed).toBeGreaterThan(0);
-    }
-  });
-
+// The close-out (Abyss only): every shadow path the law and the builder keep (outer, inner, the lift,
+// L only, the outer shadow where the field does not land, static, packed in two slots) is held on the
+// fixture directions, fixture-outer and fixture-inner (fixturePaths.test.ts and fixturePaths.skia.test.ts).
+describe('the law: Abyss draws no shadow', () => {
   it('Abyss draws no shadow: its ground is untouched everywhere', () => {
     const f = frameOf('abyss', 'dark');
     for (let qy = -1.5; qy <= 1.5; qy += 0.05) expect(shadowFactor(f, regionOf(Math.abs(qy), f), 0, qy)).toBe(1);
-  });
-
-  it('the packed shadows are the frame’s, in its two slots', () => {
-    const f = frameOf('basin', 'light');
-    const packed = packFrame(f);
-    const flat = f.shadows.flatMap((s) => [s.offset, s.blur, s.strength, s.mode]);
-    const at = packed.findIndex((_, i) => flat.every((v, k) => packed[i + k] === v));
-    expect(at).toBeGreaterThan(0);
-  });
-});
-
-// Resilience, rulings after T5d, §3: does the plate's outer shadow shade the ground where the field
-// does not land (mask.outside = 0)? It does: the shadow multiplies the local ground's L before the
-// composite, whatever the extent. So the never-red sweep's condition is "a shadow is drawn".
-describe('the outer shadow shades the ground where the field does not land', () => {
-  it('Linen light with mask.outside 0: below the plate, the ground is darker than the plain ground, by the shadow factor', () => {
-    const frame = frameOf('linen', 'light');
-    const noField = { ...frame, mask: { ...frame.mask, outside: 0 }, grain: { inside: 0, ground: 0 }, dither: 0 };
-    const qx = 0;
-    const qy = -1.02; // just outside the rim, under the shadow's offset
-    const x = noField.centrePx[0] + qx * noField.radiusPx;
-    const y = noField.centrePx[1] - qy * noField.radiusPx;
-    const region = regionOf(Math.hypot(qx, qy), noField);
-    const factor = shadowFactor(noField, region, qx, qy);
-    expect(factor).toBeLessThan(0.99);
-    expect(fieldOklab(noField, x, y).L).toBeCloseTo(noField.grounds.outside.L * factor, 12);
   });
 });

@@ -140,6 +140,16 @@ describe('the two jest projects (MB-086)', () => {
     expect(all.flat().sort()).toEqual(disk);
   });
 
+  // The close-out: the full grids run one file per shipped direction, in each per-direction family, so
+  // a direction added or retired without its sweep files (or the reverse) fails here.
+  it('the per-direction sweep families hold exactly one file per shipped direction', () => {
+    const { DIRECTIONS } = require('../../../src/design/v2/tokens/tokens.generated.ts') as { DIRECTIONS: Record<string, unknown> };
+    const ids = Object.keys(DIRECTIONS).sort();
+    const family = (re: RegExp) => sweeps.map((f) => f.match(re)?.[1]).filter((id): id is string => id !== undefined).sort();
+    expect(family(/^src\/design\/v2\/tokens\/__tests__\/neverRed\.full\.([a-z][a-z0-9-]*)\.sweeps\.test\.ts$/)).toEqual(ids);
+    expect(family(/^src\/design\/v2\/field\/__tests__\/ledgerStorms\.([a-z][a-z0-9-]*)\.sweeps\.test\.ts$/)).toEqual(ids);
+  });
+
   it('the default config has no sweeps project, so `jest` and `jest --ci` keep the coarse grids', () => {
     const config = require('../../../jest.config.js') as { projects: Array<{ displayName: string }> };
     expect(config.projects.map((p) => p.displayName)).toEqual(['unit', 'skia']);

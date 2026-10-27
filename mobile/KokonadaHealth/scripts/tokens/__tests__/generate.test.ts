@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { buildTokenModel, generateExtensionsModule, generateTokensModule } from '../lib/emit.mjs';
 import { readTokenSources } from '../lib/sources.mjs';
 import { oklchToOklab } from '../../../src/design/v2/color/oklab.ts';
@@ -41,9 +44,10 @@ describe('generateTokensModule', () => {
   });
 
   // An empty shadow list rendered bare is inferred never[], and the next direction's non-empty
-  // list then fails to type-check against it. Each of the 10 shadow tokens per direction is typed.
+  // list then fails to type-check against it. Each of the 10 shadow tokens per direction is typed
+  // (the two-direction case: the temp-folder fixture below).
   it('types every shadow list, including the empty and the one-line ones', () => {
-    expect(generateTokensModule(real()).match(/ as ShadowLayer\[\]/g)).toHaveLength(30);
+    expect(generateTokensModule(real()).match(/ as ShadowLayer\[\]/g)).toHaveLength(10);
   });
 
   it('refuses sources that fail the schema, and lists the errors', () => {
@@ -81,7 +85,7 @@ describe('buildTokenModel', () => {
   const model: any = buildTokenModel(real());
 
   it('names the directions after their files', () => {
-    expect(Object.keys(model.directions)).toEqual(['abyss', 'basin', 'linen']);
+    expect(Object.keys(model.directions)).toEqual(['abyss']);
   });
 
   it('gives every colour its hex, alpha, OKLCh components and OKLab from the colour core', () => {
@@ -96,24 +100,19 @@ describe('buildTokenModel', () => {
   });
 
   it('resolves aliases to the value they point at, through chains', () => {
-    // Abyss dark text.onTint -> ground; Linen dark nav.activeLabel -> text.onInk -> text.onTint.
+    // Abyss dark text.onTint -> ground; text.onInk -> text.onTint -> ground.
     const abyssDark = model.directions.abyss.color.dark;
     expect(abyssDark.text.onTint).toEqual(abyssDark.ground);
-    const linenDark = model.directions.linen.color.dark;
-    expect(linenDark.text.onInk).toEqual(linenDark.text.onTint);
-    expect(linenDark.nav.activeLabel).toEqual(linenDark.text.onTint);
+    expect(abyssDark.text.onInk).toEqual(abyssDark.ground);
   });
 
   it('reads dimensions as dp and durations as ms', () => {
     expect(model.base.cta.height).toBe(56);
     expect(model.base.field.clock.T).toBe(60000);
-    expect(model.directions.basin.plate.depth).toBe(-8);
+    expect(model.directions.abyss.plate.depth).toBe(0);
   });
 
-  it('keeps shadow layers as plain numbers and colours', () => {
-    expect(model.directions.basin.elevation.recessed.dark).toEqual([
-      expect.objectContaining({ offsetX: 0, offsetY: 4, blur: 12, spread: 0, inset: true, color: expect.objectContaining({ hex: '#000000', alpha: 0.55 }) }),
-    ]);
+  it('keeps an empty shadow list empty', () => {
     expect(model.directions.abyss.elevation.e2.light).toEqual([]);
   });
 
@@ -128,7 +127,7 @@ describe('buildTokenModel', () => {
       latin: { size: 28, lineHeight: 34, tracking: -0.01 },
       hebrew: { size: 28, lineHeight: 36, tracking: 0 },
     });
-    for (const id of ['abyss', 'basin', 'linen']) expect(model.directions[id].plate.labelBand).toBeUndefined();
+    for (const id of Object.keys(model.directions)) expect(model.directions[id].plate.labelBand).toBeUndefined();
     expect(model.base.plate.labelBand.min).toBe(28);
   });
 
@@ -149,5 +148,58 @@ describe('buildTokenModel', () => {
     expect(model.extensions.base.neverRed).toEqual({ status: 'decided', rule: 'red iff hue in [start,end] inclusive and C >= floor' });
     expect(model.extensions.abyss['haptics.place']).toEqual({ fallback: 'EFFECT_TICK', trigger: 'plate.tap' });
     expect(JSON.stringify(model.extensions)).not.toMatch(/"lock"|"hex":"(generated|v0)"/);
+  });
+});
+
+// The close-out leaves one shipped direction, so the generator's handling of several is shown on a
+// fixture direction in a temp folder, never in design-tokens/: a copy of Abyss with a negative plate
+// depth, an inset shadow layer and a three-step alias chain, read, checked and rendered beside Abyss.
+describe('N directions: a fixture direction in a temp folder', () => {
+  const CLI = path.resolve(__dirname, '../generate.mjs');
+  const APP_ROOT = path.resolve(__dirname, '../../..');
+  let dir = '';
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokens-n-'));
+    for (const name of fs.readdirSync(DESIGN_TOKENS)) fs.copyFileSync(path.join(DESIGN_TOKENS, name), path.join(dir, name));
+    const json = JSON.parse(fs.readFileSync(path.join(DESIGN_TOKENS, 'direction.abyss.tokens.json'), 'utf8'));
+    json.plate.depth.$value = -8;
+    json.elevation.recessed.dark.$value = [{
+      color: { colorSpace: 'oklch', components: [0, 0, 0], alpha: 0.55, hex: '#000000' },
+      offsetX: { value: 0, unit: 'px' }, offsetY: { value: 4, unit: 'px' }, blur: { value: 12, unit: 'px' }, spread: { value: 0, unit: 'px' }, inset: true,
+    }];
+    json.elevation.recessed.dark.$extensions = { 'com.kokonada': { hex: 'generated' } };
+    json.color.dark.nav.activeLabel.$value = '{color.dark.text.onInk}';
+    fs.writeFileSync(path.join(dir, 'direction.planted.tokens.json'), JSON.stringify(json, null, 2) + '\n');
+  });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('reads, checks and models both directions, named after their files', () => {
+    const m: any = buildTokenModel(readTokenSources(dir));
+    expect(Object.keys(m.directions)).toEqual(['abyss', 'planted']);
+    expect(m.directions.abyss).toEqual((buildTokenModel(real()) as any).directions.abyss);
+    expect(m.directions.planted.plate.depth).toBe(-8);
+  });
+
+  it('keeps shadow layers as plain numbers and colours', () => {
+    const m: any = buildTokenModel(readTokenSources(dir));
+    expect(m.directions.planted.elevation.recessed.dark).toEqual([
+      expect.objectContaining({ offsetX: 0, offsetY: 4, blur: 12, spread: 0, inset: true, color: expect.objectContaining({ hex: '#000000', alpha: 0.55 }) }),
+    ]);
+  });
+
+  it('resolves a three-step alias chain: nav.activeLabel -> text.onInk -> text.onTint -> ground', () => {
+    const dark = (buildTokenModel(readTokenSources(dir)) as any).directions.planted.color.dark;
+    expect(dark.nav.activeLabel).toEqual(dark.ground);
+  });
+
+  it('renders both, typing every shadow list in each, and the CLI writes them', () => {
+    const text = generateTokensModule(readTokenSources(dir));
+    expect(text).toMatch(/^export type DirectionId = 'abyss' \| 'planted';$/m);
+    expect(text).toMatch(/^const planted: DirectionTokens = /m);
+    expect(text.match(/ as ShadowLayer\[\]/g)).toHaveLength(20);
+    const out = path.join(dir, 'out.ts');
+    const r = spawnSync(process.execPath, [CLI, '--sources', dir, '--out', out], { cwd: APP_ROOT, encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(out, 'utf8')).toBe(text);
   });
 });

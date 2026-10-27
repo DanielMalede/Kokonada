@@ -11,6 +11,7 @@ import { NODE, fieldOklab, groundAt, inertShadow, quietFactor, regionOf, shadowF
 import { throughLedger } from '../fieldScenes.ts';
 import { neutral, stormDeps } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
+import { packFrame } from '../uniforms.ts';
 
 // The field law's paths that Abyss does not draw, on the test-only fixture directions
 // (__fixtures__/fixtureTokens.ts), each control asserting only its own path, and none asserting
@@ -69,6 +70,15 @@ describe('the builder takes each fixture path from the tokens', () => {
     expect(modes(ABYSS, 'light')).toEqual([[0, 0], [0, 0]]);
   });
 
+  it('the packed shadows are the frame’s, in its two slots (fixture-inner light: an inner shadow and a lift)', () => {
+    const f = frameOf(FIXTURE_INNER, 'light');
+    const packed = packFrame(f);
+    const flat = f.shadows.flatMap((s) => [s.offset, s.blur, s.strength, s.mode]);
+    expect(f.shadows.every((s) => s.mode !== 0)).toBe(true);
+    const at = packed.findIndex((_, i) => flat.every((v, k) => packed[i + k] === v));
+    expect(at).toBeGreaterThan(0);
+  });
+
   it('the shadows are static: no clock, breath, tension, confidence or placement moves one', () => {
     for (const id of FIXTURE_IDS) {
       const a = frameOf(id, 'light');
@@ -114,6 +124,31 @@ describe('the builder takes each fixture path from the tokens', () => {
       const f = frameOf(ABYSS, 'dark', { placements: neutrals, restFade: 0 });
       expect(restLobes(f)).toEqual([]);
       expect(neutralNodes(f).every((n) => n.radius > 0)).toBe(true);
+    });
+
+    // The architect's counter, the case that proves it (mutant L13; moved here from fieldFrame.test.ts at
+    // the close-out): neutral placements only, rest lobes lit. Two quick undos, or a clear's first
+    // crossfade, leave 1 live, 2 leaving and 2 rest lobes: 5 nodes that fit 6 slots, but 4 of them
+    // non-live, which a 3/3 split cannot hold.
+    it('the double undo (or a clear’s first crossfade): 1 live, 2 leaving and 2 rest lobes are all drawn, none cut', () => {
+      const n = (ordinal: number, fade: number, role: 'live' | 'leaving'): Placement => ({ x: 0.03 * (ordinal + 1), y: 0.03, ordinal, fade, role });
+      const f = frameOf(FIXTURE_OUTER, 'dark', { placements: [n(0, 1, 'live'), n(1, 0.5, 'leaving'), n(2, 0.5, 'leaving')], restFade: 1 });
+      expect(f.nodes.filter((nd) => nd.fade > 0).map((nd) => [nd.id, nd.fade, nd.bead === null ? 'rest' : 'bead'])).toEqual([
+        [NODE.R0, 1, 'bead'],
+        [NODE.R0, 0.5, 'bead'],
+        [NODE.R0, 0.5, 'bead'],
+        [NODE.R0, 1, 'rest'],
+        [NODE.R0, 1, 'rest'],
+      ]);
+    });
+
+    // restFade is forced to 1 only while no placement carries a lobe (moved here from fieldFrame.test.ts).
+    it.each([
+      ['a neutral placement (no lobe there): the glow stays lit', [{ x: 0.05, y: 0.05, fade: 1 }], 0, 1],
+      ['a lobe placement entering at 0 counts: the caller’s value', [{ x: 0.5, y: -0.3, fade: 0 }], 0.7, 0.7],
+    ] as const)('fixture-outer, %s', (_name, placements, restFade, drawn) => {
+      const f = frameOf(FIXTURE_OUTER, 'dark', { placements: [...placements], restFade });
+      expect([...new Set(f.nodes.filter((nd) => nd.bead === null && nd.fade > 0).map((nd) => nd.fade))]).toEqual([drawn]);
     });
 
     it('the ledger agrees: through a settle, with only neutral taps, restFade stays 1 at every step on fixture-outer and falls to 0 on Abyss', () => {

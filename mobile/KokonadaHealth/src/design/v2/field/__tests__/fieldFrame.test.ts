@@ -53,14 +53,13 @@ describe('the statics come from the extensions the caller passes in', () => {
   const FALLBACK_STOPS = { position: [0, 0.585, 0.63, 0.7, 0.815, 0.926, 1], weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0] };
   it.each([
     ['abyss', [[-0.35, -0.3], [0.4, 0.35]]],
-    ['basin', [[0, 0]]],
-    ['linen', [[-0.97, -0.56], [0.97, 0.56]]],
   ] as Array<[DirectionId, number[][]]>)('%s: every value of the port, pinned (rest lobes, drift, fallback stops)', (id, restLobes) => {
     expect(statics(id)).toEqual({ restLobes, drift: DRIFT, fallbackStops: FALLBACK_STOPS });
   });
 
+  // The one-lobe table of a direction is held on the fixture direction fixture-inner (fixturePaths.test.ts).
   it('pins every direction', () => {
-    expect([...IDS].sort()).toEqual(['abyss', 'basin', 'linen']);
+    expect([...IDS].sort()).toEqual(['abyss']);
   });
 });
 
@@ -85,23 +84,19 @@ describe('the frame for a moment', () => {
 
   // Designer 2.7 with the critic's lightness (this was fieldFrame.test.ts:59-63): r 0.375 is p 0.5.
   it('a placement’s chroma is its ramp p times the bead chroma scale, and at p 0.5 its lightness is halfway from the rest glow', () => {
-    const f = buildFieldFrame(state('linen', 'light', { placements: [{ x: 0.225, y: -0.3 }] }), geometry, statics('linen'));
+    const f = buildFieldFrame(state('abyss', 'light', { placements: [{ x: 0.225, y: -0.3 }] }), geometry, statics('abyss'));
     const anchor = BASE.emotion.calm.deep.oklch;
-    const restGlow = DIRECTIONS.linen.color.light.field.restGlow.oklab[0];
-    expect(oklabToOklch(f.nodes[0].halo).C).toBeCloseTo(anchor[1] * 0.5 * DIRECTIONS.linen.bead.chromaScale, 9);
+    const restGlow = DIRECTIONS.abyss.color.light.field.restGlow.oklab[0];
+    expect(oklabToOklch(f.nodes[0].halo).C).toBeCloseTo(anchor[1] * 0.5 * DIRECTIONS.abyss.bead.chromaScale, 9);
     expect(f.nodes[0].halo.L).toBeCloseTo((restGlow + anchor[0]) / 2, 12);
   });
 
-  it('centres a lobe by the direction’s rule: at the bead (Abyss), or 1.12R out along its angle (Linen)', () => {
+  // Centring out along the bead's angle (centreBeta) is held on the fixture direction fixture-outer
+  // (fixturePaths.test.ts).
+  it('centres a lobe by the direction’s rule: Abyss at the bead', () => {
     const still = { tMs: 0, stress: 1 }; // full stress: no extra drift, and at t = 0 none along x
     const abyss = buildFieldFrame(state('abyss', 'dark', still), geometry, statics('abyss'));
     expect(abyss.nodes[0].centre[0]).toBeCloseTo(abyss.nodes[0].bead![0], 12);
-    const linen = buildFieldFrame(state('linen', 'dark', still), geometry, statics('linen'));
-    const angle = Math.atan2(-0.3, 0.5);
-    // At t = 0 lobe 0's drift is (sin 0, cos 0)·A_d: none along x, A_d(1) = A0·(1 − 0.4) along y.
-    const drift = DIRECTIONS.linen.field.drift.A0 * (1 - BASE.field.stress.speed);
-    expect(linen.nodes[0].centre[0]).toBeCloseTo(1.12 * Math.cos(angle), 9);
-    expect(linen.nodes[0].centre[1]).toBeCloseTo(1.12 * Math.sin(angle) + drift, 9);
   });
 
   it('shows the rest lobes in the rest glow when nothing is placed, and none once a bead is', () => {
@@ -116,9 +111,7 @@ describe('the frame for a moment', () => {
     const abyss = buildFieldFrame(state('abyss', 'dark', neutral), geometry, statics('abyss'));
     expect(abyss.nodes[0].id).toBe(NODE.R0);
     expect(abyss.nodes[0].radius).toBeGreaterThan(0);
-    const linen = buildFieldFrame(state('linen', 'dark', neutral), geometry, statics('linen'));
-    expect(linen.nodes[0].id).toBe(NODE.R0);
-    expect(linen.nodes[0].radius).toBe(0); // no lobe; its halo stays
+    // A direction with no neutral lobe: fixture-outer (fixturePaths.test.ts).
   });
 
   // Resilience QA-068 change 3 (it replaces "keeps the latest three placements: a fourth replaces
@@ -180,24 +173,7 @@ describe('six node slots, one pool, and the ordinal', () => {
     expect(f.nodes[2].centre).not.toEqual(f.nodes[5].centre); // rest lobe 1 in slot 2, rest lobe 0 in slot 5
   });
 
-  // The architect's counter, the case that proves it (mutant L13): Linen, neutral placements only,
-  // rest lobes lit. Two quick undos, or a clear's first crossfade, leave 1 live, 2 leaving and 2 rest
-  // lobes: 5 nodes that fit 6 slots, but 4 of them non-live, which a 3/3 split cannot hold.
-  it('Linen’s double undo (or a clear’s first crossfade): 1 live, 2 leaving and 2 rest lobes are all drawn, none cut', () => {
-    const neutral = (ordinal: number, fade: number, role: 'live' | 'leaving') => at(0.03 * (ordinal + 1), 0.03, { ordinal, fade, role }); // r < 0.15: neutral
-    const f = buildFieldFrame(
-      state('linen', 'dark', { placements: [neutral(0, 1, 'live'), neutral(1, 0.5, 'leaving'), neutral(2, 0.5, 'leaving')], restFade: 1 }),
-      geometry,
-      statics('linen'),
-    );
-    expect(f.nodes.filter((n) => n.fade > 0).map((n) => [n.id, n.fade, n.bead === null ? 'rest' : 'bead'])).toEqual([
-      [NODE.R0, 1, 'bead'],
-      [NODE.R0, 0.5, 'bead'],
-      [NODE.R0, 0.5, 'bead'],
-      [NODE.R0, 1, 'rest'],
-      [NODE.R0, 1, 'rest'],
-    ]);
-  });
+  // The double undo with no neutral lobe (mutant L13) is held on fixture-outer (fixturePaths.test.ts).
 
   it('a raw scene list of four is drawn as four placements: nothing is cut', () => {
     const f = buildFieldFrame(state('abyss', 'dark', { placements: [at(0.5, 0.5, { fade: 0.2 }), at(0.5, -0.5), at(-0.5, -0.5), at(-0.5, 0.5)] }), geometry, statics('abyss'));
@@ -342,8 +318,8 @@ describe('placement chroma and lightness, and the node from (x, y)', () => {
     expect(nodeAt(x, y)).toBe(node);
     expect(placementRamp(x, y)).toBeCloseTo(0.11, 2);
     for (const face of ['dark', 'light'] as Face[]) {
-      const f = buildFieldFrame(state('basin', face, { placements: [{ x, y }] }), geometry, statics('basin'));
-      const L0 = DIRECTIONS.basin.color[face].field.restGlow.oklab[0];
+      const f = buildFieldFrame(state('abyss', face, { placements: [{ x, y }] }), geometry, statics('abyss'));
+      const L0 = DIRECTIONS.abyss.color[face].field.restGlow.oklab[0];
       const Lt = BASE.emotion[QUADRANTS[node]][face === 'dark' ? 'core' : 'deep'].oklab[0];
       expect(Math.abs(f.nodes[0].halo.L - L0)).toBeCloseTo(placementRamp(x, y) * Math.abs(Lt - L0), 12);
     }
@@ -389,13 +365,12 @@ describe('fades are required, and the rest lobes follow the rule (designer 2.6)'
   });
 
   // restFade is forced to 1 while no placement in the frame has a lobe: nothing placed, or only
-  // neutral placements where neutralLobe is 0 (Linen). Placements still fading out count.
+  // neutral placements where neutralLobe is 0 (fixture-outer, fixturePaths.test.ts). Placements still fading out count.
   it.each([
     ['nothing placed', 'abyss', [], 0, 1],
-    ['Linen, a neutral placement (no lobe there): the glow stays lit', 'linen', [{ x: 0.05, y: 0.05, fade: 1 }], 0, 1],
     ['Abyss, a neutral placement (it has a lobe): the caller’s value', 'abyss', [{ x: 0.05, y: 0.05, fade: 1 }], 0.3, 0.3],
     ['a lobe placement still fading out counts: the caller’s value', 'abyss', [{ x: 0.5, y: -0.3, fade: 0.2, role: 'leaving' }], 0.4, 0.4],
-    ['a lobe placement entering at 0 counts: the caller’s value', 'linen', [{ x: 0.5, y: -0.3, fade: 0 }], 0.7, 0.7],
+    ['a lobe placement entering at 0 counts: the caller’s value', 'abyss', [{ x: 0.5, y: -0.3, fade: 0 }], 0.7, 0.7],
   ] as const)('%s', (_name, id, placements, restFade, drawn) => {
     const f = buildFieldFrame(raw(id, [...placements], restFade), geometry, statics(id));
     expect([...new Set(f.nodes.filter((n) => n.bead === null && n.fade > 0).map((n) => n.fade))]).toEqual([drawn]);
@@ -465,9 +440,9 @@ describe('the breath, the still and the tiers', () => {
 describe('the builder clamps what it is given', () => {
   it('NaN, Infinity and out-of-range inputs give a finite frame within range', () => {
     const f = buildFieldFrame(
-      state('basin', 'dark', { stress: NaN, confidence: Infinity, tMs: -Infinity, breathPhase: NaN, placements: [{ x: NaN, y: 5 }] }),
+      state('abyss', 'dark', { stress: NaN, confidence: Infinity, tMs: -Infinity, breathPhase: NaN, placements: [{ x: NaN, y: 5 }] }),
       geometry,
-      statics('basin'),
+      statics('abyss'),
     );
     expect(packFrame(f).every(Number.isFinite)).toBe(true);
     expect(f.nodes[0].bead![0]).toBe(0);

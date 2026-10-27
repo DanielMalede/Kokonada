@@ -34,23 +34,36 @@ function render(choice: { direction: DirectionId; face?: Face } | null) {
 
 describe('DirectionProvider and useTokens', () => {
   it('give the chosen direction’s tokens for the chosen face', () => {
-    const view = render({ direction: 'linen', face: 'dark' });
+    const view = render({ direction: 'abyss', face: 'dark' });
     const tokens = view.latest();
-    expect(tokens.id).toBe('linen');
+    expect(tokens.id).toBe('abyss');
     expect(tokens.face).toBe('dark');
     expect(tokens.base).toBe(BASE);
-    expect(tokens.direction).toBe(DIRECTIONS.linen);
-    expect(tokens.color).toBe(DIRECTIONS.linen.color.dark);
+    expect(tokens.direction).toBe(DIRECTIONS.abyss);
+    expect(tokens.color).toBe(DIRECTIONS.abyss.color.dark);
     view.unmount();
   });
 
-  // One build, three token sets: the swap is a prop, never a code path.
-  it('swap every token when the direction changes', () => {
-    const view = render({ direction: 'linen', face: 'light' });
-    view.update({ direction: 'basin', face: 'light' });
-    expect(view.latest().direction).toBe(DIRECTIONS.basin);
-    expect(view.latest().color).toBe(DIRECTIONS.basin.color.light);
+  // One build, one direction since the close-out, two faces: the swap is a prop, never a code path.
+  it('swap every face token when the forced face changes, keeping the direction', () => {
+    const view = render({ direction: 'abyss', face: 'light' });
+    expect(view.latest().color).toBe(DIRECTIONS.abyss.color.light);
+    view.update({ direction: 'abyss', face: 'dark' });
+    expect(view.latest().face).toBe('dark');
+    expect(view.latest().direction).toBe(DIRECTIONS.abyss);
+    expect(view.latest().color).toBe(DIRECTIONS.abyss.color.dark);
     view.update({ direction: 'abyss', face: 'light' });
+    expect(view.latest().color).toBe(DIRECTIONS.abyss.color.light);
+    view.unmount();
+  });
+
+  it('switch faces when the phone’s face changes and none is forced', () => {
+    colorScheme.mockImplementation(() => 'dark');
+    const view = render({ direction: 'abyss' });
+    expect(view.latest().color).toBe(DIRECTIONS.abyss.color.dark);
+    colorScheme.mockImplementation(() => 'light');
+    view.update({ direction: 'abyss' });
+    expect(view.latest().face).toBe('light');
     expect(view.latest().color).toBe(DIRECTIONS.abyss.color.light);
     view.unmount();
   });
@@ -77,14 +90,14 @@ describe('DirectionProvider and useTokens', () => {
 
   it('a forced face wins over the phone', () => {
     colorScheme.mockImplementation(() => 'dark');
-    const view = render({ direction: 'basin', face: 'light' });
+    const view = render({ direction: 'abyss', face: 'light' });
     expect(view.latest().face).toBe('light');
     view.unmount();
   });
 
   it('keep the same object across re-renders with the same choice', () => {
-    const view = render({ direction: 'linen', face: 'dark' });
-    view.update({ direction: 'linen', face: 'dark' });
+    const view = render({ direction: 'abyss', face: 'dark' });
+    view.update({ direction: 'abyss', face: 'dark' });
     const [first, ...rest] = view.all();
     for (const tokens of rest) expect(tokens).toBe(first);
     view.unmount();

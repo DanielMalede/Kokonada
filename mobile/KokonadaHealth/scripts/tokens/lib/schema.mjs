@@ -342,6 +342,33 @@ function checkTypeAndMotion(baseFile, base, directions, errors) {
   }
 }
 
+/**
+ * The close-out: the base file's per-direction data names only directions that have a file. Every
+ * `directions` list, and every key of a `sample` map, anywhere in the base file.
+ */
+function checkDirectionRefs(file, json, ids, errors) {
+  const say = (path, id) => errors.push(`${file}: ${path}: names direction ${JSON.stringify(id)}, which has no direction file`);
+  const walk = (node, path) => {
+    if (Array.isArray(node)) {
+      node.forEach((child, i) => walk(child, `${path}[${i}]`));
+      return;
+    }
+    if (!isObject(node)) {
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      const at = path ? `${path}.${key}` : key;
+      if (key === 'directions' && Array.isArray(child)) {
+        for (const id of child) if (!ids.has(id)) say(at, id);
+      } else if (key === 'sample' && isObject(child)) {
+        for (const id of Object.keys(child)) if (!ids.has(id)) say(at, id);
+      }
+      walk(child, at);
+    }
+  };
+  walk(json, '');
+}
+
 /** sources: [{ name, json }]. */
 export function validateSources(sources) {
   const errors = [];
@@ -370,6 +397,8 @@ export function validateSources(sources) {
   }
   checkParity(directions, errors);
   if (base) {
+    const ids = new Set(sources.filter((s) => DIRECTION_FILE.test(s.name)).map((s) => s.name.match(DIRECTION_FILE)[1]));
+    checkDirectionRefs(base.name, base.json, ids, errors);
     checkBreathBounds(baseTokens, directions, errors);
     checkChangeLimit(base.name, baseTokens, errors);
     checkTypeAndMotion(base.name, baseTokens, directions, errors);

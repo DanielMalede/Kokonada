@@ -30,12 +30,23 @@ function shadowsOf(id: DirectionId, face: Face): { under: 'face' | 'ground' | nu
   return drawn.length === 0 ? { under: null, sum: 0 } : { under, sum: drawn.reduce((t, x) => t + x.strength, 0) };
 }
 
-it('the shadowed grounds are swept where the tokens draw a shadow under the field: Linen light outside the rim, Basin on the face', () => {
-  expect(CASES.filter(([id, face]) => shadowsOf(id, face).under !== null).map(([id, face]) => [id, face, shadowsOf(id, face).under])).toEqual([
-    ['basin', 'dark', 'face'],
-    ['basin', 'light', 'face'],
-    ['linen', 'light', 'ground'],
-  ]);
+// The close-out (Abyss only): no shipped direction draws a plate shadow, so no shadowed ground is
+// swept here; the sampler's shadowed grounds are held on the fixture directions (fixturePaths.test.ts).
+it('no shipped direction draws a shadow under the field, so no shadowed ground is swept', () => {
+  expect(CASES.filter(([id, face]) => shadowsOf(id, face).under !== null)).toEqual([]);
+});
+
+// Tripwire (UI-096). The sweep samples a shadowed ground at P 0.5 and 1 only, which misses failures at
+// intermediate P (the QA-065 probe found them between 0.125 and 0.6875). Before any direction draws a
+// plate shadow, the certified P-sampler (law round 2, D8) has to replace it.
+it('tripwire (UI-096): every shipped plate-shadow strength is 0 until the certified P-sampler exists', () => {
+  const drawn = CASES.flatMap(([id, face]) =>
+    [DIRECTIONS[id].plate.shadow[face], DIRECTIONS[id].plate.shadow2[face]].filter((t) => t.strength !== 0).map((t) => `${id} ${face} (strength ${t.strength})`),
+  );
+  if (drawn.length > 0) {
+    throw new Error(`UI-096: ${drawn.join(', ')} draws a plate shadow, but the never-red sweep samples a shadowed ground at P 0.5 and 1 only. Build the certified P-sampler (law round 2, D8) first.`);
+  }
+  expect(drawn).toEqual([]);
 });
 
 describe.each(CASES)('QA-065 field segments (upsampling and Skia not yet covered): %s, %s face', (id, face) => {

@@ -1,8 +1,11 @@
 /// <reference types="node" />
+jest.mock('../../tokens/tokens.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedTokensModule());
+jest.mock('../../tokens/tokens.extensions.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedExtensionsModule());
 import * as fs from 'fs';
 import * as path from 'path';
+import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
-import { BASE } from '../../tokens/tokens.generated.ts';
+import { BASE, DIRECTIONS } from '../../tokens/tokens.generated.ts';
 import { progress, crossfade } from '../crossfade.ts';
 import { buildFieldFrame, nodeAt } from '../fieldFrame.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
@@ -31,7 +34,8 @@ import { packFrame } from '../uniforms.ts';
 
 const SETTLE = BASE.motion.settle.duration;
 const ABYSS: LedgerConfig = { restLobes: 2, neutralLobe: true };
-const LINEN: LedgerConfig = { restLobes: 2, neutralLobe: false };
+/** A hand-built config: two rest lobes, and neutral placements with no lobe (the binding neutral3 case). */
+const NO_NEUTRAL_LOBE: LedgerConfig = { restLobes: 2, neutralLobe: false };
 const tap = (x: number, y: number): Tap => ({ x, y });
 const J = tap(0.566, 0.566);
 const C = tap(0.566, -0.566);
@@ -99,9 +103,9 @@ describe('a push: the first placement crossfades in, the rest glow out (designer
     expect(at(160).f.placements[0].fade).toBe(1);
   });
 
-  it('Linen: a neutral first tap keeps the glow lit (it has no lobe there)', () => {
+  it('no neutral lobe: a neutral first tap keeps the glow lit (it has no lobe there)', () => {
     const s = store();
-    const { at } = run(emptyLedger(LINEN), s, -1, 700, 'settle', { 0: () => s.add(n(1)) });
+    const { at } = run(emptyLedger(NO_NEUTRAL_LOBE), s, -1, 700, 'settle', { 0: () => s.add(n(1)) });
     for (const t of [0, 300, 700]) expect(at(t).f.restFade).toBe(1);
   });
 
@@ -251,11 +255,11 @@ describe('netting: pending changes are netted against the store, never queued ra
 });
 
 describe('admission (designer final ruling (1)): the arrival-order prefix that fits, no eviction', () => {
-  // The planted case (designer): Linen, three neutral placements, rest lobes lit; two taps inside one
+  // The planted case (designer): no neutral lobe, three neutral placements, rest lobes lit; two taps inside one
   // settle window are admitted as one swap and then one swap (two swaps would need 7 nodes).
-  it('Linen neutral3: one swap, then one swap; never more than NODE_SLOTS nodes', () => {
+  it('neutral3 with no neutral lobe: one swap, then one swap; never more than NODE_SLOTS nodes', () => {
     const s = store([n(1), n(2), n(3)]);
-    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    const ledger = reconcile(emptyLedger(NO_NEUTRAL_LOBE), s.input(), 0, 'settle');
     expect(fades(ledger).restFade).toBe(1);
     const { frames } = run(ledger, s, 1, 3000, 'settle', { 1000: () => s.add(n(4)), 1100: () => s.add(n(5)), 1200: () => s.add(n(6)) });
     const startFrames = frames.filter((x, i) => i > 0 && x.ledger.starts !== frames[i - 1].ledger.starts);
@@ -267,31 +271,31 @@ describe('admission (designer final ruling (1)): the arrival-order prefix that f
 
   it('every start admits at least one pending change', () => {
     const s = store();
-    const { frames } = run(emptyLedger(LINEN), s, -1, 4000, 'settle', Object.fromEntries([0, 30, 60, 90, 120, 150].map((t, k) => [t, () => s.add(k % 2 ? n(k) : [J, C, R, I][k % 4])])));
+    const { frames } = run(emptyLedger(NO_NEUTRAL_LOBE), s, -1, 4000, 'settle', Object.fromEntries([0, 30, 60, 90, 120, 150].map((t, k) => [t, () => s.add(k % 2 ? n(k) : [J, C, R, I][k % 4])])));
     for (let i = 1; i < frames.length; i++) {
       if (frames[i].ledger.starts !== frames[i - 1].ledger.starts) expect(frames[i].ledger.admitted).toBeGreaterThan(0);
     }
   });
 
-  // L1: the prefix stops at the first change that does not fit, even where a later one would. Linen,
-  // three neutrals, rest lobes lit; a clear, then two new neutral taps, in one settle window. The
+  // L1: the prefix stops at the first change that does not fit, even where a later one would. No neutral
+  // lobe, three neutrals, rest lobes lit; a clear, then two new neutral taps, in one settle window. The
   // waiting change is three leaves and two enters: swaps (n1, n4), (n2, n5), then n3 alone. One swap
   // fits (6 nodes); the second would make 7, so the start stops there, though n3's leave alone fits.
-  it('the prefix stops at the first change that does not fit (Linen: a clear and two taps admit one swap)', () => {
+  it('the prefix stops at the first change that does not fit (no neutral lobe: a clear and two taps admit one swap)', () => {
     const s = store([n(1), n(2), n(3)]);
-    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    const ledger = reconcile(emptyLedger(NO_NEUTRAL_LOBE), s.input(), 0, 'settle');
     const { at } = run(ledger, s, 1, 2000, 'settle', { 1000: () => { s.clear(); s.add(n(4)); s.add(n(5)); } });
     expect(at(1000).ledger.admitted).toBe(1);
     expect(at(1000).f.placements.map((p) => [p.id, p.role, p.fade])).toEqual([[0, 'leaving', 1], [1, 'live', 1], [2, 'live', 1], [3, 'live', 0]]);
     expect(at(1600).f.placements.filter((p) => p.role === 'leaving').map((p) => p.id)).toEqual([1, 2]);
   });
 
-  // L2: rest lobes count while they rise. Linen [n1, n2, J]: the undo of J brings the glow back, so the
+  // L2: rest lobes count while they rise. No neutral lobe, [n1, n2, J]: the undo of J brings the glow back, so the
   // rest lobes rise in the same crossfade; with n3 entering that is 3 + 1 + 2 = 6, and the next swap
   // (n1 for n4) would make 7, so it waits.
-  it('rest lobes count while they rise: Linen, an undo of the only lobe and two taps admit the undo and one tap', () => {
+  it('rest lobes count while they rise: no neutral lobe, an undo of the only lobe and two taps admit the undo and one tap', () => {
     const s = store([n(1), n(2), J]);
-    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    const ledger = reconcile(emptyLedger(NO_NEUTRAL_LOBE), s.input(), 0, 'settle');
     expect(fades(ledger).restFade).toBe(0);
     const { at } = run(ledger, s, 1, 2000, 'settle', { 1000: () => { s.undo(); s.add(n(3)); s.add(n(4)); } });
     const f = at(1000).f;
@@ -300,14 +304,14 @@ describe('admission (designer final ruling (1)): the arrival-order prefix that f
     expect(at(1600).f.placements.find((p) => p.id === 4)!.fade).toBe(0);
   });
 
-  // The architect's counter (L13): Linen with neutrals only and the rest lobes lit. Two quick undos,
+  // The architect's counter (L13): no neutral lobe, neutrals only and the rest lobes lit. Two quick undos,
   // or a clear's first crossfade, leave 1 live + 2 leaving + 2 rest lobes: 5 nodes, 4 not live.
   it.each([
     ['two quick undos, seen in one frame', (s: ReturnType<typeof store>) => ({ 1000: () => { s.undo(); s.undo(); } })],
     ['a clear', (s: ReturnType<typeof store>) => ({ 1000: () => s.clear() })],
-  ])('Linen, %s: two leave together, each keeping its slot, with the rest lobes lit beside them', (_name, acts) => {
+  ])('no neutral lobe, %s: two leave together, each keeping its slot, with the rest lobes lit beside them', (_name, acts) => {
     const s = store([n(1), n(2), n(3)]);
-    const ledger = reconcile(emptyLedger(LINEN), s.input(), 0, 'settle');
+    const ledger = reconcile(emptyLedger(NO_NEUTRAL_LOBE), s.input(), 0, 'settle');
     const slotsBefore = fades(ledger).placements.map((p) => p.slot);
     const { at } = run(ledger, s, 1, 2000, 'settle', acts(s));
     const mid = at(1300).f;
@@ -398,10 +402,17 @@ describe('the ledger stays in the visual layer', () => {
 // A non-finite coordinate is read as 0 by both, and the ledger reads at most the cold lane's three
 // taps, so the frame never holds more than the ledger's demand and the builder never throws.
 describe('the ledger reads the store as the builder does', () => {
-  const linen = stormDeps('linen', staticsFor('linen', EXTENSIONS as never));
+  // On the fixture direction fixture-outer (neutral placements with no lobe), where the builder and the
+  // ledger must agree on the lobe rule as well as on the taps.
+  it('the fixture mock: fixture-outer exists, BASE and DIRECTIONS.abyss are the shipped objects', () => {
+    expect(BASE).toBe(actualTokens().BASE);
+    expect(DIRECTIONS.abyss).toBe(actualTokens().DIRECTIONS.abyss);
+    expect(DIRECTIONS[FIXTURE_OUTER].field.lobe.neutralLobe).toBe(0);
+  });
+  const outer = stormDeps(FIXTURE_OUTER, staticsFor(FIXTURE_OUTER, EXTENSIONS as never));
   /** Frames at 1 ms, each built and packed: the worst occupancy over demand, and the first throw. */
   function drive(first: Tap[], later: Record<number, Tap[]>, to: number) {
-    let ledger = emptyLedger(linen.config);
+    let ledger = emptyLedger(outer.config);
     let taps = first;
     let seq = 1;
     let over = 0;
@@ -411,7 +422,7 @@ describe('the ledger reads the store as the builder does', () => {
       ledger = reconcile(ledger, { seq, taps }, t, 'settle');
       const f = fades(ledger);
       try {
-        const frame = buildFieldFrame(frameState('linen', 'light', f), geometry, linen.statics);
+        const frame = buildFieldFrame(frameState(FIXTURE_OUTER, 'light', f), geometry, outer.statics);
         packFrame(frame);
         const occupied = frame.nodes.filter((nd) => nd.fade > 0 || nd.bead !== null).length;
         over = Math.max(over, occupied - f.demand);
@@ -422,7 +433,7 @@ describe('the ledger reads the store as the builder does', () => {
     return { over, threw, ledger };
   }
 
-  it.each([['NaN', NaN], ['Infinity', Infinity]])('Linen, taps [n1, n2, %s], then two neutral taps inside one settle window: never throws, never over demand', (_, bad) => {
+  it.each([['NaN', NaN], ['Infinity', Infinity]])('fixture-outer, taps [n1, n2, %s], then two neutral taps inside one settle window: never throws, never over demand', (_, bad) => {
     const odd = tap(bad, bad);
     const { over, threw } = drive([n(1), n(2), odd], { 100: [n(2), odd, n(4)], 200: [odd, n(4), n(5)] }, 3000);
     expect({ threw, over: Math.max(0, over) }).toEqual({ threw: null, over: 0 });
@@ -436,7 +447,7 @@ describe('the ledger reads the store as the builder does', () => {
   });
 
   it('a non-finite coordinate is read as 0, as the builder reads it, so both give the tap the same node', () => {
-    const f = fades(reconcile(emptyLedger(linen.config), { seq: 1, taps: [tap(NaN, 0.5), tap(0.4, Infinity)] }, 0, 'settle'));
+    const f = fades(reconcile(emptyLedger(outer.config), { seq: 1, taps: [tap(NaN, 0.5), tap(0.4, Infinity)] }, 0, 'settle'));
     expect(f.placements.map((p) => [p.x, p.y, p.node])).toEqual([[0, 0.5, nodeAt(0, 0.5)], [0.4, 0, nodeAt(0.4, 0)]]);
   });
 });

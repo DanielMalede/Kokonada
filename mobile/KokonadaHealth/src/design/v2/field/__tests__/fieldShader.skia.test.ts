@@ -1,9 +1,13 @@
+jest.mock('../../tokens/tokens.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedTokensModule());
+jest.mock('../../tokens/tokens.extensions.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedExtensionsModule());
+
 import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRuntimeEffect, type SkShader } from '@shopify/react-native-skia';
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
 import { NODE, NODE_SLOTS, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, quietFactor, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
+import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
 import { emptyLedger, fades as ledgerFades, reconcile } from '../placementLedger.ts';
@@ -12,6 +16,15 @@ import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts'
 
 // The field shader in real Skia (CanvasKit), held to the TypeScript law (fieldLaw.ts) pixel for
 // pixel. Every claim about the shader is made here, on rendered pixels, never on the source text.
+// The test-only fixture directions (__tests__/__fixtures__/fixtureTokens.ts) are mocked in for the
+// field-free check below, where they add a zero-extent face and ground; the plate shadows, the quiet
+// step path and the other fixture paths are drawn in fixturePaths.skia.test.ts.
+
+it('the fixture mock: the fixture ids exist, BASE and DIRECTIONS.abyss are the shipped objects', () => {
+  expect(BASE).toBe(actualTokens().BASE);
+  expect(DIRECTIONS.abyss).toBe(actualTokens().DIRECTIONS.abyss);
+  for (const id of FIXTURE_IDS) expect(DIRECTIONS[id]).toBeDefined();
+});
 
 const W = 64;
 const H = 64;
@@ -98,12 +111,6 @@ function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], override
   };
 }
 
-/** The plate's shadows for a direction and face, as the builder makes them, at frameFor's plate (R 150 dp). */
-const shadowsFor = (id: DirectionId, face: Face) => {
-  const d = DIRECTIONS[id];
-  const mode = Math.sign(d.plate.depth);
-  return [d.plate.shadow[face], d.plate.shadow2[face]].map((t) => (t.strength !== 0 && t.blur > 0 && mode !== 0 ? { offset: -t.offsetY / 150, blur: t.blur / 150, strength: t.strength, mode } : inertShadow()));
-};
 
 const anchor = (q: 'joy' | 'calm' | 'reflective' | 'intense', face: Face) => lab(BASE.emotion[q][face === 'dark' ? 'core' : 'deep']);
 const bead = (id: number, q: 'joy' | 'calm' | 'reflective' | 'intense', face: Face, at: [number, number], radius: number): FieldNodeFrame => ({
@@ -181,7 +188,7 @@ describe('the shader routes exactly the law’s waypoint pairs', () => {
 });
 
 describe('the field shader draws the TypeScript law, pixel for pixel (±1 LSB)', () => {
-  const ids: DirectionId[] = ['abyss', 'linen', 'basin'];
+  const ids: DirectionId[] = ['abyss'];
   const faces: Face[] = ['dark', 'light'];
   const cases = ids.flatMap((id) => faces.map((face) => [id, face] as const));
 
@@ -256,7 +263,7 @@ describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)'
     { cx: 50, cy: 58, hx: 0, hy: 0 },
   ];
 
-  it.each([['abyss', 'dark'], ['abyss', 'light'], ['linen', 'dark'], ['basin', 'dark'], ['basin', 'light']] as const)(
+  it.each([['abyss', 'dark'], ['abyss', 'light']] as const)(
     '%s, %s face: four zones (feather or step path by direction), with the unused slots inert',
     (id, face) => {
       const frame = frameFor(id, face, wide(id, face), { mask: { outside: 1, face: 1, ring: 1 } });
@@ -268,48 +275,7 @@ describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)'
     },
   );
 
-  it.each([['linen', 'light'], ['basin', 'dark'], ['basin', 'light']] as const)('%s, %s face: the plate’s shadows on the ground', (id, face) => {
-    const frame = frameFor(id, face, [], { shadows: shadowsFor(id, face), grain: { inside: 0, ground: 0 } });
-    expect(frame.shadows.some((sh) => sh.mode !== 0)).toBe(true);
-    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
-    const plain = frameFor(id, face, [], { grain: { inside: 0, ground: 0 } });
-    expect(Array.from(render(frame))).not.toEqual(Array.from(render(plain)));
-  });
-
-  // The token grounds are near-grey, where a shadow on a and b moves less than one LSB; on a strongly
-  // chromatic ground it moves many, so this is where the shader is held to "L only" (designer 2.9).
-  it.each([['linen', 'light'], ['basin', 'dark']] as const)('%s, %s face: the shadows darken L only, on a strongly chromatic ground', (id, face) => {
-    const chroma: Oklab = { L: 0.62, a: 0.1, b: 0.06 };
-    const frame = frameFor(id, face, [], {
-      shadows: shadowsFor(id, face),
-      grounds: { outside: chroma, face: chroma, ring: chroma },
-      vignette: 0,
-      centreLift: 0,
-      grain: { inside: 0, ground: 0 },
-      dither: 0,
-    });
-    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
-    // Not vacuous: somewhere the shadow takes a twentieth of L (Linen light's outer shadow is the
-    // faintest, about 9% at this geometry), and there a and b are the ground's.
-    let deepest = { L: chroma.L, a: chroma.a, b: chroma.b };
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const at = fieldOklab(frame, x + 0.5, y + 0.5);
-        if (at.L < deepest.L) deepest = at;
-      }
-    }
-    expect(deepest.L).toBeLessThan(0.95 * chroma.L);
-    expect([deepest.a, deepest.b]).toEqual([chroma.a, chroma.b]);
-  });
-
-  it('shadows and zones together, with beads and halos, on Linen light', () => {
-    const r = DIRECTIONS.linen.field.lobe.radius;
-    const frame = frameFor('linen', 'light', [bead(NODE.I, 'intense', 'light', [-0.6, 0.6], r), bead(NODE.J, 'joy', 'light', [0.5, -0.7], r)], {
-      shadows: shadowsFor('linen', 'light'),
-      quiet: { rects: [{ cx: 32, cy: 60, hx: 20, hy: 3 }], grow: 8 * (24 / 150), feather: DIRECTIONS.linen.field.mask.quietFeather * (24 / 150) },
-    });
-    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
-  });
+  // The plate's shadows, L only on a chromatic ground, and shadows with zones: fixturePaths.skia.test.ts.
 
   // The designer's planted-rect test in real Skia: inside the grown rect, every byte is the same
   // whatever the tension, confidence, clock or placements, and is the law's ground + grain + dither.
@@ -378,7 +344,7 @@ describe('what the shader’s pixels show', () => {
 
   it('dither and grain move L only: a neutral ground stays neutral on every pixel', () => {
     const grey = { L: 0.6, a: 0, b: 0 };
-    const frame = frameFor('linen', 'light', [], { grounds: { outside: grey, face: grey, ring: grey } });
+    const frame = frameFor('abyss', 'light', [], { grounds: { outside: grey, face: grey, ring: grey } });
     const pixels = render(frame);
     for (let i = 0; i < W * H; i++) {
       expect([pixels[4 * i], pixels[4 * i + 1]]).toEqual([pixels[4 * i + 2], pixels[4 * i + 2]]);
@@ -439,7 +405,7 @@ describe('what the shader’s pixels show', () => {
 
   // The premise (σ < 1 on every dark-face ground) is a guard: if a token change breaks it, stop and
   // report to the designer; never relax this test.
-  it.each(['abyss', 'linen', 'basin'] as DirectionId[])('%s dark: on every calm ground the dither moves a channel by at most 1 LSB, and moves some', (id) => {
+  it.each(['abyss'] as DirectionId[])('%s dark: on every calm ground the dither moves a channel by at most 1 LSB, and moves some', (id) => {
     const c = DIRECTIONS[id].color.dark;
     for (const g of [lab(c.ground), lab(c.plate.face), lab(c.plate.ring)]) {
       expect(Math.max(...sigma(g, BASE.field.dither.amplitude))).toBeLessThan(1); // the premise
@@ -453,9 +419,9 @@ describe('what the shader’s pixels show', () => {
   });
 
   // Designer 2.1: wherever the field is absent (extent 0 by the direction's mask: the ring and the
-  // moat everywhere, Linen's dish, Basin's screen ground), a pixel depends on the halos alone, so the
+  // moat everywhere, fixture-outer's face, fixture-inner's ground), a pixel depends on the halos alone, so the
   // shader draws it byte for byte the same across s 0 and 1, two clocks, c, genesis and the breath.
-  it.each((['abyss', 'linen', 'basin'] as DirectionId[]).flatMap((id) => (['dark', 'light'] as Face[]).map((face) => [id, face] as const)))(
+  it.each((['abyss', ...FIXTURE_IDS] as DirectionId[]).flatMap((id) => (['dark', 'light'] as Face[]).map((face) => [id, face] as const)))(
     '%s, %s face: where the field is absent, the halos alone draw it, byte for byte steady',
     (id, face) => {
       const R = 48;
@@ -548,7 +514,7 @@ half4 main(float2 p) {
   // ledger has not admitted, draw byte for byte the same field. The tap's halo appears only when its
   // crossfade starts, at fade 0.
   // Under reduced motion the first ramp ends at 150 ms, so only the spacing keeps the second tap out.
-  it.each((['abyss', 'linen', 'basin'] as DirectionId[]).flatMap((id) => (['settle', 'reduced'] as const).map((mode) => [id, mode] as const)))('%s, %s: a tap the ledger has not admitted draws nothing, byte for byte', (id, mode) => {
+  it.each((['abyss'] as DirectionId[]).flatMap((id) => (['settle', 'reduced'] as const).map((mode) => [id, mode] as const)))('%s, %s: a tap the ledger has not admitted draws nothing, byte for byte', (id, mode) => {
     const config = { restLobes: staticsFor(id, EXTENSIONS as never).restLobes.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 };
     // A heading above the plate and a CTA below it: quiet zones the pending tap must not reach either.
     const quietRects = [{ cx: 32, cy: 3, hx: 20, hy: 2 }, { cx: 32, cy: 61, hx: 18, hy: 2 }];
@@ -576,10 +542,10 @@ half4 main(float2 p) {
   // Marks never shimmer (designer rulings, QA-064): in the ring, where only the halo shows, the
   // shimmer changes no pixel.
   it('a halo is never turned by the shimmer', () => {
-    const r = DIRECTIONS.basin.field.lobe.radius;
+    const r = DIRECTIONS.abyss.field.lobe.radius;
     const nodes = [bead(NODE.I, 'intense', 'dark', [-0.02, 0.92], r)];
-    const turned = frameFor('basin', 'dark', nodes, { shimmer: { cos: Math.cos(0.05), sin: Math.sin(0.05) } });
-    const still = frameFor('basin', 'dark', nodes, { shimmer: { cos: 1, sin: 0 } });
+    const turned = frameFor('abyss', 'dark', nodes, { shimmer: { cos: Math.cos(0.05), sin: Math.sin(0.05) } });
+    const still = frameFor('abyss', 'dark', nodes, { shimmer: { cos: 1, sin: 0 } });
     const a = render(turned);
     const b = render(still);
     let ringPixels = 0;

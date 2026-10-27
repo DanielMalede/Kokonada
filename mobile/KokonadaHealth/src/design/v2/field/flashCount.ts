@@ -3,7 +3,7 @@
 // not a worklet module, and the caller passes the statics in.
 //
 // "E4, rendered flash count (in the sweeps jest project, because it is slow):
-//  - Cases: {abyss dark, basin dark, abyss light} × modes × {toggle, cycle4} × every ∈ {50, 100, 143,
+//  - Cases: {abyss dark, [a retired direction] dark, abyss light} × modes × {toggle, cycle4} × every ∈ {50, 100, 143,
 //    167, 250}.
 //  - Settings: c = 1, genesis on, tier still under reduced motion, grain and dither 0, 60 fps for 4 s,
 //    a 12×12 grid over ±1.2 R.
@@ -12,8 +12,12 @@
 //    4 Hz square wave (Y 0.05↔0.30) returns 4; on a single step it returns 0. A naive inline driver
 //    that restarts in 0 / out 1 on every tap, run at Abyss dark, reduced, toggle every 143 ms, must
 //    give ≥ 3."
-// "E4 (additions): Rows also include Linen dark and light under neutral3. Besides the 12×12 grid,
+// "E4 (additions): Rows also include [a retired direction's] dark and light under neutral3. Besides the 12×12 grid,
 //  sample a 5×5 lattice inside each placement's halo radius (≤ 22 dp)."
+// The close-out (Abyss only, 2026-10-27) keeps Abyss's rows, and runs neutral3 on Abyss's dark and
+// light faces in place of the retired direction's: no other Abyss storm places only neutral beads.
+// The property the retired rows guarded (only neutral placements, neutralLobe 0: the rest lobes stay
+// lit, no rest crossfade) is a structural assertion on the fixture direction (fixturePaths.test.ts).
 //
 // Rendered: each sample is the law's 8-bit sRGB pixel (fieldPixel), which fieldShader.skia.test.ts
 // holds to the shader's pixel within ±1 LSB; the sweeps project runs in plain node, without CanvasKit.
@@ -68,12 +72,12 @@ export interface FlashCase {
 
 export const FRAME_MS = 1000 / 60;
 export const FRAMES = 240;
-/** The cases, with the additions: Linen dark and light under neutral3. */
+/** The cases: Abyss dark and light under toggle and cycle4, and under neutral3. */
 export const E4_CADENCES = [50, 100, 143, 167, 250];
 export const E4_CASES: readonly FlashCase[] = [
-  ...([['abyss', 'dark'], ['basin', 'dark'], ['abyss', 'light']] as Array<[DirectionId, Face]>).flatMap(([id, face]) =>
+  ...([['abyss', 'dark'], ['abyss', 'light']] as Array<[DirectionId, Face]>).flatMap(([id, face]) =>
     (['settle', 'reduced'] as Mode[]).flatMap((mode) => (['toggle', 'cycle4'] as FlashStorm[]).flatMap((kind) => E4_CADENCES.map((every) => ({ id, face, mode, kind, every }))))),
-  ...(['dark', 'light'] as Face[]).flatMap((face) => (['settle', 'reduced'] as Mode[]).flatMap((mode) => E4_CADENCES.map((every) => ({ id: 'linen' as DirectionId, face, mode, kind: 'neutral3' as FlashStorm, every })))),
+  ...(['dark', 'light'] as Face[]).flatMap((face) => (['settle', 'reduced'] as Mode[]).flatMap((mode) => E4_CADENCES.map((every) => ({ id: 'abyss' as DirectionId, face, mode, kind: 'neutral3' as FlashStorm, every })))),
 ];
 
 const R_DP = BASE.plate.maxDiameter / 2;

@@ -120,7 +120,7 @@ describe('maxInBandOnPixelBlend: every 8-bit pixel a GPU can round the blend to'
   });
 });
 
-// Resilience HIGH-1's bite: Linen light's old ink, oklch(0.24 0.018 60), as the rim words' edge
+// Resilience HIGH-1's bite: a retired direction's old light ink, oklch(0.24 0.018 60), as the rim words' edge
 // over the ring lit by an orchid halo (deep tier, chroma scale 0.85, k at the light halo peak 0.25,
 // pivot 0.20). The design band flags it; the edge-ink remedy, C 0.004 at 80°, clears it.
 describe('the bite on real values', () => {
@@ -128,7 +128,7 @@ describe('the bite on real values', () => {
   const halo = oklchToOklab({ L: 0.48, C: 0.1 * 0.85, h: 322 });
   const lit = oklabToSrgb(pivotComposite(halo, ring, 0.25, 0.2));
 
-  it('the old Linen light ink over an orchid ring halo is flagged by the design band', () => {
+  it('the old light ink over an orchid ring halo is flagged by the design band', () => {
     expect(maxInBandOnSrgbBlend(lit, srgbOf(0.24, 0.018, 60), DESIGN_BAND).chroma).toBeGreaterThanOrEqual(DESIGN_BAND.chromaFloor);
   });
 

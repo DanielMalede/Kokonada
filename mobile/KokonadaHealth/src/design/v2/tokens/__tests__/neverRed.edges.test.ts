@@ -114,16 +114,15 @@ describe.each(CASES)('QA-065 anti-aliased pairs: %s, %s face', (id, face) => {
 //     beads go out to R minus the bead radius, so their settings, shadows and elevations can sit over
 //     the inner shadow's band;
 //   · outer shadows (> 0): every family over c.ground takes each shadowed ground, unconditionally.
-//     The designer's reading (Linen light's CTA sits about 24 dp below the rim, inside the shadow's
-//     reach of offset 10 + blur 24 dp) is one case of it; the CTA's distance depends on layout (font
-//     scale, width, orientation), so the sweep takes the shadowed grounds whatever the layout.
+//     The designer's reading (a retired direction's light CTA sat about 24 dp below the rim, inside
+//     the shadow's reach of offset 10 + blur 24 dp) is one case of it; the CTA's distance depends on
+//     layout (font scale, width, orientation), so the sweep takes the shadowed grounds whatever the layout.
+// Abyss draws no plate shadow (the close-out), so its grounds are the plain ones; the shadowed-ground
+// enumeration is held on the fixture directions (fixturePaths.test.ts), with the UI-096 tripwire in
+// neverRed.field.test.ts.
 const SHADOW_GROUNDS: Record<string, [string[], string[]]> = {
   'abyss dark': [['face'], ['ground']],
   'abyss light': [['face'], ['ground']],
-  'basin dark': [['face', 'face shadowed 0.5', 'face shadowed 1'], ['ground']],
-  'basin light': [['face', 'face shadowed 0.5', 'face shadowed 1'], ['ground']],
-  'linen dark': [['face'], ['ground']],
-  'linen light': [['face'], ['ground', 'ground shadowed 0.5', 'ground shadowed 1']],
 };
 
 describe.each(CASES)('QA-065 anti-aliased pairs over the plate’s shadows: %s, %s face', (id, face) => {

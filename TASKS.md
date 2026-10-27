@@ -886,6 +886,8 @@ _(put anything you are unsure about here rather than losing it)_
     - Evidence: `Kokonada-private/design-v2/storegate/` (outside the repo).
   - where: the merged release manifest (`android/app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml:88-91`, a build output) · rxandroidble's own manifest (Gradle cache, `rxandroidble-1.17.2/AndroidManifest.xml:16-19`) · `mobile/KokonadaHealth/scripts/lab/assertManifests.mjs` · `mobile/KokonadaHealth/src/health/__tests__/rationaleManifest.test.ts:57-70` · the iOS bundle phase in `mobile/KokonadaHealth/ios/` · done when: each part is RED then GREEN; the Android 12+ device checks pass (`dumpsys`, a scan with only Nearby devices granted and Location off, and the artifact dump); the Android ≤ 30 device check is recorded as a residual risk with its source argument; and `compliance-auditor` and `resilience-auditor` review it · related: `CMP-113`, `CMP-141`, `QA-077`, `MB-084`, `OPS-103` · src: `v1lab-r1-reconciliation.md` D3 (outside the repo); `compliance-auditor`, V1 lab round 1 (§2, HALT) and round 2 (the HALT doc's preconditions); `architect`, round 1 (NEW-FINDINGs, P2); `resilience-auditor`, round 1 (rxandroidble confirmed) · added: 2026-10-04
 
+- [ ] `MB-110` `P2` **iOS is frozen (owner, 2026-10-27: no Mac): nothing iOS is built, tested or evidenced; device evidence is Android only.**
+  - where: `mobile/KokonadaHealth/ios/` · the `ios-changes` filter in `.github/workflows/ci.yml` · done when: the owner unfreezes iOS and an iOS build, its tests and its device evidence exist · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
 ---
 
 ## Design & UI
@@ -1188,6 +1190,12 @@ _(put anything you are unsure about here rather than losing it)_
   - where: `mobile/KokonadaHealth/src/design/lab/LabRoot.tsx:36,60` · done when: scenes declare their fonts, `fontsReady` comes from the real loader, and a guard fails a scene with fonts that sends READY on the constant · related: `UI-069`, `MB-085` · src: `resilience-auditor`, V1 lab round 1 (NEW-FINDING, latent false green, MEDIUM) · added: 2026-10-04
 - [ ] `UI-073` `P2` **After PR #A merges into V1: a `sweeps` jest project, run as its own serial CI step, with a full-resolution 8-bit never-red pass; the default run keeps the coarse grids.** The full pass takes its backgrounds from `ditherReachable`, steps byte k at 0.01 and field t and k at 0.1 or finer, and shimmers pixels at 1°.
   - where: `mobile/KokonadaHealth/jest.config.js` (the projects, `MB-086`) · the v2 sweep tests on `design/v1-vision-frame` · `.github/workflows/ci.yml` · done when: the sweeps run serially in their own CI step at full resolution, `jest --ci` keeps the coarse grids, and the jest-projects guard (`scripts/jest/__tests__/jestProjects.test.ts`, which pins CI to `jest --ci` alone) is amended to count the new step · related: `UI-068`, `OPS-106`, `MB-086`, `QA-065` · src: Squad B's round-2 verification, relayed by the orchestrator, 2026-10-04 · added: 2026-10-04
+- [ ] `UI-095` `P3` **After B8's on-device `fieldCost`, the designer and the architect decide whether to remove the plate-shadow and zero-extent-ground paths from the field shader.** The owner's choice 2-A keeps the law generic, tested by the fixture directions.
+  - where: `mobile/KokonadaHealth/src/design/v2/field/fieldShader.ts` · `fieldLaw.ts` · the fixtures `src/design/v2/__tests__/__fixtures__/fixtureTokens.ts` · done when: a recorded designer + architect ruling, after B8's `fieldCost` on device · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
+- [ ] `UI-096` `P2` **The certified P-sampler (law round 2 D8) is owed before any direction gets a plate-shadow strength above 0.** The never-red sweep samples a shadowed ground at P 0.5 and 1 only, which misses failures at intermediate P (the QA-065 probe).
+  - where: `mobile/KokonadaHealth/src/design/v2/tokens/neverRedSweeps.ts` · the tripwire in `src/design/v2/tokens/__tests__/neverRed.field.test.ts` · done when: the sampler certifies every reachable P, with its plants, before a token gives a plate shadow a strength · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
+- [ ] `UI-098` `P3` **jest `--selectProjects` is variadic: path patterns placed after it are read as project names, and the run silently covers the whole project (hit twice in D1).**
+  - where: the `wip\run.sh` briefs and any script that passes patterns after `--selectProjects` · done when: every such command puts its patterns before `--selectProjects` (or ends it with a flag), checked by grep · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
 ---
 
 ## Infra · CI · repo hygiene
@@ -1654,6 +1662,7 @@ _(put anything you are unsure about here rather than losing it)_
   - The v2 sweep files take about 25 s each in a full run, and a 2-core CI runner may tip these suites over.
   - The V1 lab's cold baseline also timed out `OfflineBanner`, `HistoryScreen` and `UpNextSheet`.
   - where: `mobile/KokonadaHealth/src/__tests__/shadow.experience.test.tsx` · `src/experience/playback/__tests__/UpNextSheet.render.test.tsx` · `src/experience/connect/__tests__/ConnectServicesWearable.test.tsx` · the baseline logs, outside the repo (`v1lab-baseline-jest.txt`) · done when: each suite runs on deterministic timers and passes in a loaded full run. Raising the timeouts does not count as a fix, and neither does isolating the suites · related: `UI-073`, `MB-092` · src: Squad B's round-2 report (NEW-FINDING, test infra, P2) and its verification, relayed by the orchestrator, 2026-10-04 · added: 2026-10-04
+  - **update 2026-10-27:** under load, `prodBootstrap`, `OfflineBanner`, `OnboardingScreen` and `ConsentSheet` also hit the 5 s and 20 s timeouts, not only `UpNextSheet` (D1 runs 2026-10-27, `v1b-b4-D1-split-GREEN-jest-default*.txt`, outside the repo). D1 shortens the default run from 209 s to about 97–157 s.
 - [ ] `OPS-125` `P2` **CI does not run the real-Redis lane: the 12 `*.redis.test.js` suites (81 tests) and the real-Redis blocks in `backend/tests/dailyAnalysis.worker.test.js:246` (BE-094's S1) and `backend/tests/realRedisLane.test.js:77`. The J1 helper skips them unless the lane is configured, and only `REQUIRE_REAL_REDIS=1` turns that skip into a failure, so CI green does not cover them.** The helper skips a suite when `REDIS_TEST_URL` is not set (`backend/tests/helpers/realRedis.js:56-61`), and CI sets neither variable and runs no Redis.
   - (a) fix: a CI job with a Redis service container running the lane with `REQUIRE_REAL_REDIS=1` and `REDIS_TEST_URL` pointing at it (loopback, database 15, the helper's only accepted form). Until then, every PR touching queues, the sweep or the purge records a local lane run on its merge commit, as J2's G3 did (on `142f377`: 12 suites, 81 tests, none skipped; its glob `tests/*.redis.test.js` left out the two blocks above, so the interim run is the glob plus those two files, under `REQUIRE_REAL_REDIS=1`). The `resilience-auditor` has since run those two files on the J2 code with `REDIS_TEST_URL=redis://127.0.0.1:6391/15 REQUIRE_REAL_REDIS=1`: 2 suites, 28 of 28 tests passed (2026-10-04).
   - (b) the load-sensitive tests: `score.v2.golden`'s perf ratio, "v2 costs no more than 1.6x v1" (`backend/tests/score.v2.golden.test.js:494`), failed once under full-suite load at 1.76 and measured 1.11 alone (the J2 developer's baseline run on `e4743af`); and J1's paged-purge test ran past the purge's 2.5 s budget under load once (`OPS-099`'s update of 2026-10-04). Both passed in later runs.
@@ -1686,6 +1695,14 @@ _(put anything you are unsure about here rather than losing it)_
 - [ ] `OPS-135` `P3` **The PR-time secret scan is advisory: with no branch protection (`OPS-110`) no check is required to merge, and a PR runs its own copy of the scan, so it can edit `ci.yml`, or `.gitleaksignore` together with its pin, and still pass. Code review is the only gate.** A separate `secret-scan.yml` would keep the scan clear of edits to `ci.yml` made for cost or speed.
   - where: `.github/workflows/ci.yml` (job `secret-scan`) · `.gitleaksignore` and its pin in `backend/tests/secretScanGates.test.js` · done when: the scan lives in its own workflow, or the orchestrator records here why not · related: `OPS-110`, `DAN-053`, `OPS-128` · src: `resilience-auditor`, PR #222 round 1 (row H, INFO) · added: 2026-10-06
 
+- [ ] `OPS-201` `P1` **merge-guard step 3e accepts only `Mobile — iOS build` as skipped; after #234 every PR shows `mobile-sweeps` skipped and goes RED.** Amend it to accept `mobile-sweeps` skipped when `sweeps-changes` succeeded and the PR matches no `sweeps:` path. A separate class (a) PR, before #234 (the owner's choice 5-A).
+  - where: `.claude/agents/merge-guard.md` step 3e · done when: that PR merges under class (a), and a PR outside the sweeps filter is GREEN with `mobile-sweeps` skipped · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
+- [ ] `OPS-202` `P2` **Read which checks ruleset 25344573 requires: a skipped required check counts as passing, so a red `mobile-sweeps` could pass unseen.**
+  - where: the ruleset on `main` (25344573) · done when: its required checks are recorded, and `mobile-sweeps` is either required with a guard against a skip when the filter fired, or the gap is ruled · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
+- [ ] `OPS-203` `P2` **main's `WORK_LEDGER.md` still shows M02 as `own:scribe-2026-10-06` claimed, weeks after #233 merged; the live M02 claim (`own:v1-vision-frame`) exists only on `design/v1-b`.**
+  - where: `WORK_LEDGER.md` § M02 on `main` and on `design/v1-b` (d56ec90) · done when: the two agree at the v1 merge · src: merge-guard on #234 at d56ec90, 2026-10-27 · added: 2026-10-27
+- [ ] `OPS-204` `P3` **PR #234's body lists the old claim's paths.**
+  - where: PR #234's body · done when: it lists the ledger's paths at its head (d56ec90 or later) before review · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
 ---
 
 ## Architecture & surface removals
@@ -1779,6 +1796,8 @@ _(put anything you are unsure about here rather than losing it)_
   - **Order:** it starts after P0-2 and finishes after B8. Its DSN and INDEX edits come after main, carrying PR #A's INDEX changes, is merged into the V1 branch.
   - where: `docs/adr/` · `docs/design-v2/registry/` · done when: the ADR is Proposed with its README row, the DSN files exist, and on acceptance ADR-0009 reads "Superseded by 0017" (`ARCH-008`) and the owner's choice is recorded verbatim in `DEC-130` (reserved for the owner's V1 direction choice, to be written at the V1 sitting) · related: `ARCH-008`, `DAN-033`, `DAN-051`, `UI-071` · src: plan §6 B9 and §9; `architect`, V1 lab round 2 (the INDEX order) · added: 2026-10-04
 
+- [ ] `ARCH-018` `P3` **`buildFieldFrame` reads direction tokens from the global `DIRECTIONS`: a hidden dependency (plate, mask, grounds, lift, vignette, neutralLobe) that only a module mock can reach in tests.** Inject them through a port after law round 2; the architect decides then (ruling 2026-10-27, option C deferred).
+  - where: `mobile/KokonadaHealth/src/design/v2/field/fieldFrame.ts:180` (and `tokens/neverRedSweeps.ts`, `field/ledgerStorms.ts:82`) · done when: a recorded architect ruling, and if it injects, the fixture mocks (`fixtureDirections.test.ts` allow-list) shrink to none · src: package 3 (session 8dde870d), V1 B4 close-out · added: 2026-10-27
 ---
 
 ## Blocked — only Daniel can do these (Pause & Guide)
@@ -2250,6 +2269,7 @@ _(put anything you are unsure about here rather than losing it)_
 
 Format: `` `ID` `done|dropped` YYYY-MM-DD — one line, and the commit or the reason. ``
 
-_(nothing archived yet)_
+- `UI-099` `done` 2026-10-27 — record: `runs\v1b-b4-D1-scenesSplit-GREEN.txt` (2026-10-08, outside the repo) is a false green (no Tests line; exit 0 from a trailing echo), superseded by the 2026-10-27 D1 runs.
+- `UI-097` `dropped` 2026-10-27 — law round 2 item 1 (Basin dark), item 5 (Linen) and D8 are moot by the owner's Abyss choice (Round 5); QA-065 closed as moot, probe `runs\v1b-b4-T9-basinDark-shadowedFace-probe.txt`.
 
 </details>

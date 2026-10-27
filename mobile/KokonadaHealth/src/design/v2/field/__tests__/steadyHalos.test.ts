@@ -85,9 +85,9 @@ describe('where the field is absent, a pixel depends on the halos alone (designe
       const [a, b] = pair(id, face);
       const pixels = steadyPixels(a);
       expect(pixels.length).toBeGreaterThan(50);
-      // Calm's halo is among them, and in Abyss and Basin frame A turns the field by more than 2°.
+      // Calm's halo is among them, and frame A turns the field by more than 2°.
       expect(pixels.filter((p) => p.nearest === NODE.C).length).toBeGreaterThan(0);
-      if (id !== 'linen') expect(Math.abs(Math.atan2(a.shimmer.sin, a.shimmer.cos)) * (180 / Math.PI)).toBeGreaterThan(2);
+      expect(Math.abs(Math.atan2(a.shimmer.sin, a.shimmer.cos)) * (180 / Math.PI)).toBeGreaterThan(2);
       const differ = pixels.filter(({ x, y }) => {
         const pa = fieldOklab(a, x, y);
         const pb = fieldOklab(b, x, y);

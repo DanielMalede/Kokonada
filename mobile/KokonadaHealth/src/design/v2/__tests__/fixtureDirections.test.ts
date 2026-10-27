@@ -75,9 +75,11 @@ describe('the fixture directions are Abyss plus their declared overrides, and no
 // mock both with the fixture factory, and one older mock, with its reason.
 const FIXTURE_MOCKS = [
   'src/design/v2/field/__tests__/fieldScenes.skia.test.ts',
+  'src/design/v2/field/__tests__/fieldShader.skia.test.ts',
   'src/design/v2/field/__tests__/fixturePaths.skia.test.ts',
   'src/design/v2/field/__tests__/fixturePaths.test.ts',
   'src/design/v2/field/__tests__/ledgerStorms.fixture.test.ts',
+  'src/design/v2/field/__tests__/placementLedger.test.ts',
 ];
 const OTHER_MOCKS: Record<string, string> = {
   'src/design/v2/clock/__tests__/fieldClock.test.tsx': 'one dt law (B4 item 6): a planted motion.dtClamp in an isolated module registry, BASE only',
@@ -107,6 +109,14 @@ describe('only the allow-listed files mock the generated token modules', () => {
       expect(mocksOfTokens(source).map((s) => path.basename(s)).sort()).toEqual(['tokens.extensions.generated.ts', 'tokens.generated.ts']);
       expect(source.match(/mocked(?:Tokens|Extensions)Module\(\)/g)?.sort()).toEqual(['mockedExtensionsModule()', 'mockedTokensModule()']);
     }
+  });
+
+  // Pin (f), the close-out: the never-red checks, the sweeps and E4 run on the shipped tokens only, so
+  // a fixture direction can never stand in for a shipped one there.
+  it('no never-red, sweeps or E4 file is on the allow-list', () => {
+    const forbidden = (f: string) => /(^|\/)neverRed[^/]*$|\.sweeps\.|(^|\/)flashCount[^/]*$/.test(f);
+    expect(MOCK_ALLOW_LIST.filter(forbidden)).toEqual([]);
+    expect(['src/design/v2/tokens/__tests__/neverRed.field.test.ts', 'src/design/v2/field/__tests__/fieldScenes.sweeps.skia.test.ts', 'src/design/v2/field/__tests__/flashCount.sweeps.test.ts'].filter(forbidden)).toHaveLength(3);
   });
 
   it('bites on planted sources: jest.mock and jest.doMock of either module, by any relative path', () => {

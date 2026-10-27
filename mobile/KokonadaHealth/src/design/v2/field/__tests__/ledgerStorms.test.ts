@@ -14,9 +14,10 @@ import { packFrame } from '../uniforms.ts';
 // the shared harness (field/ledgerStorms.ts); this file runs the coarse grid, the planted controls
 // whose clauses run here (each asserting the harness's own clause output), reemit on the coarse
 // cadences and the law half of E5; the sweeps project runs the full grid and the controls whose
-// clauses run there (ledgerStorms.{abyss,linen,basin}.sweeps.test.ts). neutral3 runs in every direction; it is the
-// binding case in Linen, where neutral placements have no lobe and the rest lobes stay lit. E5's
-// real-Skia half is in fieldShader.skia.test.ts.
+// clauses run there (ledgerStorms.<id>.sweeps.test.ts, one per shipped direction). neutral3 runs in every
+// direction; its binding case, neutral placements with no lobe beside the lit rest lobes, runs on the
+// fixture direction fixture-outer (ledgerStorms.fixture.test.ts), with the two controls that bind there.
+// E5's real-Skia half is in fieldShader.skia.test.ts.
 
 const IDS = Object.keys(DIRECTIONS) as DirectionId[];
 const BASE_SETTLE = BASE.motion.settle.duration;
@@ -54,18 +55,6 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
 // where its clause runs (§2): the one-sided clause and the full cadence sets are in the sweeps project.
 describe('E3’s planted controls: each guard is shown to bite, through the harness’s own clauses', () => {
   const has = (failures: readonly string[], clause: string) => failures.some((f) => f.includes(clause));
-
-  it('a ledger that admits three swaps makes Linen’s neutral3 overflow: the builder throws, and the demand passes NODE_SLOTS', () => {
-    const three: Admission = { ...ADMISSION, entering: 3, leaving: 3, nodes: 99 };
-    const failures = stormFailures('three swaps', 'neutral3', 'settle', storm('linen', 'settle', 'neutral3', 100, 3000, deps('linen'), three));
-    expect([has(failures, 'the builder threw'), has(failures, 'demand above NODE_SLOTS')]).toEqual([true, true]);
-  });
-
-  it('a ledger whose lobe rule disagrees with the builder’s (Linen read as if neutrals bore a lobe): the frame holds more than the demand', () => {
-    const wrong = { ...deps('linen'), config: { ...deps('linen').config, neutralLobe: true } };
-    const failures = stormFailures('wrong lobe rule', 'neutral3', 'settle', storm('linen', 'settle', 'neutral3', 100, 3000, wrong));
-    expect(has(failures, 'the demand and the built frame disagree')).toBe(true);
-  });
 
   it('a ledger whose node limit can never fit a swap stalls: a frame ends idle with a change waiting past the spacing', () => {
     const tight: Admission = { ...ADMISSION, nodes: 2 };
