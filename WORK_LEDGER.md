@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:sentinel-2026-10-17` (own)
-- title: the sentinel's 2026-10-17 run filed into WEAKNESSES_AND_FAILURES.md (sentinel.md FILING step 4)
-- branch: `docs/sentinel-2026-10-17`
-- paths: `WEAKNESSES_AND_FAILURES.md`, `TASKS.md`
+- task: `BE-070` (TASKS)
+- title: the socket handlers normalize the client's payload, so a null payload no longer crashes the backend
+- branch: `fix/be070-socket-payloads`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/art9GateClass.structural.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #263
-- started: 2026-10-18
+- state: in-review · PR #266
+- started: 2026-10-20
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
@@ -97,13 +97,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M05
-- task: `OPS-002` (TASKS)
-- title: the secret-commit guard catches keystore.properties copies, renamed files and password lines, and a test pins it
-- branch: `fix/ops002-secret-commit-guard`
-- paths: `.githooks/pre-commit`, `.gitignore`, `mobile/KokonadaHealth/.gitignore`, `backend/tests/preCommitSecretGuard.test.js`, `TASKS.md`
+- task: `own:garmin-personal-normaliser` (own)
+- title: Garmin personal lane PR 1: harden the shared Garmin normaliser and add the personal-lane envelope with a shared retention filter in garminIngest
+- branch: `feat/garmin-personal-normaliser`
+- paths: `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/tests/garminAdapter.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminPersonalEnvelope.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/wave4.vitalIngest.test.js`, `backend/tests/metricStore.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #267
-- started: 2026-10-20
+- state: in-review · PR #273
+- started: 2026-10-26
 
 ### M06
 - task: `own:pii-guard` (own)

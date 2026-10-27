@@ -21,7 +21,9 @@ const {
 /**
  * @param {string} userId
  * @param {Array<{type:string, summary:object}>} items
- * @returns {Promise<{accepted:number, inserted:number, profileMetrics:object}>}
+ * @returns {Promise<{accepted:number, inserted:number, rejected:object, profileMetrics:object, droppedOutsideRetention:number}>}
+ *   `accepted` counts the metrics that cleared the normaliser and the consent gate;
+ *   `droppedOutsideRetention` counts those of them older than their store keeps, never written.
  */
 async function ingestSummaries(userId, items) {
   const metrics = [];
@@ -39,8 +41,14 @@ async function ingestSummaries(userId, items) {
     ? metrics
     : metrics.filter((m) => !GARMIN_SPECIAL_CATEGORY_METRICS.has(m.metric));
 
-  const { inserted, rejected, profileMetrics } = await persistMetrics(userId, gated);
-  return { accepted: gated.length, inserted, rejected, profileMetrics };
+  // Retention (T2). Garmin hands this lane history: the webhook's backfill reaches back 182 days
+  // (garmin.js requestSixMonthBackfill) and the personal lane's first pull covers the whole window,
+  // while BiometricLog and VitalSample keep 90 days by default. The part older than that used to be
+  // written, folded into MedicalProfile, and reaped on arrival; the store now drops it before any
+  // write and reports how many metrics it dropped.
+  const { inserted, rejected, profileMetrics, droppedOutsideRetention } =
+    await persistMetrics(userId, gated, { dropOutsideRetention: true });
+  return { accepted: gated.length, inserted, rejected, profileMetrics, droppedOutsideRetention };
 }
 
 module.exports = { ingestSummaries, GARMIN_SPECIAL_CATEGORY_METRICS };
