@@ -361,6 +361,16 @@ describe('buildBioParams (heart-rate branch params, deterministic)', () => {
     expect(buildBioParams({ heartRate: 61, hrRatio: 1.0 }, PROFILE)).toEqual(buildBioParams({ heartRate: 88, hrRatio: 0.9 }, PROFILE));
   });
 
+  // RA-7 on #279: a state label that names an Object.prototype key must not resolve to a "band".
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])(
+    'a prototype-key state label (%p) falls to the active band, never NaN targets', (stateLabel) => {
+      const p = buildBioParams({ stateLabel }, PROFILE);
+      expect(p.target_bpm).toBe(124);
+      expect(p.target_energy).toBeCloseTo(0.6, 6);
+      expect(p.mood_keywords.length).toBeGreaterThan(0);
+    },
+  );
+
   it('returns fresh arrays, so a caller mutating them cannot corrupt the table', () => {
     const a = buildBioParams({ heartRate: 155 }, PROFILE);
     a.mood_keywords.push('mutated');
