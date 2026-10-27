@@ -224,6 +224,32 @@ describe('normalizeGarminSummaries — robustness', () => {
   });
 });
 
+// RA-2 of #275: a time a Date cannot hold (past ±8.64e12 s) is still a finite number, so it passed the start
+// check, and every record of such a summary carried an Invalid Date, which no filter can compare and Mongo
+// cannot cast. No record leaves the normaliser without a time a Date holds.
+describe('normalizeGarminSummaries — a time a Date cannot hold (RA-2 of #275)', () => {
+  const LAST = 8.64e12; // the last second a Date can hold
+
+  it.each([['far future', 1e13], ['far past', -1e13]])('a %s start: no record, as for a summary with no start', (_label, start) => {
+    expect(Number.isNaN(new Date(start * 1000).getTime())).toBe(true);
+    expect(normalizeGarminSummaries('dailies', { startTimeInSeconds: start, restingHeartRateInBeatsPerMinute: 52, timeOffsetHeartRateSamples: { 0: 61 } })).toEqual([]);
+    expect(normalizeGarminSummaries('sleeps', { startTimeInSeconds: start, durationInSeconds: NIGHT, deepSleepDurationInSeconds: 3600 })).toEqual([]);
+    expect(normalizeGarminSummaries('hrv', { startTimeInSeconds: start, durationInSeconds: NIGHT, lastNightAvg: 48 })).toEqual([]);
+  });
+
+  it('a night whose end a Date cannot hold: no record', () => {
+    const start = LAST - HOUR; // a time a Date holds, an hour before the last one
+    expect(Number.isFinite(new Date(start * 1000).getTime())).toBe(true);
+    expect(normalizeGarminSummaries('sleeps', { startTimeInSeconds: start, durationInSeconds: NIGHT, deepSleepDurationInSeconds: 3600 })).toEqual([]);
+    expect(normalizeGarminSummaries('hrv', { startTimeInSeconds: start, durationInSeconds: NIGHT, lastNightAvg: 48 })).toEqual([]);
+  });
+
+  it('a reading whose own time a Date cannot hold is left out, and its neighbour is kept', () => {
+    const out = normalizeGarminSummaries('dailies', { startTimeInSeconds: START, timeOffsetHeartRateSamples: { [1e13]: 70, 60: 61 } });
+    expect(out).toEqual([rec({ metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date((START + 60) * 1000), source: 'garmin' })]);
+  });
+});
+
 describe('normalizeGarminSummaries — physiological range bounds (audit T2.2)', () => {
   it('drops out-of-range heart-rate samples but keeps in-range ones', () => {
     const out = normalizeGarminSummaries('dailies', {
