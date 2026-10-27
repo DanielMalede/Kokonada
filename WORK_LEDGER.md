@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:sentinel-2026-10-17` (own)
-- title: the sentinel's 2026-10-17 run filed into WEAKNESSES_AND_FAILURES.md (sentinel.md FILING step 4)
-- branch: `docs/sentinel-2026-10-17`
-- paths: `WEAKNESSES_AND_FAILURES.md`, `TASKS.md`
+- task: `BE-070` (TASKS)
+- title: the socket handlers normalize the client's payload, so a null payload no longer crashes the backend
+- branch: `fix/be070-socket-payloads`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/art9GateClass.structural.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #263
-- started: 2026-10-18
+- state: in-review · PR #266
+- started: 2026-10-20
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
@@ -85,49 +85,61 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:l-check-waiver-row` (own)
-- title: TASKS: the L-check deviation of #255 (OPS-244) and J18's status reading (OPS-169)
-- branch: `docs/l-check-waiver-row`
-- paths: `TASKS.md`
+- task: `OPS-244` (TASKS)
+- title: OPS-244: the L-check waiver in CLAUDE.md; Bedrack stays a partner (DAN-065); his inactive items closed; the full-history scan recorded
+- branch: `docs/ops244-waiver-partner`
+- paths: `CLAUDE.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/DECISIONS.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`
 - resources: none
-- state: in-review · PR #258
+- state: in-review · PR #259
 - started: 2026-10-18
 
 ### M04
 _free_
 
 ### M05
-- task: `BE-144` (TASKS)
-- title: Disconnecting Apple Health deletes an orphaned MedicalProfile again (SEC-232-1)
-- branch: `fix/be144-apple-disconnect-profile`
-- paths: `backend/app/services/privacy/wearableErasure.js`, `backend/app/services/wearable/healthSampleReconciliation.js`, `backend/app/services/wearable/healthStoreV2.js`, `backend/tests/wearableErasure.integration.test.js`, `backend/tests/wearableErasure.test.js`, `backend/tests/healthSampleConsentRace.integration.test.js`, `backend/tests/healthSampleReconciliation.integration.test.js`, `backend/tests/shadow.reconcileRefusal.integration.test.js`, `backend/tests/healthStoreV2.integration.test.js`, `backend/tests/shadow.orphanRuleDurability.integration.test.js`, `backend/tests/shadow.sampleClock.test.js`, `TASKS.md`
+- task: `DAN-092` (TASKS)
+- title: close DAN-092 on the read-only MCP evidence; DAN-112 deploy evidence of 62041da and 1a5186a
+- branch: `docs/dan092-close`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #256
-- started: 2026-10-18
+- state: in-review · PR #276
+- started: 2026-10-27
 
 ### M06
-- task: `DAN-085` (TASKS)
-- title: the read-only production snapshot that sizes #232's two security BLOCKs (counts only), and update lines on six rows
-- branch: `docs/dan085-snapshot`
-- paths: `TASKS.md`
-- resources: `res:atlas-prod`
-- state: in-review · PR #260
-- started: 2026-10-18
+- task: `own:garmin-personal-client` (own)
+- title: Garmin personal lane PR 2: the Connect Personal API client, rate policy, the personal-to-summary mapper, and key redaction in Sentry and logs
+- branch: `feat/garmin-personal-client`
+- paths: `backend/app/services/wearable/garminPersonal/client.js`, `backend/app/services/wearable/garminPersonal/mapper.js`, `backend/app/services/wearable/garminPersonal/redact.js`, `backend/app/services/wearable/garminPersonal/ratePolicy.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/fixtures/garminPersonal/**`, `backend/tests/sentryScrub.test.js`, `backend/tests/sentryCapture.test.js`, `backend/tests/shadow.garminPersonalRedactionLinear.test.js`, `backend/tests/shadow.garminPersonalStopHoldsQueue.test.js`, `backend/tests/garminPersonalEnvelopeHop.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #274
+- started: 2026-10-26
 
 ### M07
-- task: `OPS-191` (TASKS)
-- title: pin every Ubuntu job to ubuntu-24.04 before ubuntu-latest moves to Ubuntu 26 on 2026-10-19
-- branch: `chore/ops191-pin-ubuntu-2404`
-- paths: `.github/workflows/ci.yml`, `.github/workflows/coordination.yml`, `.github/workflows/secret-scan-history.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `TASKS.md`
+- task: `own:dan101-delete-classify-purge` (own)
+- title: delete the July purge script classifyAndHydrate and the code only it uses (DAN-101)
+- branch: `chore/dan101-delete-classify-purge`
+- paths: `backend/app/scripts/classifyAndHydrate.js`, `backend/tests/classifyAndHydrate.test.js`, `backend/app/services/musicPurge.js`, `backend/tests/musicPurge.test.js`, `backend/app/scripts/countFeatureless.js`, `backend/tests/youtubeTokenWriters.structural.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #253
-- started: 2026-10-17
+- state: in-review · PR #269
+- started: 2026-10-20
 
 ### M08
-_free_
+- task: `OPS-171` (TASKS)
+- title: narrow .claude/settings.json so no pre-allowed command can read a secret and publish it, pinned by a settings policy test (SEC-264-L4, SEC-264-L1)
+- branch: `fix/ops171-settings-policy`
+- paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #270
+- started: 2026-10-21
 
 ### M09
-_free_
+- task: `own:ops303-release-custody` (own)
+- title: the release build no longer reads keystore.properties and yields an unsigned APK with no debug fallback; a reviewed signing script the owner runs as kokonada-signer (OPS-303)
+- branch: `fix/ops303-release-custody`
+- paths: `mobile/KokonadaHealth/android/app/build.gradle`, `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`, `TASKS.md`
+- resources: none
+- state: in-review · PR #271
+- started: 2026-10-21
 
 ### M10
 _free_

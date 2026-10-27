@@ -454,3 +454,111 @@ describe('console lines never become breadcrumbs', () => {
     }
   });
 });
+
+// T3, the Garmin personal lane. Its secrets are the personal API key (Garmin prefixes it GCDC_) and
+// the JWT the key buys; under the Supplemental Terms §1 either one in a Sentry event is a disclosure.
+// The structural scrub above knows where credentials SIT (headers, cookies, query strings); a secret
+// can also be quoted in a message, an exception value, a breadcrumb, extra, contexts, tags or a
+// stack frame's variables. Every string in the event is passed through the one definition of a
+// secret, services/wearable/garminPersonal/redact.js.
+describe('sentry scrubber — secret values anywhere in the event (Garmin personal lane)', () => {
+  const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/garminPersonal/sentinels');
+  const JWT = makeJwt({ exp: 1793000000 });
+
+  it('redacts the key, an ApiKey value, a Bearer token and a bare JWT from every string of an error event', () => {
+    const out = scrubEvent({
+      message: `pull failed with ApiKey ${SENTINEL_KEY}`,
+      logentry: { message: `token ${JWT}` },
+      exception: {
+        values: [{
+          type: 'Error',
+          value: `Bearer ${JWT}`,
+          stacktrace: { frames: [{ function: 'exchange', vars: { key: SENTINEL_KEY, header: `ApiKey ${SENTINEL_KEY}` } }] },
+        }],
+      },
+      breadcrumbs: [{ category: 'http', message: `GET with ${SENTINEL_KEY}`, data: { note: `Bearer ${JWT}`, status_code: 401 } }],
+      extra: { scope: 'garmin-personal', nested: [{ k: SENTINEL_KEY }] },
+      contexts: { lane: { token: JWT } },
+      tags: { lane: 'garmin-personal', leaked: SENTINEL_KEY },
+      request: { url: `https://api.kokonada.app/x/${SENTINEL_KEY}` },
+    });
+
+    const wire = JSON.stringify(out);
+    expect(wire).not.toContain(SENTINEL_KEY);
+    expect(wire).not.toContain(signatureOf(JWT));
+    expect(wire).not.toMatch(/GCDC_/i);
+    // Everything else is still there and still readable.
+    expect(out.message).toBe('pull failed with ApiKey [REDACTED]');
+    expect(out.exception.values[0].value).toBe('Bearer [REDACTED]');
+    expect(out.exception.values[0].stacktrace.frames[0].function).toBe('exchange');
+    expect(out.breadcrumbs[0].data.status_code).toBe(401);
+    expect(out.extra.scope).toBe('garmin-personal');
+    expect(out.tags.lane).toBe('garmin-personal');
+  });
+
+  it('redacts a transaction the same way (beforeSendTransaction is the same scrubber)', () => {
+    const out = scrubEvent({
+      type: 'transaction',
+      transaction: 'garmin-personal-pull',
+      spans: [{ description: `POST ApiKey ${SENTINEL_KEY}`, data: { 'http.request.header.x_note': `Bearer ${JWT}` } }],
+    });
+
+    expect(JSON.stringify(out)).not.toContain(SENTINEL_KEY);
+    expect(JSON.stringify(out)).not.toContain(signatureOf(JWT));
+    expect(out.transaction).toBe('garmin-personal-pull');
+  });
+
+  // sdkProcessingMetadata is the SDK's in-process state (the captured scopes, the client, the raw
+  // request) and is never transmitted: createEventEnvelope deletes it. Walking it would walk the
+  // client's whole object graph.
+  it('never reads sdkProcessingMetadata', () => {
+    const metadata = {};
+    Object.defineProperty(metadata, 'capturedSpanScope', { enumerable: true, get() { throw new Error('walked'); } });
+
+    const out = scrubEvent({ message: SENTINEL_KEY, sdkProcessingMetadata: metadata });
+
+    expect(out).not.toBeNull();
+    expect(out.message).toBe('[REDACTED]');
+  });
+
+  it('fails closed: a secret on a property it cannot overwrite drops the event', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const event = { breadcrumbs: [Object.freeze({ category: 'garmin', message: `ApiKey ${SENTINEL_KEY}` })] };
+
+      expect(scrubEvent(event)).toBeNull();
+      expect(warn.mock.calls).toEqual([['[sentry] scrubEvent failed (TypeError); event dropped']]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('end to end: an error quoting the key, with the token in extra, reaches the envelope without either', async () => {
+    const sent = [];
+    const client = new SentryNode.NodeClient({
+      dsn: 'https://public@o0.ingest.sentry.io/0',
+      integrations: [],
+      transport: () => ({ send: async (envelope) => { sent.push(envelope); return {}; }, flush: async () => true }),
+      stackParser: SentryNode.defaultStackParser,
+      sendDefaultPii: false,
+      beforeSend: scrubEvent,
+    });
+    try {
+      client.init();
+      const scope = new SentryNode.Scope();
+      scope.setClient(client);
+      scope.setExtra('authorization', `Bearer ${JWT}`);
+
+      client.captureException(new Error(`exchange failed: ApiKey ${SENTINEL_KEY}`), {}, scope);
+      await client.flush(2000);
+
+      expect(sent).toHaveLength(1);
+      const wire = JSON.stringify(sent);
+      expect(wire).toContain('exchange failed: ApiKey [REDACTED]'); // the event really shipped…
+      expect(wire).not.toContain(SENTINEL_KEY);                     // …without the key
+      expect(wire).not.toContain(signatureOf(JWT));                 // …or the token
+    } finally {
+      await client.close(100);
+    }
+  });
+});

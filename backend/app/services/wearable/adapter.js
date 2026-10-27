@@ -69,8 +69,12 @@ const ACTIVITY_MAP = {
   },
 };
 
+// Own keys only (BE-070): a plain read also finds what every object inherits, so a device type of
+// 'constructor' resolved to the Object function and '__proto__' to Object.prototype, and the socket
+// lane stored that as the listener's activity.
 function resolveActivity(source, rawType) {
-  return ACTIVITY_MAP[source]?.[rawType] ?? 'unknown';
+  const map = ACTIVITY_MAP[source];
+  return map && Object.hasOwn(map, rawType) ? map[rawType] : 'unknown';
 }
 
 /**
@@ -245,26 +249,70 @@ function inRange(metric, value) {
 }
 
 // Emit one canonical record per entry of a Garmin {offsetSeconds: value} map,
-// dropping (and counting via `drop`) physiologically implausible values.
-function fromOffsetMap(map, startSec, metric, unit, out, drop, tzOffsetMinutes = null) {
+// dropping (and counting via `drop`) physiologically implausible values. Entries are read in
+// time order, and one whose offset is not a number cannot be placed in time, so it is skipped.
+//
+// `perMinute` (F10) keeps only the FIRST admissible reading of each minute of the summary's
+// timeline. Garmin samples heart rate every 15 seconds while the live lane stores at most one
+// reading a minute; the kept record is always a real reading, its own value at its own time,
+// never an average or a synthesised point. Every out-of-range reading is still counted.
+function fromOffsetMap(map, startSec, metric, unit, out, drop, tzOffsetMinutes = null, { perMinute = false } = {}) {
   const admits = ZERO_IS_VALID.has(metric)
     ? (v) => Number.isFinite(v) && v >= 0
     : isPos;
-  for (const [offset, raw] of Object.entries(map || {})) {
+  const entries = Object.entries(map || {})
+    .map(([offset, raw]) => [Number(offset), raw])
+    .filter(([offset]) => Number.isFinite(offset))
+    .sort((a, b) => a[0] - b[0]);
+  const minutesKept = new Set();
+  for (const [offset, raw] of entries) {
     const value = Number(raw);
     if (!admits(value)) continue;
     if (!inRange(metric, value)) { drop.count += 1; continue; }
+    if (perMinute) {
+      const minute = Math.floor(offset / 60);
+      if (minutesKept.has(minute)) continue;
+      minutesKept.add(minute);
+    }
     out.push({
-      metric, value, unit, recordedAt: SECONDS(startSec + Number(offset)), source: 'garmin', tzOffsetMinutes,
+      metric, value, unit, recordedAt: SECONDS(startSec + offset), source: 'garmin', tzOffsetMinutes,
     });
   }
 }
+
+// A night, or a night's HRV window, ends at start + durationInSeconds. A duration that is
+// missing, not a positive number, or longer than a day is not the end of a night.
+const MAX_WINDOW_SECONDS = 24 * 60 * 60;
+
+function windowEndSec(startSec, durationSec) {
+  const d = Number(durationSec);
+  return Number.isFinite(d) && d > 0 && d <= MAX_WINDOW_SECONDS ? startSec + d : null;
+}
+
+// Where the duration is silent, the night's own timeline says where it ends: the latest segment
+// end in Garmin's sleepLevelsMap ({ deep|light|rem|awake: [{ startTimeInSeconds, endTimeInSeconds }] }),
+// within a day of the start.
+function lastSleepLevelEndSec(startSec, levels) {
+  let last = null;
+  for (const segments of Object.values(levels || {})) {
+    if (!Array.isArray(segments)) continue;
+    for (const segment of segments) {
+      const end = Number(segment?.endTimeInSeconds);
+      if (end > startSec && end <= startSec + MAX_WINDOW_SECONDS && (last === null || end > last)) last = end;
+    }
+  }
+  return last;
+}
+
+// Garmin computes HRV as RMSSD; `lastNightAvg` is the night's mean of its 5-minute RMSSD values.
+// VitalSample keeps the method so it is never pooled with Apple's SDNN.
+const GARMIN_HRV_METHOD = 'rmssd';
 
 /**
  * Normalize one Garmin Health API summary into canonical metric records.
  * @param {'sleeps'|'dailies'|'hrv'|'stressDetails'|'respiration'|'pulseox'} type
  * @param {object} s  the summary object
- * @returns {Array<{metric,value,unit,recordedAt,source}>}  (empty for unknown types)
+ * @returns {Array<{metric,value,unit,recordedAt,source,tzOffsetMinutes,hrvMethod?}>}  (empty for unknown types)
  */
 function normalizeGarminSummaries(type, s) {
   if (!s || !Number.isFinite(s.startTimeInSeconds)) return [];
@@ -277,15 +325,25 @@ function normalizeGarminSummaries(type, s) {
   const tz = Number.isFinite(s.startTimeOffsetInSeconds)
     ? sanitizeTzOffset(Math.round(s.startTimeOffsetInSeconds / 60))
     : null;
-  // Push a single-value metric, dropping (and counting) an out-of-range reading.
-  const add = (metric, value, unit) => {
+  // Push a single-value metric, dropping (and counting) an out-of-range reading. `stamp` overrides
+  // fields of the record, such as a recordedAt for a metric that belongs to the end of a night.
+  const add = (metric, value, unit, stamp = {}) => {
     if (!inRange(metric, value)) { drop.count += 1; return; }
-    out.push({ metric, value, unit, recordedAt: at, source: 'garmin', tzOffsetMinutes: tz });
+    out.push({ metric, value, unit, recordedAt: at, source: 'garmin', tzOffsetMinutes: tz, ...stamp });
   };
 
   switch (type) {
     case 'sleeps': {
-      const push = (metric, secs) => { const m = Math.round(Number(secs) / 60); if (isPos(m)) add(metric, m, 'min'); };
+      // A night belongs to the moment it ENDS: computeLastNightSleep files nights under the UTC
+      // date of recordedAt, and the Health Connect lane already stamps sleep at endDate. Stamped
+      // at its start, a night that began before UTC midnight was filed under the day before.
+      const end = SECONDS(windowEndSec(start, s.durationInSeconds)
+        ?? lastSleepLevelEndSec(start, s.sleepLevelsMap)
+        ?? start);
+      const push = (metric, secs) => {
+        const m = Math.round(Number(secs) / 60);
+        if (isPos(m)) add(metric, m, 'min', { recordedAt: end });
+      };
       push('sleepDeep', s.deepSleepDurationInSeconds);
       push('sleepLight', s.lightSleepDurationInSeconds);
       push('sleepRem', s.remSleepInSeconds ?? s.remSleepDurationInSeconds);
@@ -294,7 +352,7 @@ function normalizeGarminSummaries(type, s) {
     case 'dailies': {
       const rhr = Number(s.restingHeartRateInBeatsPerMinute);
       if (isPos(rhr)) add('restingHeartRate', rhr, 'bpm');
-      fromOffsetMap(s.timeOffsetHeartRateSamples, start, 'heartRate', 'bpm', out, drop, tz);
+      fromOffsetMap(s.timeOffsetHeartRateSamples, start, 'heartRate', 'bpm', out, drop, tz, { perMinute: true });
       // Dormant (consent v2): steps are an activity signal the affect engine's exertion axis
       // would use as a prior. Normalized here so the lane is proven, OFF until consented.
       if (consentV2Enabled('steps')) {
@@ -304,8 +362,11 @@ function normalizeGarminSummaries(type, s) {
       break;
     }
     case 'hrv': {
+      // The night's HRV, stamped where its window ends (as the night itself is) and named by the
+      // statistic Garmin computes.
       const v = Number(s.lastNightAvg);
-      if (isPos(v)) add('hrv', v, 'ms');
+      const end = SECONDS(windowEndSec(start, s.durationInSeconds) ?? start);
+      if (isPos(v)) add('hrv', v, 'ms', { recordedAt: end, hrvMethod: GARMIN_HRV_METHOD });
       break;
     }
     case 'respiration':
@@ -336,4 +397,6 @@ module.exports = {
   normalize, normalizeHealthStoreSamples, normalizeGarminSummaries,
   // shared with metricStore so the capability gate has ONE definition, not two that drift
   consentV2Enabled, sanitizeTzOffset,
+  // shared with the personal-lane envelope, so it admits exactly the windows this file can end a night on
+  MAX_WINDOW_SECONDS,
 };
