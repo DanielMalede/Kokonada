@@ -41,11 +41,25 @@ const METRIC_FIELD_PATHS = {
   sleepRem:   'sleepStages.rem',
 };
 
+// A Garmin HRV is one value a night, stamped where its window ends (adapter.js). Garmin can revise a
+// window's length on a later sync or pull, which moves that end, so for this one series the time is not
+// the reading's identity: the night is, filed under the UTC date of its end, the date
+// computeLastNightSleep files a night under (BE-191, RA-3). The first write of a night wins.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const isGarminNightlyHrv = (d) => d.metric === 'hrv' && d.source === 'garmin';
+const vitalIdentity = (d) => {
+  const at = new Date(d.recordedAt);
+  return isGarminNightlyHrv(d)
+    ? `${d.metric}@${d.source}@${at.toISOString().slice(0, 10)}`
+    : `${d.metric}@${d.source}@${at.getTime()}`;
+};
+
 /**
  * Per-metric physiological rows → VitalSample. Same idempotence contract as the heartRate path:
  * `metric@source@recordedAt` is the identity of a reading, so a replayed backfill chunk or a
  * reconnect writes nothing twice (S6). Keyed PER METRIC — an HRV reading and a resting-HR reading
- * from the same summary share a timestamp and are two different facts.
+ * from the same summary share a timestamp and are two different facts. A Garmin HRV is keyed by its
+ * night instead (vitalIdentity above).
  *
  * Best-effort by design: vitals feed baselines, and a baseline is a nicety compared to losing the
  * heart-rate ingest. A failure here is logged (count only, never a value) and swallowed.
@@ -70,22 +84,24 @@ async function persistVitalSamples(userId, metrics) {
 
   if (!docs.length) return { inserted: 0, rejected: NO_REJECTS };
 
-  const key = (d) => `${d.metric}@${d.source}@${new Date(d.recordedAt).getTime()}`;
-
   try {
-    const times = docs.map((d) => d.recordedAt.getTime());
+    // A night's row can sit anywhere on the UTC date of the night's end, so a Garmin HRV widens the
+    // read by a day on each side: every time with the same UTC date is less than a day away.
+    const reach = (d) => (isGarminNightlyHrv(d) ? DAY_MS : 0);
+    const from = docs.map((d) => d.recordedAt.getTime() - reach(d));
+    const to = docs.map((d) => d.recordedAt.getTime() + reach(d));
     const existing = await VitalSample
       .find({
         userId,
         metric: { $in: [...new Set(docs.map((d) => d.metric))] },
-        recordedAt: { $gte: new Date(Math.min(...times)), $lte: new Date(Math.max(...times)) },
+        recordedAt: { $gte: new Date(Math.min(...from)), $lte: new Date(Math.max(...to)) },
       })
       .select('metric source recordedAt')
       .lean();
 
-    const seen = new Set((existing || []).map(key));
+    const seen = new Set((existing || []).map(vitalIdentity));
     docs = docs.filter((d) => {
-      const k = key(d);
+      const k = vitalIdentity(d);
       if (seen.has(k)) return false;
       seen.add(k); // also collapses duplicates WITHIN this batch
       return true;
